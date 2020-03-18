@@ -265,7 +265,7 @@ var (
 
                 //`args`:       modifierSetArgs, // interpreter args
                 `env`:          modifierSetEnv,  // interpreter environments
-                `set`:          modifierSetVar,
+                `set`:          modifierSet,
 
                 `closure`:      modifierClosure,
 
@@ -415,27 +415,27 @@ func modifierSetEnv(pos Position, t *traversal, args... Value) (result Value, er
 //     [(set name=value)]    set $(name) to 'value'
 //     [(set name)]          clear $(name)
 //     [(set -)]             clear $-
-func modifierSetVar(pos Position, t *traversal, args... Value) (result Value, err error) {
+func modifierSet(pos Position, t *traversal, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         var defs []Value
         var none = &None{trivial{pos}}
-ForArgs:
-        for _, arg := range args {
+        ForArgs: for _, arg := range args {
                 var name string
                 var value Value = none
                 switch a := arg.(type) {
                 case *Bareword: name = a.string
                 case *Pair:
                         if name, err = a.Key.Strval(); err == nil {
-                                value = a.Value
-                        } else { break ForArgs }
+                                // Note that Pair.Value is not expanded yet!
+                                // We need to expand the value explicitly.
+                                value, err = a.Value.expand(expandAll)
+                        }
                 case *Flag:
                         if name, err = a.name.Strval(); err == nil {
                                 if value = none; name == "" { name = "-" }
-                        } else { break ForArgs }
+                        }
                 default:
                         err = errorf(pos, "%T `%s` is unsupported (try: foo=value)", arg, arg)
-                        break ForArgs
                 }
                 if def := t.program.scope.FindDef(name); def == nil {
                         err = errorf(pos, "`%s` no such def", name)
@@ -444,6 +444,7 @@ ForArgs:
                         def.set(DefDefault, value)
                         defs = append(defs, def)
                 }
+                if err != nil { err = wrap(pos, err); break ForArgs }
         }
         if len(defs) > 0 { result = MakeListOrScalar(pos, defs) }
         return
@@ -1704,11 +1705,11 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                 if err != nil {
                         fmt.Fprintf(stderr, "… error\n")
                 } else if opts.copied == 0 {
-                        fmt.Fprintf(stderr, "… good (%d files)\n", opts.files)
+                        fmt.Fprintf(stderr, "… Good (%d files)\n", opts.files)
                 } else if opts.copied == 1 {
-                        fmt.Fprintf(stderr, "… copied %d bytes\n", opts.bytes)
+                        fmt.Fprintf(stderr, "… Copied %d bytes\n", opts.bytes)
                 } else {
-                        fmt.Fprintf(stderr, "… copied %d bytes (%d/%d)\n", opts.bytes, opts.copied, opts.files)
+                        fmt.Fprintf(stderr, "… Copied %d bytes (%d/%d)\n", opts.bytes, opts.copied, opts.files)
                 }
         }
         return

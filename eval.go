@@ -17,7 +17,7 @@ ForRecipes:
                         var v Value
                         // Expand both closures and delegates to ensure that
                         // the right recipe value is returned.
-                        if v, err = recipe.expand(expandAll); err != nil { return } else {
+                        if v, err = recipe.expand(expandAll|expandPairVal); err != nil { return } else {
                                 list = append(list, v)
                         }
                         continue ForRecipes

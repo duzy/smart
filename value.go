@@ -51,6 +51,7 @@ const (
         expandClosure // &(...)   ->  $(...)
         expandCaller // foo=...   ->  ...
         expandPath // $(...)/foo  ->  /path/to/foo
+        expandPairVal // foo=$(bar) ->  foo=...
         expandAll = expandDelegate | expandClosure | expandCaller | expandPath
 )
 
@@ -2960,19 +2961,20 @@ type Pair struct { // key=value
 func (p *Pair) refs(v Value) bool { return p.Key.refs(v) || p.Value.refs(v) }
 func (p *Pair) closured() bool { return p.Key.closured() || p.Value.closured() }
 func (p *Pair) expand(x expandwhat) (res Value, err error) {
-        var k Value
+        var k, v Value
         res = p // set the original value
         if k, err = p.Key.expand(x); err == nil {
-                /*if v, err = p.Value.expand(x); err == nil {
-                        if k != p.Key || v != p.Value {
-                                if k == nil { k = p.Key }
-                                if v == nil { v = p.Value }
-                                res = &Pair{p.trivial,k,v}
-                        }
-                }*/
                 // Note: donot expand the p.Value! It's used as template
                 // in arguments (see copy-file for example).
-                if k != nil && k != p.Key {res = &Pair{p.trivial,k,p.Value}}
+                if x&expandPairVal != 0 {
+                        if v, err = p.Value.expand(x); err == nil {
+                                if k != p.Key || v != p.Value {
+                                        if k == nil { k = p.Key }
+                                        if v == nil { v = p.Value }
+                                        res = &Pair{p.trivial,k,v}
+                                }
+                        }
+                } else if k != nil && k != p.Key {res = &Pair{p.trivial,k,p.Value}}
         }
         return
 }
