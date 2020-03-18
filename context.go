@@ -64,6 +64,7 @@ type Context struct {
         loader  *loader
         flagEntries map[string][]*RuleEntry
         flags []*Flag
+        args map[Value][]Value
 }
 
 var context Context
@@ -92,10 +93,11 @@ func (ctx *Context) run() (result []Value, err error) {
         for _, flag := range ctx.flags {
                 var s string
                 if s, err = flag.name.Strval(); err != nil { return }
+                var args, _ = ctx.args[flag]
                 var entries, _ = ctx.flagEntries[s]
                 for _, entry := range entries {
                         var res []Value
-                        res, err = entry.Execute(entry.position)
+                        res, err = entry.Execute(entry.position, args...)
                         if err == nil {
                                 result = append(result, res...)
                                 done = true
@@ -127,14 +129,11 @@ func (ctx *Context) run() (result []Value, err error) {
                                 goals = append(goals, entry)
                         }
                 default:
-                        fmt.Fprintf(stderr, "unknown target `%v` (%T)\n", goal, goal)
+                        fmt.Fprintf(stderr, "unknown target (%s): %v\n", typeof(goal), goal)
                 }
         }
 
-        var v []Value
         var updated int
-        //for _, a := range args { v = append(v, &String{a}) }
-
         if len(goals) == 0 {
                 if entry := main.DefaultEntry(); entry != nil {
                         goals = append(goals, main.DefaultEntry())
@@ -142,7 +141,8 @@ func (ctx *Context) run() (result []Value, err error) {
         }
         for _, goal := range goals {
                 var res []Value
-                if res, err = updateGoal(goal, v); err != nil { break } else {
+                var args, _ = ctx.args[goal]
+                if res, err = updateGoal(goal, args); err != nil { break } else {
                         result = append(result, res...)
                         updated += 1
                 }
@@ -305,11 +305,20 @@ func (ctx *Context) loadwork() (err error) {
                         optionConfigure = optionReconfig
                 }
         }); err != nil { return }
+
+        ctx.args = make(map[Value][]Value)
         for _, target := range args {
                 switch t := target.(type) {
                 case *Flag: ctx.flags = append(ctx.flags, t)
                 case *Pair: ctx.pairs = append(ctx.pairs, t)
-                default:    ctx.goals.append(t)
+                case *Argumented:
+                        ctx.args[t.value] = t.args
+                        if f, ok := t.value.(*Flag); ok {
+                                ctx.flags = append(ctx.flags, f)
+                        } else {
+                                ctx.goals.append(t.value)
+                        }
+                default: ctx.goals.append(t)
                 }
         }
 
