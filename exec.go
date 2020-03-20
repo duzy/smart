@@ -8,6 +8,7 @@ package smart
 
 import (
         "extbit.io/smart/scanner"
+        "runtime/debug"
         "path/filepath"
         "sync/atomic"
         "os/exec"
@@ -330,30 +331,49 @@ func (p *ExecBuffer) startDockerDaemon(pos Position, t *traversal, container *Pr
         return
 }
 
-func (p *ExecBuffer) runContainerAndRetry(pos Position, t *traversal, container *Project, name string, sh *exec.Cmd, x *executor, num int) (err error) {
+func (p *ExecBuffer) runContainerAndRetry(pos Position, t *traversal, container *Project, name string, sh *exec.Cmd, x *executor, num int) (status int, err error) {
         if container != nil && num <= maxRetries {
-                fmt.Fprintf(sh.Stderr, "\n---- Run the container: %s", name)
+                fmt.Fprintf(sh.Stderr, "\n---- Run the container: %s\n", name)
                 if err = x.runContainer(t, container); err != nil {
                         err = wrap(pos, errorf(pos, "container not running: %v", name), err)
                         return
                 }
 
-                var s int
+                fmt.Fprintf(sh.Stderr, "\n---- Retry the command in %s:", name)
+                if false {
+                        fmt.Fprintf(sh.Stderr, "\n%s:\n    %v", sh.Path, strings.Join(sh.Args, "\n    "))
+                        fmt.Fprintf(sh.Stderr, "\n\naka:\n    %s", sh)
+                        fmt.Fprintf(sh.Stderr, "\n----\n")
+                }
 
-                fmt.Fprintf(sh.Stderr, "\n---- Retry the command:")
-                fmt.Fprintf(sh.Stderr, "\n---- %v\n", sh)
-                fmt.Fprintf(sh.Stderr, "\n----\n")
-                c := exec.Command(sh.Path, sh.Args...)
+                c := exec.Command(sh.Path, sh.Args[1:]...) // must ignore Args[0]
                 c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                s, err = p.runAndProcessKnownErrors(pos, t, container, c, x, num+1)
-                if s != 0 && err == nil { err = errorf(pos, "exit status %d", s) }
+                if false {
+                        fmt.Fprintf(sh.Stderr, "\n  %s", sh)
+                        fmt.Fprintf(sh.Stderr, "\n  %s", c)
+                        fmt.Fprintf(sh.Stderr, "\n----\n")
+                }
+
+                status, err = p.runAndProcessKnownErrors(pos, t, container, c, x, num+1)
+                if status != 0 && err == nil { err = wrap(pos, &exitstatus{status}) }
+                if err != nil {
+                        fmt.Fprintf(sh.Stderr, "\n---- Retry failed: %s\n", err)
+                } else {
+                        fmt.Fprintf(sh.Stderr, "\n---- Retry okay.\n")
+                }
         }
         return
 }
 
-func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Project, sh *exec.Cmd, x *executor, status, num int, m *knownMatch) (err error) {
-        var lpos Position
-        lpos.Filename, lpos.Line = p.log.filename, m.l
+func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Project, sh *exec.Cmd, x *executor, num int, m *knownMatch) (status int, err error) {
+        if p == nil {
+                fmt.Fprintf(stderr, "%s: nil exec buffer\n", pos)
+                if optionPrintStack { debug.PrintStack() }
+                return
+        }
+        var lpos Position = pos
+        if p.log != nil { lpos.Filename = p.log.filename }
+        if m != nil { lpos.Line = m.l }
         for _, v := range m.v { // captures
                 switch m.i {
                 case rxNotTTYDevice_i:
@@ -364,8 +384,9 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
                 case rxNoContainer_i:
                         if name := string(v[1]); p.skips(name) {
                                 err = errorf(lpos, "container not running: %v", name)
-                        } else if err = p.runContainerAndRetry(lpos, t, container, name, sh, x, num); err == nil {
+                        } else if status, err = p.runContainerAndRetry(lpos, t, container, name, sh, x, num); err == nil {
                                 p.retried[name] = true // save it to skip next time
+                                break // discard the rest errors
                         }
                 case rxContainerNotRunning_i:
                         err = errorf(lpos, "Container not running (%v)", string(v[1]))
@@ -410,9 +431,9 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
         return
 }
 
-func (p *ExecBuffer) processKnownErrors(pos Position, t *traversal, container *Project, sh *exec.Cmd, x *executor, status, num int) (err error) {
+func (p *ExecBuffer) processKnownErrors(pos Position, t *traversal, container *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
         for _, m := range p.matches {
-                err = p.processKnownError(pos, t, container, sh, x, status, num, &m)
+                status, err = p.processKnownError(pos, t, container, sh, x, num, &m)
                 if err != nil { err = wrap(pos, err); break }
         }
         if err == nil && status != 0 { err = &exitstatus{ status }}
@@ -420,11 +441,12 @@ func (p *ExecBuffer) processKnownErrors(pos Position, t *traversal, container *P
 }
 
 func (p *ExecBuffer) runAndProcessKnownErrors(pos Position, t *traversal, dock *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
-        p.matches = nil
-        if err = sh.Run(); err == nil {
-                // It's good!
-        } else if n, e := fmt.Sscanf(err.Error(), exitstatusFmt, &status); n == 1 && e == nil {
-                err = &exitstatus{ status } // convert to exitstatus
+        defer func(m []knownMatch) { p.matches = m } (p.matches)
+        p.matches = nil // clear previous matches
+        if err = sh.Run(); err == nil { return }
+        if n, e := fmt.Sscanf(err.Error(), exitstatusFmt, &status); n == 1 && e == nil {
+                es := &exitstatus{ status } // convert to exitstatus
+                err = es
 
                 if p.log != nil && p.log.writer != nil {
                         fmt.Fprintf(p.log, "\n%s\n", err)
@@ -437,9 +459,12 @@ func (p *ExecBuffer) runAndProcessKnownErrors(pos Position, t *traversal, dock *
                         err = wrap(pos, err)
                 }
 
-                if e := p.processKnownErrors(pos, t, dock, sh, x, status, num); e != nil {
-                        err = wrap(pos, e, err)
-                }
+                p.retried = nil
+                status, e = p.processKnownErrors(pos, t, dock, sh, x, num)
+                if p.retried != nil && len(p.retried) > 0 {
+                        if e != nil { err = wrap(pos, e, err) } else
+                        if status == 0 { err = nil } else { es.code = status }
+                } else { status = es.code }
         } else {
                 if status == 0 { status = -1 }
                 if e != nil { err = e }

@@ -1567,6 +1567,7 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                 optSilent bool
                 optOverride bool
                 optUpdate bool
+                optQuick bool
                 optMode os.FileMode
                 optHead Value
                 optFoot Value
@@ -1583,6 +1584,7 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                 "m,mode",
                 "h,head", // insert header content
                 "f,foot", // insert footer content
+                "q,quick",
         }, func(ru rune, v Value) {
                 switch ru {
                 case 'p': if optPath     , err = trueVal(v, true); err != nil { return }
@@ -1591,6 +1593,7 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                 case 's': if optSilent   , err = trueVal(v, true); err != nil { return }
                 case 'o': if optOverride , err = trueVal(v, true); err != nil { return }
                 case 'u': if optUpdate   , err = trueVal(v, true); err != nil { return }
+                case 'q': if optQuick    , err = trueVal(v, true); err != nil { return }
                 case 'm': if optMode     , err = permVal(v, 0600); err != nil { return }
                 case 'h': if !(isNil(v) || isNone(v)) { optHead = v }
                 case 'f': if !(isNil(v) || isNone(v)) { optFoot = v }
@@ -1681,6 +1684,14 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                         fmt.Fprintf(stderr, "smart: Checking %v …", target)
                 } else {
                         fmt.Fprintf(stderr, "smart: Copy %v …", target)
+                }
+        }
+
+        if optQuick {
+                var file = stat(pos,filename,"","",nil)
+                if file == nil || file.info != nil {
+                        if optVerbose { fmt.Fprintf(stderr, "… Good\n") }
+                        return
                 }
         }
 
