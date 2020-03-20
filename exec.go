@@ -344,6 +344,8 @@ func (p *ExecBuffer) runContainerAndRetry(pos Position, t *traversal, container 
                         fmt.Fprintf(sh.Stderr, "\n%s:\n    %v", sh.Path, strings.Join(sh.Args, "\n    "))
                         fmt.Fprintf(sh.Stderr, "\n\naka:\n    %s", sh)
                         fmt.Fprintf(sh.Stderr, "\n----\n")
+                } else {
+                        fmt.Fprintf(sh.Stderr, "\n")
                 }
 
                 c := exec.Command(sh.Path, sh.Args[1:]...) // must ignore Args[0]
@@ -356,11 +358,7 @@ func (p *ExecBuffer) runContainerAndRetry(pos Position, t *traversal, container 
 
                 status, err = p.runAndProcessKnownErrors(pos, t, container, c, x, num+1)
                 if status != 0 && err == nil { err = wrap(pos, &exitstatus{status}) }
-                if err != nil {
-                        fmt.Fprintf(sh.Stderr, "\n---- Retry failed: %s\n", err)
-                } else {
-                        fmt.Fprintf(sh.Stderr, "\n---- Retry okay.\n")
-                }
+                if err != nil { fmt.Fprintf(sh.Stderr, "\n---- Retry failed: %s\n", err) }
         }
         return
 }
