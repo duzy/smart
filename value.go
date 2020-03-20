@@ -360,7 +360,7 @@ func (t *traversal) file(file *File) (err error) {
         for _, project := range projects {
                 var entry *RuleEntry
                 if entry, err = project.resolveEntry(file.name); err != nil { err = wrap(file.position, err); return }
-                if entry != nil {
+                if entry != nil && t.def.target.value != entry {
                         if false { fmt.Fprintf(stderr, "%s: %s: %v, %v, %v\n", project, entry.position, entry, file.name, t.def.target.value) }
                         if okay, err = entry.tryTraverse(t); okay { return } else
                         if err != nil { err = wrap(file.position, err); return }
@@ -422,8 +422,10 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (err erro
         for _, project := range projects {
                 var entry *RuleEntry
                 if entry, err = project.resolveEntry(target); err != nil { err = wrap(pos, err); return }
-                if entry != nil {
-                        if okay, err = entry.tryTraverse(t); err != nil { err = wrap(pos, err); return }
+                if entry != nil && t.def.target.value != entry {
+                        if w, ok := t.def.target.value.(*Bareword); ok && w.string == target {
+                                // target resolve to itself, does nothing
+                        } else if okay, err = entry.tryTraverse(t); err != nil { err = wrap(pos, err); return }
                         if false { fmt.Fprintf(stderr, "%s: %s: %v, %v, %v (okay=%v)\n", project, entry.position, entry, target, t.def.target.value, okay) }
                         if okay { return }
                 }
