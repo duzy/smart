@@ -53,6 +53,7 @@ const (
         rxCouldnotParseObj_i
         rxTooManyPosArgs_i
         rxUndefinedReference_i
+        rxShcmdNotFound_i
 )
 var (
         defaultShell = "bash"
@@ -75,6 +76,7 @@ var (
         errCouldnotParseObj = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`
         errTooManyPosArgs = `(.+?): Too many positional arguments specified!`
         errUndefinedReference = `  +"(.+?)", referenced from:`
+        errShcmdNotFound = `sh: (.+?): not found`
 
         rxNotTTYDevice = regexp.MustCompile(errNotTTYDevice)
         rxNoContainer = regexp.MustCompile(errNoContainer)
@@ -93,6 +95,7 @@ var (
         rxCouldnotParseObj = regexp.MustCompile(errCouldnotParseObj)
         rxTooManyPosArgs = regexp.MustCompile(errTooManyPosArgs)
         rxUndefinedReference = regexp.MustCompile(errUndefinedReference)
+        rxShcmdNotFound = regexp.MustCompile(errShcmdNotFound)
 
         knownerrors = []*regexp.Regexp{
                 rxNotTTYDevice_i:           rxNotTTYDevice,
@@ -112,6 +115,7 @@ var (
                 rxCouldnotParseObj_i:       rxCouldnotParseObj,
                 rxTooManyPosArgs_i:         rxTooManyPosArgs,
                 rxUndefinedReference_i:     rxUndefinedReference,
+                rxShcmdNotFound_i:          rxShcmdNotFound,
         }
 
         workingMutex = new(sync.Mutex)
@@ -418,6 +422,8 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
                         err = errorf(lpos, "%s: too many positional arguments", string(v[1]))
                 case rxUndefinedReference_i:
                         err = errorf(lpos, "Undefined reference '%s'", string(v[1]))
+                case rxShcmdNotFound_i:
+                        err = errorf(lpos, "%s: command not found", string(v[1]))
                 case rxLLDWarning_i:
                         if p.report {
                                 fmt.Fprintf(stderr, "%s: warning: %s\n", lpos, string(v[2]))
@@ -518,7 +524,7 @@ func (p *executor) runContainer(t *traversal, container *Project) (err error) {
         return
 }
 
-func (p *executor) ensureContainerRunning(t *traversal, dock *Project, container string) (err error) {
+func (p *executor) ensureContainerRunning(t *traversal, container *Project, containerName string) (err error) {
         var (
                 stdoutR, stdoutW = io.Pipe()
                 stderrR, stderrW = io.Pipe()
@@ -526,7 +532,7 @@ func (p *executor) ensureContainerRunning(t *traversal, dock *Project, container
                 cmd = exec.Command(`docker`, `ps`,
                         `--filter`, `status=running`,
                         //`--filter`, fmt.Sprintf(`ancestor=%s`, image),
-                        `--filter`, fmt.Sprintf(`name=%s`, container),
+                        `--filter`, fmt.Sprintf(`name=%s`, containerName),
                         `--format`, `{{.ID}}\t{{.Image}}\t{{.Names}}`,
                 )
                 foundID, foundImage string
@@ -562,7 +568,7 @@ func (p *executor) ensureContainerRunning(t *traversal, dock *Project, container
         } (stderrR)
 
         if err = cmd.Run(); err == nil && foundID == "" {
-                if err = p.runContainer(t, dock); err == nil {
+                if err = p.runContainer(t, container); err == nil {
                         time.Sleep(time.Second)
                 }
         }
@@ -679,11 +685,9 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
                                         }
                                 }
                         }
-                } else {
-                        if _, containerSym := t.program.project.scope.Find(dotContainer); containerSym != nil {
-                                if pn, _ := containerSym.(*ProjectName); pn != nil {
-                                        container = pn.NamedProject()
-                                }
+                } else if _, containerSym := t.program.project.scope.Find(dotContainer); containerSym != nil {
+                        if pn, _ := containerSym.(*ProjectName); pn != nil {
+                                container = pn.NamedProject()
                         }
                 }
 

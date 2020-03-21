@@ -1307,9 +1307,7 @@ func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err
                 return
                 }
         }
-        if optSilent && makeResult == nil {
-                makeResult = MakeBoolean
-        }
+        if optSilent && makeResult == nil { makeResult = MakeBoolean }
 
         ForPairs: for _, p := range pairs {
                 var key, str string
@@ -1321,13 +1319,25 @@ func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err
                                 err = break_with(pos, optBreak, "not an exec result (%T)", value)
                                 return
                         } else { exeres.wg.Wait() }
-                        if optVerbose { fmt.Printf("(status=%d)", exeres.Status) }
 
                         var num int64
                         if num, err = p.Value.Integer(); err != nil { return }
-                        if res := exeres.Status == int(num); makeResult != nil {
-                                values = append(values, makeResult(pos, res))
-                        } else if !res {
+                        if optVerbose {
+                                fmt.Fprintf(stderr, "smart: Checking status ")
+                                if num != 0 { fmt.Fprintf(stderr, "== %d ", num) }
+                                fmt.Fprintf(stderr, "…")
+                        }
+
+                        var good = exeres.Status == int(num)
+                        if optVerbose {
+                                var s string 
+                                if good { s = "Yes" } else { s = "No" }
+                                fmt.Fprintf(stderr, "… %s (%d)\n", s, exeres.Status)
+                        }
+
+                        if makeResult != nil {
+                                values = append(values, makeResult(pos, good))
+                        } else if !good {
                                 err = break_with(pos, optBreak, "bad status (%v) (expects %v)", exeres.Status, p.Value)
                                 break ForPairs
                         }
