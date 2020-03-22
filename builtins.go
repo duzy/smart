@@ -1472,7 +1472,7 @@ func builtinTrimRight(pos Position, args... Value) (res Value, err error) {
 // $(trim-prefix %/foo, xxx/foo/a/b/c)
 // $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
 // FIXME: %%/foo is not working
-func builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
+func _builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         if len(args) == 0 { return }
 
@@ -1520,6 +1520,57 @@ func builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
         if err == nil {
                 res = MakeListOrScalar(pos, list)
         }
+        return
+}
+func builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
+        var prefixs, values, list []Value
+        if len(args) == 0 { return } else
+        if prefixs, err = mergeresult(ExpandAll(args[0])); err != nil { return }
+        if len(args) == 1 {
+                if len(prefixs) > 1 { values = prefixs[1:] }
+        } else {
+                if values, err = mergeresult(ExpandAll(args[1:]...)); err != nil { return }
+        }
+        if len(values) == 0 { return } else if len(prefixs) == 0 {
+                res = MakeListOrScalar(pos, values)
+                return
+        }
+        ForValue: for _, value := range values {
+                var pos Position
+                var cutset, s string
+                ForPrefix: for _, prefix := range prefixs {
+                        if pat, ok := prefix.(partialMatcher); ok {
+                                var ( result string; rest, stems []string )
+                                result, rest, stems, err = pat.partialMatch(value)
+                                if result != "" && stems != nil && rest != nil {
+                                        s = filepath.Join(rest...)
+                                        pos, value = prefix.Position(), nil
+                                        break ForPrefix
+                                }
+                        } else if cutset, err = prefix.Strval(); err != nil {
+                                return
+                        } else {
+                                if s == "" {
+                                        if s, err = value.Strval(); err != nil { return }
+                                        if s == "" { continue ForValue }
+                                }
+                                if s != "" && strings.HasPrefix(s, cutset) {
+                                        if cutset == "" {
+                                                s = strings.TrimLeftFunc(s, unicode.IsSpace)
+                                        } else {
+                                                s = strings.TrimPrefix(s, cutset)
+                                        }
+                                        pos, value = prefix.Position(), nil
+                                        break ForPrefix
+                                }
+                        }
+                }
+                if s == "" && value != nil {
+                        if s, err = value.Strval(); err != nil { return }
+                }
+                if s != "" { list = append(list, &String{trivial{pos},s}) }
+        }
+        if err == nil { res = MakeListOrScalar(pos, list) }
         return
 }
 
