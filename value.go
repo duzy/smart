@@ -418,6 +418,8 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (err erro
         if optionEnableBenchspots { defer bench(spot("traversal.target")) }
 
         var okay bool
+        var file *File // if target is file
+        var fileProj *Project
         var projects = t.closureProjects()
         for _, project := range projects {
                 var entry *RuleEntry
@@ -438,7 +440,8 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (err erro
                         if okay { return }
                 }
 
-                if file := project.matchFile(target); file != nil {
+                if file = project.matchFile(target); file != nil {
+                        fileProj = project
                         file.position = pos // Change the position for tracing
                         t.addNewTarget(file) // Add new file target
 
@@ -480,8 +483,8 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (err erro
                                 }
                                 okay = true // it's good
                         } else if file != nil { okay = file.searchInMatchedPaths(project) }
-                        if!okay { err = wrap(pos, fileNotFoundError{project, file}) }
-                        return
+                        if false { fmt.Fprintf(stderr, "%s: %s: %v (found=%v)\n", project, file.position, file.name, okay) }
+                        if okay { return } // Done!
                 } else if vals != nil && false {
                         fmt.Fprintf(stderr, "%s: %s: %v %v\n", project, vals[0].Position(), target, vals)
                 }
@@ -503,10 +506,14 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (err erro
         }
 
         if !okay && err == nil {
-                err = wrap(pos, targetNotFoundError{t.project, target})
-                if optionTraceTraversal { t.tracef("%v: `target(%s)` not found", t.project, target) }
+                if file != nil {
+                        err = wrap(pos, fileNotFoundError{fileProj, file})
+                        if optionTraceTraversal { t.tracef("%v: `target(%s)` file not found", t.project, file) }
+                } else {
+                        err = wrap(pos, targetNotFoundError{t.project, target})
+                        if optionTraceTraversal { t.tracef("%v: `target(%s)` not found", t.project, target) }
+                }
         }
-
         if false && err != nil { debug.PrintStack() }
         return
 }
