@@ -264,7 +264,7 @@ var (
                 `select`:       modifierSelect,
 
                 //`args`:       modifierSetArgs, // interpreter args
-                `env`:          modifierSetEnv,  // interpreter environments
+                `env`:          modifierEnv,  // interpreter environments
                 `set`:          modifierSet,
 
                 `closure`:      modifierClosure,
@@ -394,16 +394,15 @@ func modifierSetArgs(pos Position, t *traversal, args... Value) (result Value, e
         return
 }
 
-func modifierSetEnv(pos Position, t *traversal, args... Value) (result Value, err error) {
+func modifierEnv(pos Position, t *traversal, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
+        var def *Def
         var envars = new(List)
-        if _, err = t.program.auto(TheShellEnvarsDef, envars); err != nil { return }
+        if def, err = t.program.auto(TheShellEnvarsDef, envars); err != nil { return }
         for _, a := range args {
-                if _, ok := a.(*Pair); ok {
-                        envars.Append(a)
-                } else {
-                        err = errors.New(fmt.Sprintf("Invalid env `%v' (%T)", a, a))
+                if _, ok := a.(*Pair); ok { def.append(a) } else {
+                        err = errors.New(fmt.Sprintf("invalid env '%v' (%s)", a, typeof(a)))
                         return
                 }
         }

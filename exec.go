@@ -761,7 +761,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
         }
 
         var envars []*Pair // disclosed values
-        if def, _ := t.program.Scope().Lookup(TheShellEnvarsDef).(*Def); def != nil {
+        if def, _ := t.program.scope.Lookup(TheShellEnvarsDef).(*Def); def != nil {
                 if l, _ := def.value.(*List); l != nil {
                         for _, v := range l.Elems {
                                 if v, err = v.expand(expandClosure); err != nil {
