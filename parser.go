@@ -1451,7 +1451,7 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, generic *genericoptions, 
         for _, prop := range spec.Props {
                 switch v := p.expr(prop).(type) {
                 case *Pair:
-                        var (pats, paths []Value)
+                        var pats, paths []Value
                         switch k := v.Key.(type) {
                         case *Group: pats = k.Elems
                         default: pats = append(pats, v.Key)
@@ -1465,11 +1465,15 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, generic *genericoptions, 
                         case *Group: paths = vv.Elems
                         default: paths = append(paths, vv)
                         }
-                        for _, k := range pats {
-                                p.project.mapfile(k, paths)
-                        }
+                        for _, k := range pats { p.project.mapfile(k, paths) }
                 case Value:
-                        p.project.mapfile(v, nil)
+                        var pats, paths []Value
+                        paths = []Value{&String{trivial{v.Position()},p.project.absPath}}
+                        switch g := v.(type) {
+                        default: pats = append(pats, v)
+                        case *Group: pats = g.Elems
+                        }
+                        for _, k := range pats { p.project.mapfile(k, paths) }
                 default:
                         p.error(prop.Pos(), "bad file spec (%T)", prop)
                 }
