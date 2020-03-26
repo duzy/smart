@@ -1689,8 +1689,9 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
 
                 for _, base := range l.project.bases {
                         if base.absPath == absPath {
-                                err = errorf(elem.Position(), "duplicated base: %v", elem)
-                                break ParamsLoop
+                                //err = errorf(elem.Position(), "duplicated base: %v (in %v)", elem, l.project.bases)
+                                //break ParamsLoop
+                                continue ParamsLoop
                         }
                 }
 
