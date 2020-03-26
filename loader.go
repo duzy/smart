@@ -1653,6 +1653,13 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
         var isDir bool
         var absPath, specName string
 
+        absPath = filepath.Join(l.project.absPath, ".base")
+        if fi, e := os.Stat(absPath); e == nil && fi.IsDir() {
+                base := MakePathStr(l.project.position, "./.base")
+                params = append([]Value{base}, params...)
+                absPath = ""
+        }
+
         // For &(foobar) set from loadArgs
         defer setclosure(setclosure(cloctx.unshift(l.project.scope)))
 
@@ -1678,6 +1685,13 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
                 }
                 if absPath, isDir, err = l.searchSpecPath(linfo, specName); err != nil {
                         break ParamsLoop
+                }
+
+                for _, base := range l.project.bases {
+                        if base.absPath == absPath {
+                                err = errorf(elem.Position(), "duplicated base: %v", elem)
+                                break ParamsLoop
+                        }
                 }
 
                 if isDir {
