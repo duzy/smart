@@ -22,6 +22,7 @@ import (
         "time"
         "fmt"
         "os"
+        "os/exec"
         "io"
 )
 
@@ -298,6 +299,9 @@ var (
                 `once`:         modifierOnce,
                 `target-1st-visit`: modifierTarget1stVisit,
                 `target-max-visit`: modifierTargetMaxVisit,
+
+                `git-ahead`:    modifierGitAhead,
+                `git-modified`: modifierGitModified,
         }
 
         modifiers = make(map[string]ModifierFunc)
@@ -2370,6 +2374,84 @@ func modifierTargetMaxVisit(pos Position, t *traversal, args... Value) (result V
         } else { s = fmt.Sprintf("%d visits", num+1) }
 
         result = &prediction{boolean{trivial{pos},num<nth},s}
+        return
+}
+
+func modifierGitModified(pos Position, t *traversal, args... Value) (result Value, err error) {
+        var (
+                optDebug bool
+                optVerbose bool
+        )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
+                "d,debug",
+                "v,verbose",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'd': if optDebug   , err = trueVal(v, true); err != nil { return }
+                case 'v': if optVerbose , err = trueVal(v, true); err != nil { return }
+                }
+        }); err != nil { return }
+        
+        var out = new(bytes.Buffer)
+        var git = exec.Command("git", "status")
+        git.Stdout, git.Stderr = out, os.Stderr
+        if err = git.Run(); err != nil { err = wrap(pos, err); return }
+ 
+        // TODO: check also for `Changes not staged for commit:`
+
+        var rx = regexp.MustCompile(`\n\tmodified:[\t ]*(.+?)\n`)
+        var sm = rx.FindAllSubmatch(out.Bytes(), -1)
+        if len(sm) > 0 {
+                var pred = &prediction{boolean{trivial{pos},false},""}
+                if result = pred; len(args) == 0 {
+                        pred.bool, pred.reason = true, "modified"
+                        return
+                }
+                for _, a := range args {
+                        var s string
+                        if s, err = a.Strval(); err != nil { err = wrap(pos, err); return }
+                        for _, v := range sm {
+                                if false { fmt.Fprintf(stderr, "%s: %s\n%v\n", pos, s, v[1]) }
+                                if s == string(v[1]) {
+                                        pred.bool, pred.reason = true, "modified: "+s
+                                        return
+                                }
+                        }
+                }
+        }
+        return
+}
+
+func modifierGitAhead(pos Position, t *traversal, args... Value) (result Value, err error) {
+        var (
+                optDebug bool
+                optVerbose bool
+        )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
+                "d,debug",
+                "v,verbose",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'd': if optDebug   , err = trueVal(v, true); err != nil { return }
+                case 'v': if optVerbose , err = trueVal(v, true); err != nil { return }
+                }
+        }); err != nil { return }
+        
+        var out = new(bytes.Buffer)
+        var git = exec.Command("git", "status")
+        git.Stdout, git.Stderr = out, os.Stderr
+        if err = git.Run(); err != nil { err = wrap(pos, err); return }
+ 
+        // TODO: check also for `Changes not staged for commit:`
+
+        var rx = regexp.MustCompile(`\nYour branch is ahead of '(.+?)' by`)
+        var sm = rx.FindAllSubmatch(out.Bytes(), 1)
+        if len(sm) > 0 {
+                var val bool = true
+                result = &prediction{boolean{trivial{pos},val},"Work branch has new commits to push"}
+        }
         return
 }
 
