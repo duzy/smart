@@ -355,13 +355,15 @@ func (t *traversal) file(file *File) (err error) {
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.file(%v)", file))) }
         if optionEnableBenchspots { defer bench(spot("traversal.file")) }
 
+        if strings.HasSuffix(file.name, "parser.cpp") { fmt.Fprintf(stderr, "%s: %v (%v)\n", file.position, file, t.def.target.value) }
+
         var okay bool
         var projects = t.closureProjects()
         for _, project := range projects {
                 var entry *RuleEntry
                 if entry, err = project.resolveEntry(file.name); err != nil { err = wrap(file.position, err); return }
                 if entry != nil && t.def.target.value != entry {
-                        if false { fmt.Fprintf(stderr, "%s: %s: %v, %v, %v\n", project, entry.position, entry, file.name, t.def.target.value) }
+                        if file.name == "parser.cpp" { fmt.Fprintf(stderr, "%s: %s: %v, %v, %v\n", project, entry.position, entry, file.name, t.def.target.value) }
                         if okay, err = entry.tryTraverse(t); okay { return } else
                         if err != nil { err = wrap(file.position, err); return }
                 }
@@ -429,7 +431,18 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (err erro
                                 // target resolve to itself, does nothing
                         } else if okay, err = entry.tryTraverse(t); err != nil { err = wrap(pos, err); return }
                         if false { fmt.Fprintf(stderr, "%s: %s: %v, %v, %v (okay=%v)\n", project, entry.position, entry, target, t.def.target.value, okay) }
-                        if okay { return }
+                        if okay {
+                                if file, ok := entry.target.(*File); ok && file.info != nil {
+                                        if false { fmt.Fprintf(stderr, "%s: %s: %v, %v, %v (okay=%v)\n", project, entry.position, entry, target, t.def.target.value, okay) }
+                                        var a time.Time
+                                        if a, err = t.def.target.value.mod(t); err != nil { err = wrap(pos, err); return } else
+                                        if!a.IsZero() && file.info.ModTime().After(a) {
+                                                if optionTraceTraversal { t.tracef("updated: %v", file) }
+                                                t.appendUpdated(newUpdatedTarget(file))
+                                        }
+                                }
+                                return
+                        }
                 }
 
                 var obj Object
@@ -474,10 +487,10 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (err erro
                         
                         // Check file existance
                         if okay { break } else if file.info != nil {
+                                if false { fmt.Fprintf(stderr, "%s: %s: %v, %v, %v (okay=%v)\n", project, entry.position, entry, target, t.def.target.value, okay) }
                                 var a time.Time
                                 if a, err = t.def.target.value.mod(t); err != nil { err = wrap(pos, err); return } else
-                                if a.IsZero() {/* the target not exists*/} else
-                                if file.info.ModTime().After(a) {
+                                if!a.IsZero() && file.info.ModTime().After(a) {
                                         if optionTraceTraversal { t.tracef("updated: %v", file) }
                                         t.appendUpdated(newUpdatedTarget(file))
                                 }
