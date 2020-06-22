@@ -9,23 +9,23 @@ package smart
 import (
         "strings"
         "strconv"
+        "bytes"
         "fmt"
 )
 
 // Value returned by (plain) modifier.
 type Plain struct {
+        trivial
         Name, Value string
 }
-func (p *Plain) refs(_ Value) bool { return false }
-func (p *Plain) closured() bool { return false }
 func (p *Plain) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Plain) Type() Type { return PlainType }
-func (p *Plain) True() bool { return strings.TrimSpace(p.Value) != "" }
+func (p *Plain) True() (bool, error) { return strings.TrimSpace(p.Value) != "", nil }
 func (p *Plain) String() (s string) {
+        var value = strings.Replace(p.Value, "'", "\\'", -1)
         if p.Name == "" {
-                s = fmt.Sprintf("((plain) %s)", p.Value)
+                s = fmt.Sprintf("(plain '%s')", value)
         } else {
-                s = fmt.Sprintf("((plain %s) %s)", p.Name, p.Value)
+                s = fmt.Sprintf("((plain %s) '%s')", p.Name, value)
         }
         return
 }
@@ -33,8 +33,7 @@ func (p *Plain) Strval() (string, error) { return p.Value, nil }
 func (p *Plain) Integer() (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
 func (p *Plain) Float() (float64, error) { return strconv.ParseFloat(p.Value, 64) }
 func (p *Plain) cmp(v Value) (res cmpres) {
-        if v.Type() == PlainType {
-                a, ok := v.(*Plain)
+        if a, ok := v.(*Plain); ok {
                 assert(ok, "value is not Plain")
                 if p.Name == a.Name && p.Value == a.Value {
                         res = cmpEqual
@@ -43,15 +42,29 @@ func (p *Plain) cmp(v Value) (res cmpres) {
         return
 }
 
-type _plain struct {}
+type plain struct {}
 
-func (t *_plain) Evaluate(prog *Program, args []Value) (result Value, err error) {
+func (_ *plain) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
         var str, name string
         if len(args) > 0 {
                 if name, err = args[0].Strval(); err != nil { return }
         }
-        if str, err = joinRecipesString(prog.recipes...); err != nil { return }
+        if str, err = multiline(t.program.recipes...); err != nil { return }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
-        result = &Plain{ name, str }
+        result = &Plain{trivial{pos},name,str}
+        return
+}
+
+func multiline(recipes... Value) (res string, err error) {
+        var (
+                x = len(recipes)-1
+                w = new(bytes.Buffer)
+                s string
+        )
+        for n, recipe := range recipes {
+                if s, err = recipe.Strval(); err != nil { return }
+                if fmt.Fprint(w, s); n < x { fmt.Fprint(w, "\n") }
+        }
+        res = w.String()
         return
 }

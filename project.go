@@ -8,21 +8,17 @@ package smart
 
 import (
         "extbit.io/smart/token"
-        "crypto/sha256"
         "path/filepath"
+        "runtime"
         "strings"
         "plugin"
-        "bytes"
         "sync"
-        //"sync/atomic"
         "time"
         "fmt"
         "os"
 )
 
 const PathSep = string(filepath.Separator)
-
-type HashBytes [sha256.Size]byte
 
 type FileMap struct {
         Pattern Value
@@ -31,11 +27,26 @@ type FileMap struct {
 
 func (filemap *FileMap) String() string { return filemap.Pattern.String() }
 
+func (filemap *FileMap) isRealPattern() (result bool) {
+        switch t := filemap.Pattern.(type) {
+        case Pattern: result = true
+        case *Path:
+                /*if t.File == nil {
+                        for _, seg := range t.Elems {
+                                _, result = seg.(Pattern)
+                                if result { return }
+                        }
+                }*/
+                if result = t.isPattern(); result { return }
+        }
+        return
+}
+
 // Match split filename into list and match each part with the pattern correspondingly.
 func (filemap *FileMap) Match(filename string) (matched bool, pre string) {
         matched, pre = globMatch(filemap.Pattern, filename)
         if matched { return }
-        if false {
+        if false { // TODO: support percent (%, %%) and regex matching
                 var ( s, t string ; e error )
                 if t, e = filemap.Pattern.Strval(); e != nil { return }
                 for _, p := range filemap.Paths {
@@ -48,15 +59,28 @@ func (filemap *FileMap) Match(filename string) (matched bool, pre string) {
         return
 }
 
-func (filemap *FileMap) stat(base, name string) (file *File) {
+func (filemap *FileMap) stat(base, pre, name string) (file *File) {
+        var pos = filemap.Pattern.Position()
+        if filemap.Paths == nil {
+                // Check file in the filesystem (no paths).
+                file = stat(pos, name, "", base, nil)
+                return
+        }
+        base = filepath.Clean(base)
+        pre  = filepath.Clean(pre)
         for _, path := range filemap.Paths {
                 if path == nil {
-                        msg := fmt.Sprintf("`%v` nil", filemap.Paths)
-                        panic(msg)
+                        var pos = filemap.Pattern.Position()
+                        panic(errorf(pos, "mapping nil path (base=%s, pre=%s, name=%s)", base, pre, name))
                 }
 
                 var ( dir, sub string ; err error )
-                if sub, err = path.Strval(); err != nil { return }
+                if sub, err = path.Strval(); err != nil { return } else {
+                        // Clean the search path.
+                        sub = filepath.Clean(sub)
+                }
+
+                // Absolute path or using the base.
                 if filepath.IsAbs(sub) {
                         dir = sub
                         sub = ""
@@ -64,13 +88,81 @@ func (filemap *FileMap) stat(base, name string) (file *File) {
                         dir = base //filepath.Join(base, sub)
                 }
 
+                /*if filepath.IsAbs(name) && !strings.HasPrefix(name, dir+PathSep) {
+                        continue
+                }*/
+
                 // Check file in the filesystem.
-                if file = stat(name, sub, dir); file != nil {
-                        //if file.match == nil { file.match = filemap }
+                if file = stat(pos, name, sub, dir, nil); file != nil {
                         break
+                }
+
+                if filepath.IsAbs(sub) {
+                        if pre == "" { // Fullmatch!
+                                // For example of:
+                                //   xxx.c  <->  (*.c => /path/to/source)
+                                // Become:
+                                //   /path/to/source  ""  xxx.c
+                                file = stat(pos, name, "", sub, nil)
+                        } else if strings.HasSuffix(sub, PathSep+pre) {
+                                // For example of:
+                                //   foo/bar/xxx.c  <->  (*.c => /path/to/source/foo/bar)
+                                // Become:
+                                //   /path/to/source  foo/bar  xxx.c
+                                s := strings.TrimSuffix(sub, PathSep+pre)
+                                n := strings.TrimPrefix(name, pre+PathSep)
+                                file = stat(pos, n, pre, s, nil)
+                        } else if false { // This is wrong, only base name matched!!
+                                // For example of:
+                                //   foo/bar/xxx.c  <->  (*.c => /path/to/source)
+                                // Become:
+                                //   /path/to/source  foo/bar  xxx.c
+                                n := strings.TrimPrefix(name, pre+PathSep)
+                                file = stat(pos, n, pre, sub, nil)
+                        }
+                } else {
+                        if pre == "" { // Fullmatch!
+                                // For example of:
+                                //   xxx.c  <->  (*.c => source)
+                                // Become:
+                                //   <p.absPath>  source  xxx.c
+                                file = stat(pos, name, sub, dir, nil)
+                        } else if sub == pre {
+                                // For example of:
+                                //   foo/bar/xxx.c  <->  (*.c => foo/bar)
+                                // Become:
+                                //   <dir>  foo/bar  xxx.c
+                                n := strings.TrimPrefix(name, pre+PathSep)
+                                file = stat(pos, n, sub, dir, nil)
+                        } else if strings.HasSuffix(sub, PathSep+pre) {
+                                // For example of:
+                                //   foo/bar/xxx.c  <->  (*.c => source/foo/bar)
+                                // Become:
+                                //   <dir>  source/foo/bar  xxx.c
+                                s := strings.TrimSuffix(sub, PathSep+pre)
+                                n := strings.TrimPrefix(name, pre+PathSep)
+                                file = stat(pos, n, pre, s, nil)
+                        } else if false { // This is wrong, only base name matched!!
+                                // For example of:
+                                //   foo/bar/xxx.c  <->  (*.c => source)
+                                // Become:
+                                //   <dir>  source/foo/bar  xxx.c
+                                s := filepath.Join(sub, pre)
+                                n := strings.TrimPrefix(name, pre+PathSep)
+                                file = stat(pos, n, s, dir, nil)
+                        }
                 }
         }
         return
+}
+
+// copy of filepath.hasMeta
+func hasGlobMeta(path string) bool {
+	magicChars := `*?[`
+	if runtime.GOOS != "windows" {
+		magicChars = `*?[\`
+	}
+	return strings.ContainsAny(path, magicChars)
 }
 
 // globMatch - Glob matching each component of the filename against the
@@ -85,19 +177,29 @@ func globMatch(patval Value, filename string) (matched bool, pre string) {
 
         list0 := strings.Split(filepath.Clean(pattern), PathSep)
         list1 := strings.Split(filepath.Clean(filename), PathSep)
-        if n := len(list0); n == 0 {
+        if len(list0) == 0 {
                 // FIXME: match any?
-        } else if m := len(list1); n == m { // foo/*.o  <->  src/foo.o
+        } else if len(list0) == len(list1) { // foo/*.o  <->  src/foo.o
                 // Matching all components
                 for i, pat := range list0 {
-                        matched, _ = filepath.Match(pat, list1[i])
-                        if !matched { return }
+                        if true /*hasGlobMeta(pat)*/ {
+                                matched, _ = filepath.Match(pat, list1[i])
+                                if !matched { return }
+                        } else {
+                                matched = (pat == list1[i])
+                        }
                 }
-        } else if n == 1 && m > 1 { // *.o|foo.o  <->  src/foo.o
+        } else if len(list0) == 1 && len(list1) > 1 { // *.o|foo.o  <->  src/foo.o
                 // Matching the last component of filename and returns
                 // the prefix if matched.
-                if matched, _ = filepath.Match(list0[0], list1[m-1]); matched {
-                        pre = filepath.Join(list1[:m-1]...)
+                list1_tail := list1[len(list1)-1]
+                if true /*hasGlobMeta(list0[0])*/ {
+                        matched, _ = filepath.Match(list0[0], list1_tail)
+                } else {
+                        matched = (list0[0] == list1_tail)
+                }
+                if matched {
+                        pre = filepath.Join(list1[:len(list1)-1]...)
                 }
         }
         return
@@ -124,23 +226,24 @@ type useRuleEntry struct {
 }
 
 type Project struct {
+        position Position
         keyword  token.Token // project, package, module
-        
+
+        self *ProjectName // $:self:
+
+        changedWD string
 	absPath string
 	relPath string
         tmpPath string
 	spec    string
 	name    string
         scope   *Scope
-        bases   []*Project
-        imports []*Project
-
-        self *ProjectName
+        bases []*Project
+        loads []*Project
+        using   *usinglist
 
         // List order is significant, duplication is acceptable.
         filemap []*FileMap
-
-        using  *usinglist
 
         // Rule Registry (orderred)
         userules []*useRuleEntry // the 'use' rule
@@ -155,8 +258,8 @@ type Project struct {
         plugin *plugin.Plugin
         pluginScope *Scope
 
-        allowMultiImported bool // allow being imported multiple times
-        breakRecursiveUsing bool // don't recursively using this project
+        multiUseAllowed bool // this project is used multiple times
+        breakUseLoop bool // don't recursively use this project
 }
 
 func (p *Project) String() string {
@@ -164,8 +267,8 @@ func (p *Project) String() string {
         return p.name
 }
 
-func (p *Project) NewScope(comment string) *Scope {
-        return NewScope(p.scope, p, comment)
+func (p *Project) NewScope(pos Position, comment string) *Scope {
+        return NewScope(pos, p.scope, p, comment)
 }
 
 func (p *Project) AbsPath() string { return p.absPath }
@@ -174,11 +277,8 @@ func (p *Project) Spec() string { return p.spec }
 func (p *Project) Name() string { return p.name }
 func (p *Project) Scope() *Scope { return p.scope }
 func (p *Project) Bases() []*Project { return p.bases }
-
 func (p *Project) Chain(bases ...*Project) {
-        for _, base := range bases {
-                p.bases = append(p.bases, base)
-        }
+        for _, base := range bases { p.bases = append(p.bases, base) }
 }
 
 func (p *Project) mapfile(pat Value, paths []Value) {
@@ -186,38 +286,39 @@ func (p *Project) mapfile(pat Value, paths []Value) {
         p.filemap = append(p.filemap, &FileMap{ pat, paths })
 }
 
-func (p *Project) filemaps(imports bool) (filemaps []*FileMap) {
-        var unique = make(map[*FileMap]int)
-        var app = func(a []*FileMap) {
-                for _, m := range a {
-                        if _, ok := unique[m]; ok { continue }
-                        filemaps = append(filemaps, m)
-                        unique[m] += 1
+func (p *Project) filemaps() (filemaps []*FileMap) {
+        if optionEnableBenchmarks && false { defer bench(mark("Project.filemaps")) }
+
+        var appendUnique = func(a *FileMap) {
+                for _, m := range filemaps {
+                        if a == m { return }
                 }
+                filemaps = append(filemaps, a)
         }
-        app(p.filemap)
+        for _, m := range p.filemap {
+                appendUnique(m)
+        }
         for _, base := range p.bases {
-                app(base.filemaps(imports))
-        }
-        if false && optionSearchImportedFiles {
-                if imports {
-                        for _, u := range p.using.list {
-                                app(u.project.filemaps(imports))
-                        }
-                }
-        } else if optionSearchImportedFiles {
-                if imports {
-                        for _, proj := range p.imports {
-                                app(proj.filemaps(imports))
-                        }
+                for _, m := range base.filemaps() {
+                        appendUnique(m)
                 }
         }
-        unique = nil
+        /*
+        if false {
+                for _, u := range p.using.list {
+                        app(u.project.filemaps(loads))
+                }
+        } else {
+                for _, proj := range p.loads {
+                        app(proj.filemaps(loads))
+                }
+        }
+        */
         return
 }
 
-func (p *Project) wildcard(patterns ...Value) (files []*File, err error) {
-        var filemaps = p.filemaps(false)
+func (p *Project) wildcard(pos Position, wo wildcardOpts, patterns ...Value) (files []*File, err error) {
+        var filemaps = p.filemaps()
 ForPats:
         for _, pat := range patterns {
                 var ( patStr string; matched, breakAbsRel bool )
@@ -252,7 +353,7 @@ ForPats:
                         if filepath.IsAbs(str) || strings.HasPrefix(str, "./") || strings.HasPrefix(str, "../") {
                                 if names, err = filepath.Glob(str); err != nil { break ForPats }
                                 for _, s := range names {
-                                        file := stat(filepath.Base(s), "", filepath.Dir(s))
+                                        file := stat(pos, filepath.Base(s), "", filepath.Dir(s))
                                         files = append(files, file)
                                         if enable_assertions {
                                                 assert(file != nil, "`%s` missing", s)
@@ -266,179 +367,105 @@ ForPats:
                         }
 
                         // Check against paths for non-abs/rel patterns.
-                ForPaths:
                         for _, path := range fm.Paths {
                                 var sub string
-                                if sub, err = path.Strval(); err != nil { break ForPats }
+                                if sub, err = path.Strval(); err != nil {
+                                        break ForPats
+                                }
 
                                 subfile := filepath.Join(sub, str)
-                                if names, err = filepath.Glob(subfile); err != nil { break ForPats }
-                                if len(names) == 0 {
-                                        fmt.Fprintf(stderr, "%s: no files like '%v' found in %v\n", p.name, fm, sub)
-                                        continue ForPaths
+                                if names, err = filepath.Glob(subfile); err != nil {
+                                        break ForPats
                                 }
-
-                                dir := filepath.Dir(subfile)
-                                if !isAbsOrRel(dir) {
-                                        // FIXME: using Getwd()?
-                                        dir = filepath.Join(p.absPath, dir)
-                                }
-
                                 // Chop off path 'sub' prefix to have shorter names
                                 // Aka. trim prefix 'file.Sub+PathSep'
                                 prefix := strings.TrimSuffix(subfile, str)
-                                for _, s := range names {
-                                        name := strings.TrimPrefix(s, prefix)
-                                        file := stat(name, sub, prefix)
-                                        files = append(files, file)
-                                        if enable_assertions {
-                                                assert(file != nil, "`%s` missing (%s)", s, name)
+                                if len(names) > 0 {
+                                        for _, s := range names {
+                                                name := strings.TrimPrefix(s, prefix)
+                                                file := stat(pos, name, sub, prefix)
+                                                files = append(files, file)
+                                                if enable_assertions {
+                                                        assert(file != nil, "`%s` missing (%s)", s, name)
+                                                }
                                         }
+                                } else if ok := fm.isRealPattern(); !ok && wo.optIncludeMissing {
+                                        // If the filemap is not a pattern (e.g. foobar.cpp),
+                                        // we include it in the returning files.
+                                        var name string
+                                        name, err = fm.Pattern.Strval()
+                                        if err != nil { break ForPats }
+
+                                        // Append this non-existed/missing file.
+                                        file := stat(pos, name, sub, prefix, nil)
+                                        files = append(files, file)
+
+                                        if false { fmt.Fprintf(stderr, "%s: %s -> %s\n", pos, pat, file) }
+                                } else if ok {
+                                        // Just report that the pattern matches no files in the
+                                        // file system.
+                                        fmt.Fprintf(stderr, "%s: wildcard '%s' in %s: files like '%v' not found in %v\n", pos, pat, p.name, fm, sub)
+                                } else if optionWildcardMissingError {
+                                        err = fmt.Errorf("files like '%v' not found", fm)
+                                        break ForPats
                                 }
                         }
-                }
-        }
-        return
-}
-
-func (p *Project) searchFile(name string) (file *File) {
-        for _, filemap := range p.filemaps(true) {
-                // Match the represented file name.
-                matched, pre := filemap.Match(name)
-                if !matched { continue }
-                if file = filemap.stat(p.absPath, name); file != nil {
-                        if file.match == nil { file.match = filemap }
-                        if pre != "" { /* FIXME: file.change(...pre) */ }
-                        if enable_assertions {
-                                assert(file.exists(), "`%s` file not existed", file)
-                        }
-                        break
-                }
-        }
-        if file != nil && enable_assertions {
-                assert(file.exists(), "`%s` file not existed", file)
-                assert(file.match != nil, "`%s` not matched file", name)
-                assert(file.info != nil, "`%v` found nil file info", name)
-                if filepath.IsAbs(name) {
-                        if strings.HasPrefix(name, file.dir+PathSep) {
-                                //assert(file.name == filepath.Base(name), "conflicted name: file{%s %s %s} != %s", file.dir, file.sub, file.name, filepath.Base(name))
-                                //assert(file.name == name, "conflicted name: file{%s %s %s} != %s", file.dir, file.sub, file.name, name)
-                                //assert(file.dir != "", "invalid file{%s %s %s}", file.dir, file.sub, file.name)
-                        } else {
-                                assert(file.name == name, "conflicted name: file{%s %s %s} != %s", file.dir, file.sub, file.name, name)
-                                assert(file.dir == "", "invalid file{%s %s %s}", file.dir, file.sub, file.name)
-                                assert(file.FullName() == file.name, "conflicted name: file{%s %s %s}", file.dir, file.sub, file.name)
-                        }
-                        assert(file.FullName() == name, "conflicted name: file{%s %s %s}", file.dir, file.sub, file.name)
-                } else {
-                        assert(file.dir != "", "`%v` found empty file dir", name)
-                        assert(filepath.IsAbs(file.dir), "not abs file{%s %s %s}", file.dir, file.sub, file.name)
                 }
         }
         return
 }
 
 func (p *Project) matchFile(name string) (file *File) {
+        if optionEnableBenchmarks && false { defer bench(mark("Project.matchFile")) }
+        if optionEnableBenchspots { defer bench(spot("Project.matchFile")) }
+
+        //[optional]: defer setclosure(setclosure(cloctx.unshift(p.scope)))
+
         var first *File
 ForFilemaps:
-        for _, filemap := range p.filemaps(true) {
+        for _, filemap := range p.filemaps() {
                 // Match the represented file name.
-                matched, pre := filemap.Match(name)
-                if !matched { continue }
-                if file = filemap.stat(p.absPath, name); file != nil {
+                var matched, pre = filemap.Match(name)
+                if !matched { continue ForFilemaps }
+                if p.changedWD != "" { file = filemap.stat(p.changedWD, pre, name) }
+                if file == nil { file = filemap.stat(p.absPath, pre, name) }
+                if file != nil {
                         if file.match == nil { file.match = filemap }
                         if pre != "" { /* FIXME: file.change(...pre) */ }
-                        if enable_assertions {
-                                assert(file.exists(), "`%s` file not existed", file)
-                        }
-                } else if len(filemap.Paths) > 0 {
-                        var sub, err = filemap.Paths[0].Strval()
-                        sub = filepath.Clean(sub) // clean path
-                        if filepath.IsAbs(sub) {
-                                if pre == "" {
-                                        // For example of:
-                                        //   xxx.c  <->  (*.c => /path/to/source)
-                                        // Became:
-                                        //   /path/to/source  ""  xxx.c
-                                        file = stat(name, "", sub, nil)
-                                } else if strings.HasSuffix(sub, PathSep+pre) {
-                                        // For example of:
-                                        //   foo/bar/xxx.c  <->  (*.c => /path/to/source/foo/bar)
-                                        // Became:
-                                        //   /path/to/source  foo/bar  xxx.c
-                                        s := strings.TrimSuffix(sub, PathSep+pre)
-                                        n := strings.TrimPrefix(name, pre+PathSep)
-                                        file = stat(n, pre, s, nil)
-                                } else {
-                                        // For example of:
-                                        //   foo/bar/xxx.c  <->  (*.c => /path/to/source)
-                                        // Became:
-                                        //   /path/to/source  foo/bar  xxx.c
-                                        n := strings.TrimPrefix(name, pre+PathSep)
-                                        file = stat(n, pre, sub, nil)
-                                }
-                        } else {
-                                if pre == "" {
-                                        // For example of:
-                                        //   xxx.c  <->  (*.c => source)
-                                        // Became:
-                                        //   <p.absPath>  source  xxx.c
-                                        file = stat(name, sub, p.absPath, nil)
-                                } else if sub == pre {
-                                        // For example of:
-                                        //   foo/bar/xxx.c  <->  (*.c => foo/bar)
-                                        // Became:
-                                        //   <p.absPath>  foo/bar  xxx.c
-                                        n := strings.TrimPrefix(name, pre+PathSep)
-                                        file = stat(n, sub, p.absPath, nil)
-                                } else if strings.HasSuffix(sub, PathSep+pre) {
-                                        // For example of:
-                                        //   foo/bar/xxx.c  <->  (*.c => source/foo/bar)
-                                        // Became:
-                                        //   <p.absPath>  source/foo/bar  xxx.c
-                                        s := strings.TrimSuffix(sub, PathSep+pre)
-                                        n := strings.TrimPrefix(name, pre+PathSep)
-                                        file = stat(n, pre, s, nil)
-                                } else {
-                                        // For example of:
-                                        //   foo/bar/xxx.c  <->  (*.c => source)
-                                        // Became:
-                                        //   <p.absPath>  source/foo/bar  xxx.c
-                                        s := filepath.Join(sub, pre)
-                                        n := strings.TrimPrefix(name, pre+PathSep)
-                                        file = stat(n, s, p.absPath, nil)
-                                }
-                        }
-                        if file.match == nil { file.match = filemap }
-                        if enable_assertions {
-                                assert(err == nil, "%v: %v", p, err)
-                        }
-                }
-                if file != nil {
-                        if file.exists() { break }
+                        if exists(file) { break ForFilemaps }
                         if first == nil { first = file }
                 }
                 // If the filemap entry is defined by the project itself,
                 // we have to break the matching loop. So that the current
                 // project have a chance to define it's own file. This is
-                // usefull when the bases or imported projects have also
-                // matched filemaps. The current project have the highest
+                // usefull when the bases (or imported projects) have also
+                // matched files. The current project have the highest
                 // priority to match.
                 for _, fm := range p.filemap {
-                        if filemap == fm {
-                                break ForFilemaps
-                        }
+                        if filemap == fm { break ForFilemaps }
                 }
         }
-        if first != file && (file == nil || !file.exists()) {
-                file = first
+        if first != file && !exists(file) { file = first }
+        return
+}
+
+func (p *Project) matchTempFile(pos Position, name string) (file *File) {
+        if file = p.matchFile(name); file != nil {
+                // good
+        } else if ctd := p.scope.FindDef("CTD"); ctd == nil {
+                unreachable()
+        } else if s, err := ctd.Strval(); err == nil {
+                // stat temp file (maybe not existed)
+                file = stat(pos, filepath.Join(s, name), "", "", nil)
+        } else {
+                fmt.Fprintf(stderr, "%v: %v\n", p, err)
         }
         return
 }
 
 func (p *Project) isFileName(s string) (res bool) {
         if len(s) > 0 {
-                for _, filemap := range p.filemaps(true) {
+                for _, filemap := range p.filemaps() {
                         if res, _ = filemap.Match(s); res { break }
                 }
         }
@@ -470,6 +497,8 @@ func (p *Project) resolveObject(s string) (obj Object, err error) {
 }
 
 func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
+        if optionEnableBenchmarks && false { defer bench(mark("Project.resolveEntry")) }
+        if optionEnableBenchspots { defer bench(spot("Project.resolveEntry")) }
         for _, rec := range p.concrete {
                 switch target := rec.target.(type) {
                 case *File:
@@ -484,20 +513,47 @@ func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
                 entry, err = base.resolveEntry(s)
                 if err != nil || entry != nil { break }
         }
+        if err == nil && entry == nil {
+                if true { /* FAST */ } else { /* SLOW */
+                        for _, using := range p.using.list {
+                                entry, err = using.project.resolveEntry(s)
+                                if err != nil || entry != nil { break }
+                        }
+                }
+        }
         return
 }
 
 func (p *Project) resolvePatterns(i interface{}) (res []*StemmedEntry, err error) {
-        for _, p := range p.patterns {
+        if optionEnableBenchmarks && false { defer bench(mark("Project.resolvePatterns")) }
+        if optionEnableBenchspots { defer bench(spot("Project.resolvePatterns")) }
+        var v []*StemmedEntry
+        if res, err = p._resolvePatterns1(i); err != nil { return }
+        if v, err = p._resolvePatterns2(i); err != nil { return } else {
+                res = append(res, v...)
+        }
+        if true { /* FAST */ } else /* SLOW */
+        if v, err = p._resolvePatterns3(i); err != nil { return } else {
+                res = append(res, v...)
+        }
+        return
+}
+
+func (p *Project) _resolvePatterns1(i interface{}) (res []*StemmedEntry, err error) {
+        if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns1")) }
+        for _, pat := range p.patterns {
                 var ( s string ; stems []string )
-                if s, stems, err = p.Pattern.match(i); err != nil {
+                if s, stems, err = pat.Pattern.match(i); err != nil {
                         return
                 } else if s != "" && stems != nil {
-                        res = append(res, &StemmedEntry{
-                                p, stems, s, nil,
-                        })
+                        res = append(res, &StemmedEntry{pat, stems})
                 }
         }
+        return
+}
+
+func (p *Project) _resolvePatterns2(i interface{}) (res []*StemmedEntry, err error) {
+        if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns2")) }
         for _, base := range p.bases {
                 var ses []*StemmedEntry
                 ses, err = base.resolvePatterns(i)
@@ -507,177 +563,13 @@ func (p *Project) resolvePatterns(i interface{}) (res []*StemmedEntry, err error
         return
 }
 
-func (p *Project) updateTarget(pc *preparer, target string) (err error) {
-        if file := p.matchFile(target); file != nil {
-                if enable_assertions {
-                        assert(file.match != nil, "`%s` nil match", target)
-                }
-
-                // Invoke file rules no matter if it existed or not.
-                var okay bool // true if doing good
-                if okay, err = p.updateFile(pc, file); err != nil || okay {
-                        if optionTracePrepare {
-                                if okay {
-                                        pc.tracef("%s: updateTarget(file{%s}) (okay)", p.name, file)
-                                } else {
-                                        pc.tracef("%s: updateTarget(file{%s}): %v", p.name, file, err)
-                                }
-                        }
-                        return
-                } else if enable_assertions {
-                        assert(err == nil, "got error: %v", err)
-                        assert(!file.exists(), "`%s` file exists", file)
-                }
-
-                err = fileNotFoundError{p, file}
-                if optionTracePrepare {
-                        pc.tracef("%s: `updateTarget(file{%s,%s,%s})` not found", p.name, file.dir, file.sub, file.name)
-                }
-                return
-        }
-
-        var entry *RuleEntry
-        if entry, err = p.resolveEntry(target); err != nil {
-                //if optionTracePrepare { pc.tracef("%s", err) }
-                return
-        } else if entry != nil {
-                err = pc.traverse(entry)
-                return
-        }
-
-        var ses []*StemmedEntry
-        if ses, err = p.resolvePatterns(target); err == nil {
-                for _, se := range ses {
-                        se.target = target // Bounds StemmedEntry with the source.
-                        if err = se.prepare(pc); err == nil {
-                                return // Updated successfully!
-                        } else if _, ok := err.(patternPrepareError); ok {
-                                // Discard pattern unfit errors and caller stack.
-                                err = nil
-                        } else {
-                                break // Update failed!
-                        }
-                }
-        }
-
-        err = targetNotFoundError{ p, target }
-        if optionTracePrepare {
-                pc.tracef("%s: `updateTarget(%s)` not found", p.name, target)
-        }
-        return
-}
-
-func (p *Project) updateFile(pc *preparer, file *File) (okay bool, err error) {
-        var names = make(map[string]bool)
-        for stub := file.filestub; true; stub = stub.other {
-                names[stub.name] = true // mark to avoid retrying later
-                okay, err = p.updateFileStub(pc, stub)
-                if err != nil || okay { file.filestub = stub; return }
-                if stub.other == file.filestub { break }
-        }
-
-        // Try other names
-        var name string
-        for s, i := file.name, strings.LastIndex(file.name, PathSep); s != "" && i >= 0; {
-                if i == 0 {
-                        name = file.FullName()
-                } else {
-                        name = filepath.Join(s[i+1:], name)
-                }
-                s = s[:i] // slice out the prefix 
-                if _, tried := names[name]; !tried {
-                        names[name] = true // mark to avoid duplication
-
-                        var sub = filepath.Join(file.sub, s)
-                        var stub = &filestub{
-                                file.dir, sub, name,
-                                file.match, file.filestub.other,
-                        }
-                        file.filestub.other = stub
-
-                        okay, err = p.updateFileStub(pc, stub)
-                        if err != nil || okay {
-                                file.filestub = stub
-                                return
-                        }
-                }
-                i = strings.LastIndex(s, PathSep)
-        }
-        names = nil // clean names cache
-
-        if file.exists() {
-                pc.addNotExistedTarget1(file)
-                okay = true
-                return
-        }
-
-        if file.match != nil {
-                if file.searchInMatchedPaths(p) {
-                        pc.addNotExistedTarget1(file)
-                        okay = true
-                        return
-                }
-        } else if alt := p.searchFile(file.name); alt != nil {
-                pc.addNotExistedTarget1(alt)
-                okay = true
-                return
-        }
-
-        /*
-        for _, other := range pc.related {
-                if other == p { continue }
-                if alt := other.searchFile(file.name); alt != nil {
-                        pc.addNotExistedTarget1(alt)
-                        okay = true
-                        return
-                }
-        }
-        */
-
-        err = fileNotFoundError{p, file}
-        if optionTracePrepare {
-                //pc.tracef("execstack: %s", execstack)
-                pc.tracef("%s: `updateFile({%s,%s,%s})` not found", p.name, file.dir, file.sub, file.name)
-        }
-        return
-}
-
-func (p *Project) updateFileStub(pc *preparer, stub *filestub) (okay bool, err error) {
-        var entry *RuleEntry
-        if entry, err = p.resolveEntry(stub.name); err != nil {
-                return
-        } else if entry != nil {
-                err, okay = entry.prepare(pc), true
-                return
-        }
-
-        var ses []*StemmedEntry
-        if ses, err = p.resolvePatterns(stub); err != nil {
-                return
-        } else if len(ses) == 0 {
-                return
-        }
-
-ForPatterns:
-        for _, se := range ses {
-                for _, prog := range se.programs {
-                        var ok bool
-                        ok, err = checkPatternDepends(pc, p, se, prog)
-                        if !ok { continue ForPatterns }
-                }
-                se.stub = stub // Bounds StemmedEntry with the File.
-                if err = se.prepare(pc); err == nil {
-                        okay = true
-                        return // Updated successfully!
-                } else if e, ok := err.(patternPrepareError); ok {
-                        if _, ok = e.error.(*breaker); ok {
-                                okay = true
-                                return // Breaked!
-                        }
-                } else {
-                        okay = true
-                        return // Update failed!
-                }
+func (p *Project) _resolvePatterns3(i interface{}) (res []*StemmedEntry, err error) {
+        if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns3")) }
+        for _, using := range p.using.list {
+                var ses []*StemmedEntry
+                ses, err = using.project.resolvePatterns(i)
+                if err != nil { return }
+                res = append(res, ses...)
         }
         return
 }
@@ -698,21 +590,13 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
         var closured = target.closured()
         if special == specialRuleUse && !closured {
                 var optPostExecute bool
-                for _, v := range options {
-                        var opt bool
-                        switch t := v.(type) {
-                        case *Flag:
-                                if opt, err = t.is(0, "post"); err != nil { return }
-                                if opt { optPostExecute = true }
-                        case *Pair:
-                                if opt, err = t.isFlag(0, "post"); err != nil { return }
-                                if opt { optPostExecute = t.Value.True() }
-                        default:
-                                err = fmt.Errorf("`%v` invalid package option (%T)", v, v)
-                                return
+                if _, err = parseFlags(options, []string{
+                        "p,post",
+                }, func(ru rune, v Value) {
+                        switch ru {
+                        case 'p': if optPostExecute, err = trueVal(v, false); err != nil { return }
                         }
-                }
-
+                }); err != nil { return }
                 var userule = &useRuleEntry{
                         RuleEntry{ class:UseRuleEntry, target:target },
                         optPostExecute, // post-execute use rule?
@@ -799,78 +683,6 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
         return
 }
 
-func (p *Project) CmdHash(target Value, recipes []string) (k, v HashBytes, err error) {
-        var (
-                key = sha256.New()
-                val = sha256.New()
-                str string
-        )
-        fmt.Fprintf(key, "%s", p.AbsPath())
-        if str, err = target.Strval(); err == nil {
-                fmt.Fprintf(key, "%s", str)
-        } else {
-                return
-        }
-        /* if str, err = depend.Strval(); err == nil {
-                fmt.Fprintf(key, "%s", str)
-        } else {
-                return
-        } */
-        for _, recipe := range recipes {
-                /* if recipe, err = Reveal(recipe); err != nil { return }
-                if str, err = recipe.Strval(); err != nil { return }
-                fmt.Fprintf(val, "%v", str) */
-                fmt.Fprintf(val, "%v", recipe)
-        }
-        copy(k[:], key.Sum(nil))
-        copy(v[:], val.Sum(nil))
-        return
-}
-
-func (p *Project) hashDir(k []byte) string {
-        h := fmt.Sprintf("%x", k[:2]) // HEX of the first two bytes
-        return filepath.Join(p.tmpPath, ".hash", h[0:1], h[1:2], h[2:3], h[3:])
-}
-
-func (p *Project) CheckCmdHash(target Value, recipes []string) (same bool, err error) {
-        var (
-                k, v HashBytes
-                dir = p.hashDir(k[:])
-        )
-        if k, v, err = p.CmdHash(target, recipes); err != nil { return }
-        if f, e := os.Open(filepath.Join(dir, fmt.Sprintf("%x", k))); e == nil {
-                var h []byte
-                if n, e := fmt.Fscanf(f, "%x", &h); e != nil {
-                        err = e; return
-                } else if n == 1 {
-                        same = bytes.Equal(v[:], h)
-                        //fmt.Fprintf(stderr, "CheckCmdHash: %x -> %x (%x)\n", k, v, h)
-                }
-                err = f.Close()
-        } else {
-                err = e
-        }
-        return
-}
-
-func (p *Project) UpdateCmdHash(target Value, recipes []string) (k, v HashBytes, err error) {
-        if k, v, err = p.CmdHash(target, recipes); err != nil {
-                return
-        }
-        dir := p.hashDir(k[:])
-        if err = os.MkdirAll(dir, 0700); err != nil {
-                return
-        }
-        if f, e := os.Create(filepath.Join(dir, fmt.Sprintf("%x", k))); e == nil {
-                //fmt.Fprintf(stderr, "UpdateCmdHash: %x -> %x (%s)\n", k, v, target.Strval())
-                fmt.Fprintf(f, "%x", v)
-                err = f.Close()
-        } else {
-                err = e
-        }
-        return
-}
-
 func (p *Project) isa(proj *Project) (res bool) {
         for _, base := range p.bases {
                 if base == proj { res = true; break }
@@ -886,25 +698,25 @@ func (p *Project) hasBase(proj *Project) (res bool) {
         return
 }
 
-func (p *Project) hasImported(proj *Project) (rp *Project, res, isb bool, err error) {
-        return p.hasImportedRecur(p, proj)
+func (p *Project) hasLoaded(proj *Project, breakUseLoop bool) (rp *Project, res, isb bool, err error) {
+        return p.hasLoadedRecur(p, proj, breakUseLoop)
 }
 
-func (p *Project) hasImportedRecur(top, proj *Project) (rp *Project, res, isb bool, err error) {
+func (p *Project) hasLoadedRecur(top, proj *Project, breakUseLoop bool) (rp *Project, res, isb bool, err error) {
         for _, base := range p.bases {
                 if isb = base == proj; isb { return }
-                if rp, res, isb, err = base.hasImportedRecur(top, proj); err != nil {
+                if rp, res, isb, err = base.hasLoadedRecur(top, proj, breakUseLoop); err != nil {
                         return
                 } else if res || isb { rp = base ; return }
         }
-        for _, imp := range p.imports {
-                if imp == top {
-                        s := top.loopImportPath()
+        for _, imp := range p.loads {
+                if imp == top && !breakUseLoop {
+                        s := top.loopLoadPath()
                         err = fmt.Errorf("loop `%v`", s)
                         return
                 }
                 if res = imp == proj; res { rp = imp; return }
-                if rp, res, res, err = imp.hasImportedRecur(top, proj); err != nil {
+                if rp, res, res, err = imp.hasLoadedRecur(top, proj, breakUseLoop); err != nil {
                         return
                 } else if res { rp = imp; return }
         }
@@ -912,17 +724,17 @@ func (p *Project) hasImportedRecur(top, proj *Project) (rp *Project, res, isb bo
         return
 }
 
-func (p *Project) loopImportPath() (s string) { return p.loopImportRecur(p) }
-func (p *Project) loopImportRecur(top *Project) (s string) {
-        for _, imp := range p.imports {
+func (p *Project) loopLoadPath() (s string) { return p.loopLoadRecur(p) }
+func (p *Project) loopLoadRecur(top *Project) (s string) {
+        for _, imp := range p.loads {
                 if imp == top {
                         if p != top { s = "⇢" }
-                        s += p.name + "⇢" + imp.name
+                        s += fmt.Sprintf("(%s)⇢(%s)", p.spec, imp.spec)
                         break
                 }
-                if t := imp.loopImportRecur(top); t != "" {
+                if t := imp.loopLoadRecur(top); t != "" {
                         if p != top { s = "⇢" }
-                        s += p.name + t
+                        s += fmt.Sprintf("(%s)%s", p.spec, t)
                         break
                 }
         }
@@ -945,7 +757,7 @@ func (p *Project) isUsingDirectly(proj *Project) (res bool) {
 }
 
 func (p *Project) usees(post bool) (res []*Project) {
-        if p.breakRecursiveUsing { return }
+        if p.breakUseLoop { return }
         for _, u := range p.using.list {
                 if !post { res = append(res, u.project) }
                 for _, u := range u.project.usees(post) {
@@ -958,40 +770,19 @@ func (p *Project) usees(post bool) (res []*Project) {
 
 //var cdUnlocked = make(chan bool, 1)
 // Note: this is okay not using an atomic value, because
-// cdUnlockMutex can serve to protect the whole timeframe.
+// chdirMutex can serve to protect the whole timeframe.
 //var cdUnlockTime atomic.Value
-var cdUnlockMutex = new(sync.Mutex)
+var chdirMutex = new(sync.Mutex)
 
-func lockCD(dir string, lockDura time.Duration) error {
-        // Protect the work directory, `cdUnlockMutex` ensures that
+func lockCD(dir string, dura time.Duration) error {
+        // Protect the work directory, `chdirMutex` ensures that
         // there's only one timer being counting to avoid work
         // directory being changed before the deadline.
-        cdUnlockMutex.Lock()
-        /*
-        defer cdUnlockMutex.Unlock()
-        if v := cdUnlockTime.Load(); v == nil {
-                // no deadline was set
-        } else if t, ok := v.(time.Time); ok && t.After(time.Now()) {
-                //for t.After(time.Now())
-                select {
-                //case <-cdUnlocked: //cdLocker.Wait():
-                case <-time.After(time.Until(t)): //(t.Sub(time.Now())):
-                }
-        }
-        if lockDura > 0 {
-                cdUnlockTime.Store(time.Now().Add(lockDura))
-        } */
-        if lockDura > 0 {
-                //fmt.Printf("cd: %s (lock %v)\n", dir, lockDura)
-                go func() {
-                        time.Sleep(lockDura)
-                        cdUnlockMutex.Unlock()
-                        //fmt.Printf("cd: %s (unlocked)\n", dir)
-                } ()
-        } else {
-                //fmt.Printf("cd: %s\n", dir)
-                defer cdUnlockMutex.Unlock()
-        }
+        chdirMutex.Lock()
+        go func() {
+                if dura > 0 { time.Sleep(dura) }
+                chdirMutex.Unlock()
+        } ()
         return os.Chdir(dir)
 }
 
@@ -1004,7 +795,7 @@ func enter(prog *Program, dir string) (err error) {
         if wd, err = os.Getwd(); err != nil { return }
         if err = lockCD(dir, 0); err != nil { return }
         if !filepath.IsAbs(dir) { dir = filepath.Join(wd, dir) }
-        prog.auto("CWD", &String{dir})
+        prog.auto("CWD", &String{trivial{prog.position},dir})
 
         var ( enter *enterec ; ok bool )
         if enter, ok = cd.enters[dir]; !ok {

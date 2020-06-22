@@ -10,16 +10,19 @@ import (
         "extbit.io/smart/token"
 	"path/filepath"
         "strings"
+        "bufio"
         "time"
         "fmt"
         "os"
+        "io"
+        "io/ioutil"
 )
 
 var (
         optionHelp = false
         optionClean = false
-        optionReconfig = false
         optionConfigure = false
+        optionReconfig = false
         optionAlwaysBuildPlugins = false
         optionVerbose = false
         optionVerboseUsing = false
@@ -30,82 +33,83 @@ var (
         optionBenchImport = false
         optionBenchSlow = false
         optionBenchBuiltin = false
-)
-const (
+        optionPrintConfiguration = false
+        optionPrintFlags = false
+        optionPrintStack = false
+        optionNoExec = false
+
+        // Tracking options
+        optionTraceLaunch = false
         optionTraceParsing = false
-        optionTracePrepare = false
-        optionTraceCompare = false
-        optionTraceEntering = optionTracePrepare && false
+        optionTraceTraversal = false
+        optionTraceTraversalNestIndent = true
+        optionTraceExecutor = false
+        optionTraceExec = false
+        optionTraceEntering = optionTraceTraversal && false
+        optionTraceConfig = false
 
-        optionExecuteUseRulesRecursively = false
-        optionExecuteUseRuleMultiTimes = false
-        optionExecuteUseLightly = true
-        optionExecuteUseBases = false
+        // Return error if wildcard files not found.
+        optionWildcardMissingError = false
 
-        optionSearchImportedFiles = false // time consuming
-
-        optionNoDeprecatedFeatures = true
-        optionUseImportedProjects = true
+        optionSaveGrepSourceName = false
 )
 
 type Context struct {
         workdir string
-        preargs string // pre-loading command arguments (evaluated on the first project declaration)
         prefix  string // FIXME: prefix for distribution
         globe   *Globe
+        goals   *Def
+        mode    *Def
+        pairs []*Pair
         loader  *loader
-        goals []Value
+        flagEntries map[string][]*RuleEntry
+        flags []*Flag
+        args map[Value][]Value
 }
 
 var context Context
 
 func current() (proj *Project) {
-        switch {
-        case context.loader != nil: // at load time
-                proj = context.loader.project
-        case len(execstack) > 0: // at runtime
-                proj = execstack[0].project
-        }
-        return
-}
-
-func mostDerived() (proj *Project) {
-        // Check cloctx first, then execstack and context.loader
         if len(cloctx) > 0 && cloctx[0].project != nil {
-                return cloctx[0].project
-        }
-
-        if l := len(execstack); l == 1 {
-                proj = execstack[0].project
-        } else if l > 1 {
-                var p = execstack[0].project
-                for i, prog := range execstack[1:] {
-                        // If the next (n=i+1) project is derived from 'p'...
-                        if n := i+1; n < l {
-                                if p == prog.project { continue } else {
-                                        var next = execstack[n].project
-                                        if next.isa(p) { p = next; continue }
-                                }
-                        }
-                        break
-                }
-                proj = p
-        } else {
-                proj = current()
+                proj = cloctx[0].project
+        } else if context.loader != nil { // for load time
+                proj = context.loader.project
         }
         return
 }
 
 func (ctx *Context) run() (result []Value, err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "Context.run")) }
+
         var main = ctx.globe.main
         if main == nil {
                 err = fmt.Errorf("no targets to update `%v`", ctx.goals)
                 return
         }
 
+        defer setclosure(setclosure(cloctx.unshift(main.scope)))
+
+        var done bool
+        for _, flag := range ctx.flags {
+                var s string
+                if s, err = flag.name.Strval(); err != nil { return }
+                var args, _ = ctx.args[flag]
+                var entries, _ = ctx.flagEntries[s]
+                for _, entry := range entries {
+                        var res []Value
+                        res, err = entry.Execute(entry.position, args...)
+                        if err == nil {
+                                result = append(result, res...)
+                                done = true
+                        } else { return }
+                }
+        }
+        if done { return }
+
         var goals []Value
-        for _, goal := range ctx.goals {
+        for _, goal := range merge(ctx.goals.value) {
                 switch t := goal.(type) {
+                case *None: // just ignore
                 case *Bareword:
                         if entry, err := main.resolveEntry(t.string); err != nil {
                                 fmt.Fprintf(stderr, "%s\n", err)
@@ -125,40 +129,34 @@ func (ctx *Context) run() (result []Value, err error) {
                                 goals = append(goals, entry)
                         }
                 default:
-                        fmt.Fprintf(stderr, "unknown target `%v` (%T)\n", goal, goal)
+                        fmt.Fprintf(stderr, "unknown target (%s): %v\n", typeof(goal), goal)
                 }
         }
 
         var updated int
         if len(goals) == 0 {
                 if entry := main.DefaultEntry(); entry != nil {
-                        if result, err = entry.Execute(entry.Position); err == nil {
-                                updated += 1
-                        }
+                        goals = append(goals, main.DefaultEntry())
                 }
-        } else {
-                defer setclosure(setclosure(cloctx.unshift(main.scope)))
-                for _, goal := range goals {
-                        var ( entry *RuleEntry; ok bool )
-                        if entry, ok = goal.(*RuleEntry); !ok || entry == nil {
-                                fmt.Fprintf(stderr, "`%v` is not an entry", goal)
-                                break
-                        }
-
-                        var v []Value
-                        /*for _, a := range args {
-                                v = append(v, &String{a})
-                        }*/
-
-                        // The the base project scope as execution context. For
-                        // example of 'base.test', the entry 'test' can resolve
-                        // '&(FOO)', '&(BAR)', etc.
-                        if result, err = entry.Execute(entry.Position, v...); err == nil {
-                                updated += 1
-                        } else {
-                                break
-                        }
+        }
+        for _, goal := range goals {
+                var res []Value
+                var args, _ = ctx.args[goal]
+                if res, err = updateGoal(goal, args); err != nil { break } else {
+                        result = append(result, res...)
+                        updated += 1
                 }
+        }
+        return
+}
+
+func updateGoal(goal Value, args []Value) (result []Value, err error) {
+        if goal == nil { return }
+        switch g := goal.(type) {
+        case *RuleEntry:
+                result, err = g.Execute(g.position, args...)
+        default:
+                err = fmt.Errorf("'%v' is not an entry (%T)", goal, goal)
         }
         return
 }
@@ -166,7 +164,7 @@ func (ctx *Context) run() (result []Value, err error) {
 func walkSmartBaseDirs(cwd string, vis func(string)bool) (s string) {
         s = cwd
         for s != "" {
-                file := stat(".smart", "", s)
+                file := stat(Position{}, ".smart", "", s)
                 if file != nil && file.info.IsDir() && !vis(s) { break }
                 if up := filepath.Dir(s); up == s {
                         break
@@ -228,90 +226,35 @@ func joinTmpPath(base, rel string) string {
         return filepath.Join(baseTmpPath, ".smart", "tmp", rel)
 }
 
-func processCommandOption(flag *Flag, args... Value) (err error) {
-        var opt bool
-        if opt, err = flag.is('h', "help"); err != nil { return } else if opt {
-                optionHelp = true; return
-        }
-        if opt, err = flag.is('b', "build-plugins"); err != nil { return } else if opt {
-                optionAlwaysBuildPlugins = true; return
-        }
-        if opt, err = flag.is(0, "bench-import"); err != nil { return } else if opt {
-                optionBenchImport = true; return
-        }
-        if opt, err = flag.is('v', "verbose"); err != nil { return } else if opt {
-                optionVerbose = true; return
-        }
-        if opt, err = flag.is(0, "verbose-import"); err != nil { return } else if opt {
-                optionVerboseImport = true; return
-        }
-        if opt, err = flag.is(0, "verbose-checks"); err != nil { return } else if opt {
-                optionVerboseChecks = true; return
-        }
-        if opt, err = flag.is(0, "rc"); err != nil { return } else if opt {
-                optionConfigure, optionReconfig = true, true; return
-        } else {
-                if opt, err = flag.is('c', "configure"); err != nil { return } else if opt {
-                        optionConfigure = true; return
-                }
-                if opt, err = flag.is('r', "reconfigure"); err != nil { return } else if opt {
-                        optionConfigure, optionReconfig = true, true; return
-                }
-        }
-        err = fmt.Errorf("`%v` unknown command option", flag.Name)
-        return
-}
-
-func (ctx *Context) loadCommandArguments(text string) (err error) {
-        for _, target := range ctx.loader.loadText("@", text) {
-                switch t := target.(type) {
-                case *Flag:
-                        if t.Name == nil || t.Name.Type() == NoneType {
-                                // TODO: bare '-'
-                        } else if err = processCommandOption(t); err != nil {
-                                fmt.Fprintf(stderr, "%s\n", err)
-                        }
-                case *Pair:
-                        switch k := t.Key.(type) {
-                        case *Flag:
-                                if err = processCommandOption(k, t.Value); err != nil {
-                                        fmt.Fprintf(stderr, "%s\n", err)
-                                }
-                        case *Bareword:
-                                if proj := ctx.loader.project; proj != nil {
-                                        def, alt := ctx.loader.def(k.string)
-                                        if def == nil && alt != nil {
-                                                def = alt.(*Def)
-                                        }
-                                        def.set(DefDefault, t.Value)
-                                }
-                        default:
-                                fmt.Fprintf(stderr, "unknown target `%v` (%v)\n", t, ctx.loader.project)
-                        }
-                case *Bareword, *delegate:
-                        ctx.goals = append(ctx.goals, t)
-                default:
-                        fmt.Fprintf(stderr, "unknown target `%s` (of %T)\n", target, target)
-                }
-        }
-        return
-}
-
 // loadwork loads smart files, making it as individual func to avoid being
 // abused by loaders.
 func (ctx *Context) loadwork() (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "Context.loadwork")) }
         defer func(l *loader) { ctx.loader = l } (ctx.loader)
+
+        var (
+                base, _ = os.Getwd()
+                sp = filepath.Join(base, ".smart", "modules")
+                pos Position // FIXME: find a useful position
+                args []Value
+        )
         ctx.loader = &loader{
                 Context:  ctx,
                 fset:     token.NewFileSet(), 
                 paths:    []string(globalPaths),
                 loaded:   make(map[string]*Project),
-                ruleParseFunc: parseRuleClause,
-                includeFunc: includespec,
-                usefunc:  useProject,
                 scope:    ctx.globe.scope,
         }
+        ctx.goals = &Def{
+                knownobject{trivialobject{scope:ctx.globe.scope}, "goals"},
+                DefDefault, &None{trivial{pos}},
+        }
+        ctx.mode = &Def{
+                knownobject{trivialobject{scope:ctx.globe.scope}, "mode"},
+                DefDefault, &None{trivial{pos}},
+        }
 
+        if _, e := os.Stat(sp); e == nil { ctx.loader.AddSearchPaths(sp) }
         if optionVerbose || optionBenchImport {
                 defer func(t time.Time) {
                         var d = time.Now().Sub(t)
@@ -319,146 +262,116 @@ func (ctx *Context) loadwork() (err error) {
                 } (time.Now())
         }
 
-        var (
-                base, _ = os.Getwd()
-                rel, _ = filepath.Rel(base, base)
-                tmp = joinTmpPath(base, rel)
-                sp = filepath.Join(base, ".smart", "modules")
-
-                at = ctx.loader.globe.project(nil, base, rel, tmp, ".", "@")
-                as = at.Scope()
-        )
-
-        if def := as.FindDef("SMART"); def != nil {
-                def.set(DefSimple, nil)
-                for _, s := range globalPaths {
-                        def.append(&String{"-search"})
-                        def.append(&String{s})
+        if text := strings.Join(os.Args[1:], " "); text == "" {
+                // Relax!
+        } else if args = ctx.loader.loadText("@", text); err != nil {
+                // ...
+        } else if args, err = tryParseFlags(args, []string{
+                "h,help",
+                "d,debug",
+                "d,print-stack",
+                "o,print-options",
+                "f,print-flags",
+                "b,build-plugins",
+                "n,bench-import",
+                "e,bench-builtins",
+                "v,verbose",
+                "i,verbose-import",
+                "c,verbose-checks",
+                "l,verbose-loading",
+                "p,verbose-parsing",
+                "u,verbose-using",
+                "r,reconfigure",
+                "g,configure",
+                "m,no-exec", // optionNoExec
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'h': if optionHelp              , err = trueVal(v, true); err != nil { return }
+                case 'b': if optionAlwaysBuildPlugins, err = trueVal(v, true); err != nil { return }
+                case 'o': if optionPrintConfiguration, err = trueVal(v, true); err != nil { return }
+                case 'f': if optionPrintFlags        , err = trueVal(v, true); err != nil { return }
+                case 'd': if optionPrintStack        , err = trueVal(v, true); err != nil { return }
+                case 'n': if optionBenchImport       , err = trueVal(v, true); err != nil { return }
+                case 'e': if optionBenchBuiltin      , err = trueVal(v, true); err != nil { return }
+                case 'v': if optionVerbose           , err = trueVal(v, true); err != nil { return }
+                case 'i': if optionVerboseImport     , err = trueVal(v, true); err != nil { return }
+                case 'c': if optionVerboseChecks     , err = trueVal(v, true); err != nil { return }
+                case 'p': if optionVerboseParsing    , err = trueVal(v, true); err != nil { return }
+                case 'l': if optionVerboseLoading    , err = trueVal(v, true); err != nil { return }
+                case 'u': if optionVerboseUsing      , err = trueVal(v, true); err != nil { return }
+                case 'g': if optionConfigure         , err = trueVal(v, true); err != nil { return }
+                case 'm': if optionNoExec            , err = trueVal(v, true); err != nil { return }
+                case 'r': if optionReconfig          , err = trueVal(v, true); err != nil { return }
+                        optionConfigure = optionReconfig
                 }
-        }
+        }); err != nil { return }
 
-        if _, e := os.Stat(sp); e == nil {
-                ctx.loader.AddSearchPaths(sp)
-        }
-
-        saveLoadingInfo(ctx.loader, at.Spec(), at.absPath, "")
-        linfo := ctx.loader.loads[len(ctx.loader.loads)-1]
-        linfo.declares[at.Name()] = &declare{ project: at }
-
-        ctx.loader.globe.scope.ProjectName(nil, at.Name(), at)
-
-        var (
-                ab = base
-                defCTD, _ = as.Def(at, "CTD", &String{tmp})
-                defCWD, _ = as.Def(at, "CWD", &String{at.absPath})
-                defS, _ = as.Def(at, "/", &String{at.absPath})
-                defD, _ = as.Def(at, ".", universalnone)
-        )
-        if defCTD == nil { /* ... */ }
-        if defCWD == nil { /* ... */ }
-AtLookupLoop:
-        for {
-                var s1 = filepath.Join(ab, "@.smart")
-                var s2 = filepath.Join(ab, "@")
-                if fi, _ := os.Stat(s1); fi != nil {
-                        if m := fi.Mode(); m.IsRegular() {
-                                defS.set(DefExpand, &String{ab})
-                                defD.set(DefExpand, &String{ab})
-                                if optionVerboseImport { fmt.Fprintf(stderr, "┌→%s\n", s1) }
-                                if err = ctx.loader.loadFile(s1, nil); err != nil {
-                                        return
-                                } else {
-                                        break AtLookupLoop
-                                }
+        ctx.args = make(map[Value][]Value)
+        for _, target := range args {
+                switch t := target.(type) {
+                case *Flag: ctx.flags = append(ctx.flags, t)
+                case *Pair: ctx.pairs = append(ctx.pairs, t)
+                case *Argumented:
+                        ctx.args[t.value] = t.args
+                        if f, ok := t.value.(*Flag); ok {
+                                ctx.flags = append(ctx.flags, f)
                         } else {
-                                fmt.Fprintf(stderr, "@.smart is not a regular")
+                                ctx.goals.append(t.value)
                         }
-                } else if fi, _ = os.Stat(s2); fi != nil {
-                        if m := fi.Mode(); m.IsDir() {
-                                defS.set(DefExpand, &String{ab})
-                                defD.set(DefExpand, &String{ab})
-                                if optionVerboseImport { fmt.Fprintf(stderr, "┌→%s\n", s2) }
-                                if err = ctx.loader.loadPath(s2, nil); err != nil {
-                                        return
-                                } else {
-                                        break AtLookupLoop
-                                }
-                        } else {
-                                fmt.Fprintf(stderr, "@ is not a directory")
-                        }
+                default: ctx.goals.append(t)
                 }
-                if ab == "/" { break }
-                if ab = filepath.Dir(ab); ab == "." { break }
         }
 
-        restoreLoadingInfo(ctx.loader)
-
-        var args []string
-        var commandText string
-        for _, a := range os.Args[1:] {
-                switch a {
-                case "-b", "-build-plugins":
-                        optionAlwaysBuildPlugins = true
-                case "-bi", "-bench-import":
-                        optionBenchImport = true
-                case "-bb", "-bench-builtins":
-                        optionBenchBuiltin = true
-                case "-v", "-verbose":
-                        optionVerbose = true
-                case "-vp", "-verbose-parsing":
-                        optionVerboseParsing = true
-                case "-vl", "-verbose-loading":
-                        optionVerboseLoading = true
-                case "-vu", "-verbose-using":
-                        optionVerboseUsing = true
-                case "-vi", "-verbose-import":
-                        optionVerboseImport = true
-                case "-vc", "-verbose-checks":
-                        optionVerboseChecks = true
-                default:
-                        args = append(args, a)
-                }
-        }
-        for i, s := range args {
-                if s == "-" {
-                        ctx.preargs = strings.Join(args[:i], " ")
-                        commandText = strings.Join(args[i:], " ")
-                        break
-                }
-        }
-        if ctx.preargs == "" && commandText == "" && len(args) > 0 {
-                ctx.preargs = strings.Join(args, " ")
-        }
+        var mode string
+        if optionConfigure { mode = "configure" } else { mode = "goals" }
+        context.mode.value = &Bareword{string:mode}
 
         defer func(t time.Time) {
-                var name string
-                if ctx.loader.project != nil {
-                        name = ctx.loader.project.name
-                }
                 var d = time.Now().Sub(t)
                 if optionVerboseImport {
+                        var name string
+                        if p := ctx.loader.project; p != nil { name = p.name }
                         fmt.Fprintf(stderr, "└·%s … (%s)\n", name, d)
                 } else if d > 5000*time.Millisecond {
-                        fmt.Fprintf(stderr, "smart: %s … (%s)\n", name, d)
+                        fmt.Fprintf(stderr, "smart: Long load time: %s !\n", d)
                 }
         } (time.Now())
         if optionVerboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
 
         if err = ctx.loader.loadPath(base, nil); err != nil { return }
-        if ctx.loader.globe.main == nil {
-                fmt.Fprintf(stderr, "no projects loaded\n")
-                return
-        }
-
-        if commandText != "" {
-                err = ctx.loadCommandArguments(commandText)
-        }
+        if ctx.loader.globe.main == nil { fmt.Fprintf(stderr, "nothing loaded\n") }
         return
 }
 
 func CommandLine() {
         if s, err := os.Getwd(); err != nil { return } else {
                 context.workdir = s
+        }
+
+        if optionTraceLaunch { defer un(trace(t_launch, "CommandLine")) }
+        if optionEnableBenchmarks {
+                var w *bufio.Writer
+                var d = filepath.Join(context.workdir, "benchmarks")
+                if err := os.MkdirAll(d, os.FileMode(0777)); err != nil {
+                        fmt.Fprintf(stderr, "MkdirAll: %s\n", err)
+                        return
+                } else if f, err := ioutil.TempFile(d, "*.log"); err != nil {
+                        fmt.Fprintf(stderr, "TempFile: %s\n", err)
+                        return
+                } else {
+                        w = bufio.NewWriter(f)
+                        benchmark.start = time.Now()
+                        benchmark.spot = benchmark.start
+                        defer func(t time.Time) {
+                                benchspot_report(w)
+                                w.WriteString("--------\n")
+                                benchmark.spent = time.Now().Sub(t)
+                                benchmark.summary(w)
+                                benchmark.report(w, 0, nil)
+                                w.Flush()
+                                f.Close()
+                        } (benchmark.spot)
+                }
         }
 
         var modulesPaths, packagePaths searchlist
@@ -473,29 +386,68 @@ func CommandLine() {
 
         // make sure that .smart dirs have higher priority.
         globalPaths = append(modulesPaths, globalPaths...)
+        for _, s := range modulesPaths {
+                searchFile := filepath.Join(s, ".search")
+                if fi, _ := os.Stat(searchFile); fi == nil {
+                        continue
+                }
+                file, err := os.Open(searchFile)
+                if err != nil { report(err); return }
+                defer file.Close()
+                r := bufio.NewReader(file)
+                for err == nil {
+                        var line string
+                        if line, err = r.ReadString('\n'); err != nil {
+                                if err != io.EOF { report(err) }
+                                break
+                        } else {
+                                line = strings.TrimSpace(line)
+                        }
+                        if strings.HasPrefix(line, "#") {
+                                continue
+                        }
+                        line = filepath.Clean(filepath.Join(s, line))
+                        if fi, err := os.Stat(line); err == nil && fi.IsDir() {
+                                globalPaths = append(globalPaths, line)
+                        }
+                }
+        }
 
         //loadGrepCache()
+
         defer func(globe *Globe) {
                 saveGrepCache()
                 context.globe = globe
         } (context.globe)
-
         context.globe = NewGlobe("smart")
+        context.flagEntries = make(map[string][]*RuleEntry)
+
         if err := init_configuration(packagePaths); err != nil {
                 report(err)
         } else if err = context.loadwork(); err != nil {
                 report(err)
         } else if optionHelp {
                 do_helpscreen()
+        } else if optionPrintFlags {
+                print_flag_trace()
+        } else if optionPrintConfiguration {
+                print_configuration()
+        } else if numUpdatedPlugins > 0 { // see buildPlugin
+                fmt.Fprintf(stderr, "smart: Plugin updated, please relaunch.\n")
         } else if optionConfigure {
                 report(do_configuration())
         } else if result, err := context.run(); err != nil {
-                if _, ok := err.(*breaker); ok && false {
-                        panic(err)
-                } else {
-                        report(err)
-                        printLeavingDirectory()
+                defer printLeavingDirectory()
+
+                var brks, errs = extractBreakers(err)
+                for _, e := range brks {
+                        switch e.what {
+                        default: report(e)
+                        case breakDone, breakCase:
+                                // just relax
+                        }
                 }
+                for _, e := range errs { report(e) }
         } else if result != nil {
                 for _, v := range result {
                         var s string

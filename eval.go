@@ -6,24 +6,18 @@
 
 package smart
 
-import (
-        "fmt"
-)
-
 // evaluer evaluates smart statements
-type evaluer struct {
-        accumulation bool
-}
+type evaluer struct { accumulation bool }
 
-func (t *evaluer) Evaluate(prog *Program, args []Value) (result Value, err error) {
+func (p *evaluer) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
         var list []Value
 ForRecipes:
-        for _, recipe := range prog.recipes {
-                if t.accumulation {
+        for _, recipe := range t.program.recipes {
+                if p.accumulation {
                         var v Value
                         // Expand both closures and delegates to ensure that
                         // the right recipe value is returned.
-                        if v, err = recipe.expand(expandAll); err != nil { return } else {
+                        if v, err = recipe.expand(expandAll|expandPairVal); err != nil { return } else {
                                 list = append(list, v)
                         }
                         continue ForRecipes
@@ -35,16 +29,16 @@ ForRecipes:
                         if stmt.Len() == 0 { continue ForRecipes }
 
                         var v = stmt.Get(0)
-                        switch t := v.(type) {
+                        switch tv := v.(type) {
                         case *undetermined:
                                 // Noop, just return v to the caller.
 
                         case Caller:
-                                v, err = t.Call(prog.position, stmt.Slice(1)...)
+                                v, err = tv.Call(t.program.position, stmt.Slice(1)...)
 
                         case Executer:
                                 var a []Value
-                                if a, err = t.Execute(prog.Position(), stmt.Slice(1)...); err == nil {
+                                if a, err = tv.Execute(t.program.Position(), stmt.Slice(1)...); err == nil {
                                         if n := len(a); n == 1 {
                                                 v = a[0]
                                         } else if n > 1 {
@@ -53,7 +47,7 @@ ForRecipes:
                                 }
 
                         default:
-                                v, err = t.expand(expandClosure)
+                                v, err = tv.expand(expandClosure)
                         }
 
                         if err != nil {
@@ -82,10 +76,10 @@ ForRecipes:
                         }
 
                 default:
-                        fmt.Fprintf(stderr, "fatal: unsupported recipe: %v (%T)\n", recipe, recipe)
-                        unreachable()
+                        err = errorf(recipe.Position(), "unsupported recipe: %T", recipe)
+                        return
                 }
         }
-        result = MakeListOrScalar(list)
+        result = MakeListOrScalar(t.program.position, list)
         return
 }

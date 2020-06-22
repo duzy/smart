@@ -1,40 +1,61 @@
-package smart; const configurationInitFile = `project ~ (-nodock -final)
+package smart; func configurationInitFile() (string, string) { return `# confinit -*- smart -*-
+project ~ (-nodock -final)
+
+OUTDIR := &(CTD)/.configure
+
 files (
-    (*.c.include *.c++.include *.symbol *.variable *.function \
-     *.structmember *.sizeof *.type *.c *.c++) => &(CTD)/.configure
+    (*.c.include *.c++.include *.symbol *.variable *.function *.library \
+     *.structmember *.sizeof *.type *.c *.c++ *.log) ⇒ $(OUTDIR)
 )
 
-SHELL := shell -s
 CC := gcc
 CFLAGS :=
 LDFLAGS :=
 LOADLIBES :=
 LIBS :=
 LANG := c++
+
 _INCLUDES_ :=
 _FLAGS_ :=
 _VALUE_ :=
 _LIBS_ :=
 _LOADLIBES_ :=
 
--include:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)]: $(TARGET).$(LANG).include
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).$(LANG).out
--symbol:[((TARGET SYMBOL)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)]: $(TARGET).symbol($(SYMBOL))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
--function:[((TARGET FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)]: $(TARGET).function($(FUNCTION))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
--type:[((TARGET TYPE)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)]: $(TARGET).type($(TYPE))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
--library:[((TARGET LIBRARY FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)]: $(TARGET).function($(FUNCTION))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -l$(LIBRARY) -o &(CTD)/.configure/$(TARGET).out
--struct-member:[((TARGET STRUCT MEMBER)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)]: $(TARGET).structmember($(STRUCT),$(MEMBER))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
--sizeof:[((TARGET TYPE)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)]: $(TARGET).sizeof($(TYPE))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
--compiles:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)]: $(TARGET).$(LANG)
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
+# -l=$(or &(outobj),&(CTD))/.configure/$(TARGET).$(LANG).log
+# -o $(or &(outobj),&(CTD))/.configure/$(TARGET).$(LANG).out
+-include:[((TARGET)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).$(LANG).include \
+    [(shell -s -l=$@) (wait) (check -a status=0)]
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).$(LANG).out
+-symbol:[((TARGET SYMBOL)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).symbol($(SYMBOL)) \
+    [(shell -s -l=$@) (wait) (check -a status=0)]
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
+-function:[((TARGET FUNCTION)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).function($(FUNCTION)) \
+    [(shell -s -l=$@) (wait) (check -a status=0)]
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
+-type:[((TARGET TYPE)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).type($(TYPE)) \
+    [(shell -s -l=$@) (wait) (check -a status=0)]
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
+-library:[((TARGET LIBRARY FUNCTION)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] \
+    $(if $(FUNCTION),$(TARGET).function($(FUNCTION)),$(TARGET).library) \
+    [(shell -s -l=$@) (wait) (check -a status=0)]
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -l$(LIBRARY) -o $(OUTDIR)/$(TARGET).out
+-struct-member:[((TARGET STRUCT MEMBER)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).structmember($(STRUCT),$(MEMBER)) \
+    [(shell -s -l=$@) (wait) (check -a status=0)]
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
+-sizeof:[((TARGET TYPE)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).sizeof($(TYPE)) \
+    [(shell -s -l=$@) (wait) (check -a status=0)]
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
+-compiles:[((TARGET)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).$(LANG) \
+    [(shell -s -l=$@) (wait) (check -a status=0)]
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
+-program-stdout:[((TARGET)) (closure) (set @=$(OUTDIR)/$(TARGET).stdout.log)] -compiles($(TARGET)) \
+    [(shell -s -l=$@ -stdout) (wait -stdout)]
+	@$(OUTDIR)/$(TARGET).out
+-program-stderr:[((TARGET)) (closure) (set @=$(OUTDIR)/$(TARGET).stderr.log)] -compiles($(TARGET)) \
+    [(shell -s -l=$@ -stderr) (wait -stderr)]
+	@$(OUTDIR)/$(TARGET).out
 
-%.c.include:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
+%.c.include:[(closure) (plain c) (update-file -p)]
 	$(_INCLUDES_)
 	#ifdef __CLASSIC_C__
 	int main() { return 0; }
@@ -42,11 +63,11 @@ _LOADLIBES_ :=
 	int main(void) { return 0; }
 	#endif
 	
-%.c++.include:[(unclose) (cd -s &/) | (plain c++) (update-file -sp)]
+%.c++.include:[(closure) (plain c++) (update-file -p)]
 	$(_INCLUDES_)
 	int main() { return 0; }
 	
-%.symbol:[((SYMBOL)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
+%.symbol:[((SYMBOL)) (closure) (plain c++) (update-file -p)]
 	$(_INCLUDES_)
 	int main(int argc, char** argv)
 	{
@@ -59,7 +80,7 @@ _LOADLIBES_ :=
 	#endif
 	}
 	
-%.type:[((TYPE)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
+%.type:[((TYPE)) (closure) (plain c++) (update-file -p)]
 	$(_INCLUDES_)
 	int main(int argc, char** argv)
 	{
@@ -69,7 +90,7 @@ _LOADLIBES_ :=
 	  return 0;
 	}
 	
-%.variable:[((VARIABLE)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
+%.variable:[((VARIABLE)) (closure) (plain c++) (update-file -p)]
 	$(_INCLUDES_)
 	extern int $(VARIABLE)
 	#ifdef __CLASSIC_C__
@@ -79,7 +100,7 @@ _LOADLIBES_ :=
 	#endif
 	{ (void)argv; return $(VARIABLE); }
 	
-%.function:[((FUNCTION)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
+%.function:[((FUNCTION)) (closure) (plain c++) (update-file -p)]
 	$(_INCLUDES_)
 	#ifdef __cplusplus
 	extern "C"
@@ -92,11 +113,20 @@ _LOADLIBES_ :=
 	#endif
 	{ $(FUNCTION)(); return 0; }
 	
-%.structmember:[((STRUCT MEMBER)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
+%.library:[(closure) (plain c++) (update-file -p)]
+	$(_INCLUDES_)
+	#ifdef __CLASSIC_C__
+	int main()
+	#else
+	int main(int ac, char* av[])
+	#endif
+	{ (void) ac; (void) av; return 0; }
+	
+%.structmember:[((STRUCT MEMBER)) (closure) (plain c++) (update-file -p)]
 	$(_INCLUDES_)
 	int main() { (void)sizeof((($(STRUCT) *)0)->$(MEMBER)); return 0; }
 	
-%.sizeof:[((TYPE)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
+%.sizeof:[((TYPE)) (closure) (plain c++) (update-file -p)]
 	#undef ARCH
 	#if defined(__i386)
 	#   define ARCH "__i386"
@@ -121,8 +151,8 @@ _LOADLIBES_ :=
 	#endif
 	{ (void)argv; return SIZE; }
 	
-#&(CTD)/.configure/pthreads.c
-pthreads.c:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
+#$(OUTDIR)/pthreads.c
+pthreads.c:[(closure) (plain c) (update-file -p)]
 	#include <pthread.h>
 	void* routine(void* args) { return args; }
 	int main(void) {
@@ -132,10 +162,10 @@ pthreads.c:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
 	  return 0;
 	}
 	
-%.c:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
+%.c:[(closure) (plain c) (update-file -p)]
 	$(_VALUE_)
 	
-%.c++:[(unclose) (cd -s &/) | (plain c++) (update-file -sp)]
+%.c++:[(closure) (plain c++) (update-file -p)]
 	$(_VALUE_)
 	
-`
+`, get_filename(2) }

@@ -7,21 +7,21 @@
 package smart
 
 type interpreter interface {
-        Evaluate(prog *Program, args []Value) (Value, error)
+        Evaluate(pos Position, t *traversal, args ...Value) (Value, error)
 }
 
 var dialects = map[string]interpreter{
         "":       &evaluer{ accumulation:false },
         "eval":   &evaluer{ accumulation:false },
         "value":  &evaluer{ accumulation:true },
-        "shell":  &executor{ "bash", "-c", true },   //&executor_{ "bash", "-c" },
-        "python": &executor{ "python", "-c", true }, //&executor_{ "python", "-c" },
-        "perl":   &executor{ "perl", "-e", true },   //&executor_{ "perl", "-e" },
-        "dock":   &executor{ "sh", "-c", false },
-        "plain":  &_plain{},
-        "json":   &_json{},
-        "xml":    &_xml{ whitespace:false },
-        "yaml":   &_yaml{ whitespace:false },
+        "shell":  &executor{ cmd:"bash",   opt:"-c", contained:false }, //&executor_{ "bash", "-c" },
+        "python": &executor{ cmd:"python", opt:"-c", contained:false }, //&executor_{ "python", "-c" },
+        "perl":   &executor{ cmd:"perl",   opt:"-e", contained:false }, //&executor_{ "perl", "-e" },
+        "dock":   &executor{ cmd:"sh",     opt:"-c", contained:true },
+        "plain":  &plain{},
+        "json":   &json{},
+        "xml":    &xml{ whitespace:false },
+        "yaml":   &yaml{ whitespace:false },
 }
 
 func intername(i interpreter) (s string) {

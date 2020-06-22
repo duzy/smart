@@ -9,6 +9,7 @@ import (
         "extbit.io/smart/ast"
         "extbit.io/smart/token"
         "extbit.io/smart/scanner"
+        "runtime/debug"
 	"bytes"
 	"io/ioutil"
 	"io"
@@ -17,7 +18,6 @@ import (
 	"strings"
         "plugin"
         "errors"
-        "sync"
         "time"
         "flag"
         "fmt"
@@ -76,6 +76,8 @@ const (
         parsingDir
 )
 
+const dotContainer = ".container"
+
 var parseMode = DeclarationErrors //|Trace
 
 type searchlist []string
@@ -116,6 +118,18 @@ func (li *loadinfo) absPath() string {
         return filepath.Join(li.absDir, li.baseName)
 }
 
+func (li *loadinfo) breakUseLoop() (result bool) {
+        var first bool = true
+        for _, decl := range li.declares {
+                if first || result {
+                        result = decl.project.breakUseLoop
+                }
+                if !result { break }
+                first = false
+        }
+        return
+}
+
 type loaderScope struct {
         cc closurecontext
         scope *Scope
@@ -127,17 +141,14 @@ type loader struct {
         tracing // tracing/debugging
         fset     *token.FileSet
         paths    searchlist
+        loadArgs []Value
         loads    []*loadinfo
         loaded   map[string]*Project // loaded projects
-        usePath []*Project // use path
-        importPath []*Project // import path
-        importDepth int // import depth
+        loadStack []*Project // load path
+        useStack []*Project // use path
         useesExecuted []*Project // all executed usees
         project  *Project // the current project
         scope    *Scope   // the current scope
-        ruleParseFunc func(p *parser, tok token.Token, special specialRule, options, targets []ast.Expr) *ast.RuleClause
-        usefunc  func(l *loader, pos token.Pos, usee *Project, params []Value, opts useoptions) error
-        includeFunc func(l *loader, pos token.Pos, val Value)
         isIncludingConf bool // including configuration
         vs string // verbose prefix
 }
@@ -276,26 +287,18 @@ type importspecoptions struct {
         reuse bool
 }
 
-func (l *loader) parseImportProps(props []ast.Expr) (specName string, opts importspecoptions, params []Value, err error) {
-        if specName, err = l.expr(props[0]).Strval(); err != nil {
-                l.parser.error(props[0].Pos(), "%s", err)
-                return
-        } else if specName == "" {
-                l.parser.error(props[0].Pos(), "empty import name")
-                return
-        }
-
+func (l *loader) parseUseProps(props []ast.Expr) (opts importspecoptions, params []Value, err error) {
         // Supported parameter forms:
         //      -param
         //      -param(value)
         //      -param=value
         var useList []Value // TODO: apply useList
-        for _, prop := range props[1:] {
+        for _, prop := range props {
                 var s string
                 switch v := l.expr(prop); t := v.(type) {
                 case *Flag:
-                        if s, err = t.Name.Strval(); err != nil {
-                                l.parser.error(prop.Pos(), "invalid flag `%v` (%v)", v, err)
+                        if s, err = t.name.Strval(); err != nil {
+                                l.error(prop.Pos(), "invalid flag `%v` (%v)", v, err)
                                 return
                         }
                         switch s {
@@ -306,8 +309,8 @@ func (l *loader) parseImportProps(props []ast.Expr) (specName string, opts impor
                 case *Pair: // -param=value
                         switch tt := t.Key.(type) {
                         case *Flag:
-                                if s, err = tt.Name.Strval(); err != nil {
-                                        l.parser.error(prop.Pos(), "invalid flag name `%v` (%v)", tt.Name, err)
+                                if s, err = tt.name.Strval(); err != nil {
+                                        l.error(prop.Pos(), "invalid flag name `%v` (%v)", tt.name, err)
                                         return
                                 }
                                 switch s {
@@ -315,81 +318,158 @@ func (l *loader) parseImportProps(props []ast.Expr) (specName string, opts impor
                                 default: params = append(params, v)
                                 }
                         default:
-                                l.parser.error(prop.Pos(), "parameter `%v' unsupported `%T`", v, v)
+                                l.error(prop.Pos(), "parameter `%v' unsupported `%T`", v, v)
                                 return
                         }
                 case *Argumented: // -param(value)
-                        switch tt := t.Val.(type) {
+                        switch tt := t.value.(type) {
                         case *Flag:
-                                if s, err = tt.Name.Strval(); err != nil {
-                                        l.parser.error(prop.Pos(), "invalid flag name `%v` (%v)", tt.Name, err)
+                                if s, err = tt.name.Strval(); err != nil {
+                                        l.error(prop.Pos(), "invalid flag name `%v` (%v)", tt.name, err)
                                         return
                                 }
                                 switch s {
-                                case "use": useList = append(useList, t.Args...)
+                                case "use": useList = append(useList, t.args...)
                                 default: params = append(params, v)
                                 }
                         default:
-                                l.parser.error(prop.Pos(), "parameter `%v' unsupported `%T`", v, v)
+                                l.error(prop.Pos(), "parameter `%v' unsupported `%T`", v, v)
                                 return
                         }
                 default:
-                        l.parser.error(prop.Pos(), "parameter `%v` unsupported `%T`", v, v)
+                        l.error(prop.Pos(), "parameter `%v` unsupported `%T`", v, v)
                         return
                 }
         }
         return
 }
 
-func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
+func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadUseSpec")) }
         var (
-                linfo = l.loads[len(l.loads)-1]
                 specOpts importspecoptions
-                specName string
+                specNames []string
+                specVal Value
                 params []Value
                 err error
         )
-        if 0 < len(spec.Props) {
-                specName, specOpts, params, err = l.parseImportProps(spec.Props)
-                if err != nil { return }
-        }
-        if specName == "" {
-                l.parser.error(spec.Pos(), "invalid spec `%v`", spec)
+        if len(spec.Props) < 1 {
+                l.error(spec.Pos(), "insufficient props")
                 return
         }
+
+        specVal = l.expr(spec.Props[0])
+        if specOpts, params, err = l.parseUseProps(spec.Props[1:]); err != nil {
+                return
+        }
+
+        switch v := specVal.(type) {
+        case *Pair:
+                var s string
+                if f, ok := v.Key.(*Flag); !ok {
+                        l.error(spec.Props[0].Pos(), "'%v' invalid use spec", v.Key)
+                        return
+                } else if s, err = f.name.Strval(); err != nil {
+                        l.error(spec.Props[0].Pos(), "%s", err)
+                        return
+                } else if s != "list" {
+                        l.error(spec.Props[0].Pos(), "'%v' invalid use spec, do you mean -list?", v.Key)
+                        return
+                }
+
+                var list []Value
+                if list, err = mergeresult(ExpandAll(v.Value)); err != nil {
+                        l.error(spec.Props[0].Pos(), "%s", err)
+                        return
+                }
+                for _, val := range list {
+                        if s, err = val.Strval(); err != nil {
+                                l.error(spec.Props[0].Pos(), "%s", err)
+                                return
+                        } else if s == "" { continue }
+                        specNames = append(specNames, s)
+                }
+        default:
+                var specName string
+                if specName, err = specVal.Strval(); err != nil {
+                        l.error(spec.Props[0].Pos(), "%s", err)
+                        return
+                } else if specName == "" { break }
+                specNames = append(specNames, specName)
+        }
+
+        if len(specNames) == 0 {
+                l.error(spec.Props[0].Pos(), "empty use spec (%v)", spec.Props[0])
+                return
+        }
+        for _, specName := range specNames {
+                l.loadUseSpecName(opts, spec, specName, &specOpts, params)
+        }
+        return
+}
+
+func (l *loader) loadUseSpecName(opts importoptions, spec *ast.UseSpec, specName string, specOpts *importspecoptions, params []Value) {
+        var (
+                linfo = l.loads[len(l.loads)-1]
+                err error
+        )
 
         var ( absPath string; isDir bool )
         if absPath, isDir, err = l.searchSpecPath(linfo, specName); err != nil {
-                l.parser.error(spec.Pos(), "no such package `%v`", specName)
+                l.error(spec.Pos(), "no such package `%v`", specName)
                 return
         } else if absPath == "" {
-                l.parser.error(spec.Pos(), "missing `%s` (in %v)", specName, l.paths)
+                l.error(spec.Pos(), "missing `%s` (in %v)", specName, l.paths)
                 return
         }
 
-        // Checking circular import.
+        var loaded, loadedValid = l.loaded[absPath]
+
+        // Checking circular loads. See also Project.loopImportPath()!
+        var breakUseLoop bool
         for i, load := range l.loads {
                 if load.absDir == absPath {
                         var s string
+                        var loop, loopBreakers []*loadinfo
                         for n := i; n < len(l.loads); n += 1 {
                                 var load = l.loads[n]
-                                s += load.specName + " → "
+                                loop = append(loop, load)
+                                if load.breakUseLoop() {
+                                        loopBreakers = append(loopBreakers, load)
+                                        s += "<" + load.specName + "> → "
+                                } else {
+                                        s += load.specName + " → "
+                                }
                         }
-                        s += specName
-                        l.error(spec.Pos(), "circular import '%v'", s)
-                        return
+                        if loadedValid && loaded.breakUseLoop {
+                                s += "<" + specName + ">"
+                        } else {
+                                s += specName
+                        }
+
+                        breakUseLoop = (loopBreakers != nil)
+                        if !breakUseLoop {
+                                l.error(spec.Pos(), "loop detected: %s", s)
+                        } else if optionVerboseImport || optionVerboseUsing || optionVerboseLoading {
+                                fmt.Fprintf(stderr, "%s: loop detected: %v\n", l.project, s)
+                        }
                 }
         }
 
-        if false /* UNUSED */ {
-                defer func(a []*Project) { l.importPath = a } (l.importPath)
-                l.importPath = append(l.importPath, l.project) // build the import path
-        }
+        /*if breakUseLoop {
+                if loadedValid {
+                        _, a := l.project.scope.ProjectName(l.project, loaded.Name(), loaded)
+                        if a != nil {
+                                if v, ok := a.(*ProjectName); !ok || v == nil {
+                                        err = fmt.Errorf("`%s' name already taken (%T).", loaded.Name(), a)
+                                }
+                        }
+                }
+                return
+        }*/
 
-        var loaded, yes = l.loaded[absPath]
-
-        defer func(n int) { l.importDepth = n } (l.importDepth)
-        l.importDepth += 1 // increase depth for verbose imports
+        defer func(a []*Project) { l.loadStack = a } (l.loadStack)
+        l.loadStack = append(l.loadStack, l.project) // build the load path
 
         // https://unicode-table.com/en/sets/arrows-symbols/
         // ┌────────────────────────────────┐
@@ -401,8 +481,7 @@ func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
         // │└──→───⇥─┴─⇤────┬──┴──┬──┘  │
         // └──→           ⇠─┘     ↓     └─→ ⇒ …
         if optionVerboseImport {
-                // vs = strings.Repeat("|", l.importDepth)
-                if l.importDepth > 1 {
+                if len(l.loadStack) > 1 {
                         defer func(s string) { l.vs = s } (l.vs)
                         l.vs += "│"
                 }
@@ -417,94 +496,98 @@ func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
                         var ds = fmt.Sprintf("(%s)", d)
                         if d>=1*time.Second { ds = fmt.Sprintf("▶%s◀",ds) }
                         if loaded != nil { name = loaded.name }
-                        fmt.Fprintf(stderr, "%s├┴·\"%s\" ⇢ %s %s\n", l.vs, specName, name, ds)
+                        fmt.Fprintf(stderr, "%s├┴─\"%s\" ⇢ %s %s\n", l.vs, specName, name, ds)
                 } (time.Now())
         }
 
-        if yes && !specOpts.reuse {
+        if loadedValid && !specOpts.reuse {
                 var ( proj *Project ; res, isb bool )
-                if proj, res, isb, err = l.project.hasImported(loaded); err != nil {
-                        l.parser.error(spec.Pos(), "`%s`: %s", specName, err)
+                if proj, res, isb, err = l.project.hasLoaded(loaded, breakUseLoop); err != nil {
+                        l.error(spec.Pos(), "`%s`: %s", specName, err)
                         return
                 } else if isb {
-                        l.parser.error(spec.Pos(), "`%s` is a base (%s)", specName, proj.name)
+                        l.error(spec.Pos(), "`%s` is a base (%s)", specName, proj.name)
                         return
                 } else if res {
-                        l.parser.error(spec.Pos(), "'%s' already imported by '%s'", specName, proj.name)
+                        l.error(spec.Pos(), "'%s' already imported by '%s'", specName, proj.name)
                         return
                 }
         }
 
-        var hasConfDir bool
-        if isDir {
-                hasConfDir, err = l.loadDir(specName, absPath, nil)
-        } else {
-                err = l.load(specName, absPath, nil)
-        }
-        if err != nil {
-                switch e := err.(type) {
-                case *scanner.Error, scanner.Errors:
-                        // Report errors immediately, so that they could be
-                        // discoverred asap.
-                        fmt.Fprintf(stderr, "%v\n", e)
-                        l.parser.error(spec.Pos(), "import `%v` failed (%v)", specName, absPath)
-                default:
-                        l.parser.error(spec.Pos(), "import `%v` (%v): %v", specName, absPath, err)
+        if /*!loadedValid || loaded == nil*/true {
+                if isDir {
+                        err = l.loadDir(specName, absPath, nil)
+                } else {
+                        err = l.load(specName, absPath, nil)
                 }
-                return
+                if err != nil {
+                        switch e := err.(type) {
+                        case *scanner.Error:
+                                // Report errors immediately, so that they could be
+                                // discoverred asap.
+                                fmt.Fprintf(stderr, "%v\n", e)
+                                l.error(spec.Pos(), "import `%v` failed (%v)", specName, absPath)
+                        default:
+                                l.error(spec.Pos(), "import `%v` (%v): %v", specName, absPath, err)
+                        }
+                        return
+                }
+
+                if loaded != nil {
+                        // already loaded previously
+                } else if loaded, loadedValid = l.loaded[absPath]; loadedValid {
+                        // successfully loaded (first)
+                } else {
+                        l.error(spec.Pos(), "'%s' not loaded (%s)", specName, absPath)
+                }
+
+                if loaded == nil {
+                        l.error(spec.Pos(), "'%s' not smart project", specName)
+                        return
+                }
         }
+        if breakUseLoop { /*return*/ }
 
-        if loaded != nil {
-                // already loaded previously
-        } else if loaded, yes = l.loaded[absPath]; yes {
-                // successfully loaded (first)
-        } else if hasConfDir {
-                return
-        } else {
-                l.parser.error(spec.Pos(), "'%s' not loaded (%s)", specName, absPath)
-        }
-
-        if loaded == nil {
-                l.parser.error(spec.Pos(), "'%s' not smart project", specName)
-                return
-        }
-
-        // The project import list is different from using list.
-        l.project.imports = append(l.project.imports, loaded)
-
-        for _, u := range l.project.using.list {
+        // Check against the current load list before appending loaded.
+        for _, lp := range l.project.loads {
                 var ( proj *Project ; res, isb bool )
 
-                // 'loaded' has imported 'u'?
-                if proj, res, isb, err = loaded.hasImported(u.project); err != nil {
-                        l.parser.error(spec.Pos(), "`%s`: %s", specName, err)
+                if loaded == lp {
+                        l.error(spec.Pos(), "using `%s` multiple times", specName)
                         return
-                } else if isb {
-                        if l.project.hasBase(u.project) {
-                                // common bases are fine
-                        } else {
-                                //l.parser.warn(spec.Pos(), "`%s` has base `%s` (%v) (%v)", l.project, u.project, loaded, proj)
-                        }
-                } else if res && !u.project.allowMultiImported {
-                        l.parser.warn(spec.Pos(), "`%s` has already imported `%s` (from %s)", loaded, u.project, proj)
                 }
 
-                // 'u' has imported 'loaded'?
-                if proj, res, isb, err = u.project.hasImported(loaded); err != nil {
-                        l.parser.error(spec.Pos(), "`%s`: %s", specName, err)
+                if proj, res, isb, err = loaded.hasLoaded(lp, breakUseLoop); err != nil {
+                        l.error(spec.Pos(), "%s: %s", specName, err)
                         return
                 } else if isb {
-                        l.parser.warn(spec.Pos(), "`%s` is already base of `%s` (%s)", loaded, u.project, proj)
-                } else if res && !loaded.allowMultiImported {
-                        l.parser.warn(spec.Pos(), "`%s` has already been imported by `%s` (from %s)", loaded, u.project, proj)
+                        if l.project.hasBase(lp) {
+                                // common bases are fine
+                        } else {
+                                l.error(spec.Pos(), "`%s` is already a base", specName)
+                        }
+                } else if res && !lp.multiUseAllowed {
+                        l.parser.warn(spec.Pos(), "`%s` has already imported `%s` (from %s)", loaded, lp, proj)
+                }
+
+                if proj, res, isb, err = lp.hasLoaded(loaded, breakUseLoop); err != nil {
+                        l.error(spec.Pos(), "%s: %s", specName, err)
+                        return
+                } else if isb {
+                        l.parser.warn(spec.Pos(), "`%s` is already base of `%s` (%s)", loaded, lp, proj)
+                } else if res && !loaded.multiUseAllowed {
+                        l.parser.warn(spec.Pos(), "`%s` has already been imported by `%s` (from %s)", loaded, lp, proj)
                 }
         }
 
-        if specOpts.unuse { return }
+        if specOpts.unuse || breakUseLoop { return } else {
+                // The project load list is different from using list.
+                l.project.loads = append(l.project.loads, loaded)
+        }
 
         name, _ := l.project.scope.Lookup(loaded.name).(*ProjectName)
         if name == nil {
-                l.parser.error(spec.Pos(), "%v (%v,dir=%v) not in %v", specName, absPath, isDir, l.project.scope.comment)
+                l.error(spec.Pos(), "%v (%v,dir=%v) not in %v", specName, absPath, isDir, l.project.scope.comment)
                 return
         }
         
@@ -520,24 +603,28 @@ func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
                         fmt.Fprintf(stderr, "%s├┤ %s:import(%s) (%s)\n", l.vs, l.project, specName, d)
                 } (time.Now())
         }
-        if optionUseImportedProjects {
-                var pos = spec.Props[0].Pos()
-                err = l.useProject(pos, loaded, params, useopts)
-        } else if false && !l.project.isUsingDirectly(loaded) {
-                l.project.using.append(loaded, params, useopts)
-        }
+
+        var pos = spec.Props[0].Pos()
+        err = l.useProject(pos, loaded, params, useopts)
         return
 }
 
 const pluginDifferentVersionError = `plugin was built with a different version of package`
+var numUpdatedPlugins = 0
 
 func buildPlugin(s, src string) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.buildPlugin")) }
+
         fmt.Fprintf(stderr, "smart: Build %v …", src)
+        dir, _ := filepath.Split(src)
         o := &bytes.Buffer{}
-        c := exec.Command("go", "build", "-buildmode=plugin", "-o", s, src)
-        c.Stdout, c.Stderr = o, o
+        c := exec.Command("go", "build", "-buildmode=plugin", "-o", s)
+        c.Stdout, c.Stderr, c.Dir = o, o, dir
         if err = c.Run(); err == nil {
+                numUpdatedPlugins += 1
                 fmt.Fprintf(stderr, "… ok\n")
+                fmt.Fprintf(stderr, "smart: Plugin updated, please relaunch.\n")
+                os.Exit(0)
         } else {
                 fmt.Fprintf(stderr, "… error\n")
                 fmt.Fprintf(stderr, "%s", o)
@@ -545,8 +632,10 @@ func buildPlugin(s, src string) (err error) {
         return
 }
 
-func (l *loader) loadPlugin() (err error) {
-        g := stat("smart.go", "", l.project.absPath)
+func (l *loader) loadPlugin(pos Position) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadPlugin")) }
+
+        g := stat(pos, "smart.go", "", l.project.absPath)
         if g == nil { return /* smart.go was not presented */ }
 
         var src string
@@ -556,24 +645,17 @@ func (l *loader) loadPlugin() (err error) {
         s = filepath.Join(filepath.Dir(joinTmpPath("", "")), "plugins", s)
 
         var build = true
-        var retried bool
 
-        so := stat(/*l.project.name*/"plugin", "", s, nil)
+        so := stat(pos, /*l.project.name*/"plugin", "", s, nil)
         if s, err = so.Strval(); err != nil { return }
-        if so.exists() && !optionAlwaysBuildPlugins {
+        if exists(so) && !optionAlwaysBuildPlugins {
                 if so.info.ModTime().After(g.info.ModTime()) {
                         build = false // Plugin already updated.
                 }
         }
-        if build {
-                if err = buildPlugin(s, src); err != nil {
-                        return
-                }
-        }
-
+        if build { err = buildPlugin(s, src) }
         if err != nil { return }
 
-OpenPlugin:
         // Once plugin is opened, there's no need/way to close it.
         if l.project.plugin, err = plugin.Open(s); err == nil {
                 var p plugin.Symbol
@@ -584,13 +666,8 @@ OpenPlugin:
                 } else if f, ok := p.(func(*Project) (*Scope, error)); ok {
                         l.project.pluginScope, err = f(l.project)
                 }
-        } else if retried {
-                // Returns the error!
         } else if es := err.Error(); strings.Contains(es, pluginDifferentVersionError) {
-                if err = buildPlugin(s, src); err == nil {
-                        retried = true
-                        goto OpenPlugin
-                }
+                err = buildPlugin(s, src)
         }
         return
 }
@@ -598,23 +675,23 @@ OpenPlugin:
 func (l *loader) exprEvaluated(x *ast.EvaluatedExpr) (v Value) {
         var ok bool
         if x.Data == nil {
-                l.parser.error(x.Pos(), "evaluated data is nil `%T`", x.Expr)
+                l.error(x.Pos(), "evaluated data is nil `%T`", x.Expr)
         } else if v, ok = x.Data.(Value); !ok {
-                l.parser.error(x.Pos(), "evaluated data is not value `%T`", x.Data)
+                l.error(x.Pos(), "evaluated data is not value `%T`", x.Data)
         }
         return v
 }
 
 func (l *loader) exprArgumented(x *ast.ArgumentedExpr) Value {
         return &Argumented{
-                Val: l.expr(x.X),
-                Args: l.exprs(x.Arguments),
+                value: l.expr(x.X),
+                args: l.exprs(x.Arguments),
         }
 }
 
-func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Object) {
+func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Value) {
         if name = l.expr(x.Name); name == nil {
-                l.parser.error(x.Name.Pos(), "invalid name `%T`", x.Name)
+                l.error(x.Name.Pos(), "invalid name `%T`", x.Name)
                 return
         }
 
@@ -624,7 +701,7 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
                 tok = x.TokLp
         case token.STRING, token.COMPOUND:
                 if x.Tok == token.DELEGATE {
-                        l.parser.error(x.TokPos, "unsupported delegate (%v).", x.TokLp)
+                        l.error(x.TokPos, "unsupported delegate (%v).", x.TokLp)
                         return
                 } else {
                         tok = x.TokLp
@@ -633,92 +710,101 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
                 if x.Tok.IsClosure() || x.Tok.IsDelegate() {
                         tok = token.LPAREN
                 } else {
-                        l.parser.error(x.TokPos, "unregonized closure/delegate (%v).", x.Tok)
+                        l.error(x.TokPos, "unregonized closure/delegate (%v).", x.Tok)
                         return
                 }
         default:
                 if x.Tok == token.DELEGATE {
-                        l.parser.error(x.TokPos, "unregonized delegate (%v).", x.TokLp)
+                        l.error(x.TokPos, "unregonized delegate (%v).", x.TokLp)
                 } else {
-                        l.parser.error(x.TokPos, "unregonized closure (%v).", x.TokLp)
+                        l.error(x.TokPos, "unregonized closure (%v).", x.TokLp)
                 }
                 return
         }
 
-        var ( resolved Object; err error )
-        if x.Resolved != nil {
-                resolved = x.Resolved.(Object)
-        }
-
-        s, err := name.Strval()
-        if err != nil {
-                l.parser.error(x.Name.Pos(), "invalid name")
-                l.parser.error(x.Name.Pos(), err)
-                return
-        }
+        var ( resolved Value; err error )
+        if x.Resolved != nil { resolved = x.Resolved.(Value) }
 
         switch tok {
         case token.LCOLON:
+                s, err := name.Strval()
+                if err != nil { l.error(x.Name.Pos(), err); return }
                 switch s {
+                //case "arch": obj = context.globe.arch
                 case "os": obj = context.globe.os.self
+                case "goals": obj = context.goals
+                case "mode": obj = context.mode
                 case "self": obj = l.project.self
                 case "usee": obj = l.project.using
-                //case "goals": obj = ...
                 default:
-                        l.parser.error(x.Name.Pos(), "unsupported special delegation")
+                        l.error(x.Name.Pos(), "unsupported special delegation")
                         return
                 }
         case token.LPAREN:
                 if resolved == nil { // if not resolved at parse time
                         if resolved, err = l.resolve(name); err != nil {
-                                l.parser.error(x.Name.Pos(), "%s", err)
+                                l.error(x.Name.Pos(), "%s", err)
                                 return
                         }
                 }
+                /*if s := typeof(name); s == "selection" {
+                        var pos = Position(l.parser.file.Position(x.Pos()))
+                        fmt.Fprintf(stderr, "%s: %s %v %v\n", pos, s, name, resolved)
+                }*/
                 if resolved != nil {
-                        if def, _ := resolved.(Caller); def == nil {
-                                l.parser.error(x.Name.Pos(), "uncallable `%s` resolved `%T`", name, resolved)
+                        if sel, ok := resolved.(*selection); ok {
+                                obj = sel
+                        } else if def, _ := resolved.(Caller); def == nil {
+                                l.error(x.Name.Pos(), "uncallable `%s` (%s) resolved", name, typeof(resolved))
                                 return
                         } else if obj = def.(Object); obj == nil {
-                                l.parser.error(x.Name.Pos(), "non-object callable `%s` resolved `%T`", name, def)
+                                l.error(x.Name.Pos(), "non-object callable `%s` resolved `%T`", name, def)
                                 return
                         }
                 } else if l.isIncludingConf {
-                        // Create the empty Def if it's in configuration.sm.
-                        obj, _ = l.def(s)
+                        s, err := name.Strval()
+                        if err != nil { l.error(x.Name.Pos(), err); return }
+
+                        // Create an empty Def if it's referred in
+                        // configuration.sm.
+                        def, _ := l.def(x.Name.Pos(), s)
+                        def.origin = DefConfRef
+                        obj = def
                 }
         case token.LBRACE:
                 if resolved == nil { // if not resolved at parse time
                         if resolved, err = l.find(name); err != nil {
-                                l.parser.error(x.Name.Pos(), "%s", err)
+                                l.error(x.Name.Pos(), "%s", err)
                                 return
                         } else if resolved == nil {
-                                //l.parser.error(x.Name.Pos(), "entry `%s` is nil", name)
+                                //l.error(x.Name.Pos(), "entry `%s` is nil", name)
                                 return
                         }
                 }
                 if exe, _ := resolved.(Executer); exe != nil {
                         if obj = exe.(Object); obj == nil {
-                                l.parser.error(x.Name.Pos(), "non-object executer `%s` resolved `%T`", name, resolved)
+                                l.error(x.Name.Pos(), "non-object executer `%s` resolved `%T`", name, resolved)
                                 return
                         }
                 } else {
-                        l.parser.error(x.Name.Pos(), "unexecutable `%s` resolved `%T`", name, resolved)
+                        l.error(x.Name.Pos(), "unexecutable `%s` resolved `%T`", name, resolved)
                         return
                 }
         case token.STRING, token.COMPOUND:
                 if resolved == nil { // if not resolved at parse time
                         if resolved, err = l.find(name); err != nil {
-                                l.parser.error(x.Name.Pos(), "%s", err)
+                                l.error(x.Name.Pos(), "%s", err)
                                 return
                         } else if resolved == nil {
                                 //resolved = unresolved(l.project, name)
                         }
                 }
-                obj = resolved
+                obj = resolved//.(Object)
         }
         if obj == nil && l.project.plugin != nil {
                 if l.project.pluginScope != nil {
+                        s, err := name.Strval()
+                        if err != nil { l.error(x.Name.Pos(), err); return }
                         obj = l.project.pluginScope.Lookup(s)
                 }
         }
@@ -727,21 +813,21 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
 
 func (l *loader) exprClosure(x *ast.ClosureExpr) (v Value) {
         if name, obj := l.exprClosureDelegate(&x.ClosureDelegate); name == nil {
-                l.parser.error(x.Name.Pos(), "invalid closure name `%T`", x.Name)
+                l.error(x.Name.Pos(), "invalid closure name `%T`", x.Name)
         } else if obj != nil {
                 v = MakeClosure(Position(x.Position), x.TokLp, obj, l.exprs(x.Args)...)
         } else if true {
                 obj = unresolved(l.project, name)
                 v = MakeClosure(Position(x.Position), x.TokLp, obj, l.exprs(x.Args)...)
         } else {
-                l.parser.error(x.Pos(), "closure nil object (name `%v`, `%v`)", name, l.scope.comment)
+                l.error(x.Pos(), "closure nil object `%v` (from %v)", name, l.scope.comment)
         }
         return
 }
 
 func (l *loader) exprDelegate(x *ast.DelegateExpr) (v Value) {
         if name, obj := l.exprClosureDelegate(&x.ClosureDelegate); name == nil {
-                l.parser.error(x.Name.Pos(), "`%T` is invalid delegation name", x.Name)
+                l.error(x.Name.Pos(), "`%T` is invalid delegation name", x.Name)
         } else if obj != nil {
                 v = MakeDelegate(Position(x.Position), x.TokLp, obj, l.exprs(x.Args)...)
         } else if sel, ok := name.(*selection); ok {
@@ -749,153 +835,228 @@ func (l *loader) exprDelegate(x *ast.DelegateExpr) (v Value) {
                         obj = unresolved(l.project, name)
                         v = MakeDelegate(Position(x.Position), x.TokLp, obj, l.exprs(x.Args)...)
                 } else if err != nil {
-                        l.parser.error(x.Name.Pos(), "`%v` invalid delegate selection", name)
-                        l.parser.error(x.Name.Pos(), err)
+                        l.error(x.Name.Pos(), "`%v` invalid delegate selection", name)
+                        l.error(x.Name.Pos(), err)
                 } else if o == nil {
-                        l.parser.error(x.Name.Pos(), "`%v` nil selection object", name)
+                        l.error(x.Name.Pos(), "`%v` nil selection object", name)
                 } else if v, err = sel.value(); err != nil {
-                        l.parser.error(x.Name.Pos(), "`%v` invalid delegate selection", name)
-                        l.parser.error(x.Name.Pos(), err)
+                        l.error(x.Name.Pos(), "`%v` invalid delegate selection", name)
+                        l.error(x.Name.Pos(), err)
                 } else if v == nil {
                         if !l.isIncludingConf {
-                                l.parser.error(x.Name.Pos(), "`%v` not found in %v", sel.s, o)
+                                l.error(x.Name.Pos(), "`%v` not found in %v", sel.s, o)
                         } else {
                                 unreachable("`%v` nil delegation", name)
                         }
-                } else if obj, ok = v.(Object); ok {
+                } else if obj, ok := v.(Object); ok {
                         v = MakeDelegate(Position(x.Position), x.TokLp, obj, l.exprs(x.Args)...)
                 } else {
-                        unreachable("`%v` not an object (%T)", name, v)
+                        // just use the selected value
                 }
         } else {
-                l.parser.error(x.Name.Pos(), "`%v` nil delegation object (from %v)", name, l.scope.comment)
+                l.error(x.Name.Pos(), "delegate nil object `%v` (from %v)", name, l.scope.comment)
         }
         return
 }
 
 func (l *loader) exprSelection(x *ast.SelectionExpr) (v Value) {
+        var pos = Position(l.parser.file.Position(x.Pos()))
         var obj = l.expr(x.Lhs)
         if obj == nil {
-                l.parser.error(x.Lhs.Pos(), "`%s` invalid object expression (%T)", x, x.Lhs)
+                l.error(x.Lhs.Pos(), "`%s` invalid object expression (%T)", x, x.Lhs)
                 return
         }
-        if obj.Type() != SelectionType {
-                var o, err = l.resolve(obj)
-                if err != nil {
-                        l.parser.error(x.Lhs.Pos(), "selection expression `%v`: %v", obj, err)
+        switch t := obj.(type) {
+        case *selection:
+                // TODO: ...
+        case *Bareword:
+                switch t.string {
+                case "usee": obj = l.project.using
+                case "self": obj = l.project.self
+                case "os": obj = context.globe.os.self
+                case "goals": obj = context.goals
+                default:
+                        if o, err := l.resolve(obj); err != nil {
+                                l.error(x.Lhs.Pos(), "selection expression `%v`: %v", obj, err)
+                                return
+                        } else if o == nil {
+                                if x.Tok == token.SELECT_PROG2 {
+                                        v = &Nil{trivial{pos}} // ignore
+                                } else {
+                                        l.error(x.Lhs.Pos(), "`%v` is undefined", obj)
+                                }
+                                return
+                        } else {
+                                obj = o
+                        }
+                }
+        case *Barecomp: // for cases like '.foo'
+                if o, err := l.resolve(t); err != nil {
+                        l.error(x.Lhs.Pos(), "selection expression `%v`: %v", obj, err)
                         return
                 } else if o == nil {
-                        l.parser.error(x.Lhs.Pos(), "`%v` is undefined", obj)
+                        if x.Tok == token.SELECT_PROG2 {
+                                v = &Nil{trivial{pos}} // ignore
+                        } else {
+                                l.error(x.Lhs.Pos(), "`%v` is undefined", obj)
+                        }
                         return
                 } else {
                         obj = o
                 }
         }
+
         if prop := l.expr(x.Rhs); prop == nil {
-                l.parser.error(x.Rhs.Pos(), "`%s` invalid property expression (%T)", x, x.Rhs)
+                if x.Tok == token.SELECT_PROG2 {
+                        v = &Nil{trivial{pos}} // ignore
+                } else {
+                        l.error(x.Rhs.Pos(), "`%s` invalid property expression (%T)", x, x.Rhs)
+                }
         } else {
-                v = &selection{ x.Tok, obj, prop }
+                v = &selection{trivial{pos}, x.Tok, obj, prop}
         }
         return
 }
 
 func (l *loader) exprBasicLit(x *ast.BasicLit) (v Value) {
+        var pos = Position(l.parser.file.Position(x.Pos()))
         switch x.Kind {
-        case token.BAR:      v = modifierbar
-        case token.BIN:      v = ParseBin(x.Value)
-        case token.OCT:      v = ParseOct(x.Value)
-        case token.INT:      v = ParseInt(x.Value)
-        case token.HEX:      v = ParseHex(x.Value)
-        case token.FLOAT:    v = ParseFloat(x.Value)
-        case token.DATETIME: v = ParseDateTime(x.Value)
-        case token.DATE:     v = ParseDate(x.Value)
-        case token.TIME:     v = ParseTime(x.Value)
-        case token.URI:      v = ParseURL(x.Value)
-        case token.BAREWORD: v = &Bareword{x.Value}
-        case token.STRING:   v = &String{x.Value}
-        case token.ESCAPE:   v = &String{EscapeChar(x.Value)}
-        case token.RAW:      v = &Raw{x.Value}
+        case token.BAR: l.error(x.Pos(), "`|` is deprecated, changed the modifiers!")
+        case token.BIN:      v = ParseBin(pos,x.Value)
+        case token.OCT:      v = ParseOct(pos,x.Value)
+        case token.INT:      v = ParseInt(pos,x.Value)
+        case token.HEX:      v = ParseHex(pos,x.Value)
+        case token.FLOAT:    v = ParseFloat(pos,x.Value)
+        case token.DATETIME: v = ParseDateTime(pos,x.Value)
+        case token.DATE:     v = ParseDate(pos,x.Value)
+        case token.TIME:     v = ParseTime(pos,x.Value)
+        case token.URI:      v = ParseURL(pos,x.Value)
+        case token.BAREWORD: v = &Bareword{trivial{pos},x.Value}
+        case token.STRING:   v = &String{trivial{pos},x.Value}
+        case token.ESCAPE:   v = &String{trivial{pos},EscapeChar(x.Value)}
+        case token.RAW:      v = &Raw{trivial{pos},x.Value}
         default: unreachable()
         }
         return
 }
 
 func (l *loader) exprBareword(x *ast.Bareword) (res Value) {
-        res = &Bareword{x.Value}
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        res = &Bareword{trivial{pos},x.Value}
+        return
+}
+
+func (l *loader) exprQualiword(x *ast.Qualiword) (res Value) {
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        res = &Qualiword{trivial{pos},x.Words}
         return
 }
 
 func (l *loader) exprConstant(x *ast.Constant) (res Value) {
+        var pos = Position(l.parser.file.Position(x.Pos()))
         switch x.Tok {
-        case token.TRUE:  res = &boolean{ true }
-        case token.FALSE: res = &boolean{ false }
-        case token.YES:   res = &answer{ true }
-        case token.NO:    res = &answer{ false }
+        case token.TRUE:  res = &boolean{trivial{pos},true}
+        case token.FALSE: res = &boolean{trivial{pos},false}
+        case token.YES:   res = &answer{trivial{pos},true}
+        case token.NO:    res = &answer{trivial{pos},false}
         }
         return
 }
 
 func (l *loader) exprBarecomp(x *ast.Barecomp) (res Value) {
-        res = MakeBarecomp(l.exprs(x.Elems)...)
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        res = MakeBarecomp(pos, l.exprs(x.Elems)...)
         return
 }
 
 func (l *loader) exprBarefile(x *ast.Barefile) (v Value) {
         if file, _ := x.File.(*File); file != nil {
+                var pos = Position(l.parser.file.Position(x.Pos()))
                 if x.Val != nil {
-                        v = &Barefile{x.Val.(Value), file}
+                        v = &Barefile{trivial{pos},x.Val.(Value),file}
                 } else {
-                        v = &Barefile{l.expr(x.Name), file}
+                        v = &Barefile{trivial{pos},l.expr(x.Name),file}
                 }
         }
         if v == nil {
-                l.parser.error(x.Pos(), "invalid barefile `%s` (%T)", x.Name, x.File)
+                l.error(x.Pos(), "invalid barefile `%s` (%T)", x.Name, x.File)
         }
         return
 }
 
+func (l *loader) convertBarefiles(targets []ast.Expr) []ast.Expr {
+        for i, target := range targets {
+                var pos = Position(l.parser.file.Position(target.Pos()))
+                switch t := target.(type) {
+                case *ast.Bareword:
+                        if file := l.project.matchFile(t.Value); file != nil {
+                                targets[i] = &ast.Barefile{Name:target,File:file}
+                                file.position = pos
+                        }
+                case *ast.Barecomp:
+                        var value = l.exprBarecomp(t)
+                        if value.closured() || value.refdef(DefArg) { break }
+                        target = &ast.EvaluatedExpr{target, value}
+                        if s, err := value.Strval(); err != nil {
+                                l.error(t.Pos(), "%v: %v", value, err)
+                        } else if file := l.project.matchFile(s); file != nil {
+                                targets[i] = &ast.Barefile{Name:target,File:file}
+                                file.position = pos
+                        }
+                case *ast.ArgumentedExpr:
+                        vals := l.convertBarefiles(append([]ast.Expr{t.X},t.Arguments...))
+                        t.X, t.Arguments = vals[0], vals[1:]
+                }
+        }
+        return targets
+}
+
 func (l *loader) exprURL(x *ast.URLExpr) (res Value) {
+        var pos = Position(l.parser.file.Position(x.Pos()))
         var url = &URL{ Scheme:l.expr(x.Scheme) }
         if x.Username != nil { url.Username = l.expr(x.Username) }
         if x.Password != nil { url.Password = l.expr(x.Password) } else if x.Colon2 != token.NoPos {
-                url.Password = universalnone
+                url.Password = &None{trivial{pos}}
         }
         if x.Host != nil { url.Host = l.expr(x.Host) }
         if x.Port != nil { url.Port = l.expr(x.Port) } else if x.Colon3 != token.NoPos {
-                url.Port = universalnone
+                url.Port = &None{trivial{pos}}
         }
         if x.Path != nil { url.Path = l.expr(x.Path) }
         if x.Query != nil { url.Query = l.expr(x.Query) } else if x.Que != token.NoPos {
-                url.Query = universalnone
+                url.Query = &None{trivial{pos}}
         }
         if x.Fragment != nil { url.Fragment = l.expr(x.Fragment) } else if x.NumSign != token.NoPos {
-                url.Fragment = universalnone
+                url.Fragment = &None{trivial{pos}}
         }
         return url
 }
 
 func (l *loader) exprPath(x *ast.PathExpr) (res Value) {
-        res = MakePath(l.exprs(x.Segments)...)
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        res = MakePath(pos, l.exprs(x.Segments)...)
         return
 }
 
 func (l *loader) exprPathSeg(x *ast.PathSegExpr) (v Value) {
+        var pos = Position(l.parser.file.Position(l.pos))
         switch x.Tok {
-        case token.PCON:   v = MakePathSeg('/') // TODO: should be NONE
-        case token.TILDE:  v = MakePathSeg('~')
-        case token.PERIOD: v = MakePathSeg('.')
-        case token.DOTDOT: v = MakePathSeg('^') // 
-        case 0: v = MakePathSeg(0) // the tailing empty segment after '/', e.g. /foo/bar/
-        default: l.parser.error(x.Pos(), "unsupported path segment `%v`", x.Tok)
+        case token.PCON:   v = MakePathSeg(pos,'/') // TODO: should be NONE
+        case token.TILDE:  v = MakePathSeg(pos,'~')
+        case token.DOT:    v = MakePathSeg(pos,'.')
+        case token.DOTDOT: v = MakePathSeg(pos,'^') // 
+        case 0: v = MakePathSeg(pos,0) // the tailing empty segment after '/', e.g. /foo/bar/
+        default: l.error(x.Pos(), "unsupported path segment `%v`", x.Tok)
         }
         return
 }
 
 func (l *loader) exprFlag(x *ast.FlagExpr) (v Value) {
+        var pos = Position(l.parser.file.Position(x.Pos()))
         if x.Name == nil {
-                v = &Flag{ universalnone }
+                v = &Flag{trivial{pos},&None{trivial{pos}}}
         } else {
-                v = &Flag{ l.expr(x.Name) }
+                v = &Flag{trivial{pos},l.expr(x.Name)}
         }
         return
 }
@@ -906,58 +1067,90 @@ func (l *loader) exprNeg(x *ast.NegExpr) (v Value) {
 }
 
 func (l *loader) exprCompoundLit(x *ast.CompoundLit) (v Value) {
-        v = MakeCompound(l.exprs(x.Elems)...)
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        v = MakeCompound(pos, l.exprs(x.Elems)...)
         return
 }
 
 func (l *loader) exprGroup(x *ast.GroupExpr) (v Value) {
-        v = MakeGroup(l.exprs(x.Elems)...)
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        v = MakeGroup(pos, l.exprs(x.Elems)...)
         return
 }
 
 func (l *loader) exprList(x *ast.ListExpr) (v Value) {
-        v = MakeList(l.exprs(x.Elems)...)
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        v = MakeList(pos, l.exprs(x.Elems)...)
         return
 }
 
 func (l *loader) exprKeyValue(x *ast.KeyValueExpr) (res Value) {
+        var pos = Position(l.parser.file.Position(x.Pos()))
         if k := l.expr(x.Key); l.parser.bits&parsingFilesSpec != 0 {
-                res = &Pair{k, l.expr(x.Value)}
-        } else if k.Type().Bits()&IsKeyName != 0 {
-                res = MakePair(k, l.expr(x.Value))
+                res = &Pair{trivial{pos},k,l.expr(x.Value)}
         } else {
-                l.parser.error(x.Key.Pos(), "not valid key `%T`", k)
+                res = MakePair(pos,k,l.expr(x.Value))
         }
         return
 }
 
 func (l *loader) exprPerc(x *ast.PercExpr) (v Value) {
-        v = MakePercPattern(l.expr(x.X), l.expr(x.Y))
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        v = MakePercPattern(pos, l.expr(x.X), l.expr(x.Y))
         return
 }
 
 func (l *loader) exprGlob(x *ast.GlobExpr) (v Value) {
-        v = MakeGlobPattern(l.exprs(x.Components)...)
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        v = MakeGlobPattern(pos, l.exprs(x.Components)...)
         return
 }
 
 func (l *loader) exprGlobMeta(x *ast.GlobMeta) (v Value) {
-        v = MakeGlobMeta(x.Tok)
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        v = MakeGlobMeta(pos, x.Tok)
         return
 }
 
 func (l *loader) exprGlobRange(x *ast.GlobRange) (v Value) {
-        v = MakeGlobRange(l.expr(x.Chars))
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        v = MakeGlobRange(pos, l.expr(x.Chars))
         return
 }
 
+func (l *loader) exprModifierGroup(x *ast.ModifiersExpr) Value {
+        var modifiers []*modifier
+        for i, elem := range l.exprs(x.Elems) {
+                switch t := elem.(type) {
+                case *Group:
+                        // Just ignore empty modifier
+                        if len(t.Elems) == 0 { continue }
+                        var m = &modifier{
+                                trivial: trivial{t.Position()},
+                                name: t.Elems[0],
+                        }
+                        if len(t.Elems) > 1 {
+                                m.args = t.Elems[1:]
+                        }
+                        modifiers = append(modifiers, m)
+                default:
+                        l.error(x.Elems[i].Pos(), "invalid modifier `%v` (%T)", elem, elem)
+                }
+        }
+        return &modifiergroup{
+                trivial: trivial{Position(l.parser.file.Position(x.Pos()))},
+                modifiers: modifiers,
+        }
+}
+
 func (l *loader) exprRecipe(x *ast.RecipeExpr) (v Value) {
+        var pos = Position(l.parser.file.Position(x.Pos()))
         if len(x.Elems) == 0 {
-                v = universalnone
+                v = &None{trivial{pos}}
         } else if x.Dialect == "" || x.Dialect == "eval" {
-                v = MakeList(l.exprs(x.Elems)...)
+                v = MakeList(pos, l.exprs(x.Elems)...)
         } else {
-                v = MakeCompound(l.exprs(x.Elems)...)
+                v = MakeCompound(pos, l.exprs(x.Elems)...)
         }
         return
 }
@@ -971,16 +1164,16 @@ func (l *loader) exprIncludeRuleClause(x *ast.IncludeRuleClause) (v Value) {
         if n := len(entries); n == 1 {
                 v = entries[0]
         } else if n > 1 {
-                l.parser.error(x.Pos(), "including multiple target `%v`", x)
+                l.error(x.Pos(), "including multiple target `%v`", x)
         } else {
-                l.parser.error(x.Pos(), "invalid rule `%v`", x)
+                l.error(x.Pos(), "invalid rule `%v`", x)
         }
         return
 }
 
 func (l *loader) expr(expr ast.Expr) (v Value) {
         if expr == nil {
-                v = universalnone
+                v = &None{trivial{Position(l.parser.file.Position(l.pos))}}
                 return
         }
 
@@ -999,6 +1192,8 @@ func (l *loader) expr(expr ast.Expr) (v Value) {
                 v = l.exprBasicLit(x)
         case *ast.Bareword:
                 v = l.exprBareword(x)
+        case *ast.Qualiword:
+                v = l.exprQualiword(x)
         case *ast.Constant:
                 v = l.exprConstant(x)
         case *ast.Barecomp:
@@ -1030,7 +1225,9 @@ func (l *loader) expr(expr ast.Expr) (v Value) {
         case *ast.GlobMeta: // "*", "?"
                 v = l.exprGlobMeta(x)
         case *ast.GlobRange: // "[a-z]", "[abc]", `[a\-b]`, `[a\]b]`
-                v = l.exprGlobRange(x)
+                v = l.exprGlobRange(x) // FIXME: `[...]` is used for modifier expressions
+        case *ast.ModifiersExpr: // [(foo a b c) (bar a b c)]
+                v = l.exprModifierGroup(x)
         case *ast.RecipeExpr:
                 v = l.exprRecipe(x)
         case *ast.RecipeDefineClause:
@@ -1038,24 +1235,22 @@ func (l *loader) expr(expr ast.Expr) (v Value) {
         case *ast.IncludeRuleClause:
                 v = l.exprIncludeRuleClause(x)
         case *ast.BadExpr:
-                l.parser.error(x.Pos(), "bad expr")
+                l.error(x.Pos(), "bad expr")
                 return
         }
 
         if v == nil {
                 if l.isIncludingConf {
-                        v = new(Nil)
+                        v = &Nil{trivial{Position(l.parser.file.Position(expr.Pos()))}}
                 } else {
-                        l.parser.error(expr.Pos(), "`%v` nil expression (%T)", expr, expr)
+                        l.error(expr.Pos(), "nil expr: `%v` (%s)", expr, typeof(expr))
                 }
         }
         return
 }
 
 func (l *loader) exprs(exprs []ast.Expr) (values []Value) {
-        for _, x := range exprs {
-                values = append(values, l.expr(x))
-        }
+        for _, x := range exprs { values = append(values, l.expr(x)) }
         return
 }
 
@@ -1071,173 +1266,28 @@ func (l *loader) useProject(pos token.Pos, usee *Project, params []Value, opts u
                         fmt.Fprintf(stderr, "using(%8s) %s ⇒ %v\n", d, l.project, l.project.using)
                 } (time.Now())
         }
-        if l.usefunc == nil {
-                l.parser.error(pos, "`%v` use clause forbiden", usee.name)
-        } else if err = l.usefunc(l, pos, usee, params, opts); err != nil {
+        if err = l.useProject2(pos, usee, params, opts); err != nil {
                 if p, ok := err.(*scanner.Error); ok {
-                        l.parser.error(pos, "%v", p.Err)
+                        l.error(pos, "%v", p.Brief())
                 } else {
-                        l.parser.error(pos, "%v", err)
+                        l.error(pos, "%v", err)
                 }
         }
         return
 }
 
-func (l *loader) isExecutedUsee(usee *Project) (res bool) {
-        for _, p := range l.useesExecuted {
-                if res = usee == p; res { break }
-        }
-        return
-}
-
-func (l *loader) executeUseRule(pos token.Pos, usee *Project, userule *useRuleEntry, params []Value) (err error) {
-        position := l.parser.file.Position(pos)
-        for _, prog := range userule.programs {
-                defer prog.setUser(prog.setUser(l.project))
-        }
-
-        var t time.Time
-        var results []Value
-        if optionVerboseImport && optionBenchImport { t = time.Now() }
-        if optionExecuteUseLightly {
-                for _, prog := range userule.programs {
-                ForRecipes:
-                        for _, recipe := range prog.recipes {
-                                var list *List
-                                switch t := recipe.(type) {
-                                case *None: continue ForRecipes
-                                case *List: list = t
-                                default: unreachable("unknown type: %T", recipe)
-                                }
-                                switch t := list.Elems[0].(type) {
-                                case *undetermined:
-                                        results = append(results, t)
-                                default:
-                                        fmt.Fprintf(stderr, "%s: unsupported use expression: %v", prog.position, list)
-                                }
-                        }
-                }
-        } else {
-                // Performs the full execution of use rules, this is
-                // taking more time to finish.
-                results, err = mergeresult(userule.Execute(Position(position), params...))
-        }
-        if optionVerboseImport && optionBenchImport {
-                var d = time.Now().Sub(t)
-                fmt.Fprintf(stderr, "%s││ %s:use(%s) … (%s)\n", l.vs, l.project.name, usee.name, d)
-                for _, prog := range userule.programs {
-                        for _, recipe := range prog.recipes {
-                                fmt.Fprintf(stderr, "%s││   %v\n", l.vs, recipe)
-                        }
-                }
-        }
-
-        if err != nil { return }
-
-        if optionVerboseImport && optionBenchImport { t = time.Now() }
-        for _, result := range results {
-                switch t := result.(type) {
-                case *None: // does nothing
-                case *undetermined:
-                        if sel, ok := t.identifier.(*selection); ok && sel != nil {
-                                l.determine(pos, t.tok, sel, t.value, true)
-                        } else {
-                                err = scanner.Errorf(position, "unsupported using def `%v` (%T)", t.identifier, t.identifier)
-                                return
-                        }
-                default:
-                        err = scanner.Errorf(position, "todo: using def `%T`", result)
-                        return
-                }
-        }
-        if optionVerboseImport && optionBenchImport {
-                var d = time.Now().Sub(t)
-                fmt.Fprintf(stderr, "%s││ %s:use(%s) … (%s)\n", l.vs, l.project.name, usee.name, d)
-                for _, result := range results {
-                        fmt.Fprintf(stderr, "%s││ ⇒ %v\n", l.vs, result)
-                }
-        }
-        return
-}
-
-func (l *loader) executeUseRulesRecursively(pos token.Pos, usee *Project, params []Value, opts useoptions) (err error) {
-        // Return immediately if this usee is executed. If the use rule
-        // accumulates values (e.g. += or =+), it may take very long time.
-        if !(opts.allowReuse || optionExecuteUseRuleMultiTimes) && l.isExecutedUsee(usee) {
-                return // execute use rule only once
-        }
-
-        // Monitor the execution time of the :use: rule.
-        defer func(t time.Time) {
-                var d = time.Now().Sub(t)
-                if optionVerboseImport {
-                        if optionBenchImport && d > 1*time.Millisecond {
-                                var s = l.usePathStr()
-                                fmt.Fprintf(stderr, "%s││▶%s:use(%s) … (%s) (%s)◀\n", l.vs, l.project.name, usee.name, d, s)
-                        }
-                } else if optionBenchSlow && d > 500*time.Millisecond { // ⌚ ⌛
-                        fmt.Fprintf(stderr, "smart: %s: slow ▶use(%s)◀ … (%s)\n", l.project.name, usee.name, d)
-                }
-        } (time.Now())
-
-        for _, userule := range usee.userules {
-                if userule.post { continue }
-                err = l.executeUseRule(pos, usee, userule, params)
-                if err != nil { return }
-        }
-        if !usee.breakRecursiveUsing {
-                for _, u := range usee.using.list {
-                        err = l.executeUseRulesRecursively(pos, u.project, params, opts)
-                        if err != nil { break }
-                }
-        }
-        for _, userule := range usee.userules {
-                if !userule.post { continue }
-                err = l.executeUseRule(pos, usee, userule, params)
-                if err != nil { return }
-        }
-        return
-}
-
-func (l *loader) executeUseRuleDirectly(pos token.Pos, usee *Project, params []Value, opts useoptions) (err error) {
-        // Monitor the execution time of the :use: rule.
-        defer func(t time.Time) {
-                var d = time.Now().Sub(t)
-                if optionVerboseImport {
-                        if optionBenchImport /*&& d > 1*time.Millisecond*/ {
-                                var s = l.usePathStr()
-                                fmt.Fprintf(stderr, "%s││ %s:usex(%s) … (%s) (%s)\n", l.vs, l.project.name, usee.name, d, s)
-                        }
-                } else if optionBenchSlow && d > 500*time.Millisecond { // ⌚ ⌛
-                        fmt.Fprintf(stderr, "smart: %s: slow ▶use(%s)◀ … (%s)\n", l.project.name, usee.name, d)
-                }
-        } (time.Now())
-
-        // Return immediately if this usee is executed. If the use rule
-        // accumulates values (e.g. += or =+), it may take very long time.
-        if !(opts.allowReuse || optionExecuteUseRuleMultiTimes) && l.isExecutedUsee(usee) {
-                return // execute use rule only once
-        }
-
-        for _, rule := range usee.userules {
-                err = l.executeUseRule(pos, usee, rule, params)
-                l.useesExecuted = append(l.useesExecuted, usee)
-        }
-        return
-}
-
-func (l *loader) usePathStr() (s string) {
-        for i, u := range l.usePath {
+func (l *loader) usePath() (s string) {
+        for i, u := range l.useStack {
                 if i > 0 { s += "," }
                 s += u.name
         }
         return
 }
 
-func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts useoptions) (err error) {
+func (l *loader) useProject2(pos token.Pos, usee *Project, params []Value, opts useoptions) (err error) {
+        position := l.parser.file.Position(pos)
         if usee == l.project {
-                position := l.parser.file.Position(pos)
-                err = scanner.Errorf(position, "'%v' use loop (%s)", usee.name, l.usePathStr())
+                err = scanner.Errorf(position, "'%v' use loop (%s)", usee.name, l.usePath())
                 return
         } else if false {
                 for _, using := range l.project.using.list {
@@ -1252,7 +1302,7 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts us
                 var d = time.Now().Sub(t)
                 if optionVerboseImport {
                         if optionBenchImport /*&& d > 1*time.Millisecond*/ {
-                                var s = l.usePathStr()
+                                var s = l.usePath()
                                 fmt.Fprintf(stderr, "%s││ %s:use(%s) … (%s) (%s)\n", l.vs, l.project.name, usee.name, d, s)
                         }
                 } else if optionBenchSlow && d > 500*time.Millisecond { // ⌚ ⌛
@@ -1260,230 +1310,100 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts us
                 }
         } (time.Now())
 
-        defer func(a []*Project) { l.usePath = a } (l.usePath)
-        l.usePath = append(l.usePath, usee) // build the use path
-
-        if optionExecuteUseBases {
-                // Also use the bases and usee's using list, so that all
-                // dependencies are included.
-                for _, base := range usee.bases {
-                        if err = useProject(l, pos, base, params, opts); err != nil { return }
-                }
-        }
+        defer func(a []*Project) { l.useStack = a } (l.useStack)
+        l.useStack = append(l.useStack, usee) // build the use path
 
         // Add to the project using list, so that the use path is correct.
-        l.project.using.append(usee, params, opts)
+        l.project.using.append(Position(position), usee, params, opts)
 
-        // Execute the :use: rule if presented to apply the conditions
-        // of using the project.
-        if true {
-                // does nothing
-        } else if optionExecuteUseRulesRecursively {
-                if false {
-                        err = l.executeUseRulesRecursively(pos, usee, params, opts)
-                } else {
-                        var post bool
-                        var usees []*Project
-                        if !post { usees = append(usees, usee) }
-                        usees = append(usees, usee.usees(post)...)
-                        if post { usees = append(usees, usee) }
-
-                        // Get usees 'recursively' and use each directly.
-                        for _, u := range usees {
-                                err = l.executeUseRuleDirectly(pos, u, params, opts)
-                                if err != nil { break }
-                        }
-                }
-        } else {
-                err = l.executeUseRuleDirectly(pos, usee, params, opts)
-        }
-        return
+        return // :user: rules are deprecated!
 }
 
-func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Value, defineSel bool) (def *Def) {
-        var ( alt Object ; derived *Def )
+func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Value) (def *Def) {
+        var alt Object
         switch t := identifier.(type) {
         case *selection:
                 var v, err = t.value()
                 if err != nil {
-                        l.parser.error(pos, "determine `%v`: %v", t, err)
+                        l.error(pos, "determine `%v`: %v", t, err)
                         return
                 } else if d, ok := v.(*Def); ok {
                         def = d
                 } else {
-                        l.parser.error(pos, "`%v` is not a def (%T)", t, v)
+                        l.error(pos, "`%v` is not a def (%T)", t, v)
                         return
                 }
 
-                // user: The selection 'user->xxx' finds 'xxx'
-                // from the base if the current project has
-                // no 'xxx' defined. We define the variable
-                // for the current project in this case.
-                if defineSel && def.owner != l.project /*l.project.hasBase(def.owner)*/ {
-                        derived = def // Derive the base definition
-                        if def, alt = l.def(def.name); alt != nil && tok != token.QUE_ASSIGN {
-                                l.parser.error(pos, "`%s` already defined", alt.Name())
-                                return
-                        }
-                }
-
-        case *Bareword, *Barecomp:
+        case *Bareword, *Barecomp, *Qualiword:
                 var name, err = t.Strval()
                 if err != nil {
-                        l.parser.error(pos, "determine `%v`: %v", t, err)
+                        l.error(pos, "determine `%v`: %v", t, err)
                         return
                 } else if _, ok := builtins[name]; ok {
-                        l.parser.error(pos, "`%v` (%v) is builtin name", identifier, name)
+                        l.error(pos, "`%v` (%v) is builtin name", identifier, name)
                         return
                 }
 
                 // Resolve base value to derive.
                 var prev Object
                 prev, err = l.project.resolveObject(name)
-                if err != nil { l.parser.error(pos, "%v", err) }
-                if prev != nil && prev.OwnerProject() != l.project {
-                        derived, _ = prev.(*Def)
-                }
-
-                if def, alt = l.def(name); alt == nil {
+                if err != nil { l.error(pos, "%v", err) }
+                if def, alt = l.def(pos, name); alt == nil {
                         // does nothing...
                 } else if alt != nil && (tok == token.ASSIGN || tok == token.EXC_ASSIGN) {
-                        if alt.OwnerProject() == l.project {
-                                l.parser.error(pos, "`%v` already defined (%T)", identifier, alt)
+                        var ( okay bool; ad *Def )
+                        if ad, okay = alt.(*Def); !okay {
+                                l.error(pos, "`%v` already defined (%T) (%v,%v)", identifier, alt, alt.OwnerProject(), l.project)
+                                if optionPrintStack {
+                                        fmt.Fprintf(stderr, "%s: `%v` already defined here\n", alt.Position(), alt)
+                                        debug.PrintStack()
+                                }
                                 return
-                        }
-                        // Overrides the previous definition.
-                        if def, alt = l.def(alt.Name()); alt != nil {
-                                l.parser.error(pos, "`%v` already defined (%T)", identifier, alt)
+                        } else if ad.owner == l.project && ad.origin != DefConfRef {
+                                l.error(pos, "`%v` already defined (%T) (%v)", identifier, alt, l.project)
+                                if optionPrintStack {
+                                        fmt.Fprintf(stderr, "%s: `%v` already defined here\n", alt.Position(), alt)
+                                        debug.PrintStack()
+                                }
                                 return
+                        } else {
+                                def = ad
                         }
-                } else if alt != nil {
-                        def = alt.(*Def)
-                }
-        }
+                } else if alt != nil { def = alt.(*Def) }
 
-        if derived != nil && derived != def && tok == token.ADD_ASSIGN && !def.Value.refs(derived) {
-                // Unshift the delegation to derive value.
-                position := Position(l.parser.file.Position(pos))
-                err := def.append(MakeDelegate(position, token.LPAREN, derived))
-                if err != nil {
-                        l.parser.error(pos, "%v", err)
+                if prev == nil {
+                        // no derived value
+                } else if prev.OwnerProject() == l.project {
+                        // don't derive in the same project
+                } else if derived, okay := prev.(*Def); !okay {
+                        // not a def
+                } else if derived == nil {
+                        assert(false, "encounterred nil def `%s`", name)
+                } else if derived == def || def.value.refs(derived) {
+                        // same def
+                } else if tok == token.ADD_ASSIGN {
+                        // Unshift the delegation to derive value.
+                        position := Position(l.parser.file.Position(pos))
+                        err := def.append(MakeDelegate(position, token.LPAREN, derived))
+                        if err != nil {
+                                l.error(pos, "%v", err)
+                        }
                 }
         }
 
         if def == nil {
-                l.parser.error(pos, "`%v' is nil", identifier)
+                l.error(pos, "identifier `%v' is nil", identifier)
                 return
         }
+
+        // Ensures that all immediate assignments are in the current
+        // project context.
+        defer setclosure(setclosure(cloctx.unshift(l.scope)))
 
         if err := l.assign(pos, tok, def, alt, value); err != nil {
-                l.parser.error(pos, "%v", err)
+                l.error(pos, "%v", err)
         }
         return
-}
-
-func (l *loader) use(spec *ast.UseSpec) {
-        if l.project.keyword == token.PACKAGE {
-                l.parser.error(spec.Pos(), "forbiden package `use`")
-        } else if len(spec.Props) == 0 {
-                l.parser.error(spec.Pos(), "empty `use` spec")
-        } else if name := l.expr(spec.Props[0]); name == nil {
-                l.parser.error(spec.Pos(), "undefined `use` target")
-        } else if name == universalnone {
-                l.parser.error(spec.Pos(), "none `use` target")
-        } else {
-                var usee Object
-                switch t := name.(type) {
-                case *Bareword, *Barecomp, *String, *Compound:
-                        if str, err := name.Strval(); err != nil {
-                                l.parser.error(spec.Props[0].Pos(), "%s", err)
-                                return
-                        } else {
-                                _, usee = l.project.scope.Find(str)
-                        }
-                case *Flag:
-                        l.useOptional(spec.Props[0].Pos(), t.Name)
-                        return
-                default:
-                        l.parser.error(spec.Pos(), "`%v` invalid usee (%T)", name, name)
-                        return
-                }
-                if usee == nil {
-                        l.parser.error(spec.Pos(), "nil usee `%v`", name)
-                        return
-                }
-
-                switch t := usee.(type) {
-                case *ProjectName:
-                        var opts useoptions
-                        // TODO: parse the useoptions
-                        l.useProject(spec.Props[0].Pos(), t.project, l.exprs(spec.Props[1:]), opts)
-                case *Def:
-                        if alt := l.project.scope.Insert(t); alt != nil {
-                                l.parser.error(spec.Pos(), "`%s` already defined in %s", t.Name(), l.project.scope.comment)
-                        }
-                case *RuleEntry:
-                        if alt := l.project.scope.Insert(t); alt != nil {
-                                l.parser.error(spec.Pos(), "`%s` already defined in %s", t.Name(), l.project.scope.comment)
-                        }
-                default:
-                        l.parser.error(spec.Pos(), "unknown usee `%v` (%T)", t, t)
-                }
-        }
-}
-
-func (l *loader) useOptional(pos token.Pos, opt Value) {
-        s, err := opt.Strval()
-        if err != nil {
-                l.parser.error(pos, "`%v` invalid value (%s)", opt, err)
-                return
-        }
-        switch s {
-        case "recursively": l.useRecursively(pos)
-        default:
-                l.parser.error(pos, "`%s` unknown use option (%v)", s, opt)
-                return
-        }
-}
-
-
-func (l *loader) useRecursively(pos token.Pos) {
-        if optionNoDeprecatedFeatures {
-                l.parser.error(pos, "'use -recursively' is deprecated")
-                return
-        }
-
-        if l.usefunc == nil {
-                l.parser.error(pos, "`%v` use is forbiden", l.project.name)
-                return
-        }
-
-        var post bool
-        // TODO: decide pre-order or post-order
-        
-        var usees = l.project.usees(post)
-        defer func(t time.Time) {
-                var d = time.Now().Sub(t)
-                if optionVerboseImport {
-                        if optionBenchImport && d > 0*time.Millisecond {
-                                fmt.Fprintf(stderr, "%s││▶%s:use(-recursively) … (%s)◀\n", l.vs, l.project.name, d)
-                        }
-                } else if optionBenchSlow && d > 500*time.Millisecond { // ⌚ ⌛
-                        fmt.Fprintf(stderr, "smart: %s: slow ▶use(-recursively)◀ … (%s)\n", l.project.name, d)
-                }
-        } (time.Now())
-
-        // Recursive using projects may take very long time.
-        unique := make(map[*Project]int)
-        for _, usee := range usees {
-                if _, ok := unique[usee]; ok { continue }
-                //if l.project.isUsingDirectly(usee) { continue }
-                unique[usee] += 1 // ensure it's used only once
-                if err := l.usefunc(l, pos, usee, nil, useoptions{}); err != nil {
-                        break
-                }
-        }
-        unique = nil
 }
 
 func (l *loader) configuration(spec *ast.ConfigurationSpec) (res Value) {
@@ -1492,7 +1412,7 @@ func (l *loader) configuration(spec *ast.ConfigurationSpec) (res Value) {
         var value = l.expr(spec.Value)
         defer func(scope *Scope) { l.scope = scope } (l.scope)
         l.scope = configuration.project.scope
-        res = l.determine(spec.Pos(), spec.Tok, name, value, false)
+        res = l.determine(spec.Pos(), spec.Tok, name, value)
         return
 }
 
@@ -1510,13 +1430,13 @@ func (l *loader) evalspec(spec *ast.EvalSpec) (res Value) {
                 default:
                         var ( str string; err error )
                         if str, err = op.Strval(); err != nil {
-                                l.parser.error(id.Pos(), "%s: %v", op, err)
+                                l.error(id.Pos(), "%s: %v", op, err)
                         } else if _, obj := l.scope.Find(str); obj == nil {
-                                l.parser.error(id.Pos(), "`%s` undefined", str)
+                                l.error(id.Pos(), "`%s` undefined", str)
                         } else if f, _ := obj.(Caller); f == nil {
-                                l.parser.error(id.Pos(), "`%T` is not caller (%s)", obj, str)
+                                l.error(id.Pos(), "`%T` is not caller (%s)", obj, str)
                         } else if res, err = f.Call(position, l.exprs(spec.Props[1:])...); err != nil {
-                                l.parser.error(id.Pos(), "%s: %v", str, err)
+                                l.error(id.Pos(), "%s: %v", str, err)
                         }
                 }
         }
@@ -1526,7 +1446,7 @@ func (l *loader) evalspec(spec *ast.EvalSpec) (res Value) {
 func (l *loader) define(clause *ast.DefineClause) {
         var identifier = l.expr(clause.Name)
         var value = l.expr(clause.Value)
-        l.determine(clause.Pos(), clause.Tok, identifier, value, false)
+        l.determine(clause.Pos(), clause.Tok, identifier, value)
 }
 
 func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast.Expr) (entries []*RuleEntry) {
@@ -1536,132 +1456,115 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                 depends []Value
                 ordered []Value
                 recipes []Value
+                params  []*Def
                 progScope *Scope
-                params []string
         )
         for _, depend := range clause.Depends {
                 switch dep := l.expr(depend).(type) {
-                case *List:
-                        depends = append(depends, dep.Elems...)
-                default:
-                        depends = append(depends, dep)
+                case *List: depends = append(depends, dep.Elems...)
+                default:    depends = append(depends, dep)
                 }
         }
         for _, depend := range clause.Ordered {
                 switch dep := l.expr(depend).(type) {
-                case *List:
-                        ordered = append(ordered, dep.Elems...)
-                default:
-                        ordered = append(ordered, dep)
+                case *List: ordered = append(ordered, dep.Elems...)
+                default:    ordered = append(ordered, dep)
                 }
         }
 
+        var configure bool
         if p, ok := clause.Program.(*ast.ProgramExpr); ok && p != nil {
                 if progScope, _ = p.Scope.(*Scope); progScope == nil {
-                        l.parser.error(clause.Pos(), "undefined program scope (%T).", p.Scope)
+                        l.error(clause.Pos(), "undefined program scope (%T).", p.Scope)
                 }
-                if p.Recipes != nil {
-                        recipes = l.exprs(p.Recipes)
+                if p.Recipes != nil { recipes = l.exprs(p.Recipes) }
+                for _, name := range p.Params {
+                        def := progScope.Lookup(name).(*Def)
+                        params = append(params, def)
                 }
-                params = p.Params
+                configure = p.Configure
         } else {
-                l.parser.error(clause.Program.Pos(), "unsupported program type (%T)", clause.Program)
+                l.error(clause.Program.Pos(), "unsupported program type (%T)", clause.Program)
                 return
         }
         
-        var modifiers []Value
-        if clause.Modifier != nil {
-                modifiers = l.exprs(clause.Modifier.Elems)
-        }
-
-        var configure = false
         var prog = &Program{
-                mutex:    new(sync.Mutex),
                 project:  l.project,
                 scope:    progScope,
                 params:   params,
                 depends:  depends,
                 ordered:  ordered,
                 recipes:  recipes,
+                configure: configure,
                 position: Position(clause.Position),
-        }
-        for i, m := range modifiers {
-                position := l.parser.file.Position(clause.Modifier.Elems[i].Pos())
-                if p, err := prog.pipe(Position(position), m); err != nil {
-                        l.parser.error(clause.Program.Pos(), "modifier `%v`: %v", m, err)
-                        return
-                } else if !configure {
-                        if s, err := p.name.Strval(); err != nil {
-                                l.parser.error(clause.Program.Pos(), "modifier `%v`: %v", m, err)
-                                return
-                        } else if s == "configure" {
-                                configure = true
-                        }
-                }
         }
 
         var optionVals = l.exprs(options)
         for n, target := range l.exprs(clause.Targets) {
                 if target == nil {
-                        l.parser.error(clause.Targets[n].Pos(), "nil target (%T)", clause.Targets[n])
+                        l.error(clause.Targets[n].Pos(), "nil target (%T)", clause.Targets[n])
                         return
                 }
                 var ( name string ; entry *RuleEntry ; err error )
                 if name, err = target.Strval(); err != nil {
-                        l.parser.error(clause.Targets[n].Pos(), "%v", err)
+                        l.error(clause.Targets[n].Pos(), "%v", err)
                 }                
                 if true {// it should work too if not checking against files
                         switch target.(type) {
                         case *File, *Path, Pattern:
                         default:
-                                file := l.project.matchFile(name)
-                                if file != nil { target = file }
+                                var file = l.project.matchFile(name)
+                                if file != nil {
+                                        file.position = target.Position()
+                                        target = file
+                                }
                         }
                 }
                 entry, err = l.project.entry(special, optionVals, target, prog)
                 if err != nil {
-                        l.parser.error(clause.Targets[n].Pos(), "%v", err)
+                        l.error(clause.Targets[n].Pos(), "%v", err)
                         return
                 } else /*if entry != nil*/ {
-                        entry.Position = Position(l.parser.file.Position(clause.Targets[n].Pos()))
+                        entry.position = Position(l.parser.file.Position(clause.Targets[n].Pos()))
                         entries = append(entries, entry)
                 }
                 if t, okay := entry.target.(*Flag); okay && t != nil {
-                        if s, _ := t.Name.Strval(); s == "configure" {
-                                configuration.configs = append(configuration.configs, entry)
+                        var s string
+                        if s, err = t.name.Strval(); err != nil {
+                                l.error(clause.Targets[n].Pos(), "%v", err)
+                        } else if l.project.name != "~" {
+                                flags, _ := context.flagEntries[s]
+                                flags = append(flags, entry)
+                                context.flagEntries[s] = flags
                         }
+                        //if s == "configure" { configuration.configs = append(configuration.configs, entry) }
                 } else if configure {
                         configuration.entries = append(configuration.entries, entry)
-                        if def, alt := l.def(name); alt != nil {
-                                // TODO: configure option already defined
-                        } else /*if def != nil*/ {
-                                def.set(DefExecute, nil)
-                        }
                 }
         }
         return
 }
 
 func (l *loader) include(spec *ast.IncludeSpec) {
-        if l.includeFunc == nil {
-                l.parser.error(spec.Pos(), "`include` is forbiden")
-        } else if len(spec.Props) > 0 {
-                prop := spec.Props[0]
-                l.includeFunc(l, prop.Pos(), l.expr(prop))
+        if len(spec.Props) > 0 {
+                var prop = spec.Props[0]
+                l.includeFile(prop.Pos(), l.expr(prop))
         }
 }
 
-func includespec(l *loader, pos token.Pos, spec Value) {
-        var linfo = l.loads[len(l.loads)-1]
-        var specName, fullname string
-        var err error
+func (l *loader) includeFile(pos token.Pos, spec Value) {
+        var (
+                linfo = l.loads[len(l.loads)-1]
+                specName, fullname string
+                err error
+        )
 
         // Execute the rule entry to update include source.
         if entry, ok := spec.(*RuleEntry); ok && entry != nil {
                 var result []Value
-                if result, err = entry.Execute(entry.Position); err != nil {
-                        l.parser.error(pos, "include error occurred (entry %v)", entry)
-                        l.parser.error(pos, err) // add err to the list
+                if result, err = entry.Execute(entry.position); err != nil {
+                        l.error(pos, "include error occurred (entry %v)", entry)
+                        l.error(pos, err) // add err to the list
                         return
                 } else if result != nil {
                         // result ignored
@@ -1674,15 +1577,15 @@ func includespec(l *loader, pos token.Pos, spec Value) {
                 panic(fmt.Sprintf("include not implemented (%T)", t))*/
         case *File:
                 if t.info == nil {
-                        l.parser.error(pos, "`%v` no source file", t)
+                        l.error(pos, "`%v` no source file", t)
                         return
                 }
-                fullname = t.FullName() //filepath.Join(t.dir, t.Name)
+                fullname = t.fullname() //filepath.Join(t.dir, t.Name)
                 specName = t.name
         default:
                 if specName, err = spec.Strval(); err != nil {
-                        l.parser.error(pos, "include error occurred (spec %v)", spec)
-                        l.parser.error(pos, err) // add err to the list
+                        l.error(pos, "include error occurred (spec %v)", spec)
+                        l.error(pos, err) // add err to the list
                         return
                 }
                 if filepath.IsAbs(specName) {
@@ -1693,31 +1596,37 @@ func includespec(l *loader, pos token.Pos, spec Value) {
         }
 
         if specName == "" {
-                l.parser.error(pos, "`%v` is empty string", spec)
+                l.error(pos, "`%v` is empty string", spec)
                 return
         }
 
-        var mode = l.mode
+        var mode = l.tracemode
         var absDir, baseName = filepath.Split(fullname)
         defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
         if _, err = l.ParseFile(fullname, nil, parseMode|Flat); err != nil {
-                l.parser.error(pos, "include error occurred (from %v)", fullname)
-                l.parser.error(pos, err) // add err to the list
+                l.error(pos, "include error occurred (from %v)", fullname)
+                l.error(pos, err) // add err to the list
         } else {
                 // The parse mode could still be 'Flat' here as ParseFile
                 // changed it, so we have to restore the previous parse mode.
-                l.mode = mode
+                l.tracemode = mode
         }
         return
 }
 
 func (l *loader) openScope(comment string) loaderScope {
-        l.scope = NewScope(l.scope, l.project, comment)
+        if false && optionTraceLaunch { defer un(trace(t_launch, "loader.openScope")) }
+        var pos Position
+        if l.parser != nil {
+                pos = Position(l.file.Position(l.pos))
+        }
+        l.scope = NewScope(pos, l.scope, l.project, comment)
         cc := setclosure(cloctx.unshift(l.scope))
         return loaderScope{ cc, l.scope }
 }
 
 func (l *loader) closeScope(ls loaderScope) {
+        if false && optionTraceLaunch { defer un(trace(t_launch, "loader.closeScope")) }
         if ls.scope != nil {
                 l.scope = ls.scope.outer
                 if ls.cc != nil { setclosure(ls.cc) }
@@ -1731,39 +1640,97 @@ func (l *loader) closeScope(ls loaderScope) {
         return
 }
 
-func (l *loader) loadProjectBases(linfo *loadinfo, params []Value) (err error) {
+func (l *loader) setArgs(args []Value) (oldArgs []Value) {
+        oldArgs = l.loadArgs
+        l.loadArgs = args
+        return
+}
+
+// project example (base(var=value))
+func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadBases")) }
+
         var isDir bool
         var absPath, specName string
+
+        absPath = filepath.Join(l.project.absPath, ".base")
+        if fi, e := os.Stat(absPath); e == nil && fi.IsDir() {
+                base := MakePathStr(l.project.position, "./.base")
+                params = append([]Value{base}, params...)
+                absPath = ""
+        }
+
+        // For &(foobar) set from loadArgs
+        defer setclosure(setclosure(cloctx.unshift(l.project.scope)))
+
         ParamsLoop: for _, elem := range params {
+                var args []Value
+                if list, ok := elem.(*List); ok && len(list.Elems) == 1 { elem = list.Elems[0] }
+                if a, ok := elem.(*Argumented); ok { elem, args = a.value, a.args }
+                if p, ok := elem.(*Pair); ok {
+                        var identifier = p.Key
+                        var pos = identifier.Position()
+                        var name string
+                        if name, err = p.Key.Strval(); err != nil { err = wrap(pos, err); return }
+                        if len(name) > 0 && name[0] == '.' { identifier = MakeBarecomp(pos, &Bareword{trivial{pos},"project"}, p.Key) }
+                        def := l.determine(l.pos, token.ASSIGN, identifier, p.Value)
+                        if def == nil {/* FIXME: ... */}
+                        continue ParamsLoop
+                }
+
                 if specName, err = elem.Strval(); err != nil { return }
+                if specName == "" {
+                        err = errorf(elem.Position(), "%v: empty base name `%v` (%T)", l.project, elem, elem)
+                        break ParamsLoop
+                }
                 if absPath, isDir, err = l.searchSpecPath(linfo, specName); err != nil {
                         break ParamsLoop
                 }
 
-                var hasConfDir bool
+                for _, base := range l.project.bases {
+                        if base.absPath == absPath {
+                                //err = errorf(elem.Position(), "duplicated base: %v (in %v)", elem, l.project.bases)
+                                //break ParamsLoop
+                                continue ParamsLoop
+                        }
+                }
+
                 if isDir {
-                        hasConfDir, err = l.loadDir(specName, absPath, nil)
+                        err = l.loadDirWithArgs(specName, absPath, args, nil)
                 } else {
-                        err = l.load(specName, absPath, nil)
+                        err = l.loadWithArgs(specName, absPath, args, nil)
+                }
+
+                if err != nil {
+                        err = wrap(elem.Position(), err)
+                        break ParamsLoop
                 }
 
                 // chain loaded base project, note that err might not be nil
                 if loaded, yes := l.loaded[absPath]; yes && loaded != nil {
                         l.project.Chain(loaded)
-                } else if hasConfDir {
-                        err = fmt.Errorf("`%v` base on configuration. (%T, %s)", elem, elem, absPath)
-                        break ParamsLoop
                 } else {
-                        err = fmt.Errorf("project `%v` not loaded. (%T, %s)", elem, elem, absPath)
+                        err = errorf(elem.Position(), "project `%v`(%T: %s) not loaded (%s)", elem, elem, specName, absPath)
                         break ParamsLoop
                 }
+        }
+        return
+}
 
-                // check err after chainning
-                if err != nil {
-                        if _, ok := err.(scanner.Errors); ok {
-                                //fmt.Fprintf(stderr, "%v\n", err)
-                        }
-                        break ParamsLoop
+func (l *loader) loadDotContainer(ident *ast.Bareword, file *File) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadDotContainer")) }
+        if err = l.loadDir(dotContainer, file.fullname(), nil); err != nil {
+                l.error(ident.Pos(), "%s: errors occured while loading: %v", file.fullname(), dotContainer)
+        } else if loaded, yes := l.loaded[file.fullname()]; yes && loaded != nil {
+                name, _ := l.project.scope.Lookup(loaded.Name()).(*ProjectName)
+                if name == nil {
+                        l.error(ident.Pos(), "%v: %v: `dock` is not a project", l.project.name, file)
+                } else {
+                        if optionVerboseLoading { fmt.Fprintf(stderr, "smart: %v (%v)\n", name, file.fullname()) }
+
+                        var opts useoptions
+                        // TODO: parse the useoptions
+                        l.useProject(ident.Pos(), loaded, nil, opts)
                 }
         }
         return
@@ -1776,7 +1743,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 switch t := param.(type) {
                 case *Flag:
                         var s string
-                        if s, err = t.Name.Strval(); err != nil { return }
+                        if s, err = t.name.Strval(); err != nil { return }
                         switch s {
                         case "final": optFinal = true;
                         case "nodock": optNoDock = true;
@@ -1805,10 +1772,10 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         }
 
         var (
+                pos = Position(l.parser.file.Position(ident.Pos()))
                 name = ident.Value
                 linfo = l.loads[len(l.loads)-1]
                 dec, declared = linfo.declares[name]
-                isMainProj bool
         )
         if !declared {
                 var (
@@ -1828,12 +1795,8 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                         outer = outer.outer
                 }
 
-                if l.globe.main == nil && l.project == nil && name != "~" {
-                        isMainProj = true
-                }
-
                 dec = new(declare)
-                dec.project = l.globe.project(outer, absDir, relPath, tmpPath, linfo.specName, name)
+                dec.project = l.globe.project(pos, outer, absDir, relPath, tmpPath, linfo.specName, name)
                 l.loaded[linfo.absPath()] = dec.project
                 linfo.declares[name] = dec
         }
@@ -1854,76 +1817,108 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 }
         }
 
-        for _, v := range options {
-                var opt bool
-                switch t := v.(type) {
-                case *Flag:
-                        if opt, err = t.is(0, "multi"); err != nil { return }
-                        if opt { dec.project.allowMultiImported = true }
-                        if opt, err = t.is(0, "break"); err != nil { return }
-                        if opt { dec.project.breakRecursiveUsing = true }
-                case *Pair:
-                        if opt, err = t.isFlag(0, "multi"); err != nil { return }
-                        if opt { dec.project.allowMultiImported = t.Value.True() }
-                        if opt, err = t.isFlag(0, "break"); err != nil { return }
-                        if opt { dec.project.breakRecursiveUsing = t.Value.True() }
-                default:
-                        err = fmt.Errorf("`%v` invalid package option (%T)", v, v)
-                        return
+        if _, err = parseFlags(options, []string{
+                "b,break",
+                "l,loop",
+                "m,multi",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'b', 'l':  if dec.project.breakUseLoop     , err = trueVal(v, false); err != nil { return }
+                case 'm':       if dec.project.multiUseAllowed  , err = trueVal(v, false); err != nil { return }
                 }
-        }
+        }); err != nil { return }
 
         dec.backproj = l.project
         dec.backscope = l.scope
         l.useesExecuted = nil
         l.project = dec.project
         l.scope = l.project.scope
-
-        if isMainProj && l.preargs != "" {
-                err = l.loadCommandArguments(l.preargs)
-                if err != nil {
-                        return
+        if l.globe.main != nil && l.globe.main == l.project && l.project.name != "~" {
+                for _, t := range context.pairs {
+                        switch k := t.Key.(type) {
+                        case *Bareword, *Barecomp:
+                                var name string
+                                if name, err = k.Strval(); err != nil { err = wrap(pos, err); return }
+                                //if name[0] == '.' { name = "project" + name }
+                                var def, alt = l.def(l.pos, name)
+                                if def == nil && alt != nil { def = alt.(*Def) }
+                                def.set(DefDecl, t.Value)
+                        default:
+                                err = errorf(pos, "`%v` unknown target from command line (%v)\n", t, l.project)
+                                return
+                        }
                 }
         }
 
-        if err = l.loadPlugin(); err != nil { return }
+        for _, arg := range merge(l.loadArgs...) {
+                switch t := arg.(type) {
+                case *Pair:
+                        var name string
+                        name, err = t.Key.Strval()
+                        if err != nil { return }
+
+                        var def, alt = l.def(l.pos, name)
+                        if alt != nil {
+                                var ok bool
+                                def, ok = alt.(*Def)
+                                if !ok {
+                                        err = errorf(pos, "'%v' is not a Def (%T)", alt, alt)
+                                        return
+                                }
+                        }
+                        if def != nil { def.setval(t.Value) }
+                }
+        }
+
+        if err = l.loadPlugin(pos); err != nil { return }
 
         // no bases or docking for external packages
         if keyword == token.PACKAGE { return }
         if !optFinal {
-                err = l.loadProjectBases(linfo, bases)
-                if err != nil { return }
+                if err = l.loadBases(linfo, bases); err != nil {
+                        err = wrap(pos, err)
+                        return
+                }
         }
 
-        if declared || l.includeFunc == nil || optionConfigure {
-                // Does nothing!
-        } else if ctd := l.project.scope.FindDef("CTD"); ctd == nil {
-                unreachable()
-        } else if s, err := ctd.Strval(); err != nil {
-                return err
-        } else if file := stat("configuration.sm", "", s); file != nil {
+        // FIXES: set cloctx immediately to ensure the right configuration
+        //        is matched!
+        defer setclosure(setclosure(cloctx.unshift(l.scope)))
+
+        if s, err := configurationFileName(l.project); err != nil { return err } else
+        if declared || optionConfigure {
+                var exists bool
+                for _, v := range configuration.clean { if s == v { exists = true; break }}
+                if !exists { configuration.clean = append(configuration.clean, s) }
+        } else if file := stat(pos, filepath.Base(s), "", filepath.Dir(s)); file != nil {
+                if optionVerboseImport || optionVerboseLoading {
+                        full, _ := file.Strval()
+                        fmt.Fprintf(stderr, "smart: Configuration for %s (%s) ⇒ %s\n", l.project, l.project.spec, full)
+                } else if optionVerbose || true {
+                        fmt.Fprintf(stderr, "smart: Configuration for %s (%s)\n", l.project, l.project.spec)
+                }
                 l.isIncludingConf = true
-                l.includeFunc(l, ident.Pos(), file)
+                l.includeFile(ident.Pos(), file)
                 l.isIncludingConf = false
         }
 
-        if optNoDock || l.project.name == "dock" { return }
+        if optNoDock || l.project.name == dotContainer { return }
+        if _, e := os.Stat(".dock"); e == nil {
+                err = errorf(pos, "Must rename .dock into .container !")
+                return
+        }
 
-        var hasConfDir bool
+        // Looking for project specific dotContainer module
+        file := stat(pos, dotContainer, "", l.project.absPath)
+        if exists(file) { err = l.loadDotContainer(ident, file); return }
+
+        // Looking for .smart/.container
         walkSmartBaseDirs(l.project.absPath, func(s string) bool {
-                if file := stat("dock", "", filepath.Join(s, ".smart")); file == nil || !file.exists() {
+                file := stat(pos, dotContainer, "", filepath.Join(s, ".smart"))
+                if !exists(file) {
                         // no docking enabled
-                } else if hasConfDir, err = l.loadDir("dock", file.FullName(), nil); err != nil {
-                        if !hasConfDir { l.parser.error(ident.Pos(), "dock: %v", err) }
-                } else if loaded, yes := l.loaded[file.FullName()]; yes && loaded != nil {
-                        name, _ := l.project.scope.Lookup(loaded.Name()).(*ProjectName)
-                        if name == nil {
-                                l.parser.error(ident.Pos(), "%v: %v: `dock` is not a project", l.project.name, file)
-                        } else {
-                                var opts useoptions
-                                // TODO: parse the useoptions
-                                l.useProject(ident.Pos(), loaded, nil, opts)
-                        }
+                } else if err = l.loadDotContainer(ident, file); err != nil {
+                        // FIXME: error...
                 }
                 return false
         })
@@ -1968,7 +1963,8 @@ func (l *loader) OpenNamedScope(name, comment string) (loaderScope, error) {
         }
 
         var outer = l.scope
-        var scope = NewScope(outer, l.project, comment)
+        var pos = Position(l.parser.file.Position(l.parser.pos))
+        var scope = NewScope(pos, outer, l.project, comment)
         if strings.HasPrefix(outer.Comment(), "dir ") {
                 outer = outer.outer // discard dir scope
         }
@@ -1980,22 +1976,16 @@ func (l *loader) OpenNamedScope(name, comment string) (loaderScope, error) {
         return ls, nil
 }
 
-func (l *loader) resolve(value Value) (obj Object, err error) {
+func (l *loader) resolve(value Value) (obj Value, err error) {
         if sel, ok := value.(*selection); ok {
-                if value, err = sel.value(); err == nil {
-                        obj, ok = value.(Object)
-                }
+                obj = sel
                 return
         }
 
         var name string
-        if name, err = value.Strval(); err != nil {
-                return
-        }
+        if name, err = value.Strval(); err != nil { return }
 
-        if l.scope != nil {
-                _, obj = l.scope.Find(name)
-        }
+        if l.scope != nil { _, obj = l.scope.Find(name) }
         if obj == nil && l.project != nil {
                 obj, err = l.project.resolveObject(name)
         }
@@ -2015,62 +2005,76 @@ func (l *loader) find(target Value) (obj Object, err error) {
         return
 }
 
-func (l *loader) def(name string) (def *Def, alt Object) {
+func (l *loader) def(pos token.Pos, name string) (def *Def, alt Object) {
         var scope = l.scope
-        if strings.HasPrefix(scope.comment, "file ") && l.mode&Flat != 0 {
+        if strings.HasPrefix(scope.comment, "file ") && l.tracemode&Flat != 0 {
                 // use project scope if defining in flat file (aka. include)
                 // to ensure that the symbol is valid in the project
                 scope = l.project.scope
         }
-        return scope.Def(l.project, name, universalnone)
+        var position = Position(l.parser.file.Position(pos))
+        def, alt = scope.define(l.project, name, &None{trivial{position}})
+        if def != nil { def.position = position }
+        return
 }
 
 func (l *loader) assign(pos token.Pos, tok token.Token, def *Def, alt Object, value Value) (err error) {
+        def.position = Position(l.parser.file.Position(pos))
         switch tok {
         case token.ASSIGN: // =
                 err = def.set(DefDefault, value)
         case token.EXC_ASSIGN: // !=
                 err = def.set(DefExecute, value)
         case token.ADD_ASSIGN: // +=
-                if !def.Value.refs(value) { err = def.append(value) }
+                if value ==  nil {
+                        // NOOP
+                } else if def.value == nil || !def.value.refs(value) {
+                        err = def.append(value)
+                }
         case token.SHI_ASSIGN: // =+
-                if !def.Value.refs(value) {
-                        var tail = def.Value
+                if !def.value.refs(value) {
+                        var tail = def.value
                         if err = def.set(DefDefault, value); err == nil {
                                 err = def.append(tail)
                         }
                 }
         case token.SUB_ASSIGN: // -=
-                if def.Value != nil && def.Value.Type() != NoneType {
+                if def.value == nil {
+                        // ...
+                } else if _, ok := def.value.(*None); ok {
                         var vals []Value
-                        for _, val := range merge(def.Value) {
+                        for _, val := range merge(def.value) {
                                 if val.cmp(value) != cmpEqual {
                                         vals = append(vals, val)
                                 }
                         }
-                        def.Value = &List{elements{vals}}
+                        def.value = &List{elements{vals}}
                 }
         case token.SAD_ASSIGN: // -+=
                 var vals []Value
-                if def.Value != nil && def.Value.Type() != NoneType {
-                        for _, val := range merge(def.Value) {
+                if def.value == nil {
+                        // ...
+                } else if _, ok := def.value.(*None); ok {
+                        for _, val := range merge(def.value) {
                                 if val.cmp(value) != cmpEqual || true {
                                         vals = append(vals, val)
                                 }
                         }
                 }
                 vals = append(vals, value)
-                def.Value = &List{elements{vals}}
+                def.value = &List{elements{vals}}
         case token.SSH_ASSIGN: // -=+
                 var vals = []Value{ value }
-                if def.Value != nil && def.Value.Type() != NoneType {
-                        for _, val := range merge(def.Value) {
+                if def.value == nil {
+                        // ...
+                } else if _, ok := def.value.(*None); ok {
+                        for _, val := range merge(def.value) {
                                 if val.cmp(value) != cmpEqual {
                                         vals = append(vals, val)
                                 }
                         }
                 }
-                def.Value = &List{elements{vals}}
+                def.value = &List{elements{vals}}
         case token.QUE_ASSIGN: // ?=
                 if alt == nil { err = def.set(DefDefault, value) }
         case token.SCO_ASSIGN: // :=
@@ -2113,35 +2117,48 @@ func readSource(filename string, src interface{}) ([]byte, error) {
 // the corresponding ast.File node. The source code may be provided via
 // the filename of the source file, or via the src parameter.
 func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.File, err error) {
-	// get source
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.ParseFile")) }
+
         var text []byte
 	if text, err = readSource(filename, src); err != nil { return }
 
-	l.mode = mode
+	l.tracemode = mode
         if optionTraceParsing {
-                l.mode |= Trace
+                l.tracemode |= Trace
         }
 
-	l.tracing.enabled = l.mode&Trace != 0 // for convenience (l.trace is used frequently)
+	l.tracing.enabled = l.tracemode&Trace != 0 // for convenience (l.trace is used frequently)
 	defer func(saved *parser) {
-		if e := recover(); e != nil {
-			// resume same panic if it's not a bailout
-			if _, ok := e.(bailout); !ok {
-                                fmt.Fprintf(stderr, "%s: encountered %T\n", filename, e)
-                                if l.parser != nil && l.parser.file != nil {
-                                        position := l.parser.file.Position(l.pos)
-                                        fmt.Fprintf(stderr, "%s: parsing file fail\n", position)
-                                }
-				panic(e)
-			}
-		}
+		for e := recover(); e != nil; e = recover() {
+                        if _, ok := e.(bailout); ok { continue }
 
-                // decouple
+                        var pos Position
+                        if l.parser != nil && l.parser.file != nil {
+                                pos = Position(l.parser.file.Position(l.pos))
+                        } else {
+                                pos.Filename = filename
+                        }
+
+                        var er, ok = e.(error)
+                        if !ok { er = fmt.Errorf("%v", e) }
+                        err = wrap(pos, er, err)
+		}
+                if err != nil && optionPrintStack {
+                        fmt.Fprintf(stderr, "%v\n", err)
+                        debug.PrintStack()
+                }
+
+                if len(l.errors) > 0 {
+                        // var e = new(scanner.Error)
+                        // e.Pos = l.parser.file.Position(l.pos)
+                        // for _, p := range l.errors { e.Merge(p) }
+                        // err = e
+                        var p = Position(l.parser.file.Position(l.pos))
+                        for _, e := range l.errors { err = wrap(p, e, err) }
+                }
+
                 l.parser.loader = nil
                 l.parser = saved
-
-                if optSortErrors { l.errors.Sort() }
-		err = l.errors.Err()
 	} (l.parser)
 
         // set the current parser
@@ -2154,7 +2171,7 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
                 // ParseFile API and return a valid (but) empty
                 // *ast.File
                 ls := l.openScope(fmt.Sprintf("file %s", filename))
-                f = &ast.File{ Name: new(ast.Bareword), Scope: ls.scope }
+                f = &ast.File{ Name:new(ast.Bareword), Scope:ls.scope }
                 l.closeScope(ls)
         }
 	return
@@ -2188,9 +2205,7 @@ ListLoop:
                 if strings.HasPrefix(name, "~") || 
                    strings.HasSuffix(name, ".#") || 
                    strings.HasSuffix(name, ".smart") ||
-                   strings.HasSuffix(name, ".sm") {
-                        continue ListLoop
-                }
+                   strings.HasSuffix(name, ".sm") { continue ListLoop }
 
                 var fullname = filepath.Join(linked, name)
                 if d.Mode()&os.ModeSymlink != 0 {
@@ -2201,21 +2216,22 @@ ListLoop:
                         if t.IsDir() { continue ListLoop }
                 }
 
+                var pos = Position(l.parser.file.Position(l.pos))
                 if d.IsDir() {
                         if err = l.ParseConfigDir(filepath.Join(pathname, name), fullname); err != nil { break ListLoop }
-                } else if s, a := l.def(name); a != nil {
-                        err = fmt.Errorf("declare project: %v", err)
+                } else if s, a := l.def(l.pos, name); a != nil {
+                        err = errorf(pos, "declare project: %v", err)
                         break ListLoop
                 } else if def = s; def != nil {
                         var ( v []byte; s string )
                         if v, err = ioutil.ReadFile(fullname); err != nil { break ListLoop }
                         if s = string(v); !utf8.ValidString(s) {
-                                err = fmt.Errorf("%s: invalid UTF8 content", fullname)
+                                err = errorf(pos, "%s: invalid UTF8 content", fullname)
                                 break ListLoop
                         }
-                        def.set(DefExpand, &String{s})
+                        def.set(DefConfDir, &String{trivial{pos},s})
                 } else if s != nil {
-                        err =  fmt.Errorf("Name `%s' already taken, not def (%T).", name, s)
+                        err =  errorf(pos, "Name `%s' already taken, not def (%T).", name, s)
                         break ListLoop
                 }
         }
@@ -2234,7 +2250,7 @@ ListLoop:
 // returned. If a parse error occurred, a non-nil but incomplete map and the
 // first error encountered are returned.
 //
-func (l *loader) ParseDir(path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*ast.Project, hasConfDir bool, first error) {
+func (l *loader) ParseDir(path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*ast.Project, first error) {
         defer func(t time.Time) {
                 var d = time.Now().Sub(t)
                 if optionVerboseParsing /*&& d > 50*time.Millisecond*/ {
@@ -2247,11 +2263,11 @@ func (l *loader) ParseDir(path string, filter func(os.FileInfo) bool, mode Mode)
         } (time.Now())
 
 	fd, err := os.Open(path)
-	if err != nil { return nil, false, err }
+	if err != nil { return nil, err }
 	defer fd.Close()
 
 	list, err := fd.Readdir(-1)
-	if err != nil { return nil, false, err }
+	if err != nil { return nil, err }
 
         for i, a := range list {
                 if i > 0 && a.Name() == "build.smart" {
@@ -2265,8 +2281,7 @@ func (l *loader) ParseDir(path string, filter func(os.FileInfo) bool, mode Mode)
         defer l.closeScope(ls)
 
 	mods = make(map[string]*ast.Project)
-ListLoop:
-        for _, d := range list {
+        ListLoop: for _, d := range list {
                 var (
                         filename, mo = filepath.Join(path, d.Name()), d.Mode()
                         linked, linkPath = "", path
@@ -2293,8 +2308,8 @@ ListLoop:
                         skip = skip || !(strings.HasSuffix(name, ".smart") || strings.HasSuffix(name, ".sm"))
                         if skip { continue ListLoop }
                 }
-                if (name == "configure.smart" || name == "configure.sm") && (linked != "" || mo.IsDir()) {
-                        hasConfDir = true
+                /*if (name == "configure.smart" || name == "configure.sm") && (linked != "" || mo.IsDir()) {
+                        //hasConfDir = true // TODO: remove ConfigDir feature
                         if err := l.ParseConfigDir(filepath.Dir(filename), linked); err != nil {
                                 if first == nil {
                                         first = err
@@ -2302,12 +2317,22 @@ ListLoop:
                                 return
                         }
                         continue ListLoop
-                }
+                }*/
+                if linked != "" { }
 
 		if mo.IsRegular() && (filter == nil || filter(d)) {
 			if src, err := l.ParseFile(filename, nil, mode|parsingDir); err == nil {
-                                if src.Name == nil {
-                                        first = fmt.Errorf("module '%v' has no name", filename)
+                                var pos Position
+                                if l.parser != nil && l.parser.file != nil {
+                                        pos = Position(l.parser.file.Position(l.pos))
+                                } else {
+                                        pos.Filename = filename
+                                }
+                                if src == nil {
+                                        first = errorf(pos, "'%v' not loaded", filename)
+                                        return
+                                } else if src.Name == nil {
+                                        first = errorf(pos, "module '%v' has no name", filename)
                                         return
                                 }
 
@@ -2332,6 +2357,7 @@ ListLoop:
 
 // loader.Load loads script from a file or source code (string, []byte).
 func (l *loader) load(specName, absPath string, source interface{}) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.load")) }
         defer func(t time.Time) {
                 var d = time.Now().Sub(t)
                 if optionVerboseLoading /*&& d > 50*time.Millisecond*/ {
@@ -2375,7 +2401,8 @@ func (l *loader) load(specName, absPath string, source interface{}) (err error) 
         return
 }
 
-func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool) (hasConfDir bool, err error) {
+func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadDir")) }
         defer func(t time.Time) {
                 var d = time.Now().Sub(t)
                 if optionVerboseLoading /*&& d > 50*time.Millisecond*/ {
@@ -2393,19 +2420,17 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
         } (time.Now())
 
         if !filepath.IsAbs(absDir) {
-                panic(fmt.Sprintf("Invalid abs name `%s' (%s).", absDir, specName))
                 err = fmt.Errorf("Invalid abs name `%s' (%s).", absDir, specName)
                 return
         }
 
         // Check already loaded project.
-        if loaded, yes := l.loaded[absDir]; yes {
+        if loaded, valid := l.loaded[absDir]; valid {
+                //fmt.Fprintf(stderr, "%s: %v %s\n", l.project, loaded, absDir)
                 _, a := l.project.scope.ProjectName(l.project, loaded.Name(), loaded)
-                if a != nil {
-                        if v, ok := a.(*ProjectName); !ok || v == nil {
-                                err = fmt.Errorf("`%s' name already taken (%T).", loaded.Name(), a)
-                        }
-                }
+                if a != nil { if v, ok := a.(*ProjectName); !ok || v == nil {
+                        err = fmt.Errorf("`%s' name already taken (%T).", loaded.Name(), a)
+                }}
                 return
         }
 
@@ -2416,56 +2441,61 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
         // the same dir, for example:
         //      project Foo # file build.smart
         //      project # file config.smart
-        mods, hasConfDir, err = l.ParseDir(absDir, filter, parseMode)
-        if err == nil && mods == nil && !hasConfDir && filepath.Base(specName) != "@" {
+        mods, err = l.ParseDir(absDir, filter, parseMode)
+        if err == nil && mods == nil && filepath.Base(specName) != "@" {
                 err = fmt.Errorf("`%s` invalid project", specName)
         }
-        if _, yes := l.loaded[absDir]; yes {
+        if loaded, valid := l.loaded[absDir]; valid && loaded != nil {
                 // Good!
+                //a := l.project.scope.Lookup(loaded.Name())
+                //fmt.Fprintf(stderr, "%s: %v %s\n", l.project, loaded, a)
         } else if filepath.Base(specName) != "@" {
                 err = fmt.Errorf("`%s` not loaded (%s)", specName, absDir)
         }
         return
 }
 
+func (l *loader) loadWithArgs(specName, absPath string, args []Value, source interface{}) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadWithArgs")) }
+        defer l.setArgs(l.setArgs(args))
+        return l.load(specName, absPath, source)
+}
+
+func (l *loader) loadDirWithArgs(specName, absPath string, args []Value, filter func(os.FileInfo) bool) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadDirWithArgs")) }
+        defer l.setArgs(l.setArgs(args))
+        return l.loadDir(specName, absPath, filter)
+}
+
 func (l *loader) loadFile(filename string, source interface{}) error {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadFile")) }
         s, _ := filepath.Split(filename)
         s, _  = filepath.Rel(l.workdir, s)
         return l.load(s, filename, source)
 }
 
 func (l *loader) loadPath(path string, filter func(os.FileInfo) bool) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadPath")) }
         s, _ := filepath.Rel(l.workdir, path)
-        _, err = l.loadDir(s, path, filter)
+        err = l.loadDir(s, path, filter)
         return err
 }
 
 func (l *loader) loadText(filename string, text string) []Value {
-	defer func(saved *parser) {
-		if e := recover(); e != nil {
-			// resume same panic if it's not a bailout
-			if _, ok := e.(bailout); !ok {
-				panic(e)
-			}
-		}
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadText")) }
 
-                // decouple
+	defer func(saved *parser) {
                 l.parser.loader = nil
                 l.parser = saved
-
-                /*if optSortErrors {
-                        l.errors.Sort()
-                }
-		err = l.errors.Err()*/
 	} (l.parser)
 
         if l.globe.main == nil {
-                return nil
+                l.project = l.globe.os
+        } else {
+                l.project = l.globe.main
         }
-
-        l.useesExecuted = nil
-        l.project = l.globe.main
         l.scope = l.project.scope
+        l.useesExecuted = nil
 
         l.parser = new(parser)
         l.parser.init(l, filename, []byte(text))

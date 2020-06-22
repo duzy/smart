@@ -8,7 +8,7 @@ CXXFLAGS += -DTEST=1
 
 GREETING := 'Hello World!'
 
-hello: c++->program($@,$@.o)
+hello: c++->program($@.o)
 
 hello.cpp:[(plain c++) (update-file)]
 	#include <iostream>

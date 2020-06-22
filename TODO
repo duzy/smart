@@ -1,14 +1,36 @@
 # -*- org -*-
-* DONE Update target whenever recipe command changed
+* New
+** TODO Move ":[...]:" modifiers to dependency list
+   For example:
+   #+NAME: smart-modifiers-deprecated
+   #+BEGIN_SRC smart
+   foobar:[(shell)]: foo bar
+   	echo "foobar"
+   #+END_SRC
+   Become:
+   #+NAME: smart-modifiers-new
+   #+BEGIN_SRC smart
+   foobar: foo [(shell)] bar
+   	echo "foobar"
+   #+END_SRC
+*** Benifits
+    Flexible control of execution orders, simplify program.Execute
+    implementation.
+** TODO Always ~compare~ files (including paths)
+   Get rid of explicit ~(compare)~ modifier.
+** TODO Add instances of execution context for each ~use~ project
+   Refers to ~Program.Execute~ and ~prog.pc~.
+* Passed
+** DONE Update target whenever recipe command changed
   - save recipe record in file .smart/recipe/target
   - before updating target, check the recipe record
   - execute the command when:
     + target outdated
     + or recipe record differs
-* DONE Add 'env' modifier
-* DONE Show file position of entries when update failed 
-* DONE Compare search into .h/.c/.cpp files for includes
-* DONE Entry dependents:
+** DONE Add 'env' modifier
+** DONE Show file position of entries when update failed 
+** DONE Compare search into .h/.c/.cpp files for includes
+** DONE Entry dependents:
   - Don't resolve immediately, resolve when it's used.
   - 
-* DONE Modifier (require name)
+** DONE Modifier (require name)

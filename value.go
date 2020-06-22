@@ -7,13 +7,15 @@
 package smart
 
 import (
-        "extbit.io/smart/scanner"
         "extbit.io/smart/token"
+        "crypto/sha256"
         "path/filepath"
+        "runtime/debug" // debug.PrintStack()
         "net/url"
         "reflect"
         "strconv"
         "strings"
+        "bytes"
         "sync"
         "time"
         "math"
@@ -26,32 +28,55 @@ const (
         enable_grep_bench = true
 )
 
-type expandwhat int
+type HashBytes [sha256.Size]byte
 
+type (
+        cmpres int
+        existence int
+        expandwhat int
+)
+const (
+        cmpUnknown cmpres = 0
+        cmpSmaller     = -1 // meaningless so far
+        cmpGreater     = 1  // meaningless so far
+        cmpEqual       = 2
+)
+const (
+        existenceMatterless existence = 1<<iota
+        existenceConfirmed
+        existenceNegated
+)
 const (
         expandDelegate expandwhat = 1<<iota // $(...)  ->  ......
         expandClosure // &(...)   ->  $(...)
         expandCaller // foo=...   ->  ...
         expandPath // $(...)/foo  ->  /path/to/foo
+        expandPairVal // foo=$(bar) ->  foo=...
         expandAll = expandDelegate | expandClosure | expandCaller | expandPath
 )
 
-type cmpres int
+func (v cmpres) String() (s string) {
+        switch v {
+        case cmpUnknown: s = "unknown"
+        case cmpSmaller: s = "smaller"
+        case cmpGreater: s = "greater"
+        case cmpEqual:   s = "equal"
+        }
+        return
+}
 
-const (
-        cmpUnknown cmpres = 0
-        cmpLess        = -1 // meaningless so far
-        cmpGreater     = 1  // meaningless so far
-        cmpEqual       = 2
-)
+func (v existence) String() (s string) {
+        switch v {
+        case existenceMatterless: s = "matterless"
+        case existenceConfirmed:  s = "confirmed"
+        case existenceNegated:    s = "negated"
+        }
+        return
+}
 
 // Value represents a value of a type.
 type Value interface {
-        // Type returns the underlying type of the value.
-        Type() Type
-
-        // Returns true if the value can be evaluated as 'true', 'yes', etc.
-        True() bool
+        Positioner // The position where the value appears (or NoPos).
 
         // Lit returns the literal representations of the value.
         String() string
@@ -65,17 +90,33 @@ type Value interface {
         // Float returns the float form of the value.
         Float() (float64, error)
 
+        // Returns true if the value can be evaluated as 'true', 'yes', etc.
+        True() (bool, error)
+
+        // Equality compare.
         cmp(v Value) cmpres
+
+        // Returns the modification time.
+        mod(t *traversal) (time.Time, error)
+
+        // Returns value existence (as a target)
+        exists() existence
+
+        // Stamp the value if it's file (update FileInfo).
+        stamp(t *traversal) ([]*File, error)
 
         // Recursively detecting whether this value references
         // the object (to avoid loop-delegation).
         refs(v Value) bool
 
         closured() bool
+        refdef(origin DefOrigin) bool
 
         // &(...) -> $(...)
         // $(...) -> ......
         expand(what expandwhat) (Value, error)
+
+        traverse(t *traversal) error
 }
 
 type closurecontext []*Scope
@@ -124,456 +165,512 @@ func (p *updatedtarget) String() string {
         return p.target.String()
 }
 
-func newUpdatedTarget(target Value, prerequisites []*updatedtarget) *updatedtarget {
-        if def, ok := target.(*Def); ok { target = def.Value }
-        for _, p := range prerequisites {
-                if p.target != nil {
-                        if def, ok := p.target.(*Def); ok {
-                                p.target = def.Value
-                        }
-                }
-        }
+func newUpdatedTarget(target Value, prerequisites ...*updatedtarget) *updatedtarget {
+        if def, ok := target.(*Def); ok { target = def.value }
         return &updatedtarget{target, prerequisites}
 }
 
-type comparer struct {
+// traversal prepares prerequisites of targets.
+type traversal struct {
         program *Program
-        target Value
-        updated []*updatedtarget // found updated dependencies
-        nocomp bool // just checking existence
-        nomiss bool // all file dependencies must exist
-        level int // compare/trace level
-}
+        project *Project // program.project or caller.project (if (closure))
+        closure *Scope // program.scope or caller.closure (if (closure))
 
-type dependcomparable interface {
-        // Compare target with the prerequisite.
-        dependcompare(c *comparer) error
-}
-
-//type comparable interface {
-//        compare(c *comparer, d dependcomparable) error
-//}
-
-func comptrace(c *comparer, v Value) *comparer {
-        t := c.target
-        a := fmt.Sprintf("%s{%v}", t.Type(), t)
-        b := fmt.Sprintf("%s{%v}", v.Type(), v)
-        c.trace(a, ":", b, "(")
-        c.level += 1
-        return c
-}
-
-func compun(c *comparer) {
-        c.level -= 1
-        c.trace(")")
-}
-
-func newcompariation(prog *Program, target Value) (c *comparer, err error) {
-        if target, err = target.expand(expandDelegate); err != nil { return }
-        if target == nil || target.Type() == NoneType {
-                err = break_bad(prog.position, "comparing no target")
-        } else if /*tar, ok := target.(comparable); ok ||*/ true {
-                var l int
-                if len(prog.callers) > 0 {
-                        l = prog.callers[0].level
-                }
-                c = &comparer{ prog, target, /*tar,*/ nil, false, true, l }
-        } else {
-                err = fmt.Errorf("%s '%s' is incomparable target", target.Type(), target)
-        }
-        return
-}
-
-func (c *comparer) trace(a ...interface{}) {
-        printIndentDots(c.level, a...)
-}
-
-func (c *comparer) Compare(pos Position, value interface{}) (err error) {
-        if optionTraceCompare {
-                s := fmt.Sprintf("%s{%s}", c.target.Type(), c.target)
-                c.trace("compare:", s, ":", value, "(")
-                c.level += 1
-                defer func() {
-                        if err != nil {
-                                if br, ok := err.(*breaker); ok {
-                                        switch br.what {
-                                        case breakBad: c.trace("bad:", err)
-                                        case breakGood: //c.trace("good:", err)
-                                        case breakUpdates: //c.trace("updated:", br.updated)
-                                        }
-                                } else {
-                                        c.trace("error:", err)
-                                }
-                        }
-                        compun(c)
-                } ()
-        }
-        if f, ok := c.target.(*File); ok && f.info == nil {
-                err = break_updates(pos, newUpdatedTarget(c.target, nil))
-                return
-        }
-        if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
-                for i := 0; i < v.Len(); i++ {
-                        var dep = v.Index(i).Interface()
-                        if err = c.compareDepend(dep); err == nil {
-                                continue
-                        } else if optionTraceCompare {
-                                c.trace("error:", err)
-                                break
-                        }
-                }
-        } else {
-                err = c.compareDepend(value)
-        }
-        if err != nil {
-                // hmm...
-        } else if c.updated == nil {
-                err = break_good(pos, "no need to update")
-        } else {
-                target := newUpdatedTarget(c.target, c.updated)
-                err = break_updates(pos, target)
-        }
-        return
-}
-
-func (c *comparer) compareDepend(value interface{}) (err error) {
-        if dep, ok := value.(dependcomparable); ok {
-                err = dep.dependcompare(c)
-        } else {
-                err = fmt.Errorf("'%v' is not dependcomparable", value)
-        }
-        return
-}
-
-func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err error) {
-        var tt, dt time.Time
-        if f, ok := d.(*File); ok && f.info != nil {
-                d, ds, dt = f, f.FullName(), f.info.ModTime()
-        } else if ds == "" {
-                err = break_bad(c.program.position, "'%v' unknown depend", d)
-                return
-        } else if t := context.globe.timestamp(ds); !t.IsZero() {
-                dt = t
-        } else if di != nil {
-                dt = di.ModTime()
-        } else {
-                for _, project := range c.program.pc.related {
-                        if t := project.searchFile(ds); t != nil {
-                                d, ds, dt = t, t.FullName(), t.info.ModTime()
-                                if f != nil { *f = *t } // replace the file 
-                                break
-                        }
-                }
+        def struct {
+                params []*Def // $0, $1, $2, ...
+                target   *Def // $@
+                depends  *Def // $^
+                depend0  *Def // $<
+                ordered  *Def // $|
+                grepped  *Def // $~
+                updated  *Def // $?
+                buffer   *Def // $-
+                stem     *Def // $*
         }
 
-        var ts string
-        if f, ok := c.target.(*File); ok && f.info != nil {
-                ts, tt = f.FullName(), f.info.ModTime()
-        } else if ts, err = c.target.Strval(); err != nil {
-                return
-        } else if ts == "" {
-                err = break_bad(c.program.position, "'%v' unknown target", c.target)
-                return
-        } else if t := context.globe.timestamp(ts); !t.IsZero() {
-                tt = t
-        } else {
-                for _, project := range c.program.pc.related {
-                        if t := project.searchFile(ts); t != nil {
-                                ts, tt = t.FullName(), t.info.ModTime()
-                                if f != nil { *f = *t } // replace the file
-                                break
-                        }
-                }
-        }
+        visited map[Value]int
 
-        if optionTraceCompare {
-                if false {
-                        c.trace("compare:", tt, ";", c.target, "("+ts+")")
-                        c.trace("compare:", dt, ";", d, "("+ds+")")
-                } else if false {
-                        c.trace("compare:", tt, dt, ";", c.target, d, ";", ts, ds)
-                } else {
-                        c.trace("compare:", c.target, d, '\t', '\t', tt, ":", dt)
-                }
-        }
-
-        if tt.IsZero() {
-                err = break_bad(c.program.position, "%s '%v' is missing", c.target.Type(), c.target)
-        } else if dt.IsZero() || dt.After(tt) {
-                c.updated = append(c.updated, newUpdatedTarget(d, nil))
-
-                // Update timestamps to depended file, so that
-                // further updates can happen.
-                if !dt.IsZero() {
-                        // FIXME: set file ModTime instead of using the
-                        //        timestamps, it may cause some targets
-                        //        updated multiple times if target is
-                        //        compared with different deps.
-                        context.globe.stamp(ts, dt)
-                        context.globe.stamp(ds, dt)
-                }
-        } else if true {
-                // Just save the timestamps to optimize further stats.
-                if !tt.IsZero() { context.globe.stamp(ts, tt) }
-                if !dt.IsZero() { context.globe.stamp(ds, dt) }
-        }
-        return
-}
-
-// State machine:
-//
-//    default ---→ compare ---→ update --→ interpret
-//             |      |
-//             |      +--> <done>
-//             |
-//             +-> interpret
-//
-type traversemode int
-const (
-        defaultMode traversemode = iota
-        compareMode // compared but no updated targets
-        updateMode // work to update targets
-)
-
-func (m traversemode) String() (s string) {
-        s = m.name()
-        return
-}
-
-func (m traversemode) name() (s string) {
-        switch m {
-        case defaultMode: s = "default"
-        case compareMode: s = "compare"
-        case updateMode: s = "update"
-        default: s = "unknown"
-        }
-        return
-}
-
-type preparecontext struct {
-        mode traversemode
         group *sync.WaitGroup
-        calleeErrors []error
+        caller *traversal
+        calleeErrs []error
+        calleeErrsM sync.Mutex
+
         entry *RuleEntry // caller entry (target)
-        //visitInsteadUpdate bool // target don't really need to update
         args, arguments []Value // target and argumented prerequisite args
-        targets []Value // prerequisite targets ($^ $<)
+
+        target0 *Def
+        targets *Def
+        grepped []Value
+
         updated []*updatedtarget // prerequisites newer than the target (from comparer) ($?)
-        derived *Project // the most derived project
-        related []*Project // the related projects in the context
-        stems []string // set by StemmedEntry
-        level int // prepare/trace level
-}
+        stems   []string // set by StemmedEntry
 
-// preparer prepares prerequisites of targets.
-type preparer struct {
-        program *Program
-        preparecontext
-        print bool // printing work directories (Entering/Leaving)
-        targetDef  *Def // $@
-        dependsDef *Def // $^
-        depend0Def *Def // $<
-        orderedDef *Def // $|
-        greppedDef *Def // $~
-        updatedDef *Def // $?
-        modifyBuf  *Def // $-
-        stemDef    *Def // $*
-        params   []*Def
+        traceLevel int
 
-        preModifiers, postModifiers []*modifier
+        breakers []*breaker
         interpreted []interpreter
+
+        print bool // printing work directories (Entering/Leaving)
+        debug bool
 }
 
-//type preparable interface {
-type prerequisite interface {
-        prepare(pc *preparer) error
-}
-
-func preptrace(pc *preparer, i Value) *preparer {
-        // Note that pc.args and pc.arguments are different, they're
+// Usage pattern: defer un(tt(pc, "..."))
+func tt(t *traversal, i Value) *traversal {
+        // Note that t.args and t.arguments are different, they're
         // target execution args and argumented-prerequisite args.
         var a string
-        if t := pc.entry.target; len(pc.args) > 0 {
-                a = fmt.Sprintf("%s{%s%s}", t.Type(), t, pc.args)
+        if tar := t.entry.target; len(t.args) > 0 {
+                a = fmt.Sprintf("%s{%s}%s", typeof(tar), tar, t.args)
         } else {
-                a = fmt.Sprintf("%s{%v}", t.Type(), t)
+                a = fmt.Sprintf("%s{%v}", typeof(tar), tar)
         }
-        b := fmt.Sprintf("%s{%v}", i.Type(), i)
-        pc.trace(a, ":", b, "(")
-        pc.level += 1
-        return pc
+        var b = fmt.Sprintf("%s{%v}", typeof(i), i)
+        t.trace(a, ":", b, "(")
+        t.level(+1)
+        return t
 }
+func (t *traversal) level(n int) { t.traceLevel += n }
+func (t *traversal) trace(a ...interface{}) { printIndentDots(t.traceLevel, a...) }
+func (t *traversal) tracef(s string, a ...interface{}) { printIndentDots(t.traceLevel, fmt.Sprintf(s, a...)) }
 
-func prepun(pc *preparer) {
-        pc.level -= 1
-        pc.trace(")")
-}
-
-func (pc *preparer) trace(a ...interface{}) {
-        printIndentDots(pc.level, a...)
-}
-
-func (pc *preparer) tracef(s string, a ...interface{}) {
-        printIndentDots(pc.level, fmt.Sprintf(s, a...))
-}
-
-func (pc *preparer) addNotExistedTarget1(target Value) {
-        if target != nil && target.Type() != NoneType {
-                switch t := target.(type) {
-                //case *File:
-                case *Path:
-                        if t.File != nil {
-                                target = t.File
-                        }
-                default:
-                        /*
-                        var s string
-                        if s, err = target.Strval(); err != nil {
-                                return
-                        } else if s == "" {
-                                panic(fmt.Sprintf("Empty target! (%s `%v`)", target.Type(), target))
-                        } else if file := prog.project.searchFile(s); file != nil {
-                                target = file
-                        }
-                        */
-                }
-                for _, t := range pc.targets {
-                        if t == target { return }
-                        if t.cmp(target) == cmpEqual { return }
-                }
-                pc.targets = append(pc.targets, target)
-        }
-}
-
-func (pc *preparer) addNotExistedTargets(targets ...Value) {
-        var valid []Value
-        for _, elem := range targets {
-                if elem != nil && elem.Type() != NoneType {
-                        valid = append(valid, elem)
+func (t *traversal) addNewTarget(target Value) {
+        if isNil(target) || isNone(target) || t.targets == nil { return }
+        if t.targets.value == target { return }
+        if t.targets.value.cmp(target) == cmpEqual { return }
+        if targets, ok := t.targets.value.(*List); ok {
+                for _, t := range targets.Elems {
+                        if t == target || t.cmp(target) == cmpEqual { return }
                 }
         }
-        for _, elem := range merge(valid...) {
-                pc.addNotExistedTarget1(elem)
+        t.targets.append(target)
+        if t.target0 != nil && (isNone(t.target0.value) || isNil(t.target0.value)) {
+                t.target0.value = target
         }
 }
 
-func (pc *preparer) traverseAll(value interface{}) (err error) {
-        if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
-                for i := 0; i < v.Len(); i++ {
-                        if err = pc.traverse(v.Index(i).Interface()); err == nil {
-                                // Good!
+func (t *traversal) depth() (res int) {
+        for c := t.caller; c != nil; c = c.caller { res += 1 }
+        return
+}
+
+func (t *traversal) calleeStart() {
+        t.group.Add(1)
+}
+
+func (t *traversal) calleeDone(err error) {
+        if err != nil { t.calleeError(err) }
+        t.group.Done()
+}
+
+func (t *traversal) calleeError(err error) {
+        t.calleeErrsM.Lock(); defer t.calleeErrsM.Unlock()
+        t.calleeErrs = append(t.calleeErrs, err)
+}
+
+func (t *traversal) calleeErrors() (errs []error) {
+        t.calleeErrsM.Lock(); defer t.calleeErrsM.Unlock()
+        errs = t.calleeErrs
+        return
+}
+
+func (t *traversal) dispatch(i interface{}) (err error) {
+        if optionEnableBenchmarks && false {  defer bench(mark(fmt.Sprintf("traversal.dispatch(%s=%v)", typeof(i), i))) }
+
+        var pos = t.def.target.position
+        if v := reflect.ValueOf(i); v.Kind() == reflect.Slice {
+                for n := 0; err == nil && n < v.Len(); n++ {
+                        if optionEnableBenchmarks && false {
+                                i := v.Index(n).Interface()
+                                a, b := mark(fmt.Sprintf("%v: %s %v", n, typeof(i), i))
+                                err = t.dispatch(i)
+                                bench(a, b)
                         } else {
-                                break
+                                err = t.dispatch(v.Index(n).Interface())
                         }
                 }
+        } else if i == nil {
+                err = errorf(pos, "updating nil prerequisite")
+        } else if value, ok := i.(Value); !ok {
+                err = errorf(pos, "'%v' is invalid", value)
+        } else if isNil(value) { // this could happen
+                err = errorf(pos, "updating nil prerequisite")
         } else {
-                err = pc.traverse(value)
+                if false { fmt.Fprintf(stderr, "dispatch: %T %v\n", value, value) }
+                err = value.traverse(t)
         }
         return
 }
 
-func (pc *preparer) traverse(value interface{}) (err error) {
-        var pos = token.Position(pc.entry.Position)
-        if value == nil {
-                err = scanner.Errorf(pos, "updating nil prerequisite")
-        } else if p, ok := value.(prerequisite); ok {
-                if p != nil {
-                        err = pc.checkUpdates(p.prepare(pc))
-                } else { // this could happen
-                        err = scanner.Errorf(pos, "updating nil prerequisite")
+func (t *traversal) filestub(p *Project, file *File, stub *filestub) (okay bool, err error) {
+        if optionEnableBenchspots { defer bench(spot("traversal.filestub")) }
+
+        /// Searching entries from the most derived project.
+        var entry *RuleEntry
+        if entry, err = p.resolveEntry(stub.name); err != nil { return } else
+        if entry != nil { err, okay = entry.traverse(t), true;  return }
+
+        /// Searching patterns from the most derived project.
+        var entries []*StemmedEntry
+        if entries, err = p.resolvePatterns(stub); err != nil { return }
+        ForEntries: for _, entry := range entries {
+                for _, prog := range entry.programs {
+                        var okay bool
+                        if  okay, err = checkPatternDepends(t, p, entry, prog); err != nil { break ForEntries }
+                        if !okay { continue ForEntries }
                 }
-        } else {
-                err = scanner.Errorf(pos, "'%v' is not prerequisite", value)
+                if err = entry.file(t, file); err == nil { okay = true }
+                break
         }
         return
 }
 
-func (pc *preparer) updateErrs(errs scanner.Errors, err error) (scanner.Errors, error, bool) {
-        var pos = token.Position(pc.program.position)
-        if br, done := err.(*breaker); done {
-                if n := len(errs); n == 0 {
-                        return nil, err, done
-                } else if n == 1 {
-                        if false {
-                                fmt.Fprintf(stderr, "%s: break with error (reason=%d):\n", pos, br.what)
+func (t *traversal) closureProjects() (projects []*Project) {
+        projects = []*Project{ t.project }
+
+        if t.program.project != t.project {
+                projects = append(projects, t.program.project)
+        }
+
+        for c := t; c != nil; c = c.caller {
+                if t.closure == c.closure {
+                        var proj = c.project
+                        for _, p := range projects {
+                                if proj == p { proj = nil; break }
                         }
+                        if proj != nil { projects = append(projects, proj) }
+                }
+        }
+        return
+}
+
+func (t *traversal) forClosureProject(f func(*Project) (bool, error)) (okay bool, err error) {
+        var projects = t.closureProjects()
+        for _, proj := range projects {
+                if okay, err = f(proj); okay || err != nil { break }
+        }
+        return
+}
+
+func (t *traversal) file(file *File) (err error) {
+        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.file(%v)", file))) }
+        if optionEnableBenchspots { defer bench(spot("traversal.file")) }
+
+        if strings.HasSuffix(file.name, "parser.cpp") { fmt.Fprintf(stderr, "%s: %v (%v)\n", file.position, file, t.def.target.value) }
+
+        var okay bool
+        var projects = t.closureProjects()
+        for _, project := range projects {
+                var entry *RuleEntry
+                if entry, err = project.resolveEntry(file.name); err != nil { err = wrap(file.position, err); return }
+                if entry != nil && t.def.target.value != entry {
+                        if file.name == "parser.cpp" { fmt.Fprintf(stderr, "%s: %s: %v, %v, %v\n", project, entry.position, entry, file.name, t.def.target.value) }
+                        if okay, err = entry.tryTraverse(t); okay { return } else
+                        if err != nil { err = wrap(file.position, err); return }
+                }
+        }
+
+        for _, project := range projects {
+                var entries []*StemmedEntry
+                if entries, err = project.resolvePatterns(file.name); err != nil { err = wrap(file.position, err); return }
+                ForEntry: for _, entry := range entries {
+                        for _, prog := range entry.programs {
+                                var good bool
+                                if good, err = checkPatternDepends(t, project, entry, prog); err != nil { err = wrap(file.position, err); break ForEntry }
+                                if!good { continue ForEntry }
+                        }
+                        if err = entry.file(t, file); err == nil {
+                                okay = true // entry executed
+                                break ForEntry
+                        } else {
+                                err = wrap(file.position, err)
+                                return
+                        }
+                }
+
+                if okay { break } else if file.info != nil {
+                        var a time.Time
+                        if a, err = t.def.target.value.mod(t); err != nil { err = wrap(file.position, err); return } else
+                        if a.IsZero() {/* the target not exists*/} else
+                        if file.info.ModTime().After(a) {
+                                if optionTraceTraversal { t.tracef("updated: %v", file) }
+                                t.appendUpdated(newUpdatedTarget(file))
+                        }
+                        okay = true // it's good
+                } else if file != nil { okay = file.searchInMatchedPaths(project) } else
+                if alt := project.matchFile(file.name); alt != nil { okay = exists(alt) }
+                if!okay && false {
+                        s, _ := file.Strval()
+                        e, _ := project.resolveEntry(file.name)
+                        fmt.Fprintf(stderr, "%s: %s: %v (%v) (%s)\n", project, file.position, file, e, s)
+                        debug.PrintStack()
+                }
+                if okay { return }
+        }
+
+        if !okay && err == nil {
+                if false { fmt.Fprintf(stderr, "%s: %s: %v (not found)\n", t.project, file.position, file.name) }
+                err = wrap(file.position, fileNotFoundError{t.project, file})
+                if optionTraceTraversal { t.tracef("%v: file({%s,%s,%s}): not found", t.project, file.dir, file.sub, file.name) }
+        }
+        return
+}
+
+func (t *traversal) target(pos Position, target string, vals ...Value) (err error) {
+        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.target(%v)", target))) }
+        if optionEnableBenchspots { defer bench(spot("traversal.target")) }
+
+        var okay bool
+        var file *File // if target is file
+        var fileProj *Project
+        var projects = t.closureProjects()
+        for _, project := range projects {
+                var entry *RuleEntry
+                if entry, err = project.resolveEntry(target); err != nil { err = wrap(pos, err); return }
+                if entry != nil && t.def.target.value != entry {
+                        if w, ok := t.def.target.value.(*Bareword); ok && w.string == target {
+                                // target resolve to itself, does nothing
+                        } else if okay, err = entry.tryTraverse(t); err != nil { err = wrap(pos, err); return }
+                        if false { fmt.Fprintf(stderr, "%s: %s: %v, %v, %v (okay=%v)\n", project, entry.position, entry, target, t.def.target.value, okay) }
+                        if okay {
+                                if file, ok := entry.target.(*File); ok && file.info != nil {
+                                        if false { fmt.Fprintf(stderr, "%s: %s: %v, %v, %v (okay=%v)\n", project, entry.position, entry, target, t.def.target.value, okay) }
+                                        var a time.Time
+                                        if a, err = t.def.target.value.mod(t); err != nil { err = wrap(pos, err); return } else
+                                        if!a.IsZero() && file.info.ModTime().After(a) {
+                                                if optionTraceTraversal { t.tracef("updated: %v", file) }
+                                                t.appendUpdated(newUpdatedTarget(file))
+                                        }
+                                }
+                                return
+                        }
+                }
+
+                var obj Object
+                if obj, err = project.resolveObject(target); err != nil { err = wrap(pos, err); return } else
+                if obj != nil {
+                        if okay, err = obj.tryTraverse(t); err != nil { err = wrap(pos, err); return } else
+                        if!okay { _, okay = obj.(*ProjectName) }
+                        if okay { return }
+                }
+
+                if file = project.matchFile(target); file != nil {
+                        fileProj = project
+                        file.position = pos // Change the position for tracing
+                        t.addNewTarget(file) // Add new file target
+
+                        var names = make(map[string]bool)
+                        for stub := file.filestub; true; stub = stub.other {
+                                names[stub.name] = true // mark to avoid trying many times
+                                if okay, err = t.filestub(project, file, stub); err != nil { err = wrap(pos, err); return }
+                                if okay { file.filestub = stub; return }
+                                if stub.other == file.filestub { break }
+                        }
+
+                        // Try other names
+                        var name string
+                        for s, i := file.name, strings.LastIndex(file.name, PathSep); s != "" && i >= 0; i = strings.LastIndex(s, PathSep) {
+                                if i == 0 { name = file.fullname() } else { name = filepath.Join(s[i+1:], name) }
+                                s = s[:i] // strip off the prefix
+
+                                if _, tried := names[name]; tried { continue }
+                                names[name] = true // mark to avoid duplication
+
+                                var sub = filepath.Join(file.sub, s)
+                                var stub = &filestub{ file.dir, sub, name, file.match, file.filestub.other }
+                                file.filestub.other = stub
+
+                                if okay, err = t.filestub(project, file, stub); err != nil { err = wrap(pos, err); return }
+                                if okay { file.filestub = stub; break }
+                        }
+
+                        if optionTraceTraversal { t.tracef("target: file %v (okay=%v) (exists=%v)", file, okay, exists(file)) }
+                        
+                        // Check file existance
+                        if okay { break } else if file.info != nil {
+                                if false { fmt.Fprintf(stderr, "%s: %s: %v, %v, %v (okay=%v)\n", project, entry.position, entry, target, t.def.target.value, okay) }
+                                var a time.Time
+                                if a, err = t.def.target.value.mod(t); err != nil { err = wrap(pos, err); return } else
+                                if!a.IsZero() && file.info.ModTime().After(a) {
+                                        if optionTraceTraversal { t.tracef("updated: %v", file) }
+                                        t.appendUpdated(newUpdatedTarget(file))
+                                }
+                                okay = true // it's good
+                        } else if file != nil { okay = file.searchInMatchedPaths(project) }
+                        if false { fmt.Fprintf(stderr, "%s: %s: %v (found=%v)\n", project, file.position, file.name, okay) }
+                        if okay { return } // Done!
+                } else if vals != nil && false {
+                        fmt.Fprintf(stderr, "%s: %s: %v %v\n", project, vals[0].Position(), target, vals)
+                }
+        }
+
+        for _, project := range projects {
+                var entries []*StemmedEntry
+                if entries, err = project.resolvePatterns(target); err != nil { err = wrap(pos, err); return }
+                ForEntry: for _, entry := range entries {
+                        for _, prog := range entry.programs {
+                                var good bool
+                                if good, err = checkPatternDepends(t, project, entry, prog); err != nil { err = wrap(pos, err); break ForEntry }
+                                if!good { continue ForEntry }
+                        }
+
+                        // Associate StemmedEntry with the target.
+                        if err = entry._target(t, target); err == nil { okay = true; return }
+                }
+        }
+
+        if !okay && err == nil {
+                if file != nil {
+                        err = wrap(pos, fileNotFoundError{fileProj, file})
+                        if optionTraceTraversal { t.tracef("%v: `target(%s)` file not found", t.project, file) }
                 } else {
-                        if false {
-                                fmt.Fprintf(stderr, "%s: break with %d errors (reason=%d):\n", pos, n, br.what)
+                        err = wrap(pos, targetNotFoundError{t.project, target})
+                        if optionTraceTraversal { t.tracef("%v: `target(%s)` not found", t.project, target) }
+                }
+        }
+        if false && err != nil { debug.PrintStack() }
+        return
+}
+
+func (t *traversal) appendUpdated(updated *updatedtarget) {
+        if t.def.target.value == updated.target { return }
+        if t.def.target.value.cmp(updated.target) == cmpEqual { return }
+        for _, u := range t.updated { // check if already added
+                if u.target == updated.target { return }
+                if u.target.cmp(updated.target) == cmpEqual { return }
+        }
+        t.updated = append(t.updated, updated)
+        for c := t.caller; c != nil; c = c.caller { // clear update loop
+                if false {
+                        if c.def.target.value == t.def.target.value { return }
+                } else {
+                        if c.def.target.value == updated.target { return }
+                }
+        }
+        if c := t.caller; c != nil {
+                if false && updated.target.String() == "..." {
+                        var (s string; m time.Time)
+                        m, _ = updated.target.mod(t)
+                        s, _ = updated.target.Strval()
+                        fmt.Fprintf(stderr, "%s:\t%v %v\n", updated.target.Position(), m, s)
+                        m, _ = t.def.target.value.mod(t)
+                        s, _ = t.def.target.value.Strval()
+                        fmt.Fprintf(stderr, "%s:\t%v %v\n", t.def.target.value.Position(), m, s)
+                }
+                c.appendUpdated(newUpdatedTarget(t.def.target.value, updated))
+        }
+}
+
+func (t *traversal) removeUpdated(target Value) (removed []*updatedtarget) {
+        for i, u := range t.updated {
+                if u.target == target || u.target.cmp(target) == cmpEqual {
+                        removed = append(removed, u)
+                        t.updated = append(t.updated[:i], t.updated[i+1:]...)
+                        if t.caller != nil && len(t.updated) == 0 {
+                                t.caller.removeUpdated(t.def.target.value)
                         }
                 }
-                /*for _, e := range errs {
-                        fmt.Fprintf(stderr, "%s\n", e.Error())
-                }*/
-                return nil, err, done
+        }
+        return
+}
+
+func (t *traversal) removeCallerUpdated(target Value) {
+        if t.caller != nil {
+                // if strings.HasSuffix(target.String(), "...") { fmt.Fprintf(stderr, "%v: %v %v %v\n", target.Position(), target, t.updated, t.caller.updated) }
+                for _, u := range t.caller.removeUpdated(target) {
+                        for _, uu := range u.prerequisites {
+                                t.removeUpdated(uu.target)
+                        }
+                }
+                // if strings.HasSuffix(target.String(), "...") { fmt.Fprintf(stderr, "%v: %v %v %v\n", target.Position(), target, t.updated, t.caller.updated) }
+        }
+}
+
+func (t *traversal) hashDir(k []byte) string {
+        dir := t.program.project.tmpPath
+        h := fmt.Sprintf("%x", k[:2]) // HEX of the first two bytes
+        return filepath.Join(dir, ".hash", h[0:1], h[1:2], h[2:3], h[3:])
+}
+
+func (t *traversal) cmdHash(values ...Value) (k, v HashBytes, err error) {
+        var (
+                key = sha256.New()
+                val = sha256.New()
+                str string
+        )
+        if str, err = t.def.target.value.Strval(); err != nil { return }
+        fmt.Fprintf(key, "%s", t.program.project.absPath)
+        fmt.Fprintf(key, "%v", str)
+
+        for _, value := range values {
+                if false {
+                        // FIXME: Strval() varies when &(var) is used
+                        if str, err = value.Strval(); err != nil { return }
+                        fmt.Fprintf(val, "%v", str)
+                } else {
+                        fmt.Fprintf(val, "%v", value)
+                }
+        }
+        copy(k[:], key.Sum(nil))
+        copy(v[:], val.Sum(nil))
+        return
+}
+
+func (t *traversal) updateRecipesHash() (k, v HashBytes, err error) {
+        if k, v, err = t.cmdHash(t.program.recipes...); err != nil {
+                return
+        }
+
+        var dir = t.hashDir(k[:])
+        var name = filepath.Join(dir, fmt.Sprintf("%x", k))
+        if f, e := os.Open(name); e == nil {
+                defer f.Close()
+
+                var h []byte
+                if n, e := fmt.Fscanf(f, "%x", &h); e != nil {
+                        err = e; return
+                } else if n == 1 && bytes.Equal(v[:], h) {
+                        return
+                }
+        }
+
+        if err = os.MkdirAll(dir, 0700); err != nil {
+                return
+        } else if f, e := os.Create(name); e == nil {
+                defer f.Close()
+                _, err = fmt.Fprintf(f, "%x", v)
         } else {
-                switch e := scanner.WrapError(pos, err).(type) {
-                case *scanner.Error: errs = append(errs, e)
-                case scanner.Errors: errs = append(errs, e...)
-                }
-                switch err.(type) {
-                case fileNotFoundError: // will retry
-                case targetNotFoundError: // will retry
-                default: done = true
-                }
-                return errs, err, done
-        }
-}
-
-func (pc *preparer) updateFile(file *File) (err error) {
-        var ( errs scanner.Errors ; done bool )
-        for _, project := range pc.related {
-                if _, err = project.updateFile(pc, file); err == nil { break }
-                if errs, err, done = pc.updateErrs(errs, err); done { break }
-        }
-        if errs != nil && err != nil { err = errs }
-        return
-}
-
-func (pc *preparer) updateTargetErrs(target string) (errs scanner.Errors) {
-        for _, project := range pc.related {
-                var done bool
-                var err = project.updateTarget(pc, target)
-                if err == nil { /* Good! */ break }
-                if errs, err, done = pc.updateErrs(errs, err); done { break }
+                err = e
         }
         return
 }
 
-func (pc *preparer) updateTarget(target string) (err error) {
-        if errs := pc.updateTargetErrs(target); len(errs) > 0 {
-                err = errs
+func (t *traversal) isRecipesDirty() (dirty bool, err error) {
+        var k, v HashBytes
+        if k, v, err = t.cmdHash(t.program.recipes...); err != nil {
+                return
         }
-        return
-}
 
-func (pc *preparer) updateTargetValue(value Value) (err error) {
-        var s string
-        if s, err = value.Strval(); err == nil {
-                 err = pc.updateTarget(s)
-        }
-        return
-}
+        var dir = t.hashDir(k[:])
+        var name = filepath.Join(dir, fmt.Sprintf("%x", k))
+        if f, e := os.Open(name); e == nil {
+                defer f.Close()
 
-func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
-        // Push the context to the program, so that patterns will work.
-        defer func(a []*preparecontext) { prog.callers = a } (prog.callers)
-        prog.callers = append([]*preparecontext{&pc.preparecontext}, prog.callers...)
-
-        // Execute the updating program.
-        var res Value
-        if res, err = prog.Execute(entry, pc.arguments); err != nil {
-                //if optionTracePrepare { pc.tracef("%s: %s", entry, err) }
-                if br, ok := err.(*breaker); ok {
-                        switch br.what {
-                        case breakBad:
-                                fmt.Fprintf(stderr, "%s: %v\n", prog.position, err)
-                        }
+                var h []byte
+                if n, e := fmt.Fscanf(f, "%x", &h); e != nil {
+                        err = e
+                } else if n == 1 {
+                        dirty = !bytes.Equal(v[:], h)
                 }
         }
+        return
+}
 
-        target, _ := prog.scope.Lookup("@").(*Def).Call(entry.Position)
-        pc.addNotExistedTargets(target, res)
+func (t *traversal) wait(pos Position) (err error) {
+        if optionEnableBenchmarks && false { defer bench(mark("traversal.wait")) }
+        t.group.Wait()
+        if e := t.calleeErrors(); len(e) > 0 {
+                err = wrap(pos, e...)
+        }
         return
 }
 
@@ -589,63 +686,85 @@ type elemstrer interface {
 }
 
 func elementString(o Object, elem Value, k elemkind) (s string) {
-        if p, ok := elem.(elemstrer); ok {
-                s = p.elemstr(o, k)
-        } else if elem != nil {
-                s = elem.String()
-        }
+        if p, ok := elem.(elemstrer); ok { s = p.elemstr(o, k) } else
+        if elem != nil { s = elem.String() }
         return
 }
 
+type trivial struct { position Position }
+func (_ *trivial) refs(_ Value) (res bool) { return }
+func (_ *trivial) closured() (res bool) { return }
+func (_ *trivial) refdef(origin DefOrigin) (res bool) { return }
+func (_ *trivial) expand(_ expandwhat) (v Value, err error) { return }
+func (_ *trivial) cmp(_ Value) (res cmpres) { return }
+func (_ *trivial) mod(t *traversal) (res time.Time, err error) { return }
+func (_ *trivial) exists() existence { return existenceMatterless }
+func (_ *trivial) stamp(t *traversal) (file []*File, err error) { return }
+func (t *trivial) Position() (res Position) { return t.position }
+func (_ *trivial) True() (res bool, err error) { return }
+func (_ *trivial) Integer() (i int64, err error) { return }
+func (_ *trivial) Float() (f float64, err error) { return }
+func (_ *trivial) String() (s string) { return }
+func (_ *trivial) Strval() (s string, err error) { return }
+func (_ *trivial) traverse(t *traversal) (err error) { return }
+
+func exists(v Value) bool {
+        // FIXME: returns true if existenceMatterless??
+        return v != nil && v.exists() == existenceConfirmed
+}
+
 type Argumented struct {
-        Val Value
-        Args []Value
+        value Value
+        args []Value
 }
 func (p *Argumented) refs(v Value) bool {
-        if p.Val.refs(v) { return true }
-        for _, a := range p.Args {
+        if p.value.refs(v) { return true }
+        for _, a := range p.args {
                 if a.refs(v) { return true }
         }
         return false
 }
 func (p *Argumented) closured() bool {
-        if p.Val.closured() { return true }
-        for _, a := range p.Args {
+        if p.value.closured() { return true }
+        for _, a := range p.args {
                 if a.closured() { return true }
         }
         return false
 }
+func (p *Argumented) refdef(origin DefOrigin) bool {
+        return p.value.refdef(origin)
+}
 func (p *Argumented) expand(w expandwhat) (res Value, err error) {
-        var (v Value; args []Value)
-        if v, err = p.Val.expand(w); err == nil {
-                if v != p.Val {
+        var ( v Value; args []Value )
+        if v, err = p.value.expand(w); err == nil {
+                if v != p.value {
                         var num int
-                        args, num, err = expandall(w, p.Args...)
-                        if err == nil && (num > 0 || v != p.Val) {
+                        args, num, err = expandall(w, p.args...)
+                        if err == nil && (num > 0 || v != p.value) {
                                 res = &Argumented{ v, args }
                         }
                 }
         }
-        if err == nil && res == nil {
-                res = p
-        }
+        if err == nil && res == nil { res = p }
         return
 }
 func (p *Argumented) cmp(v Value) (res cmpres) {
-        if v.Type() == ArgumentedType {
-                a, ok := v.(*Argumented)
-                assert(ok, "value is not Argumented")
-                if res = p.Val.cmp(a.Val); res == cmpEqual {
-                        // FIXME: check p.Args, a.Args too
+        if a, ok := v.(*Argumented); ok {
+                if res = p.value.cmp(a.value); res == cmpEqual {
+                        // FIXME: check p.args against a.args?
                 }
         }
         return
 }
-func (p *Argumented) Type() Type { return ArgumentedType }
-func (p *Argumented) True() (res bool) {
-        if p.Val != nil {
-                res = p.Val.True()
-        }
+func (p *Argumented) stamp(t *traversal) ([]*File, error) { return p.value.stamp(t) }
+func (p *Argumented) exists() existence { return p.value.exists() }
+func (p *Argumented) mod(t *traversal) (time.Time, error) {
+        // FIXME: p.value maybe not the real target (depending on the arguments)
+        return p.value.mod(t)
+}
+func (p *Argumented) Position() Position { return p.value.Position() }
+func (p *Argumented) True() (res bool, err error) {
+        if p.value != nil { res, err = p.value.True() }
         return
 }
 func (p *Argumented) Integer() (i int64, err error) {
@@ -663,86 +782,70 @@ func (p *Argumented) Float() (f float64, err error) {
         return
 }
 func (p *Argumented) elemstr(o Object, k elemkind) (s string) {
-        for i, a := range p.Args {
+        for i, a := range p.args {
                 if i > 0 { s += "," }
                 s += elementString(o, a, k)
         }
-        s = fmt.Sprintf("%s(%s)", elementString(o, p.Val, k), s)
+        s = fmt.Sprintf("%s(%s)", elementString(o, p.value, k), s)
         return
 }
 func (p *Argumented) String() (s string) { return p.elemstr(nil, 0) }
 func (p *Argumented) Strval() (s string, err error) {
-        if s, err = p.Val.Strval(); err != nil {
+        if s, err = p.value.Strval(); err != nil {
                 return
         }
         s += "("
-        for i, a := range p.Args {
-                if i > 0 {
-                        s += ","
-                }
+        for i, a := range p.args {
+                if i > 0 { s += "," }
                 var v string
-                if v, err = a.Strval(); err == nil {
-                        s += v
-                } else {
+                if v, err = a.Strval(); err == nil { s += v } else {
                         break
                 }
         }
         s += ")"
         return
 }
-
-func (p *Argumented) prepare(pc *preparer) (err error) {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
-        if false {
-                pc.arguments, err = mergeresult(ExpandAll(p.Args...))
-        } else {
-                //<!IMPORTANT! - Don't merge-expand arguments here!
-                // Arguments should be passed to Execute as it's
-                // represented.
-                pc.arguments = p.Args
+func (p *Argumented) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        //!< IMPORTANT! - Don't merge-expand arguments here!
+        //!< Arguments should be passed to Execute as it's
+        //!< represented.
+        defer func(a []Value) { t.arguments = a } (t.arguments)
+        t.arguments = p.args
+        err = p.value.traverse(t)
+        return
+}
+func (p *Argumented) checkPatternDepends(t *traversal, project *Project, se *StemmedEntry, prog *Program) (ok, res1 bool, err error) {
+        switch v := p.value.(type) {
+        case Pattern:
+                ok = true
+                res1, err = checkPatternDepend(t, project, se, prog, v)
+        case *Argumented:
+                ok, res1, err = v.checkPatternDepends(t, project, se, prog)
         }
-        if err == nil { err = pc.traverse(p.Val) }
         return
 }
 
-type None struct {}
-func (_ *None) refs(_ Value) bool { return false }
-func (_ *None) closured() bool { return false }
+type None struct { trivial }
 func (p *None) expand(_ expandwhat) (Value, error) { return p, nil }
 func (_ *None) cmp(v Value) (res cmpres) { 
-        if v.Type() == NoneType { res = cmpEqual }
-        return
-}
-func (_ *None) Type() Type { return NoneType }
-func (_ *None) True() bool { return false }
-func (_ *None) Integer() (int64, error) { return 0, nil }
-func (_ *None) Float() (float64, error) { return 0, nil }
-func (p *None) String() (s string) { return }
-func (p *None) Strval() (s string, err error) { return }
-func (p *None) prepare(pc *preparer) (err error) { return }
-func (p *None) dependcompare(c *comparer) (err error) {
-        if enable_assertions { assert(c.target != p, "self comparation") }
+        if _, ok := v.(*None); ok { res = cmpEqual }
         return
 }
 
-type Nil struct { None }
+type Nil struct { trivial }
+func (p *Nil) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Nil) cmp(v Value) (res cmpres) {
-        if v.Type() == p.Type() {
-                if _, ok := v.(*Nil); ok {
-                        res = cmpEqual
-                }
-        }
+        if _, ok := v.(*Nil); ok { res = cmpEqual }
         return
 }
 
-type ModifierBar struct { None }
-func (p *ModifierBar) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *ModifierBar) Strval() (string, error) { return "|", nil }
-func (p *ModifierBar) String() string { return "|" }
-func (p *ModifierBar) cmp(v Value) (res cmpres) {
-        if v.Type() == p.Type() {
-                if _, ok := v.(*ModifierBar); ok {
-                        res = cmpEqual
+func isNone(v Value) (t bool) { _, t = v.(*None); return }
+func isNil(v Value) (t bool) {
+        if _, t = v.(*Nil); !t {
+                var vv = reflect.ValueOf(v)
+                if v == nil || (vv.Kind() == reflect.Ptr && vv.IsNil()) {
+                        t = true
                 }
         }
         return
@@ -750,10 +853,8 @@ func (p *ModifierBar) cmp(v Value) (res cmpres) {
 
 // Any is used to box an arbitrary value
 type Any struct { value interface{} }
-func (p *Any) Type() Type { return AnyType }
 func (p *Any) cmp(v Value) (res cmpres) {
-        if v.Type() == AnyType {
-                a, ok := v.(*Any)
+        if a, ok := v.(*Any); ok {
                 assert(ok, "value is not Any")
                 if v1, ok := p.value.(Value); ok {
                         if v2, ok := a.value.(Value); ok {
@@ -765,6 +866,18 @@ func (p *Any) cmp(v Value) (res cmpres) {
         }
         return
 }
+func (p *Any) stamp(t *traversal) (files []*File, err error) {
+        if a, ok := p.value.(Value); ok { files, err = a.stamp(t) }
+        return
+}
+func (p *Any) exists() existence {
+        if a, ok := p.value.(Value); ok { return a.exists() }
+        return existenceMatterless
+}
+func (p *Any) mod(t *traversal) (res time.Time, err error) {
+        if a, ok := p.value.(Value); ok { res, err = a.mod(t) }
+        return
+}
 func (p *Any) expand(w expandwhat) (res Value, err error) {
         if v, ok := p.value.(Value); ok {
                 res, err = v.expand(w)
@@ -774,25 +887,29 @@ func (p *Any) expand(w expandwhat) (res Value, err error) {
         return
 }
 func (p *Any) refs(o Value) (res bool) {
-        if v, ok := p.value.(Value); ok {
-                res = v.refs(o)
-        }
+        if v, ok := p.value.(Value); ok { res = v.refs(o) }
+        return
+}
+func (p *Any) refdef(origin DefOrigin) (res bool) {
+        if v, ok := p.value.(Value); ok { res = v.refdef(origin) }
         return
 }
 func (p *Any) closured() (res bool) {
-        if v, ok := p.value.(Value); ok {
-                res = v.closured()
-        }
+        if v, ok := p.value.(Value); ok { res = v.closured() }
         return
 }
-func (p *Any) True() (t bool) {
+func (p *Any) Position() (res Position) {
+        if v, ok := p.value.(Positioner); ok { res = v.Position() }
+        return
+}
+func (p *Any) True() (t bool, err error) {
         switch v := p.value.(type) {
-        case Value: t = v.True()
-        case float32: t = math.Abs(float64(v))-0 >= FloatEpsilon
-        case float64: t = math.Abs(v)-0 >= FloatEpsilon
-        case int: t = v != 0
-        case int64: t = v != 0
-        case bool: t = v
+        case Value:     t, err = v.True()
+        case float32:   t = math.Abs(float64(v))-0 >= FloatEpsilon
+        case float64:   t = math.Abs(v)-0 >= FloatEpsilon
+        case int64:     t = v != 0
+        case int:       t = v != 0
+        case bool:      t = v
         }
         return
 }
@@ -823,96 +940,69 @@ func (p *Any) Strval() (s string, err error) {
         return
 }
 func (p *Any) String() string { return fmt.Sprintf("<%v>", p.value) }
-func (p *Any) dependcompare(c *comparer) (err error) {
-        if enable_assertions { assert(c.target != p, "self comparation") }
-        if v, ok := p.value.(dependcomparable); ok {
-                err = v.dependcompare(c)
-        }
-        return
-}
-func (p *Any) prepare(pc *preparer) (err error) {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
-        if p, ok := p.value.(prerequisite); ok {
-                err = p.prepare(pc)
-        }
+func (p *Any) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        if v, ok := p.value.(Value); ok { err = v.traverse(t) }
         return 
 }
 
-// Boxing any value
-func Box(v interface{}) (any *Any) {
-        if any, _ = v.(*Any); any == nil {
-                any = &Any{v}
-        }
-        return
-}
-func Unbox(any *Any) interface{} { return any.value }
-
-type negative struct { x Value }
+type negative struct { trivial; x Value }
 func (p *negative) refs(o Value) bool { return p.x.refs(o) }
 func (p *negative) closured() bool { return p.x.closured() }
 func (p *negative) expand(w expandwhat) (res Value, err error) {
         var v Value
         if v, err = p.x.expand(w); err != nil { return }
-        if v == p.x { res = p } else { res = &negative{v} }
+        if v == p.x { res = p } else { res = &negative{p.trivial,v} }
         return
 }
 func (p *negative) cmp(v Value) (res cmpres) {
-        if v.Type() == NegativeType {
-                a, ok := v.(*negative)
-                assert(ok, "value is not negative")
-                res = p.x.cmp(a.x)
-        }
+        if a, ok := v.(*negative); ok { res = p.x.cmp(a.x) }
         return
 }
-func (p *negative) Type() Type { return NegativeType }
-func (p *negative) True() (res bool) {
-        if p.x == nil {
-                res = true
-        } else {
-                res = !p.x.True()
-        }
+func (p *negative) True() (res bool, err error) {
+        if p.x != nil { res, err = p.x.True() }
+        if err == nil { res = !res }
         return
 }
 func (p *negative) elemstr(o Object, k elemkind) string { return `!`+elementString(o, p.x, k) }
 func (p *negative) String() (s string) { return p.elemstr(nil, 0) }
-func (p *negative) Strval() (string, error) { return fmt.Sprintf("%v", !p.x.True()), nil }
+func (p *negative) Strval() (s string, err error) {
+        var t bool
+        if t, err = p.x.True(); err == nil {
+                s = fmt.Sprintf("%v", !t)
+        }
+        return
+}
 func (p *negative) Float() (res float64, err error) {
-        if !p.x.True() { res = FloatEpsilon }
+        var t bool
+        if t, err = p.x.True(); err == nil && !t {
+                res = FloatEpsilon
+        }
         return
 }
 func (p *negative) Integer() (res int64, err error) {
-        if !p.x.True() { res = 1 }
-        return
-}
-func (p *negative) dependcompare(c *comparer) (err error) {
-        if optionTraceCompare { defer compun(comptrace(c, p)) }
-        if enable_assertions { assert(c.target != p, "self comparation") }
-        if p, ok := p.x.(dependcomparable); ok {
-                err = p.dependcompare(c)
+        var t bool
+        if t, err = p.x.True(); err == nil && !t {
+                res = 1
         }
         return
 }
-func (p *negative) prepare(pc *preparer) (err error) {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
-        if p, ok := p.x.(prerequisite); ok {
-                err = p.prepare(pc)
-        }
+func (p *negative) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        if p.x != nil { err = p.x.traverse(t) }
         return
 }
 
-func Negative(val Value) *negative { return &negative{val} }
+func Negative(val Value) *negative { return &negative{trivial{val.Position()},val} }
 
-type boolean struct { bool }
+type boolean struct { trivial; bool }
 func (p *boolean) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *boolean) refs(_ Value) bool { return false }
-func (p *boolean) closured() bool { return false }
-func (p *boolean) Type() Type { return BooleanType }
-func (p *boolean) True() bool { return p.bool }
+func (p *boolean) True() (bool, error) { return p.bool, nil }
+func (p *boolean) Strval() (string, error) { return p.String(), nil }
 func (p *boolean) String() (s string) {
         if p.bool { s = "true" } else { s = "false" }
         return
 }
-func (p *boolean) Strval() (string, error) { return p.String(), nil }
 func (p *boolean) Float() (v float64, err error) {
         if p.bool { v = 1. }
         return
@@ -921,25 +1011,28 @@ func (p *boolean) Integer() (v int64, err error) {
         if p.bool { v = 1 }
         return
 }
-func (p *boolean) prepare(pc *preparer) error { return nil }
 func (p *boolean) cmp(v Value) (res cmpres) {
-        if t := v.Type(); t == BooleanType {
-                a, ok := v.(*boolean)
-                assert(ok, "value is not boolean")
+        if a, ok := v.(*option); ok {
                 if p.bool == a.bool {
                         res = cmpEqual
                 } else if !p.bool && a.bool {
-                        res = cmpLess
+                        res = cmpSmaller
                 } else if p.bool && !a.bool {
                         res = cmpGreater
                 }
-        } else if t == AnswerType {
-                a, ok := v.(*answer)
-                assert(ok, "value is not answer")
+        } else if a, ok := v.(*answer); ok {
                 if p.bool == a.bool {
                         res = cmpEqual
                 } else if !p.bool && a.bool {
-                        res = cmpLess
+                        res = cmpSmaller
+                } else if p.bool && !a.bool {
+                        res = cmpGreater
+                }
+        } else if a, ok := v.(*boolean); ok {
+                if p.bool == a.bool {
+                        res = cmpEqual
+                } else if !p.bool && a.bool {
+                        res = cmpSmaller
                 } else if p.bool && !a.bool {
                         res = cmpGreater
                 }
@@ -947,17 +1040,14 @@ func (p *boolean) cmp(v Value) (res cmpres) {
         return
 }
 
-type answer struct { bool }
-func (p *answer) refs(_ Value) bool { return false }
-func (p *answer) closured() bool { return false }
+type answer struct { trivial; bool }
 func (p *answer) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *answer) Type() Type { return AnswerType }
-func (p *answer) True() bool { return p.bool }
+func (p *answer) True() (bool, error) { return p.bool, nil }
+func (p *answer) Strval() (string, error) { return p.String(), nil }
 func (p *answer) String() (s string) {
         if p.bool { s = "yes" } else { s = "no" }
         return
 }
-func (p *answer) Strval() (string, error) { return p.String(), nil }
 func (p *answer) Float() (v float64, err error) {
         if p.bool { v = 1. }
         return
@@ -966,25 +1056,28 @@ func (p *answer) Integer() (v int64, err error) {
         if p.bool { v = 1 }
         return
 }
-func (p *answer) prepare(pc *preparer) error { return nil }
 func (p *answer) cmp(v Value) (res cmpres) {
-        if t := v.Type(); t == AnswerType {
-                a, ok := v.(*answer)
-                assert(ok, "value is not answer")
+        if a, ok := v.(*option); ok {
                 if p.bool == a.bool {
                         res = cmpEqual
                 } else if !p.bool && a.bool {
-                        res = cmpLess
+                        res = cmpSmaller
                 } else if p.bool && !a.bool {
                         res = cmpGreater
                 }
-        } else if t == BooleanType {
-                a, ok := v.(*boolean)
-                assert(ok, "value is not boolean")
+        } else if a, ok := v.(*answer); ok {
                 if p.bool == a.bool {
                         res = cmpEqual
                 } else if !p.bool && a.bool {
-                        res = cmpLess
+                        res = cmpSmaller
+                } else if p.bool && !a.bool {
+                        res = cmpGreater
+                }
+        } else if a, ok := v.(*boolean); ok {
+                if p.bool == a.bool {
+                        res = cmpEqual
+                } else if !p.bool && a.bool {
+                        res = cmpSmaller
                 } else if p.bool && !a.bool {
                         res = cmpGreater
                 }
@@ -992,73 +1085,116 @@ func (p *answer) cmp(v Value) (res cmpres) {
         return
 }
 
-type integer struct { int64 }
-func (p *integer) refs(_ Value) bool { return false }
-func (p *integer) closured() bool { return false }
-func (p *integer) Type() Type { return InvalidType }
-func (p *integer) True() bool { return p.int64 != 0 }
+type option struct { trivial; bool }
+func (p *option) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *option) True() (bool, error) { return p.bool, nil }
+func (p *option) Strval() (string, error) { return p.String(), nil }
+func (p *option) String() (s string) {
+        if p.bool { s = "on" } else { s = "off" }
+        return
+}
+func (p *option) Float() (v float64, err error) {
+        if p.bool { v = 1. }
+        return
+}
+func (p *option) Integer() (v int64, err error) {
+        if p.bool { v = 1 }
+        return
+}
+func (p *option) cmp(v Value) (res cmpres) {
+        if a, ok := v.(*option); ok {
+                if p.bool == a.bool {
+                        res = cmpEqual
+                } else if !p.bool && a.bool {
+                        res = cmpSmaller
+                } else if p.bool && !a.bool {
+                        res = cmpGreater
+                }
+        } else if a, ok := v.(*answer); ok {
+                if p.bool == a.bool {
+                        res = cmpEqual
+                } else if !p.bool && a.bool {
+                        res = cmpSmaller
+                } else if p.bool && !a.bool {
+                        res = cmpGreater
+                }
+        } else if a, ok := v.(*boolean); ok {
+                if p.bool == a.bool {
+                        res = cmpEqual
+                } else if !p.bool && a.bool {
+                        res = cmpSmaller
+                } else if p.bool && !a.bool {
+                        res = cmpGreater
+                }
+        }
+        return
+}
+
+type prediction struct {
+        boolean
+        reason string
+}
+func (p *prediction) expand(_ expandwhat) (Value, error) { return p, nil }
+
+type integer struct {
+        trivial
+        int64
+}
+func (p *integer) True() (bool, error) { return p.int64 != 0, nil }
 func (p *integer) Integer() (int64, error) { return p.int64, nil }
 func (p *integer) Float() (float64, error) { return float64(p.int64), nil }
 func (p *integer) cmp(v Value) (res cmpres) {
-        if t := v.Type(); t == BinType || t == OctType || t == IntType || t == HexType {
-                i, e := v.Integer()
-                assert(e == nil, "%s: %v", v.Type(), e)
-                if p.int64 == i {
-                        res = cmpEqual
-                } else if p.int64 < i {
-                        res = cmpLess
-                } else if p.int64 > i {
-                        res = cmpGreater
-                }
+        i, e := v.Integer()
+        assert(e == nil, "%T: %v", v, e)
+        if p.int64 == i {
+                res = cmpEqual
+        } else if p.int64 < i {
+                res = cmpSmaller
+        } else if p.int64 > i {
+                res = cmpGreater
         }
         return
 }
 
 type Bin struct { integer }
 func (p *Bin) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Bin) Type() Type { return BinType }
 func (p *Bin) String() string { return fmt.Sprintf("0b%s", strconv.FormatInt(int64(p.int64),2)) }
 func (p *Bin) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),2), nil }
 
 type Oct struct { integer }
 func (p *Oct) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Oct) Type() Type { return OctType }
-func (p *Oct) String() string {
-        return fmt.Sprintf("0%s", strconv.FormatInt(int64(p.int64),8))
-}
+func (p *Oct) String() string { return fmt.Sprintf("0%s", strconv.FormatInt(int64(p.int64),8)) }
 func (p *Oct) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),8), nil }
 
 type Int struct { integer }
 func (p *Int) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Int) Type() Type { return IntType }
 func (p *Int) String() string { return strconv.FormatInt(int64(p.int64),10) }
 func (p *Int) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),10), nil }
 
 type Hex struct { integer }
 func (p *Hex) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Hex) Type() Type { return HexType }
 func (p *Hex) String() string { return fmt.Sprintf("0x%s", strconv.FormatInt(int64(p.int64),16)) }
 func (p *Hex) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),16), nil }
 
 const FloatEpsilon = 1e-15 /* 1e-16 */
-type Float struct { float64 } // IEEE-754 64-bit binary floating-point
-func (p *Float) refs(_ Value) bool { return false }
-func (p *Float) closured() bool { return false }
+type Float struct {
+        trivial
+        float64
+} // IEEE-754 64-bit binary floating-point
 func (p *Float) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Float) Type() Type { return FloatType }
-func (p *Float) True() bool { return math.Abs(p.float64)-0 > FloatEpsilon }
+func (p *Float) True() (bool, error) { return math.Abs(p.float64)-0 > FloatEpsilon, nil }
 func (p *Float) String() string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
 func (p *Float) Strval() (string, error) { return strconv.FormatFloat(float64(p.float64),'g', -1, 64), nil }
 func (p *Float) Integer() (int64, error) { return int64(p.float64), nil }
 func (p *Float) Float() (float64, error) { return p.float64, nil }
 func (p *Float) cmp(v Value) (res cmpres) {
-        if v.Type() == FloatType {
+        if _, ok := v.(*Float); ok {
                 f, e := v.Float()
-                assert(e == nil, "%s: %v", v.Type(), e)
+                assert(e == nil, "%T: %v", v, e)
                 if p.float64 == f {
                         res = cmpEqual
                 } else if p.float64 < f {
-                        res = cmpLess
+                        res = cmpSmaller
                 } else if p.float64 > f {
                         res = cmpGreater
                 }
@@ -1066,12 +1202,12 @@ func (p *Float) cmp(v Value) (res cmpres) {
         return
 }
 
-type DateTime struct { Value time.Time }
-func (_ *DateTime) refs(_ Value) bool { return false }
-func (_ *DateTime) closured() bool { return false }
+type DateTime struct {
+        trivial
+        t time.Time
+}
 func (p *DateTime) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *DateTime) Type() Type { return DateTimeType }
-func (p *DateTime) True() bool { return !p.Value.IsZero() }
+func (p *DateTime) True() (bool, error) { return !p.t.IsZero(), nil }
 func (p *DateTime) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
@@ -1079,47 +1215,41 @@ func (p *DateTime) String() string {
                 return fmt.Sprintf("{DateTime '%s' !(%+v)}", s, e)
         }
 }
-func (p *DateTime) Strval() (string, error) { return time.Time(p.Value).Format("2006-01-02T15:04:05.999999999Z07:00"), nil } // time.RFC3339Nano
-func (p *DateTime) Integer() (int64, error) { return p.Value.Unix(), nil }
+func (p *DateTime) Strval() (string, error) { return time.Time(p.t).Format("2006-01-02T15:04:05.999999999Z07:00"), nil } // time.RFC3339Nano
+func (p *DateTime) Integer() (int64, error) { return p.t.Unix(), nil }
 func (p *DateTime) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 func (p *DateTime) cmp(v Value) (res cmpres) {
         var vt time.Time
-        if t := v.Type(); t == DateTimeType {
-                a, ok := v.(*DateTime)
-                assert(ok, "value is not DateTime")
-                vt = a.Value
-        } else if t == DateType {
-                a, ok := v.(*Date)
-                assert(ok, "value is not Date")
-                vt = a.Value
-        } else if t == TimeType {
-                a, ok := v.(*Time)
-                assert(ok, "value is not Time")
-                vt = a.Value
-        } else {
+        switch a := v.(type) {
+        case *DateTime:
+                vt = a.t
+        case *Date:
+                vt = a.t
+        case *Time:
+                vt = a.t
+        default:
                 return
         }
-        if p.Value.Equal(vt) {
+        if p.t.Equal(vt) {
                 res = cmpEqual
-        } else if p.Value.Before(vt) {
-                res = cmpLess
-        } else /*if p.Value.After(vt)*/ {
+        } else if p.t.Before(vt) {
+                res = cmpSmaller
+        } else /*if p.t.After(vt)*/ {
                 res = cmpGreater
         }
         return
 }
 
-func ParseDateTime(s string) *DateTime {
+func ParseDateTime(pos Position, s string) *DateTime {
         // time.RFC3339Nano
         if t, e := time.Parse("2006-01-02T15:04:05.999999999Z07:00", s); e == nil {
-                return &DateTime{t}
+                return &DateTime{trivial{pos},t}
         } else {
                 panic(e)
         }
 }
 
 type Date struct { DateTime }
-func (p *Date) Type() Type { return DateType }
 func (p *Date) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
@@ -1127,12 +1257,11 @@ func (p *Date) String() string {
                 return fmt.Sprintf("{Date '%s' !(%+v)}", s, e)
         }
 }
-func (p *Date) Strval() (string, error) { return time.Time(p.Value).Format("2006-01-02"), nil }
-func (p *Date) Integer() (int64, error) { return p.Value.Unix(), nil }
+func (p *Date) Strval() (string, error) { return time.Time(p.t).Format("2006-01-02"), nil }
+func (p *Date) Integer() (int64, error) { return p.t.Unix(), nil }
 func (p *Date) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
 type Time struct { DateTime }
-func (p *Time) Type() Type { return TimeType }
 func (p *Time) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
@@ -1140,8 +1269,8 @@ func (p *Time) String() string {
                 return fmt.Sprintf("{Time '%s' !(%+v)}", s, e)
         }
 }
-func (p *Time) Strval() (string, error) { return time.Time(p.Value).Format("15:04:05.999999999Z07:00"), nil }
-func (p *Time) Integer() (int64, error) { return p.Value.Unix(), nil }
+func (p *Time) Strval() (string, error) { return time.Time(p.t).Format("15:04:05.999999999Z07:00"), nil }
+func (p *Time) Integer() (int64, error) { return p.t.Unix(), nil }
 func (p *Time) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
 // ie. https://en.wikipedia.org/wiki/URL
@@ -1149,6 +1278,7 @@ func (p *Time) Float() (float64, error) { i, e := p.Integer(); return float64(i)
 //                └(//)┬──────────────┬<host>┬──────────┬┘      └(?)─<query>┘└(#)─<fragment>┘
 //                     └<userinfo>─(@)┘      └(:)─<port>┘
 type URL struct {
+        trivial
         Scheme Value
         Username Value
         Password Value
@@ -1158,45 +1288,54 @@ type URL struct {
         Query Value
         Fragment Value
 }
-func (_ *URL) refs(_ Value) bool { return false }
-func (_ *URL) closured() bool { return false }
 func (p *URL) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *URL) Type() Type { return URLType }
-func (p *URL) True() bool { return p.String() != "" }
+func (p *URL) True() (bool, error) { return p.String() != "", nil }
 func (p *URL) elemstr(o Object, k elemkind) (s string) {
         if s = elementString(o, p.Scheme, k); s == "" { return }
-        if s += ":"; p.Host != nil && p.Host.Type() != NoneType {
+        if s += ":"; p.Host == nil {
+                // ...
+        } else if _, ok := p.Host.(*None); ok {
                 var host string
                 if host = elementString(o, p.Host, k); host == "" { return }
                 s += "//"
-                if p.Username != nil && p.Username.Type() != NoneType {
+                if p.Username == nil {
+                        // ...
+                } else if isNone(p.Username) {
                         var user string
                         if user = elementString(o, p.Username, k); user != "" {
                                 s += user + "@"
                         }
                 }
                 s += host
-                if p.Port != nil && p.Port.Type() != NoneType {
+                if p.Port == nil {
+                        // ...
+                } else if _, ok := p.Port.(*None); ok {
                         var port string
                         if port = elementString(o, p.Port, k); port != "" {
                                 s += ":" + port
                         }
                 }
         }
-        if p.Path != nil && p.Path.Type() != NoneType {
+        if p.Path == nil {
+                // ...
+        } else if _, ok := p.Path.(*None); ok {
                 var path string
                 if path = elementString(o, p.Path, k); path != "" {
                         //if !strings.HasPrefix(path, PathSep) { s += PathSep }
                         s += path
                 }
         }
-        if p.Query != nil && p.Query.Type() != NoneType {
+        if p.Query == nil {
+                // ...
+        } else if _, ok := p.Query.(*None); ok {
                 var query string
                 if query = elementString(o, p.Query, k); query != "" {
                         s += "?" + query
                 }
         }
-        if p.Fragment != nil && p.Fragment.Type() != NoneType {
+        if p.Fragment == nil {
+                // ...
+        } else if _, ok := p.Fragment.(*None); ok {
                 var fragment string
                 if fragment = elementString(o, p.Fragment, k); fragment != "" {
                         s += "#" + fragment
@@ -1207,11 +1346,11 @@ func (p *URL) elemstr(o Object, k elemkind) (s string) {
 func (p *URL) String() string { return p.elemstr(nil, 0) }
 func (p *URL) Strval() (s string, err error) {
         if s, err = p.Scheme.Strval(); err != nil { return }
-        if s += ":"; p.Host != nil && p.Host.Type() != NoneType {
+        if s += ":"; p.Host != nil && !isNone(p.Host) {
                 var host string
                 if host, err = p.Host.Strval(); err != nil { return }
                 s += "//"
-                if p.Username != nil && p.Username.Type() != NoneType {
+                if p.Username != nil && !isNone(p.Username) {
                         var user string
                         if user, err = p.Username.Strval(); err != nil { return }
                         s += user
@@ -1224,24 +1363,24 @@ func (p *URL) Strval() (s string, err error) {
                         s += "@"
                 }
                 s += host
-                if p.Port != nil && p.Port.Type() != NoneType {
+                if p.Port != nil && !isNone(p.Port) {
                         var port string
                         if port, err = p.Port.Strval(); err != nil { return }
                         s += ":" + port
                 }
         }
-        if p.Path != nil && p.Path.Type() != NoneType {
+        if p.Path != nil && !isNone(p.Path) {
                 var path string
                 if path, err = p.Path.Strval(); err != nil { return }
                 //if !strings.HasPrefix(path, PathSep) { s += PathSep }
                 s += path
         }
-        if p.Query != nil && p.Query.Type() != NoneType {
+        if p.Query != nil && !isNone(p.Query) {
                 var query string
                 if query, err = p.Query.Strval(); err != nil { return }
                 s += "?" + query
         }
-        if p.Fragment != nil && p.Fragment.Type() != NoneType {
+        if p.Fragment != nil && !isNone(p.Fragment) {
                 var fragment string
                 if fragment, err = p.Fragment.Strval(); err != nil { return }
                 s += "#" + fragment
@@ -1257,9 +1396,7 @@ func (p *URL) Integer() (i int64, err error) {
 }
 func (p *URL) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 func (p *URL) cmp(v Value) (res cmpres) {
-        if v.Type() == URLType {
-                a, ok := v.(*URL)
-                assert(ok, "value is not URL")
+        if a, ok := v.(*URL); ok {
                 if p.Scheme == nil || a.Scheme == nil { return }
                 if p.Scheme.cmp(a.Scheme) != cmpEqual { return }
                 if p.Username != nil {
@@ -1294,61 +1431,55 @@ func (p *URL) cmp(v Value) (res cmpres) {
         }
         return
 }
-
-func (p *URL) Validate() (res *url.URL){
+func (p *URL) Validate() (res *url.URL) {
         panic(fmt.Sprintf("validate %s", p))
         return
 }
 
-type Raw struct { string }
-func (_ *Raw) refs(_ Value) bool { return false }
-func (_ *Raw) closured() bool { return false }
+type Raw struct {
+        trivial
+        string
+}
 func (p *Raw) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Raw) Type() Type { return RawType }
-func (p *Raw) True() bool { return p.string != "" }
+func (p *Raw) True() (bool, error) { return p.string != "", nil }
 func (p *Raw) String() string { return p.string }
 func (p *Raw) Strval() (string, error) { return p.string, nil }
 func (p *Raw) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *Raw) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
-func (p *Raw) prepare(pc *preparer) error { return fmt.Errorf("preparing raw string") }
 func (p *Raw) cmp(v Value) (res cmpres) {
-        if v.Type() == RawType {
-                a, ok := v.(*Raw)
-                assert(ok, "value is not Raw")
-                if p.string == a.string {
-                        res = cmpEqual
-                }
+        if a, ok := v.(*Raw); ok && p.string == a.string {
+                res = cmpEqual
         }
         return
 }
 
-type String struct { string }
-func (_ *String) refs(_ Value) bool { return false }
-func (_ *String) closured() bool { return false }
+type String struct {
+        trivial
+        string
+}
 func (p *String) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *String) Type() Type { return StringType }
-func (p *String) True() bool { return p.string != "" }
+func (p *String) True() (bool, error) { return p.string != "", nil }
 func (p *String) elemstr(o Object, k elemkind) (s string) {
         if k&elemNoQuote == 0 { s = `'`+p.string+`'` } else { s = p.string }
         return
 }
 func (p *String) String() string { return p.elemstr(nil, 0) }
-func (p *String) Strval() (string, error) { return p.string, nil }
+func (p *String) Strval() (string, error) { return strings.Replace(p.string, "\\\"", "\"", -1), nil }
 func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
-func (p *String) dependcompare(c *comparer) (err error) { return c.compareStatDepend(p, p.string, nil) }
-func (p *String) prepare(pc *preparer) error {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
-         return pc.updateTarget(p.string)
+func (p *String) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        if false { err = t.target(p.position, p.string) } else {
+                err = errorf(p.position, "cant traverse string yet")
+        }
+        return
 }
 func (p *String) cmp(v Value) (res cmpres) {
-        if v.Type() == StringType {
-                a, ok := v.(*String)
-                assert(ok, "value is not String")
+        if a, ok := v.(*String); ok {
                 if p.string == a.string {
                         res = cmpEqual
                 } else if p.string < a.string {
-                        res = cmpLess
+                        res = cmpSmaller
                 } else /*if p.string > a.string*/ {
                         res = cmpGreater
                 }
@@ -1356,36 +1487,36 @@ func (p *String) cmp(v Value) (res cmpres) {
         return
 }
 
-type Bareword struct { string }
-func (_ *Bareword) refs(_ Value) bool { return false }
-func (_ *Bareword) closured() bool { return false }
-func (p *Bareword) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Bareword) Type() Type { return BarewordType }
-func (p *Bareword) True() (t bool) {
-        switch p.string {
-        case "", "false", "no", "off", "0": t = false
-        case "true", "yes", "on", "1": t = true
+func isTrueString(s string) (t bool) {
+        switch strings.ToLower(s) {
+        case "false", "no" , "off", "force_off", "0", "": t = false
+        case "true" , "yes", "on" , "force_on" , "1": t = true
         default: t = true
         }
         return
 }
+
+type Bareword struct {
+        trivial
+        string
+}
+func (p *Bareword) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *Bareword) True() (bool, error) { return isTrueString(p.string), nil }
 func (p *Bareword) String() string { return p.string }
 func (p *Bareword) Strval() (string, error) { return p.string, nil }
 func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *Bareword) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
-func (p *Bareword) dependcompare(c *comparer) (err error) { return c.compareStatDepend(p, p.string, nil) }
-func (p *Bareword) prepare(pc *preparer) error {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
-        return pc.updateTarget(p.string)
+func (p *Bareword) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        err = t.target(p.position, p.string)
+        return
 }
 func (p *Bareword) cmp(v Value) (res cmpres) {
-        if v.Type() == BarewordType {
-                a, ok := v.(*Bareword)
-                assert(ok, "value is not Bareword")
+        if a, ok := v.(*Bareword); ok {
                 if p.string == a.string {
                         res = cmpEqual
                 } else if p.string > a.string {
-                        res = cmpLess
+                        res = cmpSmaller
                 } else if p.string < a.string {
                         res = cmpGreater
                 }
@@ -1393,16 +1524,46 @@ func (p *Bareword) cmp(v Value) (res cmpres) {
         return
 }
 
-type elements struct { Elems []Value }
-func (p *elements) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
-func (p *elements) Integer() (int64, error) {
-        if n := len(p.Elems); n == 1 {
-                // If there's only one element, treat it as a scalar.
-                return p.Elems[0].Integer()
-        } else {
-                return int64(n), nil
-        }
+type Qualiword struct {
+        trivial
+        words []string
 }
+func (p *Qualiword) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *Qualiword) True() (bool, error) { return len(p.words)!=0, nil }
+func (p *Qualiword) String() string { return strings.Join(p.words,".") }
+func (p *Qualiword) Strval() (string, error) { return p.String(), nil }
+func (p *Qualiword) Integer() (int64, error) { return int64(len(p.words)), nil }
+func (p *Qualiword) Float() (float64, error) { return float64(len(p.words)), nil }
+func (p *Qualiword) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        err = t.target(p.position, p.String())
+        return
+}
+func (p *Qualiword) cmp(v Value) (res cmpres) {
+        if a, ok := v.(*Qualiword); ok {
+                var n int
+                var al, pl = len(a.words), len(p.words)
+                for i, w := range p.words {
+                        if al <= i {
+                                break
+                        } else if w == a.words[n] {
+                                if n += 1; n == al && al == pl {
+                                        res = cmpEqual
+                                } else {
+                                        continue
+                                }
+                        } else if w > a.words[n] {
+                                res = cmpSmaller // cmpGreater??
+                        } else {
+                                res = cmpGreater // cmpSmaller??
+                        }
+                        break
+                }
+        }
+        return
+}
+
+type elements struct { Elems []Value }
 func (p *elements) Len() int                    { return len(p.Elems) }
 func (p *elements) Append(v... Value)           { p.Elems = append(p.Elems, v...) }
 func (p *elements) Get(n int) (v Value)         { if n>=0 && n<len(p.Elems) { v = p.Elems[n] }; return }
@@ -1419,20 +1580,18 @@ func (p *elements) Take(n int) (v Value) {
         }
         return 
 }
-func (p *elements) ToBarecomp() *Barecomp { return &Barecomp{*p} }
-func (p *elements) ToCompound() *Compound { return &Compound{*p} }
+func (p *elements) ToBarecomp() *Barecomp { return &Barecomp{trivial{},*p} }
+func (p *elements) ToCompound() *Compound { return &Compound{trivial{},*p} }
 func (p *elements) ToList() *List { return &List{*p} }
-func (p *elements) True() (t bool) { // (or elems...)
+func (p *elements) True() (t bool, err error) { // (or elems...)
         for _, elem := range p.Elems {
-                if elem != nil {
-                        if t = elem.True(); t {
-                                break
-                        }
+                if elem == nil { continue }
+                if t, err = elem.True(); t || err != nil {
+                        break
                 }
         }
         return
 }
-
 func (p *elements) refs(v Value) bool {
         for _, elem := range p.Elems {
                 if elem != nil && (elem == v || elem.refs(v)) {
@@ -1441,37 +1600,39 @@ func (p *elements) refs(v Value) bool {
         }
         return false 
 }
-
 func (p *elements) closured() bool {
         for _, elem := range p.Elems {
                 if elem.closured() { return true }
         }
         return false 
 }
-
+func (p *elements) refdef(origin DefOrigin) bool {
+        for _, elem := range p.Elems {
+                if elem.refdef(origin) { return true }
+        }
+        return false 
+}
 func (p *elements) cmpElems(elems []Value) (res cmpres) {
         if len(p.Elems) == len(elems) {
                 for i, elem := range p.Elems {
-                        other := elems[i]
-                        if r := elem.cmp(other); r != cmpEqual {
-                                return cmpUnknown
-                        }
+                        if elem == nil { continue } else
+                        if other := elems[i]; other == nil { continue } else
+                        if elem.cmp(other) != cmpEqual { return cmpUnknown }
                 }
                 res = cmpEqual
         }
         return
 }
 
-type Barecomp struct { elements }
-func (p *Barecomp) Type() Type { return BarecompType }
+type Barecomp struct { trivial ; elements }
+func (p *Barecomp) refs(v Value) bool { return p.elements.refs(v) }
+func (p *Barecomp) refdef(origin DefOrigin) bool { return p.elements.refdef(origin) }
+func (p *Barecomp) closured() bool { return p.elements.closured() }
 func (p *Barecomp) Strval() (s string, e error) {
         for _, elem := range p.Elems {
                 var v string
-                if v, e = elem.Strval(); e == nil {
-                        s += v
-                } else {
-                        break
-                }
+                if elem == nil { continue } else
+                if v, e = elem.Strval(); e == nil { s += v } else { break }
         }
         return
 }
@@ -1481,42 +1642,49 @@ func (p *Barecomp) elemstr(o Object, k elemkind) (s string) {
         }
         return
 }
+func (p *Barecomp) True() (bool, error) { return p.elements.True() }
 func (p *Barecomp) String() (s string) { return p.elemstr(nil, 0) }
-
+func (p *Barecomp) Integer() (res int64, err error) {
+        if len(p.Elems) == 2 {
+                if i, ok := p.Elems[0].(*Int); ok {
+                        var n = i.int64
+                        if w, ok := p.Elems[1].(*Bareword); ok {
+                                ;    if (w.string == "st" && n%1 == 0) ||
+                                        (w.string == "nd" && n%2 == 0) ||
+                                        (w.string == "rd" && n%3 == 0) ||
+                                        (w.string == "th") { res = n }
+                        }
+                }
+        }
+        return
+}
 func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
         if elems, num, err = expandall(w, p.Elems...); err == nil {
                 if num > 0 {
-                        res = &Barecomp{ elements{ elems } }
+                        res = &Barecomp{p.trivial,elements{elems}}
                 } else {
                         res = p
                 }
         }
         return
 }
-
-func (p *Barecomp) dependcompare(c *comparer) (err error) {
-        if ds, err := p.Strval(); err == nil {
-                err =  c.compareStatDepend(p, ds, nil)
+func (p *Barecomp) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        var target string
+        if target, err = p.Strval(); err == nil {
+                err = t.target(p.position, target)
         }
         return
 }
-
-func (p *Barecomp) prepare(pc *preparer) error {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
-        return pc.updateTargetValue(p)
-}
-
 func (p *Barecomp) cmp(v Value) (res cmpres) {
-        if v.Type() == BarecompType {
-                a, ok := v.(*Barecomp)
-                assert(ok, "value is not Barecomp")
-                res = p.cmpElems(a.Elems)
-        }
+        if a, ok := v.(*Barecomp); ok { res = p.cmpElems(a.Elems) }
         return
 }
 
+// Barefile works like an alias of a File, the Strval() is identical to File.
 type Barefile struct {
+        trivial
         Name Value
         File *File
 }
@@ -1526,22 +1694,28 @@ func (p *Barefile) expand(w expandwhat) (res Value, err error) {
         var name Value
         if name, err = p.Name.expand(w); err == nil {
                 if name != p.Name {
-                        res = &Barefile{ name, p.File }
+                        res = &Barefile{p.trivial,name,p.File}
                 } else {
                         res = p
                 }
         }
         return
 }
-func (p *Barefile) Type() Type { return BarefileType }
-func (p *Barefile) True() bool { return p.File != nil }
+func (p *Barefile) True() (t bool, err error) {
+        if p.File != nil { t, err = p.File.True() }
+        return
+}
 func (p *Barefile) elemstr(o Object, k elemkind) (s string) { return elementString(o, p.Name, k) }
 func (p *Barefile) String() string { return p.elemstr(nil, 0) }
-func (p *Barefile) Strval() (string, error) { return p.Name.Strval() }
+func (p *Barefile) Strval() (string, error) {
+        if p.File != nil {
+                return p.File.Strval()
+        } else {
+                return p.Name.Strval()
+        }
+}
 func (p *Barefile) Integer() (res int64, err error) {
-        //var str string
-        //if str, err = p.Name.Strval(); err != nil { return }
-        if p.File != nil && p.File.exists() {
+        if exists(p.File) {
                 res = p.File.info.Size()
         }
         return
@@ -1550,80 +1724,74 @@ func (p *Barefile) Float() (float64, error) {
         i, e := p.Integer()
         return float64(i), e
 }
-
-func (p *Barefile) dependcompare(c *comparer) (err error) {
-        if optionTraceCompare { defer compun(comptrace(c, p)) }
-        if enable_assertions { assert(c.target != p, "self comparation") }
-        if p.File != nil {
-                err = p.File.dependcompare(c)
-        } else if c.nomiss {
-                err = break_bad(c.program.position, "no such file '%v'", p)
-        }
-        return
-}
-
-func (p *Barefile) prepare(pc *preparer) error {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
-        if p.File != nil {
-                if s, e := p.Name.Strval(); e != nil {
-                        return e
-                } else if s != p.File.name {
-                        // Fixes the case that '$@.o' is parsed and become '.o'.
-                        p.File.name = s
+func (p *Barefile) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        if p.File == nil { // it happens if p.Name refers argument
+                var target string
+                if target, err = p.Strval(); err != nil { return }
+                
+                var okay bool
+                okay, err = t.forClosureProject(func(project *Project) (bool, error) {
+                        p.File = project.matchFile(target)
+                        return p.File != nil, nil
+                })
+                if !okay || p.File == nil {
+                        err = errorf(p.position, "barefile '%s' not found", target)
+                        return
                 }
-                return p.File.prepare(pc)
-        } else {
-                return pc.updateTargetValue(p)
         }
-}
-
-func (p *Barefile) cmp(v Value) (res cmpres) {
-        if v.Type() == BarefileType {
-                a, ok := v.(*Barefile)
-                assert(ok, "value is not Barefile")
-                // FIXME: check p.File.filebase == a.File.filebase first
-                res = p.Name.cmp(a.Name)
+        if p.File != nil { err = p.File.traverse(t) } else {
+                err = errorf(p.position, "barefile '%s' is nil", p)
         }
         return
 }
+func (p *Barefile) stamp(t *traversal) (files []*File, err error) {
+        if p.File != nil { files, err = p.File.stamp(t) }
+        return
+}
+func (p *Barefile) exists() (res existence) {
+        if p.File != nil { res = p.File.exists() } else {
+                res = existenceNegated
+        }
+        return
+}
+func (p *Barefile) mod(t *traversal) (res time.Time, err error) {
+        if p.File != nil { res, err = p.File.mod(t) }
+        return
+}
+func (p *Barefile) cmp(v Value) (res cmpres) {
+        if a, ok := v.(*Barefile); ok { res = p.Name.cmp(a.Name) }
+        return
+}
 
-type GlobMeta struct { token.Token }
-func (p *GlobMeta) refs(o Value) bool { return false }
-func (p *GlobMeta) closured() bool { return false }
+type GlobMeta struct {
+        trivial
+        token.Token
+}
 func (p *GlobMeta) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *GlobMeta) Type() Type { return GlobType }
-func (p *GlobMeta) True() bool { return false }
 func (p *GlobMeta) String() string { return p.Token.String() }
 func (p *GlobMeta) Strval() (string, error) { return p.Token.String(), nil }
-func (p *GlobMeta) Integer() (int64, error) { return 0, nil }
-func (p *GlobMeta) Float() (float64, error) { return 0, nil }
 func (p *GlobMeta) cmp(v Value) (res cmpres) {
-        if v.Type() == GlobType {
-                a, ok := v.(*GlobMeta)
-                assert(ok, "value is not GlobMeta")
-                if p.Token == a.Token {
-                        res = cmpEqual
-                }
+        if a, ok := v.(*GlobMeta); ok && p.Token == a.Token {
+                res = cmpEqual
         }
         return
 }
 
 // `[a-b]`, `[abc]`, ...
 // `a-b`, `abc`, `a$(var)c`, `a$(spaces)c`...
-type GlobRange struct { Chars Value }
+type GlobRange struct { trivial ; Chars Value }
 func (p *GlobRange) refs(v Value) bool { return p.Chars.refs(v) }
 func (p *GlobRange) closured() bool { return p.Chars.closured() }
 func (p *GlobRange) expand(w expandwhat) (Value, error) {
         if v, err := p.Chars.expand(w); err != nil {
                 return nil, err
         } else if v != p.Chars {
-                return &GlobRange{v}, nil
+                return &GlobRange{p.trivial,v}, nil
         } else {
                 return p, nil
         }
 }
-func (p *GlobRange) Type() Type { return GlobType }
-func (p *GlobRange) True() bool { return false }
 func (p *GlobRange) elemstr(o Object, k elemkind) (s string) {
         return fmt.Sprintf("[%s]", elementString(o, p.Chars, k))
 }
@@ -1635,20 +1803,16 @@ func (p *GlobRange) Strval() (s string, err error) {
         }
         return
 }
-func (p *GlobRange) Integer() (int64, error) { return 0, nil }
-func (p *GlobRange) Float() (float64, error) { return 0, nil }
 func (p *GlobRange) cmp(v Value) (res cmpres) {
-        if v.Type() == GlobType {
-                a, ok := v.(*GlobRange)
-                assert(ok, "value is not GlobRange")
-                res = p.Chars.cmp(a.Chars)
-        }
+        if a, ok := v.(*GlobRange); ok { res = p.Chars.cmp(a.Chars) }
         return
 }
 
+// Path is addressing a file (dynamically), the real located file varies
+// base on 'elements' and the context.
 type Path struct {
+        trivial
         elements
-        File *File // if this path is pointed to a file, ie. the last element matched a FileMap
 }
 func (p *Path) elemstr(o Object, k elemkind) (s string) {
         for i, elem := range p.Elems {
@@ -1683,17 +1847,22 @@ func (p *Path) Strval() (s string, e error) {
         }
         return
 }
-func (p *Path) Integer() (int64, error) { return 0, nil }
-func (p *Path) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
-func (p *Path) Type() Type { return PathType }
-func (p *Path) True() (t bool) {
-        if t = p.File != nil; !t {
+func (p *Path) True() (t bool, err error) {
+        // FIXME: return p.exists() ??
+        if false {
+                t = p.exists() == existenceConfirmed
+        } else {
                 for _, elem := range p.Elems {
-                        t = elem.True(); break
+                        if t, err = elem.True(); err != nil || !t {
+                                break
+                        }
                 }
         }
         return
 }
+func (p *Path) refs(v Value) (res bool) { return p.elements.refs(v) }
+func (p *Path) closured() (res bool) { return p.elements.closured() }
+func (p *Path) refdef(origin DefOrigin) bool { return p.refdef(origin) }
 func (p *Path) expand(w expandwhat) (res Value, err error) {
         var (elems []Value; num int)
         if elems, num, err = expandall(w, p.Elems...); err != nil { return }
@@ -1702,7 +1871,7 @@ func (p *Path) expand(w expandwhat) (res Value, err error) {
                 for _, elem := range elems {
                         switch v := elem.(type) {
                         case *String:
-                                segs := MakePathStr(v.string).Elems
+                                segs := MakePathStr(elem.Position(),v.string).Elems
                                 vals = append(vals, segs...)
                         default:
                                 vals = append(vals, elem)
@@ -1711,138 +1880,116 @@ func (p *Path) expand(w expandwhat) (res Value, err error) {
                 elems = vals
         }
         if num > 0 {
-                res = &Path{elements{elems}, p.File}
+                res = &Path{p.trivial,elements{elems}}
         } else {
                 res = p
         }
         return
 }
-
-func (p *Path) dependcompare(c *comparer) (err error) {
-        if optionTraceCompare { defer compun(comptrace(c, p)) }
-        if enable_assertions { assert(c.target != p, "self comparation") }
-        if ds, err := p.Strval(); err == nil {
-                var di os.FileInfo
-                if p.File != nil { di = p.File.info }
-                err =  c.compareStatDepend(p, ds, di)
-        }
-        return
-}
-
-func (p *Path) prepare(pc *preparer) (err error) {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
-
-        var s string // path/file target
-        var rest []string
-        if s, rest, err = p.stencil(pc.stems); err != nil {
-                return
+func (p *Path) pathname(stems []string) (pathname string, err error) {// the addressed file target
+        var rest []string // unmatched path segmants
+        if len(stems) == 0 { pathname, err = p.Strval()  } else
+        if pathname, rest, err = p.stencil(stems); err != nil {
+                // ...
         } else if len(rest) > 0 {
-                panic("FIXME: unhandled stems")
+                //err = errorf(p.position, "partial match: %v", rest)
         }
-
-        if p.File == nil {
-                if pc.program.project.isFileName(filepath.Base(s)) || pc.program.project.isFileName(s) {
-                        if p.File = pc.program.project.searchFile(s); p.File != nil {
-                                pc.addNotExistedTarget1(p)
-                                return
-                        }
-                }
-        }
-
-        if p.File != nil {
-                err = p.File.prepare(pc)
-                if err != nil { return }
-        }
-
-        var errs scanner.Errors
-        var checked = make(map[string]bool)
-        for _, err := range pc.updateTargetErrs(s) {
-                e, isTargetNotFound := err.Err.(targetNotFoundError)
-                if !isTargetNotFound {
-                        errs = append(errs, err)
-                        continue
-                } else if b1, b2 := checked[e.target]; b1 && b2 {
-                        continue
-                } else {
-                        checked[e.target] = true
-                }
-                if p.File = stat(e.target, "", ""); p.File == nil {
-                        pc.addNotExistedTarget1(p) // Append unknown path anyway.
-                        err.Err = pathNotFoundError{e.project, p}
-                        errs = append(errs, err)
-                        if optionTracePrepare {
-                                //pc.tracef("execstack: %s", execstack)
-                                //pc.tracef("%s: %s", e.project.name, err)
-                                pc.tracef("%s", err)
-                        }
-                } else if p.File.info != nil {
-                        if p.File.info.IsDir() {
-                                pc.addNotExistedTarget1(p)
-                        } else {
-                                pc.addNotExistedTarget1(p/*.File*/)
-                        }
-                } else {
-                        // Search this path target as a file.
-                        p.File = e.project.searchFile(e.target)
-                        if p.File != nil {
-                                pc.addNotExistedTarget1(p.File)
-                        } else {
-                                errs = append(errs, err)
-                        }
-                }
-        }
-        checked = nil
-
-        if len(errs) > 0 { err = errs } else { err = nil }
         return
 }
+func (p *Path) stamp(t *traversal) (files []*File, err error) {
+        var pathname string
+        if pathname, err = p.Strval(); err == nil {
+                if pathname == "" {
+                        err = errorf(p.position, "no pathname for `%s`", p)
+                } else if file := stat(p.position,pathname,"","",nil); file != nil {
+                        files, err = file.stamp(t)
+                }
+        }
+        return
+}
+func (p *Path) exists() existence {
+        if pathname, err := p.Strval(); err == nil {
+                if file := stat(p.position,pathname,"","",nil); file != nil {
+                        return file.exists()
+                }
+        }
+        return existenceNegated
+}
+func (p *Path) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
 
+        // Path pathname.
+        var pathname string // the addressed file target
+        if pathname, err = p.pathname(t.stems); err == nil && pathname == "" {
+                err = errorf(p.position, "path matches no target: %v", p); return
+        } else if err != nil { err = wrap(p.position, err); return }
+
+        // Stat the file by pathname.
+        var file = stat(p.position, pathname, "", ""/*, nil*/)
+        if optionTraceTraversal { t.tracef("Path: file=%v (exists=%v) (pathname=%s)", file, file.exists(), pathname) }
+        if file == nil { err = t.target(p.position,pathname,p) } else { err = file.traverse(t) }
+        if err != nil { err = wrap(p.position, err) }
+        if optionTraceTraversal { t.tracef("Path: file=%v (exists=%v) (pathname=%s)", file, file.exists(), pathname) }
+        return
+}
+func (p *Path) mod(t *traversal) (res time.Time, err error) {
+        var pathname string // the addressed file target
+        if pathname, err = p.pathname(t.stems); err != nil {
+                // oops
+        } else if pathname == "" {
+                err = errorf(p.position, "path matches no target: %v", p)
+        } else if file := stat(p.position, pathname, "", "", nil); file != nil && file.info != nil {
+                res = file.info.ModTime()
+        }
+        return
+}
+func (p *Path) isPattern() (result bool) {
+        for _, seg := range p.Elems {
+                _, result = seg.(Pattern)
+                if result { return }
+        }
+        return
+}
 func (p *Path) cmp(v Value) (res cmpres) {
-        if v.Type() == PathType {
-                a, ok := v.(*Path)
-                assert(ok, "value is not Path")
-                res = p.cmpElems(a.Elems)
-        }
+        if a, ok := v.(*Path); ok { res = p.cmpElems(a.Elems) }
         return
 }
-
 func (p *Path) match(i interface{}) (result string, stems []string, err error) {
+        if optionEnableBenchspots { defer bench(spot("Path.match")) }
         var retained []string
-        result, retained, stems, err = p.match1(i)
+        result, retained, stems, err = p.partialMatch(i)
         if len(retained) > 0 {
                 // clear results if not fully matched
                 result, stems = "", nil
         }
         return
 }
-
+func (p *Path) partialMatch(i interface{}) (result string, retained, stems []string, err error) {
+        switch t := i.(type) {
+        case *filestub: i = filepath.Join(t.dir, t.sub, t.name)
+        case *File:     i = filepath.Join(t.dir, t.sub, t.name)
+        }
+        return p.match1(i)
+}
 func (p *Path) match1(i interface{}) (result string, retained, stems []string, err error) {
         var (
                 srcs []string
                 segs []Value
                 idx = 0
         )
-        switch t := i.(type) {
-        case []string: srcs = t
-        case string: srcs = strings.Split(t, PathSep)
-        case *File: srcs = strings.Split(t.FullName(), PathSep)
-        case *filestub:
-                s := filepath.Join(t.dir, t.sub, t.name)
-                srcs = strings.Split(s, PathSep)
-        case Value:
-                var s string
-                if s, err = t.Strval(); err != nil { return }
-                srcs = strings.Split(s, PathSep)
-        default:
-                unreachable("path.match: %T %v", i, i)
+        if segs, err = ExpandAll(p.Elems...); err != nil { return } else {
+                switch t := i.(type) {
+                case []string: srcs = t
+                case   string: srcs = strings.Split(t, PathSep)
+                case Value:
+                        var s string
+                        if s, err = t.Strval(); err == nil {
+                                srcs = strings.Split(s, PathSep)
+                        } else { return }
+                default: unreachable("path.match1: %T %v", i, i)
+                }
         }
-
-        if segs, err = ExpandAll(p.Elems...); err != nil {
-                return
-        }
-
-ForPathSegs:
-        for n, seg := range segs {
+        ForPathSegs: for n, seg := range segs {
                 if len(srcs) <= idx { break ForPathSegs }
 
                 var ( s string ; r []string )
@@ -1861,54 +2008,63 @@ ForPathSegs:
                 case Pattern:// Note that Path is also a Pattern!
                         var ss []string
 
-                        // Special case of "%%" to match multiple
-                        // segs at once.
-                        if pp, ok := seg.(*PercPattern); ok {
-                                if ps, ok := pp.Suffix.(*PercPattern); ok {
-                                        if ps.Prefix.Type() == NoneType && ps.Suffix.Type() == NoneType {
-                                                if n+1 < len(segs) && idx+1 < len(srcs) {
-                                                        // Find segs[n+1] in srcs[idx:]
-                                                        var next = segs[n+1]
-                                                        switch t := next.(type) {
-                                                        case Pattern:
-                                                                for x, src := range srcs[idx+1:] {
-                                                                        var res string
-                                                                        res, ss, err = t.match(src)
-                                                                        if err != nil { return }
-                                                                        if res != "" && len(ss) > 0 {
-                                                                                end := idx + 1 + x
-                                                                                stem := strings.Join(srcs[idx:end], PathSep)
-                                                                                stems = append(stems, stem)
-                                                                                idx = end
-                                                                                continue ForPathSegs
-                                                                        }
-                                                                }
-                                                        default:
-                                                                for x, src := range srcs[idx+1:] {
-                                                                        var res string
-                                                                        if res, err = t.Strval(); err != nil {
-                                                                                return
-                                                                        }
-                                                                        if res == src {
-                                                                                end := idx + 1 + x
-                                                                                stem := strings.Join(srcs[idx:end], PathSep)
-                                                                                stems = append(stems, stem)
-                                                                                idx = end
-                                                                                continue ForPathSegs
-                                                                        }
-                                                                }
+                        // Special case for "/%%/" to match many segs at once.
+                        if ok, prefix, suffix := percperc(t); ok && isNone(prefix) && isNone(suffix) {
+                                if n+1 < len(segs) && idx+1 < len(srcs) {
+                                        // Find 'next' matched seg, ie. %%/next/xxx
+                                        var next = segs[n+1] // e.g. '.smart' like in '%%/.smart/modules'
+                                        switch t := next.(type) {
+                                        case Pattern:
+                                                for x, src := range srcs[idx+1:] {
+                                                        var res string
+                                                        res, ss, err = t.match(src)
+                                                        if err != nil { return }
+                                                        if res != "" && len(ss) > 0 {
+                                                                end := idx + 1 + x
+                                                                stem := strings.Join(srcs[idx:end], PathSep)
+                                                                stems = append(stems, stem)
+                                                                idx = end
+                                                                continue ForPathSegs //break //
                                                         }
-                                                        continue ForPathSegs
-                                                } else {
-                                                        stem := strings.Join(srcs[idx:], PathSep)
-                                                        stems = append(stems, stem)
-                                                        idx = len(srcs)
-                                                        break ForPathSegs
+                                                }
+                                        default:
+                                                for x, src := range srcs[idx+1:] {
+                                                        var res string
+                                                        if res, err = t.Strval(); err != nil {
+                                                                return
+                                                        }
+                                                        if res == src {
+                                                                end := idx + 1 + x
+                                                                stem := strings.Join(srcs[idx:end], PathSep)
+                                                                stems = append(stems, stem)
+                                                                idx = end
+                                                                continue ForPathSegs //break //
+                                                        }
                                                 }
                                         }
+                                } else if n+1 == len(segs) && idx < len(srcs) {
+                                        // Matching the last seg, ie. /foo/bar/%% <-> /foo/bar/x/y/z,
+                                        // where 'segs[n] == %%' and 'srcs[idx] == x'
+                                        stem := strings.Join(srcs[idx:], PathSep)
+                                        stems = append(stems, stem)
+                                        idx = len(srcs)
+                                        break ForPathSegs
+                                } else if len(srcs) < len(segs) {
+                                        // No matches, e.g.
+                                        //   '%%/xxx.txt' <-> 'xxx.txt'
+                                        break ForPathSegs
+                                } else if false && len(srcs) > 1 { // FIXME: this matches '%%/xxx.txt' to 'xxx.txt'
+                                        stem := strings.Join(srcs[idx:], PathSep) // WRONG!
+                                        stems = append(stems, stem)
+                                        idx = len(srcs)
+                                        break ForPathSegs
+                                } else {
+                                        // FIXME: this matches '%%/xxx.txt' to 'xxx.txt'
+                                        fmt.Fprintf(stderr, "Path.match1.FIXME: %v !> %v (n=%v, idx=%v)\n", segs, srcs, n, idx)
+                                        break ForPathSegs
                                 }
                         }
-
+                        
                         if s, ss, err = t.match(srcs[idx]); err != nil {
                                 break ForPathSegs
                         } else if s == "" || ss == nil {
@@ -1935,7 +2091,6 @@ ForPathSegs:
         }
         return
 }
-
 func (p *Path) stencil(stems []string) (result string, rest []string, err error) {
         var (
                 strs []string
@@ -1970,12 +2125,11 @@ ForPathSegs:
         return
 }
 
-type PathSeg struct { rune }
-func (p *PathSeg) refs(_ Value) bool { return false }
-func (p *PathSeg) closured() bool { return false }
+type PathSeg struct {
+        trivial
+        rune
+}
 func (p *PathSeg) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *PathSeg) Type() Type { return PathSegType }
-func (p *PathSeg) True() bool { return true }
 func (p *PathSeg) String() (s string) { 
         var e error
         if s, e = p.Strval(); e != nil { s = "?" }
@@ -1987,27 +2141,17 @@ func (p *PathSeg) Strval() (s string, e error) {
         case '~': s = "~"
         case '.': s = "."
         case '^': s = ".."
-        case 0: s = "" // empty segment after the last '/', e.g. /foo/bar/ 
-        default: e = fmt.Errorf("unknown pathseg (%s)", p.rune)
+        case 0:   s = "" // empty segment after the last '/', e.g. /foo/bar/ 
+        default:  e = fmt.Errorf("unknown pathseg (%s)", p.rune)
         }
         return
 }
-func (p *PathSeg) Float() (v float64, err error) { return }
-func (p *PathSeg) Integer() (v int64, err error) { return }
-func (p *PathSeg) prepare(pc *preparer) error { return nil }
 func (p *PathSeg) cmp(v Value) (res cmpres) {
-        if p.Type() == PathSegType {
-                a, ok := v.(*PathSeg)
-                assert(ok, "value is not PathSeg")
-                if p.rune == a.rune {
-                        res = cmpEqual
-                }
-        }
+        if a, ok := v.(*PathSeg); ok && p.rune == a.rune { res = cmpEqual }
         return
 }
 
 type filestub struct {
-        // TODO: project *Project // the project in which the file was found
         dir string       // full directory where the file was or should be found
         sub string       // matched sub path (see Project.search), may be Dir (absoletep path)
         name string      // constant represented name (e.g. relative filename)
@@ -2018,9 +2162,10 @@ type filestub struct {
 type filebase struct {
         stub filestub    // cycled-list of file stubs of different projects
         info os.FileInfo // file info if exists
+        updated bool // true if this file has been updated by a program
 }
 
-var filecache = make(map[string]*filebase) // File.FullName() -> File
+var filecache = make(map[string]*filebase) // File.fullname() -> File
 var statmutex = new(sync.Mutex)
 
 func (p *filestub) subname() (s string) {
@@ -2031,9 +2176,16 @@ func (p *filestub) subname() (s string) {
         }
         return
 }
-func (p *filebase) exists() bool { return p.info != nil }
+func (p *filebase) exists() (res existence) {
+        if p.info != nil {
+                res = existenceConfirmed
+        } else {
+                res = existenceNegated
+        }
+        return
+}
 
-func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
+func stat(pos Position, name, sub, dir string, infos ...os.FileInfo) (file *File) {
         var ( base *filebase ; stub *filestub ; fullname string )
 
         statmutex.Lock()
@@ -2042,34 +2194,27 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
         // Trims / suffix
         if dir != "" { dir = filepath.Clean(dir) }
         if sub != "" { sub = filepath.Clean(sub) }
-        name = filepath.Clean(name)
+        if name!= "" { name= filepath.Clean(name) }
 
         if filepath.IsAbs(name) {
                 if fullname = name; dir == "" {
-                        dir, sub = filepath.Dir(fullname), ""
-                        name = filepath.Base(fullname)
-                        if enable_assertions {
-                                assert(sub == "", "invalid file{%s %s %s}", dir, sub, name)
-                        }
+                        //dir, sub = filepath.Dir(fullname), ""
+                        //name = filepath.Base(fullname)
                 } else if strings.HasPrefix(fullname, dir+PathSep) {
-                        //tail := strings.TrimPrefix(fullname, dir)
-                        //tail  = strings.TrimPrefix(tail, PathSep)
                         tail := fullname[len(dir)+1:]
-                        sub  = filepath.Dir(tail)
-                        name = filepath.Base(tail)
-                        if enable_assertions {
-                                assert(filepath.Join(dir, sub, name) == fullname, "(%s %s %s) components conflicted: %s", fullname)
+                        //sub  = filepath.Dir(tail)
+                        //name = filepath.Base(tail)
+                        if sub == "" { name = tail } else
+                        if strings.HasPrefix(fullname, sub+PathSep) {
+                                name = tail[len(sub)+1:]
                         }
-                } else if false {
-                        dir, sub = filepath.Dir(fullname), ""
-                        name = filepath.Base(fullname)
-                } else if false {
-                        dir, sub = filepath.Dir(fullname), ""
-                } else if true {
-                        dir = "" //dir = filepath.Dir(fullname)
-                        sub = ""
-                } else {
-                        unreachable("conflicted dir prefix: ", dir, " ", sub, " ", name)
+                } else if dir != "" {
+                        if true { dir = "" } else if false {
+                                if optionPrintStack || true { debug.PrintStack() }
+                                unreachable(errorf(pos, "dir name conflicts: %s <-> %s (sub=%v)", dir, name, sub))
+                        } else {
+                                return
+                        }
                 }
         } else if filepath.IsAbs(sub) {
                 fullname = filepath.Join(sub, name)
@@ -2093,6 +2238,8 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
         } else {
                 fullname = filepath.Join(context.workdir, dir, sub, name)
         }
+
+        fullname = filepath.Clean(fullname)
 
         if enable_assertions {
                 assert(filepath.IsAbs(fullname), "`%s` is not abs {%s %s %s}", fullname, name, sub, dir)
@@ -2166,16 +2313,17 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
                                 return nil // file not exists
                         }
                 }
-                base = &filebase{ filestub{ dir, sub, name, nil, nil }, info }
+
+                base = &filebase{ filestub{ dir, sub, name, nil, nil }, info, false }
                 base.stub.other = &base.stub
                 stub = &base.stub
                 filecache[fullname] = base
         }
 GotFile:
-        file = &File{ base, stub }
+        file = &File{trivial{pos},base,stub} // FIXME: needs position information
         if enable_assertions {
                 if !addNotExisted {
-                        assert(file.exists(), "`%s` file not existed", fullname)
+                        assert(exists(file), "`%s` file not existed", fullname)
                 }
                 assert(file.name == name, "(%s %s %s).name != %s", file.name, file.sub, file.dir, name)
                 assert(file.sub == sub, "(%s %s %s).sub != %s", file.name, file.sub, file.dir, sub)
@@ -2188,102 +2336,187 @@ GotFile:
                 }
                 assert(file.dir == dir, "(%s %s %s).dir != %s", file.name, file.sub, file.dir, dir)
                 //assert(file.dir != "", "(%s %s %s) empty dir", file.name, file.sub, file.dir)
-                if file.exists() {
+                if exists(file) {
                         assert(file.info != nil, "(%s %s %s) info is nil", file.name, file.sub, file.dir)
                         assert(file.info.Name() == filepath.Base(file.name), "(%s %s %s) name conflicted", file.name, file.sub, file.dir)
                         s := filepath.Join(file.dir, file.sub, file.name)
-                        assert(file.FullName() == s, "(%s %s %s) fullname conflicted (%s)", file.dir, file.sub, file.name, s)
+                        assert(file.fullname() == s, "(%s %s %s) fullname conflicted (%s)", file.dir, file.sub, file.name, s)
                 }
         }
         return
 }
 
-type File struct { *filebase ; *filestub }
-func (p *File) refs(_ Value) bool { return false }
-func (p *File) closured() bool { return false }
+type File struct {
+        trivial
+        *filebase
+        *filestub
+}
 func (p *File) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *File) Type() Type { return FileType }
-func (p *File) True() bool { return p.name != "" }
+func (p *File) True() (t bool, err error) {
+        if p.name != "" {
+                t = true // p.exists() == existenceConfirmed
+        }
+        return
+}
 func (p *File) String() string { return p.name }
-func (p *File) Strval() (s string, err error) { s = p.FullName(); return }
-func (_ *File) Integer() (int64, error) { return 0, nil }
-func (_ *File) Float() (float64, error) { return 0, nil }
-
-func (p *File) Dir() string { return p.dir }
+func (p *File) Strval() (s string, err error) { s = p.fullname(); return }
 func (p *File) BaseName() (s string) {
-        if p.info != nil {
-                s = p.info.Name()
-        } else {
+        if p.info != nil { s = p.info.Name() } else {
                 s = filepath.Base(p.name)
         }
         return
 }
-func (p *File) FullName() (s string) {
-        /*if filepath.IsAbs(p.name) {
-                s = p.name
-                if enable_assertions {
-                        assert(strings.HasPrefix(p.name, filepath.Join(p.dir, p.sub)), "invalid file{%s %s %s}", p.dir, p.sub, p.name)
-                }
-        } else {
-                s = filepath.Join(p.dir, p.sub, p.name)
-        }
-        return*/
+func (p *File) fullname() (s string) {
         return filepath.Join(p.dir, p.sub, p.name)
 }
-
 func (p *File) searchInMatchedPaths(proj *Project) (res bool) {
         if p.match != nil {
-                f := p.match.stat(proj.absPath, p.name)
-                res = f != nil && f.exists()
+                var pre string
+                // FIXME: File should keep both 'match' and 'pre',
+                // or just remove searchInMatchedPaths
+                f := p.match.stat(proj.absPath, pre, p.name)
+                if f.info != nil { p.info, res = f.info, true }
         }
         return
 }
+func (p *File) stamp(t *traversal) (files []*File, err error) {
+        var fullname string
+        if fullname = p.fullname(); fullname == "" {
+                err = errorf(p.position, "no fullname for `%s`", p)
+                return
+        }
 
-func (p *File) dependcompare(c *comparer) (err error) {
-        if optionTraceCompare { defer compun(comptrace(c, p)) }
-        if enable_assertions { assert(c.target != p, "self comparation") }
-        if ds, err := p.Strval(); err == nil {
-                err =  c.compareStatDepend(p, ds, p.info)
+        var ot time.Time
+        if p.info != nil { ot = p.info.ModTime() }
+        if p.info, err = os.Stat(fullname); err != nil { return }
+        if p.info != nil {
+                var nt = p.info.ModTime()
+                context.globe.stamp(fullname, nt)
+                p.updated = nt.After(ot)
+                files = append(files, p)
+
+                var target = t.def.target.value
+                var cmp = target.cmp(p)
+                if cmp == cmpEqual && t.caller != nil {
+                        // Add to caller context
+                        t.caller.appendUpdated(newUpdatedTarget(p))
+                        target = t.caller.def.target.value
+                } else {
+                        t.appendUpdated(newUpdatedTarget(p))
+                }
+                if optionTraceTraversal {
+                        t.tracef("stamp: %v (%v, %v, %v)", p, nt.Sub(ot),
+                                target, cmp)
+                }
         }
         return
 }
-
-func (p *File) prepare(pc *preparer) (err error) {
-        if optionTracePrepare {
-                defer prepun(preptrace(pc, p))
-                if p.exists() { pc.tracef("exists: %s{%s}", p.Type(), p) }
-        }
-
-        if pc.entry.target == p {
-                pc.tracef("error: target depends on itself")
-                unreachable(p, "target depends on itself")
+func (p *File) exists() existence {
+        if p != nil && p.filebase != nil {
+                return p.filebase.exists()
         } else {
-                var s string
-                switch t := pc.entry.target.(type) {
-                case *Bareword: s = t.string
-                case *String: s = t.string
-                case *File: s = t.name
+                return existenceNegated
+        }
+}
+func (p *File) isSysFile() (res bool) {
+        if p.match != nil && len(p.match.Paths) == 1 {
+                // system files defined by:
+                //     files (
+                //         (foo.xxx) ⇒ -
+                //     )
+                if f, ok := p.match.Paths[0].(*Flag); ok {
+                        res = isNone(f.name) || isNil(f.name)
+                        //fmt.Fprintf(stderr, "sys: %v %v %v\n", p, res, p.match)
                 }
-                if s == p.name {
-                        //pc.tracef("error:%d: `%s` file depends on itself", pc.level, s)
-                        //unreachable(s, "file depends on itself")
+        }
+        return
+}
+func (p *File) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        if optionTraceExec { defer un(trace(t_exec, fmt.Sprintf("File %v", p))) }
+        if p.isSysFile() { if optionTraceTraversal { t.tracef("SysFile: true") }
+                return
+        }
+
+        // Add new file target, no matter it's going to be updated or not.
+        t.addNewTarget(p)
+
+        // FIXES: checks none-File file target
+        switch a := t.def.target.value.(type) {
+        case *Barecomp: // convert barecomp path into a real Path
+                var v = a.Elems[0]
+                if p, ok := v.(*Path); ok {
+                        a.Elems = append(p.Elems[len(p.Elems)-1:], a.Elems[1:]...)
+                        p.Elems[len(p.Elems)-1] = a
+                        t.def.target.value = p
+                        if optionTraceTraversal { t.tracef("FIX: barecomp path: %v", p) }
+                } else {
+                        var s string
+                        if s, err = a.Strval(); err != nil { return }
+                        if file := t.project.matchFile(s); file != nil {
+                                t.def.target.value = file
+                                if optionTraceTraversal { t.tracef("FIX: barecomp file: %v", p) }
+                        }
                 }
         }
 
-        return pc.updateFile(p)
+        //var s = "MveEmitter."
+        //if v := t.def.target.value; strings.Contains(v.String(), s) || strings.Contains(p.name, s) { fmt.Fprintf(stderr, "%s: %v: %v: %v -> %v (%v) (File.traverse 1)\n", t.project, p.position, t.entry, v, p, t.targets.value) }
+        if err = t.file(p); err != nil { return }
+        //if v := t.def.target.value; strings.Contains(v.String(), s) || strings.Contains(p.name, s) { fmt.Fprintf(stderr, "%s: %v: %v: %v -> %v (%v) (File.traverse 2)\n", t.project, p.position, t.entry, v, p, t.targets.value) }
+
+        if optionTraceTraversal {
+                var a = t.def.target.value
+                var t1, _ = a.mod(t)
+                var t2, _ = p.mod(t)
+                t.tracef("%s: %v (%v)", typeof(a), a, t1)
+                t.tracef("%s: %v (%v)", typeof(p), p, t2)
+        }
+
+        if p.info == nil { return }
+
+        // Note that the file maybe not traversed yet at this point. But we
+        // still have to check mod-time.
+        var a time.Time
+        if a, err = t.def.target.value.mod(t); err != nil { return }
+        if!a.IsZero() && p.info.ModTime().After(a) { // a.IsZero() indicates the target not exists
+                if optionTraceTraversal { t.tracef("updated: %v", p) }
+                t.appendUpdated(newUpdatedTarget(p))
+        }
+        return
 }
 
-func checkPatternDepends(pc *preparer, project *Project, se *StemmedEntry, prog *Program) (res bool, err error) {
+// check pattern depends to find out if all depends are updatable
+// or updated/exists.
+func checkPatternDepends(t *traversal, project *Project, se *StemmedEntry, prog *Program) (res bool, err error) {
+        if optionEnableBenchspots { defer bench(spot("checkPatternDepends")) }
         if len(prog.depends) == 0 {
                 // Pattern is always good as no depends to check.
                 return true, nil
         }
+
+        // Set arguments in case that depends may refer to a parameter.
+        if prog.params == nil || t.arguments == nil {
+                // no need to set arguments
+        } else {
+                var f func()
+                if _, f, err = prog.args(t.arguments); err != nil { return } else { defer f() }
+        }
+
+        var checkedPatterns = 0
         for _, dep := range prog.depends {
                 switch d := dep.(type) {
                 case Pattern:
-                        res, err = checkPatternFileDepend(pc, project, se, prog, d)
+                        res, err = checkPatternDepend(t, project, se, prog, d)
+                        checkedPatterns += 1
                         if err != nil { return }
                         if !res { break }
+                case *Argumented:
+                        var ok, res1 bool
+                        ok, res1, err = d.checkPatternDepends(t, project, se, prog)
+                        if err != nil { return }
+                        if ok && !res1 { break }
+                        res = res1
                 default:
                         /*
                         var name, str string
@@ -2296,54 +2529,88 @@ func checkPatternDepends(pc *preparer, project *Project, se *StemmedEntry, prog 
                         */
                 }
         }
+        if !res && checkedPatterns == 0 {
+                // If there's no pattern depends, we're good to use the
+                // pattern to update target.
+                res = true
+        }
         return
 }
 
-func checkPatternFileDepend(pc *preparer, project *Project, se *StemmedEntry, prog *Program, pat Pattern) (res bool, err error) {
+func checkPatternDepend(t *traversal, project *Project, se *StemmedEntry, prog *Program, pat Pattern) (res bool, err error) {
+        if optionEnableBenchspots { defer bench(spot("checkPatternDepend")) }
+
         var name string
         var rest []string // rest stems
         if name, rest, err = pat.stencil(se.Stems); err != nil { return }
-        if len(rest) > 0 { panic("FIXME: unhandled stems") }
+        if false && len(rest) > 0 { panic("FIXME: unhandled stems") }
 
-        // Matches a FileMap (IsKnown(), may exists or not)
-        var file = project.searchFile(name)
-        if file != nil && file.exists() {
-                return true, nil
-        }
-
-        if filepath.IsAbs(name) {
-                file = stat(name, "", "")
-                if file != nil && file.exists() {
-                        return true, nil
-                }
-        }
-        // TODO: check filepath.Join(project.absPath, name)
-
+        // Check concrete rules for the name, it's 'exists' if there's a
+        // non-empty rule for the name.
         var entry *RuleEntry
         if entry, err = project.resolveEntry(name); err != nil {
                 return
         } else if entry != nil {
-                return true, nil
+                var recipes int
+                for _, prog := range entry.programs {
+                        recipes += len(prog.recipes)
+                }
+                if recipes > 0 { return true, nil }
         }
 
-        // TODO: project.resolvePatterns(name)
+        // Check pattern rules for the name, it's 'exists' if there's a
+        // non-empty pattern rule for the name.
+        var ses []*StemmedEntry
+        if ses, err = project.resolvePatterns(name); err != nil {
+                return
+        } else if len(ses) > 0 {
+        ForPatterns:
+                for _, se := range ses {
+                        var recipes int
+                        for _, prog := range se.programs {
+                                var ok bool
+                                ok, err = checkPatternDepends(t, project, se, prog)
+                                if !ok { continue ForPatterns }
+                        }
+                        if recipes > 0 { return true, nil }
+                }
+        }
+
+        // Matches a FileMap (IsKnown(), may exists or not)
+        if exists(project.matchFile(name)) { return true, nil }
+        if filepath.IsAbs(name) {
+                if exists(stat(project.position, name, "", "")) { return true, nil }
+        }
+
+        // TODO: check filepath.Join(project.absPath, name)
         return
 }
-
+func (p *File) mod(t *traversal) (res time.Time, err error) {
+        if p.info == nil { p.info, /*err*/_ = os.Stat(p.fullname()) }
+        if err != nil { err = wrap(p.position, err)
+                if optionPrintStack {
+                        fmt.Fprintf(stderr, "%s: %v: %v (%v)\n", t.project, p.position, p, p.match)
+                        debug.PrintStack()
+                }
+        } else if p.info != nil { res = p.info.ModTime() }
+        return
+}
 func (p *File) cmp(v Value) (res cmpres) {
-        if v.Type() == FileType {
-                a, ok := v.(*File)
-                assert(ok, "value is not File")
-                if p.filebase == a.filebase {
+        if v == nil {
+                // ...
+        } else if a, ok := v.(*File); ok {
+                if a == nil {
+                        //assert(a != nil, "nil file")
+                } else if p.filebase == a.filebase {
                         res = cmpEqual
-                } else if p.FullName() == a.FullName() {
-                        s := fmt.Sprintf("\na: %s %s %s (%s)", p.dir, p.sub, p.name, p.FullName())
-                        s += fmt.Sprintf("\nb: %s %s %s (%s)", a.dir, a.sub, a.name, a.FullName())
+                } else if p.fullname() == a.fullname() {
+                        s := fmt.Sprintf("\na: %s %s %s (%s)", p.dir, p.sub, p.name, p.fullname())
+                        s += fmt.Sprintf("\nb: %s %s %s (%s)", a.dir, a.sub, a.name, a.fullname())
                         unreachable("same files differed: ", p.name, " != ", a.name, s)
                 } else if false /*p.dir != a.dir && p.sub == a.sub && p.name == a.name*/ {
                         s := fmt.Sprintf("\n      a: %s: %s %s", p.name, p.dir, p.sub)
                         s += fmt.Sprintf("\n      b: %s: %s %s", a.name, a.dir, a.sub)
-                        fmt.Fprintf(stderr, "warning: files may differ: %s != %s :%s\n", p.name, a.name, s)
+                        fmt.Fprintf(stderr, "%s: warning: files may differ: %s != %s :%s\n", p.position, p.name, a.name, s)
                 }
         }
         return
@@ -2351,7 +2618,7 @@ func (p *File) cmp(v Value) (res cmpres) {
 
 func (p *File) change(dir, sub, name string) (okay bool) {
         var fullname = filepath.Join(dir, sub, name)
-        if p.FullName() == fullname {
+        if p.fullname() == fullname {
                 var head = &p.filebase.stub
                 for stub := p.filestub; stub != nil; stub = stub.other {
                         if stub.dir == dir && stub.sub == sub && stub.name == name {
@@ -2365,7 +2632,7 @@ func (p *File) change(dir, sub, name string) (okay bool) {
                 head.other, okay = p.filestub, true
                 
                 if enable_assertions {
-                        assert(p.FullName() == fullname, "Changed invalid File")
+                        assert(p.fullname() == fullname, "Changed invalid File")
                 }
         }
         return
@@ -2376,56 +2643,43 @@ type FileContent struct {
         content []byte
 }
 
-type Flag struct { Name Value }
-func (p *Flag) refs(v Value) bool { return p.Name.refs(v) }
-func (p *Flag) closured() bool { return p.Name.closured() }
+type Flag struct { trivial ; name Value }
+func (p *Flag) refs(v Value) bool { return p.name.refs(v) }
+func (p *Flag) closured() bool { return p.name.closured() }
 func (p *Flag) expand(w expandwhat) (res Value, err error) {
         var name Value
-        if name, err = p.Name.expand(w); err == nil {
-                if name != p.Name {
-                        res = &Flag{ name }
+        if name, err = p.name.expand(w); err == nil {
+                if name != p.name {
+                        res = &Flag{p.trivial,name}
                 } else {
                         res = p
                 }
         }
         return
 }
-func (p *Flag) Type() Type { return FlagType }
-func (p *Flag) True() bool { return p.Name.True() }
-func (p *Flag) elemstr(o Object, k elemkind) (s string) {
-        return "-" + elementString(o, p.Name, k)
-}
+func (p *Flag) True() (t bool, err error) { return p.name.True() }
+func (p *Flag) elemstr(o Object, k elemkind) (s string) { return "-" + elementString(o, p.name, k) }
 func (p *Flag) String() (s string) { return p.elemstr(nil, 0) }
 func (p *Flag) Strval() (s string, e error) {
-        if p.Name == nil || p.Name.Type() == NoneType {
+        if p.name == nil {
                 s = "-"
-        } else if s, e = p.Name.Strval(); e == nil {
+        } else if  _, ok := p.name.(*None); ok {
+                s = "-"
+        } else if s, e = p.name.Strval(); e == nil {
                 s = "-" + s
         }
         return
 }
-func (p *Flag) Integer() (int64, error) { return 0, nil }
-func (p *Flag) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
-func (p *Flag) is(r rune, s string) (result bool, err error) {
-        switch t := p.Name.(type) {
-        case *Flag: result, err = t.is(r, s)
-        case *String: result = t.string == s
-        case *Bareword: if result = t.string == s; !result && r != 0 {
-                result = strings.ContainsRune(t.string, r)
-        }}
-        return
-}
-func (p *Flag) opts(opts ...string) (runes []rune, names []string, err error) {
-        switch t := p.Name.(type) {
+func (p *Flag) opts(try bool, opts ...string) (runes []rune, names []string, err error) {
+        switch t := p.name.(type) {
         case *Flag:
-                runes, names, err = t.opts(opts...)
+                runes, names, err = t.opts(try, opts...)
         case *String:
                 for _, opt := range opts {
-                        if t.string == opt {
-                                if len(opt) > 0 {
-                                        names = append(names, opt)
-                                }
-                        }
+                        if t.string == opt { names = append(names, opt) }
+                }
+                if !try && len(names) == 0 {
+                        err = errorf(p.Position(), "unknown flag (known: %s)", strings.Join(opts, ", "))
                 }
         case *Bareword:
                 for _, opt := range opts {
@@ -2436,12 +2690,15 @@ func (p *Flag) opts(opts ...string) (runes []rune, names []string, err error) {
                         } else if i > 0 {
                                 if t.string == opt[i+1:] {
                                         runes = append(runes, rune(opt[0]))
-                                        names = append(names, opt[1:])
-                                } else if strings.ContainsAny(t.string, opt[0:i]) {
+                                        names = append(names, opt[i+1:])
+                                } else if t.string ==  opt[0:i]/*strings.ContainsAny(t.string, opt[0:i])*/ {
                                         runes = append(runes, rune(opt[0]))
                                         names = append(names, opt[i+1:])
                                 }
                         }
+                }
+                if !try && (len(runes) == 0 || len(names) == 0) {
+                        err = errorf(p.Position(), "unknown flag (known: %s)", strings.Join(opts, ", "))
                 }
         }
         if enable_assertions {
@@ -2449,35 +2706,69 @@ func (p *Flag) opts(opts ...string) (runes []rune, names []string, err error) {
         }
         return
 }
-
 func (p *Flag) cmp(v Value) (res cmpres) {
-        if v.Type() == FlagType {
-                a, ok := v.(*Flag)
-                assert(ok, "value is not Flag")
-                res = p.Name.cmp(a.Name)
+        if v == nil {
+                // ...
+        } else if a, ok := v.(*Flag); ok {
+                res = p.name.cmp(a.name)
         }
         return
 }
+func (p *Flag) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        var s string
+        if s, err = p.Strval(); err == nil {
+                err = t.target(p.position, s)
+        }
+        return
+}
+
+const escapedChars = "\"\r\n"
       
-type Compound struct { elements } // "compound string"
+type Compound struct { trivial ; elements } // "compound string"
 func (p *Compound) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
         if elems, num, err = expandall(w, p.Elems...); err == nil {
                 if num > 0 {
-                        res = &Compound{ elements{ elems } }
+                        res = &Compound{p.trivial,elements{elems}}
                 } else {
                         res = p
                 }
         }
         return
 }
-func (p *Compound) Type() Type { return CompoundType }
 func (p *Compound) elemstr(o Object, k elemkind) (s string) {
         var tk = k|elemNoQuote
-        for _, elem := range p.Elems {
-                s += elementString(o, elem, tk)
+        for _, elem := range p.Elems { s += elementString(o, elem, tk) }
+        if k&elemNoQuote != 0 { return }
+        var err error
+        var buf bytes.Buffer
+        buf.WriteString(`"`)
+        defer func() {
+                buf.WriteString(`"`)
+                s = buf.String()
+        } ()
+        for i := strings.IndexAny(s, escapedChars); i != -1; {
+		if _, err = buf.WriteString(s[:i]); err != nil {
+                        err = wrap(p.position, err)
+			return
+		}
+                var esc string
+                switch s[i] {
+                case '"':  esc = `\"`
+                case '\r': esc = `\r`
+                case '\n': esc = `\n`
+                }
+                s = s[i+1:]
+                if _, err = buf.WriteString(esc); err != nil {
+                        err = wrap(p.position, err)                        
+			return
+                }
+                i = strings.IndexAny(s, escapedChars)
         }
-        if k&elemNoQuote == 0 { s = `"`+s+`"` }
+        if _, err = buf.WriteString(s); err != nil {
+                err = wrap(p.position, err)
+        }
         return
 }
 func (p *Compound) String() string { return p.elemstr(nil, 0) }
@@ -2492,12 +2783,26 @@ func (p *Compound) Strval() (s string, err error) {
         }
         return
 }
-func (p *Compound) Integer() (int64, error) { return int64(len(p.Elems)), nil }
-func (p *Compound) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+func (p *Compound) Float() (f float64, err error) {
+        var s string
+        if s, err = p.Strval(); err == nil {
+                f, err = strconv.ParseFloat(s, 64)
+        }
+        return
+}
+func (p *Compound) Integer() (i int64, err error) {
+        var s string
+        if s, err = p.Strval(); err == nil {
+                i, err = strconv.ParseInt(s, 10, 64)
+        }
+        return
+}
+func (p *Compound) True() (bool, error) { return p.elements.True() }
+func (p *Compound) refs(v Value) bool { return p.elements.refs(v) }
+func (p *Compound) closured() bool { return p.elements.closured() }
+func (p *Compound) refdef(origin DefOrigin) bool { return p.refdef(origin) }
 func (p *Compound) cmp(v Value) (res cmpres) {
-        if v.Type() == CompoundType {
-                a, ok := v.(*Compound)
-                assert(ok, "value is not Compound")
+        if a, ok := v.(*Compound); ok {
                 s1, e := p.Strval()
                 if e != nil { return }
                 s2, e := a.Strval()
@@ -2508,13 +2813,29 @@ func (p *Compound) cmp(v Value) (res cmpres) {
 }
 
 type List struct { elements }
-func (p *List) Type() Type { return ListType }
 func (p *List) elemstr(o Object, k elemkind) (s string) {
         var strs []string
         for _, elem := range p.Elems {
                 strs = append(strs, elementString(o, elem, k))
         }
         return strings.Join(strs, " ")
+}
+func (p *List) Position() (pos Position) {
+        if len(p.Elems) > 0 {
+                pos = p.Elems[0].Position()
+        }
+        return
+}
+func (p *List) Float() (float64, error) {
+        i, e := p.Integer(); return float64(i), e
+}
+func (p *List) Integer() (int64, error) {
+        if n := len(p.Elems); n == 1 {
+                // If there's only one element, treat it as a scalar.
+                return p.Elems[0].Integer()
+        } else {
+                return int64(n), nil
+        }
 }
 func (p *List) String() (s string) { return p.elemstr(nil, 0) }
 func (p *List) Strval() (s string, err error) {
@@ -2546,61 +2867,69 @@ func (p *List) expand(w expandwhat) (res Value, err error) {
         return
 }
 
-func (p *List) dependcompare(c *comparer) (err error) {
-        if optionTraceCompare { defer compun(comptrace(c, p)) }
-        if enable_assertions { assert(c.target != p, "self comparation") }
-        for _, elem := range p.Elems {
-                if err = c.compareDepend(elem); err != nil { break }
+func (p *List) traverse(t *traversal) (err error) {
+        if len(p.Elems) == 0 { return }
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        for _, v := range p.Elems {
+                if err = v.traverse(t); err != nil { break }
         }
         return
 }
 
-func (p *List) prepare(pc *preparer) (err error) {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
-        var updates, good *breaker
-        for _, v := range p.Elems {
-                if p, ok := v.(prerequisite); ok {
-                        if err = p.prepare(pc); err == nil { continue }
-                        if br, ok := err.(*breaker); ok {
-                                if br.what == breakUpdates {
-                                        if updates == nil { updates = br } else {
-                                                updates.updated = append(updates.updated, br.updated...)
-                                        }
-                                        err = nil
-                                } else if br.what == breakGood {
-                                        err, good = nil, br
-                                }
-                        }
-                } else {
-                        err = fmt.Errorf("%s `%s` is not prerequisite", v.Type(), v)
+func (p *List) exists() (res existence) {
+        res = existenceMatterless
+ForElems:
+        for _, elem := range p.Elems {
+                switch elem.exists() {
+                case existenceMatterless:
+                case existenceConfirmed:
+                        res = existenceConfirmed
+                case existenceNegated:
+                        res = existenceNegated
+                        break ForElems
                 }
-                if err != nil { break }
         }
-        if updates != nil && err != updates {
-                err = updates
-        } else if err == nil && good != nil {
-                err = good
+        return
+}
+
+func (p *List) stamp(t *traversal) (files []*File, err error) {
+        for _, elem := range p.Elems {
+                var a []*File
+                if a, err = elem.stamp(t); err != nil { break }
+                files = append(files, a...)
+        }
+        return
+}
+
+func (p *List) mod(t *traversal) (res time.Time, err error) {
+        var a time.Time
+        for _, elem := range p.Elems {
+                if a, err = elem.mod(t); err == nil { break } else
+                if a.After(res) { res = a }
         }
         return
 }
 
 func (p *List) cmp(v Value) (res cmpres) {
-        if v.Type() == ListType {
-                a, ok := v.(*List)
-                assert(ok, "value is not List")
-                res = p.cmpElems(a.Elems)
-        }
+        if a, ok := v.(*List); ok { res = p.cmpElems(a.Elems) }
         return
 }
 
-type Group struct { List }
-func (p *Group) Type() Type { return GroupType }
+type Group struct { trivial ; List }
 func (p *Group) elemstr(o Object, k elemkind) string {
         var strs []string
         for _, elem := range p.Elems {
                 strs = append(strs, elementString(o, elem, k))
         }
         return fmt.Sprintf("(%s)", strings.Join(strs, " "))
+}
+func (p *Group) mod(t *traversal) (time.Time, error) { return p.trivial.mod(t) }
+func (p *Group) Position() Position { return p.trivial.Position() }
+func (p *Group) Float() (float64, error) { return p.trivial.Float() }
+func (p *Group) Integer() (int64, error) { return p.trivial.Integer() }
+func (p *Group) True() (t bool, err error) {
+        t = len(p.List.Elems) > 0
+        return
 }
 func (p *Group) String() string { return p.elemstr(nil, 0) }
 func (p *Group) Strval() (s string, err error) {
@@ -2609,39 +2938,45 @@ func (p *Group) Strval() (s string, err error) {
         }
         return
 }
-
+func (p *Group) traverse(t *traversal) (err error) { return }
+func (p *Group) stamp(t *traversal) (files []*File, err error) { return }
+func (p *Group) exists() existence { return p.List.exists() }
 func (p *Group) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
         if elems, num, err = expandall(w, p.Elems...); err == nil {
                 if num > 0 {
-                        res = &Group{ List{ elements{ elems } } }
+                        res = &Group{p.trivial,List{elements{elems}}}
                 } else {
                         res = p
                 }
         }
         return
 }
-
 func (p *Group) cmp(v Value) (res cmpres) {
-        if v.Type() == GroupType {
-                a, ok := v.(*Group)
-                assert(ok, "value is not Group")
-                res = p.cmpElems(a.Elems)
-        }
+        if a, ok := v.(*Group); ok { res = p.cmpElems(a.Elems) }
         return
 }
 
-//type Map struct {
-//        Elems map[string]Value
-//}
-/* func (p *Map) String() string {
-        return "(" + p.List.String() + ")"
+func parseGroupValue(g *Group) (result Value) {
+        if len(g.Elems) == 0 { return g }
+        var word *Bareword
+        switch kind := g.Elems[0].(type) {
+        case *Bareword: word = kind
+        case *Group: if len(kind.Elems) > 0 {
+                word, _ = kind.Elems[0].(*Bareword)
+        }}
+        if word != nil {
+                switch word.string {
+                case "plain", "json", "yaml", "xml":
+                        result = &List{elements{g.Elems[1:]}}
+                }
+        }
+        if result == nil { result = g }
+        return
 }
-func (p *Map) Strval() string {
-        return "(" + p.List.Strval() + ")"
-} */
 
 type Pair struct { // key=value
+        trivial
         Key Value
         Value Value
 }
@@ -2651,18 +2986,26 @@ func (p *Pair) expand(x expandwhat) (res Value, err error) {
         var k, v Value
         res = p // set the original value
         if k, err = p.Key.expand(x); err == nil {
-                if v, err = p.Value.expand(x); err == nil {
-                        if k != p.Key || v != p.Value {
-                                if k == nil { k = p.Key }
-                                if v == nil { v = p.Value }
-                                res = &Pair{ k, v }
+                // Note: donot expand the p.Value! It's used as template
+                // in arguments (see copy-file for example).
+                if x&expandPairVal != 0 {
+                        if v, err = p.Value.expand(x); err == nil {
+                                if k != p.Key || v != p.Value {
+                                        if k == nil { k = p.Key }
+                                        if v == nil { v = p.Value }
+                                        res = &Pair{p.trivial,k,v}
+                                }
                         }
-                }
+                } else if k != nil && k != p.Key {res = &Pair{p.trivial,k,p.Value}}
         }
         return
 }
-func (p *Pair) Type() Type { return PairType }
-func (p *Pair) True() bool { return p.Value.True() || p.Key.True() }
+func (p *Pair) True() (t bool, err error) {
+        if t, err = p.Value.True(); err == nil && !t {
+                t, err = p.Key.True()
+        }
+        return
+}
 func (p *Pair) elemstr(o Object, k elemkind) string {
         return elementString(o, p.Key, k)+`=`+elementString(o, p.Value, k)
 }
@@ -2683,20 +3026,10 @@ func (p *Pair) SetKey(k Value) {
         switch o := k.(type) {
         case *Pair: k = o.Key
         }
-        if k.Type().Bits()&IsKeyName != 0 {
-                p.Key = k
-        } else {
-                panic(fmt.Errorf("%s '%v' is not key name type", k.Type(), k))
-        }
-}
-func (p *Pair) isFlag(r rune, s string) (result bool, err error) {
-        if k, ok := p.Key.(*Flag); ok { result, err = k.is(r, s) }
-        return
+        p.Key = k
 }
 func (p *Pair) cmp(v Value) (res cmpres) {
-        if v.Type() == PairType {
-                a, ok := v.(*Pair)
-                assert(ok, "value is not Pair")
+        if a, ok := v.(*Pair); ok {
                 if p.Key.cmp(a.Key) == cmpEqual {
                         if p.Value.cmp(a.Value) == cmpEqual {
                                 res = cmpEqual
@@ -2707,21 +3040,25 @@ func (p *Pair) cmp(v Value) (res cmpres) {
 }
 
 type closuredelegate struct {
-        p Position
         l token.Token
-        o Object
+        x Value
         a []Value
 }
-
-func (p *closuredelegate) Position() Position { return p.p }
 func (p *closuredelegate) string(o Object, k elemkind) (s string) { // source representation
         for i, a := range p.a {
                 if i == 0 { s = " " } else { s += "," }
                 s += elementString(o, a, k)
         }
-        switch name := p.o.Name(); p.l {
+
+        var name string
+        switch x := p.x.(type) {
+        case *selection: name = x.String()
+        case Object: name = x.Name()
+        }
+
+        switch p.l {
         case token.LCOLON:
-                if p.o == context.globe.os.self {
+                if p.x == context.globe.os.self {
                         s = ":os:"
                 } else {
                         s = fmt.Sprintf(":%s%s:", name, s)
@@ -2748,11 +3085,11 @@ func (p *closuredelegate) string(o Object, k elemkind) (s string) { // source re
 }
 
 // Delegate wraps '$(foo a,b,c)' into Valuer
-type delegate struct { closuredelegate }
-func (p *delegate) Type() Type { return DelegateType }
-func (p *delegate) True() (t bool) {
-        if v, err := p.expand(expandAll); err == nil {
-                t = v.True()
+type delegate struct { trivial ; closuredelegate }
+func (p *delegate) True() (t bool, err error) {
+        var v Value
+        if v, err = p.expand(expandAll); err == nil {
+                t, err = v.True()
         }
         return
 }
@@ -2765,77 +3102,150 @@ func (p *delegate) elemstr(o Object, k elemkind) (s string) {
         return
 }
 func (p *delegate) String() (s string) { return p.elemstr(nil, 0) }
-func (p *delegate) Strval() (string, error) { if v, e := p.expand(expandDelegate); e == nil { return v.Strval() } else { return "", e }}
-func (p *delegate) Integer() (int64, error) { if v, e := p.expand(expandDelegate); e == nil { return v.Integer() } else { return 0, e }}
-func (p *delegate) Float() (float64, error) { if v, e := p.expand(expandDelegate); e == nil { return v.Float() } else { return 0, e }}
+func (p *delegate) value() (v Value, err error) {
+        if v, err = p.expand(expandDelegate); err == nil {
+                if v == p { // d, ok := v.(*delegate); ok && d == p
+                        err = errorf(p.position, "self delegation (%v)", p)
+                        if optionPrintStack {
+                                fmt.Fprintf(stderr, "%s: %v (%s)\n", p.position, p, typeof(p.x))
+                                debug.PrintStack()
+                        }
+                }
+        } else { err = wrap(p.position, err) }
+        return
+}
+func (p *delegate) Strval() (s string, err error) {
+        var v Value
+        if v, err = p.value(); err == nil { s, err = v.Strval() }
+        return
+}
+func (p *delegate) Integer() (i int64, err error) {
+        var v Value
+        if v, err = p.value(); err == nil { i, err = v.Integer() }
+        return
+}
+func (p *delegate) Float() (f float64, err error) {
+        var v Value
+        if v, err = p.value(); err == nil { f, err = v.Float() }
+        return
+}
 func (p *delegate) expand(w expandwhat) (res Value, err error) {
         switch {
+        default: res = p
         case w&expandClosure != 0:
-                if res, err = p.disclose(); err != nil {
-                        return
-                }
+                if res, err = p.disclose(); err != nil { return }
                 if res != nil && w&expandDelegate != 0 {
                         res, err = res.expand(expandDelegate)
-                }
+                } else if res == nil { res = p }
         case w&expandDelegate != 0:
-                if res, err = p.reveal(); err != nil {
-                        return
+                if res, err = p.reveal(); err != nil { return }
+                if err == nil && res == nil {
+                        if false && optionPrintStack {
+                                s, _ := p.x.Strval()
+                                fmt.Fprintf(stderr, "%s: %v (%s) (%s)\n", p.position, p.x, typeof(p.x), s)
+                                if false { debug.PrintStack() }
+                        }
                 }
-                if res != nil && w&expandClosure != 0 {
+                if res != nil && res == p {
+                        err = errorf(p.position, "self delegation (%v)", p)
+                        if optionPrintStack {
+                                fmt.Fprintf(stderr, "%s\n", err)
+                                debug.PrintStack()
+                        }
+                } else if res != nil && w&expandClosure != 0 {
                         res, err = res.expand(expandClosure)
                 }
+                if err == nil && res == nil {
+                        res = &None{trivial{p.position}}
+                }
         }
-        if err == nil && res == nil { res = p }
         return
 }
-
 func (p *delegate) reveal() (res Value, err error) {
-        var args []Value
-        if args, _, err = expandall(expandClosure, p.a...); err != nil {
-                return
-        }
+        if isNil(p.x) { return nil, nil }
 
-        switch o := p.o.(type) {
-        default: err = fmt.Errorf("%s '%v' is unknown delegation", o.Type(), o)
-        case Caller:
-                if res, err = o.Call(p.p, args...); err != nil {
-                        if p.o.Name() != "error" {
-                                err = scanner.WrapError(token.Position(p.p), err)
-                        } else {
-                                return
+        var ( o Object; selected bool )
+        switch t := p.x.(type) {
+        case Object: o = t
+        case *selection:
+                if n, ok := t.o.(*ProjectName); ok {
+                        defer setclosure(setclosure(cloctx.unshift(n.project.scope)))
+                        if false && optionPrintStack {
+                                fmt.Fprintf(stderr, "%s: %v %v\n", p.position, t, cloctx)
+                                debug.PrintStack()
                         }
                 }
-        case Executer:
-                if args, err = o.Execute(p.p, args...); err != nil {
-                        if p.o.Name() != "error" {
-                                err = scanner.WrapError(token.Position(p.p), err)
-                        } else {
-                                return
-                        }
-                } else {
-                        res = &List{elements{args}}
-                }
-        }
 
-        if err != nil {
-                //fmt.Fprintf(stderr, "%v: %v\n", p.p, err)
-        } else if res == nil {
-                res = universalnone
-        }
-        return
-}
-
-func (p *delegate) disclose() (res Value, err error) {
-        var ( o = p.o; v Value; changed bool )
-        if v, err = o.expand(expandClosure); err != nil { return }
-        if v != nil {
-                if o, _ = v.(Object); o != nil {
-                        changed = true
-                } else {
-                        err = fmt.Errorf("invalid delegate %v", v)
+                var ( v Value; ok bool )
+                if v, err = t.value(); err != nil {
+                        err = wrap(p.position, err)
+                        return
+                } else if o, ok = v.(Object); !ok {
+                        res = v
                         return
                 }
+
+                if false && optionPrintStack {
+                        fmt.Fprintf(stderr, "%s: %v ⇒ %v (%s)\n", p.position, p.x, v, typeof(v))
+                        if false { debug.PrintStack() }
+                }
+
+                selected = true
         }
+
+        var args []Value
+        if args, _, err = expandall(expandClosure, p.a...); err != nil { return }
+
+        var v Value
+        switch x := o.(type) {
+        default: err = errorf(p.position, "%s '%v' is unknown delegation", typeof(x), x)
+        case Caller:
+                if res, err = x.Call(p.position, args...); err != nil {
+                        if o, ok := x.(Object); ok && o.Name() != "error" {
+                                err = wrap(p.position, err)
+                        } else {
+                                return
+                        }
+                } else if selected && res != nil {
+                        if v, err = res.expand(expandClosure); err != nil { 
+                                err = wrap(p.position, err)
+                                return
+                        } else if v != nil && v != res {
+                                res = v
+                        }
+                }
+                if false && optionPrintStack && selected {
+                        s, _ := o.Strval()
+                        fmt.Fprintf(stderr, "%s: %v; %v; %v (%s)\n", p.position, o, s, res, typeof(res))
+                        if false { debug.PrintStack() }
+                }
+        case Executer:
+                if args, err = x.Execute(p.position, args...); err != nil {
+                        if o, ok := x.(Object); ok && o.Name() != "error" {
+                                err = wrap(p.position, err)
+                        } else {
+                                return
+                        }
+                } else { res = &List{elements{args}} }
+        }
+
+        if false && selected && res == nil && err == nil {
+                fmt.Fprintf(stderr, "%s: %v ⇒ %v (%s) (%v)\n", p.position, p.x, res, typeof(res), o)
+                debug.PrintStack()
+        }
+
+        if false && optionPrintStack && selected && (res == nil || res == p) {
+                fmt.Fprintf(stderr, "%s: %v ⇒ %v (%s)\n", p.position, p.x, res, typeof(res))
+                debug.PrintStack()
+        }
+
+        if err == nil && res == nil { res = &None{trivial{p.position}} }
+        return
+}
+func (p *delegate) disclose() (res Value, err error) {
+        var ( x = p.x; v Value; changed bool )
+        if v, err = x.expand(expandClosure); err != nil { return }
+        if v != nil && v != x { changed, x = true, v }
 
         var args []Value
         for _, a := range p.a {
@@ -2845,80 +3255,67 @@ func (p *delegate) disclose() (res Value, err error) {
         }
         if err == nil {
                 if changed {
-                        res = &delegate{closuredelegate{ p.p, p.l, o, args }}
+                        res = &delegate{p.trivial,closuredelegate{p.l,x,args}}
                 } else {
                         res = p
                 }
         }
         return
 }
-
 func (p *delegate) refs(v Value) bool {
-        if p.o == v || p.o.refs(v) {
-                return true
-        }
+        if p.x == v || p.x.refs(v) { return true }
         for _, a := range p.a {
-                if a.refs(v) {
-                        return true
-                }
+                if a.refs(v) { return true }
         }
         return false
 }
-
 func (p *delegate) closured() bool {
-        if p.o.closured() { return true }
+        if p.x.closured() { return true }
         for _, a := range p.a {
                 if a.closured() { return true }
         }
         return false
 }
-
-func (p *delegate) dependcompare(c *comparer) (err error) {
-        if optionTraceCompare { defer compun(comptrace(c, p)) }
-        if enable_assertions { assert(c.target != p, "self comparation") }
-
-        var v Value
-        if v, err = p.expand(expandDelegate); err == nil {
-                err = c.compareDepend(v)
+func (p *delegate) refdef(origin DefOrigin) (res bool) {
+        if d, ok := p.x.(*Def); ok { res = d.origin == origin }
+        return
+}
+func (p *delegate) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        var val Value
+        if val, err = p.expand(expandAll); err == nil {
+                err = t.dispatch(val)
         }
         return
 }
-
-func (p *delegate) prepare(pc *preparer) (err error) {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
-
+func (p *delegate) mod(t *traversal) (res time.Time, err error) {
         var val Value
-        if val, err = p.expand(expandDelegate); err != nil { return }
-        /*for _, d := range merge(val) {
-                if err = pc.traverse(d); err != nil { break }
-        }*/
-        err = pc.traverse(val) //err = pc.traverseAll(merge(val))
+        if val, err = p.expand(expandAll); err == nil {
+                res, err = val.mod(t)
+        }
         return
 }
-
 func (p *delegate) cmp(v Value) (res cmpres) {
-        if v.Type() == DelegateType {
-                a, ok := v.(*delegate)
-                assert(ok, "value is not delegate")
+        if a, ok := v.(*delegate); ok {
                 // FIXME: compare the expanded value instead??
-                if p.o.cmp(a.o) == cmpEqual && len(p.a) == len(a.a) {
+                if p.x.cmp(a.x) == cmpEqual && len(p.a) == len(a.a) {
                         for i, t := range p.a {
-                                if t.cmp(a.a[i]) != cmpEqual {
-                                        return
-                                }
+                                if t.cmp(a.a[i]) != cmpEqual { return }
                         }
                         res = cmpEqual
                 }
+        } else if d, ok := p.x.(*Def); ok && len(p.a) == 0 {
+                res = d.value.cmp(v)
         }
         return
 }
 
-type closure struct { closuredelegate }
-func (p *closure) Type() Type { return ClosureType }
-func (p *closure) True() (t bool) {
-        if s, err := p.Strval(); err == nil {
-                t = s != ""
-        }        
+type closure struct { trivial ; closuredelegate }
+func (p *closure) True() (t bool, err error) {
+        var v Value
+        if v, err = p.expand(expandAll); err == nil {
+                t, err = v.True()
+        }
         return
 }
 func (p *closure) elemstr(o Object, k elemkind) (s string) {
@@ -2930,18 +3327,6 @@ func (p *closure) elemstr(o Object, k elemkind) (s string) {
         return
 }
 func (p *closure) String() (s string) { return p.elemstr(nil, 0) }
-func (p *closure) Integer() (int64, error) {
-        if p.o == nil {
-                return 0, nil
-        }
-        return p.o.Integer()
-}
-func (p *closure) Float() (float64, error) {
-        if p.o == nil {
-                return 0, nil
-        }
-        return p.o.Float()
-}
 func (p *closure) Strval() (s string, err error) {
         var v Value
 
@@ -2966,16 +3351,12 @@ func (p *closure) Strval() (s string, err error) {
 func (p *closure) expand(w expandwhat) (res Value, err error) {
         switch {
         case w&expandClosure != 0:
-                if res, err = p.disclose(); err != nil {
-                        return
-                }
+                if res, err = p.disclose(); err != nil { return }
                 if res != nil && w&expandDelegate != 0 {
                         res, err = res.expand(expandDelegate)
                 }
         case w&expandDelegate != 0:
-                if res, err = p.reveal(); err != nil {
-                        return
-                }
+                if res, err = p.reveal(); err != nil { return }
                 if res != nil && w&expandClosure != 0 {
                         res, err = res.expand(expandClosure)
                 }
@@ -2984,16 +3365,11 @@ func (p *closure) expand(w expandwhat) (res Value, err error) {
         return
 }
 func (p *closure) reveal() (res Value, err error) {
-        if p.o == nil { return }
+        if p.x == nil { return }
 
-        var ( t Value; o Object )
-        if t, err = p.o.expand(expandDelegate); err != nil { return }
-        if t != nil {
-                if o, _ = t.(Object); o == nil {
-                        err = fmt.Errorf("%s '%s' is not object", t.Type(), t)
-                        return
-                }
-        }
+        var ( t Value; x = p.x )
+        if t, err = p.x.expand(expandDelegate); err != nil { return }
+        if t != nil && t != x { x = t }
         
         var ( a []Value; num int )
         for _, v := range p.a {
@@ -3002,133 +3378,147 @@ func (p *closure) reveal() (res Value, err error) {
                 a = append(a, t)
         }
 
-        if o != nil || num > 1 {
-                res = &closure{closuredelegate{ p.p, p.l, o, a }}
+        if x != nil || num > 1 {
+                res = &closure{p.trivial,closuredelegate{p.l,x,a}}
         }
         return
 }
 func (p *closure) disclose() (res Value, err error) {
-        if p.o == nil { return nil, nil }
+        if isNil(p.x) { return nil, nil }
+        
+        var o Object
+        switch t := p.x.(type) {
+        case Object: o = t
+        case *selection:
+                if n, ok := t.o.(*ProjectName); ok {
+                        defer setclosure(setclosure(cloctx.unshift(n.project.scope)))
+                        if false && optionPrintStack {
+                                fmt.Fprintf(stderr, "%s: %v %v\n", p.position, t, cloctx)
+                                debug.PrintStack()
+                        }
+                }
 
-        var ( o Object; v Value; changed bool )
-        SeeL: switch name := p.o.Name(); p.l {
+                var ( v Value; ok bool )
+                if v, err = t.value(); err != nil {
+                        err = wrap(p.position, err)
+                        return
+                } else if o, ok = v.(Object); !ok {
+                        // Does nothing!
+                        return
+                }
+        }
+
+        var changed bool
+        var name = o.Name()
+        ClosureTok: switch p.l {
         case token.LPAREN, token.ILLEGAL:
                 for _, scope := range cloctx {
+                        if scope.project == nil { continue }
+
+                        var s Object
                         if scope.project == nil {
-                                if _, o = scope.Find(name); o != nil {
-                                        changed = true; break SeeL
+                                if _, s = scope.Find(name); !isNil(s) {
+                                        o, changed = s, true
+                                        break ClosureTok
                                 }
                                 continue
                         }
                         if scope != scope.project.scope {
                                 // inquire non-project scope first
-                                if _, o = scope.Find(name); o != nil {
-                                        changed = true; break SeeL
+                                if _, s = scope.Find(name); !isNil(s) {
+                                        o, changed = s, true
+                                        break ClosureTok
                                 }
                         }
-                        if o, err = scope.project.resolveObject(name); err != nil {
-                                return
-                        } else if o != nil {
-                                changed = true; break SeeL
-                        }
+                        if s, err = scope.project.resolveObject(name); err != nil { return }
+                        if !isNil(s) { o, changed = s, true; break ClosureTok }
                 }
         case token.LBRACE, token.STRING, token.COMPOUND:
                 for _, scope := range cloctx {
-                        if o, err = scope.project.resolveEntry(name); err != nil {
-                                return
-                        } else if o != nil {
+                        if scope.project == nil { continue }
+
+                        var s Object
+                        if s, err = scope.project.resolveEntry(name); err != nil { return }
+                        if !isNil(s) {
                                 if p.l == token.LBRACE {
-                                        changed = true; break SeeL
-                                } else {
-                                        // &'xxx' and &"xxx" are not disclosed into
-                                        // the resolved objects instead of converting
-                                        // into delegates.
-                                        res = o; return
+                                        o, changed = s, true
+                                        break ClosureTok
                                 }
+                                
+                                // &'xxx' and &"xxx" are resolving
+                                // objects in the closure context.
+                                res = s; return
                         }
                 }
         default:
-                err = fmt.Errorf("unknown closure `&%+v%+v`", p.l, name)
+                err = errorf(p.position, "unknown closure `&%+v%+v`", p.l, name)
                 return
         }
 
-        if o == nil { o = p.o } // assert changed == false
-
-        // Disclose the object, which may contain closures.
-        if v, err = o.expand(expandClosure); err != nil {
+        var v Value
+        if isNil(o) {
+                err = errorf(p.position, "'%s' is nil (%T %v)", name, p.x, p.x)
+                if optionPrintStack {
+                        fmt.Fprintf(stderr, "%v\n%v\n", err, cloctx)
+                        debug.PrintStack()
+                }
                 return
-        } else if v != nil {
-                var ok bool
-                if o, ok = v.(Object); ok && o != nil {
-                        changed = true
-                } else {
-                        err = fmt.Errorf("invalid closure %+v", v)
+        } else if v, err = o.expand(expandClosure); err != nil {
+                err = wrap(p.position, err)
+                return
+        } else if !isNil(v) {
+                var ( s Object; ok bool )
+                if s, ok = v.(Object); !ok || isNil(s) {
+                        err = errorf(p.position, "invalid closure %+v", v)
                         return
                 }
+
+                o, changed = s, true
         }
 
         var args []Value
         for _, a := range p.a {
                 if v, err = a.expand(expandClosure); err != nil { return }
-                if v != nil { a, changed = v, true }
+                if !isNil(v) { a, changed = v, true }
                 args = append(args, a)
         }
 
         if changed && err == nil {
-                res = &delegate{closuredelegate{ p.p, p.l, o, args }}
+                res = &delegate{p.trivial,closuredelegate{p.l,o,args}}
         }
         return
 }
-
 func (p *closure) refs(v Value) bool {
-        if p.o == v {
-                return true
-        }
-        for _, a := range p.a {
-                if a.refs(v) {
-                        return true
-                }
-        }
+        if p.x == v { return true }
+        for _, a := range p.a { if a.refs(v) { return true }}
         return false
 }
-
 func (p *closure) closured() bool { return true }
-
-func (p *closure) dependcompare(c *comparer) (err error) {
-        if optionTraceCompare { defer compun(comptrace(c, p)) }
-        if enable_assertions { assert(c.target != p, "self comparation") }
-
-        var v Value
-        if v, err = p.expand(expandClosure); err == nil {
-                err = c.compareDepend(v)
-        }
-        return
-}
-
-func (p *closure) prepare(pc *preparer) (err error) {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
-
-        if v, e := p.expand(expandClosure); e != nil {
-                err = e
-        } else if v == nil {
-                err = fmt.Errorf("undefined closure target `%v`", p.o.Name())
-                fmt.Fprintf(stderr, "%s: closure.prepare: %v\n", p.p, err)
+func (p *closure) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        if v, e := p.expand(expandClosure); e != nil { err = e } else
+        if v == nil {
+                //err = fmt.Errorf("undefined closure target `%v`", p.o.Name())
+                //fmt.Fprintf(stderr, "%s: closure.prepare: %v\n", p.position, err)
+                err = errorf(p.position, "invalid closure (%v)", p.x)
         } else {
-                err = pc.traverse(v)
+                err = t.dispatch(v)
         }
         return
 }
-
+func (p *closure) mod(t *traversal) (res time.Time, err error) {
+        var val Value
+        if val, err = p.expand(expandAll); err == nil {
+                res, err = val.mod(t)
+        }
+        return
+}
 func (p *closure) cmp(v Value) (res cmpres) {
-        if v.Type() == ClosureType {
-                a, ok := v.(*closure)
-                assert(ok, "value is not closure")
+        if a, ok := v.(*closure); ok {
                 // FIXME: compare the expanded value instead??
-                if p.o.cmp(a.o) == cmpEqual && len(p.a) == len(a.a) {
+                if p.x.cmp(a.x) == cmpEqual && len(p.a) == len(a.a) {
                         for i, t := range p.a {
-                                if t.cmp(a.a[i]) != cmpEqual {
-                                        return
-                                }
+                                if t.cmp(a.a[i]) != cmpEqual { return }
                         }
                         res = cmpEqual
                 }
@@ -3137,78 +3527,106 @@ func (p *closure) cmp(v Value) (res cmpres) {
 }
 
 type selection struct {
+        trivial
         t token.Token
         o Value // Object or selection
         s Value
 }
-
-func (p *selection) Type() Type { return SelectionType }
-func (p *selection) True() (t bool) {
-        if s, err := p.Strval(); err == nil {
-                t = s != ""
+func (p *selection) True() (t bool, err error) {
+        var v Value
+        if v, err = p.value(); err == nil {
+                t, err = v.True()
         }
         return
 }
 func (p *selection) elemstr(o Object, k elemkind) (s string) {
-        s = elementString(o, p.o, k) + p.t.String()
-        s += elementString(o, p.s, k)
+        if _, ok := p.o.(*usinglist); ok { s = "usee" } else {
+                s = elementString(o, p.o, k)
+        }
+        s += p.t.String() + elementString(o, p.s, k)
         return
 }
 func (p *selection) String() string { return p.elemstr(nil, 0) }
-
+func (p *selection) objectName() (s string) {
+        switch t := p.o.(type) {
+        case Object: s = t.Name()
+        }
+        return
+}
+func (p *selection) propName() (s string) {
+        switch t := p.s.(type) {
+        case Object: s = t.Name()
+        case *Bareword: s = t.string
+        case *String: s = t.string
+        }
+        return
+}
 func (p *selection) object() (o Object, err error) {
         if s, ok := p.o.(*selection); ok {
                 var v Value
                 if v, err = s.value(); err != nil {
                         // sth's wrong!
                 } else if o, _ = v.(Object); o == nil {
-                        err = fmt.Errorf("selection.object: `%s` is nil", s.String())
+                        err = errorf(p.position, "selection.object: `%s` is nil", s.String())
                 }
         } else if o, ok = p.o.(Object); !ok {
-                err = fmt.Errorf("selection.object: %s '%v' is not object", p.o.Type(), p.o)
+                err = errorf(p.position, "selection.object: '%v' is not object (but %s)", p.o, typeof(p.o))
         }
         return
 }
-
 func (p *selection) value() (v Value, err error) {
         var o Object
         if p.s == nil {
-                err = fmt.Errorf("selection.value: nil prop `%s`", p.String())
+                err = errorf(p.position, "selection.value: nil prop `%s`", p.String())
         } else if o, err = p.object(); err != nil {
                 // sth's wrong!
         } else if s := ""; o != nil {
                 if s, err = p.s.Strval(); err == nil {
-                        if pn, ok := o.(*ProjectName); ok && p.t == token.SELECT_PROG {
+                        if pn, ok := o.(*ProjectName); ok && (p.t == token.SELECT_PROG1 || p.t == token.SELECT_PROG2) {
                                 var entry *RuleEntry
                                 if entry, err = pn.project.resolveEntry(s); err != nil {
                                         return
                                 } else if entry == nil {
-                                        err = fmt.Errorf("selection.value: no entry `%s` (%+v)", s, p.String())
+                                        err = errorf(p.position, "selection.value: no entry `%s` (%+v)", s, p.String())
                                 } else {
                                         v = entry
                                 }
                         } else if v, err = o.Get(s); err != nil {
-                                //fmt.Fprintf(stderr, "selection: %v: %v\n", p, err)
+                                err = wrap(p.position, err)
+                                if false && optionPrintStack {
+                                        fmt.Fprintf(stderr, "%s: %v %v\n", p.position, p, cloctx)
+                                        debug.PrintStack()
+                                }
                         }
                 }
         } else /*if o == nil*/ {
-                err = fmt.Errorf("selection.value: nil object `%s`", p.String())
+                err = errorf(p.position, "selection.value: nil object `%s`", p.String())
         }
         return
 }
-
 func (p *selection) Strval() (s string, err error) {
+        if n, ok := p.o.(*ProjectName); ok && n != nil {
+                defer setclosure(setclosure(cloctx.unshift(n.project.scope)))
+                if false && optionPrintStack {
+                        fmt.Fprintf(stderr, "%s: %v %v\n", p.position, p, cloctx)
+                        debug.PrintStack()
+                }
+        }
+
         var v Value
         if v, err = p.value(); err != nil {
-                // sth's wrong
+                err = wrap(p.position, err)
         } else if v != nil {
-                s, err = v.Strval()
+                if s, err = v.Strval(); err != nil { err = wrap(p.position, err) }
+                if false && optionPrintStack {
+                        fmt.Fprintf(stderr, "%s: %v → %v\n", p.position, v, s)
+                        debug.PrintStack()
+                }
         } else if false {
-                err = fmt.Errorf("selection.strval: `%s` is nil", p.String())
+                err = errorf(p.position, "selection.strval: `%s` is nil", p.String())
         }
         return
 }
-
 func (p *selection) Integer() (int64, error) {
         if s, err := p.Strval(); err == nil {
                 return strconv.ParseInt(s, 10, 64)
@@ -3223,52 +3641,61 @@ func (p *selection) Float() (float64, error) {
                 return 0, err
         }
 }
-
 func (p *selection) refs(v Value) bool { return p.o.refs(v) || p.s.refs(v) }
 func (p *selection) closured() bool { return p.o.closured() || p.s.closured() }
 func (p *selection) expand(w expandwhat) (res Value, err error) {
         var o, s Value
         if p.o != nil {
-                if o, err = p.o.expand(w); err != nil {
-                        return
-                } else if o == nil { o = p.o }
+                if o, err = p.o.expand(w); err != nil { return } else
+                if o == nil { o = p.o }
         }
         if p.s != nil {
-                if s, err = p.s.expand(w); err != nil {
-                        return
-                } else if s == nil { s = p.s }
+                if s, err = p.s.expand(w); err != nil { return } else
+                if s == nil { s = p.s }
         }
         if o != p.o || s != p.s {
-                res = &selection{ p.t, o, s }
+                res = &selection{p.trivial,p.t,o,s}
         } else {
                 res = p
         }
         return
 }
-
-func (p *selection) prepare(pc *preparer) (err error) {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
-
+func (p *selection) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
         var v Value
-        if v, err = p.value(); err != nil {
-                // sth's wrong
-        } else if v == nil {
-                err = fmt.Errorf("`%v` is nil", p)
-        } else {
-                err = pc.traverse(v)
+        if v, err = p.value(); err != nil {/* sth's wrong */} else
+        if v == nil { err = fmt.Errorf("`%v` is nil", p) } else {
+                err = t.dispatch(v)
         }
         return
 }
-
+func (p *selection) mod(t *traversal) (res time.Time, err error) {
+        var v Value
+        if v, err = p.value(); err == nil {
+                if v == nil {
+                        err = errorf(p.position, "selection is nil")
+                } else {
+                        res, err = v.mod(t)
+                }
+        }
+        return
+}
 func (p *selection) cmp(v Value) (res cmpres) {
-        if v.Type() == SelectionType {
-                a, ok := v.(*selection)
-                assert(ok, "value is not selection")
+        if a, ok := v.(*selection); ok {
                 if p.o.cmp(a.o) == cmpEqual && p.s.cmp(a.s) == cmpEqual {
                         if p.t == a.t { res = cmpEqual }
                 }
         }
         return
+}
+
+type partialMatcher interface {
+        partialMatch(i interface{}) (result string, rest, stems []string, err error)
+}
+
+// TODO: endingMatcher is not implemented (e.g. $(trim-suffix .%, a.xxx b.xxx))
+type endingMatcher interface {
+        endingMatch(i interface{}) (result string, rest, stems []string, err error)
 }
 
 // Pattern
@@ -3278,40 +3705,15 @@ type Pattern interface {
         stencil(stems []string) (s string, rest []string, err error)
 }
 
-type pattern struct {}
-func (p *pattern) True() bool { return false }
-func (p *pattern) Integer() (int64, error) { return 0, nil }
-func (p *pattern) Float() (float64, error) { return 0, nil }
-/*
-func (p *pattern) concrete(patent *RuleEntry, target, stem string) (entry *RuleEntry, err error) {
-        entry = new(RuleEntry)
-        *entry = *patent // Copy the entry object bits
-
-        var project = mostDerived()
-        if project.isFileName(target) {
-                var file = project.searchFile(target)
-                if file == nil { // stat non-existed file
-                        file = stat(target, "", project.absPath, nil)
-                }
-                assert(file != nil, "`%s` nil file", target)
-                entry.target = file
-        } else {
-                entry.target = &String{ target }
-        }
-        return
-}
-*/
-
 // PercPattern represents percent pattern expressions (e.g. '%.o')
 type PercPattern struct {
-        pattern // TODO: supporting multiple %: foo%bar%xxx
+        trivial // TODO: supporting multiple %: foo%bar%xxx
         Prefix Value
         Suffix Value
 }
 func (p *PercPattern) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *PercPattern) Type() Type { return PercPatternType }
 func (p *PercPattern) elemstr(o Object, k elemkind) (s string) {
-        s = elementString(o, p.Prefix, k) + `%`
+        s  = elementString(o, p.Prefix, k) + `%`
         s += elementString(o, p.Suffix, k)
         return
 }
@@ -3337,6 +3739,7 @@ func (p *PercPattern) Strval() (s string, err error) {
         return
 }
 func (p *PercPattern) match(i interface{}) (result string, stems []string, err error) {
+        if optionEnableBenchspots { defer bench(spot("PercPattern.match")) }
         var s string
         switch t := i.(type) {
         case string: s = t
@@ -3346,11 +3749,13 @@ func (p *PercPattern) match(i interface{}) (result string, stems []string, err e
                 s, err = t.Strval()
                 if err != nil { return }
         default:
-                unreachable("perc.match: %T %v", i, i)
+                unreachable(fmt.Sprintf("perc.match: %T %v", i, i))
         }
 
         var prefix string
-        if p.Prefix != nil && p.Prefix.Type() != NoneType {
+        if p.Prefix == nil {
+                // ...
+        } else if !isNone(p.Prefix) {
                 prefix, err = p.Prefix.Strval()
                 if err != nil { return }
                 if !strings.HasPrefix(s, prefix) {
@@ -3384,102 +3789,72 @@ func (p *PercPattern) match(i interface{}) (result string, stems []string, err e
         }
         return
 }
-
 func (p *PercPattern) stencil(stems []string) (s string, rest []string, err error) {
-        // FIXME: the prefix is possible to be Glob, Regexp, etc.
-        if p.Prefix.Type() != NoneType {
+        if optionEnableBenchmarks && false { defer bench(mark(fmt.Sprintf("PercPattern.stencil(%v)", p))) }
+        if optionEnableBenchspots { defer bench(spot("PercPattern.stencil")) }
+
+        if !isNone(p.Prefix) {
+                // FIXME: the prefix could be Glob, Regexp, etc.
                 s, err = p.Prefix.Strval()
                 if err != nil { return }
         }
 
         var v string
-        if p.Suffix.Type() == NoneType {
-                s += stems[0] + v
+        if isNone(p.Suffix) {
+                s += stems[0]
                 rest = stems[1:]
         } else if pp, ok := p.Suffix.(*PercPattern); ok {
-                // Special cases like '%%...' use only one stem,
-                // other cases like '%xxx%...' use multiple stems.
-                if pp.Prefix.Type() != NoneType {
+                // patterns like '%%...' use only one stem,
+                // patterns like '%xxx%...' use multiple stems.
+                if !isNone(pp.Prefix) {
                         s += stems[0]
                         stems = stems[1:]
                 }
-                var ss string
-                ss, rest, err = pp.stencil(stems)
-                if err == nil { s += ss }
+                if v, rest, err = pp.stencil(stems); err == nil { s += v }
         } else if pp, ok := p.Suffix.(Pattern); ok {
-                var ss string
-                ss, rest, err = pp.stencil(stems)
-                if err == nil { s += ss }
+                if v, rest, err = pp.stencil(stems); err == nil { s += v }
         } else if v, err = p.Suffix.Strval(); err == nil {
                 s += stems[0] + v
                 rest = stems[1:]
         }
         return
 }
-
-/*
-func (p *PercPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
-        var target string
-        if target, err = p.stencil(stem); err == nil {
-                entry, err = p.pattern.concrete(patent, target, stem)
-        }
-        return
-}
-*/
-
 func (p *PercPattern) refs(v Value) bool { return p.Prefix.refs(v) || p.Suffix.refs(v) }
 func (p *PercPattern) closured() bool { return p.Prefix.closured() || p.Suffix.closured() }
-
-func (p *PercPattern) dependcompare(c *comparer) (err error) {
-        if enable_assertions { assert(c.target != p, "self comparation") }
-        
-        var stems []string
-        if len(c.program.callers) == 0 {
-                //err = fmt.Errorf("no calltrace (%s)", p)
-                return
-        } else if stems = c.program.callers[0].stems; stems == nil {
-                //err = fmt.Errorf("empty stem (%s)", p)
-                return
-        }
-
-        var target string
-        var rest []string
-        if target, rest, err = p.stencil(stems); err != nil { return }
-        if len(rest) > 0 {
-                panic("FIXME: unhandled stems")
-        }
-
-        if err = c.compareDepend(target); err != nil {
-                err = patternCompareError{err}
+func (p *PercPattern) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("PercPattern.traverse(%v)", p))) }
+        if optionEnableBenchspots { defer bench(spot("PercPattern.traverse")) }
+        if t.stems == nil { err = errorf(p.position, "no stems"); return }
+        var ( rest []string; target string )
+        if target, rest, err = p.stencil(t.stems); err != nil {
+                // oops...
+        } else if len(rest) > 0 || target == "" {
+                // just relax
+        } else if err = t.target(p.position, target); err == nil {
+                //t.addNewTarget(&String{trivial{p.position},target})
         }
         return
 }
-
-func (p *PercPattern) prepare(pc *preparer) (err error) {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
-        if pc.stems == nil {
-                err = fmt.Errorf("empty stem (%s)", p)
-                return
-        }
-
-        var target string
-        var rest []string
-        if target, rest, err = p.stencil(pc.stems); err != nil { return }
-        if len(rest) > 0 { panic("FIXME: unhandled stems") }
-        if err = pc.updateTarget(target); err != nil {
-                err = patternPrepareError{err}
-        }
-        return
-}
-
 func (p *PercPattern) cmp(v Value) (res cmpres) {
-        if v.Type() == PercPatternType {
-                a, ok := v.(*PercPattern)
-                assert(ok, "value is not PercPattern")
+        if a, ok := v.(*PercPattern); ok {
                 if p.Prefix.cmp(a.Prefix) == cmpEqual {
                         if p.Suffix.cmp(a.Suffix) == cmpEqual {
                                 res = cmpEqual
                         }
+                }
+        }
+        return
+}
+
+// Check for patterns like foo%%bar
+func percperc(p Pattern) (t bool, prefix, suffix Value) {
+        if p1, ok := p.(*PercPattern); ok {
+                if p2, ok := p1.Suffix.(*PercPattern); ok {
+                        // assert(isNone(p2.Prefix))
+                        prefix = p1.Prefix
+                        suffix = p2.Suffix
+                        t = true
                 }
         }
         return
@@ -3504,11 +3879,10 @@ func (p *PercPattern) cmp(v Value) (res cmpres) {
 //		'\\' c      matches character c
 //		lo '-' hi   matches character c for lo <= c <= hi
 type GlobPattern struct {
-        pattern
+        trivial
         Components []Value
 }
 func (p *GlobPattern) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *GlobPattern) Type() Type { return GlobPatternType }
 func (p *GlobPattern) elemstr(o Object, k elemkind) (s string) {
         for _, comp := range p.Components {
                 s += elementString(o, comp, k)
@@ -3527,6 +3901,7 @@ func (p *GlobPattern) Strval() (s string, err error) {
         return
 }
 func (p *GlobPattern) match(i interface{}) (result string, stems []string, err error) {
+        if optionEnableBenchspots { defer bench(spot("GlobPattern.match")) }
         var pat, s string
         switch t := i.(type) {
         case string: s = t
@@ -3546,12 +3921,10 @@ func (p *GlobPattern) match(i interface{}) (result string, stems []string, err e
         // FIXME: calculate stems from matching
         return
 }
-
 func (p *GlobPattern) stencil(stems []string) (s string, rest []string, err error) {
-        unreachable("FIXME: GlobPattern stencil(%v)", stems)
+        unreachable(fmt.Sprintf("Unimplemented GlobPattern stencil %v (stems=%v)", p, stems))
         return
 }
-
 /*
 func (p *GlobPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
         var target string
@@ -3561,7 +3934,6 @@ func (p *GlobPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry
         return
 }
 */
-
 func (p *GlobPattern) refs(v Value) (res bool) {
         for _, comp := range p.Components {
                 if res = comp.refs(v); res { break }
@@ -3574,51 +3946,23 @@ func (p *GlobPattern) closured() (res bool) {
         }
         return
 }
-
-func (p *GlobPattern) dependcompare(c *comparer) (err error) {
-        if enable_assertions { assert(c.target != p, "self comparation") }
-
-        var stems []string
-        if len(c.program.callers) == 0 {
-                //err = fmt.Errorf("no calltrace (%s)", p)
-                return
-        } else if stems = c.program.callers[0].stems; stems == nil {
-                //err = fmt.Errorf("empty stem (%s)", p)
-                return
-        }
+func (p *GlobPattern) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        if t.stems == nil { return }
 
         var target string
         var rest []string
-        if target, rest, err = p.stencil(stems); err != nil { return }
-        if len(rest) > 0 { panic("FIXME: unhandled stems") }
-
-        if err = c.compareDepend(target); err != nil {
-                err = patternCompareError{err}
+        if target, rest, err = p.stencil(t.stems); err != nil {
+                // oops...
+        } else if len(rest) > 0 || target == "" {
+                // just relax
+        } else {
+                err = t.target(p.position, target)
         }
         return
 }
-
-func (p *GlobPattern) prepare(pc *preparer) (err error) {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
-        if pc.stems == nil {
-                err = fmt.Errorf("empty stem (%s)", p)
-                return
-        }
-
-        var target string
-        var rest []string
-        if target, rest, err = p.stencil(pc.stems); err != nil { return }
-        if len(rest) > 0 { panic("FIXME: unhandled stems") }
-        if err = pc.updateTarget(target); err != nil {
-                err = patternPrepareError{err}
-        }
-        return
-}
-
 func (p *GlobPattern) cmp(v Value) (res cmpres) {
-        if v.Type() == GlobPatternType {
-                a, ok := v.(*GlobPattern)
-                assert(ok, "value is not GlobPattern")
+        if a, ok := v.(*GlobPattern); ok {
                 if len(p.Components) == len(a.Components) {
                         for i, c := range p.Components {
                                 if c.cmp(a.Components[i]) != cmpEqual {
@@ -3632,31 +3976,21 @@ func (p *GlobPattern) cmp(v Value) (res cmpres) {
 }
 
 // TODO: implement regexp pattern
-type RegexpPattern struct { pattern }
-func (p *RegexpPattern) refs(_ Value) bool { return false }
-func (p *RegexpPattern) closured() bool { return false }
+type RegexpPattern struct { trivial }
 func (p *RegexpPattern) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *RegexpPattern) Type() Type { return RegexpPatternType }
 func (p *RegexpPattern) String() string { return "{RegexpPattern}" }
 func (p *RegexpPattern) Strval() (s string, err error) { return "", nil }
 func (p *RegexpPattern) match(i interface{}) (result string, stems []string, err error) {
+        if optionEnableBenchspots { defer bench(spot("RegexpPattern.match")) }
         unreachable("regexp.match: %T %v", i, i)
         return
 }
-/*
-func (p *RegexpPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
-        panic("TODO: creating new match entry")
-        return
-}
-*/
 func (p *RegexpPattern) stencil(stems []string) (s string, rest []string, err error) {
         unreachable("regexp.stencil: %v", stems)
         return
 }
 func (p *RegexpPattern) cmp(v Value) (res cmpres) {
-        if v.Type() == RegexpPatternType {
-                a, ok := v.(*RegexpPattern)
-                assert(ok, "value is not RegexpPattern")
+        if a, ok := v.(*RegexpPattern); ok {
                 if a != nil { /* FIXME: ... */ }
         }
         return
@@ -3693,23 +4027,6 @@ type Scoper interface {
 type NameScoper interface {
         Namer
         Scoper
-}
-
-type positional struct {
-        Value
-        pos Position
-}
-
-// Position() returns the position of the value occurs position in file or nil.
-func (p *positional) Position() Position { return p.pos }
-
-// Positional wraps a value with a valid position
-func Positional(v Value, pos Position) Positioner {
-        if p, ok := v.(*positional); ok {
-                p.pos = pos
-                return p
-        }
-        return &positional{ v, pos }
 }
 
 type namescoper struct {
@@ -3770,24 +4087,55 @@ func mergeresult(res []Value, err error) ([]Value, error) {
         return res, err
 }
 
-func trueVal(v Value, res bool) bool {
-        if v != nil { res = v.True() }
-        return res
+func trueVal(v Value, i bool) (res bool, err error) {
+        if res = i; v != nil { res, err = v.True() }
+        return
 }
 
-func intVal(v Value, res int) int {
-        if v != nil {
-                n, _ := v.Integer()
-                res = int(n)
+func int64Val(v Value, i int64) (res int64, err error) {
+        if res = i; v != nil { res, err = v.Integer() }
+        return
+}
+
+func intVal(v Value, i int) (res int, err error) {
+        if res = i; v != nil {
+                var i int64
+                if i, err = v.Integer(); err == nil {
+                        res = int(i)
+                }
         }
-        return res
+        return
 }
 
+func uintVal(v Value, i uint32) (res uint32, err error) {
+        if res = i; v != nil {
+                var i int64
+                if i, err = v.Integer(); err == nil {
+                        res = uint32(i)
+                }
+        }
+        return
+}
+
+func permVal(v Value, i uint32) (res os.FileMode, err error) {
+        if i, err = uintVal(v, i); err == nil {
+                res = os.FileMode(i) & os.ModePerm
+        }
+        return
+}
+
+var expanddepth int64 = 0
 func expandall(w expandwhat, values ...Value) (res []Value, num int, err error) {
+        defer func(i int64) { expanddepth = i } (expanddepth)
+        if expanddepth += 1; expanddepth > 128 {
+                err = fmt.Errorf("exceeds maximum expand depth")
+                return
+        }
+
         var v Value
         for _, elem := range values {
-                if elem == nil {
-                        res = append(res, universalnil)
+                if isNil(elem) {
+                        res = append(res, &Nil{})
                 } else if v, err = elem.expand(w); err == nil {
                         if v != elem { num += 1 }
                         res = append(res, v)
@@ -3808,11 +4156,11 @@ func ExpandAll(values ...Value) (res []Value, err error) {
 
 func Refs(a Value, v Value) bool { return a.refs(v) }
 
-func Scalar(v Value, t Type) (res Value) {
-        if v.Type() == t {
+func Scalar(v Value) (res Value) {
+        if l, o := v.(*List); l != nil && o && l.Len() > 0 {
+                res = Scalar(l.Elems[0])
+        } else {
                 res = v
-        } else if l, o := v.(*List); l != nil && o && l.Len() > 0 {
-                res = Scalar(l.Elems[0], t)
         }
         return
 }
@@ -3834,179 +4182,208 @@ func EscapeChar(s string) string {
         return s
 }
 
-func MakeAnswer(v bool) Value { if v { return universalyes } else { return universalno } }
-func MakeBoolean(v bool) Value { if v { return universaltrue } else { return universalfalse } }
-func MakeBin(i int64) *Bin { return &Bin{integer{i}} }
-func MakeOct(i int64) *Oct { return &Oct{integer{i}} }
-func MakeInt(i int64) *Int { return &Int{integer{i}} }
-func MakeHex(i int64) *Hex { return &Hex{integer{i}} }
-func MakeFloat(f float64) *Float { return &Float{f} }
-func MakeDate(s time.Time) *Date { return &Date{DateTime{s}} }
-func MakeTime(t time.Time) *Time { return &Time{DateTime{t}} }
-func MakeString(s string) *String { return &String{s} }
-func MakeURL(s *url.URL) *URL {
+func MakeAnswer(pos Position, v bool) (res Value) {
+        if v {
+                res = &boolean{trivial{pos},true}
+        } else {
+                res = &boolean{trivial{pos},false}
+        }
+        return
+}
+func MakeBoolean(pos Position, v bool) (res Value) {
+        if v {
+                res = &answer{trivial{pos},true}
+        } else {
+                res = &answer{trivial{pos},false}
+        }
+        return
+}
+func MakeBin(pos Position, i int64) *Bin { return &Bin{integer{trivial{pos},i}} }
+func MakeOct(pos Position, i int64) *Oct { return &Oct{integer{trivial{pos},i}} }
+func MakeInt(pos Position, i int64) *Int { return &Int{integer{trivial{pos},i}} }
+func MakeHex(pos Position, i int64) *Hex { return &Hex{integer{trivial{pos},i}} }
+func MakeFloat(pos Position, f float64) *Float { return &Float{trivial{pos},f} }
+func MakeDate(pos Position, s time.Time) *Date { return &Date{DateTime{trivial{pos},s}} }
+func MakeTime(pos Position, t time.Time) *Time { return &Time{DateTime{trivial{pos},t}} }
+func MakeString(pos Position, s string) *String { return &String{trivial{pos},s} }
+func MakeURL(pos Position, s *url.URL) *URL {
         var host, port string
         v := strings.Split(s.Host, ":")
         if len(v) == 1 { host = v[0] }
         if len(v) == 2 { host, port = v[0], v[1] }
         var password Value
-        if t, ok := s.User.Password(); ok {password = &String{t}}
-        return &URL{
-                Scheme: &String{s.Scheme},
-                Username: &String{s.User.Username()},
+        if t, ok := s.User.Password(); ok {password = &String{trivial{pos},t}}
+        return &URL{ // FIXME: calculate component positions
+                trivial: trivial{pos},
+                Scheme: &String{trivial{pos},s.Scheme},
+                Username: &String{trivial{pos},s.User.Username()},
                 Password: password,
-                Host: &String{host},
-                Port: &String{port},
-                Path: &String{s.Path},
-                Query: &String{s.RawQuery},
-                Fragment: &String{s.Fragment},
+                Host: &String{trivial{pos},host},
+                Port: &String{trivial{pos},port},
+                Path: &String{trivial{pos},s.Path},
+                Query: &String{trivial{pos},s.RawQuery},
+                Fragment: &String{trivial{pos},s.Fragment},
         }
 }
-func MakeBarecomp(elems... Value) *Barecomp { return &Barecomp{elements{elems}} }
-func MakeCompound(elems... Value) *Compound { return &Compound{elements{elems}} }
-func MakeList(elems... Value) *List { return &List{elements{elems}} }
-func MakeGroup(elems... Value) (v *Group) { return &Group{List{elements{elems}}} }
-func MakeGlobMeta(tok token.Token) *GlobMeta { return &GlobMeta{tok} }
-func MakeGlobRange(v Value) *GlobRange { return &GlobRange{v} }
-func MakePath(segments... Value) (v *Path) { return &Path{elements{segments}, nil} }
-func MakePathSeg(ch rune) *PathSeg { return &PathSeg{ch} }
-func MakePathStr(str string) (v *Path) {
+func MakeBarecomp(pos Position, elems... Value) *Barecomp { return &Barecomp{trivial{pos},elements{elems}} }
+func MakeCompound(pos Position, elems... Value) *Compound { return &Compound{trivial{pos},elements{elems}} }
+func MakeList(pos Position, elems... Value) *List { return &List{elements{elems}} }
+func MakeGroup(pos Position, elems... Value) (v *Group) { return &Group{trivial{pos},List{elements{elems}}} }
+func MakeGlobMeta(pos Position, tok token.Token) *GlobMeta { return &GlobMeta{trivial{pos},tok} }
+func MakeGlobRange(pos Position, v Value) *GlobRange { return &GlobRange{trivial{pos},v} }
+func MakePath(pos Position, segments... Value) (v *Path) { return &Path{trivial{pos},elements{segments}/*, nil*/} }
+func MakePathSeg(pos Position, ch rune) *PathSeg { return &PathSeg{trivial{pos},ch} }
+func MakePathStr(pos Position, str string) (v *Path) {
         var segments []Value
         for _, s := range strings.Split(str, PathSep) {
-                segments = append(segments, &Bareword{s})
+                // TODO: calculate position of each segment
+                segments = append(segments, &Bareword{trivial{pos},s})
         }
-        return MakePath(segments...)
+        return MakePath(pos, segments...)
 }
-func MakePair(k, v Value) (p *Pair) {
-        if k.Type().Bits()&IsKeyName != 0 {
-                p = &Pair{nil, nil}
-                p.SetKey(k)
-                p.SetValue(v)
-        } else {
-                panic(fmt.Errorf("%s '%v' is not key name type", k.Type(), k))
-        }
+func MakePair(pos Position, k, v Value) (p *Pair) {
+        p = &Pair{trivial{pos},nil,nil}
+        p.SetKey(k)
+        p.SetValue(v)
         return
 }
-func MakePercPattern(prefix, suffix Value) Pattern {
-        if prefix == nil { prefix = universalnone }
-        if suffix == nil { suffix = universalnone }
+func MakePercPattern(pos Position, prefix, suffix Value) Pattern {
+        if prefix == nil { prefix = &None{} }
+        if suffix == nil { suffix = &None{} }
         return &PercPattern{
+                trivial: trivial{pos},
                 Prefix: prefix,
                 Suffix: suffix,
         }
 }
-func MakeGlobPattern(components... Value) Pattern {
-        return &GlobPattern{Components:components}
+func MakeGlobPattern(pos Position, components... Value) Pattern {
+        return &GlobPattern{trivial:trivial{pos},Components:components}
 }
-func MakeDelegate(pos Position, tok token.Token, obj Object, args... Value) Value {
-        return &delegate{closuredelegate{ pos, tok, obj, args }}
+func MakeDelegate(pos Position, tok token.Token, obj Value, args... Value) Value {
+        return &delegate{trivial{pos},closuredelegate{tok,obj,args}}
 }
-func MakeClosure(pos Position, tok token.Token, obj Object, args... Value) Value {
+func MakeClosure(pos Position, tok token.Token, obj Value, args... Value) Value {
         if obj == nil { panic("closure of nil") }
-        return &closure{closuredelegate{ pos, tok, obj, args }}
+        return &closure{trivial{pos},closuredelegate{tok,obj,args}}
 }
-func MakeListOrScalar(elems []Value) (res Value) {
+func MakeListOrScalar(pos Position, elems []Value) (res Value) {
         if x := len(elems); x > 1 {
                 res = &List{elements{elems}}
         } else if x == 1 {
                 res = elems[0]
         } else {
-                res = universalnone
+                res = &None{trivial{/*pos*/}}
         }
         return
 }
 
-func Make(in interface{}) (out Value) {
+func Make(pos Position, in interface{}) (out Value) {
         switch v := in.(type) {
-        case int:       out = MakeInt(int64(v))
-        case int32:     out = MakeInt(int64(v))
-        case int64:     out = MakeInt(v)
-        case float32:   out = MakeFloat(float64(v))
-        case float64:   out = MakeFloat(v)
-        case string:    out = &String{v}
-        case time.Time: out = &DateTime{v} // FIXME: NewDate, NewTime
+        case int:       out = MakeInt(pos,int64(v))
+        case int32:     out = MakeInt(pos,int64(v))
+        case int64:     out = MakeInt(pos,v)
+        case float32:   out = MakeFloat(pos,float64(v))
+        case float64:   out = MakeFloat(pos,v)
+        case string:    out = &String{trivial{pos},v}
+        case time.Time: out = &DateTime{trivial{pos},v} // FIXME: NewDate, NewTime
         case Value:     out = v
-        default:        out = &Any{in}
+        default:        out = &Any{in} // TODO: position for any
         }
         return
 }
 
-func MakeAll(in... interface{}) (out []Value) {
+func MakeAll(pos Position, in... interface{}) (out []Value) {
         for _, v := range in {
-                out = append(out, Make(v))
+                // TODO: position for each element
+                out = append(out, Make(pos,v))
         }
         return
 }
 
-func ParseBin(s string) *Bin {
+func ParseBin(pos Position, s string) *Bin {
         if strings.HasPrefix(s, "0b") || strings.HasPrefix(s, "0B") {
                 s = s[2:]
         }
         if i, e := strconv.ParseInt(s, 2, 64); e == nil {
-                return MakeBin(i)
+                return MakeBin(pos,i)
         } else {
                 panic(e)
         }
 }
 
-func ParseOct(s string) *Oct {
+func ParseOct(pos Position, s string) *Oct {
         if strings.HasPrefix(s, "0") {
                 s = s[1:]
         }
         if i, e := strconv.ParseInt(s, 8, 64); e == nil {
-                return MakeOct(i)
+                return MakeOct(pos,i)
         } else {
                 panic(e)
         }
 }
 
-func ParseInt(s string) *Int {
+func ParseInt(pos Position, s string) *Int {
         if i, e := strconv.ParseInt(s, 10, 64); e == nil {
-                return MakeInt(i)
+                return MakeInt(pos,i)
         } else {
                 panic(e)
         }
 }
 
-func ParseHex(s string) *Hex {
+func ParseHex(pos Position, s string) *Hex {
         if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
                 s = s[2:]
         }
         if i, e := strconv.ParseInt(s, 16, 64); e == nil {
-                return MakeHex(i)
+                return MakeHex(pos,i)
         } else {
                 panic(e)
         }
 }
 
-func ParseFloat(s string) *Float {
+func ParseFloat(pos Position, s string) *Float {
         if f, e := strconv.ParseFloat(strings.Replace(s, "_", "", -1), 64); e == nil {
-                return MakeFloat(f)
+                return MakeFloat(pos,f)
         } else {
                 panic(e)
         }
 }
 
-func ParseDate(s string) *Date {
+func ParseDate(pos Position, s string) *Date {
         if t, e := time.Parse("2006-01-02", s); e == nil {
-                return MakeDate(t)
+                return MakeDate(pos,t)
         } else {
                 panic(e)
         }
 }
 
-func ParseTime(s string) *Time {
+func ParseTime(pos Position, s string) *Time {
         if t, e := time.Parse("15:04:05.999999999Z07:00", s); e == nil {
-                return MakeTime(t)
+                return MakeTime(pos,t)
         } else {
                 panic(e)
         }
 }
 
-func ParseURL(s string) *URL {
+func ParseURL(pos Position, s string) *URL {
         if u, e := url.Parse(s); e == nil {
-                return MakeURL(u)
+                return MakeURL(pos,u)
         } else {
                 panic(e)
         }
+}
+
+func get_filename(n int) string {
+        var num int
+        var filename string
+        var lines = strings.Split(string(debug.Stack()), "\n")
+        for _, line := range lines {
+                if !strings.HasPrefix(line, "\t") { continue }
+                if i := strings.Index(line, ":"); num == n && i > 0 {
+                        filename = line[1:i]
+                        break
+                }
+                num += 1
+        }
+        return filename
 }

@@ -7,24 +7,15 @@
 package smart
 
 import (
-        "encoding/xml"
+        xml_enc "encoding/xml"
         "strings"
         "io"
 )
 
-type XML struct { Value Value }
-func (p *XML) refs(_ Value) bool { return false }
-func (p *XML) closured() bool { return p.Value.closured() }
-func (p *XML) expand(w expandwhat) (Value, error) { return p.Value.expand(w) }
-func (p *XML) Type() Type { return XMLType }
-func (p *XML) True() bool { return p.Value.True() }
-func (p *XML) String() string { return "(json " + p.Value.String() + ")" }
-func (p *XML) Strval() (string, error) { return p.Value.Strval() }
-func (p *XML) Integer() (int64, error) { return 0, nil }
-func (p *XML) Float() (float64, error) { return 0, nil }
+type XML struct { Value }
+func (p *XML) String() string { return "(xml " + p.Value.String() + ")" }
 func (p *XML) cmp(v Value) (res cmpres) {
-        if v.Type() == XMLType {
-                a, ok := v.(*XML)
+        if a, ok := v.(*XML); ok {
                 assert(ok, "value is not XML")
                 res = p.Value.cmp(a.Value)
         }
@@ -63,23 +54,24 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
         var (
                 stack []*Group
                 nodes []*Group
+                pos Position // FIXME: calculate the position
         )
-        xd := xml.NewDecoder(strings.NewReader(source))
-        var tok xml.Token
+        xd := xml_enc.NewDecoder(strings.NewReader(source))
+        var tok xml_enc.Token
         for tok, err = xd.Token(); err == nil; tok, err = xd.Token() {
                 switch elem := tok.(type) {
-                case xml.ProcInst:
+                case xml_enc.ProcInst:
                         // TODO: ...
-                case xml.StartElement:
-                        nn := MakeGroup(&Bareword{elem.Name.Local})
+                case xml_enc.StartElement:
+                        nn := MakeGroup(pos, &Bareword{trivial{pos},elem.Name.Local})
                         for _, a := range elem.Attr {
                                 var k, v Value
-                                k = &Bareword{a.Name.Local}
-                                v = &String{a.Value}
+                                k = &Bareword{trivial{pos},a.Name.Local}
+                                v = &String{trivial{pos},a.Value}
                                 if s := a.Name.Space; s != "" {
-                                        k = MakeGroup(&String{s}, k)
+                                        k = MakeGroup(pos, &String{trivial{pos},s}, k)
                                 }
-                                nn.Append(MakePair(k, v))
+                                nn.Append(MakePair(pos, k, v))
                         }
                         if x := len(stack); x > 0 {
                                 stack[x-1].Append(nn)
@@ -87,31 +79,31 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
                                 nodes = append(nodes, nn)
                         }
                         stack = append(stack, nn)
-                case xml.EndElement:
+                case xml_enc.EndElement:
                         if x := len(stack); x > 0 {
                                 stack = stack[0:x-1]
                         } else {
                                 // FIXME: report illegal xml
                         }
-                case xml.CharData:
+                case xml_enc.CharData:
                         if x := len(stack); x > 0 {
                                 node, s := stack[x-1], string(elem)
                                 if ws {
-                                        node.Append(&String{s})
+                                        node.Append(&String{trivial{pos},s})
                                 } else {
                                         if s = strings.TrimSpace(s); s != "" {
-                                                node.Append(&String{s})
+                                                node.Append(&String{trivial{pos},s})
                                         }
                                 }
                         }
-                case xml.Directive:
+                case xml_enc.Directive:
                         // TODO: ...
-                case xml.Comment:
+                case xml_enc.Comment:
                         // TODO: ...
                 }
         }
         if x := len(nodes); x > 1 {
-                g := MakeGroup()
+                g := MakeGroup(pos)
                 for _, node := range nodes {
                         g.Append(node)
                 }
@@ -125,17 +117,14 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
         return
 }
 
-type _xml struct {
-        whitespace bool
-}
-
-func (t *_xml) Evaluate(prog *Program, args []Value) (result Value, err error) {
+type xml struct { whitespace bool }
+func (p *xml) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
         var source string
-        if source, err = joinRecipesString(prog.recipes...); err != nil { return }
-        if result, err = DecodeXML(source, t.whitespace); err == nil {
+        if source, err = multiline(t.program.recipes...); err != nil { return }
+        if result, err = DecodeXML(source, p.whitespace); err == nil {
                 result = &XML{ result }
         } else {
-                result = &XML{ universalnone }
+                result = &XML{ &None{trivial{t.program.position}} }
         }
         return
 }

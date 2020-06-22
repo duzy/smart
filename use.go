@@ -7,8 +7,7 @@
 package smart
 
 import (
-        "extbit.io/smart/scanner"
-        "extbit.io/smart/token"
+        "time"
         "fmt"
 )
 
@@ -16,6 +15,7 @@ import (
 var usingPrepared = make(map[*Project]int)
 
 type using struct {
+        trivial
         project *Project
         params []Value
         opts useoptions
@@ -27,6 +27,7 @@ func (p *using) refs(v Value) bool {
         }
         return false
 }
+func (p *using) refdef(origin DefOrigin) bool { return false }
 func (p *using) closured() bool {
         for _, a := range p.params {
                 if a.closured() { return true }
@@ -37,36 +38,51 @@ func (p *using) expand(w expandwhat) (Value, error) {
         if params, num, err := expandall(w, p.params...); err != nil {
                 return nil, err
         } else if num > 0 {
-                return &using{ p.project, params, p.opts }, nil
+                return &using{p.trivial,p.project,params,p.opts}, nil
         }
         return p, nil
 }
-func (p *using) prepare(pc *preparer) (err error) {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
+func (p *using) mod(t *traversal) (res time.Time, err error) {
+        if entry := p.project.DefaultEntry(); entry != nil {
+                // FIXME: entry maybe not pointing to the real target
+                res, err = entry.mod(t)
+        }
+        return
+}
+func (p *using) traverse(pc *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(pc, p)) }
         if _, done := usingPrepared[p.project]; done {
                 usingPrepared[p.project] += 1
                 // FIXME: allow re-using the project
                 return
         }
         if entry := p.project.DefaultEntry(); entry != nil {
-                if err = entry.prepare(pc); err != nil {
-                        //fmt.Fprintf(os.Stderr, "%s: `%s` using error: %s (default entry '%s')\n", entry.Position, p.project.name, err, entry.target)
-                        if br, ok := err.(*breaker); ok {
-                                switch br.what {
-                                case breakGood, breakUpdates:
-                                        return nil
-                                }
-                        }
-                        err = scanner.WrapError(token.Position(entry.Position), err)
+                if p.project.breakUseLoop {
+                        // FIXME: break use loop
+                } else if err = entry.traverse(pc); err != nil {
+                        err = wrap(p.position, err)
                 } else {
                         usingPrepared[p.project] += 1
                 }
         }
         return
 }
+func (p *using) stamp(pc *traversal) (files []*File, err error) {
+        if entry := p.project.DefaultEntry(); entry != nil {
+                files, err = entry.stamp(pc)
+        }
+        return
+}
+func (p *using) exists() (res existence) {
+        if entry := p.project.DefaultEntry(); entry != nil {
+                res = entry.exists()
+        } else {
+                res = existenceMatterless
+        }
+        return
+}
 func (p *using) cmp(v Value) (res cmpres) {
-        if v.Type() == UsingType {
-                a, ok := v.(*using)
+        if a, ok := v.(*using); ok {
                 assert(ok, "value is not using")
                 if p.project == a.project {
                         res = cmpEqual
@@ -74,10 +90,7 @@ func (p *using) cmp(v Value) (res cmpres) {
         }
         return
 }
-func (p *using) Type() Type { return UsingType }
-func (p *using) True() bool { return p.project != nil }
-func (p *using) Integer() (i int64, err error) { return 0, nil }
-func (p *using) Float() (f float64, err error) { return 0, nil }
+func (p *using) True() (bool, error) { return p.project != nil, nil }
 func (p *using) String() string {
         if len(p.params) > 0 {
                 return fmt.Sprintf("%s(%v)", p.project.name, p.params)
@@ -103,6 +116,7 @@ func (p *usinglist) refs(v Value) bool {
         }
         return false
 }
+func (p *usinglist) refdef(origin DefOrigin) bool { return false }
 func (p *usinglist) closured() bool {
         for _, a := range p.list {
                 if a.closured() { return true }
@@ -124,10 +138,10 @@ func (p *usinglist) expand(w expandwhat) (Value, error) {
         }
         return p, nil
 }
-func (p *usinglist) prepare(pc *preparer) error {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
+func (p *usinglist) traverse(pc *traversal) error {
+        if optionTraceTraversal { defer un(tt(pc, p)) }
         for _, elem := range p.list {
-                if err := elem.prepare(pc); err != nil {
+                if err := elem.traverse(pc); err != nil {
                         return err
                 }
         }
@@ -136,14 +150,50 @@ func (p *usinglist) prepare(pc *preparer) error {
 func (p *usinglist) redecl(scope *Scope) { panic("redeclaring using list") }
 func (p *usinglist) DeclScope() *Scope { return p.scope }
 func (p *usinglist) OwnerProject() *Project { return p.owner }
-func (p *usinglist) Type() Type { return UsingListType }
-func (p *usinglist) True() bool { return len(p.list) > 0 }
+func (p *usinglist) Position() (pos Position) {
+        if len(p.list) > 0 {
+                pos = p.list[0].Position()
+        }
+        return
+}
+func (p *usinglist) True() (bool, error) { return len(p.list) > 0, nil }
+func (p *usinglist) stamp(pc *traversal) (files []*File, err error) {
+        for _, elem := range p.list {
+                var a []*File
+                if a, err = elem.stamp(pc); err != nil { break }
+                files = append(files, a...)
+        }
+        return
+}
+func (p *usinglist) exists() (res existence) {
+        res = existenceMatterless
+ForElems:
+        for _, elem := range p.list {
+                switch elem.exists() {
+                case existenceMatterless:
+                case existenceConfirmed:
+                        res = existenceConfirmed
+                case existenceNegated:
+                        res = existenceNegated
+                        break ForElems
+                }
+        }
+        return
+}
 func (p *usinglist) Name() string { return p.name }
 func (p *usinglist) Integer() (int64, error) { return 0, nil }
 func (p *usinglist) Float() (float64, error) { return 0, nil }
+func (p *usinglist) mod(t *traversal) (res time.Time, err error) {
+        var a time.Time
+        for _, elem := range p.list {
+                if a, err = elem.mod(t); err != nil { break } else
+                if a.After(res) { res = a }
+        }
+        return
+}
+func (p *usinglist) tryTraverse(t *traversal) (okay bool, err error) { return false, nil }
 func (p *usinglist) cmp(v Value) (res cmpres) {
-        if v.Type() == UsingListType {
-                a, ok := v.(*usinglist)
+        if a, ok := v.(*usinglist); ok {
                 assert(ok, "value is not usinglist")
                 if p.name == a.name && p.owner == a.owner {
                         res = cmpEqual
@@ -168,20 +218,34 @@ func (p *usinglist) String() string {
         return fmt.Sprintf("%s", s)
 }
 
-func (p *usinglist) append(proj *Project, params []Value, opts useoptions) {
+func (p *usinglist) append(pos Position, proj *Project, params []Value, opts useoptions) {
         for _, elem := range p.list {
                 if elem.project == proj {
                         return
                 }
         }
-        p.list = append(p.list, &using{ proj, params, opts })
+        p.list = append(p.list, &using{trivial{pos},proj,params,opts})
 }
 
-func (p *usinglist) Get(name string) (Value, error) {
-        //switch name {
-        //case "name":
-        //}
-        return nil, fmt.Errorf("no such property `%s`", name)
+func (p *usinglist) Get(name string) (result Value, err error) {
+        var list []Value
+        for _, usee := range p.list {
+                // Lookup only the project specific exported names. Don't use
+                // scope.Find(...) invocation!
+                obj := usee.project.scope.Lookup("using."+name)
+                if obj != nil { list = append(list, obj) }
+        }
+        /*if list == nil && err == nil {
+                err = fmt.Errorf("no such property `%s` (%v)", name, p)
+        }*/
+        if err == nil {
+                if list != nil {
+                        result = MakeListOrScalar(p.Position(), list)
+                } else {
+                        result = &None{trivial{p.Position()}}
+                }
+        }
+        return
 }
 
 func (p *usinglist) Call(pos Position, a... Value) (res Value, err error) {

@@ -20,6 +20,13 @@ type Position struct {
         got.Position
 }
 
+func (p *Position) Equals(o *Position) bool {
+        return p.Filename == o.Filename &&
+                p.Offset == o.Offset &&
+                p.Line == o.Line &&
+                p.Column == o.Column
+}
+
 const NoPos Pos = Pos(got.NoPos)
 
 type Pos got.Pos

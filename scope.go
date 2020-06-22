@@ -16,27 +16,34 @@ import (
         "io"
 )
 
-// A Scope maintains a set of objects and links to its containing
-// (parent) and contained (children) scopes. Objects may be inserted
-// and looked up by name. The zero value for Scope is a ready-to-use
-// empty scope.
+// A Scope maintains a set of objects;
 type Scope struct {
         mutex *sync.Mutex
-        outer *Scope
-        children []*Scope
-        elems map[string]Object
+        position Position
         project *Project
+        outer *Scope
+        elems map[string]Object
         comment string
 }
 
-func NewScope(outer *Scope, project *Project, comment string) *Scope {
-        //scope := &Scope{ new(sync.Mutex), outer, nil, nil, make(map[string]Object), project, comment }
-        scope := &Scope{ new(sync.Mutex), outer, nil, make(map[string]Object), project, comment }
- 	// Don't add children to Universe scope!
-	if outer != nil && outer != universe {
-		outer.children = append(outer.children, scope)
-	}
+func NewScope(pos Position, outer *Scope, project *Project, comment string) *Scope {
+        scope := &Scope{
+                mutex: new(sync.Mutex),
+                position: pos,
+                project: project,
+                outer: outer,
+                elems: make(map[string]Object),
+                comment: comment,
+        }
         return scope
+}
+
+func (s *Scope) copyElems() (result map[string]Object) {
+        s.mutex.Lock()
+        defer s.mutex.Unlock()
+        result = make(map[string]Object, len(s.elems))
+        for k, o := range s.elems { result[k] = o }
+        return
 }
 
 func (s *Scope) Comment() string { return s.comment }
@@ -61,12 +68,6 @@ func (s *Scope) Names() []string {
 	return names
 }
 
-// NumChildren() returns the number of scopes nested in s.
-func (s *Scope) NumChildren() int { return len(s.children) }
-
-// Child returns the i'th child scope for 0 <= i < NumChildren().
-func (s *Scope) Child(i int) *Scope { return s.children[i] }
-
 // Project returns the project where this scope is existed.
 //func (s *Scope) Project() *Project { return s.project }
 
@@ -88,7 +89,6 @@ func (s *Scope) Lookup(name string) (obj Object) {
 // time (see Insert, below). This can only happen for dot-imported objects
 // whose scope is the scope of the package that exported them.
 func (s *Scope) findouter(name string) (*Scope, Object) {
-        // 1. Lookup outer scopes.
         if false {
                 for p := s; p != nil; p = p.outer {
                         if obj := p.Lookup(name); obj != nil /*&& (!pos.IsValid() || obj.scopePos() <= pos)*/ {
@@ -102,13 +102,6 @@ func (s *Scope) findouter(name string) (*Scope, Object) {
                         }
                 }
         }
-        /*
-        // 2. Lookup chained scopes.
-        for _, p := range s.chain {
-                if p, obj := p.Find(name); obj != nil {
-                        return p, obj
-                }
-        }*/
 	return nil, nil
 }
 
@@ -155,8 +148,7 @@ func (s *Scope) replace(name string, obj Object) {
 // with the scope elements sorted by name.
 // The level of indentation is controlled by n >= 0, with
 // n == 0 for no indentation.
-// If recurse is set, it also writes nested (children) scopes.
-func (s *Scope) WriteTo(w io.Writer, n int, recurse bool) {
+func (s *Scope) WriteTo(w io.Writer, n int) {
         s.mutex.Lock()
         defer s.mutex.Unlock()
 
@@ -175,20 +167,13 @@ func (s *Scope) WriteTo(w io.Writer, n int, recurse bool) {
 		fmt.Fprintf(w, "%s%s\n", indn1, s.elems[name])
 	}
 
-	if recurse {
-		for _, s := range s.children {
-			fmt.Fprintln(w)
-			s.WriteTo(w, n+1, recurse)
-		}
-	}
-
 	fmt.Fprintf(w, "%s}", indn)
 }
 
 // String returns a string representation of the scope, for debugging.
 func (s *Scope) String() string {
 	var buf bytes.Buffer
-	s.WriteTo(&buf, 0, false)
+	s.WriteTo(&buf, 0)
 	return buf.String()
 }
 
@@ -199,28 +184,11 @@ func (s *Scope) FindDef(name string) (def *Def) {
         return
 }
 
-func (s *Scope) FindEntry(name string) (entry *RuleEntry) {
-        if _, sym := s.Find(name); sym != nil {
-                entry, _ = sym.(*RuleEntry)
-        }
-        return
-}
-
-func (s *Scope) DiscloseDef(name string) (str string, err error) {
-        if def := s.FindDef(name); def != nil {
-                var v Value
-                if v, err = def.DiscloseValue(); err == nil && v != nil {
-                        str, err = v.Strval()
-                }
-        }
-        return
-}
-
 func (scope *Scope) ProjectName(owner *Project, name string, project *Project) (pn *ProjectName, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 pn = &ProjectName{
                         knownobject{
-                                unknownobject{
+                                trivialobject{
                                         scope: scope,
                                         owner: owner,
                                 }, name,
@@ -236,7 +204,7 @@ func (scope *Scope) ScopeName(owner *Project, name string, s *Scope) (sn *ScopeN
         if alt = scope.elems[name]; alt == nil {
                 sn = &ScopeName{
                         knownobject{
-                                unknownobject{
+                                trivialobject{
                                         scope: scope,
                                         owner: owner,
                                 }, name,
@@ -248,7 +216,7 @@ func (scope *Scope) ScopeName(owner *Project, name string, s *Scope) (sn *ScopeN
         return
 }
 
-func (scope *Scope) Def(owner *Project, name string, value Value) (def *Def, alt Object) {
+func (scope *Scope) define(owner *Project, name string, value Value) (def *Def, alt Object) {
         var okay bool
         if alt, okay = scope.elems[name]; okay && alt == nil {
                 delete(scope.elems, name)
@@ -257,7 +225,7 @@ func (scope *Scope) Def(owner *Project, name string, value Value) (def *Def, alt
         if !okay {
                 def = &Def{
                         knownobject{
-                                unknownobject{
+                                trivialobject{
                                         scope: scope,
                                         owner: owner,
                                 }, name,
@@ -269,16 +237,16 @@ func (scope *Scope) Def(owner *Project, name string, value Value) (def *Def, alt
         return
 }
 
-func (scope *Scope) Builtin(name string, f BuiltinFunc) (bui *Builtin, alt Object) {
+func (scope *Scope) builtin(name string, f BuiltinFunc) (bui *Builtin, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 bui = &Builtin{
                         knownobject{
-                                unknownobject{
+                                trivialobject{
                                         scope: scope,
                                         owner: nil,
                                 }, name,
                         },
-                        f,
+                        builtinFlag(0), f,
                 }
                 scope.replace(name, bui)
         }
