@@ -103,8 +103,3 @@ Why
 ===
 
 Build projects with complex hierarchies the easy way!
-
-
-## Support
-
-BTC: [`1JSGu7hEGtGffHGAM3Tj9hP8NRdJ7vqS2X`](bitcoin://1JSGu7hEGtGffHGAM3Tj9hP8NRdJ7vqS2X)
