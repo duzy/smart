@@ -128,34 +128,33 @@ var (
 
 const (
   maxRetries = 1
-  maxWorkers = 10
+  maxWorkers = 8
 )
 
 func init() {
   working.Store(0)
 }
 
-func checkForWork() (good bool) {
-  workingMutex.Lock(); defer workingMutex.Unlock()
-
-  var num = working.Load().(int)
-  if num < maxWorkers {
+func checkForWork() (good bool, num int) {
+  if false { workingMutex.Lock(); defer workingMutex.Unlock()}
+  if num = working.Load().(int); num < maxWorkers {
     working.Store(num + 1)
     good = true
   }
   return
 }
 
-func waitForWork() {
+func waitForWork() (num int) {
+  var good = false
   for {
-    if checkForWork() { break }
-    time.Sleep(5*time.Millisecond)
+    if good, num = checkForWork(); good { break }
+    time.Sleep(50*time.Millisecond)
   }
+  return
 }
 
-func releaseWork() {
-  workingMutex.Lock(); defer workingMutex.Unlock()
-  var num = working.Load().(int)
+func releaseWork(num int) {
+  if false { workingMutex.Lock(); defer workingMutex.Unlock() }
   working.Store(num - 1)
 }
 
@@ -793,7 +792,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
 
     // Remove tabs in line breakings.
     source = strings.Replace(source, "\\\n\t", "\\\n", -1)
-    
+
     // Duplicates all %
     //source = strings.Replace(source, "%", "%%", -1)
 
@@ -917,8 +916,12 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
 
       if optionNoExec { continue }
 
-      // Restricts the number of workers.
-      waitForWork(); defer releaseWork()
+      if false {
+        // Restricts the number of workers.
+        ///fmt.Fprintf(stderr, "run.1: %v\n", targetName)
+        var num = waitForWork(); defer releaseWork(num)
+        ///fmt.Fprintf(stderr, "run.2: %v\n", targetName)
+      }
 
       //if err = lockCD(dir, 25*time.Millisecond); err != nil { err = wrap(pos, err); return }
       //if s, e := os.Getwd(); e == nil { assert(s == dir, "wrong work directory (%s != %s)", s, dir) }

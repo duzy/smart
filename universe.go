@@ -80,16 +80,14 @@ func (g *Globe) SetScopeOuter(scope *Scope) {
 }
 
 func (g *Globe) timestamp(s string) (t time.Time) {
-        g._timestampx.Lock()
-        t, _ = g._timestamps[s]
-        g._timestampx.Unlock()
-        return
+  g._timestampx.Lock(); defer g._timestampx.Unlock()
+  t, _ = g._timestamps[s]
+  return
 }
 
 func (g *Globe) stamp(s string, t time.Time) {
-        g._timestampx.Lock()
-        g._timestamps[s] = t
-        g._timestampx.Unlock()
+  g._timestampx.Lock(); defer g._timestampx.Unlock()
+  g._timestamps[s] = t
 }
 
 // project returns a new Project for the given project path and name;

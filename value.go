@@ -263,12 +263,12 @@ func (t *traversal) calleeDone(err error) {
 }
 
 func (t *traversal) calleeError(err error) {
-  if false { t.calleeErrsM.Lock(); defer t.calleeErrsM.Unlock() }
+  t.calleeErrsM.Lock(); defer t.calleeErrsM.Unlock()
   t.calleeErrs = append(t.calleeErrs, err)
 }
 
 func (t *traversal) calleeErrors() (errs []error) {
-  if false { t.calleeErrsM.Lock(); defer t.calleeErrsM.Unlock() }
+  t.calleeErrsM.Lock(); defer t.calleeErrsM.Unlock()
   errs = t.calleeErrs
   return
 }
@@ -2724,7 +2724,7 @@ func (p *Flag) traverse(t *traversal) (err error) {
 }
 
 const escapedChars = "\"\r\n"
-      
+
 type Compound struct { trivial ; elements } // "compound string"
 func (p *Compound) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
