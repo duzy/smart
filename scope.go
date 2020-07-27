@@ -39,11 +39,10 @@ func NewScope(pos Position, outer *Scope, project *Project, comment string) *Sco
 }
 
 func (s *Scope) copyElems() (result map[string]Object) {
-        s.mutex.Lock()
-        defer s.mutex.Unlock()
-        result = make(map[string]Object, len(s.elems))
-        for k, o := range s.elems { result[k] = o }
-        return
+  s.mutex.Lock(); defer s.mutex.Unlock()
+  result = make(map[string]Object, len(s.elems))
+  for k, o := range s.elems { result[k] = o }
+  return
 }
 
 func (s *Scope) Comment() string { return s.comment }
@@ -56,8 +55,7 @@ func (s *Scope) Len() int { return len(s.elems) }
 
 // Names returns the scope's element names in sorted order.
 func (s *Scope) Names() []string {
-        s.mutex.Lock()
-        defer s.mutex.Unlock()
+  s.mutex.Lock(); defer s.mutex.Unlock()
 	names := make([]string, len(s.elems))
 	i := 0
 	for name := range s.elems {

@@ -1612,7 +1612,7 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                 case 'f': if !(isNil(v) || isNone(v)) { optFoot = v }
                 }
         }); err != nil { return }
-        
+
         var target Value
         var source Value
         if len(args) > 0 {
@@ -2490,8 +2490,9 @@ func modifierOnce(pos Position, t *traversal, args... Value) (result Value, err 
         var sum HashBytes
         copy(sum[:], h.Sum(nil))
 
-        onceMutex.Lock(); defer onceMutex.Unlock()
-        onceCache[sum] += 1
+  onceMutex.Lock()
+  onceCache[sum] += 1
+  onceMutex.Unlock()
 
         var num = onceCache[sum]
 

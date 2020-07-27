@@ -7,15 +7,15 @@
 package smart
 
 import (
-        "extbit.io/smart/token"
+  "extbit.io/smart/token"
 	"path/filepath"
-        "strings"
-        "bufio"
-        "time"
-        "fmt"
-        "os"
-        "io"
-        "io/ioutil"
+  "strings"
+  "bufio"
+  "time"
+  "fmt"
+  "os"
+  "io"
+  "io/ioutil"
 )
 
 var (

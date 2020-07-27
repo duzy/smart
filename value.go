@@ -254,23 +254,23 @@ func (t *traversal) depth() (res int) {
 }
 
 func (t *traversal) calleeStart() {
-        t.group.Add(1)
+  t.group.Add(1)
 }
 
 func (t *traversal) calleeDone(err error) {
-        if err != nil { t.calleeError(err) }
-        t.group.Done()
+  if err != nil { t.calleeError(err) }
+  t.group.Done()
 }
 
 func (t *traversal) calleeError(err error) {
-        t.calleeErrsM.Lock(); defer t.calleeErrsM.Unlock()
-        t.calleeErrs = append(t.calleeErrs, err)
+  if false { t.calleeErrsM.Lock(); defer t.calleeErrsM.Unlock() }
+  t.calleeErrs = append(t.calleeErrs, err)
 }
 
 func (t *traversal) calleeErrors() (errs []error) {
-        t.calleeErrsM.Lock(); defer t.calleeErrsM.Unlock()
-        errs = t.calleeErrs
-        return
+  if false { t.calleeErrsM.Lock(); defer t.calleeErrsM.Unlock() }
+  errs = t.calleeErrs
+  return
 }
 
 func (t *traversal) dispatch(i interface{}) (err error) {

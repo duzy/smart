@@ -88,7 +88,7 @@ var builtins = map[string]BuiltinFunc {
         `fields`:               builtinFields,
 
         //`usee`:       builtinUsee,
-        
+
         `path`:         builtinPath,
         `string`:       builtinString,
         `strip`:        builtinStrip,
