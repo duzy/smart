@@ -1,9 +1,8 @@
-# Smart (Simpler Making ART) (BETA)
+# Smart (Simple Making ART for large project) (BETA)
 
 **SMArt** is a new scripting language inspired by `makefile` and designed
-for doing recursive tasks easily. It's written in [Go](http://golang.org).
-The latest version is beta, but still useful for building complex
-hierarchical projects.
+for doing recursive tasks easily and make constructing large projects easy.
+It's written in [Go](http://golang.org).
 
 This fork is specialized for projects of [ExtBit](https://extbit.com).
 
