@@ -4,8 +4,6 @@
 for doing recursive tasks easily and make constructing large projects easy.
 It's written in [Go](http://golang.org).
 
-This fork is specialized for projects of [ExtBit](https://extbit.com).
-
 [Documentation](https://github.com/extbit/smart/wiki/Smart-Construction)
 
 [![GoDoc](https://godoc.org/github.com/duzy/smart/build?status.svg)](http://godoc.org/github.com/duzy/smart/build)
