@@ -6,8 +6,6 @@ It's written in [Go](http://golang.org).
 
 This fork is specialized for projects of [ExtBit](https://extbit.com).
 
-[Documentation](https://github.com/extbit/smart/wiki/Smart-Construction)
-
 [![GoDoc](https://godoc.org/github.com/duzy/smart/build?status.svg)](http://godoc.org/github.com/duzy/smart/build)
 [![Join the chat at https://gitter.im/duzy/smart](https://badges.gitter.im/duzy/smart.svg)](https://gitter.im/duzy/smart?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
@@ -27,6 +25,8 @@ rules defined in a module can only be accessed within the module scope.
 
 The `smart` language has some basic data types, this is another important difference
 comparing to macros in a makefile.
+
+For more details please read the [documentation](https://github.com/extbit/smart/wiki/Smart-Construction).
 
 ## Quick Start
 
