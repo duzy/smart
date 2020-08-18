@@ -214,7 +214,6 @@ type ExecLog struct {
 
 func (p *ExecLog) Write(b []byte) (n int, err error) {
   p.wrimux.Lock(); defer p.wrimux.Unlock()
-
   p.lines += bytes.Count(b, []byte("\n"))
   n, err = p.writer.Write(b)
   return

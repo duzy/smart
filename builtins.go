@@ -1315,6 +1315,8 @@ ForSources:
                                 }
                         }
 
+                  name = filepath.Clean(name)
+
                         // Deal with special source value
                         switch t := src.(type) {
                         case *File:
@@ -1329,20 +1331,19 @@ ForSources:
 
                                 var file *File
                                 if match != nil {
-                                        if file = match.stat(t.dir, pre, name); file != nil {
-                                                assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s", file.name, name))
-                                        } else if file = match.stat(proj.absPath, pre, name); file != nil {
-                                                assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s", file.name, name))
-                                                /*
-                                        } else if match.Paths != nil {
-                                                var ( path = match.Paths[0] ; sub string )
-                                                if sub, err = path.Strval(); err != nil { return }
-                                                if filepath.IsAbs(sub) {
-                                                        file = stat(name, "", sub, nil)
-                                                } else {
-                                                        file = stat(name, sub, t.dir, nil)
-                                                }*/
-                                        }
+                                  if file = match.stat(t.dir, pre, name); file != nil {
+                                    assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (t.dir=%s, pre=%s)", file.name, name, t.dir, pre))
+                                  } else if file = match.stat(proj.absPath, pre, name); file != nil {
+                                    assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (proj.absPath=%s, pre=%s)", file.name, name, proj.absPath, pre))
+                                  }/* else if match.Paths != nil {
+                                    var ( path = match.Paths[0] ; sub string )
+                                    if sub, err = path.Strval(); err != nil { return }
+                                    if filepath.IsAbs(sub) {
+                                      file = stat(name, "", sub, nil)
+                                    } else {
+                                      file = stat(name, sub, t.dir, nil)
+                                    }
+                                  } */
                                 }
                                 if file == nil {
                                         file = stat(pos, name, t.sub, t.dir, nil/* okay missing */)

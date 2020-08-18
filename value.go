@@ -2248,7 +2248,7 @@ func stat(pos Position, name, sub, dir string, infos ...os.FileInfo) (file *File
                         assert(sub == "", "`%s` invalid file{%s %s %s}", fullname, dir, sub, name)
                 }
                 assert(!filepath.IsAbs(sub), "`%s` sub is abs", sub)
-                
+
                 if filepath.IsAbs(name) {
                         s := name
                         assert(fullname == s, "`%s` conflicted fullname (%s)", fullname, s)
