@@ -125,6 +125,7 @@ func do_configuration() (err error) {
         var defs = make(map[string]*Def)
         for _, entry := range configuration.entries {
                 if p := entry.OwnerProject(); p != project && p != nil {
+                  defs = make(map[string]*Def) // reset defs for p
                         var f, e = openConfigurationFile(p)
                         if e != nil { err = wrap(entry.position, e, err); return } else
                         if f != nil {
@@ -158,7 +159,7 @@ func do_configuration() (err error) {
                                         err = errorf(entry.position, "'%s' already configured: %v", d.name, d.value)
                                         return
                                 }*/
-                                continue
+                          continue
                         } else { defs[s] = def }
                         if def.value == nil {
                                 // Set <nil> value with exec-assigning ('!=')
@@ -1287,12 +1288,12 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
                 t_config.tracef("%s: %v (%T)", def.name, def.value, def.value)
                 defer func() { t_config.tracef("%s: %v (%T)", def.name, def.value, def.value) } ()
         }
-        
+
         if !isNil(def.value) { // Check if it's already configured?
                 // reconfigure the def or return it
                 if !optionReconfig { return }
                 if done, found := configuration.done[def]; done && found {
-                        return // already executed (re)configuration
+                  return // already executed (re)configuration
                 }
         }
 

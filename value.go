@@ -2239,8 +2239,7 @@ func stat(pos Position, name, sub, dir string, infos ...os.FileInfo) (file *File
                 fullname = filepath.Join(context.workdir, dir, sub, name)
         }
 
-        fullname = filepath.Clean(fullname)
-
+        if false { fullname = filepath.Clean(fullname) }
         if enable_assertions {
                 assert(filepath.IsAbs(fullname), "`%s` is not abs {%s %s %s}", fullname, name, sub, dir)
                 if filepath.IsAbs(name) {
