@@ -98,8 +98,8 @@ func (e pathNotFoundError) Error() string {
 }
 
 func (e fileNotFoundError) Error() string {
-        if false { debug.PrintStack() }
-        return fmt.Sprintf("%s: `%v` file not found (%s)", e.project.name, e.file.name, e.file.fullname())
+  if false { debug.PrintStack() }
+  return fmt.Sprintf("%s: `%v` file not found (%s) (sub=%s,dir=%s)", e.project.name, e.file.name, e.file.fullname(), e.file.sub, e.file.dir)
 }
 
 func extractTargetNotFoundError(err error) (res *targetNotFoundError) {

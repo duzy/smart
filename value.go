@@ -396,15 +396,18 @@ func (t *traversal) file(file *File) (err error) {
                                 t.appendUpdated(newUpdatedTarget(file))
                         }
                         okay = true // it's good
-                } else if file != nil { okay = file.searchInMatchedPaths(project) } else
-                if alt := project.matchFile(file.name); alt != nil { okay = exists(alt) }
-                if!okay && false {
-                        s, _ := file.Strval()
-                        e, _ := project.resolveEntry(file.name)
-                        fmt.Fprintf(stderr, "%s: %s: %v (%v) (%s)\n", project, file.position, file, e, s)
-                        debug.PrintStack()
-                }
-                if okay { return }
+                } else if file != nil { okay = file.searchInMatchedPaths(project) }
+          if !okay {
+            var alt = project.matchFile(file.name)
+            if alt != nil { okay = alt.sub == "-" || exists(alt) }
+            if!okay && false {
+              s, _ := file.Strval()
+              e, _ := project.resolveEntry(file.name)
+              fmt.Fprintf(stderr, "%s: %s: %v (alt=%v) (%v) (%s)\n", project, file.position, file, alt.sub, e, s)
+              debug.PrintStack()
+            }
+          }
+          if okay { return }
         }
 
         if !okay && err == nil {
@@ -2242,10 +2245,11 @@ func stat(pos Position, name, sub, dir string, infos ...os.FileInfo) (file *File
         if false { fullname = filepath.Clean(fullname) }
         if enable_assertions {
                 assert(filepath.IsAbs(fullname), "`%s` is not abs {%s %s %s}", fullname, name, sub, dir)
-                if filepath.IsAbs(name) {
-                        assert(dir == "", "`%s` invalid file{%s %s %s}", fullname, dir, sub, name)
-                        assert(sub == "", "`%s` invalid file{%s %s %s}", fullname, dir, sub, name)
+                if sub != "-" && filepath.IsAbs(name) {
+                  assert(dir == "", "`%s` invalid file (dir=%s, sub=%s)", fullname, dir, sub)
+                  assert(sub == "", "`%s` invalid file (dir=%s, sub=%s)", fullname, dir, sub)
                 }
+
                 assert(!filepath.IsAbs(sub), "`%s` sub is abs", sub)
 
                 if filepath.IsAbs(name) {

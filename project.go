@@ -401,9 +401,9 @@ ForPats:
           files = append(files, file)
 
           if false { fmt.Fprintf(stderr, "%s: %s -> %s\n", pos, pat, file) }
-        } else if ok {
+        } else if ok && len(fm.Paths) == 1 {
           // Just report that the pattern matches no files in the
-          // file system.
+          // file system (if only one path specified).
           fmt.Fprintf(stderr, "%s: wildcard '%s' in %s: files like '%v' not found in %v\n", pos, pat, p.name, fm, sub)
         } else if optionWildcardMissingError {
           err = fmt.Errorf("files like '%v' not found", fm)
