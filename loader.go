@@ -6,22 +6,22 @@
 package smart
 
 import (
-        "extbit.io/smart/ast"
-        "extbit.io/smart/token"
-        "extbit.io/smart/scanner"
-        "runtime/debug"
+  "extbit.io/smart/ast"
+  "extbit.io/smart/token"
+  "extbit.io/smart/scanner"
+  "runtime/debug"
 	"bytes"
 	"io/ioutil"
 	"io"
-        "unicode/utf8"
+  "unicode/utf8"
 	"path/filepath"
 	"strings"
-        "plugin"
-        "errors"
-        "time"
-        "flag"
-        "fmt"
-        "os/exec"
+  "plugin"
+  "errors"
+  "time"
+  "flag"
+  "fmt"
+  "os/exec"
 	"os"
 )
 
@@ -663,8 +663,10 @@ func (l *loader) loadPlugin(pos Position) (err error) {
                         return
                 } else if p == nil {
                         // no initialization (optional)
+                } else if f, ok := p.(func(Position, *Project) (*Scope, error)); ok {
+                  l.project.pluginScope, err = f(pos, l.project)
                 } else if f, ok := p.(func(*Project) (*Scope, error)); ok {
-                        l.project.pluginScope, err = f(l.project)
+                  l.project.pluginScope, err = f(l.project)
                 }
         } else if es := err.Error(); strings.Contains(es, pluginDifferentVersionError) {
                 err = buildPlugin(s, src)

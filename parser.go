@@ -64,16 +64,16 @@ const (
 )
 
 type parser struct {
-        *loader
+  *loader
 
-        file    *token.File
-        scanner scanner.Scanner
+  file    *token.File
+  scanner scanner.Scanner
 
 	// Comments
 	comments  []*ast.CommentGroup
 	leadComment *ast.CommentGroup // last lead comment
 	lineComment *ast.CommentGroup // last line comment
-        
+
 	// Next token
 	pos token.Pos   // token position
 	tok token.Token // one token look-ahead
@@ -90,28 +90,28 @@ type parser struct {
 	exprLev int  // < 0: in control clause, >= 0: in expression
 	inRhs   bool // if set, the parser is parsing a rhs expression
 
-        bits parsingBits
-        
+  bits parsingBits
+
 	// Ordinary identifier scopes
 	imports []*ast.UseSpec // list of imports
 
-        params []*Def // parameters of current rule
-        dialect string // recipe dialect of current rule
-        configure bool // is parsing configure program?
+  params []*Def // parameters of current rule
+  dialect string // recipe dialect of current rule
+  configure bool // is parsing configure program?
 }
 
 func (p *parser) init(l *loader, filename string, src []byte) {
-        p.loader = l
-        p.file = l.fset.AddFile(filename, -1, len(src))
-        
+  p.loader = l
+  p.file = l.fset.AddFile(filename, -1, len(src))
+
 	var m scanner.Mode
 	if p.tracemode&ParseComments != 0 {
 		m = scanner.ScanComments
 	}
-        
+
 	eh := func(pos token.Position, msg string) {
-                p.errors.Add(pos, errors.New(msg))
-        }
+    p.errors.Add(pos, errors.New(msg))
+  }
 	p.scanner.Init(p.file, src, eh, m)
 
 	p.next()
@@ -121,12 +121,12 @@ func (p *parser) setbits(bits parsingBits) { p.bits = bits }
 func (p *parser) setbit(bit parsingBits) (bits parsingBits) {
         bits = p.bits
         p.bits |= bit
-        return 
+        return
 }
 func (p *parser) clearbit(bit parsingBits) (bits parsingBits) {
         bits = p.bits
         p.bits &= ^bit
-        return 
+        return
 }
 
 // ----------------------------------------------------------------------------
@@ -235,7 +235,7 @@ func (p *parser) next() {
                 p.tok = token.LINEND
                 return
         } */
-        
+
 	p.leadComment = nil
 	p.lineComment = nil
 	prev := p.pos
