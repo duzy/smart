@@ -25,14 +25,14 @@ var (
 
 func defUniverseBuiltins() {
         for name, f := range builtins {
-                if v, alt := universe.builtin(name, f); alt != nil {
+                if v, alt := universe.Builtin(name, f); alt != nil {
                         panic(fmt.Sprintf("builtin '%s' already defined", name))
                 } else {
                         v.flag |= builtinFunction
                 }
         }
         for name, f := range commands {
-                if v, alt := universe.builtin(name, f); alt != nil {
+                if v, alt := universe.Builtin(name, f); alt != nil {
                         panic(fmt.Sprintf("builtin '%s' already defined (command)", name))
                 } else {
                         v.flag |= builtinCommand

@@ -7,26 +7,26 @@
 package smart
 
 import (
-        "extbit.io/smart/scanner"
-        "extbit.io/smart/token"
-        "encoding/base64"
-        "path/filepath"
-        //"hash/crc64"
-        "io/ioutil"
-        "net/http"
-        "os/exec"
-        goctx "context"
-        "strings"
-        "strconv"
+  "extbit.io/smart/scanner"
+  "extbit.io/smart/token"
+  "encoding/base64"
+  "path/filepath"
+  //"hash/crc64"
+  "io/ioutil"
+  "net/http"
+  "os/exec"
+  goctx "context"
+  "strings"
+  "strconv"
 	"unicode"
-        "errors"
-        "regexp"
-        "bytes"
-        "bufio"
-        "time"
-        "fmt"
-        "os"
-        "io"
+  "errors"
+  "regexp"
+  "bytes"
+  "bufio"
+  "time"
+  "fmt"
+  "os"
+  "io"
 )
 
 type Position token.Position
@@ -68,7 +68,7 @@ var builtins = map[string]BuiltinFunc {
 
         `serve-http`:   builtinServeHttp,
         `serve-https`:  builtinServeHttps,
-        
+
         // `print`:        builtinPrint,
         // `printl`:       builtinPrintl,
         // `println`:      builtinPrintln,

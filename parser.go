@@ -229,12 +229,12 @@ func (p *parser) consumeCommentGroup(n int) (comments *ast.CommentGroup, endline
 // stored in the AST.
 //
 func (p *parser) next() {
-        /* if p.lineComment != nil {
-                fmt.Fprintf(stderr, "next: %v", p.lineComment.Text())
-                p.lineComment = nil
-                p.tok = token.LINEND
-                return
-        } */
+  /*if p.lineComment != nil {
+    fmt.Fprintf(stderr, "next: %v", p.lineComment.Text())
+    p.lineComment = nil
+    p.tok = token.LINEND
+    return
+  }*/
 
 	p.leadComment = nil
 	p.lineComment = nil

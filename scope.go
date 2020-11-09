@@ -235,7 +235,7 @@ func (scope *Scope) define(owner *Project, name string, value Value) (def *Def, 
         return
 }
 
-func (scope *Scope) builtin(name string, f BuiltinFunc) (bui *Builtin, alt Object) {
+func (scope *Scope) Builtin(name string, f BuiltinFunc) (bui *Builtin, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 bui = &Builtin{
                         knownobject{

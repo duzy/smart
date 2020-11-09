@@ -3280,8 +3280,12 @@ func (p *delegate) closured() bool {
         return false
 }
 func (p *delegate) refdef(origin DefOrigin) (res bool) {
-        if d, ok := p.x.(*Def); ok { res = d.origin == origin }
-        return
+  if origin == defany {
+    res = true
+  } else if d, ok := p.x.(*Def); ok {
+    res = d.origin == origin
+  }
+  return
 }
 func (p *delegate) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }

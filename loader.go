@@ -855,8 +855,11 @@ func (l *loader) exprDelegate(x *ast.DelegateExpr) (v Value) {
                 } else {
                         // just use the selected value
                 }
+        } else if name.refdef(defany) || name.closured() { // recursive delegation or closure
+          obj = unresolved(l.project, name)
+          v = MakeDelegate(Position(x.Position), x.TokLp, obj, l.exprs(x.Args)...)
         } else {
-                l.error(x.Name.Pos(), "delegate nil object `%v` (from %v)", name, l.scope.comment)
+          l.error(x.Name.Pos(), "delegate nil object `%v` (%T, %v, from %v)", name, name, v, l.scope.comment)
         }
         return
 }
@@ -1510,7 +1513,7 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                 var ( name string ; entry *RuleEntry ; err error )
                 if name, err = target.Strval(); err != nil {
                         l.error(clause.Targets[n].Pos(), "%v", err)
-                }                
+                }
                 if true {// it should work too if not checking against files
                         switch target.(type) {
                         case *File, *Path, Pattern:
@@ -1979,25 +1982,30 @@ func (l *loader) OpenNamedScope(name, comment string) (loaderScope, error) {
 }
 
 func (l *loader) resolve(value Value) (obj Value, err error) {
-        if sel, ok := value.(*selection); ok {
-                obj = sel
-                return
-        }
+  if sel, ok := value.(*selection); ok {
+    obj = sel
+    return
+  }
 
-        var name string
-        if name, err = value.Strval(); err != nil { return }
+  var name string
+  if name, err = value.Strval(); err != nil { return }
 
-        if l.scope != nil { _, obj = l.scope.Find(name) }
-        if obj == nil && l.project != nil {
-                obj, err = l.project.resolveObject(name)
-        }
-        return
+
+  if l.scope != nil { _, obj = l.scope.Find(name) }
+  if obj == nil && l.project != nil {
+    obj, err = l.project.resolveObject(name)
+  }
+
+  /*if obj == nil {
+    err = errorf(value.Position(), "`%s` is nil (%T)", name, value)
+  }*/
+  return
 }
 
 func (l *loader) find(target Value) (obj Object, err error) {
         var name string
         if name, err = target.Strval(); err != nil { return }
-        
+
         var entry *RuleEntry
         if entry, err = l.project.resolveEntry(name); err != nil {
                 return

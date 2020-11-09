@@ -236,24 +236,26 @@ func (p *ScopeName) cmp(v Value) (res cmpres) {
 
 type DefOrigin int
 const (
-        // =
-        DefDefault DefOrigin = iota // normal value
-        
-        // :=
-        DefSimple // expand delegates
+  // =
+  DefDefault DefOrigin = iota // normal value
 
-        // ::=
-        DefExpand // expand all (delegates, closures, paths)
+  // :=
+  DefSimple // expand delegates
 
-        // !=
-        DefExecute // executed result
+  // ::=
+  DefExpand // expand all (delegates, closures, paths)
 
-        DefAuto // automatic: $1, $2, $3, etc.
-        DefArg  // ((arg))
-        DefDecl // 
-        DefConfDir
-        DefConfRef // referred by config
-        DefConfig
+  // !=
+  DefExecute // executed result
+
+  DefAuto // automatic: $1, $2, $3, etc.
+  DefArg  // ((arg))
+  DefDecl //
+  DefConfDir
+  DefConfRef // referred by config
+  DefConfig
+
+  defany // referred any def
 )
 
 func (o DefOrigin) String() (s string) {
@@ -722,7 +724,7 @@ func (entry *RuleEntry) refdef(origin DefOrigin) bool {
 }
 func (entry *RuleEntry) closured() bool {
         if entry.target.closured() { return true }
-        
+
         // TODO: do more tests for this to see if we need to fallthrough
         return false // only check closured agaist target
 
