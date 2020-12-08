@@ -1685,13 +1685,15 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
         }
 
         if !filetime.IsZero() && filetime.After(srctime) {
-                if optOverride {
-                        if optVerbose { fmt.Fprintf(stderr, "smart: Override %v …", target) }
-                } else {
-                        if optVerbose { fmt.Fprintf(stderr, "smart: Copy %v …… already existed!\n", target) }
-                        if !optSilent { err = errorf(pos, "file already existed (%s)", target) }
-                        return
-                }
+          if optUpdate {
+            if optVerbose { fmt.Fprintf(stderr, "smart: Update %v …", target) }
+          } else if optOverride {
+            if optVerbose { fmt.Fprintf(stderr, "smart: Override %v …", target) }
+          } else {
+            if optVerbose { fmt.Fprintf(stderr, "smart: Copy %v …… already existed!\n", target) }
+            if !optSilent { err = errorf(pos, "file already existed (%s)", target) }
+            return
+          }
         } else if optVerbose {
                 if optUpdate {
                         fmt.Fprintf(stderr, "smart: Checking %v …", target)
