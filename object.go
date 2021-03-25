@@ -23,20 +23,20 @@ import (
 // TODO: defines ObjInfo to classify objects.
 // 
 type Object interface {
-        Value
+  Value
 
-        Name() string
+  Name() string
 
-        DeclScope() *Scope
-        OwnerProject() *Project
+  DeclScope() *Scope
+  OwnerProject() *Project
 
-        // Get object's named property.
-        Get(name string) (Value, error)
-        
+  // Get object's named property.
+  Get(name string) (Value, error)
+
 	// redecl the object.
 	redecl(*Scope)
 
-        tryTraverse(t *traversal) (okay bool, err error)
+  tryTraverse(t *traversal) (okay bool, err error)
 }
 
 type trivialobject struct { // generally unnamed objects

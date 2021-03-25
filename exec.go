@@ -611,6 +611,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
       if p, ok := v.(*Pair); ok {
         fmt.Printf("%s: -p=xxx has been replaced with -c (-cmd), -p is no -path", p.Value.Position())
       }
+      // TODO: add case 'u', for example -u=root
     case 'c':
       if v == nil {
         optPrompt = true

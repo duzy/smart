@@ -429,6 +429,7 @@ ForFilemaps:
     if !matched { continue ForFilemaps }
     if p.changedWD != "" { file = filemap.stat(p.changedWD, pre, name) }
     if file == nil { file = filemap.stat(p.absPath, pre, name) }
+    if false { fmt.Fprintf(stderr, "%s: %s (file=%v (aka. file.name), exists=%v, cwd=%s) (project.matchFile)\n", p, name, file, exists(file), p.changedWD) }
     if file != nil {
       if file.match == nil { file.match = filemap }
       if pre != "" { /* FIXME: file.change(...pre) */ }

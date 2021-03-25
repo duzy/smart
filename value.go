@@ -397,21 +397,22 @@ func (t *traversal) file(file *File) (err error) {
                         }
                         okay = true // it's good
                 } else if file != nil { okay = file.searchInMatchedPaths(project) }
+
           if !okay {
             var alt = project.matchFile(file.name)
             if alt != nil { okay = alt.sub == "-" || exists(alt) }
-            if!okay && false {
+            if !okay && false {
               s, _ := file.Strval()
               e, _ := project.resolveEntry(file.name)
               fmt.Fprintf(stderr, "%s: %s: %v (alt=%v) (%v) (%s)\n", project, file.position, file, alt.sub, e, s)
-              debug.PrintStack()
+              if false { debug.PrintStack() }
             }
           }
           if okay { return }
         }
 
         if !okay && err == nil {
-                if false { fmt.Fprintf(stderr, "%s: %s: %v (not found)\n", t.project, file.position, file.name) }
+          if false { fmt.Fprintf(stderr, "%s: %s: %v (not found) (traversal.file)\n", t.project, file.position, file.name) }
                 err = wrap(file.position, fileNotFoundError{t.project, file})
                 if optionTraceTraversal { t.tracef("%v: file({%s,%s,%s}): not found", t.project, file.dir, file.sub, file.name) }
         }
@@ -487,7 +488,7 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (err erro
                         }
 
                         if optionTraceTraversal { t.tracef("target: file %v (okay=%v) (exists=%v)", file, okay, exists(file)) }
-                        
+
                         // Check file existance
                         if okay { break } else if file.info != nil {
                                 if false { fmt.Fprintf(stderr, "%s: %s: %v, %v, %v (okay=%v)\n", project, entry.position, entry, target, t.def.target.value, okay) }
@@ -499,8 +500,18 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (err erro
                                 }
                                 okay = true // it's good
                         } else if file != nil { okay = file.searchInMatchedPaths(project) }
-                        if false { fmt.Fprintf(stderr, "%s: %s: %v (found=%v)\n", project, file.position, file.name, okay) }
-                        if okay { return } // Done!
+                  if false { fmt.Fprintf(stderr, "%s: %s: %v (found=%v)\n", project, file.position, file.name, okay) }
+                  if !okay && file.name != target {
+                    var alt = file //project.matchFile(file.name)
+                    if alt != nil { okay = alt.sub == "-" || exists(alt) }
+                    if !okay && false {
+                      s, _ := file.Strval()
+                      e, _ := project.resolveEntry(file.name)
+                      fmt.Fprintf(stderr, "%s: %s: %v (file=%v, match=%v, cwd=%s, alt.sub=%v, entry=%v, fullname=%s)\n", project, file.position, target, file, file.match, project.changedWD, alt.sub, e, s)
+                      if true { debug.PrintStack() }
+                    }
+                  }
+                  if okay { return } // Done!
                 } else if vals != nil && false {
                         fmt.Fprintf(stderr, "%s: %s: %v %v\n", project, vals[0].Position(), target, vals)
                 }
@@ -523,6 +534,7 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (err erro
 
         if !okay && err == nil {
                 if file != nil {
+                  if false { fmt.Fprintf(stderr, "%s: %s: %v (not found, sub=%s, dir=%s, cwd=%s) (traversal.target)\n", t.project, file.position, file.name, file.sub, file.dir, t.project.changedWD) }
                         err = wrap(pos, fileNotFoundError{fileProj, file})
                         if optionTraceTraversal { t.tracef("%v: `target(%s)` file not found", t.project, file) }
                 } else {
@@ -1676,7 +1688,8 @@ func (p *Barecomp) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
         var target string
         if target, err = p.Strval(); err == nil {
-                err = t.target(p.position, target)
+          if false { fmt.Fprintf(stderr, "%s: %v (%s)\n", p.position, p, target) }
+          err = t.target(p.position, target)
         }
         return
 }

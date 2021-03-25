@@ -1840,11 +1840,12 @@ func crc64CheckFileModeContent(filename string, content []byte, perm os.FileMode
                 if _, err = w2.Write(content); err != nil { return }
                 var a, b = w1.Sum64(), w2.Sum64()
                 if a == b { same = true }
-                if false {
-                        var s []byte
-                        if s, err = ioutil.ReadFile(filename); err != nil { return }
-                        fmt.Fprintf(stderr, "crc64CheckFileModeContent: %v %v\n%s\n%s\n", a, b, s, content)
-                }
+
+          if false {
+            var s []byte
+            if s, err = ioutil.ReadFile(filename); err != nil { return }
+            fmt.Fprintf(stderr, "crc64CheckFileModeContent: %v %v\n%s\n%s\n", a, b, s, content)
+          }
         }
         return
 }
