@@ -404,7 +404,10 @@ ForPats:
         } else if ok && len(fm.Paths) == 1 {
           // Just report that the pattern matches no files in the
           // file system (if only one path specified).
-          fmt.Fprintf(stderr, "%s: wildcard '%s' in %s: files like '%v' not found in %v\n", pos, pat, p.name, fm, sub)
+          var pp1 = fm.Pattern.Position()
+          var pp2 =        pat.Position()
+          fmt.Fprintf(stderr, "%s: %s: %s: '%v' not found in '%v'\n", pp1, p.name, pat, fm, sub)
+          fmt.Fprintf(stderr, "%s: %s: wildcard: %v\n", pp2, p.name, pat)
         } else if optionWildcardMissingError {
           err = fmt.Errorf("files like '%v' not found", fm)
           break ForPats
