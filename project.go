@@ -28,16 +28,10 @@ type FileMap struct {
 func (filemap *FileMap) String() string { return filemap.Pattern.String() }
 
 func (filemap *FileMap) isRealPattern() (result bool) {
-  switch t := filemap.Pattern.(type) {
-  case Pattern: result = true
-  case *Path:
-    /*if t.File == nil {
-                        for _, seg := range t.Elems {
-                                _, result = seg.(Pattern)
-                                if result { return }
-                        }
-                }*/
-    if result = t.isPattern(); result { return }
+  if t, ok := filemap.Pattern.(*Path); ok {
+    result = t.isPattern()
+  } else if _, ok := filemap.Pattern.(Pattern); ok {
+    result = true
   }
   return
 }
@@ -390,8 +384,7 @@ ForPats:
             }
           }
         } else if ok := fm.isRealPattern(); !ok && wo.optIncludeMissing {
-          // If the filemap is not a pattern (e.g. foobar.cpp),
-          // we include it in the returning files.
+          // If the filemap is not a pattern (e.g. foobar.cpp), we include it in the returning files
           var name string
           name, err = fm.Pattern.Strval()
           if err != nil { break ForPats }
@@ -407,7 +400,7 @@ ForPats:
           var pp1 = fm.Pattern.Position()
           var pp2 =        pat.Position()
           fmt.Fprintf(stderr, "%s: %s: %s: '%v' not found in '%v'\n", pp1, p.name, pat, fm, sub)
-          fmt.Fprintf(stderr, "%s: %s: wildcard: %v\n", pp2, p.name, pat)
+          fmt.Fprintf(stderr, "%s: %s: wildcard: %v (try using flag -m, aka -include-missing)\n", pp2, p.name, pat)
         } else if optionWildcardMissingError {
           err = fmt.Errorf("files like '%v' not found", fm)
           break ForPats
