@@ -38,7 +38,7 @@ var builtins = map[string]BuiltinFunc {
         `position`:     builtinPosition,
 
         `error`:        builtinError,
-        `warning`:      builtinWarning,
+        //`warning`:      builtinWarning,
 
         `assert-valid`: builtinAssertValid,
 
@@ -187,6 +187,9 @@ var commands = map[string]BuiltinFunc {
         `print`:        builtinPrint,
         `printl`:       builtinPrintl,
         `println`:      builtinPrintln,
+
+        //`error`:        builtinError,
+        `warning`:      builtinWarning,
 
         `append`:       builtinAppend,
 
@@ -1810,13 +1813,13 @@ func builtinDecodeBase64(pos Position, args... Value) (res Value, err error) {
 
 func builtinBase(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        var s string
         var l []Value
         for _, a := range args {
                 /*switch t := a.(type) {
                 case *File:
                         fmt.Fprintf(stderr, "todo: base File{%v %v %v}\n", t.dir, t.sub, t.name)
                 }*/
-                var s string
                 if s, err = a.Strval(); err != nil {
                         return
                 }
@@ -3015,5 +3018,6 @@ func configure(pos Position, out *bytes.Buffer, project *Project, str string) (e
 
 func builtinReturn(pos Position, args... Value) (res Value, err error) {
         //if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+
         return nil, &Returner{ args }
 }
