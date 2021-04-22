@@ -128,7 +128,7 @@ var (
 
 const (
   maxRetries = 1
-  maxWorkers = 8
+  maxWorkers = 3
 )
 
 func init() {
@@ -961,7 +961,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   if t.caller == nil { exeres.wg.Wait() }
 
   // The execution is performed asynchronously, the result can't
-  // be fetched immediately. Caller should t.wait(...) or
+  // be fetched immediately. Caller should do a t.wait(...) or
   // exeres.wait() before using the result.
   result = exeres
   return

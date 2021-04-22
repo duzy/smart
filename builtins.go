@@ -1257,6 +1257,7 @@ func builtinPatsubst(pos Position, args... Value) (res Value, err error) {
         var list []Value
         if len(args) < 3 { return }
 
+        // TODO: support flags -name and -full for name-only and full-name-only matching
         var srcPats, dstPats, sources []Value
         if srcPats, err = mergeresult(ExpandAll(args[0])); err != nil { return }
         if dstPats, err = mergeresult(ExpandAll(args[1])); err != nil { return }
