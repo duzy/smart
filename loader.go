@@ -615,7 +615,36 @@ func (l *loader) loadUseSpecName(opts importoptions, spec *ast.UseSpec, specName
         }
 
         var pos = spec.Props[0].Pos()
-        err = l.useProject(pos, loaded, params, useopts)
+        if err = l.useProject(pos, loaded, params, useopts); err == nil && !specOpts.unuse {
+                var ( using Value; names []string )
+                if o, e := l.project.resolveObject("using.*"); e == nil && !isNil(o) {
+                        if def, ok := o.(*Def); ok && !isNil(def) { using = def.value }
+                }
+                if !(isNil(using) || isNone(using)) {
+                        if s, e := using.Strval(); e == nil {
+                                names = strings.Fields(s)
+                        }
+                }
+		var position = Position(l.file.Position(pos))
+                for _, name := range names {
+                        var usingVarName = fmt.Sprintf("using.%s", name)
+			var def, alt = l.project.scope.define(l.project, name, &None{trivial{position}})
+                        if def != nil && alt == nil { // if it's new Def (first time being defined)
+                                if false { l.info(pos, "1: %v", def) }
+                                for _, base := range l.project.bases {
+                                        if obj, err := base.resolveObject(name); err == nil && !(isNil(obj) || isNone(obj)) {
+                                                def.append(obj) // append all base Defs (act like '+=')
+                                        }
+                                }
+                                if false { l.info(pos, "2: %v", def) }
+                        }
+			if def == nil && alt != nil { def, _ = alt.(*Def) }
+                        if o := loaded.scope.Lookup(usingVarName); !isNil(o) {
+                                if false { l.info(pos, "3: %v; %v", def, o) }
+                                def.append(o)
+                        }
+                }
+        }
         return
 }
 

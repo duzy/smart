@@ -233,7 +233,7 @@ func (p *usinglist) Get(name string) (result Value, err error) {
                 // Lookup only the project specific exported names. Don't use
                 // scope.Find(...) invocation!
                 obj := usee.project.scope.Lookup("using."+name)
-                if obj != nil { list = append(list, obj) }
+                if !isNil(obj) { list = append(list, obj) }
         }
         /*if list == nil && err == nil {
                 err = fmt.Errorf("no such property `%s` (%v)", name, p)

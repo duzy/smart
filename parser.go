@@ -2193,7 +2193,7 @@ func (p *parser) applyUseeVars(pos token.Pos, proj *Project, using Value) {
 				}
 			}
 			if l, e := proj.using.Get(name); e == nil {
-				if true { p.info(pos, "%v: %v; %v: %v; (user: %v)", proj, def, name, l, userProj) }
+				if false { p.info(pos, "%v: %v; %v: %v; (user: %v)", proj, def, name, l, userProj) }
 				e = def.append(l)
 			} else {
 				p.error(pos, "%v: %v (usng.%s)", proj, e, name)
