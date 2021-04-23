@@ -2175,6 +2175,35 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
         return &ast.BadClause{From: pos, To: p.pos}
 }
 
+func (p *parser) applyUseeVars(pos token.Pos, proj *Project, using Value) {
+	var userProj = p.scope.project // aka. p.project
+	if s, e := using.Strval(); e == nil {
+		position := Position(p.file.Position(pos))
+		names := strings.Fields(s)
+		for _, name := range names {
+			var (
+				usingVarName = fmt.Sprintf("using.%s", name)
+				def *Def; alt Object
+			)
+			def, alt = proj.scope.define(proj, usingVarName, &None{trivial{position}})
+			if def == nil && alt != nil { def, _ = alt.(*Def) }
+			for _, base := range proj.bases {
+				if obj, err := base.resolveObject(usingVarName); err == nil && !(isNil(obj) || isNone(obj)) {
+					def.append(obj)
+				}
+			}
+			if l, e := proj.using.Get(name); e == nil {
+				if true { p.info(pos, "%v: %v; %v: %v; (user: %v)", proj, def, name, l, userProj) }
+				e = def.append(l)
+			} else {
+				p.error(pos, "%v: %v (usng.%s)", proj, e, name)
+			}
+		}
+	} else {
+		p.error(pos, "%v: %v", proj, using)
+	}
+}
+
 func (p *parser) parseFile() *ast.File {
         if optionTraceLaunch { defer un(trace(t_launch, "parser.parseFile")) }
 	if p.tracing.enabled { defer un(trace(p, "File '"+p.file.Name()+"'")) }
@@ -2312,6 +2341,17 @@ func (p *parser) parseFile() *ast.File {
                         if err := p.declare(keyword, ident, options, params); err != nil {
                                 p.error(ident.Pos(), err)
                         } else {
+				if filepath.Base(filename) == "build.smart" {
+					defer func(pos token.Pos, proj *Project) {
+						var using Value
+						if o, e := proj.resolveObject("using.*"); e == nil && !isNil(o) {
+							if def, ok := o.(*Def); ok && !isNil(def) { using = def.value }
+						}
+						if !isNil(using) {
+							p.applyUseeVars(pos, proj, using)
+						}
+					} (ident.Pos(), p.project)
+				}
                                 defer p.closeCurrent(ident)
                         }
                 }

@@ -405,6 +405,16 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
         for _, specName := range specNames {
                 l.loadUseSpecName(opts, spec, specName, &specOpts, params)
         }
+
+        if err == nil && false {
+                var using Object
+                if using, err = l.project.resolveObject("using.*"); err == nil && !isNil(using) {
+                        if def, ok := using.(*Def); ok {
+                                l.info(spec.Pos(), "TODO: using: %T %v", def, def.value)
+                        }
+                }
+                err = nil
+        }
         return
 }
 
