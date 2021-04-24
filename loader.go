@@ -1797,6 +1797,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 }
         }
 
+        var pos = Position(l.parser.file.Position(ident.Pos()))
         if ident.Value == "@" {
                 var (
                         linfo = l.loads[0]
@@ -1813,10 +1814,14 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 l.project = at.NamedProject()
                 l.scope = l.project.scope
                 return nil
+        } else if _, o := l.scope.Find(ident.Value); o != nil {
+                if _, ok := o.(*Builtin); ok {
+                        err = errorf(pos, "project name '%s' is a builtin name", ident.Value)
+                        return
+                }
         }
 
         var (
-                pos = Position(l.parser.file.Position(ident.Pos()))
                 name = ident.Value
                 linfo = l.loads[len(l.loads)-1]
                 dec, declared = linfo.declares[name]
