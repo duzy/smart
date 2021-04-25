@@ -1319,7 +1319,7 @@ ForSources:
                                 }
                         }
 
-                  name = filepath.Clean(name)
+                        name = filepath.Clean(name)
 
                         // Deal with special source value
                         switch t := src.(type) {

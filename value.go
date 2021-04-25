@@ -1484,7 +1484,7 @@ func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.string, 10
 func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
 func (p *String) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
-        if false { err = t.target(p.position, p.string) } else {
+        if true { err = t.target(p.position, p.string) } else {
                 err = errorf(p.position, "cant traverse string yet")
         }
         return
