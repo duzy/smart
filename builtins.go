@@ -1271,7 +1271,7 @@ func builtinPatsubst(pos Position, args... Value) (res Value, err error) {
 
         // Using the most derived context for correct &(...)
         defer setclosure(setclosure(cloctx.unshift(proj.scope)))
-        var filemaps = proj.filemaps()
+        var filemaps = proj.filemaps(false)
 
 ForSources:
         for _, src := range sources {
@@ -2616,6 +2616,7 @@ func builtinWildcard(pos Position, args... Value) (res Value, err error) {
                 return
         } else if args, err = parseFlags(args, []string{
                 "m,include-missing",
+                "v,verbose",
         }, func(ru rune, v Value) {
                 switch ru {
                 case 'm': if wo.optIncludeMissing, err = trueVal(v, true); err != nil { return }

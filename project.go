@@ -280,7 +280,7 @@ func (p *Project) mapfile(pat Value, paths []Value) {
   p.filemap = append(p.filemap, &FileMap{ pat, paths })
 }
 
-func (p *Project) filemaps() (filemaps []*FileMap) {
+func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.filemaps")) }
 
   var appendUnique = func(a *FileMap) {
@@ -292,27 +292,61 @@ func (p *Project) filemaps() (filemaps []*FileMap) {
   for _, m := range p.filemap {
     appendUnique(m)
   }
+  if using {
+    // takes a big longer time to map usee filemaps, but acceptable
+    var appendUsingList func(*Project)
+    appendUsingList = func(p *Project) {
+      for _, m := range p.filemap {
+        appendUnique(m)
+      }
+      for _, u := range p.using.list {
+        appendUsingList(u.project)
+      }
+    }
+    appendUsingList(p)
+  }
   for _, base := range p.bases {
-    for _, m := range base.filemaps() {
+    for _, m := range base.filemaps(using) {
       appendUnique(m)
     }
   }
-  /*
+  if /*using*/false {
+    if true {
+      // takes a big longer time to map usee filemaps, but acceptable
+      var appendUsingList func(*Project)
+      appendUsingList = func(p *Project) {
+        for _, m := range p.filemap {
+          appendUnique(m)
+        }
+        for _, u := range p.using.list {
+          appendUsingList(u.project)
+        }
+      }
+      appendUsingList(p)
+    } else {
+      for _, u := range p.using.list {
         if false {
-                for _, u := range p.using.list {
-                        app(u.project.filemaps(loads))
-                }
+          // low performance doing recursivly file mapping
+          for _, m := range u.project.filemaps(/*using*/false) {
+            appendUnique(m) //app(u.project.filemaps(loads))
+          }
         } else {
+          for _, m := range u.project.filemap {
+            appendUnique(m)
+          }
+        }
+      }
+    }
+  } /* else {
                 for _, proj := range p.loads {
                         app(proj.filemaps(loads))
                 }
-        }
-        */
+  } */
   return
 }
 
 func (p *Project) wildcard(pos Position, wo wildcardOpts, patterns ...Value) (files []*File, err error) {
-  var filemaps = p.filemaps()
+  var filemaps = p.filemaps(false)
 ForPats:
   for _, pat := range patterns {
     var ( patStr string; matched, breakAbsRel bool )
@@ -342,8 +376,7 @@ ForPats:
 
       var names []string
 
-      // Absolute or relative files are not related to the
-      // paths.
+      // Absolute or relative files are not related to the paths.
       if filepath.IsAbs(str) || strings.HasPrefix(str, "./") || strings.HasPrefix(str, "../") {
         if names, err = filepath.Glob(str); err != nil { break ForPats }
         for _, s := range names {
@@ -419,7 +452,7 @@ func (p *Project) matchFile(name string) (file *File) {
 
   var first *File
 ForFilemaps:
-  for _, filemap := range p.filemaps() {
+  for _, filemap := range p.filemaps(true) {
     // Match the represented file name.
     var matched, pre = filemap.Match(name)
     if !matched { continue ForFilemaps }
@@ -462,7 +495,7 @@ func (p *Project) matchTempFile(pos Position, name string) (file *File) {
 
 func (p *Project) isFileName(s string) (res bool) {
   if len(s) > 0 {
-    for _, filemap := range p.filemaps() {
+    for _, filemap := range p.filemaps(true) {
       if res, _ = filemap.Match(s); res { break }
     }
   }
