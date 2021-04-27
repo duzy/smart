@@ -21,16 +21,27 @@ import (
 const PathSep = string(filepath.Separator)
 
 type FileMap struct {
-  Pattern Value
+  pattern Value
   Paths []Value
 }
 
-func (filemap *FileMap) String() string { return filemap.Pattern.String() }
+func (filemap *FileMap) String() string { return filemap.pattern.String() }
+func (filemap *FileMap) Patterns() (pats []Value) {
+  if filemap.pattern.closured() {
+    var err error
+    if pats, err = mergeresult(ExpandAll(filemap.pattern)); err != nil {
+      fmt.Fprintf(stderr, "%v: %v\n", filemap.pattern.Position(), filemap.pattern)
+    }
+  } else {
+    pats = append(pats, filemap.pattern)
+  }
+  return
+}
 
-func (filemap *FileMap) isRealPattern() (result bool) {
-  if t, ok := filemap.Pattern.(*Path); ok {
+func isRealPattern(pattern Value) (result bool) {
+  if t, ok := pattern.(*Path); ok {
     result = t.isPattern()
-  } else if _, ok := filemap.Pattern.(Pattern); ok {
+  } else if _, ok := pattern.(Pattern); ok {
     result = true
   }
   return
@@ -38,11 +49,30 @@ func (filemap *FileMap) isRealPattern() (result bool) {
 
 // Match split filename into list and match each part with the pattern correspondingly.
 func (filemap *FileMap) Match(filename string) (matched bool, pre string) {
-  matched, pre = globMatch(filemap.Pattern, filename)
-  if matched { return }
+  /*if filemap.Pattern.closured() {
+    if pats, err := mergeresult(ExpandAll(filemap.Pattern)); err != nil {
+      fmt.Fprintf(stderr, "%v: %v\n", filemap.Pattern.Position(), filemap.Pattern)
+    } else {
+      for _, pat := range pats {
+        if matched, pre = filemap.match(pat, filename); matched {
+          return
+        }
+      }
+    }
+  } else {
+    matched, pre = filemap.match(filemap.Pattern, filename)
+  }*/
+  for _, pat := range filemap.Patterns() {
+    if matched, pre = filemap.match(pat, filename); matched { break }
+  }
+  return
+}
+
+func (filemap *FileMap) match(pattern Value, filename string) (matched bool, pre string) {
+  if matched, pre = globMatch(pattern, filename); matched { return }
   if false { // TODO: support percent (%, %%) and regex matching
     var ( s, t string ; e error )
-    if t, e = filemap.Pattern.Strval(); e != nil { return }
+    if t, e = pattern.Strval(); e != nil { return }
     for _, p := range filemap.Paths {
       if s, e = p.Strval(); e != nil { return }
       if filename == filepath.Join(s, t) {
@@ -54,7 +84,7 @@ func (filemap *FileMap) Match(filename string) (matched bool, pre string) {
 }
 
 func (filemap *FileMap) stat(base, pre, name string) (file *File) {
-  var pos = filemap.Pattern.Position()
+  var pos = filemap.pattern.Position()
   if filemap.Paths == nil {
     // Check file in the filesystem (no paths).
     file = stat(pos, name, "", base, nil)
@@ -64,7 +94,6 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
   pre  = filepath.Clean(pre)
   for _, path := range filemap.Paths {
     if path == nil {
-      var pos = filemap.Pattern.Position()
       panic(errorf(pos, "mapping nil path (base=%s, pre=%s, name=%s)", base, pre, name))
     }
 
@@ -237,7 +266,8 @@ type Project struct {
   using   *usinglist
 
   // List order is significant, duplication is acceptable.
-  filemap []*FileMap
+  _files_ []Value
+  _filemap_ []*FileMap
 
   // Rule Registry (orderred)
   userules []*useRuleEntry // the 'use' rule
@@ -277,7 +307,52 @@ func (p *Project) Chain(bases ...*Project) {
 
 func (p *Project) mapfile(pat Value, paths []Value) {
   // List order is significant, duplication is acceptable.
-  p.filemap = append(p.filemap, &FileMap{ pat, paths })
+  p._filemap_ = append(p._filemap_, &FileMap{ pat, paths })
+}
+func (p *Project) getFilemap() (filemap []*FileMap) {
+  if true {
+    return p._filemap_
+  }
+
+  var _filemap_ []*FileMap
+  if len(_filemap_) == 0 && len(p._files_) > 0 {
+    var mapfile = func (pat Value, paths []Value) {
+      // List order is significant, duplication is acceptable.
+      _filemap_ = append(_filemap_, &FileMap{ pat, paths })
+    }
+    for _, spec := range p._files_ {
+      switch v := spec.(type) {
+      case *Pair:
+        var pats, paths []Value
+        switch k := v.Key.(type) {
+        case *Group: pats = k.Elems
+        default: pats = append(pats, v.Key)
+        }
+        if a, err := mergeresult(ExpandAll(pats...)); err != nil {
+          fmt.Fprintf(stderr, "%s: expand error: %s\n", v.Position(), v)
+          fmt.Fprintf(stderr, "%s\n", err)
+        } else {
+          pats = a 
+        }
+        switch vv := v.Value.(type) {
+        case *Group: paths = vv.Elems
+        default: paths = append(paths, vv)
+        }
+        for _, k := range pats { mapfile(k, paths) }
+      case Value:
+        var pats, paths []Value
+        paths = []Value{&String{trivial{v.Position()},p.absPath}}
+        switch g := v.(type) {
+        default: pats = append(pats, v)
+        case *Group: pats = g.Elems
+        }
+        for _, k := range pats { mapfile(k, paths) }
+      default:
+        fmt.Fprintf(stderr, "%s: invalid file spec: %v\n", v.Position(), v)
+      }
+    }
+  }
+  return _filemap_
 }
 
 func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
@@ -289,33 +364,15 @@ func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
     }
     filemaps = append(filemaps, a)
   }
-  for _, m := range p.filemap {
+  for _, m := range p.getFilemap() {
     appendUnique(m)
   }
   if using {
-    // takes a big longer time to map usee filemaps, but acceptable
-    var appendUsingList func(*Project)
-    appendUsingList = func(p *Project) {
-      for _, m := range p.filemap {
-        appendUnique(m)
-      }
-      for _, u := range p.using.list {
-        appendUsingList(u.project)
-      }
-    }
-    appendUsingList(p)
-  }
-  for _, base := range p.bases {
-    for _, m := range base.filemaps(using) {
-      appendUnique(m)
-    }
-  }
-  if /*using*/false {
     if true {
       // takes a big longer time to map usee filemaps, but acceptable
       var appendUsingList func(*Project)
       appendUsingList = func(p *Project) {
-        for _, m := range p.filemap {
+        for _, m := range p.getFilemap() {
           appendUnique(m)
         }
         for _, u := range p.using.list {
@@ -331,7 +388,7 @@ func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
             appendUnique(m) //app(u.project.filemaps(loads))
           }
         } else {
-          for _, m := range u.project.filemap {
+          for _, m := range u.project.getFilemap() {
             appendUnique(m)
           }
         }
@@ -342,6 +399,11 @@ func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
                         app(proj.filemaps(loads))
                 }
   } */
+  for _, base := range p.bases {
+    for _, m := range base.filemaps(using) {
+      appendUnique(m)
+    }
+  }
   return
 }
 
@@ -358,7 +420,7 @@ ForPats:
     for _, fm := range filemaps {
       var pre string // <pre>/*.xxx
       var str = patStr
-      if matched, pre = globMatch(fm.Pattern, patStr); !matched {
+      /*if matched, pre = globMatch(fm.Pattern, patStr); !matched {
         // Flip glob matching order.
         if _, yes := pat.(*GlobPattern); !yes {
           continue ForFilemaps
@@ -369,6 +431,24 @@ ForPats:
         } else {
           // using the arg glob
           breakAbsRel = true
+        }
+      }*/
+      var pattern Value
+      for _, pattern = range fm.Patterns() {
+        if matched, pre = globMatch(pattern, patStr); !matched {
+          // Flip glob matching order.
+          if _, yes := pat.(*GlobPattern); !yes {
+            continue ForFilemaps
+          } else if str, err = pattern.Strval(); err != nil {
+            break ForPats
+          } else if matched, pre = globMatch(pat, str); !matched {
+            continue ForFilemaps
+          } else {
+            // using the arg glob
+            breakAbsRel = true
+          }
+        } else {
+          break
         }
       }
 
@@ -416,10 +496,10 @@ ForPats:
               assert(file != nil, "`%s` missing (%s)", s, name)
             }
           }
-        } else if ok := fm.isRealPattern(); !ok && wo.optIncludeMissing {
+        } else if ok := isRealPattern(pattern); !ok && wo.optIncludeMissing {
           // If the filemap is not a pattern (e.g. foobar.cpp), we include it in the returning files
           var name string
-          name, err = fm.Pattern.Strval()
+          name, err = pattern.Strval()
           if err != nil { break ForPats }
 
           // Append this non-existed/missing file.
@@ -430,8 +510,8 @@ ForPats:
         } else if ok && len(fm.Paths) == 1 {
           // Just report that the pattern matches no files in the
           // file system (if only one path specified).
-          var pp1 = fm.Pattern.Position()
-          var pp2 =        pat.Position()
+          var pp1 = pattern.Position()
+          var pp2 =     pat.Position()
           fmt.Fprintf(stderr, "%s: %s: %s: '%v' not found in '%v'\n", pp1, p.name, pat, fm, sub)
           fmt.Fprintf(stderr, "%s: %s: wildcard: %v (try using flag -m, aka -include-missing)\n", pp2, p.name, pat)
         } else if optionWildcardMissingError {
@@ -471,7 +551,7 @@ ForFilemaps:
     // usefull when the bases (or imported projects) have also
     // matched files. The current project have the highest
     // priority to match.
-    for _, fm := range p.filemap {
+    for _, fm := range p.getFilemap() {
       if filemap == fm { break ForFilemaps }
     }
   }

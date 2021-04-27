@@ -1257,11 +1257,27 @@ func builtinPatsubst(pos Position, args... Value) (res Value, err error) {
         var list []Value
         if len(args) < 3 { return }
 
+        var ( optNoFilemap bool; arg0 []Value )
+        if arg0, err = mergeresult(ExpandAll(args[0])); err != nil { return } else
+        if arg0, err = parseFlags(arg0, []string{
+                "n,no-filemap",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'n': if optNoFilemap, err = trueVal(v, true); err != nil { return }
+                }
+        }); err != nil { return }
+
         // TODO: support flags -name and -full for name-only and full-name-only matching
         var srcPats, dstPats, sources []Value
-        if srcPats, err = mergeresult(ExpandAll(args[0])); err != nil { return }
-        if dstPats, err = mergeresult(ExpandAll(args[1])); err != nil { return }
-        if sources, err = mergeresult(ExpandAll(args[2:]...)); err != nil { return }
+        if len(arg0) > 0 {
+                srcPats = arg0
+                if dstPats, err = mergeresult(ExpandAll(args[1])); err != nil { return }
+                if sources, err = mergeresult(ExpandAll(args[2:]...)); err != nil { return }
+        } else {
+                if srcPats, err = mergeresult(ExpandAll(args[1])); err != nil { return }
+                if dstPats, err = mergeresult(ExpandAll(args[2])); err != nil { return }
+                if sources, err = mergeresult(ExpandAll(args[3:]...)); err != nil { return }
+        }
 
         var proj = current()
         if proj == nil {
@@ -1271,7 +1287,10 @@ func builtinPatsubst(pos Position, args... Value) (res Value, err error) {
 
         // Using the most derived context for correct &(...)
         defer setclosure(setclosure(cloctx.unshift(proj.scope)))
-        var filemaps = proj.filemaps(false)
+        var filemaps []*FileMap
+        if !optNoFilemap {
+                filemaps = proj.filemaps(false)
+        }
 
 ForSources:
         for _, src := range sources {
