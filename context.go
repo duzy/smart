@@ -8,7 +8,7 @@ package smart
 
 import (
   "extbit.io/smart/token"
-	"path/filepath"
+  "path/filepath"
   "strings"
   "bufio"
   "time"
@@ -54,6 +54,68 @@ var (
   optionSaveGrepSourceName = false
 )
 
+type diagType int
+const (
+  diagInfo diagType = iota
+  diagWarn
+  diagError
+)
+
+type diagnostic struct {
+  dt diagType
+  position Position
+  value Value
+  message string
+}
+func (d *diagnostic) getPosition() Position {
+  if isNil(d.value) {
+    return d.position
+  } else {
+    return d.value.Position()
+  }
+}
+
+type Diagnostic struct {
+  points []*diagnostic
+}
+func (diag *Diagnostic) infoOf(value Value, f string, args... interface{}) {
+  diag.points = append(diag.points, &diagnostic{ diagInfo, Position{}, value, fmt.Sprintf(f, args...) })
+}
+func (diag *Diagnostic) warnOf(value Value, f string, args... interface{}) {
+  diag.points = append(diag.points, &diagnostic{ diagWarn, Position{}, value, fmt.Sprintf(f, args...) })
+}
+func (diag *Diagnostic) errorOf(value Value, f string, args... interface{}) {
+  diag.points = append(diag.points, &diagnostic{ diagError, Position{}, value, fmt.Sprintf(f, args...) })
+}
+func (diag *Diagnostic) infoAt(pos Position, f string, args... interface{}) {
+  diag.points = append(diag.points, &diagnostic{ diagInfo, pos, nil, fmt.Sprintf(f, args...) })
+}
+func (diag *Diagnostic) warnAt(pos Position, f string, args... interface{}) {
+  diag.points = append(diag.points, &diagnostic{ diagWarn, pos, nil, fmt.Sprintf(f, args...) })
+}
+func (diag *Diagnostic) errorAt(pos Position, f string, args... interface{}) {
+  diag.points = append(diag.points, &diagnostic{ diagError, pos, nil, fmt.Sprintf(f, args...) })
+}
+
+func (diag *Diagnostic) checkErrors(reset bool) (num int) {
+  for _, d := range diag.points {
+    switch d.dt {
+    case diagInfo:  fmt.Fprintf(stderr, "%v:info: %s\n",    d.getPosition(), d.message)
+    case diagWarn:  fmt.Fprintf(stderr, "%v:warning: %s\n", d.getPosition(), d.message)
+    case diagError: fmt.Fprintf(stderr, "%v: %s\n",         d.getPosition(), d.message)
+      num += 1
+    }
+    if num > 22 {
+      fmt.Fprintf(stderr, "%v: too many errors\n", d.getPosition())
+      break
+    }
+  }
+  if reset {
+    diag.points = []*diagnostic{}
+  }
+  return
+}
+
 type Context struct {
   workdir string
   prefix  string // FIXME: prefix for distribution
@@ -67,7 +129,10 @@ type Context struct {
   args map[Value][]Value
 }
 
-var context Context
+var (
+  context Context
+  diag    Diagnostic
+)
 
 func current() (proj *Project) {
   if len(cloctx) > 0 && cloctx[0].project != nil {
@@ -78,12 +143,12 @@ func current() (proj *Project) {
   return
 }
 
-func (ctx *Context) run() (result []Value, err error) {
+func (ctx *Context) run() (result []Value, breakers []*breaker) {
   if optionTraceLaunch { defer un(trace(t_launch, "Context.run")) }
 
   var main = ctx.globe.main
   if main == nil {
-    err = fmt.Errorf("no targets to update `%v`", ctx.goals)
+    fmt.Fprintf(stderr, "no targets to update `%v`", ctx.goals)
     return
   }
 
@@ -91,17 +156,19 @@ func (ctx *Context) run() (result []Value, err error) {
 
   var done bool
   for _, flag := range ctx.flags {
-    var s string
+    var ( s string; err error )
     if s, err = flag.name.Strval(); err != nil { return }
     var args, _ = ctx.args[flag]
     var entries, _ = ctx.flagEntries[s]
     for _, entry := range entries {
-      var res []Value
-      res, err = entry.Execute(entry.position, args...)
-      if err == nil {
+      var ( res []Value; brks []*breaker )
+      res, brks = entry.Execute(entry.position, args...)
+      if len(brks) == 0 {
         result = append(result, res...)
         done = true
-      } else { return }
+      } else {
+        return
+      }
     }
   }
   if done { return }
@@ -141,8 +208,11 @@ func (ctx *Context) run() (result []Value, err error) {
   }
   for _, goal := range goals {
     var res []Value
+    var brks []*breaker
     var args, _ = ctx.args[goal]
-    if res, err = updateGoal(goal, args); err != nil { break } else {
+    if res, brks = updateGoal(goal, args); len(brks) > 0 {
+      break
+    } else {
       result = append(result, res...)
       updated += 1
     }
@@ -150,13 +220,12 @@ func (ctx *Context) run() (result []Value, err error) {
   return
 }
 
-func updateGoal(goal Value, args []Value) (result []Value, err error) {
-  if goal == nil { return }
-  switch g := goal.(type) {
-  case *RuleEntry:
-    result, err = g.Execute(g.position, args...)
-  default:
-    err = fmt.Errorf("'%v' is not an entry (%T)", goal, goal)
+func updateGoal(goal Value, args []Value) (result []Value, breakers []*breaker) {
+  if !isNil(goal) {
+    switch g := goal.(type) {
+    case *RuleEntry: result, breakers = g.Execute(g.position, args...)
+    default: diag.errorOf(goal, "'%v' is not an entry (%T)", goal, goal)
+    }
   }
   return
 }
@@ -392,13 +461,13 @@ func CommandLine() {
       continue
     }
     file, err := os.Open(searchFile)
-    if err != nil { report(err); return }
+    if err != nil { fmt.Fprintf(stderr, "%v", err); return }
     defer file.Close()
     r := bufio.NewReader(file)
     for err == nil {
       var line string
       if line, err = r.ReadString('\n'); err != nil {
-        if err != io.EOF { report(err) }
+        if err != io.EOF { fmt.Fprintf(stderr, "%v", err) }
         break
       } else {
         line = strings.TrimSpace(line)
@@ -413,6 +482,8 @@ func CommandLine() {
     }
   }
 
+  if diag.checkErrors(true) > 0 { return }
+
   //loadGrepCache()
 
   defer func(globe *Globe) {
@@ -423,9 +494,9 @@ func CommandLine() {
   context.flagEntries = make(map[string][]*RuleEntry)
 
   if err := init_configuration(packagePaths); err != nil {
-    report(err)
+    if diag.checkErrors(true) > 0 { return } //report(err)
   } else if err = context.loadwork(); err != nil {
-    report(err)
+    if diag.checkErrors(true) > 0 { return } //report(err)
   } else if optionHelp {
     do_helpscreen()
   } else if optionPrintFlags {
@@ -435,22 +506,24 @@ func CommandLine() {
   } else if numUpdatedPlugins > 0 { // see buildPlugin
     fmt.Fprintf(stderr, "smart: Plugin updated, please relaunch.\n")
   } else if optionConfigure {
-    report(do_configuration())
+    do_configuration()
+    if diag.checkErrors(true) > 0 { return }
   } else if result, err := context.run(); err != nil {
-    defer printLeavingDirectory()
+    /*defer printLeavingDirectory()
 
     var brks, errs = extractBreakers(err)
     for _, e := range brks {
       switch e.what {
-      default: report(e)
-      case breakDone, breakCase:
+    default: report(e)
+  case breakDone, breakCase:
         // just relax
       }
-    }
-    for _, e := range errs { report(e) }
+    }*/
+
+    printLeavingDirectory()
   } else if result != nil {
     for _, v := range result {
-      var s string
+      var ( s string; err error )
       if s, err = v.Strval(); err != nil {
         fmt.Fprintf(stderr, "%s [%s]", v, err)
       } else {
@@ -458,6 +531,9 @@ func CommandLine() {
       }
     }
     fmt.Fprintf(stderr, "\n")
+
     printLeavingDirectory()
   }
+
+  if diag.checkErrors(true) > 0 { return }
 }

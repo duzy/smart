@@ -322,7 +322,7 @@ func (p *ExecBuffer) startDockerDaemon(pos Position, t *traversal, container *Pr
   var c = exec.Command("dockerd")
   //c.Stdout, c.Stderr = stdout, stderr
   if err = c.Run(); err != nil {
-    err = wrap(pos, fmt.Errorf("dokcer daemon not running (at %s)", sock), err)
+    diag.errorAt(pos, "dokcer daemon not running (at %s)", sock)
   } else {
     // TODO: start docker daemon
   }
@@ -332,8 +332,8 @@ func (p *ExecBuffer) startDockerDaemon(pos Position, t *traversal, container *Pr
 func (p *ExecBuffer) runContainerAndRetry(pos Position, t *traversal, container *Project, name string, sh *exec.Cmd, x *executor, num int) (status int, err error) {
   if container != nil && num <= maxRetries {
     fmt.Fprintf(sh.Stderr, "\n---- Run the container: %s\n", name)
-    if err = x.runContainer(t, container); err != nil {
-      err = wrap(pos, errorf(pos, "container not running: %v", name), err)
+    if brks := x.runContainer(t, container); len(brks) > 0 {
+      diag.errorAt(pos, "container not running: %v", name)
       return
     }
 
@@ -355,7 +355,7 @@ func (p *ExecBuffer) runContainerAndRetry(pos Position, t *traversal, container 
     }
 
     status, err = p.runAndProcessKnownErrors(pos, t, container, c, x, num+1)
-    if status != 0 && err == nil { err = wrap(pos, &exitstatus{status}) }
+    if status != 0 && err == nil { err = &exitstatus{status} }
     if err != nil { fmt.Fprintf(sh.Stderr, "\n---- Retry failed: %s\n", err) }
   }
   return
@@ -373,51 +373,51 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
   for _, v := range m.v { // captures
     switch m.i {
     case rxNotTTYDevice_i:
-      err = errorf(lpos, "Needs TTY (input device)")
+      diag.errorAt(lpos, "Needs TTY (input device)")
     case rxDockerDaemonNotRunning_i:
       err = p.startDockerDaemon(lpos, t, container, string(v[1]))
-      if err != nil { err = wrap(pos, err) }
+      if err != nil { diag.errorAt(pos, "%v", err) }
     case rxNoContainer_i:
       if name := string(v[1]); p.skips(name) {
-        err = errorf(lpos, "container not running: %v", name)
+        diag.errorAt(lpos, "container not running: %v", name)
       } else if status, err = p.runContainerAndRetry(lpos, t, container, name, sh, x, num); err == nil {
         p.retried[name] = true // save it to skip next time
         break // discard the rest errors
       }
     case rxContainerNotRunning_i:
-      err = errorf(lpos, "Container not running (%v)", string(v[1]))
+      diag.errorAt(lpos, "Container not running (%v)", string(v[1]))
     case rxNoNetwork_i:
-      err = errorf(lpos, "Network not found (%v)", string(v[1]))
+      diag.errorAt(lpos, "Network not found (%v)", string(v[1]))
     case rxCompilation_i:
       var pos Position
       pos.Filename = string(v[1])
       pos.Line, _ = strconv.Atoi(string(v[2]))
       pos.Column, _ = strconv.Atoi(string(v[3]))
-      err = wrap(pos, errorf(lpos, "%s", string(v[4])))
+      diag.errorAt(lpos, "%s", string(v[4]))
     case rxIncludedFrom_i:
       if p.report { fmt.Fprintf(stderr, "%s:%s:%s: included here\n", v[1], v[2], v[3]) }
     case rxFileNotFound_i:
-      err = errorf(lpos, "`%v` file not found, required by `%s` (exec)", v[4], filepath.Base(string(v[1])))
+      diag.errorAt(lpos, "`%v` file not found, required by `%s` (exec)", v[4], filepath.Base(string(v[1])))
       if p.report { fmt.Fprintf(stderr, "%s:%s:%s: exec: `%s` file not found\n", v[1], v[2], v[3], v[4]) }
     case rxArNoSuchFile_i:
-      err = errorf(lpos, "`%v` file not found", filepath.Base(string(v[1])))
+      diag.errorAt(lpos, "`%v` file not found", filepath.Base(string(v[1])))
       if p.report { fmt.Fprintf(stderr, "exec: (ar): '%s' not found (as '%s')", filepath.Base(string(v[1])), v[1]) }
     case rxBashNoSuchFile_i:
-      err = errorf(lpos, "%v: no such command", string(v[1]))
+      diag.errorAt(lpos, "%v: no such command", string(v[1]))
     case rxClangNoSuchFile_i:
-      err = errorf(lpos, "clang-%s: no such source file: %s", string(v[1]), string(v[2]))
+      diag.errorAt(lpos, "clang-%s: no such source file: %s", string(v[1]), string(v[2]))
     case rxClangError_i:
-      err = errorf(lpos, "clang-%s: %s", string(v[1]), string(v[2]))
+      diag.errorAt(lpos, "clang-%s: %s", string(v[1]), string(v[2]))
     case rxLLDError_i:
-      err = errorf(lpos, "%s", string(v[2]))
+      diag.errorAt(lpos, "%s", string(v[2]))
     case rxCouldnotParseObj_i:
-      err = errorf(lpos, "%s", string(v[3]))
+      diag.errorAt(lpos, "%s", string(v[3]))
     case rxTooManyPosArgs_i:
-      err = errorf(lpos, "%s: too many positional arguments", string(v[1]))
+      diag.errorAt(lpos, "%s: too many positional arguments", string(v[1]))
     case rxUndefinedReference_i:
-      err = errorf(lpos, "Undefined reference '%s'", string(v[1]))
+      diag.errorAt(lpos, "Undefined reference '%s'", string(v[1]))
     case rxShcmdNotFound_i:
-      err = errorf(lpos, "%s: command not found", string(v[1]))
+      diag.errorAt(lpos, "%s: command not found", string(v[1]))
     case rxLLDWarning_i:
       if p.report {
         fmt.Fprintf(stderr, "%s: warning: %s\n", lpos, string(v[2]))
@@ -432,7 +432,7 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
 func (p *ExecBuffer) processKnownErrors(pos Position, t *traversal, container *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
   for _, m := range p.matches {
     status, err = p.processKnownError(pos, t, container, sh, x, num, &m)
-    if err != nil { err = wrap(pos, err); break }
+    if err != nil { diag.errorAt(pos, "%v", err); break }
   }
   if err == nil && status != 0 { err = &exitstatus{ status }}
   return
@@ -454,13 +454,13 @@ func (p *ExecBuffer) runAndProcessKnownErrors(pos Position, t *traversal, dock *
       pos.Offset = 0 // FIXME: what should be the offset?
       pos.Line = p.log.lines
       pos.Column = 0
-      err = wrap(pos, err)
+      diag.errorAt(pos, "%v", err)
     }
 
     p.retried = nil
     status, e = p.processKnownErrors(pos, t, dock, sh, x, num)
     if p.retried != nil && len(p.retried) > 0 {
-      if e != nil { err = wrap(pos, e, err) } else
+      if e != nil { diag.errorAt(pos, "%v", e) } else
       if status == 0 { err = nil } else { es.code = status }
     } else { status = es.code }
   } else {
@@ -506,14 +506,14 @@ type executor struct {
   contained bool
 }
 
-func (p *executor) runContainer(t *traversal, container *Project) (err error) {
+func (p *executor) runContainer(t *traversal, container *Project) (brks []*breaker) {
   if run, _ := container.resolveEntry("run"); run != nil && len(run.programs) > 0 {
     defer setclosure(setclosure(cloctx.unshift(container.scope)))
-    if _, err = run.programs[0].execute(t, run, nil); err != nil {
-      err = wrap(t.program.position, err)
+    if _, brks = run.programs[0].execute(t, run, nil); brks != nil {
+      diag.errorAt(t.program.position, "%v", brks)
     } else { t.group.Wait() }
   } else {
-    err = errorf(t.program.position, "%s⇒run undefined", container)
+    diag.errorAt(t.program.position, "%s⇒run undefined", container)
   }
   return
 }
@@ -562,9 +562,11 @@ func (p *executor) ensureContainerRunning(t *traversal, container *Project, cont
   } (stderrR)
 
   if err = cmd.Run(); err == nil && foundID == "" {
-    if err = p.runContainer(t, container); err == nil {
+    if brks := p.runContainer(t, container); len(brks) == 0 {
       time.Sleep(time.Second)
     }
+  } else if err != nil {
+    diag.errorAt(container.position, "%v", err)
   }
   return
 }
@@ -823,10 +825,10 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   if logFileName == "" {
     // no log required
   } else if err = os.MkdirAll(filepath.Dir(logFileName), os.FileMode(0755)); err != nil {
-    err = wrap(t.program.position, err)
+    diag.errorAt(t.program.position, "%v", err)
     return // FIXME: err for outer func
   } else if logfile, err = os.Create(logFileName); err != nil {
-    err = wrap(t.program.position, err)
+    diag.errorAt(t.program.position, "%v", err)
     return // FIXME: err for outer func
   } else {
     cmdline := strings.Join(sources, "\n")
@@ -923,10 +925,10 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
         ///fmt.Fprintf(stderr, "run.2: %v\n", targetName)
       }
 
-      //if err = lockCD(dir, 25*time.Millisecond); err != nil { err = wrap(pos, err); return }
+      //if err = lockCD(dir, 25*time.Millisecond); err != nil { diag.errorAt(pos, "%v", err); return }
       //if s, e := os.Getwd(); e == nil { assert(s == dir, "wrong work directory (%s != %s)", s, dir) }
       for {
-        if err = lockCD(dir, 25*time.Millisecond); err != nil { err = wrap(pos, err); return }
+        if err = lockCD(dir, 25*time.Millisecond); err != nil { diag.errorAt(pos, "%v", err); return }
         if s, _ := os.Getwd(); s == dir { break }
       }
 
@@ -946,9 +948,9 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
       exeres.Stderr.report = !optSilent
       exeres.Status, err = exeres.Stderr.runAndProcessKnownErrors(pos, t, container, sh, p, 1)
       if err != nil {
-        if false { fmt.Fprintf(stderr, "%v\n", wrap(pos, err)) }
+        if false { diag.errorAt(pos, "%v", err) }
         if optSilent { err = nil } else {
-          err = wrap(pos, err)
+          diag.errorAt(pos, "%v", err)
           return
         }
       }

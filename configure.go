@@ -91,7 +91,7 @@ func init_configuration(paths searchlist) (err error) {
         } else if project, ok := l.loaded[confinitFilename]; ok {
                 configuration.project = project
         } else {
-                err = errorf(pos, "configuration: `%v` not loaded\n", confinitFilename)
+                diag.errorAt(pos, "configuration: `%v` not loaded\n", confinitFilename)
         }
 
         if configuration.project == nil {
@@ -127,17 +127,17 @@ func do_configuration() (err error) {
                 if p := entry.OwnerProject(); p != project && p != nil {
                   defs = make(map[string]*Def) // reset defs for p
                         var f, e = openConfigurationFile(p)
-                        if e != nil { err = wrap(entry.position, e, err); return } else
+                        if e != nil { diag.errorAt(entry.position, "%v", e); return } else
                         if f != nil {
                                 if writer != nil {
                                         if e = writer.Flush(); e != nil {
-                                                err = wrap(entry.position, e, err)
+                                                diag.errorAt(entry.position, "%v", e)
                                                 return
                                         }
                                 }
                                 if file != nil {
                                         if e = file.Close(); e != nil {
-                                                err = wrap(entry.position, e, err)
+                                                diag.errorAt(entry.position, "%v", e)
                                                 return
                                         }
                                 }
@@ -150,13 +150,13 @@ func do_configuration() (err error) {
                         project = p
                 }
                 if _, e := entry.Execute(entry.position); e != nil {
-                        err = wrap(entry.position, e, err)
+                        diag.errorAt(entry.position, "%v", e)
                 } else if s, e := entry.target.Strval(); e != nil {
-                        err = wrap(entry.position, e, err)
+                        diag.errorAt(entry.position, "%v", e)
                 } else if def := project.scope.FindDef(s); def != nil {
                         if d, ok := defs[s]; ok && d != nil {
                                 /*if d.value.cmp(def.value) != cmpEqual {
-                                        err = errorf(entry.position, "'%s' already configured: %v", d.name, d.value)
+                                        diag.errorAt(entry.position, "'%s' already configured: %v", d.name, d.value)
                                         return
                                 }*/
                           continue
@@ -170,8 +170,7 @@ func do_configuration() (err error) {
                                 fmt.Fprintf(writer, "%v = %v\n", def.name, vs)
                         }
                 } else {
-                        e := fmt.Errorf("`%s` unconfigured", s)
-                        err = wrap(entry.position, e, err)
+                        diag.errorAt(entry.position, "`%s` unconfigured", s)
                 }
         }
         if err != nil { return }
@@ -626,16 +625,19 @@ func configureExec(pos Position, t *traversal, s string, params ...Value) (confi
 
         var entry *RuleEntry
         if entry, err = configuration.project.resolveEntry("-"+s); err != nil {
-                err = errorf(pos, "resolve %v: %v", s, err)
+                diag.errorAt(pos, "resolve %v: %v", s, err)
                 return
         } else if entry == nil {
-                err = errorf(pos, "unknown configuration `%v` (no such entry)", s)
+                diag.errorAt(pos, "unknown configuration `%v` (no such entry)", s)
                 return
         }
 
+        var breakers []*breaker
         if false { defer setclosure(setclosure(cloctx.unshift(t.program.scope))) }
         if false { fmt.Fprintf(stderr, "%v: configureExec(%v %v): %v, %v\n", pos, entry, t.entry, params, cloctx) }
-        if result, err = entry.programs[0].execute(t, entry, params); err == nil { err = t.wait(pos) }
+        if result, breakers = entry.programs[0].execute(t, entry, params); len(breakers) > 0 {
+                diag.errorAt(pos, "execution failed (%d breakers)", len(breakers))
+        }
         if false { fmt.Fprintf(stderr, "%v: configureExec(%v %v): %v (%T), %v\n", pos, entry, t.entry, result, result, err) }
 
         var status int
@@ -652,7 +654,7 @@ func configureExec(pos Position, t *traversal, s string, params ...Value) (confi
         }
 
         if status == 0 { err = nil } else
-        if err != nil { err = wrap(pos, err) }
+        if err != nil { diag.errorAt(pos, "%v", err) }
         return
 }
 
@@ -662,7 +664,7 @@ func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name 
         var strName string
         if strName, err = name.Strval(); err != nil { return }
         if strName == "" {
-                err = errorf(pos, "`%v` empty configuration (%T)", name, name)
+                diag.errorAt(pos, "`%v` empty configuration (%T)", name, name)
                 return
         }
 
@@ -676,7 +678,7 @@ func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name 
                         case *Pair:
                                 var key string
                                 if key, err = t.Key.Strval(); err == nil { key = strings.ToLower(key) } else {
-                                        err = wrap(pos, err); return }
+                                        diag.errorAt(pos, "%v", err); return }
                                 if v, ok := fields[key]; !ok { fields[key] = t.Value } else {
                                         fields[key] = &List{elements{merge(v, t.Value)}}
                                 }
@@ -958,14 +960,14 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
                                 optMode = os.FileMode(num & 0777)
                         }
                 }}
-        }); err != nil { err = wrap(pos, err); return }
+        }); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var project *Project
         var filename string
         var file *File
         if file, _ = t.def.target.value.(*File); file == nil {
                 var s string
-                if s, err = t.def.target.value.Strval(); err != nil { err = wrap(pos, err); return }
+                if s, err = t.def.target.value.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
 
                 var okay bool
                 okay, err = t.forClosureProject(func(p *Project) (ok bool, err error) {
@@ -973,11 +975,11 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
                         if optDebug && file != nil { fmt.Fprintf(stderr, "%s: %v: file %v\n", pos, p, file) }
                         return
                 })
-                if err != nil { return } else if !okay { err = errorf(pos, "'%s' is not a file", s); return }
+                if err != nil { return } else if !okay { diag.errorAt(pos, "'%s' is not a file", s); return }
         }
-        if file == nil { err = errorf(pos, "no file target"); return }
-        if filename, err = file.Strval(); err != nil { err = wrap(pos, err); return } else
-        if filename == "" { err = errorf(pos, "`%v` has empty filename", file); return } else
+        if file == nil { diag.errorAt(pos, "no file target"); return }
+        if filename, err = file.Strval(); err != nil { diag.errorAt(pos, "%v", err); return } else
+        if filename == "" { diag.errorAt(pos, "`%v` has empty filename", file); return } else
         if!filepath.IsAbs(filename) {
                 // FIXES: match file map to have the full filename.
                 t.forClosureProject(func(p *Project) (ok bool, err error) {
@@ -991,7 +993,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
                         }
                         return
                 })
-                if err != nil { err = wrap(pos, err); return }
+                if err != nil { diag.errorAt(pos, "%v", err); return }
         }
         if file.info == nil { if f := stat(pos, filename, "", ""); f != nil { file.info = f.info }}
         if project == nil { project = t.project }
@@ -1013,7 +1015,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
         if closure == nil { closure = t.closure }
         defer func(s string, c *Scope) {
                 if err == nil { configuredFiles[s] = c } else {
-                        err = wrap(pos, err)
+                        diag.errorAt(pos, "%v", err)
                 }
         } (filename, closure)
 
@@ -1024,13 +1026,13 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
                 if str == "" { continue }
                 if err = configure(pos, &data, closure.project, str); err != nil { return }
         }
-        if data.Len() == 0 { err = errorf(pos, "no input data"); return }
+        if data.Len() == 0 { diag.errorAt(pos, "no input data"); return }
 
         if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", file) }
         if file.info != nil {
                 if same, e := crc64CheckFileModeContent(filename, data.Bytes(), optMode); e != nil {
                         if optVerbose { fmt.Fprintf(stderr, "… (error: %s)\n", e) }
-                        err = wrap(pos, e, err); return
+                        diag.errorAt(pos, "%v", e); return
                 } else if same {
                         var tt = file.info.ModTime()
                         for _, d := range merge(t.targets.value) {
@@ -1044,7 +1046,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
                 }
         } else if dir := filepath.Dir(filename); optPath && dir != "." && dir != PathSep {
                 if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
-                        err = wrap(pos, err)
+                        diag.errorAt(pos, "%v", err)
                         return
                 }
         }
@@ -1062,7 +1064,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
         }
 
         if err = ioutil.WriteFile(filename, data.Bytes(), optMode); err != nil {
-                err = wrap(pos, err)
+                diag.errorAt(pos, "%v", err)
                 return
         }
         if file.info != nil { result = file } else {
@@ -1270,7 +1272,7 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
 
         var target = t.def.target.value
         if isNil(target) || isNone(target) {
-                err = errorf(pos, "target is nil for entry '%s'", t.entry.target)
+                diag.errorAt(pos, "target is nil for entry '%s'", t.entry.target)
                 return
         }
 
@@ -1280,7 +1282,7 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
         var def, alt = t.program.project.scope.define(t.program.project, name, nil)
         if alt != nil { def, _ = alt.(*Def) }
         if def == nil {
-                err = errorf(pos, "cannot define configuration `%s`", name)
+                diag.errorAt(pos, "cannot define configuration `%s`", name)
                 return
         } else { result = def } // Set result above all!
 
@@ -1300,10 +1302,10 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
         var value Value
         if len(args) == 0 { // Empty configuration: (configure)
                 if value, err = t.def.buffer.Call(pos); err != nil {
-                        err = wrap(pos, err)
+                        diag.errorAt(pos, "%v", err)
                         return
                 } else if value == nil {
-                        err = errorf(pos, "`%v` not configured (%v)", target, value)
+                        diag.errorAt(pos, "`%v` not configured (%v)", target, value)
                         return
                 } else if value == def || value.refs(def) { return }
                 switch v := value.(type) {
@@ -1317,7 +1319,7 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
                         }
                         err = def.set(DefConfig, &String{trivial{pos},s})
                 }
-                if err != nil { err = wrap(pos, err) }
+                if err != nil { diag.errorAt(pos, "%v", err) }
                 return
         } else if err = def.set(DefConfig, nil); err != nil { return }
 
@@ -1329,35 +1331,35 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
                 switch arg := a.(type) {
                 case *Argumented:
                         if flag, okay := arg.value.(*Flag); !okay {
-                                err = wrap(pos, errorf(a.Position(), "`%v` is unsupported\n", arg.value), err)
+                                diag.errorOf(a, "`%v` is unsupported\n", arg.value)
                                 return
                         } else {
                                 name, para = flag.name, arg.args
                         }
                 case *Flag:
                         if isNil(arg.name) || isNone(arg.name) {
-                                err = wrap(pos, errorf(a.Position(), "`%v` is unsupported\n", arg.name), err)
+                                diag.errorOf(a, "`%v` is unsupported\n", arg.name)
                                 return
                         } else {
                                 name = arg.name
                         }
                 default:
-                        err = wrap(pos, errorf(a.Position(), "`%v` is unsupported\n", a), err)
+                        diag.errorOf(a, "`%v` is unsupported\n", a)
                         return
                 }
                 if name == nil {
-                        err = wrap(pos, errorf(a.Position(), "unknown configure `%v` (%T)\n", a, a))
+                        diag.errorOf(a, "unknown configure `%v` (%T)\n", a, a)
                         return
                 }
 
                 configured, value, err = configureDo(pos, t, target, def, t.def.buffer, name, para)
-                if err != nil { err = wrap(pos, err); return } else if !configured {
-                        //err = errorf(pos, "%s not configured", name)
+                if err != nil { diag.errorAt(pos, "%v", err); return } else if !configured {
+                        //diag.errorAt(pos, "%s not configured", name)
                         return
                 }
                 if optionTraceConfig { t_config.tracef("configured: %v (%s) (%v)", value, typeof(value), def.origin) }
                 if value == nil { value = &Nil{trivial{a.Position()}} } else
-                if v, e := value.expand(expandAll); e == nil { value = v } else { err = wrap(a.Position(), e); return }
+                if v, e := value.expand(expandAll); e == nil { value = v } else { diag.errorOf(a, "%v", e); return }
                 if value == def || value.refs(def) {
                         // Value is the Def, does nothing!
                 } else if optAccumulate {
@@ -1365,12 +1367,12 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
                 } else {
                         err = def.set(DefConfig, value)
                 }
-                if err != nil { err = wrap(pos, err); return }
+                if err != nil { diag.errorAt(pos, "%v", err); return }
                 // Marks done (needed for reconfiguring)!
                 configuration.done[def] = true
         }
         if !configured && err == nil {
-                err = errorf(pos, "`%v` not configured", target)
+                diag.errorAt(pos, "`%v` not configured", target)
         }
         return
 }

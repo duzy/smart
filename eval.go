@@ -76,7 +76,7 @@ ForRecipes:
                         }
 
                 default:
-                        err = errorf(recipe.Position(), "unsupported recipe: %T", recipe)
+                        diag.errorOf(recipe, "unsupported recipe: %T", recipe)
                         return
                 }
         }

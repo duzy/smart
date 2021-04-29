@@ -8,10 +8,10 @@ package smart
 
 import (
         "extbit.io/smart/scanner"
-        "extbit.io/smart/token"
+        //"extbit.io/smart/token"
         "runtime/debug"
         "runtime"
-        "strings"
+        //"strings"
         "errors"
         "fmt"
 )
@@ -147,6 +147,7 @@ func extractFileNotFoundError(err error) (res *fileNotFoundError) {
         return
 }
 
+/*
 func report(err error) error {
         if err != nil {
                 if false { debug.PrintStack() }
@@ -162,3 +163,4 @@ func errorf(pos Position, s string, args... interface{}) (err error) {
 func wrap(pos Position, errs ...error) (err error) {
         return scanner.WrapErrors(token.Position(pos), errs...)
 }
+*/

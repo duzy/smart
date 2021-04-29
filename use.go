@@ -49,7 +49,7 @@ func (p *using) mod(t *traversal) (res time.Time, err error) {
         }
         return
 }
-func (p *using) traverse(pc *traversal) (err error) {
+func (p *using) traverse(pc *traversal) (breakers []*breaker) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
         if _, done := usingPrepared[p.project]; done {
                 usingPrepared[p.project] += 1
@@ -59,8 +59,8 @@ func (p *using) traverse(pc *traversal) (err error) {
         if entry := p.project.DefaultEntry(); entry != nil {
                 if p.project.breakUseLoop {
                         // FIXME: break use loop
-                } else if err = entry.traverse(pc); err != nil {
-                        err = wrap(p.position, err)
+                } else if breakers = entry.traverse(pc); breakers != nil {
+                        // ...
                 } else {
                         usingPrepared[p.project] += 1
                 }
@@ -138,14 +138,14 @@ func (p *usinglist) expand(w expandwhat) (Value, error) {
         }
         return p, nil
 }
-func (p *usinglist) traverse(pc *traversal) error {
+func (p *usinglist) traverse(pc *traversal) (breakers []*breaker) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
         for _, elem := range p.list {
-                if err := elem.traverse(pc); err != nil {
-                        return err
+                if breakers = elem.traverse(pc); len(breakers) > 0 {
+                       break
                 }
         }
-        return nil
+        return
 }
 func (p *usinglist) redecl(scope *Scope) { panic("redeclaring using list") }
 func (p *usinglist) DeclScope() *Scope { return p.scope }
@@ -191,7 +191,7 @@ func (p *usinglist) mod(t *traversal) (res time.Time, err error) {
         }
         return
 }
-func (p *usinglist) tryTraverse(t *traversal) (okay bool, err error) { return false, nil }
+func (p *usinglist) tryTraverse(t *traversal) (bool, []*breaker) { return false, nil }
 func (p *usinglist) cmp(v Value) (res cmpres) {
         if a, ok := v.(*usinglist); ok {
                 assert(ok, "value is not usinglist")

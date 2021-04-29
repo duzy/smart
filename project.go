@@ -94,7 +94,8 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
   pre  = filepath.Clean(pre)
   for _, path := range filemap.Paths {
     if path == nil {
-      panic(errorf(pos, "mapping nil path (base=%s, pre=%s, name=%s)", base, pre, name))
+      diag.errorAt(pos, "mapping nil path (base=%s, pre=%s, name=%s)", base, pre, name)
+      panic("internal error")
     }
 
     var ( dir, sub string ; err error )
@@ -413,28 +414,12 @@ ForPats:
   for _, pat := range patterns {
     var ( patStr string; matched, breakAbsRel bool )
     if patStr, err = pat.Strval(); err != nil { break ForPats }
-    // The 'patStr' could be GlobPattern or just
-    // regular file/path names. PercPattern is not
-    // supported yet.
+    // The 'patStr' could be GlobPattern or just regular file/path names. PercPattern is not supported yet.
   ForFilemaps:
     for _, fm := range filemaps {
-      var pre string // <pre>/*.xxx
-      var str = patStr
-      /*if matched, pre = globMatch(fm.Pattern, patStr); !matched {
-        // Flip glob matching order.
-        if _, yes := pat.(*GlobPattern); !yes {
-          continue ForFilemaps
-        } else if str, err = fm.Pattern.Strval(); err != nil {
-          break ForPats
-        } else if matched, pre = globMatch(pat, str); !matched {
-          continue ForFilemaps
-        } else {
-          // using the arg glob
-          breakAbsRel = true
-        }
-      }*/
-      var pattern Value
-      for _, pattern = range fm.Patterns() {
+      for _, pattern := range fm.Patterns() {
+        var pre string // <pre>/*.xxx
+        var str = patStr
         if matched, pre = globMatch(pattern, patStr); !matched {
           // Flip glob matching order.
           if _, yes := pat.(*GlobPattern); !yes {
@@ -447,76 +432,74 @@ ForPats:
             // using the arg glob
             breakAbsRel = true
           }
-        } else {
-          break
-        }
-      }
-
-      if pre != "" { /* FIXME: ... */ }
-
-      var names []string
-
-      // Absolute or relative files are not related to the paths.
-      if filepath.IsAbs(str) || strings.HasPrefix(str, "./") || strings.HasPrefix(str, "../") {
-        if names, err = filepath.Glob(str); err != nil { break ForPats }
-        for _, s := range names {
-          file := stat(pos, filepath.Base(s), "", filepath.Dir(s))
-          files = append(files, file)
-          if enable_assertions {
-            assert(file != nil, "`%s` missing", s)
-          }
-        }
-        if breakAbsRel {
-          continue ForPats
-        } else {
-          continue ForFilemaps
-        }
-      }
-
-      // Check against paths for non-abs/rel patterns.
-      for _, path := range fm.Paths {
-        var sub string
-        if sub, err = path.Strval(); err != nil {
-          break ForPats
         }
 
-        subfile := filepath.Join(sub, str)
-        if names, err = filepath.Glob(subfile); err != nil {
-          break ForPats
-        }
-        // Chop off path 'sub' prefix to have shorter names
-        // Aka. trim prefix 'file.Sub+PathSep'
-        prefix := strings.TrimSuffix(subfile, str)
-        if len(names) > 0 {
+        if pre != "" { /* FIXME: ... */ }
+
+        var names []string
+
+        // Absolute or relative files are not related to the paths.
+        if filepath.IsAbs(str) || strings.HasPrefix(str, "./") || strings.HasPrefix(str, "../") {
+          if names, err = filepath.Glob(str); err != nil { break ForPats }
           for _, s := range names {
-            name := strings.TrimPrefix(s, prefix)
-            file := stat(pos, name, sub, prefix)
+            file := stat(pos, filepath.Base(s), "", filepath.Dir(s))
             files = append(files, file)
             if enable_assertions {
-              assert(file != nil, "`%s` missing (%s)", s, name)
+              assert(file != nil, "`%s` missing", s)
             }
           }
-        } else if ok := isRealPattern(pattern); !ok && wo.optIncludeMissing {
-          // If the filemap is not a pattern (e.g. foobar.cpp), we include it in the returning files
-          var name string
-          name, err = pattern.Strval()
-          if err != nil { break ForPats }
+          if breakAbsRel {
+            continue ForPats
+          } else {
+            continue ForFilemaps
+          }
+        }
 
-          // Append this non-existed/missing file.
-          file := stat(pos, name, sub, prefix, nil)
-          files = append(files, file)
+        // Check against paths for non-abs/rel patterns.
+        for _, path := range fm.Paths {
+          var sub string
+          if sub, err = path.Strval(); err != nil {
+            break ForPats
+          }
 
-          if false { fmt.Fprintf(stderr, "%s: %s -> %s\n", pos, pat, file) }
-        } else if ok && len(fm.Paths) == 1 {
-          // Just report that the pattern matches no files in the
-          // file system (if only one path specified).
-          var pp1 = pattern.Position()
-          var pp2 =     pat.Position()
-          fmt.Fprintf(stderr, "%s: %s: %s: '%v' not found in '%v'\n", pp1, p.name, pat, fm, sub)
-          fmt.Fprintf(stderr, "%s: %s: wildcard: %v (try using flag -m, aka -include-missing)\n", pp2, p.name, pat)
-        } else if optionWildcardMissingError {
-          err = fmt.Errorf("files like '%v' not found", fm)
-          break ForPats
+          subfile := filepath.Join(sub, str)
+          if names, err = filepath.Glob(subfile); err != nil {
+            break ForPats
+          }
+          // Chop off path 'sub' prefix to have shorter names
+          // Aka. trim prefix 'file.Sub+PathSep'
+          prefix := strings.TrimSuffix(subfile, str)
+          if len(names) > 0 {
+            for _, s := range names {
+              name := strings.TrimPrefix(s, prefix)
+              file := stat(pos, name, sub, prefix)
+              files = append(files, file)
+              if enable_assertions {
+                assert(file != nil, "`%s` missing (%s)", s, name)
+              }
+            }
+          } else if ok := isRealPattern(pattern); !ok && wo.optIncludeMissing {
+            // If the filemap is not a pattern (e.g. foobar.cpp), we include it in the returning files
+            var name string
+            name, err = pattern.Strval()
+            if err != nil { break ForPats }
+
+            // Append this non-existed/missing file.
+            file := stat(pos, name, sub, prefix, nil)
+            files = append(files, file)
+
+            if false { fmt.Fprintf(stderr, "%s: %s -> %s\n", pos, pat, file) }
+          } else if ok && len(fm.Paths) == 1 {
+            // Just report that the pattern matches no files in the
+            // file system (if only one path specified).
+            var pp1 = pattern.Position()
+            var pp2 =     pat.Position()
+            fmt.Fprintf(stderr, "%s: %s: %s: '%v' not found in '%v'\n", pp1, p.name, pat, fm, sub)
+            fmt.Fprintf(stderr, "%s: %s: wildcard: %v (try using flag -m, aka -include-missing)\n", pp2, p.name, pat)
+          } else if optionWildcardMissingError {
+            err = fmt.Errorf("files like '%v' not found", fm)
+            break ForPats
+          }
         }
       }
     }

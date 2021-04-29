@@ -6,22 +6,22 @@
 package smart
 
 import (
-  "extbit.io/smart/ast"
-  "extbit.io/smart/token"
-  "extbit.io/smart/scanner"
-  "runtime/debug"
-	"bytes"
-	"io/ioutil"
-	"io"
-  "unicode/utf8"
-	"path/filepath"
-	"strings"
-  "plugin"
-  "errors"
-  "time"
-  "flag"
-  "fmt"
-  "os/exec"
+        "extbit.io/smart/ast"
+        "extbit.io/smart/token"
+        "extbit.io/smart/scanner"
+        "runtime/debug"
+        "bytes"
+        "io/ioutil"
+        "io"
+        "unicode/utf8"
+        "path/filepath"
+        "strings"
+        "plugin"
+        "errors"
+        "time"
+        "flag"
+        "fmt"
+        "os/exec"
 	"os"
 )
 
@@ -153,12 +153,12 @@ type loader struct {
         vs string // verbose prefix
 }
 
-func (l *loader) errat(pos token.Pos, err interface{}, a... interface{}) {
+func (l *loader) error(pos token.Pos, f string, a... interface{}) {
+        var pp Position
         if l.parser != nil {
-                l.errorAt(l.parser.file.Position(pos), err, a...)
-        } else {
-                l.errorAt(token.Position{}, err, a...)
+                pp = Position(l.parser.file.Position(pos))
         }
+        diag.errorAt(pp, f, a...)
 }
 
 func (i *loader) AddSearchPaths(paths... string) (err error) {
@@ -298,7 +298,7 @@ func (l *loader) parseUseProps(props []ast.Expr) (opts importspecoptions, params
                 switch v := l.expr(prop); t := v.(type) {
                 case *Flag:
                         if s, err = t.name.Strval(); err != nil {
-                                l.error(prop.Pos(), "invalid flag `%v` (%v)", v, err)
+                                diag.errorOf(v, "invalid flag `%v` (%v)", v, err)
                                 return
                         }
                         switch s {
@@ -310,7 +310,7 @@ func (l *loader) parseUseProps(props []ast.Expr) (opts importspecoptions, params
                         switch tt := t.Key.(type) {
                         case *Flag:
                                 if s, err = tt.name.Strval(); err != nil {
-                                        l.error(prop.Pos(), "invalid flag name `%v` (%v)", tt.name, err)
+                                        diag.errorOf(t.Key, "invalid flag name `%v` (%v)", tt.name, err)
                                         return
                                 }
                                 switch s {
@@ -318,14 +318,14 @@ func (l *loader) parseUseProps(props []ast.Expr) (opts importspecoptions, params
                                 default: params = append(params, v)
                                 }
                         default:
-                                l.error(prop.Pos(), "parameter `%v' unsupported `%T`", v, v)
+                                diag.errorOf(t.Key, "parameter `%v' unsupported `%T`", v, v)
                                 return
                         }
                 case *Argumented: // -param(value)
                         switch tt := t.value.(type) {
                         case *Flag:
                                 if s, err = tt.name.Strval(); err != nil {
-                                        l.error(prop.Pos(), "invalid flag name `%v` (%v)", tt.name, err)
+                                        diag.errorOf(t.value, "invalid flag name `%v` (%v)", tt.name, err)
                                         return
                                 }
                                 switch s {
@@ -333,11 +333,11 @@ func (l *loader) parseUseProps(props []ast.Expr) (opts importspecoptions, params
                                 default: params = append(params, v)
                                 }
                         default:
-                                l.error(prop.Pos(), "parameter `%v' unsupported `%T`", v, v)
+                                diag.errorOf(t.value, "parameter `%v' unsupported `%T`", v, v)
                                 return
                         }
                 default:
-                        l.error(prop.Pos(), "parameter `%v` unsupported `%T`", v, v)
+                        diag.errorOf(v, "parameter `%v` unsupported `%T`", v, v)
                         return
                 }
         }
@@ -769,7 +769,7 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Va
         switch tok {
         case token.LCOLON:
                 s, err := name.Strval()
-                if err != nil { l.error(x.Name.Pos(), err); return }
+                if err != nil { l.error(x.Name.Pos(), "%v", err); return }
                 switch s {
                 //case "arch": obj = context.globe.arch
                 case "os": obj = context.globe.os.self
@@ -804,7 +804,7 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Va
                         }
                 } else if l.isIncludingConf {
                         s, err := name.Strval()
-                        if err != nil { l.error(x.Name.Pos(), err); return }
+                        if err != nil { l.error(x.Name.Pos(), "%v", err); return }
 
                         // Create an empty Def if it's referred in
                         // configuration.sm.
@@ -845,7 +845,7 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Va
         if obj == nil && l.project.plugin != nil {
                 if l.project.pluginScope != nil {
                         s, err := name.Strval()
-                        if err != nil { l.error(x.Name.Pos(), err); return }
+                        if err != nil { l.error(x.Name.Pos(), "%v", err); return }
                         obj = l.project.pluginScope.Lookup(s)
                 }
         }
@@ -877,12 +877,10 @@ func (l *loader) exprDelegate(x *ast.DelegateExpr) (v Value) {
                         v = MakeDelegate(Position(x.Position), x.TokLp, obj, l.exprs(x.Args)...)
                 } else if err != nil {
                         l.error(x.Name.Pos(), "`%v` invalid delegate selection", name)
-                        l.error(x.Name.Pos(), err)
                 } else if o == nil {
                         l.error(x.Name.Pos(), "`%v` nil selection object", name)
                 } else if v, err = sel.value(); err != nil {
                         l.error(x.Name.Pos(), "`%v` invalid delegate selection", name)
-                        l.error(x.Name.Pos(), err)
                 } else if v == nil {
                         if !l.isIncludingConf {
                                 l.error(x.Name.Pos(), "`%v` not found in %v", sel.s, o)
@@ -1596,8 +1594,9 @@ func (l *loader) include(spec *ast.IncludeSpec) {
         }
 }
 
-func (l *loader) includeFile(pos token.Pos, spec Value) {
+func (l *loader) includeFile(_pos token.Pos, spec Value) {
         var (
+                pos = Position(l.file.Position(_pos))
                 linfo = l.loads[len(l.loads)-1]
                 specName, fullname string
                 err error
@@ -1605,10 +1604,9 @@ func (l *loader) includeFile(pos token.Pos, spec Value) {
 
         // Execute the rule entry to update include source.
         if entry, ok := spec.(*RuleEntry); ok && entry != nil {
-                var result []Value
-                if result, err = entry.Execute(entry.position); err != nil {
-                        l.error(pos, "include error occurred (entry %v)", entry)
-                        l.error(pos, err) // add err to the list
+                var ( result []Value; breakers []*breaker )
+                if result, breakers = entry.Execute(entry.position); len(breakers) > 0 {
+                        diag.errorAt(pos, "include error occurred (entry %v)", entry)
                         return
                 } else if result != nil {
                         // result ignored
@@ -1621,15 +1619,14 @@ func (l *loader) includeFile(pos token.Pos, spec Value) {
                 panic(fmt.Sprintf("include not implemented (%T)", t))*/
         case *File:
                 if t.info == nil {
-                        l.error(pos, "`%v` no source file", t)
+                        diag.errorAt(pos, "`%v` no source file", t)
                         return
                 }
                 fullname = t.fullname() //filepath.Join(t.dir, t.Name)
                 specName = t.name
         default:
                 if specName, err = spec.Strval(); err != nil {
-                        l.error(pos, "include error occurred (spec %v)", spec)
-                        l.error(pos, err) // add err to the list
+                        diag.errorAt(pos, "include error occurred (spec %v)", spec)
                         return
                 }
                 if filepath.IsAbs(specName) {
@@ -1640,7 +1637,7 @@ func (l *loader) includeFile(pos token.Pos, spec Value) {
         }
 
         if specName == "" {
-                l.error(pos, "`%v` is empty string", spec)
+                diag.errorAt(pos, "`%v` is empty string", spec)
                 return
         }
 
@@ -1648,8 +1645,7 @@ func (l *loader) includeFile(pos token.Pos, spec Value) {
         var absDir, baseName = filepath.Split(fullname)
         defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
         if _, err = l.ParseFile(fullname, nil, parseMode|Flat); err != nil {
-                l.error(pos, "include error occurred (from %v)", fullname)
-                l.error(pos, err) // add err to the list
+                diag.errorAt(pos, "include error occurred (from %v)", fullname)
         } else {
                 // The parse mode could still be 'Flat' here as ParseFile
                 // changed it, so we have to restore the previous parse mode.
@@ -1715,7 +1711,7 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
                         var identifier = p.Key
                         var pos = identifier.Position()
                         var name string
-                        if name, err = p.Key.Strval(); err != nil { err = wrap(pos, err); return }
+                        if name, err = p.Key.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if len(name) > 0 && name[0] == '.' { identifier = MakeBarecomp(pos, &Bareword{trivial{pos},"project"}, p.Key) }
                         def := l.determine(l.pos, token.ASSIGN, identifier, p.Value)
                         if def == nil {/* FIXME: ... */}
@@ -1724,7 +1720,7 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
 
                 if specName, err = elem.Strval(); err != nil { return }
                 if specName == "" {
-                        err = errorf(elem.Position(), "%v: empty base name `%v` (%T)", l.project, elem, elem)
+                        diag.errorOf(elem, "%v: empty base name `%v` (%T)", l.project, elem, elem)
                         break ParamsLoop
                 }
                 if absPath, isDir, err = l.searchSpecPath(linfo, specName); err != nil {
@@ -1733,8 +1729,7 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
 
                 for _, base := range l.project.bases {
                         if base.absPath == absPath {
-                                //err = errorf(elem.Position(), "duplicated base: %v (in %v)", elem, l.project.bases)
-                                //break ParamsLoop
+                                //diag.errorOf(elem, "duplicated base: %v (in %v)", elem, l.project.bases)
                                 continue ParamsLoop
                         }
                 }
@@ -1746,7 +1741,7 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
                 }
 
                 if err != nil {
-                        err = wrap(elem.Position(), err)
+                        diag.errorAt(elem.Position(), "%v", err)
                         break ParamsLoop
                 }
 
@@ -1754,7 +1749,7 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
                 if loaded, yes := l.loaded[absPath]; yes && loaded != nil {
                         l.project.Chain(loaded)
                 } else {
-                        err = errorf(elem.Position(), "project `%v`(%T: %s) not loaded (%s)", elem, elem, specName, absPath)
+                        diag.errorOf(elem, "project `%v`(%T: %s) not loaded (%s)", elem, elem, specName, absPath)
                         break ParamsLoop
                 }
         }
@@ -1816,7 +1811,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 return nil
         } else if _, o := l.scope.Find(ident.Value); o != nil {
                 if _, ok := o.(*Builtin); ok {
-                        err = errorf(pos, "project name '%s' is a builtin name", ident.Value)
+                        diag.errorAt(pos, "project name '%s' is a builtin name", ident.Value)
                         return
                 }
         }
@@ -1887,13 +1882,13 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                         switch k := t.Key.(type) {
                         case *Bareword, *Barecomp:
                                 var name string
-                                if name, err = k.Strval(); err != nil { err = wrap(pos, err); return }
+                                if name, err = k.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                                 //if name[0] == '.' { name = "project" + name }
                                 var def, alt = l.def(l.pos, name)
                                 if def == nil && alt != nil { def = alt.(*Def) }
                                 def.set(DefDecl, t.Value)
                         default:
-                                err = errorf(pos, "`%v` unknown target from command line (%v)\n", t, l.project)
+                                diag.errorAt(pos, "`%v` unknown target from command line (%v)\n", t, l.project)
                                 return
                         }
                 }
@@ -1911,7 +1906,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                                 var ok bool
                                 def, ok = alt.(*Def)
                                 if !ok {
-                                        err = errorf(pos, "'%v' is not a Def (%T)", alt, alt)
+                                        diag.errorAt(pos, "'%v' is not a Def (%T)", alt, alt)
                                         return
                                 }
                         }
@@ -1925,7 +1920,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         if keyword == token.PACKAGE { return }
         if !optFinal {
                 if err = l.loadBases(linfo, bases); err != nil {
-                        err = wrap(pos, err)
+                        diag.errorAt(pos, "%v", err)
                         return
                 }
         }
@@ -1953,7 +1948,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
 
         if optNoDock || l.project.name == dotContainer { return }
         if _, e := os.Stat(".dock"); e == nil {
-                err = errorf(pos, "Must rename .dock into .container !")
+                diag.errorAt(pos, "Must rename .dock into .container !")
                 return
         }
 
@@ -2041,7 +2036,7 @@ func (l *loader) resolve(value Value) (obj Value, err error) {
   }
 
   /*if obj == nil {
-    err = errorf(value.Position(), "`%s` is nil (%T)", name, value)
+    diag.errorOf(value, "`%s` is nil (%T)", name, value)
   }*/
   return
 }
@@ -2195,7 +2190,7 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
 
                         var er, ok = e.(error)
                         if !ok { er = fmt.Errorf("%v", e) }
-                        err = wrap(pos, er, err)
+                        diag.errorAt(pos, "%v", er)
 		}
                 if err != nil && optionPrintStack {
                         fmt.Fprintf(stderr, "%v\n", err)
@@ -2208,7 +2203,7 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
                         // for _, p := range l.errors { e.Merge(p) }
                         // err = e
                         var p = Position(l.parser.file.Position(l.pos))
-                        for _, e := range l.errors { err = wrap(p, e, err) }
+                        for _, e := range l.errors { diag.errorAt(p, "%v", e) }
                 }
 
                 l.parser.loader = nil
@@ -2274,18 +2269,18 @@ ListLoop:
                 if d.IsDir() {
                         if err = l.ParseConfigDir(filepath.Join(pathname, name), fullname); err != nil { break ListLoop }
                 } else if s, a := l.def(l.pos, name); a != nil {
-                        err = errorf(pos, "declare project: %v", err)
+                        diag.errorAt(pos, "declare project: %v", err)
                         break ListLoop
                 } else if def = s; def != nil {
                         var ( v []byte; s string )
                         if v, err = ioutil.ReadFile(fullname); err != nil { break ListLoop }
                         if s = string(v); !utf8.ValidString(s) {
-                                err = errorf(pos, "%s: invalid UTF8 content", fullname)
+                                diag.errorAt(pos, "%s: invalid UTF8 content", fullname)
                                 break ListLoop
                         }
                         def.set(DefConfDir, &String{trivial{pos},s})
                 } else if s != nil {
-                        err =  errorf(pos, "Name `%s' already taken, not def (%T).", name, s)
+                        diag.errorAt(pos, "Name `%s' already taken, not def (%T).", name, s)
                         break ListLoop
                 }
         }
@@ -2383,10 +2378,10 @@ func (l *loader) ParseDir(path string, filter func(os.FileInfo) bool, mode Mode)
                                         pos.Filename = filename
                                 }
                                 if src == nil {
-                                        first = errorf(pos, "'%v' not loaded", filename)
+                                        diag.errorAt(pos, "'%v' not loaded", filename)
                                         return
                                 } else if src.Name == nil {
-                                        first = errorf(pos, "module '%v' has no name", filename)
+                                        diag.errorAt(pos, "module '%v' has no name", filename)
                                         return
                                 }
 

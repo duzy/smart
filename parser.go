@@ -136,7 +136,7 @@ func (p *parser) trace(a ...interface{}) {
 	p.traceAt(p.file.Position(p.pos), a...)
 }
 
-func (p *parser) error(pos token.Pos, err interface{}, a... interface{}) {
+/*func (p *parser) error(pos token.Pos, err interface{}, a... interface{}) {
         var position = p.file.Position(pos)
         if e, ok := err.(error); ok {
                 for _, t := range p.errors {
@@ -146,7 +146,7 @@ func (p *parser) error(pos token.Pos, err interface{}, a... interface{}) {
         } else {
                 p.errorAt(position, err, a...)
         }
-}
+}*/
 
 // Advance to the next token.
 func (p *parser) next0() {
@@ -1066,7 +1066,7 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                                         // TODO: check special var names
                                 }
                                 // add err to the parse error list
-                                if err != nil { p.error(name.Pos(), err) }
+                                if err != nil { p.error(name.Pos(), "%v", err) }
                         }
                         name = &ast.EvaluatedExpr{ name, v }
                 }
@@ -1498,9 +1498,9 @@ func (p *parser) parseEvalSpec(doc *ast.CommentGroup, generic *genericoptions, _
         if prop0 := p.expr(spec.Props[0]); prop0 == nil {
                 p.error(spec.Props[0].Pos(), "`%v` illegal", spec.Props[0])
         } else if name, err := prop0.Strval(); err != nil {
-                p.error(spec.Props[0].Pos(), err)
+                p.error(spec.Props[0].Pos(), "%v", err)
         } else if spec.Resolved, err = p.resolve(&Bareword{trivial{prop0.Position()},name}); err != nil {
-                p.error(spec.Pos(), err)
+                p.error(spec.Pos(), "%v", err)
         } else if spec.Resolved == nil {
                 p.error(spec.Props[0].Pos(), "no such command `%s' (%v).", name, prop0)
         } else if b, ok := spec.Resolved.(*Builtin); ok && (b.flag&builtinCommand) == 0 {
@@ -2351,7 +2351,7 @@ func (p *parser) parseFile() *ast.File {
 
                 if p.tracemode&Flat == 0 {
                         if err := p.declare(keyword, ident, options, params); err != nil {
-                                p.error(ident.Pos(), err)
+                                p.error(ident.Pos(), "%v", err)
                         } else {
 				if filepath.Base(filename) == "build.smart" {
 					defer func(pos token.Pos, proj *Project) {

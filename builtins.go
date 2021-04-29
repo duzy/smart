@@ -7,26 +7,26 @@
 package smart
 
 import (
-  "extbit.io/smart/scanner"
-  "extbit.io/smart/token"
-  "encoding/base64"
-  "path/filepath"
-  //"hash/crc64"
-  "io/ioutil"
-  "net/http"
-  "os/exec"
-  goctx "context"
-  "strings"
-  "strconv"
-	"unicode"
-  "errors"
-  "regexp"
-  "bytes"
-  "bufio"
-  "time"
-  "fmt"
-  "os"
-  "io"
+        //"extbit.io/smart/scanner"
+        "extbit.io/smart/token"
+        "encoding/base64"
+        "path/filepath"
+        //"hash/crc64"
+        "io/ioutil"
+        "net/http"
+        "os/exec"
+        goctx "context"
+        "strings"
+        "strconv"
+        "unicode"
+        "errors"
+        "regexp"
+        "bytes"
+        "bufio"
+        "time"
+        "fmt"
+        "os"
+        "io"
 )
 
 type Position token.Position
@@ -261,11 +261,11 @@ ForArgs:
                 var ( runes []rune ; names []string )
                 switch a := v.(type) {
                 case *Flag:
-                        if runes, names, err = a.opts(false, opts...); err != nil { return }
+                        if runes, names, err = a.opts(false, opts...); err != nil { diag.errorOf(a, "%v", err); return }
                 case *Pair:
                         var flag, ok = a.Key.(*Flag)
                         if !ok { va = append(va, a); continue ForArgs }
-                        if runes, names, err = flag.opts(false, opts...); err != nil { return }
+                        if runes, names, err = flag.opts(false, opts...); err != nil { diag.errorOf(a.Key, "%v", err); return }
                         v = a.Value // use flag value
                 default:
                         va = append(va, a)
@@ -283,11 +283,11 @@ ForArgs:
                 var ( runes []rune ; names []string )
                 switch a := v.(type) {
                 case *Flag:
-                        if runes, names, err = a.opts(true, opts...); err != nil { return }
+                        if runes, names, err = a.opts(true, opts...); err != nil { diag.errorOf(a, "%v", err); return }
                 case *Pair:
                         var flag, ok = a.Key.(*Flag)
                         if !ok { va = append(va, a); continue ForArgs }
-                        if runes, names, err = flag.opts(true, opts...); err != nil { return }
+                        if runes, names, err = flag.opts(true, opts...); err != nil { diag.errorOf(a.Key, "%v", err); return }
                         if len(runes) > 0 { v = a.Value } // use flag value
                 default:
                         va = append(va, a)
@@ -365,11 +365,11 @@ func builtinPosition(pos Position, args... Value) (res Value, err error) {
                         var last, okay = Scalar(vals[len(vals)-1]).(*Int)
                         if okay {
                                 var n int64
-                                if n, err = int64Val(val, 0); err != nil { return }
+                                if n, err = int64Val(val, 0); err != nil { diag.errorAt(pos, "%v", err); return }
                                 last.int64 += n
                         }
                 }
-        }); err != nil { return }
+        }); err != nil { diag.errorAt(pos, "%v", err); return }
         if len(vals) > 0 {
                 res = MakeListOrScalar(pos, vals)
         } else {
@@ -458,7 +458,7 @@ func builtinAnd(pos Position, args... Value) (res Value, err error) {
 func builtinNot(pos Position, args... Value) (res Value, err error) {
         var t bool
         for _, a := range args {
-                if t, err = a.True(); err != nil { return } else
+                if t, err = a.True(); err != nil { diag.errorAt(pos, "%v", err); return } else
                 if t {
                         res = &boolean{trivial{pos},false}
                         return
@@ -470,7 +470,7 @@ func builtinNot(pos Position, args... Value) (res Value, err error) {
 
 func builtinNotEqual(pos Position, args... Value) (res Value, err error) {
         if n := len(args); n != 2 {
-                err = errorf(pos, "wrong number of arguments ($(match <value-list>,<regexp-list>))", n)
+                diag.errorAt(pos, "wrong number of arguments ($(match <value-list>,<regexp-list>)): %v", n)
         } else if args[0].cmp(args[1]) != cmpEqual {
                 res = &boolean{trivial{pos},true}
         }
@@ -479,7 +479,7 @@ func builtinNotEqual(pos Position, args... Value) (res Value, err error) {
 
 func builtinEqual(pos Position, args... Value) (res Value, err error) {
         if n := len(args); n != 2 {
-                err = errorf(pos, "wrong number of arguments ($(match <value-list>,<regexp-list>))", n)
+                diag.errorAt(pos, "wrong number of arguments ($(match <value-list>,<regexp-list>)): %v", n)
         } else if cmp := args[0].cmp(args[1]); cmp == cmpEqual {
                 res = &boolean{trivial{pos},true}
         }
@@ -489,7 +489,7 @@ func builtinEqual(pos Position, args... Value) (res Value, err error) {
 // $(match rx1 rx2 rx3, a b c d...)
 func builtinMatch(pos Position, args... Value) (res Value, err error) {
         if n := len(args); n != 2 {
-                err = errorf(pos, "wrong number of arguments ($(match <regexp-list>,<value-list>))", n)
+                diag.errorAt(pos, "wrong number of arguments ($(match <regexp-list>,<value-list>)): %v", n)
                 return
         }
         var rexList = merge(args[0])
@@ -497,12 +497,12 @@ func builtinMatch(pos Position, args... Value) (res Value, err error) {
 ForMatchValues:
         for _, rexval := range rexList {
                 var ( r *regexp.Regexp ; s string )
-                if s, err = rexval.Strval(); err != nil { return }
-                if r, err = regexp.Compile(s); err != nil { return }
+                if s, err = rexval.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                if r, err = regexp.Compile(s); err != nil { diag.errorAt(pos, "%v", err); return }
                 for _, srcval := range srcList {
                         var src string
                         if srcval == nil { continue } else
-                        if src, err = srcval.Strval(); err != nil { return } else
+                        if src, err = srcval.Strval(); err != nil { diag.errorAt(pos, "%v", err); return } else
                         if r.MatchString(src) {
                                 res = &boolean{trivial{pos},true}
                                 break ForMatchValues
@@ -516,7 +516,7 @@ func builtinBranchIf(pos Position, args... Value) (res Value, err error) {
         if n := len(args); n > 1 {
                 var t bool
                 if t, err = args[0].True(); err != nil {
-                        // oops
+                        diag.errorAt(pos, "%v", err)
                 } else if t { 
                         res = args[1]
                 } else if n > 1 {
@@ -532,10 +532,10 @@ func builtinBranchIfEq(pos Position, args... Value) (res Value, err error) {
                         a, b Value
                         s1, s2 string
                 )
-                if a, err = args[0].expand(expandAll); err != nil { return }
-                if b, err = args[1].expand(expandDelegate); err != nil { return }
-                if s1, err = a.Strval(); err != nil { return }
-                if s2, err = b.Strval(); err != nil { return }
+                if a, err = args[0].expand(expandAll); err != nil { diag.errorAt(pos, "%v", err); return }
+                if b, err = args[1].expand(expandDelegate); err != nil { diag.errorAt(pos, "%v", err); return }
+                if s1, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                if s2, err = b.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 if s1 == s2 { 
                         res = args[2]
                 } else if n > 3 {
@@ -551,10 +551,10 @@ func builtinBranchIfNE(pos Position, args... Value) (res Value, err error) {
                         a, b Value
                         s1, s2 string
                 )
-                if a, err = args[0].expand(expandDelegate); err != nil { return }
-                if b, err = args[1].expand(expandDelegate); err != nil { return }
-                if s1, err = a.Strval(); err != nil { return }
-                if s2, err = b.Strval(); err != nil { return }
+                if a, err = args[0].expand(expandDelegate); err != nil { diag.errorAt(pos, "%v", err); return }
+                if b, err = args[1].expand(expandDelegate); err != nil { diag.errorAt(pos, "%v", err); return }
+                if s1, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                if s2, err = b.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 if s1 != s2 { 
                         res = args[2]
                 } else if n > 3 {
@@ -566,10 +566,10 @@ func builtinBranchIfNE(pos Position, args... Value) (res Value, err error) {
 
 func builtinFor(pos Position, args... Value) (res Value, err error) {
         if n := len(args); n < 2 {
-                err = scanner.Errorf(token.Position(pos), "not enough arguments ($(foreach <list>,<template>))", n)
+                diag.errorAt(pos, "not enough arguments ($(foreach <list>,<template>)): %v", n)
         } else {
                 var ( defs []*Def ; vals, values []Value )
-                if values, err = mergeresult(ExpandAll(args[0])); err != nil { return }
+                if values, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return }
 
                 scope := context.globe.scope
                 for i := 1; i <= maxNumVarVal; i += 1 {
@@ -588,7 +588,7 @@ func builtinFor(pos Position, args... Value) (res Value, err error) {
 
                 var list []Value
                 for _, a := range args[1:] {
-                        if values, err = mergeresult(ExpandAll(a)); err != nil { return }
+                        if values, err = mergeresult(ExpandAll(a)); err != nil { diag.errorAt(pos, "%v", err); return }
                         if len(values) == 0 {
                                 list = append(list, &None{trivial{pos}})
                         } else if len(values) == 1 {
@@ -604,16 +604,16 @@ func builtinFor(pos Position, args... Value) (res Value, err error) {
 
 func builtinForEach(pos Position, args... Value) (res Value, err error) {
         if n := len(args); n < 2 {
-                err = scanner.Errorf(token.Position(pos), "not enough arguments ($(foreach <list>,<template>))", n)
+                diag.errorAt(pos, "not enough arguments ($(foreach <list>,<template>)): %v", n)
         } else {
                 def := context.globe.scope.Lookup("_").(*Def)
                 defer func(v Value) { def.value = v } (def.value)
 
                 var values Value
-                if values, err = args[0].expand(expandAll); err != nil { return }
+                if values, err = args[0].expand(expandAll); err != nil { diag.errorAt(pos, "%v", err); return }
 
                 // FIXME: remove the second expandAll
-                if values, err = values.expand(expandAll); err != nil { return }
+                if values, err = values.expand(expandAll); err != nil { diag.errorAt(pos, "%v", err); return }
 
                 var resList []Value
                 for _, val := range merge(values) {
@@ -628,7 +628,7 @@ func builtinForEach(pos Position, args... Value) (res Value, err error) {
                         var list []Value
                         for _, a := range args[1:] {
                                 var v Value
-                                if v, err = a.expand(expandAll); err != nil { return }
+                                if v, err = a.expand(expandAll); err != nil { diag.errorAt(pos, "%v", err); return }
                                 if isNil(v) || isNone(v) {
                                         // ignore
                                 } else if s, ok := v.(*String); ok && s.string == "" {
@@ -657,7 +657,7 @@ func builtinEnv(pos Position, args... Value) (res Value, err error) {
                 v string
         )
         for _, a := range args {
-                if val, err = a.expand(expandDelegate); err != nil { return }
+                if val, err = a.expand(expandDelegate); err != nil { diag.errorAt(pos, "%v", err); return }
                 if val == nil {
                         // discard
                 } else if v, err = val.Strval(); err == nil {
@@ -665,6 +665,7 @@ func builtinEnv(pos Position, args... Value) (res Value, err error) {
                                 vals = append(vals, &String{trivial{pos},os.Getenv(s)})
                         }
                 } else {
+                        diag.errorAt(pos, "%v", err)
                         return
                 }
         }
@@ -679,7 +680,7 @@ func builtinValue(pos Position, args... Value) (res Value, err error) {
         var vals []Value
         for _, a := range args {
                 var s string
-                if s, err = a.Strval(); err != nil { return }
+                if s, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 if def := scope.FindDef(s); def != nil {
                         vals = append(vals, def.value)
                 } else {
@@ -698,12 +699,12 @@ func builtinShell(pos Position, args... Value) (res Value, err error) {
         var vals []Value
         for _, a := range args {
                 var ( bufout, buferr bytes.Buffer; s string )
-                if s, err = a.Strval(); err != nil { return }
+                if s, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 sh := exec.Command("sh", "-c", s)
                 sh.Stdout, sh.Stderr = &bufout, &buferr
                 if err = sh.Run(); err != nil {
                         s = strings.TrimSpace(buferr.String())
-                        err = wrap(pos, fmt.Errorf("%s", s), err)
+                        diag.errorAt(pos, "%s", err)
                         return
                 }
                 val := &String{trivial{pos},strings.TrimSpace(bufout.String())}
@@ -726,10 +727,10 @@ func builtinServeHttp(pos Position, args... Value) (res Value, err error) {
                 return
         } else if va, err = parseFlags(args, opts, func(ru rune, v Value) {
                 switch ru {
-                case 'p': if optPort, err = intVal(v, optPort); err != nil { return }
-                case 'h': if optHost, err = v.Strval(); err != nil { return }
+                case 'p': if optPort, err = intVal(v, optPort); err != nil { diag.errorAt(pos, "%v", err); return }
+                case 'h': if optHost, err = v.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 }
-        }); err != nil { return }
+        }); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var server = &http.Server{}
         server.Addr = fmt.Sprintf("%s:%d", optHost, optPort)
@@ -745,7 +746,7 @@ func builtinServeHttp(pos Position, args... Value) (res Value, err error) {
 
         for _, a := range va {
                 var s string
-                if s, err = a.Strval(); err != nil { return }
+                if s, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 fmt.Fprintf(stderr, "%s: serving files %v ...\n", pos, s)
                 http.Handle("/", http.FileServer(http.Dir(s)))
         }
@@ -753,13 +754,13 @@ func builtinServeHttp(pos Position, args... Value) (res Value, err error) {
         if err = server.ListenAndServe(); err == http.ErrServerClosed {
                 // Requested /quit
         } else if err != nil {
-                err = wrap(pos, err)
+                diag.errorAt(pos, "%s", err)
         }
         return
 }
 
 func builtinServeHttps(pos Position, args... Value) (res Value, err error) {
-        err = scanner.Errorf(token.Position(pos), "'serve-https' is unimplemented yet")
+        diag.errorAt(pos, "'serve-https' is unimplemented yet")
         return
 }
 
@@ -773,7 +774,7 @@ func builtinPrint(pos Position, args... Value) (res Value, err error) {
                 } else if s, err = EscapedString(a); err == nil {
                         if s != "" { fmt.Printf("%s", s) }
                 } else {
-                        err = wrap(pos, err)
+                        diag.errorAt(pos, "%s", err)
                         break
                 }
         }
@@ -785,7 +786,10 @@ func builtinPrintl(pos Position, args... Value) (res Value, err error) {
         for i, a := range args {
                 var s string
                 if 0 < i && i < x { fmt.Printf(" ") }
-                if s, err = EscapedString(a); err != nil { return }
+                if s, err = EscapedString(a); err != nil {
+                        diag.errorAt(pos, "%s", err)
+                        return
+                }
                 fmt.Printf("%s", s)
                 if i == x && !strings.HasSuffix(s, "\n") {
                         fmt.Printf("\n")
@@ -802,7 +806,7 @@ func builtinPrintln(pos Position, args... Value) (Value, error) {
 
 func builtinAppend(pos Position, args... Value) (result Value, err error) {
         if len(args) < 2 {
-                err = errorf(pos, "insufficient number of arguments: %v", args)
+                diag.errorAt(pos, "insufficient number of arguments: %v", args)
                 return
         }
 
@@ -814,29 +818,29 @@ func builtinAppend(pos Position, args... Value) (result Value, err error) {
                 vars []Value
                 list []Value
         )
-        if vars, err = mergeresult(ExpandAll(args[0])); err != nil { return } else
+        if vars, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorOf(args[0], "%s", err); return } else
         if vars, err = tryParseFlags(vars, []string{
                 "s,string",
                 "v,verbose",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 's': if optString , err = trueVal(v,true); err != nil { return }
-                case 'v': if optVerbose, err = trueVal(v,true); err != nil { return }
+                case 's': if optString , err = trueVal(v,true); err != nil { diag.errorOf(v, "%s", err); return }
+                case 'v': if optVerbose, err = trueVal(v,true); err != nil { diag.errorOf(v, "%s", err); return }
                 }
-        }); err != nil { return }
-        if list, err = mergeresult(ExpandAll(args[1:]...)); err != nil { return }
+        }); err != nil { diag.errorAt(pos, "%v", err); return }
+        if list, err = mergeresult(ExpandAll(args[1:]...)); err != nil { diag.errorOf(args[1], "%s", err); return }
         if len(list) == 0 { return }
 
         for _, a := range vars {
                 var name string
-                if name, err = a.Strval(); err != nil { err = wrap(pos, err); break }
-                if name == "" { err = errorf(pos, "name '%v' is empty", a); break }
+                if name, err = a.Strval(); err != nil { diag.errorOf(a, "%s", err); break }
+                if name == "" { diag.errorOf(a, "name '%v' is empty", a); break }
 
                 var def *Def
                 if def == nil {
                         var obj Object
                         obj, err = cloctx[0].project.resolveObject(name)
-                        if err != nil { err = wrap(pos, err); break } else
+                        if err != nil { diag.errorOf(a, "%v", err); break } else
                         if def, _ = obj.(*Def); def == nil { /*...*/ }
                 }
                 if def == nil {
@@ -844,8 +848,8 @@ func builtinAppend(pos Position, args... Value) (result Value, err error) {
                                 if def = scope.FindDef(name); def != nil { break }
                         }
                 }
-                if def == nil { err = errorf(pos, "'%s' (%v) is undefined (%v)", name, a, cloctx); break }
-                if err = def.append(list...); err != nil { err = wrap(pos, err); break }
+                if def == nil { diag.errorAt(pos, "'%s' (%v) is undefined (%v)", name, a, cloctx); break }
+                if err = def.append(list...); err != nil { diag.errorAt(pos, "%s", err); break }
         }
         return
 }
@@ -854,6 +858,7 @@ func builtinPlus(pos Position, args... Value) (result Value, err error) {
         var num, v int64
         for _, a := range args {
                 if v, err = a.Integer(); err != nil {
+                        diag.errorOf(a, "%s", err)
                         return
                 }
                 num += v
@@ -865,6 +870,7 @@ func builtinMinus(pos Position, args... Value) (result Value, err error) {
         var num, v int64
         for i, a := range args {
                 if v, err = a.Integer(); err != nil {
+                        diag.errorOf(a, "%s", err)
                         return
                 }
                 if i == 0 {
@@ -890,12 +896,12 @@ func builtinUnique(pos Position, args... Value) (res Value, err error) {
                         "r,reverse",
                 }, func(ru rune, v Value) {
                         switch ru {
-                        case 'r': if optReverse, err = trueVal(v,true); err != nil { return }
+                        case 'r': if optReverse, err = trueVal(v,true); err != nil { diag.errorOf(v, "%v", err); return }
                         }
-                }); err != nil { return }
+                }); err != nil { diag.errorOf(args[0], "%v", err); return }
                 args = append(a, args[1:]...)
         }
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var list []Value
 ForArgs:
@@ -910,9 +916,9 @@ ForArgs:
 
                 if false {
                         var s1, s2 string
-                        if s1, err = a.Strval(); err != nil { return }
+                        if s1, err = a.Strval(); err != nil { diag.errorOf(a, "%v", err); return }
                         for _, v := range list {
-                                if s2, err = v.Strval(); err != nil { return }
+                                if s2, err = v.Strval(); err != nil { diag.errorOf(v, "%v", err); return }
                                 if s1 == s2 { continue ForArgs }
                         }
                 }
@@ -927,14 +933,14 @@ func builtinJoin(pos Position, args... Value) (res Value, err error) {
         if l := len(args); l > 0 {
                 var ( vals []Value ; fields []string ; sep string )
                 if l < 2 {
-                        if vals, err = mergeresult(ExpandAll(args...)); err != nil { return }
+                        if vals, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
                 } else {
-                        if vals, err = mergeresult(ExpandAll(args[:l-1]...)); err != nil { return }
-                        if sep, err = args[l-1].Strval(); err != nil { return }
+                        if vals, err = mergeresult(ExpandAll(args[:l-1]...)); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if sep, err = args[l-1].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 }
                 for _, a := range vals {
                         var v string
-                        if v, err = a.Strval(); err != nil { return }
+                        if v, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if v != "" { fields = append(fields, v) }
                 }
                 res = &String{trivial{pos},strings.Join(fields, sep)}
@@ -943,12 +949,12 @@ func builtinJoin(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinQuote(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
         if l := len(args); l > 0 {
                 var fields []string
                 var v string
                 for _, a := range args {
-                        if v, err = a.Strval(); err != nil { return }
+                        if v, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if v != "" { fields = append(fields, v) }
                 }
                 res = &String{trivial{pos},strconv.Quote(strings.Join(fields, " "))}
@@ -959,7 +965,7 @@ func builtinQuote(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinQuoteJoin(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var sep string
         if l := len(args); l > 1 {
@@ -972,7 +978,7 @@ func builtinQuoteJoin(pos Position, args... Value) (res Value, err error) {
                 var fields []string
                 var v string
                 for _, a := range args {
-                        if v, err = a.Strval(); err != nil { return }
+                        if v, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if v != "" { fields = append(fields, v) }
                 }
                 res = &String{trivial{pos},strconv.Quote(strings.Join(fields, sep))}
@@ -983,12 +989,12 @@ func builtinQuoteJoin(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinSplitString(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
         if l := len(args); l > 0 {
                 var fields []Value
                 for _, a := range args {
                         var s string
-                        if s, err = a.Strval(); err != nil { return }
+                        if s, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if s != "" { fields = append(fields, &String{trivial{a.Position()},s}) }
                 }
 
@@ -1076,11 +1082,11 @@ func builtinField(pos Position, args... Value) (res Value, err error) {
                         s string
                         fields []string
                 )
-                if i, err = args[0].Integer(); err != nil { return }
-                if s, err = args[1].Strval(); err != nil { return }
+                if i, err = args[0].Integer(); err != nil { diag.errorAt(pos, "%v", err); return }
+                if s, err = args[1].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 if l > 2 {
                         var v string
-                        if v, err = args[2].Strval(); err != nil { return }
+                        if v, err = args[2].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         fields = strings.Split(s, v)
                 } else {
                         fields = strings.Fields(s)
@@ -1128,7 +1134,7 @@ func builtinPath(pos Position, args... Value) (result Value, err error) {
         var list []Value
         for _, a := range args {
                 var s string
-                if s, err = a.Strval(); err != nil { return }
+                if s, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 list = append(list, MakePathStr(pos,s))
         }
         result = MakeListOrScalar(pos, list)
@@ -1140,7 +1146,7 @@ func builtinString(pos Position, args... Value) (result Value, err error) {
         for i, a := range args {
                 var v string
                 if i > 0 { s.WriteString(" ") }
-                if v, err = a.Strval(); err != nil { return }
+                if v, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 s.WriteString(v)
         }
         result = &String{trivial{pos},s.String()}
@@ -1172,7 +1178,7 @@ func filterValues(pats []Value, neg bool, values... Value) (result []Value, err 
                 }
                 return false
         }
-        if values, err = mergeresult(Reveal(values...)); err != nil { return }
+        if values, err = mergeresult(Reveal(values...)); err != nil { diag.errorOf(values[0], "%v", err); return }
         for _, v := range values {
                 var okay = f(v)
                 if err != nil { break }
@@ -1185,8 +1191,8 @@ func filterValues(pats []Value, neg bool, values... Value) (result []Value, err 
 func builtinFilterValues(pos Position, neg bool, args... Value) (res Value, err error) {
         if len(args) > 1 {
                 var ( pats []Value; vals []Value )
-                if pats, err = mergeresult(ExpandAll(args[0])); err != nil { return }
-                if vals, err = mergeresult(ExpandAll(args[1:]...)); err != nil { return }
+                if pats, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return }
+                if vals, err = mergeresult(ExpandAll(args[1:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
                 if vals, err = filterValues(pats, neg, vals...); err == nil {
                         res = MakeListOrScalar(pos, vals)
                 }
@@ -1196,22 +1202,31 @@ func builtinFilterValues(pos Position, neg bool, args... Value) (res Value, err 
 }
 
 func builtinSubstring(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { err = wrap(pos, err); return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "%v", err)
+                return
+        }
 
         var list []Value
         if n := len(args); n > 1 {
                 var ( i1, i2 int )
-                if i1, err = intVal(args[0], -1); err != nil { err = wrap(pos, err); return } else {
+                if i1, err = intVal(args[0], -1); err != nil {
+                        diag.errorAt(pos, "%v", err)
+                        return
+                } else {
                         args = args[1:]
                 }
                 if i2, err = intVal(args[0], -1); err != nil {
                         if _, ok := err.(*strconv.NumError); ok {
                                 err = nil // ignore
-                        } else { err = wrap(pos, err); return }
+                        } else {
+                                diag.errorOf(args[0], "%v", err)
+                                return
+                        }
                 } else { args = args[1:] }
 
                 if i1 < -1 && i2 < -1 {
-                        err = errorf(pos, "wrong indices (%d, %d)", i1, i2)
+                        diag.errorAt(pos, "wrong indices (%d, %d)", i1, i2)
                         return
                 } else if i1 > i2 { t := i1; i1 = i2; i2 = t } // swap the wrong order
                 
@@ -1221,7 +1236,7 @@ func builtinSubstring(pos Position, args... Value) (res Value, err error) {
 
                 for _, arg := range args {
                         var s string
-                        if s, err = arg.Strval(); err != nil { return }
+                        if s, err = arg.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if i := len(s); i <= a { s = "" } else
                         if b == -1 || i <= b { s = s[a:b] } else { s = s[a:] }
                         list = append(list, &String{trivial{pos},s})
@@ -1236,12 +1251,12 @@ func builtinSubst(pos Position, args... Value) (res Value, err error) {
         var list []Value
         if nargs := len(args); nargs > 2 {
                 var s, s1, s2 string
-                if s1, err = args[0].Strval(); err != nil { return }
-                if s2, err = args[1].Strval(); err != nil { return }
+                if s1, err = args[0].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                if s2, err = args[1].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 var a []Value
-                if a, err = mergeresult(Reveal(args[2:]...)); err != nil { return }
+                if a, err = mergeresult(Reveal(args[2:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
                 for _, arg := range a {
-                        if s, err = arg.Strval(); err != nil { return }
+                        if s, err = arg.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         list = append(list, &String{trivial{pos},strings.Replace(s, s1, s2, -1)})
                 }
         }
@@ -1258,25 +1273,25 @@ func builtinPatsubst(pos Position, args... Value) (res Value, err error) {
         if len(args) < 3 { return }
 
         var ( optNoFilemap bool; arg0 []Value )
-        if arg0, err = mergeresult(ExpandAll(args[0])); err != nil { return } else
+        if arg0, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return } else
         if arg0, err = parseFlags(arg0, []string{
                 "n,no-filemap",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'n': if optNoFilemap, err = trueVal(v, true); err != nil { return }
+                case 'n': if optNoFilemap, err = trueVal(v, true); err != nil { diag.errorAt(pos, "%v", err); return }
                 }
-        }); err != nil { return }
+        }); err != nil { diag.errorAt(pos, "%v", err); return }
 
         // TODO: support flags -name and -full for name-only and full-name-only matching
         var srcPats, dstPats, sources []Value
         if len(arg0) > 0 {
                 srcPats = arg0
-                if dstPats, err = mergeresult(ExpandAll(args[1])); err != nil { return }
-                if sources, err = mergeresult(ExpandAll(args[2:]...)); err != nil { return }
+                if dstPats, err = mergeresult(ExpandAll(args[1])); err != nil { diag.errorAt(pos, "%v", err); return }
+                if sources, err = mergeresult(ExpandAll(args[2:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
         } else {
-                if srcPats, err = mergeresult(ExpandAll(args[1])); err != nil { return }
-                if dstPats, err = mergeresult(ExpandAll(args[2])); err != nil { return }
-                if sources, err = mergeresult(ExpandAll(args[3:]...)); err != nil { return }
+                if srcPats, err = mergeresult(ExpandAll(args[1])); err != nil { diag.errorAt(pos, "%v", err); return }
+                if dstPats, err = mergeresult(ExpandAll(args[2])); err != nil { diag.errorAt(pos, "%v", err); return }
+                if sources, err = mergeresult(ExpandAll(args[3:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
         }
 
         var proj = current()
@@ -1328,8 +1343,6 @@ ForSources:
                                 name, rest, err = pat.stencil(stems)
                                 if err != nil { break ForSources }
                                 if len(rest) > 0 {
-                                        //err = fmt.Errorf("stems rest (%v)", rest)
-                                        //return
                                         continue ForDstPats
                                 }
                         default:
@@ -1360,7 +1373,7 @@ ForSources:
                                     assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (proj.absPath=%s, pre=%s)", file.name, name, proj.absPath, pre))
                                   }/* else if match.Paths != nil {
                                     var ( path = match.Paths[0] ; sub string )
-                                    if sub, err = path.Strval(); err != nil { return }
+                                    if sub, err = path.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                                     if filepath.IsAbs(sub) {
                                       file = stat(name, "", sub, nil)
                                     } else {
@@ -1395,7 +1408,7 @@ func builtinTrimSpace(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinTitle(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var (
                 list []Value
@@ -1415,7 +1428,7 @@ func builtinTitle(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinTrim(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var (
                 list []Value
@@ -1441,7 +1454,7 @@ func builtinTrim(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinTrimLeft(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var (
                 list []Value
@@ -1467,7 +1480,7 @@ func builtinTrimLeft(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinTrimRight(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var (
                 list []Value
@@ -1497,7 +1510,7 @@ func builtinTrimRight(pos Position, args... Value) (res Value, err error) {
 // $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
 // FIXME: %%/foo is not working
 func _builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
         if len(args) == 0 { return }
 
         var (
@@ -1549,11 +1562,11 @@ func _builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
 func builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
         var prefixs, values, list []Value
         if len(args) == 0 { return } else
-        if prefixs, err = mergeresult(ExpandAll(args[0])); err != nil { return }
+        if prefixs, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return }
         if len(args) == 1 {
                 if len(prefixs) > 1 { values = prefixs[1:] }
         } else {
-                if values, err = mergeresult(ExpandAll(args[1:]...)); err != nil { return }
+                if values, err = mergeresult(ExpandAll(args[1:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
         }
         if len(values) == 0 { return } else if len(prefixs) == 0 {
                 res = MakeListOrScalar(pos, values)
@@ -1575,7 +1588,7 @@ func builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
                                 return
                         } else {
                                 if s == "" {
-                                        if s, err = value.Strval(); err != nil { return }
+                                        if s, err = value.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                                         if s == "" { continue ForValue }
                                 }
                                 if s != "" && strings.HasPrefix(s, cutset) {
@@ -1590,7 +1603,7 @@ func builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
                         }
                 }
                 if s == "" && value != nil {
-                        if s, err = value.Strval(); err != nil { return }
+                        if s, err = value.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 }
                 if s != "" { list = append(list, &String{trivial{pos},s}) }
         }
@@ -1599,7 +1612,7 @@ func builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinTrimSuffix(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var (
                 list []Value
@@ -1625,7 +1638,7 @@ func builtinTrimSuffix(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinTrimExt(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var list []Value
         for i, a := range args {
@@ -1692,7 +1705,7 @@ func builtinFindstring(pos Position, args... Value) (res Value, err error) {
 // $(contains a b -or=(c1 c2 c3), v1 v2 …)
 func builtinContains(pos Position, args... Value) (res Value, err error) {
         if len(args) < 2 {
-                err = errorf(pos, "unexpected number of arguments, try $(contains a b c1 -or c2, v1 v2 …)")
+                diag.errorAt(pos, "unexpected number of arguments, try $(contains a b c1 -or c2, v1 v2 …)")
                 return
         }
 
@@ -1702,18 +1715,18 @@ func builtinContains(pos Position, args... Value) (res Value, err error) {
                 vals []Value
                 list []Value
         )
-        if vals, err = mergeresult(ExpandAll(args[0])); err != nil { return } else
+        if vals, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return } else
         if vals, err = tryParseFlags(vals, []string{
                 "s,string",
                 "v,verbose",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 's': if optString , err = trueVal(v,true); err != nil { return }
-                case 'v': if optVerbose, err = trueVal(v,true); err != nil { return }
+                case 's': if optString , err = trueVal(v,true); err != nil { diag.errorAt(pos, "%v", err); return }
+                case 'v': if optVerbose, err = trueVal(v,true); err != nil { diag.errorAt(pos, "%v", err); return }
                 }
-        }); err != nil { return }
+        }); err != nil { diag.errorAt(pos, "%v", err); return }
 
-        if list, err = mergeresult(ExpandAll(args[1:]...)); err != nil { return }
+        if list, err = mergeresult(ExpandAll(args[1:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var ( n = 0; x = len(vals); va []Value )
         for _, val := range vals {
@@ -1721,11 +1734,11 @@ func builtinContains(pos Position, args... Value) (res Value, err error) {
                 switch v := val.(type) {
                 default: va = []Value{ val }
                 case *Flag:
-                        if s, err = v.name.Strval(); err != nil { return }
+                        if s, err = v.name.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if s == "or" { va, x = append(va, val), x-1; continue }
                 case *Pair: // FIXME: -or=(c1 c2 c3)
                         if f, ok := v.Key.(*Flag); !ok {va = []Value{ val }} else {
-                                if s, err = f.name.Strval(); err != nil { return }
+                                if s, err = f.name.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                                 if s == "or" { va, x = append(va, v.Value), x-1; continue }
                         }
                 }
@@ -1735,8 +1748,8 @@ func builtinContains(pos Position, args... Value) (res Value, err error) {
                         for _, a := range va {
                                 if optString {
                                         var r string
-                                        if r, err = v.Strval(); err != nil { return }
-                                        if s, err = a.Strval(); err != nil { return }
+                                        if r, err = v.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                        if s, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                                         if r != s { continue ForList }
                                 } else if a.cmp(v) != cmpEqual { continue ForList }
                         }
@@ -1832,7 +1845,7 @@ func builtinDecodeBase64(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinBase(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
         var s string
         var l []Value
         for _, a := range args {
@@ -2049,6 +2062,7 @@ func builtinRelativeDir(pos Position, args... Value) (res Value, err error) {
         )
         for i, a := range args {
                 if s, err = a.Strval(); err != nil {
+                        diag.errorAt(pos, "%v", err)
                         return
                 }
                 if i == 0 {
@@ -2056,6 +2070,7 @@ func builtinRelativeDir(pos Position, args... Value) (res Value, err error) {
                 } else if s, err = filepath.Rel(t, s); err == nil {
                         l = append(l, &String{trivial{a.Position()},s})
                 } else {
+                        diag.errorAt(pos, "%v", err)
                         return
                 }
         }
@@ -2072,32 +2087,32 @@ func builtinMkdir(pos Position, args... Value) (res Value, err error) {
                 )
                 switch t := a.(type) {
                 case *Pair: // mkdir name => perm name => perm
-                        if name, err = t.Key.Strval(); err != nil { return }
-                        if perm, err = permVal(t.Value,0600); err != nil { return }
+                        if name, err = t.Key.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if perm, err = permVal(t.Value,0600); err != nil { diag.errorAt(pos, "%v", err); return }
                 case *Group: // mkdir (name perm) (name perm)
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(); err != nil { return }
-                                if perm, err = permVal(t.Get(1),0600); err != nil { return }
+                                if name, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if perm, err = permVal(t.Get(1),0600); err != nil { diag.errorAt(pos, "%v", err); return }
                         } else {
-                                err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
+                                diag.errorAt(pos, "Wrong size of list `%v'", t)
                                 break
                         }
                 case *List: // mkdir name perm, name perm, ...
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(); err != nil { return }
-                                if perm, err = permVal(t.Get(1),0600); err != nil { return }
+                                if name, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if perm, err = permVal(t.Get(1),0600); err != nil { diag.errorAt(pos, "%v", err); return }
                         } else {
-                                err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
+                                diag.errorAt(pos, "Wrong size of list `%v'", t)
                                 break
                         }
                 default: // mkdir name perm, name perm, ...
-                        if name, err = args[i].Strval(); err != nil { return }
+                        if name, err = args[i].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if i+1 < nargs {
-                                if perm, err = permVal(args[i+1],0600); err != nil { return }
+                                if perm, err = permVal(args[i+1],0600); err != nil { diag.errorAt(pos, "%v", err); return }
                                 i += 1
                         }
                 }
-                if err = os.Mkdir(name, perm); err != nil { break }
+                if err = os.Mkdir(name, perm); err != nil { diag.errorAt(pos, "%v", err); break }
         }
         return
 }
@@ -2111,34 +2126,32 @@ func builtinMkdirAll(pos Position, args... Value) (res Value, err error) {
                 )
                 switch t := a.(type) {
                 case *Pair: // mkdir name => perm name => perm
-                        if name, err = t.Key.Strval(); err != nil { return }
-                        if perm, err = permVal(t.Value,0600); err != nil { return }
+                        if name, err = t.Key.Strval(); err != nil { diag.errorOf(t.Key, "%v", err); return }
+                        if perm, err = permVal(t.Value,0600); err != nil { diag.errorOf(t.Value, "%v", err); return }
                 case *Group: // mkdir (name perm) (name perm)
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(); err != nil { return }
-                                if perm, err = permVal(t.Get(1),0600); err != nil { return }
+                                if name, err = t.Get(0).Strval(); err != nil { diag.errorOf(t.Get(0), "%v", err); return }
+                                if perm, err = permVal(t.Get(1),0600); err != nil { diag.errorOf(t.Get(1), "%v", err); return }
                         } else {
-                                err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
+                                diag.errorAt(pos, "Wrong size of list `%v'", t);
                                 break
                         }
                 case *List: // mkdir name perm, name perm, ...
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(); err != nil { return }
-                                if perm, err = permVal(t.Get(1),0600); err != nil { return }
+                                if name, err = t.Get(0).Strval(); err != nil { diag.errorOf(t.Get(0), "%v", err); return }
+                                if perm, err = permVal(t.Get(1),0600); err != nil { diag.errorOf(t.Get(1), "%v", err); return }
                         } else {
-                                err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
+                                diag.errorAt(pos, "Wrong size of list `%v'", t);
                                 break
                         }
                 default: // mkdir name perm, name perm, ...
-                        if name, err = args[i].Strval(); err != nil { return }
+                        if name, err = args[i].Strval(); err != nil { diag.errorOf(args[i], "%v", err); return }
                         if i+1 < nargs {
-                                if perm, err = permVal(args[i+1],0600); err != nil { return }
+                                if perm, err = permVal(args[i+1],0600); err != nil { diag.errorOf(args[i+1], "%v", err); return }
                                 i += 1
                         }
                 }
-                if err = os.MkdirAll(name, perm); err != nil {
-                        break
-                }
+                if err = os.MkdirAll(name, perm); err != nil { diag.errorAt(pos, "%v", err); break }
         }
         return
 }
@@ -2146,10 +2159,10 @@ func builtinMkdirAll(pos Position, args... Value) (res Value, err error) {
 func builtinChdir(pos Position, args... Value) (res Value, err error) {
         if len(args) == 1 {
                 var str string
-                if str, err = args[0].Strval(); err != nil { err = wrap(pos, err); return }
-                if err = lockCD(str, 0); err != nil { err = wrap(pos, err) }
+                if str, err = args[0].Strval(); err != nil { diag.errorOf(args[0], "%v", err); return }
+                if err = lockCD(str, 0); err != nil { diag.errorAt(pos, "%v", err) }
         } else {
-                err = errorf(pos, "wrong number of arguments")
+                diag.errorAt(pos, "wrong number of arguments: %v", len(args))
         }
         return
 }
@@ -2162,35 +2175,36 @@ func builtinRename(pos Position, args... Value) (res Value, err error) {
                 )
                 switch t := a.(type) {
                 case *Pair: // rename oldname => newname old => new
-                        if oldname, err = t.Key.Strval(); err != nil { return }
-                        if newname, err = t.Value.Strval(); err != nil { return }
+                        if oldname, err = t.Key.Strval();   err != nil { diag.errorOf(t.Key, "%v", err); return }
+                        if newname, err = t.Value.Strval(); err != nil { diag.errorOf(t.Value, "%v", err); return }
                 case *Group: // rename (oldname newname) (old new)
                         if t.Len() == 2 {
-                                if oldname, err = t.Get(0).Strval(); err != nil { return }
-                                if newname, err = t.Get(1).Strval(); err != nil { return }
+                                if oldname, err = t.Get(0).Strval(); err != nil { diag.errorOf(t.Get(0), "%v", err); return }
+                                if newname, err = t.Get(1).Strval(); err != nil { diag.errorOf(t.Get(1), "%v", err); return }
                         } else {
-                                err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
+                                diag.errorOf(t, "wrong size of group `%v'", t)
                                 break
                         }
                 case *List: // rename oldname newname, old new, ...
                         if t.Len() == 2 {
-                                if oldname, err = t.Get(0).Strval(); err != nil { return }
-                                if newname, err = t.Get(1).Strval(); err != nil { return }
+                                if oldname, err = t.Get(0).Strval(); err != nil { diag.errorOf(t.Get(0), "%v", err); return }
+                                if newname, err = t.Get(1).Strval(); err != nil { diag.errorOf(t.Get(1), "%v", err); return }
                         } else {
-                                err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
+                                diag.errorOf(t, "wrong size of list `%v'", t)
                                 break
                         }
                 default: // rename newname oldname  newname oldname ...
                         if i+1 < nargs {
-                                if oldname, err = args[i+0].Strval(); err != nil { return }
-                                if newname, err = args[i+1].Strval(); err != nil { return }
+                                if oldname, err = args[i+0].Strval(); err != nil { diag.errorOf(args[i+0], "%v", err); return }
+                                if newname, err = args[i+1].Strval(); err != nil { diag.errorOf(args[i+1], "%v", err); return }
                                 i += 1
                         } else {
-                                err = errors.New(fmt.Sprintf("Wrong arguments `%v'", args))
+                                diag.errorOf(t, "Wrong arguments `%v'", args)
                                 break
                         }
                 }
                 if err = os.Rename(oldname, newname); err != nil {
+                        diag.errorAt(pos, "%v", err)
                         break
                 }
         }
@@ -2199,26 +2213,23 @@ func builtinRename(pos Position, args... Value) (res Value, err error) {
 
 func builtinRemove(pos Position, args... Value) (res Value, err error) {
         var ( optAll, optDebug, optVerbose bool )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
         if args, err = parseFlags(args, []string{
                 "a,all",
                 "d,debug",
                 "v,verbose",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'a': if optAll     , err = trueVal(v, true); err != nil { return }
-                case 'd': if optDebug   , err = trueVal(v, true); err != nil { return }
-                case 'v': if optVerbose , err = trueVal(v, true); err != nil { return }
+                case 'a': if optAll     , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
+                case 'd': if optDebug   , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
+                case 'v': if optVerbose , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
                 }
-        }); err != nil { return }
+        }); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var ( names []string; str string )
         for _, a := range args {
-                if str, err = a.Strval(); err != nil { return }
-                if names, err = filepath.Glob(str); err != nil {
-                        err = wrap(pos, wrap(a.Position(), err))
-                        return
-                }
+                if str, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                if names, err = filepath.Glob(str); err != nil { diag.errorOf(a, "%v", err); return }
                 for _, s := range names {
                         if optDebug { fmt.Fprintf(stderr, "%s: remove %s\n", a.Position(), s) }
                         if optVerbose { fmt.Fprintf(stderr, "remove %s\n", s) }
@@ -2227,10 +2238,7 @@ func builtinRemove(pos Position, args... Value) (res Value, err error) {
                         } else {
                                 err = os.Remove(s)
                         }
-                        if err != nil {
-                                err = wrap(pos, wrap(a.Position(), err))
-                                return
-                        }
+                        if err != nil { diag.errorOf(a, "%v", err); return }
                 }
         }
         return
@@ -2238,28 +2246,22 @@ func builtinRemove(pos Position, args... Value) (res Value, err error) {
 
 func builtinRemoveAll(pos Position, args... Value) (res Value, err error) {
         var optVerbose bool
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
         if args, err = parseFlags(args, []string{
                 "v,verbose",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'v': if optVerbose, err = trueVal(v, true); err != nil { return }
+                case 'v': if optVerbose, err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
                 }
-        }); err != nil { return }
+        }); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var ( names []string; str string )
         for _, a := range args {
-                if str, err = a.Strval(); err != nil { return }
-                if names, err = filepath.Glob(str); err != nil {
-                        err = wrap(pos, wrap(a.Position(), err))
-                        return
-                }
+                if str, err = a.Strval(); err != nil { diag.errorOf(a, "%v", err); return }
+                if names, err = filepath.Glob(str); err != nil { diag.errorOf(a, "%v", err); return }
                 for _, s := range names {
                         if optVerbose { fmt.Fprintf(stderr, "%s: remove %s\n", a.Position(), s) }
-                        if err = os.RemoveAll(s); err != nil {
-                                err = wrap(pos, wrap(a.Position(), err))
-                                return
-                        }
+                        if err = os.RemoveAll(s); err != nil { diag.errorOf(a, "%v", err); return }
                 }
         }
         return
@@ -2274,28 +2276,28 @@ func builtinTruncate(pos Position, args... Value) (res Value, err error) {
                 )
                 switch t := a.(type) {
                 case *Pair: // truncate name => size old => new
-                        if name, err = t.Key.Strval(); err != nil { return }
-                        if size, err = t.Value.Integer(); err != nil { return }
+                        if name, err = t.Key.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if size, err = t.Value.Integer(); err != nil { diag.errorAt(pos, "%v", err); return }
                 case *Group: // truncate (name size) (old new)
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(); err != nil { return }
-                                if size, err = t.Get(1).Integer(); err != nil { return }
+                                if name, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if size, err = t.Get(1).Integer(); err != nil { diag.errorAt(pos, "%v", err); return }
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
                                 break
                         }
                 case *List: // truncate name size, old new, ...
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(); err != nil { return }
-                                if size, err = t.Get(1).Integer(); err != nil { return }
+                                if name, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if size, err = t.Get(1).Integer(); err != nil { diag.errorAt(pos, "%v", err); return }
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
                                 break
                         }
                 default: // truncate name size  name size ...
                         if i+1 < nargs {
-                                if name, err = args[i+0].Strval(); err != nil { return }
-                                if size, err = args[i+1].Integer(); err != nil { return }
+                                if name, err = args[i+0].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if size, err = args[i+1].Integer(); err != nil { diag.errorAt(pos, "%v", err); return }
                                 i += 1
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong arguments `%v'", args))
@@ -2310,14 +2312,14 @@ func builtinTruncate(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinLink(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
         if args, err = parseFlags(args, []string{
                 // TODO: ...
         }, func(ru rune, v Value) {
                 /*switch ru {
                 // TODO: ...
                 }*/
-        }); err != nil { return }
+        }); err != nil { diag.errorAt(pos, "%v", err); return }
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -2325,28 +2327,28 @@ func builtinLink(pos Position, args... Value) (res Value, err error) {
                 )
                 switch t := a.(type) {
                 case *Pair: // link oldname => newname old => new
-                        if oldname, err = t.Key.Strval(); err != nil { return }
-                        if newname, err = t.Value.Strval(); err != nil { return }
+                        if oldname, err = t.Key.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if newname, err = t.Value.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 case *Group: // link (oldname newname) (old new)
                         if t.Len() == 2 {
-                                if oldname, err = t.Get(0).Strval(); err != nil { return }
-                                if newname, err = t.Get(1).Strval(); err != nil { return }
+                                if oldname, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if newname, err = t.Get(1).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
                                 break
                         }
                 case *List: // link oldname newname, old new, ...
                         if t.Len() == 2 {
-                                if oldname, err = t.Get(0).Strval(); err != nil { return }
-                                if newname, err = t.Get(1).Strval(); err != nil { return }
+                                if oldname, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if newname, err = t.Get(1).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
                                 break
                         }
                 default: // link oldname newname  oldname newname ...
                         if i+1 < nargs {
-                                if oldname, err = args[i+0].Strval(); err != nil { return }
-                                if newname, err = args[i+1].Strval(); err != nil { return }
+                                if oldname, err = args[i+0].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if newname, err = args[i+1].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                                 i += 1
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong arguments `%v'", args))
@@ -2367,6 +2369,7 @@ foo: foobar
 func builtinSymlink(pos Position, args... Value) (res Value, err error) {
         var optForce, optUpdate, optVerbose, optRel, optPath bool
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "%v", err)
                 return
         } else if args, err = parseFlags(args, []string{
                 "f,force",
@@ -2376,13 +2379,13 @@ func builtinSymlink(pos Position, args... Value) (res Value, err error) {
                 "p,path",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'l': if optRel, err = trueVal(v, true); err != nil { return }
-                case 'p': if optPath, err = trueVal(v, false); err != nil { return }
-                case 'f': if optForce, err = trueVal(v, true); err != nil { return }
-                case 'u': if optUpdate, err = trueVal(v, true); err != nil { return }
-                case 'v': if optVerbose, err = trueVal(v, true); err != nil { return }
+                case 'l': if optRel, err = trueVal(v, true); err != nil { diag.errorAt(pos, "%v", err); return }
+                case 'p': if optPath, err = trueVal(v, false); err != nil { diag.errorAt(pos, "%v", err); return }
+                case 'f': if optForce, err = trueVal(v, true); err != nil { diag.errorAt(pos, "%v", err); return }
+                case 'u': if optUpdate, err = trueVal(v, true); err != nil { diag.errorAt(pos, "%v", err); return }
+                case 'v': if optVerbose, err = trueVal(v, true); err != nil { diag.errorAt(pos, "%v", err); return }
                 }
-        }); err != nil { return }
+        }); err != nil { diag.errorAt(pos, "%v", err); return }
         if false { fmt.Printf("%v: %v\n", pos, args) }
 ForArgs:
         for i, na := 0, len(args); i < na; i += 1 {
@@ -2392,13 +2395,13 @@ ForArgs:
                         oldNameVal, newNameVal = t.Key, t.Value
                 case *Group: // symlink (oldname newname) (oldname newname)...
                         if t.Len() != 2 {
-                                err = wrap(pos, errorf(t.Position(), "expects two values of group"))
+                                diag.errorOf(t, "expects two values of group")
                                 return
                         }
                         oldNameVal, newNameVal = t.Get(0), t.Get(1)
                 case *List: // symlink oldname newname, old new, ...
                         if t.Len() != 2 {
-                                err = wrap(pos, errorf(t.Position(), "expects two values of list"))
+                                diag.errorOf(t, "expects two values of list")
                                 return
                         }
                         oldNameVal, newNameVal = t.Get(0), t.Get(1)
@@ -2408,43 +2411,44 @@ ForArgs:
                                 oldNameVal, newNameVal = args[i+0], args[i+1]
                                 i += 1
                         } else {
-                                err = wrap(pos, errorf(args[i].Position(), "expects pair of names (%v)", args[i]))
+                                diag.errorOf(args[i], "expects pair of names (%v)", args[i])
                                 return
                         }
                 }
 
                 var oldname, newname string
                 if oldname, err = oldNameVal.Strval(); err != nil {
-                        err = wrap(oldNameVal.Position(), err)
-                        err = wrap(pos, err)
+                        diag.errorOf(oldNameVal, "%v", err)
                         return
                 }
                 if newname, err = newNameVal.Strval(); err != nil {
-                        err = wrap(newNameVal.Position(), err)
-                        err = wrap(pos, err)
+                        diag.errorOf(newNameVal, "%v", err)
                         return
                 }
 
                 if newname == "" {
-                        err = errorf(pos, "empty new filename")
+                        diag.errorAt(pos, "empty new filename")
                         return
                 }
                 if oldname == "" {
-                        err = errorf(pos, "empty old filename (%v)", )
+                        diag.errorAt(pos, "empty old filename (%v)", )
                         return
                 }
 
                 if optForce {
                         if err = os.Remove(newname); err != nil {
+                                diag.errorAt(pos, "%v", err)
                                 err = nil //return
                         }
                 } else if optUpdate {
                         var s string
                         if s, err = os.Readlink(newname); err != nil {
+                                diag.errorAt(pos, "%v", err)
                                 err = nil //continue ForArgs
                         } else if s == newname {
                                 continue ForArgs
                         } else if err = os.Remove(newname); err != nil {
+                                diag.errorAt(pos, "%v", err)
                                 err = nil //return
                         }
                 }
@@ -2460,12 +2464,12 @@ ForArgs:
                                 if optVerbose {
                                         fmt.Fprintf(stderr, "symlink: %s\n", err)
                                 }
-                                err = wrap(pos, err)
+                                diag.errorAt(pos, "%v", err)
                                 return
                         }
                 }
                 if dir := filepath.Dir(newname); optPath && dir != "." && dir != PathSep {
-                        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
+                        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { diag.errorAt(pos, "%v", err); return }
                 }
                 if err = os.Symlink(oldname, newname); err != nil {
                         if optVerbose {
@@ -2482,6 +2486,7 @@ ForArgs:
 func builtinFileExists(pos Position, args... Value) (res Value, err error) {
         var optKind rune
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "%v", err)
                 return
         } else if args, err = parseFlags(args, []string{
                 "d,dir", // check for directory
@@ -2492,11 +2497,11 @@ func builtinFileExists(pos Position, args... Value) (res Value, err error) {
                 case 'f', 'd', 's':
                         if t, _ := v.True(); t { optKind = ru }
                 }
-        }); err != nil { return }
+        }); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var proj = current()
         if proj == nil {
-                err = fmt.Errorf("unknown current context")
+                diag.errorAt(pos, "unknown current context")
                 return
         }
 
@@ -2528,7 +2533,7 @@ func builtinFileExists(pos Position, args... Value) (res Value, err error) {
 
         var checkstat = func(a Value) {
                 var ( s string ; file *File )
-                if s, err = a.Strval(); err != nil { return }
+                if s, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 if filepath.IsAbs(s) {
                         file = stat(pos, s, "", "")
                 } else {
@@ -2554,7 +2559,7 @@ func builtinFileExists(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinFileSource(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var proj = current()
         if proj == nil {
@@ -2565,7 +2570,7 @@ func builtinFileSource(pos Position, args... Value) (res Value, err error) {
         var l []Value
         for _, a := range args {
                 var str string
-                if str, err = a.Strval(); err != nil { return }
+                if str, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 if file := proj./*searchFile*/matchFile(str); file != nil {
                         l = append(l, &String{trivial{a.Position()},file.sub})
                 }
@@ -2579,22 +2584,22 @@ func builtinFileSource(pos Position, args... Value) (res Value, err error) {
 func builtinFile(pos Position, args... Value) (res Value, err error) {
         var optCallerContext bool
         var optReportMissing bool
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
         if args, err = parseFlags(args, []string{
                 "c,caller", // in the caller context
                 "e,report", // report if not exists
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'c': if optCallerContext, err = trueVal(v, true); err != nil { return }
-                case 'e': if optReportMissing, err = trueVal(v, true); err != nil { return }
+                case 'c': if optCallerContext, err = trueVal(v, true); err != nil { diag.errorAt(pos, "%v", err); return }
+                case 'e': if optReportMissing, err = trueVal(v, true); err != nil { diag.errorAt(pos, "%v", err); return }
                 }
-        }); err != nil { return }
+        }); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var proj *Project
         if optCallerContext {
                 proj = cloctx[0].project
         } else if proj = current(); proj == nil {
-                err = errorf(pos, "unknown current context")
+                diag.errorAt(pos, "unknown current cntext")
                 return
         } else if false {
                 // Ensure that we're in the right closure context
@@ -2609,14 +2614,13 @@ func builtinFile(pos Position, args... Value) (res Value, err error) {
                         if exists(file) { continue }
                         if optReportMissing { fmt.Fprintf(stderr, "%s: `%v` no such file\n", pos, a) }
                 } else if str, err = a.Strval(); err != nil {
-                        //fmt.Fprintf(stderr, "%s: %v", pos, err)
-                        err = wrap(pos, err)
+                        diag.errorAt(pos, "%v", err)
                         return
                 } else if file = proj.matchFile(str); file != nil {
                         list = append(list, file)
                         if optReportMissing { fmt.Fprintf(stderr, "%s: `%v` no such file\n", pos, a) }
                 } else {
-                        err = errorf(pos, "`%v` is not a file", a)
+                        diag.errorAt(pos, "`%v` is not a file", a)
                 }
         }
 
@@ -2638,10 +2642,10 @@ func builtinWildcard(pos Position, args... Value) (res Value, err error) {
                 "v,verbose",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'm': if wo.optIncludeMissing, err = trueVal(v, true); err != nil { return }
-                case 'v': if wo.optVerbose, err = trueVal(v, true); err != nil { return }
+                case 'm': if wo.optIncludeMissing, err = trueVal(v, true); err != nil { diag.errorAt(pos, "%v", err); return }
+                case 'v': if wo.optVerbose, err = trueVal(v, true); err != nil { diag.errorAt(pos, "%v", err); return }
                 }
-        }); err != nil { return }
+        }); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var proj = current()
         if proj == nil {
@@ -2667,7 +2671,7 @@ func builtinReadDir(pos Position, args... Value) (res Value, err error) {
                         fis []os.FileInfo
                         str string
                 )
-                if str, err = a.Strval(); err != nil { return }
+                if str, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 if fis, err = ioutil.ReadDir(str); err == nil {
                         v := new(List)
                         for _, fi := range fis {
@@ -2693,9 +2697,9 @@ func builtinReadFile(pos Position, args... Value) (res Value, err error) {
                         apos = a.Position()
                 )
                 if !apos.IsValid() { apos = pos }
-                if str, err = a.Strval(); err != nil { return }
+                if str, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 if str == "" {
-                        err = errorf(apos, "`%v` is empty file name", a)
+                        diag.errorAt(apos, "`%v` is empty file name", a)
                         break
                 }
                 if s, err = ioutil.ReadFile(str); err == nil {
@@ -2718,9 +2722,9 @@ func builtinWriteFile(pos Position, args... Value) (res Value, err error) {
                 "p,path",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'p': if optPath, err = trueVal(v, false); err != nil { return }
+                case 'p': if optPath, err = trueVal(v, false); err != nil { diag.errorAt(pos, "%v", err); return }
                 }
-        }); err != nil { return }
+        }); err != nil { diag.errorAt(pos, "%v", err); return }
 ForArgs:
         for i := 0; i < len(args); i += 1 {
                 var (
@@ -2730,41 +2734,41 @@ ForArgs:
                 )
                 switch t := a.(type) {
                 case *Pair: // write-file name => text name => text
-                        if name, err = t.Key.Strval(); err != nil { return }
-                        if data, err = t.Value.Strval(); err != nil { return }
+                        if name, err = t.Key.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if data, err = t.Value.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 case *Group: // write-file (name text) (name text 0660)
                         if n := t.Len(); n < 4 && n > 0 {
-                                if name, err = t.Get(0).Strval(); err != nil { return }
-                                if n > 1 { if data, err = t.Get(1).Strval(); err != nil { return }}
-                                if n > 2 { if perm, err = permVal(t.Get(2),0600); err != nil { return }}
+                                if name, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if n > 1 { if data, err = t.Get(1).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }}
+                                if n > 2 { if perm, err = permVal(t.Get(2),0600); err != nil { diag.errorAt(pos, "%v", err); return }}
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
                                 break
                         }
                 case *List: // write-file name text, name text 0660, ...
                         if n := t.Len(); n < 4 && n > 0 {
-                                if name, err = t.Get(0).Strval(); err != nil { return }
-                                if n > 1 { if data, err = t.Get(1).Strval(); err != nil { return }}
-                                if n > 2 { if perm, err = permVal(t.Get(2),0600); err != nil { return }}
+                                if name, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if n > 1 { if data, err = t.Get(1).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }}
+                                if n > 2 { if perm, err = permVal(t.Get(2),0600); err != nil { diag.errorAt(pos, "%v", err); return }}
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
                                 break
                         }
                 default: // write-file name text 0660  name text 0660 ...
-                        if name, err = args[i].Strval(); err != nil { return }
+                        if name, err = args[i].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if i+1 < len(args) {
-                                if data, err = args[i+1].Strval(); err != nil { return }
+                                if data, err = args[i+1].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                                 i += 1
                         }
                         if i+1 < len(args) {
-                                if perm, err = permVal(args[i+1],0600); err != nil { return }
+                                if perm, err = permVal(args[i+1],0600); err != nil { diag.errorAt(pos, "%v", err); return }
                                 i += 1
                         }
                 }
                 if name == "" {
                         continue ForArgs
                 } else if dir := filepath.Dir(name); optPath && dir != "." && dir != PathSep {
-                        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
+                        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { diag.errorAt(pos, "%v", err); return }
                 }
                 if err = ioutil.WriteFile(name, []byte(data), perm); err != nil {
                         break
@@ -2777,7 +2781,7 @@ func touch(file Value, optMode uint32, optPath bool, ts ...time.Time) (err error
         var name string
         if name, err = file.Strval(); err != nil || name == "" { return }
         if dir := filepath.Dir(name); optPath && dir != "." && dir != PathSep {
-                if err = os.MkdirAll(dir, os.FileMode(optMode|0733)); err != nil { return }
+                if err = os.MkdirAll(dir, os.FileMode(optMode|0733)); err != nil { diag.errorOf(file, "%v", err); return }
         }
 
         var mode = os.FileMode(optMode)
@@ -2804,16 +2808,16 @@ func builtinTouchFile(pos Position, args... Value) (res Value, err error) {
         // $(touch-file -p filename)
         var optPath = false
         var optMode = os.FileMode(0600)
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
         if args, err = parseFlags(args, []string{
                 "p,path",
                 "m,mode",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'p': if optPath, err = trueVal(v, true); err != nil { return }
-                case 'm': if optMode, err = permVal(v, 0600); err != nil { return }
+                case 'p': if optPath, err = trueVal(v, true); err != nil { diag.errorAt(pos, "%v", err); return }
+                case 'm': if optMode, err = permVal(v, 0600); err != nil { diag.errorAt(pos, "%v", err); return }
                 }
-        }); err != nil { return }
+        }); err != nil { diag.errorAt(pos, "%v", err); return }
         for i := 0; i < len(args); i += 1 {
                 err = touch(args[i], uint32(optMode), optPath)
                 if err != nil { break }
@@ -2825,7 +2829,7 @@ func builtinTouchFile(pos Position, args... Value) (res Value, err error) {
 // $(grep -1 'status=1',$@)
 func builtinGrep(pos Position, args... Value) (res Value, err error) {
         if len(args) != 2 {
-                err = errorf(pos, "wants exactly 2 args, e.g. $(grep -1 '^example$',$(file))")
+                diag.errorAt(pos, "wants exactly 2 args, e.g. $(grep -1 '^example$',$(file))")
                 return
         }
 
@@ -2833,7 +2837,7 @@ func builtinGrep(pos Position, args... Value) (res Value, err error) {
         var linesPos, linesNeg []int
         var rxs []*regexp.Regexp
         
-        if vals, err = mergeresult(ExpandAll(args[0])); err != nil { return }
+        if vals, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return }
         for _, a := range vals {
                 if i, ok := a.(*Int); ok {
                         if i.int64 > 0 {
@@ -2841,31 +2845,29 @@ func builtinGrep(pos Position, args... Value) (res Value, err error) {
                         } else if i.int64 < 0{
                                 linesNeg = append(linesNeg, int(i.int64))
                         } else {
-                                err = errorf(a.Position(), "zero line number")
+                                diag.errorOf(a, "zero line number")
                                 return
                         }
                 } else if s, e := a.Strval(); e != nil {
-                        err = wrap(a.Position(), e); return
+                        diag.errorOf(a, "%v", e); return
                 } else if s == "" {
-                        err = errorf(a.Position(), "empty regexp"); return
+                        diag.errorOf(a, "empty regexp"); return
                 } else if r, e := regexp.Compile(s); e != nil {
-                        err = wrap(a.Position(), e); return
+                        diag.errorOf(a, "%v", e); return
                 } else {
                         rxs = append(rxs, r)
                 }
         }
 
-        if vals, err = mergeresult(ExpandAll(args[1:]...)); err != nil { return }
+        if vals, err = mergeresult(ExpandAll(args[1:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
         for _, a := range vals {
                 var file *os.File
                 var filename string
                 if filename, err = a.Strval(); err != nil {
-                        err = wrap(pos, err)
-                        return
+                        diag.errorOf(a, "%v", err); return
                 }
                 if file, err = os.Open(filename); err != nil {
-                        err = wrap(pos, err)
-                        return
+                        diag.errorOf(a, "%v", err); return
                 }
                 defer file.Close()
 
@@ -2948,26 +2950,26 @@ func (project *Project) configExpand(pos Position, s string) (result string, err
                 }
 
                 var def *Def
-                if def, err = project.config(name); err != nil { err = wrap(pos, err); return }
+                if def, err = project.config(name); err != nil { diag.errorAt(pos, "%v", err); return }
                 if false && strings.Contains(name, "LLDB_") { fmt.Fprintf(stderr, "%s: %s: %s: %v\n", project, pos, name, def) }
                 if def != nil {
                         var val Value
-                        if val, err = def.Call(pos); err != nil { return }
+                        if val, err = def.Call(pos); err != nil { diag.errorAt(pos, "%v", err); return }
                         if false { fmt.Fprintf(stderr, "%s: %s: %s = %v -> %v (%v)\n", project, pos, name, def.value, val, typeof(val)) }
                         if isNil(val) || isNone(val) { continue }
                         switch t := val.(type) {
                         case *Plain: fmt.Fprintf(res, "%s", t.Value)
                         case *answer, *boolean:
                                 var v int64
-                                if v, err = t.Integer(); err != nil { err = wrap(pos, err); return }
+                                if v, err = t.Integer(); err != nil { diag.errorAt(pos, "%v", err); return }
                                 fmt.Fprintf(res, "%d", v)
                         case *Group:
                                 var v string
-                                if v, err = parseGroupValue(t).Strval(); err != nil { err = wrap(pos, err); return }
+                                if v, err = parseGroupValue(t).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                                 fmt.Fprintf(res, "%s", v)
                         default:
                                 var v string
-                                if v, err = val.Strval(); err != nil { err = wrap(pos, err); return }
+                                if v, err = val.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                                 fmt.Fprintf(res, "%s", v)
                         }
                 }
@@ -2979,9 +2981,9 @@ func (project *Project) configExpand(pos Position, s string) (result string, err
 
 func configure(pos Position, out *bytes.Buffer, project *Project, str string) (err error) {
         var index = 0
-        if str, err = project.configExpand(pos, str); err != nil { return }
+        if str, err = project.configExpand(pos, str); err != nil { diag.errorAt(pos, "%v", err); return }
         for _, m := range rxConfigure.FindAllStringSubmatchIndex(str, -1) {
-                if _, err = out.WriteString(str[index:m[0]]); err != nil { return }
+                if _, err = out.WriteString(str[index:m[0]]); err != nil { diag.errorAt(pos, "%v", err); return }
                 index = m[1] // reset index immediately to keep forward
 
                 var t bool
@@ -2990,7 +2992,7 @@ func configure(pos Position, out *bytes.Buffer, project *Project, str string) (e
                 var name = str[m[4]:m[5]]
                 var hasv = m[6] > m[0] && m[7] > m[6]
                 var def *Def
-                if def, err = project.config(name); err != nil { return }
+                if def, err = project.config(name); err != nil { diag.errorAt(pos, "%v", err); return }
                 //fmt.Fprintf(stderr, "%v: configure: %v %v %v\n", scope.comment, verb, name, def)
                 switch verb {
                 case "define":
@@ -3031,14 +3033,13 @@ func configure(pos Position, out *bytes.Buffer, project *Project, str string) (e
                         }
                 }
 
-                if _, err = out.WriteString(s); err != nil { return }
+                if _, err = out.WriteString(s); err != nil { diag.errorAt(pos, "%v", err); return }
         }
         if index < len(str) { _, err = out.WriteString(str[index:]) }
         return
 }
 
 func builtinReturn(pos Position, args... Value) (res Value, err error) {
-        //if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-
+        //if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
         return nil, &Returner{ args }
 }

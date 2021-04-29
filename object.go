@@ -23,20 +23,18 @@ import (
 // TODO: defines ObjInfo to classify objects.
 // 
 type Object interface {
-  Value
+        Value
 
-  Name() string
+        Name() string
 
-  DeclScope() *Scope
-  OwnerProject() *Project
+        DeclScope() *Scope
+        OwnerProject() *Project
 
-  // Get object's named property.
-  Get(name string) (Value, error)
+        // Get object's named property.
+        Get(name string) (Value, error)
 
-	// redecl the object.
-	redecl(*Scope)
-
-  tryTraverse(t *traversal) (okay bool, err error)
+        // redecl the object.
+        redecl(*Scope)
 }
 
 type trivialobject struct { // generally unnamed objects
@@ -53,7 +51,6 @@ func (p *trivialobject) String() string { return fmt.Sprintf("{unknown %p}", p) 
 func (p *trivialobject) Get(name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
 func (p *trivialobject) redecl(scope *Scope) { panic("redeclaring unknown object") }
 func (p *trivialobject) exists() existence { return existenceMatterless }
-func (p *trivialobject) tryTraverse(t *traversal) (okay bool, err error) { return false, nil }
 func (p *trivialobject) cmp(v Value) (res cmpres) {
         if a, ok := v.(*trivialobject); ok {
                 assert(ok, "value is not trivialobject")
@@ -97,7 +94,7 @@ type unresolvedobject struct { // named callable/executable objects
         trivialobject
         name Value // name could be closured
 }
-func (p *unresolvedobject) traverse(t *traversal) (err error) { return }
+func (p *unresolvedobject) traverse(t *traversal) (breakers []*breaker) { return }
 func (p *unresolvedobject) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *unresolvedobject) True() (bool, error) { return false, nil }
 func (p *unresolvedobject) Name() string {
@@ -174,15 +171,11 @@ func (p *ProjectName) Call(pos Position, a... Value) (value Value, err error) {
         }
         return
 }
-func (p *ProjectName) traverse(t *traversal) (err error) {
-        _, err = p.tryTraverse(t)
-        return
-}
-func (p *ProjectName) tryTraverse(t *traversal) (okay bool, err error) {
+func (p *ProjectName) traverse(t *traversal) (breakers []*breaker) {
         if optionTraceTraversal { defer un(tt(t, p)) }
         var entry = p.project.DefaultEntry()
         if entry != nil && entry.class != UseRuleEntry {
-                okay, err = true, entry.traverse(t)
+                breakers = entry.traverse(t)
         }
         return
 }
@@ -236,26 +229,26 @@ func (p *ScopeName) cmp(v Value) (res cmpres) {
 
 type DefOrigin int
 const (
-  // =
-  DefDefault DefOrigin = iota // normal value
+        // =
+        DefDefault DefOrigin = iota // normal value
 
-  // :=
-  DefSimple // expand delegates
+        // :=
+        DefSimple // expand delegates
 
-  // ::=
-  DefExpand // expand all (delegates, closures, paths)
+        // ::=
+        DefExpand // expand all (delegates, closures, paths)
 
-  // !=
-  DefExecute // executed result
+        // !=
+        DefExecute // executed result
 
-  DefAuto // automatic: $1, $2, $3, etc.
-  DefArg  // ((arg))
-  DefDecl //
-  DefConfDir
-  DefConfRef // referred by config
-  DefConfig
+        DefAuto // automatic: $1, $2, $3, etc.
+        DefArg  // ((arg))
+        DefDecl //
+        DefConfDir
+        DefConfRef // referred by config
+        DefConfig
 
-  defany // referred any def
+        defany // referred any def
 )
 
 func (o DefOrigin) String() (s string) {
@@ -352,7 +345,8 @@ func (d *Def) set(origin DefOrigin, value Value) (err error) {
         if origin != DefSimple && !isNil(value) && value.refs(d) {
                 var pos = d.position
                 if !pos.IsValid() && d.value != nil { pos = d.value.Position() }
-                err = errorf(pos, "value refers `%s`: %v (%T)", d.name, value, value)
+                diag.errorAt(pos, "value refers `%s`: %v (%T)", d.name, value, value)
+
                 if optionVerbose { fmt.Fprintf(stderr, "%v\n", err) }
                 if optionPrintStack { debug.PrintStack() }
                 return
@@ -468,8 +462,8 @@ func (d *Def) Get(name string) (Value, error) {
         }
         return nil, fmt.Errorf("no such property `%s' (Def)", name)
 }
-func (d *Def) traverse(t *traversal) (err error) {
-        if d.value != nil { err = d.value.traverse(t) }
+func (d *Def) traverse(t *traversal) (breakers []*breaker) {
+        if d.value != nil { breakers = d.value.traverse(t) }
         return
 }
 func (d *Def) mod(t *traversal) (res time.Time, err error) {
@@ -501,7 +495,7 @@ func (p *undetermined) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-func (p *undetermined) traverse(t *traversal) (err error) { return }
+func (p *undetermined) traverse(t *traversal) (breakers []*breaker) { return }
 func (p *undetermined) Position() Position { return p.identifier.Position() }
 func (p *undetermined) stamp(t *traversal) (files []*File, err error) { return }
 func (p *undetermined) exists() existence { return existenceMatterless }
@@ -647,36 +641,33 @@ func (entry *RuleEntry) SetExplicitFile(file *File) {
 //         return
 // }
 // RuleEntry.Execute executes the rule program only if the target is outdated.
-func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, err error) {
+func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, breakers []*breaker) {
         switch entry.class {
         case PercRuleEntry, GlobRuleEntry, RegexpRuleEntry, PathPattRuleEntry:
-                err = errorf(pos, "executing pattern entry '%v'", entry.target)
+                diag.errorAt(pos, "executing pattern entry '%v'", entry.target)
                 return
         }
 
         var caller *traversal
-        ForPrograms: for _, program := range entry.programs {
-                var ( val Value ; e error )
-                if val, e = program.execute(caller, entry, a); e == nil {
+        var numErrors int
+
+ForPrograms:
+        for _, program := range entry.programs {
+                var ( val Value ; brks []*breaker )
+                if val, brks = program.execute(caller, entry, a); len(brks) == 0 {
                         result = append(result, val)
                         continue ForPrograms
                 }
-
-                var brks, errs = extractBreakers(e)
-                if len(errs) > 0 {
-                        err = wrap(program.position, errs...)
-                        break
-                }
-                
                 for _, brk := range brks {
                         switch brk.what {
                         case breakNext: continue ForPrograms
                         case breakCase, breakDone: break ForPrograms
-                        default: err = wrap(program.position, brk, err)
+                        default: breakers = append(breakers, brk)
+                                if breakErro == brk.what { numErrors += 1 }
                         }
                 }
+                if numErrors > 0 { break }
         }
-        if err != nil { err = wrap(pos, wrap(entry.position, err)) }
         return
 }
 func (entry *RuleEntry) Get(name string) (Value, error) {
@@ -760,33 +751,24 @@ func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-func (entry *RuleEntry) tryTraverse(t *traversal) (okay bool, err error) {
-        if err = entry.traverse(t); err == nil { okay = true }
-        return
-}
-func (entry *RuleEntry) traverse(t *traversal) (err error) {
+func (entry *RuleEntry) traverse(t *traversal) (breakers []*breaker) {
         if optionTraceTraversal { defer un(tt(t, entry.target)) }
         if optionEnableBenchmarks && false { defer bench(mark("RuleEntry.traverse")) }
         if optionEnableBenchspots { defer bench(spot("RuleEntry.traverse")) }
-        ForPrograms: for _, prog := range entry.programs {
-                var _, e = prog.execute(t, entry, t.arguments)
-                if e == nil { continue }
-
-                var brks, errs = extractBreakers(e)
-                if len(errs) > 0 {
-                        err = wrap(prog.position, errs...)
-                        break
-                }
-
+        var numErrors int
+ForPrograms:
+        for _, prog := range entry.programs {
+                var _, brks = prog.execute(t, entry, t.arguments)
                 for _, brk := range brks {
                         switch brk.what {
-                        case breakNext: continue ForPrograms
+                        case breakNext:         continue ForPrograms
                         case breakCase, breakDone: break ForPrograms
-                        default: err = wrap(prog.position, brk, err)
+                        default: breakers = append(breakers, brk)
+                                if breakErro == brk.what { numErrors += 1 }
                         }
                 }
+                if numErrors > 0 { break }
         }
-        if err != nil { err = wrap(entry.position, err) }
         return
 }
 func (entry *RuleEntry) mod(t *traversal) (time.Time, error) {
@@ -890,10 +872,15 @@ func (p *StemmedEntry) cmp(v Value) (res cmpres) {
 func (p *StemmedEntry) String() (s string) {
         return fmt.Sprintf("<%s,%s>", p.PatternEntry, p.Stems)
 }
-func (p *StemmedEntry) traverse(t *traversal) (err error) {
-        return errorf(p.position, "cant traverse stemmed entry directly")
+func (p *StemmedEntry) traverse(t *traversal) (breakers []*breaker) {
+        diag.errorAt(p.position, "cant traverse stemmed entry directly")
+        breakers = append(breakers, &breaker{
+                pos: p.position, what:breakErro,
+                error: fmt.Errorf("traversing stemmed entry: %v", p),
+        })
+        return
 }
-func (p *StemmedEntry) _target(t *traversal, target string) (err error) {
+func (p *StemmedEntry) _target(t *traversal, target string) (breakers []*breaker) {
         if optionTraceTraversal { defer un(tt(t, p)) }
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("StemmedEntry.traverse(%v)", p))) }
         if optionEnableBenchspots { defer bench(spot("StemmedEntry.traverse")) }
@@ -910,12 +897,10 @@ func (p *StemmedEntry) _target(t *traversal, target string) (err error) {
                 p.target = &String{trivial{p.position}, target}
         }
 
-        if false { fmt.Fprintf(stderr, "%s:stemmed: %T %v -> %v, stems=%v\n", p.position, p.Pattern, p.Pattern, target, t.stems) }
-
-        if err = p.RuleEntry.traverse(t); err != nil { err = wrap(p.position, err) }
+        breakers = p.RuleEntry.traverse(t)
         return
 }
-func (p *StemmedEntry) file(t *traversal, file *File) (err error) {
+func (p *StemmedEntry) file(t *traversal, file *File) (breakers []*breaker) {
         if optionTraceTraversal { defer un(tt(t, p)) }
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("StemmedEntry.file(%v)", p))) }
         if optionEnableBenchspots { defer bench(spot("StemmedEntry.file")) }
@@ -930,6 +915,6 @@ func (p *StemmedEntry) file(t *traversal, file *File) (err error) {
                 if file.info == nil { file.info, _ = os.Stat(file.name) }
         }
 
-        if err = p.RuleEntry.traverse(t); err != nil { err = wrap(p.position, err) }
+        breakers = p.RuleEntry.traverse(t)
         return
 }
