@@ -2030,7 +2030,7 @@ func modifierWait(pos Position, t *traversal, args... Value) (result Value, err 
 func predict(pos Position, t *traversal, args... Value) (result bool, breakScope breaksco, message string, err error) {
         var target string
         if target, err = t.def.target.value.Strval(); err != nil {
-                diag.errorAt(pos, "%v", err)
+                diag.errorAt(pos, "predict: %v", err)
                 return
         }
 
@@ -2098,13 +2098,13 @@ func predict(pos Position, t *traversal, args... Value) (result bool, breakScope
                         if g, ok := a.(*Group); ok && len(g.Elems) > 0 {
                                 var name string
                                 if name, err = g.Elems[0].Strval(); err != nil {
-                                        diag.errorOf(a, "%v", err)
+                                        diag.errorOf(a, "predict: %v", err)
                                         return
                                 }
                                 if m, ok := modifiers[name]; ok {
                                         var res Value
                                         res, err = m(a.Position(), t, g.Elems[1:]...)
-                                        if err != nil { diag.errorOf(a, "%v", err); return }
+                                        if err != nil { diag.errorOf(a, "predict: %v", err); return }
                                         a = res // replace
                                 }
                         }

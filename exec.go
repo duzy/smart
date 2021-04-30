@@ -728,10 +728,8 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   }
 
   var cwd string
-  if v, e := t.program.scope.Lookup("CWD").(*Def).Call(t.program.position); e != nil { err = e; return } else
-  if v != nil { if cwd, err = v.Strval(); err != nil { return }} else
-  if v, e := t.program.scope.Lookup("/").(*Def).Call(t.program.position); e != nil { err = e; return } else
-  if v != nil { if cwd, err = v.Strval(); err != nil { return }}
+  if v := t.program.scope.Lookup("CWD").(*Def).Call(t.program.position); v != nil { if cwd, err = v.Strval(); err != nil { return }} else
+  if v := t.program.scope.Lookup("/").(*Def).Call(t.program.position); v != nil { if cwd, err = v.Strval(); err != nil { return }}
 
   // Fixes work directory conflicts. It happens
   // sometimes even the 'sh.Dir' is set to cwd.

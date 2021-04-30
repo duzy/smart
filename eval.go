@@ -38,7 +38,7 @@ ForRecipes:
                                 // Noop, just return v to the caller.
 
                         case Caller:
-                                v, err = tv.Call(t.program.position, stmt.Slice(1)...)
+                                v = tv.Call(t.program.position, stmt.Slice(1)...)
 
                         case Executer:
                                 var ( a []Value; brks []*breaker )
@@ -60,15 +60,15 @@ ForRecipes:
                         default:
                                 v, err = tv.expand(expandClosure)
                         }
-
-                        if err != nil {
-                                if p, okay := err.(*Returner); okay {
-                                        list, err = append(list, p.Values...), nil
-                                        break ForRecipes
-                                } else {
-                                        //fmt.Fprintf(stderr, "eval: %v\n", err)
+                        if v != nil {
+                                if ret, okay := v.(*returner); okay {
+                                        list = append(list, ret.Values...)
                                         break ForRecipes
                                 }
+                        }
+
+                        if err != nil {
+                                break ForRecipes
                         }
 
                         if v != nil {

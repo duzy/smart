@@ -112,7 +112,7 @@ func (p *unresolvedobject) Strval() (string, error) {
         // unresolved &(var) is stringed to ""
         return /*p.name.Strval()*/"", nil
 }
-func (p *unresolvedobject) Call(pos Position, a... Value) (result Value, err error) { result = p; return }
+func (p *unresolvedobject) Call(pos Position, a... Value) (result Value) { result = p; return }
 func (p *unresolvedobject) Execute(pos Position, a... Value) (result []Value, err error) { result = []Value{p}; return }
 func (p *unresolvedobject) redecl(scope *Scope) {
         if p.scope != scope {
@@ -165,7 +165,7 @@ func (p *ProjectName) Get(name string) (value Value, err error) {
 }
 
 // Call a ProjectName returns the project name.
-func (p *ProjectName) Call(pos Position, a... Value) (value Value, err error) {
+func (p *ProjectName) Call(pos Position, a... Value) (value Value) {
         if p.project != nil {
                 value = &String{trivial{pos},p.project.name}
         }
@@ -419,11 +419,11 @@ func (d *Def) append(va... Value) (err error) {
         return
 }
 
-func (d *Def) Call(pos Position, a... Value) (res Value, err error) {
+func (d *Def) Call(pos Position, a... Value) (res Value) {
         if isNil(d.value) { return }
         switch d.origin {
         case DefDefault:
-                var ( defs []*Def; vals []Value )
+                var ( defs []*Def; vals []Value; err error )
                 defer func() { for i, d := range defs { d.value = vals[i] }} ()
                 for i := 0; i < len(a) && i < maxNumVarVal; i += 1 {
                         var def = context.globe.scope.Lookup(strconv.Itoa(i)).(*Def)
@@ -432,6 +432,7 @@ func (d *Def) Call(pos Position, a... Value) (res Value, err error) {
                         def.value = a[i]
                 }
                 res, err = d.value.expand(expandClosure|expandDelegate)
+                if err != nil { diag.errorAt(pos, "%v", err) }
         default: // DefArg, DefSimple, DefExpand, DefExecute:
                 res = d.value
         }
@@ -538,7 +539,7 @@ type Builtin struct {
 func (p *Builtin) True() (bool, error) { return p.f != nil, nil }
 func (p *Builtin) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
-func (p *Builtin) Call(pos Position, a... Value) (Value, error) { return p.f(pos, a...) }
+func (p *Builtin) Call(pos Position, a... Value) Value { return p.f(pos, a...) }
 func (p *Builtin) cmp(v Value) (res cmpres) {
         if a, ok := v.(*Builtin); ok {
                 assert(ok, "value is not Builtin")

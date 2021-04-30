@@ -774,6 +774,11 @@ func (_ *trivial) String() (s string) { return }
 func (_ *trivial) Strval() (s string, err error) { return }
 func (_ *trivial) traverse(t *traversal) (breakers []*breaker) { return }
 
+type returner struct {
+        trivial
+        Values []Value
+}
+
 func exists(v Value) bool {
         // FIXME: returns true if existenceMatterless??
         return v != nil && v.exists() == existenceConfirmed
@@ -3290,10 +3295,8 @@ func (p *delegate) reveal() (res Value, err error) {
         switch x := o.(type) {
         default: diag.errorOf(p, "%s '%v' is unknown delegation", typeof(x), x)
         case Caller:
-                if res, err = x.Call(p.position, args...); err != nil {
-                        if o, ok := x.(Object); ok && o.Name() != "error" {
-                                diag.errorAt(p.position, "%v", err)
-                        } else {
+                if res = x.Call(p.position, args...); res == nil {
+                        if o, ok := x.(Object); ok && o.Name() == "error" {
                                 return
                         }
                 } else if selected && res != nil {
@@ -4118,7 +4121,7 @@ type Valuer interface {
 }
 
 type Caller interface {
-        Call(pos Position, args... Value) (Value, error)
+        Call(pos Position, args... Value) (result Value)
 }
 
 type Executer interface {

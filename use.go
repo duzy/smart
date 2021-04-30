@@ -248,7 +248,7 @@ func (p *usinglist) Get(name string) (result Value, err error) {
         return
 }
 
-func (p *usinglist) Call(pos Position, a... Value) (res Value, err error) {
+func (p *usinglist) Call(pos Position, a... Value) (res Value) {
         if false {
                 list := new(List)
                 for _, elem := range p.list {

@@ -464,8 +464,8 @@ func configureDump(pos Position, t *traversal, def *Def, fields map[string]Value
 }
 
 func configureBoolValue(pos Position, t *traversal, def *Def) (result bool, err error) {
-        var value Value
-        if value, err = def.Call(pos); err != nil { return } else {
+        var value = def.Call(pos)
+        if !isNil(value) {
                 var res Value
                 res, err = value.expand(expandAll)
                 if err == nil && res != value { value = res }
@@ -510,12 +510,13 @@ func configureAnswer(pos Position, t *traversal, def *Def, fields map[string]Val
 // -option
 // -option('message...')
 func configureOption(pos Position, t *traversal, def *Def, fields map[string]Value, args ...Value) (result Value, err error) {
-        if result, err = def.Call(pos); err == nil {
-                if result == nil { result = &answer{trivial{pos},false} }
-        } else if result != nil {
+        if result = def.Call(pos); isNil(result) { result = &answer{trivial{pos},false} }
+        if result != nil {
                 var res Value
                 if res, err = result.expand(expandAll); err == nil && res != result {
                         result = res
+                } else if err != nil {
+                        diag.errorAt(pos, "%v", err)
                 }
         }
         return
@@ -1301,10 +1302,7 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
 
         var value Value
         if len(args) == 0 { // Empty configuration: (configure)
-                if value, err = t.def.buffer.Call(pos); err != nil {
-                        diag.errorAt(pos, "%v", err)
-                        return
-                } else if value == nil {
+                if value = t.def.buffer.Call(pos); value == nil {
                         diag.errorAt(pos, "`%v` not configured (%v)", target, value)
                         return
                 } else if value == def || value.refs(def) { return }

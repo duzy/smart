@@ -1467,8 +1467,7 @@ func (l *loader) evalspec(spec *ast.EvalSpec) (res Value) {
                 var id = spec.Props[0]
                 var position = Position(l.parser.file.Position(id.Pos()))
                 switch op := l.expr(id).(type) {
-                case Caller:
-                        res, _ = op.Call(position, l.exprs(spec.Props[1:])...)
+                case Caller: res = op.Call(position, l.exprs(spec.Props[1:])...)
                 default:
                         var ( str string; err error )
                         if str, err = op.Strval(); err != nil {
@@ -1477,8 +1476,8 @@ func (l *loader) evalspec(spec *ast.EvalSpec) (res Value) {
                                 l.error(id.Pos(), "`%s` undefined", str)
                         } else if f, _ := obj.(Caller); f == nil {
                                 l.error(id.Pos(), "`%T` is not caller (%s)", obj, str)
-                        } else if res, err = f.Call(position, l.exprs(spec.Props[1:])...); err != nil {
-                                l.error(id.Pos(), "%s: %v", str, err)
+                        } else {
+                                res = f.Call(position, l.exprs(spec.Props[1:])...)
                         }
                 }
         }

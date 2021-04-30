@@ -42,14 +42,6 @@ func unreachable(a ...interface{}) {
 	panic(UnreachablePoint(fmt.Sprint(a...)))
 }
 
-type Returner struct {
-        Values []Value
-}
-
-func (p *Returner) Error() string {
-        return "evaluation returned"
-}
-
 type RuntimeError struct {
         stack string
 }

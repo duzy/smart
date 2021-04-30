@@ -30,7 +30,7 @@ import (
 )
 
 type Position token.Position
-type BuiltinFunc func(pos Position, args... Value) (Value, error)
+type BuiltinFunc func(pos Position, args... Value) (Value)
 
 var builtins = map[string]BuiltinFunc {
         `typeof`:       builtinTypeOf,
@@ -330,7 +330,7 @@ func typeof(arg interface{}) (s string) {
         return
 }
 
-func builtinTypeOf(pos Position, args... Value) (res Value, err error) {
+func builtinTypeOf(pos Position, args... Value) (res Value) {
         var ( elems []Value; s string )
         for _, arg := range args {
                 // Arguments are passed in a list:
@@ -340,10 +340,11 @@ func builtinTypeOf(pos Position, args... Value) (res Value, err error) {
                 s = typeof(arg)
                 elems = append(elems, &String{trivial{pos},s})
         }
-        return MakeListOrScalar(pos, elems), nil
+        return MakeListOrScalar(pos, elems)
 }
 
-func builtinPosition(pos Position, args... Value) (res Value, err error) {
+func builtinPosition(pos Position, args... Value) (res Value) {
+        var err error
         var vals []Value
         var opts = []string{
                 "f,filename",
@@ -353,7 +354,7 @@ func builtinPosition(pos Position, args... Value) (res Value, err error) {
                 "a,add", // add value to the last argument
         }
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
+                diag.errorAt(pos, "position: %v", err); return
         } else if _, err = parseFlags(args, opts, func(ru rune, val Value) {
                 switch ru {
                 case 'f': vals = append(vals, &String{trivial{pos},pos.Filename})
@@ -365,11 +366,13 @@ func builtinPosition(pos Position, args... Value) (res Value, err error) {
                         var last, okay = Scalar(vals[len(vals)-1]).(*Int)
                         if okay {
                                 var n int64
-                                if n, err = int64Val(val, 0); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if n, err = int64Val(val, 0); err != nil {
+                                        diag.errorAt(pos, "position: %v", err); return
+                                }
                                 last.int64 += n
                         }
                 }
-        }); err != nil { diag.errorAt(pos, "%v", err); return }
+        }); err != nil { diag.errorAt(pos, "position: %v", err); return }
         if len(vals) > 0 {
                 res = MakeListOrScalar(pos, vals)
         } else {
@@ -378,58 +381,60 @@ func builtinPosition(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinError(pos Position, args... Value) (res Value, err error) {
+func builtinError(pos Position, args... Value) (res Value) {
         var (
                 s bytes.Buffer
                 v string
+                err error
         )
         for i, a := range args {
                 if i > 0 { fmt.Fprintf(&s, " ") }
                 if v, err = a.Strval(); err == nil {
                         fmt.Fprintf(&s, "%s", v)
                 } else {
-                        fmt.Fprintf(stderr, "%s: %v\n", pos, err)
+                        diag.errorOf(a, "error: %v: %v", a, err)
                         return
                 }
         }
-        err = fmt.Errorf("%v", s.String())
-        fmt.Fprintf(stderr, "%s: %v\n", pos, s.String())
+        diag.errorAt(pos, "%s", s)
         return
 }
 
-func builtinWarning(pos Position, args... Value) (res Value, err error) {
+func builtinWarning(pos Position, args... Value) (res Value) {
         var (
                 s bytes.Buffer
                 v string
+                err error
         )
         for i, a := range args {
                 if i > 0 { fmt.Fprintf(&s, " ") }
                 if v, err = a.Strval(); err == nil {
                         fmt.Fprintf(&s, "%s", v)
                 } else {
-                        fmt.Fprintf(stderr, "%s: %v\n", pos, err)
+                        diag.errorOf(a, "warning: %v: %v", a, err)
                         return
                 }
         }
-        fmt.Fprintf(stderr, "%s: %v\n", pos, s.String())
+        diag.warnAt(pos, "%s", s)
         return
 }
 
-func builtinAssertValid(pos Position, args... Value) (Value, error) {
+func builtinAssertValid(pos Position, args... Value) Value {
         for _, a := range args {
-                if s, e := a.Strval(); e != nil {
-                        return nil, e
-                } else if s == "" {
-                        return nil, fmt.Errorf("invalid value")
+                if v, e := a.True(); e != nil {
+                        diag.errorOf(a, "assert: error: %v", e)
+                } else if !v {
+                        diag.errorOf(a, "assertion failed: %v", a)
                 }
         }
-        return nil, nil
+        return nil
 }
 
-func builtinOr(pos Position, args... Value) (res Value, err error) {
-        var t bool
+func builtinOr(pos Position, args... Value) (res Value) {
+        var ( t bool; e error )
         for _, a := range args {
-                if t, err = a.True(); err != nil {
+                if t, e = a.True(); e != nil {
+                        diag.errorOf(a, "or: error: %v", e)
                         break
                 } else if t {
                         res = a
@@ -439,11 +444,12 @@ func builtinOr(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinAnd(pos Position, args... Value) (res Value, err error) {
-        var t bool
+func builtinAnd(pos Position, args... Value) (res Value) {
+        var ( t bool; e error )
         for _, a := range args {
-                if t, err = a.True(); err != nil {
-                        res = nil; break
+                if t, e = a.True(); e != nil {
+                        diag.errorOf(a, "and: error: %v", e)
+                        break
                 } else if t {
                         res = a
                 } else {
@@ -455,31 +461,31 @@ func builtinAnd(pos Position, args... Value) (res Value, err error) {
 
 // $(not x y z) -> (not (or x y z))
 // $(not x,y,z) -> (and (not x) (not y) (not z))
-func builtinNot(pos Position, args... Value) (res Value, err error) {
-        var t bool
+func builtinNot(pos Position, args... Value) (res Value) {
+        var ( t bool; e error )
         for _, a := range args {
-                if t, err = a.True(); err != nil { diag.errorAt(pos, "%v", err); return } else
+                if t, e = a.True(); e != nil { diag.errorAt(pos, "not: error: %v", e); return } else
                 if t {
                         res = &boolean{trivial{pos},false}
                         return
                 }
         }
-        if err == nil {res = &boolean{trivial{pos},true}}
+        if e == nil {res = &boolean{trivial{pos},true}}
         return
 }
 
-func builtinNotEqual(pos Position, args... Value) (res Value, err error) {
+func builtinNotEqual(pos Position, args... Value) (res Value) {
         if n := len(args); n != 2 {
-                diag.errorAt(pos, "wrong number of arguments ($(match <value-list>,<regexp-list>)): %v", n)
+                diag.errorAt(pos, "wrong number of arguments, try: $(match <value-list>,<regexp-list>)")
         } else if args[0].cmp(args[1]) != cmpEqual {
                 res = &boolean{trivial{pos},true}
         }
         return
 }
 
-func builtinEqual(pos Position, args... Value) (res Value, err error) {
+func builtinEqual(pos Position, args... Value) (res Value) {
         if n := len(args); n != 2 {
-                diag.errorAt(pos, "wrong number of arguments ($(match <value-list>,<regexp-list>)): %v", n)
+                diag.errorAt(pos, "wrong number of arguments, try: $(match <value-list>,<regexp-list>)")
         } else if cmp := args[0].cmp(args[1]); cmp == cmpEqual {
                 res = &boolean{trivial{pos},true}
         }
@@ -487,22 +493,23 @@ func builtinEqual(pos Position, args... Value) (res Value, err error) {
 }
 
 // $(match rx1 rx2 rx3, a b c d...)
-func builtinMatch(pos Position, args... Value) (res Value, err error) {
+func builtinMatch(pos Position, args... Value) (res Value) {
         if n := len(args); n != 2 {
-                diag.errorAt(pos, "wrong number of arguments ($(match <regexp-list>,<value-list>)): %v", n)
+                diag.errorAt(pos, "wrong number of arguments, try: $(match <regexp-list>,<value-list>)")
                 return
         }
+        var err error
         var rexList = merge(args[0])
         var srcList = merge(args[1])
 ForMatchValues:
         for _, rexval := range rexList {
                 var ( r *regexp.Regexp ; s string )
-                if s, err = rexval.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                if r, err = regexp.Compile(s); err != nil { diag.errorAt(pos, "%v", err); return }
+                if s, err = rexval.Strval()  ; err != nil { diag.errorOf(rexval, "strval: %v", err); return }
+                if r, err = regexp.Compile(s); err != nil { diag.errorOf(rexval, "compile: %v", err); return }
                 for _, srcval := range srcList {
                         var src string
-                        if srcval == nil { continue } else
-                        if src, err = srcval.Strval(); err != nil { diag.errorAt(pos, "%v", err); return } else
+                        if isNil(srcval) { continue } else
+                        if src, err = srcval.Strval(); err != nil { diag.errorOf(srcval, "strval: %v", err); return } else
                         if r.MatchString(src) {
                                 res = &boolean{trivial{pos},true}
                                 break ForMatchValues
@@ -512,11 +519,13 @@ ForMatchValues:
         return
 }
 
-func builtinBranchIf(pos Position, args... Value) (res Value, err error) {
+// $(if cond, true-value, else-value, ...)
+func builtinBranchIf(pos Position, args... Value) (res Value) {
+        var err error
         if n := len(args); n > 1 {
                 var t bool
                 if t, err = args[0].True(); err != nil {
-                        diag.errorAt(pos, "%v", err)
+                        diag.errorAt(pos, "if: error: %v", err)
                 } else if t { 
                         res = args[1]
                 } else if n > 1 {
@@ -526,11 +535,12 @@ func builtinBranchIf(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinBranchIfEq(pos Position, args... Value) (res Value, err error) {
+func builtinBranchIfEq(pos Position, args... Value) (res Value) {
         if n := len(args); n > 2 {
                 var (
                         a, b Value
                         s1, s2 string
+                        err error
                 )
                 if a, err = args[0].expand(expandAll); err != nil { diag.errorAt(pos, "%v", err); return }
                 if b, err = args[1].expand(expandDelegate); err != nil { diag.errorAt(pos, "%v", err); return }
@@ -545,11 +555,12 @@ func builtinBranchIfEq(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinBranchIfNE(pos Position, args... Value) (res Value, err error) {
+func builtinBranchIfNE(pos Position, args... Value) (res Value) {
         if n := len(args); n > 2 {
                 var (
                         a, b Value
                         s1, s2 string
+                        err error
                 )
                 if a, err = args[0].expand(expandDelegate); err != nil { diag.errorAt(pos, "%v", err); return }
                 if b, err = args[1].expand(expandDelegate); err != nil { diag.errorAt(pos, "%v", err); return }
@@ -564,11 +575,11 @@ func builtinBranchIfNE(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinFor(pos Position, args... Value) (res Value, err error) {
+func builtinFor(pos Position, args... Value) (res Value) {
         if n := len(args); n < 2 {
-                diag.errorAt(pos, "not enough arguments ($(foreach <list>,<template>)): %v", n)
+                diag.errorAt(pos, "not enough arguments, try: $(foreach <list>,<template>)")
         } else {
-                var ( defs []*Def ; vals, values []Value )
+                var ( defs []*Def ; vals, values []Value; err error )
                 if values, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return }
 
                 scope := context.globe.scope
@@ -602,13 +613,14 @@ func builtinFor(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinForEach(pos Position, args... Value) (res Value, err error) {
+func builtinForEach(pos Position, args... Value) (res Value) {
         if n := len(args); n < 2 {
                 diag.errorAt(pos, "not enough arguments ($(foreach <list>,<template>)): %v", n)
         } else {
                 def := context.globe.scope.Lookup("_").(*Def)
                 defer func(v Value) { def.value = v } (def.value)
 
+                var err error
                 var values Value
                 if values, err = args[0].expand(expandAll); err != nil { diag.errorAt(pos, "%v", err); return }
 
@@ -650,11 +662,12 @@ func builtinForEach(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinEnv(pos Position, args... Value) (res Value, err error) {
+func builtinEnv(pos Position, args... Value) (res Value) {
         var (
                 vals []Value
                 val Value
                 v string
+                err error
         )
         for _, a := range args {
                 if val, err = a.expand(expandDelegate); err != nil { diag.errorAt(pos, "%v", err); return }
@@ -669,14 +682,15 @@ func builtinEnv(pos Position, args... Value) (res Value, err error) {
                         return
                 }
         }
-        return MakeListOrScalar(pos, vals), nil
+        return MakeListOrScalar(pos, vals)
 }
 
-func builtinValue(pos Position, args... Value) (res Value, err error) {
+func builtinValue(pos Position, args... Value) (res Value) {
         var scope *Scope
         if len(cloctx) > 0 { scope = cloctx[0] } else
         if context.loader != nil { scope = context.loader.scope }
 
+        var err error
         var vals []Value
         for _, a := range args {
                 var s string
@@ -687,16 +701,16 @@ func builtinValue(pos Position, args... Value) (res Value, err error) {
                         vals = append(vals, &None{trivial{pos}})
                 }
         }
-        return MakeListOrScalar(pos, vals), nil
+        return MakeListOrScalar(pos, vals)
 }
 
-func builtinList(pos Position, args... Value) (res Value, err error) {
+func builtinList(pos Position, args... Value) (res Value) {
         res = MakeListOrScalar(pos, args)
         return
 }
 
-func builtinShell(pos Position, args... Value) (res Value, err error) {
-        var vals []Value
+func builtinShell(pos Position, args... Value) (res Value) {
+        var ( vals []Value; err error )
         for _, a := range args {
                 var ( bufout, buferr bytes.Buffer; s string )
                 if s, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
@@ -712,11 +726,11 @@ func builtinShell(pos Position, args... Value) (res Value, err error) {
                 bufout.Reset()
                 buferr.Reset()
         }
-        return MakeListOrScalar(pos, vals), nil
+        return MakeListOrScalar(pos, vals)
 }
 
-func builtinServeHttp(pos Position, args... Value) (res Value, err error) {
-        var va []Value
+func builtinServeHttp(pos Position, args... Value) (res Value) {
+        var ( va []Value; err error )
         var opts = []string{
                 "h,host",
                 "p,port",
@@ -724,6 +738,7 @@ func builtinServeHttp(pos Position, args... Value) (res Value, err error) {
         var optHost string
         var optPort = 80
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "%v", err)
                 return
         } else if va, err = parseFlags(args, opts, func(ru rune, v Value) {
                 switch ru {
@@ -752,19 +767,20 @@ func builtinServeHttp(pos Position, args... Value) (res Value, err error) {
         }
 
         if err = server.ListenAndServe(); err == http.ErrServerClosed {
-                // Requested /quit
+                if false { diag.infoAt(pos, "http server closed") }// Requested /quit
         } else if err != nil {
                 diag.errorAt(pos, "%s", err)
         }
         return
 }
 
-func builtinServeHttps(pos Position, args... Value) (res Value, err error) {
+func builtinServeHttps(pos Position, args... Value) (res Value) {
         diag.errorAt(pos, "'serve-https' is unimplemented yet")
         return
 }
 
-func builtinPrint(pos Position, args... Value) (res Value, err error) {
+func builtinPrint(pos Position, args... Value) (res Value) {
+        var err error
         var x = len(args)
         for i, a := range args {
                 var s string
@@ -781,7 +797,8 @@ func builtinPrint(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinPrintl(pos Position, args... Value) (res Value, err error) {
+func builtinPrintl(pos Position, args... Value) (res Value) {
+        var err error
         var x = len(args)
         for i, a := range args {
                 var s string
@@ -795,28 +812,27 @@ func builtinPrintl(pos Position, args... Value) (res Value, err error) {
                         fmt.Printf("\n")
                 }
         }
-        return nil, nil
+        return
 }
 
-func builtinPrintln(pos Position, args... Value) (Value, error) {
+func builtinPrintln(pos Position, args... Value) (res Value) {
         builtinPrint(pos, args...)
         fmt.Printf("\n")
-        return nil, nil
+        return
 }
 
-func builtinAppend(pos Position, args... Value) (result Value, err error) {
+func builtinAppend(pos Position, args... Value) (result Value) {
         if len(args) < 2 {
                 diag.errorAt(pos, "insufficient number of arguments: %v", args)
                 return
         }
-
-        if false { fmt.Fprintf(stderr, "%s: %v %v\n", pos, args, cloctx) }
 
         var (
                 optString bool
                 optVerbose bool
                 vars []Value
                 list []Value
+                err error
         )
         if vars, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorOf(args[0], "%s", err); return } else
         if vars, err = tryParseFlags(vars, []string{
@@ -829,7 +845,7 @@ func builtinAppend(pos Position, args... Value) (result Value, err error) {
                 }
         }); err != nil { diag.errorAt(pos, "%v", err); return }
         if list, err = mergeresult(ExpandAll(args[1:]...)); err != nil { diag.errorOf(args[1], "%s", err); return }
-        if len(list) == 0 { return }
+        if len(list) == 0 { diag.warnAt(pos, "append no values"); return }
 
         for _, a := range vars {
                 var name string
@@ -854,7 +870,8 @@ func builtinAppend(pos Position, args... Value) (result Value, err error) {
         return
 }
 
-func builtinPlus(pos Position, args... Value) (result Value, err error) {
+func builtinPlus(pos Position, args... Value) (result Value) {
+        var err error
         var num, v int64
         for _, a := range args {
                 if v, err = a.Integer(); err != nil {
@@ -863,10 +880,11 @@ func builtinPlus(pos Position, args... Value) (result Value, err error) {
                 }
                 num += v
         } 
-        return &Int{integer{trivial{pos},num}}, nil
+        return &Int{integer{trivial{pos},num}}
 }
 
-func builtinMinus(pos Position, args... Value) (result Value, err error) {
+func builtinMinus(pos Position, args... Value) (result Value) {
+        var err error
         var num, v int64
         for i, a := range args {
                 if v, err = a.Integer(); err != nil {
@@ -879,16 +897,17 @@ func builtinMinus(pos Position, args... Value) (result Value, err error) {
                         num -= v
                 }
         }
-        return &Int{integer{trivial{pos},num}}, nil
+        return &Int{integer{trivial{pos},num}}
 }
 
-func builtinUnique(pos Position, args... Value) (res Value, err error) {
+func builtinUnique(pos Position, args... Value) (res Value) {
         if optionBenchBuiltin {
                 defer func(t time.Time) {
                         var d = time.Now().Sub(t)
                         fmt.Fprintf(stderr, "%s:(%8s) unique\n", pos, d)
                 } (time.Now())
         }
+        var err error
         var optReverse bool
         if len(args) > 0 {
                 var a []Value
@@ -929,9 +948,9 @@ ForArgs:
         return
 }
 
-func builtinJoin(pos Position, args... Value) (res Value, err error) {
+func builtinJoin(pos Position, args... Value) (res Value) {
         if l := len(args); l > 0 {
-                var ( vals []Value ; fields []string ; sep string )
+                var ( vals []Value ; fields []string ; sep string; err error )
                 if l < 2 {
                         if vals, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
                 } else {
@@ -948,7 +967,8 @@ func builtinJoin(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinQuote(pos Position, args... Value) (res Value, err error) {
+func builtinQuote(pos Position, args... Value) (res Value) {
+        var err error
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
         if l := len(args); l > 0 {
                 var fields []string
@@ -964,12 +984,14 @@ func builtinQuote(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinQuoteJoin(pos Position, args... Value) (res Value, err error) {
+func builtinQuoteJoin(pos Position, args... Value) (res Value) {
+        var err error
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var sep string
         if l := len(args); l > 1 {
                 if sep, err = args[l-1].Strval(); err != nil {
+                        diag.errorAt(pos, "%v", err)
                         return
                 }
                 args = args[:l-1]
@@ -988,7 +1010,8 @@ func builtinQuoteJoin(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinSplitString(pos Position, args... Value) (res Value, err error) {
+func builtinSplitString(pos Position, args... Value) (res Value) {
+        var err error
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
         if l := len(args); l > 0 {
                 var fields []Value
@@ -997,7 +1020,6 @@ func builtinSplitString(pos Position, args... Value) (res Value, err error) {
                         if s, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if s != "" { fields = append(fields, &String{trivial{a.Position()},s}) }
                 }
-
                 res = &List{elements{fields}}
         } else {
                 res = &None{trivial{pos}}
@@ -1034,37 +1056,41 @@ func joinstrings(value Value, sep string) (res Value, err error) {
         return
 }
 
-func builtinSplitQuote(pos Position, args... Value) (res Value, err error) {
-        if res, err = builtinSplitString(pos, args...); err == nil {
+func builtinSplitQuote(pos Position, args... Value) (res Value) {
+        if res = builtinSplitString(pos, args...); !isNil(res) {
                 quotestrings(res)
         }
         return
 }
 
-func builtinSplitQuoteJoin(pos Position, args... Value) (res Value, err error) {
-        var sep string
+func builtinSplitQuoteJoin(pos Position, args... Value) (res Value) {
+        var ( sep string; err error )
         if l := len(args); l > 1 {
                 if sep, err = args[l-1].Strval(); err != nil {
-                        return
+                        diag.errorAt(pos, "%v", err); return
                 }
                 args = args[:l-1]
         }
-        if res, err = builtinSplitQuote(pos, args...); err == nil {
-                res, err = joinstrings(res, sep)
+        if res = builtinSplitQuote(pos, args...); !isNil(res) {
+                if res, err = joinstrings(res, sep); err != nil {
+                        diag.errorAt(pos, "%v", err)
+                }
+        } else {
+                diag.errorAt(pos, "%v", err)
         }
         return
 }
 
-func builtinSplitJoinQuote(pos Position, args... Value) (res Value, err error) {
-        var sep string
+func builtinSplitJoinQuote(pos Position, args... Value) (res Value) {
+        var ( sep string; err error )
         if l := len(args); l > 1 {
                 if sep, err = args[l-1].Strval(); err != nil {
-                        return
+                        diag.errorAt(pos, "%v", err); return
                 }
                 args = args[:l-1]
         }
         var v Value
-        if v, err = builtinSplitString(pos, args...); err == nil {
+        if v = builtinSplitString(pos, args...); !isNil(v) {
                 if v, err = joinstrings(v, sep); err == nil {
                         var s string
                         if s, err = v.Strval(); err == nil {
@@ -1072,15 +1098,17 @@ func builtinSplitJoinQuote(pos Position, args... Value) (res Value, err error) {
                         }
                 }
         }
+        if err != nil { diag.errorAt(pos, "%v", err) }
         return
 }
 
-func builtinField(pos Position, args... Value) (res Value, err error) {
+func builtinField(pos Position, args... Value) (res Value) {
         if l := len(args); l >= 2 {
                 var (
                         i int64
                         s string
                         fields []string
+                        err error
                 )
                 if i, err = args[0].Integer(); err != nil { diag.errorAt(pos, "%v", err); return }
                 if s, err = args[1].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
@@ -1101,24 +1129,27 @@ func builtinField(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinFields(pos Position, args... Value) (Value, error) {
+func builtinFields(pos Position, args... Value) (res Value) {
         // TODO: ...
-        return nil, nil
+        return
 }
 
-func builtinUsee(pos Position, args... Value) (result Value, err error) {
+func builtinUsee(pos Position, args... Value) (result Value) {
         var proj = current()
         if proj == nil {
-                err = fmt.Errorf("unknown current context")
+                diag.errorAt(pos, "unknown current context")
                 return
         }
 
+        var err error
         var list []Value
         for _, arg := range args {
                 var ( s string; v Value )
                 if s, err = arg.Strval(); err != nil {
+                        diag.errorAt(pos, "%v", err)
                         return
                 } else if v, err = proj.using.Get(s); err != nil {
+                        diag.errorAt(pos, "%v", err)
                         return
                 } else {
                         list = append(list, v)
@@ -1130,7 +1161,8 @@ func builtinUsee(pos Position, args... Value) (result Value, err error) {
         return
 }
 
-func builtinPath(pos Position, args... Value) (result Value, err error) {
+func builtinPath(pos Position, args... Value) (result Value) {
+        var err error
         var list []Value
         for _, a := range args {
                 var s string
@@ -1141,7 +1173,8 @@ func builtinPath(pos Position, args... Value) (result Value, err error) {
         return
 }
 
-func builtinString(pos Position, args... Value) (result Value, err error) {
+func builtinString(pos Position, args... Value) (result Value) {
+        var err error
         var s bytes.Buffer
         for i, a := range args {
                 var v string
@@ -1188,7 +1221,8 @@ func filterValues(pats []Value, neg bool, values... Value) (result []Value, err 
         return
 }
 
-func builtinFilterValues(pos Position, neg bool, args... Value) (res Value, err error) {
+func builtinFilterValues(pos Position, neg bool, args... Value) (res Value) {
+        var err error
         if len(args) > 1 {
                 var ( pats []Value; vals []Value )
                 if pats, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return }
@@ -1201,7 +1235,8 @@ func builtinFilterValues(pos Position, neg bool, args... Value) (res Value, err 
         return
 }
 
-func builtinSubstring(pos Position, args... Value) (res Value, err error) {
+func builtinSubstring(pos Position, args... Value) (res Value) {
+        var err error
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 diag.errorAt(pos, "%v", err)
                 return
@@ -1247,7 +1282,8 @@ func builtinSubstring(pos Position, args... Value) (res Value, err error) {
 }
 
 // $(subst from,to,text)
-func builtinSubst(pos Position, args... Value) (res Value, err error) {
+func builtinSubst(pos Position, args... Value) (res Value) {
+        var err error
         var list []Value
         if nargs := len(args); nargs > 2 {
                 var s, s1, s2 string
@@ -1267,12 +1303,12 @@ func builtinSubst(pos Position, args... Value) (res Value, err error) {
 // TODO:
 //   $(var:pattern=replacement)
 //   $(var:suffix=replacement)
-func builtinPatsubst(pos Position, args... Value) (res Value, err error) {
+func builtinPatsubst(pos Position, args... Value) (res Value) {
         // $(patsubst pattern,replacement,text)
         var list []Value
         if len(args) < 3 { return }
 
-        var ( optNoFilemap bool; arg0 []Value )
+        var ( optNoFilemap bool; arg0 []Value; err error )
         if arg0, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return } else
         if arg0, err = parseFlags(arg0, []string{
                 "n,no-filemap",
@@ -1399,15 +1435,16 @@ ForSources:
         return
 }
 
-func builtinStrip(pos Position, args... Value) (res Value, err error) {
+func builtinStrip(pos Position, args... Value) (res Value) {
         return builtinTrimSpace(pos, args...)
 }
 
-func builtinTrimSpace(pos Position, args... Value) (res Value, err error) {
+func builtinTrimSpace(pos Position, args... Value) (res Value) {
         return builtinTrim(pos, append([]Value{&None{trivial{pos}}}, args...)...)
 }
 
-func builtinTitle(pos Position, args... Value) (res Value, err error) {
+func builtinTitle(pos Position, args... Value) (res Value) {
+        var err error
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var (
@@ -1427,7 +1464,8 @@ func builtinTitle(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinTrim(pos Position, args... Value) (res Value, err error) {
+func builtinTrim(pos Position, args... Value) (res Value) {
+        var err error
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var (
@@ -1436,7 +1474,7 @@ func builtinTrim(pos Position, args... Value) (res Value, err error) {
         )
         for i, a := range args {
                 if s, err = a.Strval(); err != nil {
-                        return
+                        diag.errorAt(pos, "%v", err); return
                 } else if s != "" {
                         if i == 0 {
                                 cutset = s
@@ -1453,7 +1491,8 @@ func builtinTrim(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinTrimLeft(pos Position, args... Value) (res Value, err error) {
+func builtinTrimLeft(pos Position, args... Value) (res Value) {
+        var err error
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var (
@@ -1479,7 +1518,8 @@ func builtinTrimLeft(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinTrimRight(pos Position, args... Value) (res Value, err error) {
+func builtinTrimRight(pos Position, args... Value) (res Value) {
+        var err error
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var (
@@ -1488,7 +1528,7 @@ func builtinTrimRight(pos Position, args... Value) (res Value, err error) {
         )
         for i, a := range args {
                 if s, err = a.Strval(); err != nil {
-                        return
+                        diag.errorAt(pos, "%v", err); return
                 } else if s != "" {
                         if i == 0 {
                                 cutset = s
@@ -1559,7 +1599,8 @@ func _builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
         }
         return
 }
-func builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
+func builtinTrimPrefix(pos Position, args... Value) (res Value) {
+        var err error
         var prefixs, values, list []Value
         if len(args) == 0 { return } else
         if prefixs, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return }
@@ -1585,7 +1626,7 @@ func builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
                                         break ForPrefix
                                 }
                         } else if cutset, err = prefix.Strval(); err != nil {
-                                return
+                                diag.errorAt(pos, "%v", err); return
                         } else {
                                 if s == "" {
                                         if s, err = value.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
@@ -1611,7 +1652,8 @@ func builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinTrimSuffix(pos Position, args... Value) (res Value, err error) {
+func builtinTrimSuffix(pos Position, args... Value) (res Value) {
+        var err error
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var (
@@ -1620,7 +1662,7 @@ func builtinTrimSuffix(pos Position, args... Value) (res Value, err error) {
         )
         for i, a := range args {
                 if s, err = a.Strval(); err != nil {
-                        return
+                        diag.errorAt(pos, "%v", err); return
                 } else if s != "" {
                         if i == 0 {
                                 cutset = s
@@ -1637,7 +1679,8 @@ func builtinTrimSuffix(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinTrimExt(pos Position, args... Value) (res Value, err error) {
+func builtinTrimExt(pos Position, args... Value) (res Value) {
+        var err error
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var list []Value
@@ -1648,7 +1691,7 @@ func builtinTrimExt(pos Position, args... Value) (res Value, err error) {
                 }*/
                 var ext, s string
                 if s, err = a.Strval(); err != nil {
-                        return
+                        diag.errorAt(pos, "%v", err); return
                 } else if s != "" {
                         if i == 0 && len(args) > 1 {
                                 ext = s
@@ -1665,16 +1708,18 @@ func builtinTrimExt(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinIndent(pos Position, args... Value) (res Value, err error) {
+func builtinIndent(pos Position, args... Value) (res Value) {
         var (
                 l []Value
                 s string // indent
+                err error
         )
         if x := len(args); x > 0 {
                 if v, ok := Scalar(args[0]).(*Int); ok {
                         args, s = args[1:], strings.Repeat(" ", int(v.int64))
                 } else {
-                        return nil, errors.New("requires integer argument (first|last)")
+                        diag.errorAt(pos, "requires integer argument (first|last)")
+                        return
                 }
         }
         for _, a := range args {
@@ -1683,7 +1728,7 @@ func builtinIndent(pos Position, args... Value) (res Value, err error) {
                         v string
                 )
                 if v, err = a.Strval(); err != nil {
-                        return
+                        diag.errorAt(pos, "%v", err); return
                 }
                 for _, line := range strings.Split(v, "\n") {
                         lines = append(lines, s + line)
@@ -1694,8 +1739,8 @@ func builtinIndent(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinFindstring(pos Position, args... Value) (res Value, err error) {
-        // $(findstring find,text)
+func builtinFindstring(pos Position, args... Value) (res Value) {
+        // TODO: $(findstring find,text)
         return
 }
 
@@ -1703,7 +1748,7 @@ func builtinFindstring(pos Position, args... Value) (res Value, err error) {
 // $(contains a b c1 -or c2, v1 v2 …)
 // $(contains a b c1 -or c2 -or c3, v1 v2 …)
 // $(contains a b -or=(c1 c2 c3), v1 v2 …)
-func builtinContains(pos Position, args... Value) (res Value, err error) {
+func builtinContains(pos Position, args... Value) (res Value) {
         if len(args) < 2 {
                 diag.errorAt(pos, "unexpected number of arguments, try $(contains a b c1 -or c2, v1 v2 …)")
                 return
@@ -1714,6 +1759,7 @@ func builtinContains(pos Position, args... Value) (res Value, err error) {
                 optVerbose bool
                 vals []Value
                 list []Value
+                err error
         )
         if vals, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return } else
         if vals, err = tryParseFlags(vals, []string{
@@ -1762,56 +1808,56 @@ func builtinContains(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinFilter(pos Position, args... Value) (res Value, err error) {
+func builtinFilter(pos Position, args... Value) (res Value) {
         // $(filter pattern…,text)
-        res, err = builtinFilterValues(pos, false, args...)
+        res = builtinFilterValues(pos, false, args...)
         return
 }
 
-func builtinFilterOut(pos Position, args... Value) (res Value, err error) {
+func builtinFilterOut(pos Position, args... Value) (res Value) {
         // $(filter-out pattern…,text)
-        res, err = builtinFilterValues(pos, true, args...)
+        res = builtinFilterValues(pos, true, args...)
         return
 }
 
-func builtinSort(pos Position, args... Value) (res Value, err error) {
-        // $(sort list)
+func builtinSort(pos Position, args... Value) (res Value) {
+        // TODO: $(sort list)
         return
 }
 
-func builtinWord(pos Position, args... Value) (res Value, err error) {
-        // $(word n,text)
+func builtinWord(pos Position, args... Value) (res Value) {
+        // TODO: $(word n,text)
         return
 }
 
-func builtinWordList(pos Position, args... Value) (res Value, err error) {
-        // $(wordlist s,e,text)
+func builtinWordList(pos Position, args... Value) (res Value) {
+        // TODO: $(wordlist s,e,text)
         return
 }
 
-func builtinWords(pos Position, args... Value) (res Value, err error) {
-        // $(words n,text)
+func builtinWords(pos Position, args... Value) (res Value) {
+        // TODO: $(words n,text)
         return
 }
 
-func builtinFirstWord(pos Position, args... Value) (res Value, err error) {
-        // $(firstword names...)
+func builtinFirstWord(pos Position, args... Value) (res Value) {
+        // TODO: $(firstword names...)
         return
 }
 
-func builtinLastWord(pos Position, args... Value) (res Value, err error) {
-        // $(lastword names...)
+func builtinLastWord(pos Position, args... Value) (res Value) {
+        // TODO: $(lastword names...)
         return
 }
 
-func builtinEncodeBase64(pos Position, args... Value) (res Value, err error) {
+func builtinEncodeBase64(pos Position, args... Value) (res Value) {
         if len(args) > 0 {
                 buf := new(bytes.Buffer)
                 enc := base64.NewEncoder(base64.StdEncoding, buf)
                 for _, a := range args {
-                        var s string
+                        var ( s string; err error )
                         if s, err = a.Strval(); err != nil {
-                                return
+                                diag.errorAt(pos, "%v", err); return
                         }
                         enc.Write([]byte(s))
                 }
@@ -1821,22 +1867,23 @@ func builtinEncodeBase64(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinDecodeBase64(pos Position, args... Value) (res Value, err error) {
+func builtinDecodeBase64(pos Position, args... Value) (res Value) {
         if len(args) > 0 {
                 var list []Value
                 for _, a := range args {
                         var (
                                 dat []byte
                                 s string
+                                err error
                         )
                         if s, err = a.Strval(); err != nil {
-                                return
+                                diag.errorAt(pos, "%v", err); return
                         }
                         dat, err = base64.StdEncoding.DecodeString(s)
                         if err == nil {
                                 list = append(list, &String{trivial{a.Position()},string(dat)})
                         } else {
-                                return
+                                diag.errorAt(pos, "%v", err); return
                         }
                 }
                 res = MakeListOrScalar(pos, list)
@@ -1844,8 +1891,10 @@ func builtinDecodeBase64(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinBase(pos Position, args... Value) (res Value, err error) {
+func builtinBase(pos Position, args... Value) (res Value) {
+        var err error
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
+
         var s string
         var l []Value
         for _, a := range args {
@@ -1854,7 +1903,7 @@ func builtinBase(pos Position, args... Value) (res Value, err error) {
                         fmt.Fprintf(stderr, "todo: base File{%v %v %v}\n", t.dir, t.sub, t.name)
                 }*/
                 if s, err = a.Strval(); err != nil {
-                        return
+                        diag.errorAt(pos, "%v", err); return
                 }
                 s = filepath.Base(s) // the last element of path
                 l = append(l, &String{trivial{a.Position()},s})
@@ -1863,14 +1912,15 @@ func builtinBase(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func dirx(pos Position, n int, args... Value) (res Value, err error) {
+func dirx(pos Position, n int, args... Value) (res Value) {
         var (
                 l []Value
                 s string
+                err error
         )
         for _, a := range args {
                 if s, err = a.Strval(); err != nil {
-                        return
+                        diag.errorAt(pos, "%v", err); return
                 }
                 s = filepath.Dir(s)
                 for i := n-1; 0 < i; i -= 1 {
@@ -1882,14 +1932,15 @@ func dirx(pos Position, n int, args... Value) (res Value, err error) {
         return
 }
 
-func undirx(pos Position, n int, args... Value) (res Value, err error) {
+func undirx(pos Position, n int, args... Value) (res Value) {
         var (
                 l []Value
                 s string
+                err error
         )
         for _, a := range args {
                 if s, err = a.Strval(); err != nil {
-                        return
+                        diag.errorAt(pos, "%v", err); return
                 }
                 v := strings.Split(s, PathSep)
                 if i := len(v); i == 0 {
@@ -1905,14 +1956,15 @@ func undirx(pos Position, n int, args... Value) (res Value, err error) {
         return
 }
 
-func builtinDir(pos Position, args... Value) (res Value, err error) {
+func builtinDir(pos Position, args... Value) (res Value) {
         var (
                 l []Value
                 s string
+                err error
         )
         for _, a := range args {
                 if s, err = a.Strval(); err != nil {
-                        return
+                        diag.errorAt(pos, "%v", err); return
                 }
                 s = filepath.Dir(s)
                 l = append(l, MakePathStr(pos,s))
@@ -1921,39 +1973,39 @@ func builtinDir(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinDir2(pos Position, args... Value) (res Value, err error) {
+func builtinDir2(pos Position, args... Value) (res Value) {
         return dirx(pos, 2, args...)
 }
 
-func builtinDir3(pos Position, args... Value) (res Value, err error) {
+func builtinDir3(pos Position, args... Value) (res Value) {
         return dirx(pos, 3, args...)
 }
 
-func builtinDir4(pos Position, args... Value) (res Value, err error) {
+func builtinDir4(pos Position, args... Value) (res Value) {
         return dirx(pos, 4, args...)
 }
 
-func builtinDir5(pos Position, args... Value) (res Value, err error) {
+func builtinDir5(pos Position, args... Value) (res Value) {
         return dirx(pos, 5, args...)
 }
 
-func builtinDir6(pos Position, args... Value) (res Value, err error) {
+func builtinDir6(pos Position, args... Value) (res Value) {
         return dirx(pos, 6, args...)
 }
 
-func builtinDir7(pos Position, args... Value) (res Value, err error) {
+func builtinDir7(pos Position, args... Value) (res Value) {
         return dirx(pos, 7, args...)
 }
 
-func builtinDir8(pos Position, args... Value) (res Value, err error) {
+func builtinDir8(pos Position, args... Value) (res Value) {
         return dirx(pos, 8, args...)
 }
 
-func builtinDir9(pos Position, args... Value) (res Value, err error) {
+func builtinDir9(pos Position, args... Value) (res Value) {
         return dirx(pos, 9, args...)
 }
 
-func builtinDirs(pos Position, args... Value) (res Value, err error) {
+func builtinDirs(pos Position, args... Value) (res Value) {
         var n int
         if x := len(args); x > 0 {
                 if v, ok := Scalar(args[0]).(*Int); ok {
@@ -1961,50 +2013,51 @@ func builtinDirs(pos Position, args... Value) (res Value, err error) {
                 } else if v, ok := Scalar(args[x-1]).(*Int); ok {
                         args, n = args[:x-1], int(v.int64)
                 } else {
-                        return nil, fmt.Errorf("require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1])
+                        diag.errorAt(pos, "require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1])
+                        return
                 }
         }
-        res, err = dirx(pos, n, args...)
+        res = dirx(pos, n, args...)
         return
 }
 
-func builtinUndir(pos Position, args... Value) (res Value, err error) {
+func builtinUndir(pos Position, args... Value) (res Value) {
         return undirx(pos, 1, args...)
 }
 
-func builtinUndir2(pos Position, args... Value) (res Value, err error) {
+func builtinUndir2(pos Position, args... Value) (res Value) {
         return undirx(pos, 2, args...)
 }
 
-func builtinUndir3(pos Position, args... Value) (res Value, err error) {
+func builtinUndir3(pos Position, args... Value) (res Value) {
         return undirx(pos, 3, args...)
 }
 
-func builtinUndir4(pos Position, args... Value) (res Value, err error) {
+func builtinUndir4(pos Position, args... Value) (res Value) {
         return undirx(pos, 4, args...)
 }
 
-func builtinUndir5(pos Position, args... Value) (res Value, err error) {
+func builtinUndir5(pos Position, args... Value) (res Value) {
         return undirx(pos, 5, args...)
 }
 
-func builtinUndir6(pos Position, args... Value) (res Value, err error) {
+func builtinUndir6(pos Position, args... Value) (res Value) {
         return undirx(pos, 6, args...)
 }
 
-func builtinUndir7(pos Position, args... Value) (res Value, err error) {
+func builtinUndir7(pos Position, args... Value) (res Value) {
         return undirx(pos, 7, args...)
 }
 
-func builtinUndir8(pos Position, args... Value) (res Value, err error) {
+func builtinUndir8(pos Position, args... Value) (res Value) {
         return undirx(pos, 8, args...)
 }
 
-func builtinUndir9(pos Position, args... Value) (res Value, err error) {
+func builtinUndir9(pos Position, args... Value) (res Value) {
         return undirx(pos, 9, args...)
 }
 
-func builtinUndirs(pos Position, args... Value) (res Value, err error) {
+func builtinUndirs(pos Position, args... Value) (res Value) {
         var n = 0
         if x := len(args); x > 0 {
                 if v, ok := Scalar(args[0]).(*Int); ok {
@@ -2012,14 +2065,16 @@ func builtinUndirs(pos Position, args... Value) (res Value, err error) {
                 } else if v, ok := Scalar(args[x-1]).(*Int); ok {
                         args, n = args[:x-1], int(v.int64)
                 } else {
-                        return nil, fmt.Errorf("require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1])
+                        diag.errorAt(pos, "require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1])
+                        return
                 }
         }
         return undirx(pos, n, args...)
 }
 
-func builtinDirChop(pos Position, args... Value) (res Value, err error) {
+func builtinDirChop(pos Position, args... Value) (res Value) {
         var (
+                err error
                 l []Value
                 n = 0
         )
@@ -2029,13 +2084,15 @@ func builtinDirChop(pos Position, args... Value) (res Value, err error) {
                 } else if v, ok := Scalar(args[x-1]).(*Int); ok {
                         args, n = args[:x-1], int(v.int64)
                 } else {
-                        return nil, fmt.Errorf("require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1])
+                        diag.errorAt(pos, "require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1])
+                        return
+
                 }
         }
         for _, a := range args {
                 var s string
                 if s, err = a.Strval(); err != nil {
-                        return
+                        diag.errorAt(pos, "%v", err); return
                 }
                 var v = strings.Split(s, PathSep)
                 if i := len(v); 0 < i {
@@ -2055,8 +2112,9 @@ func builtinDirChop(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinRelativeDir(pos Position, args... Value) (res Value, err error) {
+func builtinRelativeDir(pos Position, args... Value) (res Value) {
         var (
+                err error
                 l []Value
                 t, s string
         )
@@ -2078,12 +2136,13 @@ func builtinRelativeDir(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinMkdir(pos Position, args... Value) (res Value, err error) {
+func builtinMkdir(pos Position, args... Value) (res Value) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
                         name string
                         perm os.FileMode
+                        err error
                 )
                 switch t := a.(type) {
                 case *Pair: // mkdir name => perm name => perm
@@ -2117,12 +2176,13 @@ func builtinMkdir(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinMkdirAll(pos Position, args... Value) (res Value, err error) {
+func builtinMkdirAll(pos Position, args... Value) (res Value) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
                         name string
                         perm os.FileMode
+                        err error
                 )
                 switch t := a.(type) {
                 case *Pair: // mkdir name => perm name => perm
@@ -2156,9 +2216,9 @@ func builtinMkdirAll(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinChdir(pos Position, args... Value) (res Value, err error) {
+func builtinChdir(pos Position, args... Value) (res Value) {
         if len(args) == 1 {
-                var str string
+                var ( str string; err error )
                 if str, err = args[0].Strval(); err != nil { diag.errorOf(args[0], "%v", err); return }
                 if err = lockCD(str, 0); err != nil { diag.errorAt(pos, "%v", err) }
         } else {
@@ -2167,11 +2227,12 @@ func builtinChdir(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinRename(pos Position, args... Value) (res Value, err error) {
+func builtinRename(pos Position, args... Value) (res Value) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
                         oldname, newname string
+                        err error
                 )
                 switch t := a.(type) {
                 case *Pair: // rename oldname => newname old => new
@@ -2211,8 +2272,8 @@ func builtinRename(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinRemove(pos Position, args... Value) (res Value, err error) {
-        var ( optAll, optDebug, optVerbose bool )
+func builtinRemove(pos Position, args... Value) (res Value) {
+        var ( optAll, optDebug, optVerbose bool; err error )
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
         if args, err = parseFlags(args, []string{
                 "a,all",
@@ -2244,8 +2305,8 @@ func builtinRemove(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinRemoveAll(pos Position, args... Value) (res Value, err error) {
-        var optVerbose bool
+func builtinRemoveAll(pos Position, args... Value) (res Value) {
+        var ( optVerbose bool; err error )
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
         if args, err = parseFlags(args, []string{
                 "v,verbose",
@@ -2267,12 +2328,13 @@ func builtinRemoveAll(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinTruncate(pos Position, args... Value) (res Value, err error) {
+func builtinTruncate(pos Position, args... Value) (res Value) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
                         name string
                         size int64
+                        err error
                 )
                 switch t := a.(type) {
                 case *Pair: // truncate name => size old => new
@@ -2283,7 +2345,7 @@ func builtinTruncate(pos Position, args... Value) (res Value, err error) {
                                 if name, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                                 if size, err = t.Get(1).Integer(); err != nil { diag.errorAt(pos, "%v", err); return }
                         } else {
-                                err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
+                                diag.errorAt(pos, "Wrong size of group `%v'", t)
                                 break
                         }
                 case *List: // truncate name size, old new, ...
@@ -2291,7 +2353,7 @@ func builtinTruncate(pos Position, args... Value) (res Value, err error) {
                                 if name, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                                 if size, err = t.Get(1).Integer(); err != nil { diag.errorAt(pos, "%v", err); return }
                         } else {
-                                err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
+                                diag.errorAt(pos, "Wrong size of list `%v'", t)
                                 break
                         }
                 default: // truncate name size  name size ...
@@ -2300,18 +2362,19 @@ func builtinTruncate(pos Position, args... Value) (res Value, err error) {
                                 if size, err = args[i+1].Integer(); err != nil { diag.errorAt(pos, "%v", err); return }
                                 i += 1
                         } else {
-                                err = errors.New(fmt.Sprintf("Wrong arguments `%v'", args))
+                                diag.errorAt(pos, "Wrong arguments `%v'", args)
                                 break
                         }
                 }
                 if err = os.Truncate(name, size); err != nil {
-                        break
+                        diag.errorAt(pos, "%v", err); break
                 }
         }
         return
 }
 
-func builtinLink(pos Position, args... Value) (res Value, err error) {
+func builtinLink(pos Position, args... Value) (res Value) {
+        var err error
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
         if args, err = parseFlags(args, []string{
                 // TODO: ...
@@ -2366,7 +2429,8 @@ func builtinLink(pos Position, args... Value) (res Value, err error) {
 foo: foobar
 	symlink -pluv $< $@
 */
-func builtinSymlink(pos Position, args... Value) (res Value, err error) {
+func builtinSymlink(pos Position, args... Value) (res Value) {
+        var err error
         var optForce, optUpdate, optVerbose, optRel, optPath bool
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 diag.errorAt(pos, "%v", err)
@@ -2483,7 +2547,8 @@ ForArgs:
         return
 }
 
-func builtinFileExists(pos Position, args... Value) (res Value, err error) {
+func builtinFileExists(pos Position, args... Value) (res Value) {
+        var err error
         var optKind rune
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 diag.errorAt(pos, "%v", err)
@@ -2558,12 +2623,13 @@ func builtinFileExists(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinFileSource(pos Position, args... Value) (res Value, err error) {
+func builtinFileSource(pos Position, args... Value) (res Value) {
+        var err error
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var proj = current()
         if proj == nil {
-                err = fmt.Errorf("unknown current context")
+                diag.errorAt(pos, "unknown current context")
                 return
         }
 
@@ -2581,7 +2647,8 @@ func builtinFileSource(pos Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinFile(pos Position, args... Value) (res Value, err error) {
+func builtinFile(pos Position, args... Value) (res Value) {
+        var err error
         var optCallerContext bool
         var optReportMissing bool
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
@@ -2633,10 +2700,11 @@ type wildcardOpts struct {
         optVerbose bool
 }
 
-func builtinWildcard(pos Position, args... Value) (res Value, err error) {
+func builtinWildcard(pos Position, args... Value) (res Value) {
+        var err error
         var wo wildcardOpts
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
+                diag.errorAt(pos, "%v", err); return
         } else if args, err = parseFlags(args, []string{
                 "m,include-missing",
                 "v,verbose",
@@ -2649,7 +2717,7 @@ func builtinWildcard(pos Position, args... Value) (res Value, err error) {
 
         var proj = current()
         if proj == nil {
-                err = fmt.Errorf("unknown most derived context")
+                diag.errorAt(pos, "unknown most derived context")
                 return
         }
 
@@ -2660,16 +2728,19 @@ func builtinWildcard(pos Position, args... Value) (res Value, err error) {
                         list = append(list, f)
                 }
                 res = MakeListOrScalar(pos, list)
+        } else {
+                diag.errorAt(pos, "%v", err)
         }
         return
 }
 
-func builtinReadDir(pos Position, args... Value) (res Value, err error) {
+func builtinReadDir(pos Position, args... Value) (res Value) {
         var l []Value
         for _, a := range args {
                 var (
                         fis []os.FileInfo
                         str string
+                        err error
                 )
                 if str, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 if fis, err = ioutil.ReadDir(str); err == nil {
@@ -2682,19 +2753,20 @@ func builtinReadDir(pos Position, args... Value) (res Value, err error) {
                         break //l = append(l, &None{trivial{pos}})
                 }
         }
-        if err == nil {
+        if len(l) > 0 {
                 res = MakeListOrScalar(pos, l)
         }
         return
 }
 
-func builtinReadFile(pos Position, args... Value) (res Value, err error) {
+func builtinReadFile(pos Position, args... Value) (res Value) {
         var l []Value
         for _, a := range args {
                 var (
                         s []byte
                         str string
                         apos = a.Position()
+                        err error
                 )
                 if !apos.IsValid() { apos = pos }
                 if str, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
@@ -2708,15 +2780,16 @@ func builtinReadFile(pos Position, args... Value) (res Value, err error) {
                         break
                 }
         }
-        if err == nil {
+        if len(l) > 0 {
                 res = MakeListOrScalar(pos, l)
         }
         return
 }
 
-func builtinWriteFile(pos Position, args... Value) (res Value, err error) {
+func builtinWriteFile(pos Position, args... Value) (res Value) {
         // $(write-file filename,content)
         // $(write-file -p filename,content)
+        var err error
         var optPath = false
         if args, err = parseFlags(args, []string{
                 "p,path",
@@ -2771,7 +2844,7 @@ ForArgs:
                         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { diag.errorAt(pos, "%v", err); return }
                 }
                 if err = ioutil.WriteFile(name, []byte(data), perm); err != nil {
-                        break
+                        diag.errorAt(pos, "%v", err); break
                 }
         }
         return
@@ -2803,9 +2876,10 @@ func touch(file Value, optMode uint32, optPath bool, ts ...time.Time) (err error
         return
 }
 
-func builtinTouchFile(pos Position, args... Value) (res Value, err error) {
+func builtinTouchFile(pos Position, args... Value) (res Value) {
         // $(touch-file filename)
         // $(touch-file -p filename)
+        var err error
         var optPath = false
         var optMode = os.FileMode(0600)
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
@@ -2820,19 +2894,20 @@ func builtinTouchFile(pos Position, args... Value) (res Value, err error) {
         }); err != nil { diag.errorAt(pos, "%v", err); return }
         for i := 0; i < len(args); i += 1 {
                 err = touch(args[i], uint32(optMode), optPath)
-                if err != nil { break }
+                if err != nil { diag.errorAt(pos, "%v", err); break }
         }
         return
 }
 
 // $(grep 'status=1',$@)
 // $(grep -1 'status=1',$@)
-func builtinGrep(pos Position, args... Value) (res Value, err error) {
+func builtinGrep(pos Position, args... Value) (res Value) {
         if len(args) != 2 {
                 diag.errorAt(pos, "wants exactly 2 args, e.g. $(grep -1 '^example$',$(file))")
                 return
         }
 
+        var err error
         var vals, list []Value
         var linesPos, linesNeg []int
         var rxs []*regexp.Regexp
@@ -2953,8 +3028,7 @@ func (project *Project) configExpand(pos Position, s string) (result string, err
                 if def, err = project.config(name); err != nil { diag.errorAt(pos, "%v", err); return }
                 if false && strings.Contains(name, "LLDB_") { fmt.Fprintf(stderr, "%s: %s: %s: %v\n", project, pos, name, def) }
                 if def != nil {
-                        var val Value
-                        if val, err = def.Call(pos); err != nil { diag.errorAt(pos, "%v", err); return }
+                        var val = def.Call(pos)
                         if false { fmt.Fprintf(stderr, "%s: %s: %s = %v -> %v (%v)\n", project, pos, name, def.value, val, typeof(val)) }
                         if isNil(val) || isNone(val) { continue }
                         switch t := val.(type) {
@@ -3039,7 +3113,7 @@ func configure(pos Position, out *bytes.Buffer, project *Project, str string) (e
         return
 }
 
-func builtinReturn(pos Position, args... Value) (res Value, err error) {
+func builtinReturn(pos Position, args... Value) Value {
         //if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
-        return nil, &Returner{ args }
+        return &returner{ trivial{pos}, args }
 }

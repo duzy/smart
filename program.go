@@ -299,8 +299,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                         file.updated = true
                 }
 
-                result, err = t.def.buffer.Call(prog.position)
-                if err != nil { diag.errorAt(prog.position, "%v", err) } else
+                result = t.def.buffer.Call(prog.position)
                 if !(isNil(target) || isNone(target)) && t.caller != nil {
                         //if s, _ := target.Strval(); strings.Contains(s, "isl_srcdir.") { t.tracef("%v (%v) (%v)", s, t.target0, t.targets) }
                         t.caller.addNewTarget(target)
