@@ -576,8 +576,8 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (breakers
         }
 
         if !okay && err == nil {
-                diag.errorAt(file.position, "%v: not found %v", t.project, file)
                 if file != nil {
+                        diag.errorAt(file.position, "%v: file not found %v", t.project, file)
                         if false { fmt.Fprintf(stderr, "%s: %s: %v (not found, sub=%s, dir=%s, cwd=%s) (traversal.target)\n", t.project, file.position, file.name, file.sub, file.dir, t.project.changedWD) }
                         breakers = append(breakers, &breaker{
                                 pos: file.position, what: breakErro,
@@ -585,8 +585,9 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (breakers
                         })
                         if optionTraceTraversal { t.tracef("%v: `target(%s)` file not found", t.project, file) }
                 } else {
+                        diag.errorAt(pos, "%v: target not found %v", t.project, file)
                         breakers = append(breakers, &breaker{
-                                pos: file.position, what: breakErro,
+                                pos: pos, what: breakErro,
                                 error: targetNotFoundError{t.project, target},
                         })
                         if optionTraceTraversal { t.tracef("%v: `target(%s)` not found", t.project, target) }
