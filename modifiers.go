@@ -2493,9 +2493,9 @@ func modifierOnce(pos Position, t *traversal, args... Value) (result Value, err 
         var sum HashBytes
         copy(sum[:], h.Sum(nil))
 
-  onceMutex.Lock()
-  onceCache[sum] += 1
-  onceMutex.Unlock()
+        onceMutex.Lock()
+        onceCache[sum] += 1
+        onceMutex.Unlock()
 
         var num = onceCache[sum]
 

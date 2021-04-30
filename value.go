@@ -254,23 +254,16 @@ func (t *traversal) depth() (res int) {
 }
 
 func (t *traversal) calleeStart() {
-  t.group.Add(1)
+        t.group.Add(1)
 }
 
 func (t *traversal) calleeDone(err error) {
-  if err != nil { t.calleeError(err) }
-  t.group.Done()
-}
-
-func (t *traversal) calleeError(err error) {
-  t.calleeErrsM.Lock(); defer t.calleeErrsM.Unlock()
-  t.calleeErrs = append(t.calleeErrs, err)
-}
-
-func (t *traversal) calleeErrors() (errs []error) {
-  t.calleeErrsM.Lock(); defer t.calleeErrsM.Unlock()
-  errs = t.calleeErrs
-  return
+        if err != nil {
+                t.calleeErrsM.Lock()
+                t.calleeErrs = append(t.calleeErrs, err)
+                t.calleeErrsM.Unlock()
+        }
+        t.group.Done()
 }
 
 func (t *traversal) dispatch(i interface{}) (breakers []*breaker) {
@@ -733,10 +726,13 @@ func (t *traversal) isRecipesDirty() (dirty bool, err error) {
 
 func (t *traversal) wait(pos Position) {
         if optionEnableBenchmarks && false { defer bench(mark("traversal.wait")) }
+        var errs []error
         t.group.Wait()
-        if errs := t.calleeErrors(); len(errs) > 0 {
-                diag.errorAt(pos, "%d callee errors: %v…", len(errs), errs[0])
-        }
+        t.calleeErrsM.Lock()
+        errs = t.calleeErrs
+        t.calleeErrs = nil
+        t.calleeErrsM.Unlock()
+        for _, err := range errs { diag.errorAt(pos, "%v: %v", t.def.target.value, err) }
         return
 }
 
