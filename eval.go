@@ -6,6 +6,10 @@
 
 package smart
 
+import (
+       "fmt"
+)
+
 // evaluer evaluates smart statements
 type evaluer struct { accumulation bool }
 
@@ -37,12 +41,19 @@ ForRecipes:
                                 v, err = tv.Call(t.program.position, stmt.Slice(1)...)
 
                         case Executer:
-                                var a []Value
-                                if a, err = tv.Execute(t.program.Position(), stmt.Slice(1)...); err == nil {
+                                var ( a []Value; brks []*breaker )
+                                if a, brks = tv.Execute(t.program.Position(), stmt.Slice(1)...); len(brks) == 0 {
                                         if n := len(a); n == 1 {
                                                 v = a[0]
                                         } else if n > 1 {
                                                 v = &List{elements{a}}
+                                        }
+                                } else {
+                                        for _, brk := range brks {
+                                                var s string
+                                                if brk.message != "" { s = brk.message }
+                                                if brk.error != nil { s += fmt.Sprintf(" (error: %s)", brk.error) }
+                                                diag.errorAt(brk.pos, "%s: %s", brk.what, s)
                                         }
                                 }
 

@@ -824,11 +824,11 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Va
                 }
                 if exe, _ := resolved.(Executer); exe != nil {
                         if obj = exe.(Object); obj == nil {
-                                l.error(x.Name.Pos(), "non-object executer `%s` resolved `%T`", name, resolved)
+                                l.error(x.Name.Pos(), "resolved Executer `%s` of `%T` is not Object", name, resolved)
                                 return
                         }
                 } else {
-                        l.error(x.Name.Pos(), "unexecutable `%s` resolved `%T`", name, resolved)
+                        l.error(x.Name.Pos(), "resolved `%s` of `%T` is not Executer", name, resolved)
                         return
                 }
         case token.STRING, token.COMPOUND:

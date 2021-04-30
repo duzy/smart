@@ -731,11 +731,11 @@ func (t *traversal) isRecipesDirty() (dirty bool, err error) {
         return
 }
 
-func (t *traversal) wait(pos Position) (err error) {
+func (t *traversal) wait(pos Position) {
         if optionEnableBenchmarks && false { defer bench(mark("traversal.wait")) }
         t.group.Wait()
-        if e := t.calleeErrors(); len(e) > 0 {
-                diag.infoAt(pos, "%v", e)
+        if errs := t.calleeErrors(); len(errs) > 0 {
+                diag.errorAt(pos, "%d callee errors: %v…", len(errs), errs[0])
         }
         return
 }
@@ -3310,10 +3310,17 @@ func (p *delegate) reveal() (res Value, err error) {
                         if false { debug.PrintStack() }
                 }
         case Executer:
-                if args, err = x.Execute(p.position, args...); err != nil {
+                var brks []*breaker
+                if args, brks = x.Execute(p.position, args...); len(brks) > 0 {
                         if o, ok := x.(Object); ok && o.Name() != "error" {
                                 diag.errorAt(p.position, "%v", err)
                         } else {
+                                for _, brk := range brks {
+                                        var s string
+                                        if brk.message != "" { s = brk.message }
+                                        if brk.error != nil { s += fmt.Sprintf(" (error: %s)", brk.error) }
+                                        diag.errorAt(brk.pos, "%s: %s", brk.what, s)
+                                }
                                 return
                         }
                 } else { res = &List{elements{args}} }
@@ -4115,7 +4122,7 @@ type Caller interface {
 }
 
 type Executer interface {
-        Execute(pos Position, a... Value) (result []Value, err error)
+        Execute(pos Position, a... Value) (result []Value, breakers []*breaker)
 }
 
 type Positioner interface {

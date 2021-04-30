@@ -7,7 +7,7 @@
 package smart
 
 import (
-        "runtime/debug" // debug.PrintStack()
+        //"runtime/debug" // debug.PrintStack()
         "strconv"
         //"strings"
         "sync"
@@ -63,8 +63,7 @@ func (prog *Program) interpret(pos Position, t *traversal, i interpreter, params
                 if e.what != breakCase { return }
         }
 
-        if err = t.wait(prog.position); err != nil { return } else
-        if false { debug.PrintStack() }
+        t.wait(prog.position) // wait for prerequisites
 
         var value Value
         if value, err = i.Evaluate(pos, t, params...); err == nil {
@@ -215,6 +214,15 @@ const maxRecursion  = 16 //32 //64
 func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) (result Value, brks []*breaker) {
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.execute(%s)", entry.target))) }
         if optionEnableBenchspots { defer bench(spot("Program.execute")) }
+        defer func() {
+                if diag.checkErrors(true) > 0 {
+                        brks = append(brks, &breaker{
+                                pos: prog.position, what:breakErro,
+                                error: fmt.Errorf("%v: too many errors", entry),
+                        })
+                        if false { panic(fmt.Errorf("%v: too many errors", entry)) }
+                }
+        } ()
 
         var recursion int
         var pos = prog.position
@@ -405,7 +413,7 @@ func (t *traversal) traverseNormalPrerequisites(pos Position) (breakers []*break
                 diag.errorAt(pos, "prerequisites: %v", err)
         }
         if breakers = t.dispatch(depends); len(breakers) > 0 {  }
-        if err = t.wait(pos); err != nil { diag.errorAt(pos, "%v", err) }
+        t.wait(pos) // wait for prerequisites
         return
 }
 
@@ -424,7 +432,7 @@ func (t *traversal) traverseOrderOnlyPrerequisites(pos Position) (breakers []*br
                 diag.errorAt(pos, "%v", err)
         }
         if breakers = t.dispatch(ordered); len(breakers) > 0 {  }
-        if err = t.wait(pos); err != nil { diag.errorAt(pos, "%v", err) }
+        t.wait(pos) // wait for prerequisites
         return
 }
 
@@ -443,6 +451,6 @@ func (t *traversal) traverseGreppedFiles(pos Position) (breakers []*breaker) {
                 diag.errorAt(pos, "%v", err)
         }
         if breakers = t.dispatch(grepped); len(breakers) > 0 {  }
-        if err = t.wait(pos); err != nil { diag.errorAt(pos, "%v", err) }
+        t.wait(pos) // wait for prerequisites
         return
 }

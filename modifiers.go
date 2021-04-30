@@ -42,6 +42,7 @@ func (k breakind) String() (s string) {
         case breakNext:         s = "break.next"
         case breakCase:         s = "break.case"
         case breakFail:         s = "break.fail"
+        case breakErro:         s = "break.error"
         }
         return
 }
@@ -1974,7 +1975,7 @@ func modifierWait(pos Position, t *traversal, args... Value) (result Value, err 
                 optStatus bool
                 optExecRes bool
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
         if args, err = parseFlags(args, []string{
                 "o,stdout",
                 "e,stderr",
@@ -1983,19 +1984,19 @@ func modifierWait(pos Position, t *traversal, args... Value) (result Value, err 
                 "v,verbose",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'o': if optStdout , err = trueVal(v, true); err != nil { return }
-                case 'e': if optStderr , err = trueVal(v, true); err != nil { return }
-                case 's': if optStatus , err = trueVal(v, true); err != nil { return }
-                case 'x': if optExecRes, err = trueVal(v, true); err != nil { return }
-                case 'v': if optVerbose, err = trueVal(v, true); err != nil { return }
+                case 'o': if optStdout , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
+                case 'e': if optStderr , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
+                case 's': if optStatus , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
+                case 'x': if optExecRes, err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
+                case 'v': if optVerbose, err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
                 }
-        }); err != nil { return }
+        }); err != nil { diag.errorAt(pos, "%v", err); return }
 
         if optVerbose {
                 fmt.Fprintf(stderr, "smart: Wait (%v) …\n", t.def.target.value)
         }
 
-        err = t.wait(pos)
+        t.wait(pos) // wait for prerequisites
 
         if optVerbose {
                 var s = "Done"
@@ -2188,8 +2189,7 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                 }
         }); err != nil { diag.errorAt(pos, "%v", err); return }
 
-        // Wait for prerequisites
-        if err = t.wait(pos); err != nil { diag.errorAt(pos, "%v", err); return }
+        t.wait(pos) // Wait for prerequisites
 
         var reason string
         var dirty bool
