@@ -2189,6 +2189,7 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
 
 func parseUsingNameProps(nameprops string) (name string, parts []string, optUnique, optReverse bool) {
 	parts = strings.Split(nameprops, ".")
+	name = parts[0]
 	for _, s := range parts[1:] {
 		switch s {
 		case "unique", "uniq", "uni": optUnique = true

@@ -4322,7 +4322,7 @@ func MakeFloat(pos Position, f float64) *Float { return &Float{trivial{pos},f} }
 func MakeDate(pos Position, s time.Time) *Date { return &Date{DateTime{trivial{pos},s}} }
 func MakeTime(pos Position, t time.Time) *Time { return &Time{DateTime{trivial{pos},t}} }
 func MakeString(pos Position, s string) *String { return &String{trivial{pos},s} }
-func MakeFlag(pos Position, s string) *Flag { return &Flag{trivial{pos}, &String{trivial{pos},s}} }
+func MakeFlag(pos Position, s string) *Flag { return &Flag{trivial{pos}, &Bareword{trivial{pos},s}} }
 func MakeURL(pos Position, s *url.URL) *URL {
         var host, port string
         v := strings.Split(s.Host, ":")
