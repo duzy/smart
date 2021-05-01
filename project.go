@@ -287,10 +287,7 @@ type Project struct {
   breakUseLoop bool // don't recursively use this project
 }
 
-func (p *Project) String() string {
-  //return fmt.Sprintf("<project %s>", p.name)
-  return p.name
-}
+func (p *Project) String() string { return p.name }
 
 func (p *Project) NewScope(pos Position, comment string) *Scope {
   return NewScope(pos, p.scope, p, comment)
@@ -311,9 +308,7 @@ func (p *Project) mapfile(pat Value, paths []Value) {
   p._filemap_ = append(p._filemap_, &FileMap{ pat, paths })
 }
 func (p *Project) getFilemap() (filemap []*FileMap) {
-  if true {
-    return p._filemap_
-  }
+  if true { return p._filemap_ }
 
   var _filemap_ []*FileMap
   if len(_filemap_) == 0 && len(p._files_) > 0 {
@@ -359,22 +354,37 @@ func (p *Project) getFilemap() (filemap []*FileMap) {
 func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.filemaps")) }
 
-  var appendUnique = func(a *FileMap) {
+  var uniqueAppend = func(a *FileMap) {
+    var numDuplicated int
     for _, m := range filemaps {
-      if a == m { return }
+      if a == m || (a.pattern == m.pattern && &a.Paths == &m.Paths) { return } else
+      if a.pattern == m.pattern && len(a.Paths) == len(m.Paths) {
+        var same = true // initially assumes all paths are identical
+        for i, ap := range a.Paths {
+          if ap != m.Paths[i] { same = false; break }
+        }
+        if same { return } else {
+          diag.warnOf(a.pattern,  "files might be duplicated: %v (paths=%v),", a, a.Paths)
+          diag.warnOf(m.pattern,  "                     with: %v (paths=%v)", m, m.Paths)
+          diag.warnOf(a.Paths[0], "          differred paths: %v", a.Paths[0])
+          diag.warnOf(m.Paths[0], "                      and: %v", m.Paths[0])
+          numDuplicated += 1
+        }
+      }
+    }
+    if numDuplicated > 0 {
+      diag.errorOf(a.pattern, "duplicated files: %v", a.pattern)
     }
     filemaps = append(filemaps, a)
   }
-  for _, m := range p.getFilemap() {
-    appendUnique(m)
-  }
+  for _, m := range p.getFilemap() { uniqueAppend(m) }
   if using {
     if true {
       // takes a big longer time to map usee filemaps, but acceptable
       var appendUsingList func(*Project)
       appendUsingList = func(p *Project) {
         for _, m := range p.getFilemap() {
-          appendUnique(m)
+          uniqueAppend(m)
         }
         for _, u := range p.using.list {
           appendUsingList(u.project)
@@ -386,11 +396,11 @@ func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
         if false {
           // low performance doing recursivly file mapping
           for _, m := range u.project.filemaps(/*using*/false) {
-            appendUnique(m) //app(u.project.filemaps(loads))
+            uniqueAppend(m) //app(u.project.filemaps(loads))
           }
         } else {
           for _, m := range u.project.getFilemap() {
-            appendUnique(m)
+            uniqueAppend(m)
           }
         }
       }
@@ -401,9 +411,7 @@ func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
                 }
   } */
   for _, base := range p.bases {
-    for _, m := range base.filemaps(using) {
-      appendUnique(m)
-    }
+    for _, m := range base.filemaps(using) { uniqueAppend(m) }
   }
   return
 }
@@ -413,7 +421,7 @@ func (p *Project) wildcard(pos Position, wo wildcardOpts, patterns ...Value) (fi
 ForPats:
   for _, pat := range patterns {
     var ( patStr string; matched, breakAbsRel bool )
-    if patStr, err = pat.Strval(); err != nil { break ForPats }
+    if patStr, err = pat.Strval(); err != nil { diag.errorAt(pos, "wildcard: %v", err); break ForPats }
     // The 'patStr' could be GlobPattern or just regular file/path names. PercPattern is not supported yet.
   ForFilemaps:
     for _, fm := range filemaps {

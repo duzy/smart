@@ -2701,8 +2701,7 @@ type wildcardOpts struct {
 }
 
 func builtinWildcard(pos Position, args... Value) (res Value) {
-        var err error
-        var wo wildcardOpts
+        var ( wo wildcardOpts; err error )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 diag.errorAt(pos, "%v", err); return
         } else if args, err = parseFlags(args, []string{

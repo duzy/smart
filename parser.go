@@ -2192,11 +2192,21 @@ func (p *parser) applyUseeVars(pos token.Pos, proj *Project, using Value) {
 	if s, e := using.Strval(); e == nil {
 		position := Position(p.file.Position(pos))
 		names := strings.Fields(s)
-		for _, name := range names {
+		for _, nameprops := range names {
 			var (
+				parts = strings.Split(nameprops, ".")
+				name = parts[0]
 				usingVarName = fmt.Sprintf("using.%s", name)
+				optUnique, optReverse bool
 				def *Def; alt Object
 			)
+			for _, s := range parts[1:] {
+				switch s {
+				case "unique", "uniq", "uni": optUnique = true
+				case "reverse", "rever", "rev": optReverse = true
+				case "unirev": optUnique, optReverse = true, true
+				}
+			}
 			def, alt = proj.scope.define(proj, usingVarName, &None{trivial{position}})
 			if def == nil && alt != nil { def, _ = alt.(*Def) }
 			for _, base := range proj.bases {
@@ -2207,6 +2217,14 @@ func (p *parser) applyUseeVars(pos token.Pos, proj *Project, using Value) {
 			if l, e := proj.using.Get(name); e == nil {
 				if false { p.info(pos, "%v: %v; %v: %v; (user: %v)", proj, def, name, l, userProj) }
 				e = def.append(l)
+				if optUnique {
+					if optReverse {
+						var flag = MakeFlag(position, "r")
+						def.value = builtinUnique(position, flag, def.value)
+					} else {
+						def.value = builtinUnique(position, def.value)
+					}
+				}
 			} else {
 				p.error(pos, "%v: %v (usng.%s)", proj, e, name)
 			}
