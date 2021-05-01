@@ -2187,6 +2187,19 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
         return &ast.BadClause{From: pos, To: p.pos}
 }
 
+func parseUsingNameProps(nameprops string) (name string, parts []string, optUnique, optReverse bool) {
+	parts = strings.Split(nameprops, ".")
+	for _, s := range parts[1:] {
+		switch s {
+		case "unique", "uniq", "uni": optUnique = true
+		case "reverse", "rever", "rev": optReverse = true
+		case "unirev": optUnique, optReverse = true, true
+		default: name += "." + s // add anything else back to the name
+		}
+	}
+	return
+}
+
 func (p *parser) applyUseeVars(pos token.Pos, proj *Project, using Value) {
 	var userProj = p.scope.project // aka. p.project
 	if s, e := using.Strval(); e == nil {
@@ -2194,19 +2207,10 @@ func (p *parser) applyUseeVars(pos token.Pos, proj *Project, using Value) {
 		names := strings.Fields(s)
 		for _, nameprops := range names {
 			var (
-				parts = strings.Split(nameprops, ".")
-				name = parts[0]
+				name, _, optUnique, optReverse = parseUsingNameProps(nameprops)
 				usingVarName = fmt.Sprintf("using.%s", name)
-				optUnique, optReverse bool
 				def *Def; alt Object
 			)
-			for _, s := range parts[1:] {
-				switch s {
-				case "unique", "uniq", "uni": optUnique = true
-				case "reverse", "rever", "rev": optReverse = true
-				case "unirev": optUnique, optReverse = true, true
-				}
-			}
 			def, alt = proj.scope.define(proj, usingVarName, &None{trivial{position}})
 			if def == nil && alt != nil { def, _ = alt.(*Def) }
 			for _, base := range proj.bases {
@@ -2218,12 +2222,15 @@ func (p *parser) applyUseeVars(pos token.Pos, proj *Project, using Value) {
 				if false { p.info(pos, "%v: %v; %v: %v; (user: %v)", proj, def, name, l, userProj) }
 				e = def.append(l)
 				if optUnique {
+					var cc = setclosure(cloctx.unshift(proj.scope))
+					defer func() { if cc != nil { setclosure(cc) } } ()
 					if optReverse {
 						var flag = MakeFlag(position, "r")
 						def.value = builtinUnique(position, flag, def.value)
 					} else {
 						def.value = builtinUnique(position, def.value)
 					}
+					cc = nil
 				}
 			} else {
 				p.error(pos, "%v: %v (usng.%s)", proj, e, name)

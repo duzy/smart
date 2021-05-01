@@ -627,8 +627,7 @@ func (l *loader) loadUseSpecName(opts importoptions, spec *ast.UseSpec, specName
                 }
 		var position = Position(l.file.Position(pos))
                 for _, nameprops := range names {
-                        var parts = strings.Split(nameprops, ".")
-                        var name = parts[0]
+                        var name, _, _, _ = parseUsingNameProps(nameprops)
                         var usingVarName = fmt.Sprintf("using.%s", name)
 			var def, alt = l.project.scope.define(l.project, name, &None{trivial{position}})
                         if def != nil && alt == nil { // if it's new Def (first time being defined)

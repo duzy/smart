@@ -920,7 +920,18 @@ func builtinUnique(pos Position, args... Value) (res Value) {
                 }); err != nil { diag.errorOf(args[0], "%v", err); return }
                 args = append(a, args[1:]...)
         }
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
+        if false {
+                args = merge(args...)
+        } else if true {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                        diag.errorAt(pos, "%v", err); return
+                }
+        } else {
+                var x = expandDelegate | expandPath | expandPairVal
+                if args, err = mergeresult(expandall(x, args...)); err != nil {
+                        diag.errorAt(pos, "%v", err); return
+                }
+        }
 
         var list []Value
 ForArgs:

@@ -806,7 +806,7 @@ func (p *Argumented) expand(w expandwhat) (res Value, err error) {
         if v, err = p.value.expand(w); err == nil {
                 if v != p.value {
                         var num int
-                        args, num, err = expandall(w, p.args...)
+                        args, num, err = expandallcount(w, p.args...)
                         if err == nil && (num > 0 || v != p.value) {
                                 res = &Argumented{ v, args }
                         }
@@ -1725,7 +1725,7 @@ func (p *Barecomp) Integer() (res int64, err error) {
 }
 func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
-        if elems, num, err = expandall(w, p.Elems...); err == nil {
+        if elems, num, err = expandallcount(w, p.Elems...); err == nil {
                 if num > 0 {
                         res = &Barecomp{p.trivial,elements{elems}}
                 } else {
@@ -1936,7 +1936,7 @@ func (p *Path) closured() (res bool) { return p.elements.closured() }
 func (p *Path) refdef(origin DefOrigin) bool { return p.refdef(origin) }
 func (p *Path) expand(w expandwhat) (res Value, err error) {
         var (elems []Value; num int)
-        if elems, num, err = expandall(w, p.Elems...); err != nil { return }
+        if elems, num, err = expandallcount(w, p.Elems...); err != nil { return }
         if w&expandPath != 0 {
                 var vals []Value
                 for _, elem := range elems {
@@ -2819,7 +2819,7 @@ const escapedChars = "\"\r\n"
 type Compound struct { trivial ; elements } // "compound string"
 func (p *Compound) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
-        if elems, num, err = expandall(w, p.Elems...); err == nil {
+        if elems, num, err = expandallcount(w, p.Elems...); err == nil {
                 if num > 0 {
                         res = &Compound{p.trivial,elements{elems}}
                 } else {
@@ -2948,7 +2948,7 @@ func (p *List) Strval() (s string, err error) {
 
 func (p *List) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
-        if elems, num, err = expandall(w, p.Elems...); err == nil {
+        if elems, num, err = expandallcount(w, p.Elems...); err == nil {
                 if num > 0 {
                         res = &List{ elements{ elems } }
                 } else {
@@ -3034,7 +3034,7 @@ func (p *Group) stamp(t *traversal) (files []*File, err error) { return }
 func (p *Group) exists() existence { return p.List.exists() }
 func (p *Group) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
-        if elems, num, err = expandall(w, p.Elems...); err == nil {
+        if elems, num, err = expandallcount(w, p.Elems...); err == nil {
                 if num > 0 {
                         res = &Group{p.trivial,List{elements{elems}}}
                 } else {
@@ -3285,7 +3285,7 @@ func (p *delegate) reveal() (res Value, err error) {
         }
 
         var args []Value
-        if args, _, err = expandall(expandClosure, p.a...); err != nil { return }
+        if args, err = expandall(expandClosure, p.a...); err != nil { return }
 
         var v Value
         switch x := o.(type) {
@@ -4182,7 +4182,7 @@ func values(args... interface{}) (elems []Value) {
         return
 }
 
-// Merge combines lists recursively into one list. Previously called Join.
+// Merge lists recursively into a single list. Previously called Join.
 func merge(args... Value) (elems []Value) {
         for _, arg := range args {
                 if l, _ := arg.(*List); l != nil {
@@ -4237,7 +4237,7 @@ func permVal(v Value, i uint32) (res os.FileMode, err error) {
 }
 
 var expanddepth int64 = 0
-func expandall(w expandwhat, values ...Value) (res []Value, num int, err error) {
+func expandallcount(w expandwhat, values ...Value) (res []Value, num int, err error) {
         defer func(i int64) { expanddepth = i } (expanddepth)
         if expanddepth += 1; expanddepth > 128 {
                 err = fmt.Errorf("exceeds maximum expand depth")
@@ -4258,12 +4258,16 @@ func expandall(w expandwhat, values ...Value) (res []Value, num int, err error) 
         return
 }
 
-func ExpandAll(values ...Value) (res []Value, err error) {
-        if res, _, err = expandall(expandAll, values...); err == nil {
-                // second expand to ensure having real value
-                res, _, err = expandall(expandAll, res...)
+func expandall(w expandwhat, values ...Value) (res []Value, err error) {
+        if res, _, err = expandallcount(w, values...); err == nil {
+                // second expand to ensure
+                res, _, err = expandallcount(w, res...)
         }
         return
+}
+
+func ExpandAll(values ...Value) (res []Value, err error) {
+        return expandall(expandAll, values...)
 }
 
 func Refs(a Value, v Value) bool { return a.refs(v) }

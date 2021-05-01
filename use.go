@@ -35,7 +35,7 @@ func (p *using) closured() bool {
         return false
 }
 func (p *using) expand(w expandwhat) (Value, error) {
-        if params, num, err := expandall(w, p.params...); err != nil {
+        if params, num, err := expandallcount(w, p.params...); err != nil {
                 return nil, err
         } else if num > 0 {
                 return &using{p.trivial,p.project,params,p.opts}, nil
