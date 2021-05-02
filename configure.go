@@ -100,15 +100,16 @@ func init_configuration(paths searchlist) (err error) {
         return
 }
 
-func do_configuration() (err error) {
+func do_configuration() {
         var (
                 project *Project
                 file *os.File
                 writer *bufio.Writer
+                err error
         )
         defer func() {
                 if writer != nil { if err := writer.Flush(); err != nil {} }
-                if file != nil { if err := file.Close(); err != nil {} }
+                if file != nil   { if err := file.Close();   err != nil {} }
         } ()
 
         // Remove all existing configuration.sm files

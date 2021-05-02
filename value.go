@@ -422,20 +422,21 @@ func (t *traversal) file(file *File) (breakers []*breaker) {
                 if okay { return }
         }
 
-        if !okay && err == nil {
-                if false { fmt.Fprintf(stderr, "%s: %s: %v (not found) (traversal.file)\n", t.project, file.position, file.name) }
-                diag.errorAt(file.position, "%v: not found %v", t.project, file)
-                breakers = append(breakers, &breaker{
-                        pos: file.position, what: breakErro,
-                        error: fileNotFoundError{t.project, file},
-                })
+        if err != nil {
+                diag.errorAt(file.position, "%v: file(%v): error: %v", t.project, file, err)
+                if false { debug.PrintStack() }
+        } else if !okay {
                 if optionTraceTraversal { t.tracef("%v: file({%s,%s,%s}): not found", t.project, file.dir, file.sub, file.name) }
+                if false { fmt.Fprintf(stderr, "%s: %s: %v (not found) (traversal.file)\n", t.project, file.position, file.name) }
+                diag.errorAt(file.position, "%v: file not found: %v", t.project, file)
+                breakers = append(breakers, &breaker{ pos: file.position, what: breakErro,
+                        error: fileNotFoundError{t.project, file}})
         }
         return
 }
 
 func (t *traversal) target(pos Position, target string, vals ...Value) (breakers []*breaker) {
-        if optionTraceTraversal { t.tracef("traversal.target: %s", target) }
+        if optionTraceTraversal   { t.tracef("traversal.target: %s", target) }
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.target(%v)", target))) }
         if optionEnableBenchspots { defer bench(spot("traversal.target")) }
 
@@ -568,25 +569,22 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (breakers
                 }
         }
 
-        if !okay && err == nil {
+        if err != nil {
+                diag.errorAt(pos, "%v: target(%v), file=%v: error: %v", t.project, target, file, err)
+                if false { debug.PrintStack() }
+        } else if !okay {
+                if optionTraceTraversal { t.tracef("%v: `target(%s)` not found (file=%v)", t.project, target, file) }
                 if file != nil {
-                        diag.errorAt(file.position, "%v: file not found %v", t.project, file)
+                        diag.errorAt(file.position, "%v: file not found: %v", t.project, file)
                         if false { fmt.Fprintf(stderr, "%s: %s: %v (not found, sub=%s, dir=%s, cwd=%s) (traversal.target)\n", t.project, file.position, file.name, file.sub, file.dir, t.project.changedWD) }
-                        breakers = append(breakers, &breaker{
-                                pos: file.position, what: breakErro,
-                                error: fileNotFoundError{t.project, file},
-                        })
-                        if optionTraceTraversal { t.tracef("%v: `target(%s)` file not found", t.project, file) }
+                        breakers = append(breakers, &breaker{ pos: file.position, what: breakErro,
+                                error: fileNotFoundError{t.project, file}})
                 } else {
-                        diag.errorAt(pos, "%v: target not found %v", t.project, file)
-                        breakers = append(breakers, &breaker{
-                                pos: pos, what: breakErro,
-                                error: targetNotFoundError{t.project, target},
-                        })
-                        if optionTraceTraversal { t.tracef("%v: `target(%s)` not found", t.project, target) }
+                        diag.errorAt(pos, "%v: target not found: %v (closure: %v)", t.project, target, projects)
+                        breakers = append(breakers, &breaker{ pos: pos, what: breakErro,
+                                error: targetNotFoundError{t.project, target}})
                 }
         }
-        if false && err != nil { debug.PrintStack() }
         return
 }
 

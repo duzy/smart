@@ -465,16 +465,16 @@ func modifierClosure(pos Position, t *traversal, args... Value) (result Value, e
                 optVerbose bool
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
+                diag.errorAt(pos, "merge: %v", err); return
         } else if args, err = parseFlags(args, []string{
                 "d,dump",
                 "v,verbose",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'd': if optDump    , err = trueVal(v, false); err != nil { return }
-                case 'v': if optVerbose , err = trueVal(v, false); err != nil { return }
+                case 'd': if optDump    , err = trueVal(v, false); err != nil { diag.errorOf(v, "d: %v", err); return }
+                case 'v': if optVerbose , err = trueVal(v, false); err != nil { diag.errorOf(v, "v: %v", err); return }
                 }
-        }); err != nil { return }
+        }); err != nil { diag.errorAt(pos, "flags: %v", err); return }
 
         if optDump {
                 fmt.Fprintf(stderr, "%s: closure:\n", pos)

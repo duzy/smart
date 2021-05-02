@@ -96,6 +96,16 @@ func (diag *Diagnostic) warnAt(pos Position, f string, args... interface{}) {
 func (diag *Diagnostic) errorAt(pos Position, f string, args... interface{}) {
   diag.points = append(diag.points, &diagnostic{ diagError, pos, nil, fmt.Sprintf(f, args...) })
 }
+func (diag *Diagnostic) info(f string, args... interface{}) {
+  diag.points = append(diag.points, &diagnostic{ diagInfo, Position{}, nil, fmt.Sprintf(f, args...) })
+}
+func (diag *Diagnostic) warn(f string, args... interface{}) {
+  diag.points = append(diag.points, &diagnostic{ diagWarn, Position{}, nil, fmt.Sprintf(f, args...) })
+}
+func (diag *Diagnostic) error(f string, args... interface{}) {
+  diag.points = append(diag.points, &diagnostic{ diagError, Position{}, nil, fmt.Sprintf(f, args...) })
+}
+
 
 func (diag *Diagnostic) checkErrors(reset bool) (num int) {
   for _, d := range diag.points {

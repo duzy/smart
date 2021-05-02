@@ -1451,7 +1451,7 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, generic *genericoptions, 
         for _, prop := range spec.Props {
                 switch v := p.expr(prop).(type) {
                 case *Pair:
-                        var pats, paths []Value
+                        var pats, patsNew []Value
                         switch k := v.Key.(type) {
                         case *Group: pats = k.Elems
                         default: pats = append(pats, v.Key)
@@ -1459,23 +1459,24 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, generic *genericoptions, 
 			for _, pat := range pats {
 				if pat.closured() {
 					if false { p.info(prop.Pos(), "%v", pat) }
-					pats = append(pats, pat)
+					patsNew = append(patsNew, pat)
 				} else {
 					if v, err := mergeresult(ExpandAll(pat)); err != nil {
 						p.error(prop.Pos(), "%v", err)
 					} else {
-						pats = append(pats, v...)
+						patsNew = append(patsNew, v...)
 					}
 				}
 			}
+                        var paths []Value
 			switch vv := v.Value.(type) {
 			case *Group: paths = vv.Elems
 			default: paths = append(paths, vv)
                         }
-                        for _, k := range pats { p.project.mapfile(k, paths) }
+                        for _, k := range patsNew { p.project.mapfile(k, paths) }
                 case Value:
-                        var pats, paths []Value
-                        paths = []Value{&String{trivial{v.Position()},p.project.absPath}}
+                        var pats []Value
+                        var paths = []Value{ MakeString(v.Position(), p.project.absPath) }
                         switch g := v.(type) {
                         default: pats = append(pats, v)
                         case *Group: pats = g.Elems
@@ -1484,11 +1485,6 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, generic *genericoptions, 
                 default:
                         p.error(prop.Pos(), "bad file spec (%T)", prop)
                 }
-		/*if v := p.expr(prop); !(isNil(v) || isNone(v)) {
-			p.project.files = append(p.project.files, v)
-		} else {
-                        p.error(prop.Pos(), "bad file spec (%T)", prop)
-		}*/
         }
         return spec
 }
@@ -2220,8 +2216,9 @@ func (p *parser) applyUseeVars(pos token.Pos, proj *Project, using Value) {
 				}
 			}
 			if l, e := proj.using.Get(name); e == nil {
-				if false { p.info(pos, "%v: %v; %v: %v; (user: %v)", proj, def, name, l, userProj) }
-				e = def.append(l)
+				if e = def.append(l); e != nil {
+					diag.errorAt(position, "append using value: %v (user=%v)", e, userProj)
+				}
 				if optUnique {
 					var cc = setclosure(cloctx.unshift(proj.scope))
 					defer func() { if cc != nil { setclosure(cc) } } ()

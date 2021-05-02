@@ -372,9 +372,7 @@ func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
         }
       }
     }
-    if numDuplicated > 0 {
-      diag.errorOf(a.pattern, "duplicated files: %v", a.pattern)
-    }
+    if numDuplicated > 0 { diag.errorOf(a.pattern, "duplicated files: %v", a.pattern) }
     filemaps = append(filemaps, a)
   }
   for _, m := range p.getFilemap() { uniqueAppend(m) }
@@ -405,11 +403,7 @@ func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
         }
       }
     }
-  } /* else {
-                for _, proj := range p.loads {
-                        app(proj.filemaps(loads))
-                }
-  } */
+  }
   for _, base := range p.bases {
     for _, m := range base.filemaps(using) { uniqueAppend(m) }
   }
