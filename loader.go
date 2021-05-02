@@ -76,7 +76,10 @@ const (
         parsingDir
 )
 
-const dotContainer = ".container"
+const (
+        dotContainer = ".container"
+        dotConfigure = ".configure"
+)
 
 var parseMode = DeclarationErrors //|Trace
 
@@ -1775,6 +1778,21 @@ func (l *loader) loadDotContainer(ident *ast.Bareword, file *File) (err error) {
         return
 }
 
+func (l *loader) loadDotConfigure(ident *ast.Bareword, file *File) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadDotConfigure")) }
+        if err = l.loadDir(dotConfigure, file.fullname(), nil); err != nil {
+                l.error(ident.Pos(), "%s: errors occured while loading: %v", file.fullname(), dotConfigure)
+        } else if loaded, yes := l.loaded[file.fullname()]; yes && loaded != nil {
+                name, _ := l.project.scope.Lookup(loaded.Name()).(*ProjectName)
+                if name == nil {
+                        l.error(ident.Pos(), "%v: %v: `.configure` is not a project", l.project.name, file)
+                } else {
+                        if optionVerboseLoading { fmt.Fprintf(stderr, "smart: %v (%v)\n", name, file.fullname()) }
+                }
+        }
+        return
+}
+
 func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, params []Value) (err error) {
         var optFinal, optNoDock bool
         var bases []Value
@@ -1952,9 +1970,13 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 return
         }
 
-        // Looking for project specific dotContainer module
-        file := stat(pos, dotContainer, "", l.project.absPath)
-        if exists(file) { err = l.loadDotContainer(ident, file); return }
+        // Looking for project specific .container module
+        if file := stat(pos, dotContainer, "", l.project.absPath); exists(file) {
+                if err = l.loadDotContainer(ident, file); err != nil {
+                        diag.errorAt(pos, ".container loading failed: %s/.container", l.project.absPath)
+                }
+                return
+        }
 
         // Looking for .smart/.container
         walkSmartBaseDirs(l.project.absPath, func(s string) bool {
@@ -1962,10 +1984,19 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 if !exists(file) {
                         // no docking enabled
                 } else if err = l.loadDotContainer(ident, file); err != nil {
-                        // FIXME: error...
+                        diag.errorAt(pos, "%v", err)
                 }
                 return false
         })
+
+        // Looking for project specific .configure module
+        if file := stat(pos, dotConfigure, "", l.project.absPath); exists(file) {
+                if ident.Value == dotConfigure {
+                        diag.errorAt(pos, "provided .configure for a .configure project")
+                } else if err = l.loadDotConfigure(ident, file); err != nil {
+                        diag.errorAt(pos, ".container loading failed: %s/.configure", l.project.absPath)
+                }
+        }
         return
 }
 
