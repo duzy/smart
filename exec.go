@@ -31,9 +31,7 @@ const (
 )
 
 type exitstatus struct { code int }
-func (e *exitstatus) Error() string {
-  return fmt.Sprintf(exitstatusFmt, e.code)
-}
+func (e *exitstatus) Error() string { return fmt.Sprintf(exitstatusFmt, e.code) }
 
 const (
   rxNotTTYDevice_i int = iota
@@ -244,10 +242,7 @@ type ExecBuffer struct {
   report bool
 }
 
-func (p *ExecBuffer) filter(s string) {
-  p.filters = append(p.filters, s)
-}
-
+func (p *ExecBuffer) filter(s string) { p.filters = append(p.filters, s) }
 func (p *ExecBuffer) Write(b []byte) (n int, err error) {
   for _, s := range p.filters {
     if bytes.Equal(b, []byte(s)) { // string(b) == s
@@ -278,6 +273,7 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
   p.wrote += uint64(n)
 
   if !p.scanerr { return }
+
   var l int
   if p.log != nil { l = p.log.lines }
   for slice := b[:]; len(slice) > 0; {
@@ -322,7 +318,7 @@ func (p *ExecBuffer) startDockerDaemon(pos Position, t *traversal, container *Pr
   var c = exec.Command("dockerd")
   //c.Stdout, c.Stderr = stdout, stderr
   if err = c.Run(); err != nil {
-    diag.errorAt(pos, "dokcer daemon not running (at %s)", sock)
+    if p.report { diag.errorAt(pos, "dokcer daemon not running (at %s)", sock) }
   } else {
     // TODO: start docker daemon
   }
@@ -333,7 +329,7 @@ func (p *ExecBuffer) runContainerAndRetry(pos Position, t *traversal, container 
   if container != nil && num <= maxRetries {
     fmt.Fprintf(sh.Stderr, "\n---- Run the container: %s\n", name)
     if brks := x.runContainer(t, container); len(brks) > 0 {
-      diag.errorAt(pos, "container not running: %v", name)
+      if p.report { diag.errorAt(pos, "container not running: %v", name) }
       return
     }
 
@@ -363,7 +359,7 @@ func (p *ExecBuffer) runContainerAndRetry(pos Position, t *traversal, container 
 
 func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Project, sh *exec.Cmd, x *executor, num int, m *knownMatch) (status int, err error) {
   if p == nil {
-    fmt.Fprintf(stderr, "%s: nil exec buffer\n", pos)
+    diag.errorAt(pos, "nil exec buffer")
     if optionPrintStack { debug.PrintStack() }
     return
   }
@@ -373,51 +369,51 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
   for _, v := range m.v { // captures
     switch m.i {
     case rxNotTTYDevice_i:
-      diag.errorAt(lpos, "Needs TTY (input device)")
+      if p.report { diag.errorAt(lpos, "Needs TTY (input device)") }
     case rxDockerDaemonNotRunning_i:
       err = p.startDockerDaemon(lpos, t, container, string(v[1]))
       if err != nil { diag.errorAt(pos, "%v", err) }
     case rxNoContainer_i:
       if name := string(v[1]); p.skips(name) {
-        diag.errorAt(lpos, "container not running: %v", name)
+        if p.report { diag.errorAt(lpos, "container not running: %v", name) }
       } else if status, err = p.runContainerAndRetry(lpos, t, container, name, sh, x, num); err == nil {
         p.retried[name] = true // save it to skip next time
         break // discard the rest errors
       }
     case rxContainerNotRunning_i:
-      diag.errorAt(lpos, "Container not running (%v)", string(v[1]))
+      if p.report { diag.errorAt(lpos, "Container not running (%v)", string(v[1])) }
     case rxNoNetwork_i:
-      diag.errorAt(lpos, "Network not found (%v)", string(v[1]))
+      if p.report { diag.errorAt(lpos, "Network not found (%v)", string(v[1])) }
     case rxCompilation_i:
       var pos Position
-      pos.Filename = string(v[1])
-      pos.Line, _ = strconv.Atoi(string(v[2]))
+      pos.Filename  = string(v[1])
+      pos.Line,   _ = strconv.Atoi(string(v[2]))
       pos.Column, _ = strconv.Atoi(string(v[3]))
-      diag.errorAt(lpos, "%s", string(v[4]))
+      if p.report { diag.errorAt(lpos, "%s", string(v[4])) }
     case rxIncludedFrom_i:
       if p.report { fmt.Fprintf(stderr, "%s:%s:%s: included here\n", v[1], v[2], v[3]) }
     case rxFileNotFound_i:
-      diag.errorAt(lpos, "`%v` file not found, required by `%s` (exec)", v[4], filepath.Base(string(v[1])))
+      if p.report { diag.errorAt(lpos, "`%v` file not found, required by `%s` (exec)", v[4], filepath.Base(string(v[1]))) }
       if p.report { fmt.Fprintf(stderr, "%s:%s:%s: exec: `%s` file not found\n", v[1], v[2], v[3], v[4]) }
     case rxArNoSuchFile_i:
-      diag.errorAt(lpos, "`%v` file not found", filepath.Base(string(v[1])))
+      if p.report { diag.errorAt(lpos, "`%v` file not found", filepath.Base(string(v[1]))) }
       if p.report { fmt.Fprintf(stderr, "exec: (ar): '%s' not found (as '%s')", filepath.Base(string(v[1])), v[1]) }
     case rxBashNoSuchFile_i:
-      diag.errorAt(lpos, "%v: no such command", string(v[1]))
+      if p.report { diag.errorAt(lpos, "%v: no such command", string(v[1])) }
     case rxClangNoSuchFile_i:
-      diag.errorAt(lpos, "clang-%s: no such source file: %s", string(v[1]), string(v[2]))
+      if p.report { diag.errorAt(lpos, "clang-%s: no such source file: %s", string(v[1]), string(v[2])) }
     case rxClangError_i:
-      diag.errorAt(lpos, "clang-%s: %s", string(v[1]), string(v[2]))
+      if p.report { diag.errorAt(lpos, "clang-%s: %s", string(v[1]), string(v[2])) }
     case rxLLDError_i:
-      diag.errorAt(lpos, "%s", string(v[2]))
+      if p.report { diag.errorAt(lpos, "%s", string(v[2])) }
     case rxCouldnotParseObj_i:
-      diag.errorAt(lpos, "%s", string(v[3]))
+      if p.report { diag.errorAt(lpos, "%s", string(v[3])) }
     case rxTooManyPosArgs_i:
-      diag.errorAt(lpos, "%s: too many positional arguments", string(v[1]))
+      if p.report { diag.errorAt(lpos, "%s: too many positional arguments", string(v[1])) }
     case rxUndefinedReference_i:
-      diag.errorAt(lpos, "Undefined reference '%s'", string(v[1]))
+      if p.report { diag.errorAt(lpos, "Undefined reference '%s'", string(v[1])) }
     case rxShcmdNotFound_i:
-      diag.errorAt(lpos, "%s: command not found", string(v[1]))
+      if p.report { diag.errorAt(lpos, "%s: command not found", string(v[1])) }
     case rxLLDWarning_i:
       if p.report {
         fmt.Fprintf(stderr, "%s: warning: %s\n", lpos, string(v[2]))
@@ -441,20 +437,21 @@ func (p *ExecBuffer) processKnownErrors(pos Position, t *traversal, container *P
 func (p *ExecBuffer) runAndProcessKnownErrors(pos Position, t *traversal, dock *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
   defer func(m []knownMatch) { p.matches = m } (p.matches)
   p.matches = nil // clear previous matches
-  if err = sh.Run(); err == nil { return }
+  if err = sh.Run(); err == nil { return } else
   if n, e := fmt.Sscanf(err.Error(), exitstatusFmt, &status); n == 1 && e == nil {
     es := &exitstatus{ status } // convert to exitstatus
     err = es
 
     if p.log != nil && p.log.writer != nil {
       fmt.Fprintf(p.log, "\n%s\n", err)
-
-      var pos Position
-      pos.Filename = p.log.filename
-      pos.Offset = 0 // FIXME: what should be the offset?
-      pos.Line = p.log.lines
-      pos.Column = 0
-      diag.errorAt(pos, "%v", err)
+      if p.report {
+        var pos Position
+        pos.Filename = p.log.filename
+        pos.Offset = 0 // FIXME: what should be the offset?
+        pos.Line = p.log.lines
+        pos.Column = 0
+        diag.errorAt(pos, "%v", err)
+      }
     }
 
     p.retried = nil
@@ -585,7 +582,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     promStr, logFileName string
     cmd = p.cmd
   )
-  if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+  if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
   if args, err = parseFlags(args, []string{
     "c,cmd", // replaces -p, -prompt
     "d,dump", // verbout, verberr
@@ -602,14 +599,14 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   }, func(ru rune, v Value) {
     var s string
     switch ru {
-    case 'i': if optStdin   , err = trueVal(v, true); err != nil { return }
-    case 'o': if optBuffOut , err = trueVal(v, true); err != nil { return }
-    case 'e': if optBuffErr , err = trueVal(v, true); err != nil { return }
-    case 'v': if optVerbout , err = trueVal(v, true); err != nil { return }
-    case 'w': if optVerberr , err = trueVal(v, true); err != nil { return }
-    case 's': if optSilent  , err = trueVal(v, true); err != nil { return }
-    case 'g': if optDebug   , err = trueVal(v, true); err != nil { return }
-    case 'p': if optPath    , err = trueVal(v, true); err != nil { return }
+    case 'i': if optStdin   , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
+    case 'o': if optBuffOut , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
+    case 'e': if optBuffErr , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
+    case 'v': if optVerbout , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
+    case 'w': if optVerberr , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
+    case 's': if optSilent  , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
+    case 'g': if optDebug   , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
+    case 'p': if optPath    , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
       if p, ok := v.(*Pair); ok {
         fmt.Printf("%s: -p=xxx has been replaced with -c (-cmd), -p is no -path", p.Value.Position())
       }
@@ -647,19 +644,18 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     case 'n':
       optNoCD = true
     }
-  }); err != nil { return }
+  }); err != nil { diag.errorAt(pos, "%v", err); return }
 
   var aa []string
   for i, v := range args {
     var s string
     if p.contained && i == 0 {
-      if s, err = v.Strval(); err != nil { return }
+      if s, err = v.Strval(); err != nil { diag.errorOf(v, "%v", err); return }
       if s == "shell" { cmd = defaultShell }
       continue
     }
-    if s, err = v.Strval(); err != nil { return } else {
-      aa = append(aa, s)
-    }
+    if s, err = v.Strval(); err != nil { diag.errorOf(v, "%v", err); return } else
+    if s = strings.TrimSpace(s); s != "" { aa = append(aa, s) }
   }
 
   var container *Project
@@ -689,7 +685,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     }
 
     if container == nil {
-      err = fmt.Errorf("container unavailable (in %s)", t.program.Project().Name())
+      diag.errorAt(pos, "container unavailable (in %s)", t.program.Project().Name())
       return
     }
 
@@ -717,10 +713,10 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     }
 
     var containerName, containerImage string
-    if containerName, err = strval("container"); err != nil { return }
-    if containerName == "" { err = fmt.Errorf(".container.name undefined"); return }
-    if containerImage, err = strval("image"); err != nil { return }
-    if containerImage == "" { err = fmt.Errorf(".container.image undefined"); return }
+    if containerName , err = strval("container"); err != nil { diag.errorAt(pos, "%v", err); return }
+    if containerName  == "" { diag.errorAt(pos, ".container.name undefined") ; return }
+    if containerImage, err = strval("image")    ; err != nil { diag.errorAt(pos, "%v", err); return }
+    if containerImage == "" { diag.errorAt(pos, ".container.image undefined"); return }
     if optionVerbose { fmt.Fprintf(stderr, "%v: container=%v, image=%v\n", container, containerName, containerImage) }
 
     aa = append(aa, "exec", containerName, cmd)
@@ -729,7 +725,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
 
   var cwd string
   if v := t.program.scope.Lookup("CWD").(*Def).Call(t.program.position); v != nil { if cwd, err = v.Strval(); err != nil { return }} else
-  if v := t.program.scope.Lookup("/").(*Def).Call(t.program.position); v != nil { if cwd, err = v.Strval(); err != nil { return }}
+  if v := t.program.scope.Lookup("/"  ).(*Def).Call(t.program.position); v != nil { if cwd, err = v.Strval(); err != nil { return }}
 
   // Fixes work directory conflicts. It happens
   // sometimes even the 'sh.Dir' is set to cwd.
@@ -746,12 +742,12 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
 
   var targetName string
   var target = t.def.target.value
-  if targetName, err = target.Strval(); err != nil { return }
+  if targetName, err = target.Strval(); err != nil { diag.errorOf(target, "%v", err); return }
   if optPath {
     var s string
     if s = filepath.Dir(targetName); s != "" && s != "." && s != "/" {
       err = os.MkdirAll(s, os.FileMode(0755))
-      if err != nil { return }
+      if err != nil { diag.errorOf(target, "%v", err); return }
     }
   }
 
@@ -760,11 +756,12 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     if l, _ := def.value.(*List); l != nil {
       for _, v := range l.Elems {
         if v, err = v.expand(expandClosure); err != nil {
+          diag.errorOf(v, "%v", err);
           return
         } else if p, ok := v.(*Pair); ok {
           envars = append(envars, p)
         } else {
-          err = fmt.Errorf("env expecting pairs (%T)", v)
+          diag.errorOf(v, "env expecting pairs (%T)", v);
           return
         }
       }
@@ -778,10 +775,13 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     positions []Position
     rp Position
   )
-  if recipes, err = mergeresult(ExpandAll(t.program.recipes...)); err != nil { return }
+  if recipes, err = mergeresult(ExpandAll(t.program.recipes...)); err != nil {
+    diag.errorAt(pos, "%v", err)
+    return
+  }
   for _, recipe := range recipes {
     if !rp.IsValid() { rp = recipe.Position() }
-    if str, err = recipe.Strval(); err != nil { return }
+    if str, err = recipe.Strval(); err != nil { diag.errorOf(recipe, "%v", err); return }
     if source += str; strings.HasSuffix(source, "\\") {
       source += "\n" // append the line feed
       continue
@@ -806,8 +806,8 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   var envs []string = os.Environ()
   for i, p := range envars {
     var k, v string
-    if k, err = p.Key.Strval(); err != nil { return }
-    if v, err = p.Value.Strval(); err != nil { return }
+    if k, err = p.Key.Strval()  ; err != nil { diag.errorOf(p.Key  , "%v", err); return }
+    if v, err = p.Value.Strval(); err != nil { diag.errorOf(p.Value, "%v", err); return }
     if i > 0 { envstr += " && " }
     envstr += fmt.Sprintf(`%s=%s`, k, strconv.Quote(v))
     envs = append(envs, fmt.Sprintf("%s=%s", k, v))
@@ -899,9 +899,8 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
         s = strings.Replace(s, "\\\\n", "\\\n", -1)
         fmt.Fprintf(stderr, "%s\n", s)
       }
-      if src = strings.TrimSpace(src); src == "" {
-        continue
-      } else if dir != "" && !optNoCD /*&& t.program.changedWD == ""*/ {
+      if src = strings.TrimSpace(src); src == "" { continue } else
+      if dir != "" && !optNoCD /*&& t.program.changedWD == ""*/ {
         if strings.HasPrefix(src, "#") {
           src = fmt.Sprintf("cd '%s' %s", dir, src)
         } else {
@@ -939,7 +938,8 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
         sh.Stdin = os.Stdin
         sh.Args = append(sh.Args, "-ti")
       }
-      sh.Args = append(sh.Args, p.opt, src)
+      if p.opt != "" { sh.Args = append(sh.Args, p.opt) }
+      if src   != "" { sh.Args = append(sh.Args, src) }
 
       if optDebug { fmt.Fprintf(stderr, "%s: %v\n", pos, sh) }
 

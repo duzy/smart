@@ -6,188 +6,192 @@
 package token
 
 import (
-        "strconv"
+	"strconv"
 )
 
 type Token int
 
 // https://en.wikipedia.org/wiki/Mathematical_operators_and_symbols_in_Unicode
 const (
-        // Special tokens.
+	// Special tokens.
 	ILLEGAL Token = iota
 	EOF
+	SPACE
 	COMMENT  // #
-        
+	HASH     // # (same char as COMMENT, but different meaning)
+
 	literal_beg
 	// Identifiers and basic type literals
 	// (these tokens stand for classes of literals)
-        BAREWORD // abc
-        BIN      // 0b010101, 0B0111001
-        OCT      // 0600, 0567
+	BAREWORD // abc
+	BIN      // 0b010101, 0B0111001
+	OCT      // 0600, 0567
 	INT      // 12345
-        HEX      // 0x1234567890ABCDEF
+	HEX      // 0x1234567890ABCDEF
 	FLOAT    // 123.45
-        DATETIME // 1979-05-27T07:32:00.999999-07:00 (internet date/time format - RFC3339)
-        DATE     // 1979-05-27 (internet date format - RFC3339)
-        TIME     // 07:32:00.999999 (internet time format - RFC3339)
-        URI      // 'mailto:duzy.chan@example.com' (uniform resource identifier - RFC3986)
-        RAW      // raw strings
+	DATETIME // 1979-05-27T07:32:00.999999-07:00 (internet date/time format - RFC3339)
+	DATE     // 1979-05-27 (internet date format - RFC3339)
+	TIME     // 07:32:00.999999 (internet time format - RFC3339)
+	URI      // 'mailto:duzy.chan@example.com' (uniform resource identifier - RFC3986)
+	RAW      // raw strings
 	STRING   // 'abc'
-        ESCAPE   // \", \\n, etc. (see value.EscapeChar)
-        COMPOUND // "abc $(foo) 123"
+	ESCAPE   // \", \\n, etc. (see value.EscapeChar)
+	COMPOUND // "abc $(foo) 123"
 	literal_end
 
-        COMPOSED // the ending quote of a compound literal
-        RECIPE   // tab to indicate a command recipe
-        LINEND   // significant line break (LF or CRLF)
+	COMPOSED // the ending quote of a compound literal
+	RECIPE   // tab to indicate a command recipe
+	LINEND   // significant line break (LF or CRLF)
 
 	operator_beg
 	LPAREN    // (
 	LBRACK    // [
 	LBRACE    // {    left curly
-        LCOLON    // :
+	LCOLON    // :
 	COMMA     // ,
 	DOT       // .    period
-        DOTDOT    // ..
+	DOTDOT    // ..
 	TILDE     // ~
-        SELECT_PROP // -> 'foo→xxx' (different from ' → ')
-        SELECT_PROG1 // => 'foo⇒xxx' ('foo↦xxx' 'foo↣xxx' 'foo⇥xxx')
-        SELECT_PROG2 // ~> 'foo⇢xxx' ('foo↦xxx' 'foo↣xxx' 'foo⇥xxx')
-        // ⤌ ⤍	⤎ ⤏	⤐	⤑
+	SELECT_PROP // -> 'foo→xxx' (different from ' → ')
+	SELECT_PROG1 // => 'foo⇒xxx' ('foo↦xxx' 'foo↣xxx' 'foo⇥xxx')
+	SELECT_PROG2 // ~> 'foo⇢xxx' ('foo↦xxx' 'foo↣xxx' 'foo⇥xxx')
+	// ⤌ ⤍	⤎ ⤏	⤐	⤑
 
 	RPAREN    // )
 	RBRACK    // ]
 	RBRACE    // }    right curly
-        RCOLON    // :
+	RCOLON    // :
 	SEMICOLON // ;
 
 	EXC       // !    exclamation
 	QUE       // ?
 
-        ruledelim_beg
-        BAR       // |
+	ruledelim_beg
+	BAR       // |
 	COLON     // :
 	COLON2    // ::
-        ruledelim_end
+	ruledelim_end
 
-        AT        // @
-        STAR      // *
+	AT        // @
+	STAR      // *
 
-        // NOTE: don't change the order of closures and delegates, scanner
-        // relys upon their order.
-        closure_beg
-        CLOSURE      // &
-        CLOSURE_R    // &/
-        CLOSURE_D    // &.
-        CLOSURE_A    // &@
-        CLOSURE_B    // &|
-        CLOSURE_L    // &<
-        CLOSURE_U    // &^
-        CLOSURE_S    // &*
-        CLOSURE_M    // &-
-        CLOSURE_P    // &+
-        CLOSURE_Q    // &?
-        CLOSURE_1    // &1
-        CLOSURE_2    // &2
-        CLOSURE_3    // &3
-        CLOSURE_4    // &4
-        CLOSURE_5    // &5
-        CLOSURE_6    // &6
-        CLOSURE_7    // &7
-        CLOSURE_8    // &8
-        CLOSURE_9    // &9
-        CLOSURE__    // &_
-        closure_end
-        delegate_beg
-        DELEGATE      // $
-        DELEGATE_R    // $/
-        DELEGATE_D    // $.
-        DELEGATE_A    // $@
-        DELEGATE_B    // $|
-        DELEGATE_L    // $<
-        DELEGATE_U    // $^
-        DELEGATE_S    // $*
-        DELEGATE_M    // $-
-        DELEGATE_P    // $+
-        DELEGATE_Q    // $?
-        DELEGATE_1    // $1
-        DELEGATE_2    // $2
-        DELEGATE_3    // $3
-        DELEGATE_4    // $4
-        DELEGATE_5    // $5
-        DELEGATE_6    // $6
-        DELEGATE_7    // $7
-        DELEGATE_8    // $8
-        DELEGATE_9    // $9
-        DELEGATE__    // $_
-        delegate_end
+	// NOTE: don't change the order of closures and delegates, scanner
+	// relys upon their order.
+	closure_beg
+	CLOSURE      // &
+	CLOSURE_R    // &/
+	CLOSURE_D    // &.
+	CLOSURE_A    // &@
+	CLOSURE_B    // &|
+	CLOSURE_L    // &<
+	CLOSURE_U    // &^
+	CLOSURE_S    // &*
+	CLOSURE_M    // &-
+	CLOSURE_P    // &+
+	CLOSURE_Q    // &?
+	CLOSURE_1    // &1
+	CLOSURE_2    // &2
+	CLOSURE_3    // &3
+	CLOSURE_4    // &4
+	CLOSURE_5    // &5
+	CLOSURE_6    // &6
+	CLOSURE_7    // &7
+	CLOSURE_8    // &8
+	CLOSURE_9    // &9
+	CLOSURE__    // &_
+	closure_end
+	delegate_beg
+	DELEGATE      // $
+	DELEGATE_R    // $/
+	DELEGATE_D    // $.
+	DELEGATE_A    // $@
+	DELEGATE_B    // $|
+	DELEGATE_L    // $<
+	DELEGATE_U    // $^
+	DELEGATE_S    // $*
+	DELEGATE_M    // $-
+	DELEGATE_P    // $+
+	DELEGATE_Q    // $?
+	DELEGATE_1    // $1
+	DELEGATE_2    // $2
+	DELEGATE_3    // $3
+	DELEGATE_4    // $4
+	DELEGATE_5    // $5
+	DELEGATE_6    // $6
+	DELEGATE_7    // $7
+	DELEGATE_8    // $8
+	DELEGATE_9    // $9
+	DELEGATE__    // $_
+	delegate_end
 
-        assign_beg
-        ASSIGN     //   =       define a new symbol (don't override, neither !=)
-        SHI_ASSIGN //   =+      shift (insert to the front)
-        ADD_ASSIGN //  +=       append
-        QUE_ASSIGN //  ?=       set if absent (defined, including empty)
-        EXC_ASSIGN //  !=       execute a shell script and set a variable to its output (.SHELLSTATUS)
-        // TODO: more assigns like !?=  !:=  !+=
-        SCO_ASSIGN //  := ≔     simply expanded (also override)
-        DCO_ASSIGN // ::= ⩴    simply expanded (POSIX standard)
-        SUB_ASSIGN //  -=       remove
-        SAD_ASSIGN // -+=       remove-append assign
-        SSH_ASSIGN //  -=+      remove-shift assign
-        assign_end
-        
+	assign_beg
+	ASSIGN     //   =       define a new symbol (don't override, neither !=)
+	SHI_ASSIGN //   =+      shift (insert to the front)
+	ADD_ASSIGN //  +=       append
+	QUE_ASSIGN //  ?=       set if absent (defined, including empty)
+	EXC_ASSIGN //  !=       execute a shell script and set a variable to its output (.SHELLSTATUS)
+	// TODO: more assigns like !?=  !:=  !+=
+	SCO_ASSIGN //  := ≔     simply expanded (also override)
+	DCO_ASSIGN // ::= ⩴    simply expanded (POSIX standard)
+	SUB_ASSIGN //  -=       remove
+	SAD_ASSIGN // -+=       remove-append assign
+	SSH_ASSIGN //  -=+      remove-shift assign
+	assign_end
+
 	PLUS  // unary +
 	MINUS // unary -
 	PCON  // path concatenation '/'
-        PERC  // percent sign '%'(REM)
+	PERC  // percent sign '%'(REM)
 	operator_end
 
 	keyword_beg
-        PROJECT    // project a
-        PACKAGE    // package a
-        MODULE     // module a
-        CONFIGURE  // configure [...] TODO: use a different keyword
-        CONFIGURATION
-        USE        // use b
-        EVAL       // evaluate a builtin immediately
-        EXPORT     // export ...
-        INCLUDE    // include a.smart
-        IMPORT     // import a.smart
-        INSTANCE   // instance
-        FILES      // files
+	PROJECT    // project a
+	PACKAGE    // package a
+	MODULE     // module a
+	CONFIGURE  // configure [...] TODO: use a different keyword
+	CONFIGURATION
+	USE        // use b
+	EVAL       // evaluate a builtin immediately
+	EXPORT     // export ...
+	INCLUDE    // include a.smart
+	IMPORT     // import a.smart
+	INSTANCE   // instance
+	FILES      // files
 
-        constant_beg
-        TRUE    // boolean `true`
-        FALSE   // boolean `false`
-        YES     // answer `yes`
-        NO      // answer `no`
-        constant_end
+	constant_beg
+	TRUE    // boolean `true`
+	FALSE   // boolean `false`
+	YES     // answer `yes`
+	NO      // answer `no`
+	constant_end
 	keyword_end = constant_end
 )
 
 var tokens = [...]string{
-        ILLEGAL: "ILLEGAL",
-        EOF:     "EOF",
-        COMMENT: "COMMENT",
+	ILLEGAL: "ILLEGAL",
+	EOF:     "EOF",
+	SPACE:   "SPACE",
+	COMMENT: "COMMENT",
+	HASH:    "HASH",
 
-        BAREWORD: "BAREWORD",
-        BIN:      "BIN",
-        OCT:      "OCT",
-        INT:      "INT",
-        HEX:      "HEX",
-        FLOAT:    "FLOAT",
-        DATETIME: "DATETIME",
-        DATE:     "DATE",
-        TIME:     "TIME",
-        URI:      "URI",
-        RAW:      "RAW",
-        STRING:   "STRING",
-        ESCAPE:   "\\",
-        COMPOUND: "COMPOUND",
+	BAREWORD: "BAREWORD",
+	BIN:      "BIN",
+	OCT:      "OCT",
+	INT:      "INT",
+	HEX:      "HEX",
+	FLOAT:    "FLOAT",
+	DATETIME: "DATETIME",
+	DATE:     "DATE",
+	TIME:     "TIME",
+	URI:      "URI",
+	RAW:      "RAW",
+	STRING:   "STRING",
+	ESCAPE:   "\\",
+	COMPOUND: "COMPOUND",
 
-        COMPOSED: "COMPOSED",
-        RECIPE:   "RECIPE",
-        LINEND:   "\\n", //"LINEND",
+	COMPOSED: "COMPOSED",
+	RECIPE:   "RECIPE",
+	LINEND:   "\\n", //"LINEND",
 
 	LPAREN: "(",
 	LBRACK: "[",
@@ -195,105 +199,105 @@ var tokens = [...]string{
 	LCOLON: ":", // the left colon like in $:foo:
 	COMMA:  ",",
 	DOT:    ".",
-        DOTDOT: "..",
-        TILDE:  "~",
-        SELECT_PROP: "→", // foo->bar
-        SELECT_PROG1: "⇒", // foo=>bar foo⇒bar
-        SELECT_PROG2: "⇢", // foo~>bar foo⇢bar
+	DOTDOT: "..",
+	TILDE:  "~",
+	SELECT_PROP: "→", // foo->bar
+	SELECT_PROG1: "⇒", // foo=>bar foo⇒bar
+	SELECT_PROG2: "⇢", // foo~>bar foo⇢bar
 
 	RPAREN:    ")",
 	RBRACK:    "]",
 	RBRACE:    "}",
 	RCOLON:    ":", // the right-paired colon like in $:foo:
-        SEMICOLON: ";",
+	SEMICOLON: ";",
 
-        EXC:       "!",
-        QUE:       "?",
+	EXC:       "!",
+	QUE:       "?",
 
-        BAR:       "|",
+	BAR:       "|",
 	COLON:     ":",
-        COLON2:    "::",
+	COLON2:    "::",
 
-        AT:        "@",
-        STAR:      "*",
+	AT:        "@",
+	STAR:      "*",
 
 	CLOSURE:      "&",
-        CLOSURE_R:    "&/",
-        CLOSURE_D:    "&.",
-        CLOSURE_A:    "&@",
-        CLOSURE_B:    "&|",
-        CLOSURE_L:    "&<",
-        CLOSURE_U:    "&^",
-        CLOSURE_S:    "&*",
-        CLOSURE_M:    "&-",
-        CLOSURE_P:    "&+",
-        CLOSURE_Q:    "&Q",
-        CLOSURE_1:    "&1",
-        CLOSURE_2:    "&2",
-        CLOSURE_3:    "&3",
-        CLOSURE_4:    "&4",
-        CLOSURE_5:    "&5",
-        CLOSURE_6:    "&6",
-        CLOSURE_7:    "&7",
-        CLOSURE_8:    "&8",
-        CLOSURE_9:    "&9",
-        CLOSURE__:    "&_",
+	CLOSURE_R:    "&/",
+	CLOSURE_D:    "&.",
+	CLOSURE_A:    "&@",
+	CLOSURE_B:    "&|",
+	CLOSURE_L:    "&<",
+	CLOSURE_U:    "&^",
+	CLOSURE_S:    "&*",
+	CLOSURE_M:    "&-",
+	CLOSURE_P:    "&+",
+	CLOSURE_Q:    "&Q",
+	CLOSURE_1:    "&1",
+	CLOSURE_2:    "&2",
+	CLOSURE_3:    "&3",
+	CLOSURE_4:    "&4",
+	CLOSURE_5:    "&5",
+	CLOSURE_6:    "&6",
+	CLOSURE_7:    "&7",
+	CLOSURE_8:    "&8",
+	CLOSURE_9:    "&9",
+	CLOSURE__:    "&_",
 
 	DELEGATE:      "$",
-        DELEGATE_R:    "$/",
-        DELEGATE_D:    "$.",
-        DELEGATE_A:    "$@",
-        DELEGATE_B:    "$|",
-        DELEGATE_L:    "$<",
-        DELEGATE_U:    "$^",
-        DELEGATE_S:    "$*",
-        DELEGATE_M:    "$-",
-        DELEGATE_P:    "$+",
-        DELEGATE_Q:    "$?",
-        DELEGATE_1:    "$1",
-        DELEGATE_2:    "$2",
-        DELEGATE_3:    "$3",
-        DELEGATE_4:    "$4",
-        DELEGATE_5:    "$5",
-        DELEGATE_6:    "$6",
-        DELEGATE_7:    "$7",
-        DELEGATE_8:    "$8",
-        DELEGATE_9:    "$9",
-        DELEGATE__:    "$_",
+	DELEGATE_R:    "$/",
+	DELEGATE_D:    "$.",
+	DELEGATE_A:    "$@",
+	DELEGATE_B:    "$|",
+	DELEGATE_L:    "$<",
+	DELEGATE_U:    "$^",
+	DELEGATE_S:    "$*",
+	DELEGATE_M:    "$-",
+	DELEGATE_P:    "$+",
+	DELEGATE_Q:    "$?",
+	DELEGATE_1:    "$1",
+	DELEGATE_2:    "$2",
+	DELEGATE_3:    "$3",
+	DELEGATE_4:    "$4",
+	DELEGATE_5:    "$5",
+	DELEGATE_6:    "$6",
+	DELEGATE_7:    "$7",
+	DELEGATE_8:    "$8",
+	DELEGATE_9:    "$9",
+	DELEGATE__:    "$_",
 
-        ASSIGN:     "=",
-        SHI_ASSIGN: "=+",
-        ADD_ASSIGN: "+=",
-        QUE_ASSIGN: "?=",
-        EXC_ASSIGN: "!=",
-        SCO_ASSIGN: ":=",
-        DCO_ASSIGN: "::=",
-        SUB_ASSIGN: "-=",
-        SAD_ASSIGN: "-+=",
-        SSH_ASSIGN: "-=+",
+	ASSIGN:     "=",
+	SHI_ASSIGN: "=+",
+	ADD_ASSIGN: "+=",
+	QUE_ASSIGN: "?=",
+	EXC_ASSIGN: "!=",
+	SCO_ASSIGN: ":=",
+	DCO_ASSIGN: "::=",
+	SUB_ASSIGN: "-=",
+	SAD_ASSIGN: "-+=",
+	SSH_ASSIGN: "-=+",
 
-        PLUS:  "+",
-        MINUS: "-",
+	PLUS:  "+",
+	MINUS: "-",
 	PCON:  "/",
 	PERC:  "%",
-        
-        PROJECT:    "project",
-        PACKAGE:    "package",
-        MODULE:     "module",
-        CONFIGURE:  "configure",
-        CONFIGURATION: "configuration",
-        USE:        "use",
-        EVAL:       "eval",
-        EXPORT:     "export",
-        INCLUDE:    "include",
-        IMPORT:     "import",
-        INSTANCE:   "instance",
-        FILES:      "files",
 
-        TRUE:   "true",
-        FALSE:  "false",
-        YES:    "yes",
-        NO:     "no",
+	PROJECT:    "project",
+	PACKAGE:    "package",
+	MODULE:     "module",
+	CONFIGURE:  "configure",
+	CONFIGURATION: "configuration",
+	USE:        "use",
+	EVAL:       "eval",
+	EXPORT:     "export",
+	INCLUDE:    "include",
+	IMPORT:     "import",
+	INSTANCE:   "instance",
+	FILES:      "files",
+
+	TRUE:   "true",
+	FALSE:  "false",
+	YES:    "yes",
+	NO:     "no",
 }
 
 func (tok Token) String() (s string) {
@@ -332,7 +336,7 @@ func (tok Token) IsDelegate() bool { return delegate_beg < tok && tok < delegate
 func (tok Token) IsAssign() bool { return assign_beg < tok && tok < assign_end }
 func (tok Token) IsRuleDelim() bool { return ruledelim_beg < tok && tok < ruledelim_end }
 func (tok Token) IsListDelim() bool {
-        return tok.IsRuleDelim() ||
-               tok == RPAREN || tok == RBRACK || tok == RBRACE || tok == RCOLON ||
-               tok == SEMICOLON || tok == COMMA || tok == LINEND || tok == EOF
+	return tok.IsRuleDelim() ||
+		tok == RPAREN || tok == RBRACK || tok == RBRACE || tok == RCOLON ||
+		tok == SEMICOLON || tok == COMMA || tok == LINEND || tok == EOF
 }

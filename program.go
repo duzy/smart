@@ -29,6 +29,7 @@ type Program struct {
         ordered []Value // order-only
         recipes []Value
         position Position
+        language string
         changedWD string
         configure bool
 }
@@ -147,7 +148,7 @@ func (prog *Program) prerequisites(t *traversal, args []Value) (result []Value, 
                         if true {
                                 result = append(result, a)
                         } else if false {
-                                result = append(result, &String{trivial{pos},s})
+                                result = append(result, MakeString(pos, s))
                         } else {
                                 diag.errorAt(pos, "`%s` unknown target (via %s)", s, a)
                         }
@@ -160,49 +161,53 @@ func (prog *Program) prerequisites(t *traversal, args []Value) (result []Value, 
 
 func (prog *Program) args(args []Value) (params []*Def, restore func(), err error) {
         var argnum int // setup named/number parameters ($1, $2, etc.)
-        var values []Value
+        var rest, values []Value // save values to restore after execution
         for _, d := range prog.params { values = append(values, d.value) }
         for _, a := range args {
                 var def *Def
                 //<!IMPORTANT: Don't translate Flag, Flag values are valid
                 //             regular arguments. Pair values are special.
-                switch t := a.(type) {
-                case *Pair:
+                if l, ok := a.(*List); ok && l.Len() == 1 { a = l.Elems[0] }
+                if t, ok := a.(*Pair); ok {
                         var s string
-                        if s, err = t.Key.Strval(); err == nil {
-                                if o := prog.scope.Lookup(s); o != nil {
-                                        def = o.(*Def)
-                                        values = append(values, def.value)
-                                        params = append(params, def)
-                                        def.set(DefArg, t.Value)
-                                } else {
-                                        diag.errorAt(prog.position, "`%s` no such named parameter", s)
-                                        return
-                                }
-                        }
-                default:
-                        if argnum < len(prog.params) {
-                                def = prog.params[argnum]
+                        if s, err = t.Key.Strval(); err != nil {
+                                diag.errorOf(t.Key, "%v", err)
+                                return
+                        } else if o := prog.scope.Lookup(s); isNil(o) {
+                                rest = append(rest, a)
+                        } else if def, ok = o.(*Def); !ok {
+                                diag.errorOf(o, "object is not a Def: %v", o)
+                                return
+                        } else {
                                 values = append(values, def.value)
                                 params = append(params, def)
-                                def.set(DefArg, a)
-                        } else {
-                                name := strconv.Itoa(argnum+1)
-                                if def, err = prog.auto(name, a); err == nil {
-                                        values = append(values, def.value)
-                                        params = append(params, def)
-                                        def.origin = DefArg
-                                }
+                                def.set(DefArg, t.Value)
+                                argnum += 1
                         }
-                        argnum += 1
+                } else { rest = append(rest, a) }
+        }
+        for _, a := range rest {
+                var def *Def
+                if l, ok := a.(*List); ok && l.Len() == 1 { a = l.Elems[0] }
+                if argnum < len(prog.params) {
+                        def = prog.params[argnum]
+                        values = append(values, def.value)
+                        params = append(params, def)
+                        def.set(DefArg, a)
+                } else {
+                        name := strconv.Itoa(argnum+1)
+                        if def, err = prog.auto(name, a); err != nil {
+                                diag.errorOf(a, "arg: %v", err)
+                                return
+                        }
+                        values = append(values, def.value)
+                        params = append(params, def)
+                        def.origin = DefArg
                 }
-                if err != nil {
-                        diag.errorAt(prog.position, "%v", err)
-                        return
-                }
+                argnum += 1
         }
         restore = func() { 
-                var nlen = len(prog.params)
+                var nlen  = len(prog.params)
                 for i, d := range prog.params { d.value = values[i] }
                 for i, d := range params { d.value = values[nlen+i] }
         }
@@ -359,13 +364,13 @@ func (t *traversal) exec(prog *Program) (result Value, breakers []*breaker) {
         var pos = prog.position
 
         // Update normal prerequisites
-        if breakers = t.traverseNormalPrerequisites(pos); len(breakers) > 0 { return }
+        if breakers = t.traverseNormalPrerequisites(pos);    len(breakers) > 0 { return }
 
         // Update order-only prerequisites
         if breakers = t.traverseOrderOnlyPrerequisites(pos); len(breakers) > 0 { return }
 
         // Update grapped files
-        if breakers = t.traverseGreppedFiles(pos); len(breakers) > 0 { return }
+        if breakers = t.traverseGreppedFiles(pos);           len(breakers) > 0 { return }
 
         if len(t.interpreted) == 0 {
                 // Using the default statements interpreter.

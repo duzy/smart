@@ -47,9 +47,10 @@ type plain struct {}
 func (_ *plain) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
         var str, name string
         if len(args) > 0 {
-                if name, err = args[0].Strval(); err != nil { return }
+                if name, err = args[0].Strval(); err != nil { diag.errorOf(args[0], "%v", err); return }
+                t.program.language = name
         }
-        if str, err = multiline(t.program.recipes...); err != nil { return }
+        if str, err = multiline(t.program.recipes...); err != nil { diag.errorOf(args[0], "%v", err); return }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
         result = &Plain{trivial{pos},name,str}
         return

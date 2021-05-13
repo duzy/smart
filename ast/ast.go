@@ -457,6 +457,7 @@ func joinx(sep string, exprs... Expr) (s string) {
 }
 
 func (x *BadExpr) String() string         { return fmt.Sprintf("BadExpr{%v,%v}", x.From, x.To) }
+func (x *Comment) String() string         { return "# " + x.Text }
 func (x *EvaluatedExpr) String() string   { return x.Expr.String() }
 func (x *Bareword) String() string        { return x.Value }
 func (x *Qualiword) String() string       { return strings.Join(x.Words,".") }

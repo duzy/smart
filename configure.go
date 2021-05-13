@@ -42,8 +42,6 @@ type libraryinfo struct {
 }
 
 var configuration = &struct{
-        scope *Scope
-        project *Project
         paths searchlist
         fset *token.FileSet
         libraries map[string]*libraryinfo
@@ -64,40 +62,6 @@ var configurationOps = map[string] func(pos Position, t *traversal, def *Def, fi
         "dump":    configureDump,
         "option":  configureOption,
         "package": configurePackage,
-}
-
-var confinitSource, confinitFilename = configurationInitFile()
-func init_configuration(paths searchlist) (err error) {
-        if optionTraceLaunch { defer un(trace(t_launch, "init_configuration")) }
-
-        var pos Position
-        pos.Filename = confinitFilename
-        configuration.scope = NewScope(pos, context.globe.scope, nil, "configuration")
-        configuration.paths = paths
-
-        var l = &loader{
-                Context: &context,
-                scope:    configuration.scope,
-                fset:     configuration.fset,
-                paths:    configuration.paths,
-                loaded:   make(map[string]*Project),
-        }
-
-        // Restore cloctx (remove "~.smart" from cloctx)
-        defer setclosure(cloctx) // FIXME: "~.smart" should not be in cloctx
-
-        if err = l.loadFile(confinitFilename, confinitSource); err != nil {
-                return
-        } else if project, ok := l.loaded[confinitFilename]; ok {
-                configuration.project = project
-        } else {
-                diag.errorAt(pos, "configuration: `%v` not loaded\n", confinitFilename)
-        }
-
-        if configuration.project == nil {
-                panic("configuration.project is nil")
-        }
-        return
 }
 
 func do_configuration() {
@@ -207,9 +171,9 @@ func configurationFileName(p *Project) (s string, err error) {
 
 func configPrintf(pos Position, str string, args... interface{}) {
         var debug bool
-        if o := configuration.scope.Lookup("DEBUG"); o != nil {
+        /*if o := configuration.scope.Lookup("DEBUG"); o != nil {
                 debug, _ = o.True()
-        }
+        }*/
         if debug { str = fmt.Sprintf("%v:info: %s", pos, str) }
         fmt.Fprintf(stderr, str, args...)
 }
@@ -489,10 +453,9 @@ func configureBoolValue(pos Position, t *traversal, def *Def) (result bool, err 
 // -bool
 // -bool('message...')
 func configureBool(pos Position, t *traversal, def *Def, fields map[string]Value, params ...Value) (result Value, err error) {
-        if len(params) > 1 { fmt.Fprintf(stderr, "%s: useless args %v for -bool\n", pos, params) }
         var val bool
         if val, err = configureBoolValue(pos, t, def); err == nil {
-                result = &boolean{trivial{pos},val}
+                result = MakeBoolean(pos, val)
         }
         return
 }
@@ -500,10 +463,9 @@ func configureBool(pos Position, t *traversal, def *Def, fields map[string]Value
 // -answer
 // -answer('message...')
 func configureAnswer(pos Position, t *traversal, def *Def, fields map[string]Value, params ...Value) (result Value, err error) {
-        if len(params) > 1 { fmt.Fprintf(stderr, "%s: useless args %v for -answer\n", pos, params) }
         var val bool
         if val, err = configureBoolValue(pos, t, def); err == nil {
-                result = &answer{trivial{pos},val}
+                result = MakeAnswer(pos, val)
         }
         return
 }
@@ -522,43 +484,6 @@ func configureOption(pos Position, t *traversal, def *Def, fields map[string]Val
         }
         return
 }
-
-func loadPackageSmartInfo(pos Position, name string) (info *packageinfo, err error) {
-        var file *File
-        for _, path := range configuration.paths {
-                file = stat(pos, name+".smart", "", path)
-                if file != nil { break }
-        }
-        if file == nil { return }
-
-        var l = &loader{
-                Context: &context,
-                fset:     configuration.fset,
-                scope:    configuration.scope,
-                paths:    configuration.paths,
-                loaded:   make(map[string]*Project),
-        }
-
-        var filename = file.fullname()
-        if err = l.loadFile(filename, nil); err != nil { return }
-        if project, _ := l.loaded[filename]; project == nil {
-                err = scanner.Errorf(token.Position(pos), "unloaded package %v (%v)\n", name, file)
-        } else if project.name != name {
-                err = scanner.Errorf(token.Position(pos), "%v: conflicted package name %v (!= %v)\n", file, project.name, name)
-        } else {
-                info = &packageinfo{ project, packageSmart }
-        }
-        return
-}
-
-func loadPackageConfigInfo(pos Position, name string) (info *packageinfo, err error) {
-        return
-}
-
-// -library finds system library in a way similar to cmake.find_library
-//func configureLibrary(pos Position, prog *Program, args ...Value) (result Value, err error) {
-//        return
-//}
 
 // -package finds system package in a way similar to cmake.find_package
 func configurePackage(pos Position, t *traversal, def *Def, fields map[string]Value, args ...Value) (result Value, err error) {
@@ -592,10 +517,10 @@ func configurePackage(pos Position, t *traversal, def *Def, fields map[string]Va
                 var info, cached = configuration.packages[name]
                 if !cached {
                         switch optType {
-                        //case packageSmart:
-                        //        if info, err = loadPackageSmartInfo(pos, name); err != nil { return }
-                        case packageConfig:
-                                if info, err = loadPackageConfigInfo(pos, name); err != nil { return }
+                        // case packageSmart:
+                        //         if info, err = loadPackageSmartInfo(pos, name); err != nil { return }
+                        // case packageConfig:
+                        //         if info, err = loadPackageConfigInfo(pos, name); err != nil { return }
                         case packageUnknown:
                                 fmt.Fprintf(stderr, "%v: package `%v`: unknown type\n", name)
                         }
@@ -622,11 +547,17 @@ func scanExitStatus(err error) (n, status int) {
         return
 }
 
-func configureExec(pos Position, t *traversal, s string, params ...Value) (configured bool, result Value, err error) {
+func configureExec(pos Position, t *traversal, s string, target Value, paramsOrig ...Value) (configured bool, result Value, err error) {
         if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("configureExec(%s %v)", s, t.entry.target))) }
 
+        var projectConfigure = t.program.project.configure
+        if  projectConfigure == nil {
+                diag.errorAt(pos, "no .configure provided")
+                return
+        }
+
         var entry *RuleEntry
-        if entry, err = configuration.project.resolveEntry("-"+s); err != nil {
+        if entry, err = projectConfigure.resolveEntry("-"+s); err != nil {
                 diag.errorAt(pos, "resolve %v: %v", s, err)
                 return
         } else if entry == nil {
@@ -636,8 +567,35 @@ func configureExec(pos Position, t *traversal, s string, params ...Value) (confi
 
         var breakers []*breaker
         if false { defer setclosure(setclosure(cloctx.unshift(t.program.scope))) }
-        if false { fmt.Fprintf(stderr, "%v: configureExec(%v %v): %v, %v\n", pos, entry, t.entry, params, cloctx) }
-        if result, breakers = entry.programs[0].execute(t, entry, params); len(breakers) > 0 {
+        if false { fmt.Fprintf(stderr, "%v: configureExec(%v %v): %v, %v\n", pos, entry, t.entry, paramsOrig, cloctx) }
+
+        var params []Value
+        var prog = entry.programs[0]
+        for _, par := range prog.params {
+                switch par.name {
+                case "TARGET": params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
+                case "LANG": params = append(params, MakePair(pos, MakeBareword(pos, "LANG"), MakeString(pos, t.program.language)))
+                case "VALUE": params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"), t.def.buffer))
+                }
+                for _, a := range paramsOrig {
+                        if ap, ok := a.(*Pair); ok {
+                                s, e := ap.Key.Strval()
+                                if e != nil { diag.errorOf(ap.Key, "%v", e); return }
+                                if par.name == s {
+                                       params = append(params, a)
+                                } else if par.name == strings.ToUpper(s) {
+                                       params = append(params, MakePair(pos, MakeBareword(pos, par.name), ap.Value))
+                                } else if false {
+                                        diag.warnOf(a, "unknown parameter: %v", a)
+                                        return
+                                }
+                        } else {
+                                diag.errorOf(a, "unsupported parameter: %v (%T)", a, a)
+                                return
+                        }
+                }
+        }
+        if result, breakers = prog.execute(t, entry, params); len(breakers) > 0 {
                 diag.errorAt(pos, "execution failed (%d breakers)", len(breakers))
         }
         if false { fmt.Fprintf(stderr, "%v: configureExec(%v %v): %v (%T), %v\n", pos, entry, t.entry, result, result, err) }
@@ -660,42 +618,39 @@ func configureExec(pos Position, t *traversal, s string, params ...Value) (confi
         return
 }
 
-func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name Value, args []Value) (configured bool, result Value, err error) {
+func configureDo(pos Position, t *traversal, target Value, def, name Value, args []Value) (configured bool, result Value, err error) {
         if optionTraceConfig { defer un(trace(t_config, "configureDo")) }
 
+        var pipe = t.def.buffer
         var strName string
-        if strName, err = name.Strval(); err != nil { return }
-        if strName == "" {
+        if strName, err = name.Strval(); err != nil {
+                diag.errorAt(pos, "%v: %v", name, err)
+                return
+        } else if strName == "" {
                 diag.errorAt(pos, "`%v` empty configuration (%T)", name, name)
                 return
         }
 
-        var none = &None{trivial{pos}}
-        var params = []Value{ target }
-        var fields = map[string]Value{ "name":name }
-        ForArgs: for _, arg := range args {
+        var info Value
+        var params []Value
+ForArgs:
+        for _, arg := range args {
                 var list, ok = arg.(*List)
-                if ok && list != nil && len(list.Elems) > 0 {
+                if ok && list != nil && len(list.Elems) == 1 {
                         switch t := list.Elems[0].(type) {
                         case *Pair:
-                                var key string
-                                if key, err = t.Key.Strval(); err == nil { key = strings.ToLower(key) } else {
-                                        diag.errorAt(pos, "%v", err); return }
-                                if v, ok := fields[key]; !ok { fields[key] = t.Value } else {
-                                        fields[key] = &List{elements{merge(v, t.Value)}}
-                                }
+                                params = append(params, t)
                                 continue ForArgs
                         case *String, *Compound:
-                                switch strName {
-                                case "answer","bool","option":
-                                        if v, ok := fields["info"]; !ok { fields["info"] = t } else {
-                                                fields["info"] = &List{elements{merge(v, t)}}
-                                        }
-                                        continue ForArgs
-                                }
+                                var ap = t.Position()
+                                arg = MakePair(ap, MakeBareword(ap, "INFO"), t)
+                                params = append(params, arg)
+                                info = t
+                                continue ForArgs
                         }
                 }
-                params = append(params, arg)
+                diag.errorOf(arg, "unsupported parameter: %v (%T)", arg, arg)
+                return
         }
 
         var defsChanged = make(map[*Def]Value)
@@ -728,154 +683,177 @@ func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name 
                 }
         } ()
 
+        if isNil(info) {
+                configPrintf(pos, "configure: %v %v …", target, args)
+        } else if s, e := info.Strval(); e == nil {
+                configPrintf(pos, "configure: %s …", s)
+        } else {
+                diag.errorAt(pos, "%v", e)
+        }
+
         // Process configurations like:
         //   -bool
         //   -option
         //   -package
         //   ...
         if config, ok := configurationOps[strName]; ok {
-                err = configMessageHead(pos, strName, fields, params...)
-                if err == nil {
-                        result, err = config(pos, t, pipe, fields, params...)
-                        if err == nil { configured = true }
+                params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
+                if result, err = config(pos, t, pipe, nil, params...); err != nil {
+                        diag.errorAt(pos, "config: %v", err)
+                } else {
+                        configured = true
                         if optionTraceConfig {
                                 t_config.tracef("configured: %v, result = %v (%s)", configured, result, typeof(result))
                         }
+                        return
+                }
+        }
+
+        if configured, result, err = configureExec(name.Position(), t, strName, target, params...); err != nil {
+                diag.errorAt(pos, "%v", err)
+        } else if configured {
+                if optionTraceConfig {
+                        t_config.tracef("configured: %v, result = %v (%s)", configured, result, typeof(result))
                 }
                 return
         }
+        return
+}
 
-        if value, ok := fields["lang"]; ok {
-                var lang = configuration.project.scope.Lookup("LANG").(*Def)
-                defsChanged[lang] = lang.value
-                if err = lang.set(DefSimple, value); err != nil { return }
+// configure - configures a variable, example usage:
+//     (configure -answer)
+//     (configure -option(info='...'))
+//     (configure -package(xxx))
+//     (configure -include('xxx.h'))
+//     (configure -function(function,include='<xxx.h>'))
+//     (configure -library(lib,function))
+//     (configure -library(lib,function,include='<xxx.h>'))
+//     (configure -symbol(symbol,include='<xxx.h>'))
+//     (configure -compiles(info="..."))
+func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value, err error) {
+        if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", t.entry.target, optionReconfig))) }
+        if t.program.project.configure == nil {
+                diag.errorAt(pos, "%v: .configure not provided", t.program.project)
+                return
         }
-        if value, ok := fields["cflags"]; ok {
-                var lang = configuration.project.scope.Lookup("CFLAGS").(*Def)
-                defsChanged[lang] = lang.value
-                if err = lang.set(DefSimple, value); err != nil { return }
-        }
 
-        // Process configurations like:
-        //   -include(foo,lib=xxx)
-        //   -symbol(foo,include=xxx,lib=yyy)
-        //   -function(foo,include=xxx,lib=yyy)
-        //   -variable(foo,include=xxx,lib=yyy)
-        //   -library(foo,include=xxx,lib=yyy)
-        //   ...
-
-        var value = configuration.project.scope.Lookup("_VALUE_").(*Def)
-        defsChanged[value] = value.value
-        if err = value.set(DefSimple, none); err != nil { return }
-        if pipe.value != nil {
-                if _, ok := pipe.value.(*None); !ok {
-                        value.value = pipe.value
+        var optAccumulate bool
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
+        if args, err = tryParseFlags(args, []string{
+                "a,accumulate",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'a': if optAccumulate, err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
                 }
+        }); err != nil { diag.errorAt(pos, "%v", err); return }
+
+        var target = t.def.target.value
+        if isNil(target) || isNone(target) {
+                diag.errorAt(pos, "target is nil for entry '%s'", t.entry.target)
+                return
         }
 
-        var includesValues []Value
-        var includes = configuration.project.scope.Lookup("_INCLUDES_").(*Def)
-        defsChanged[includes] = includes.value
-        if err = includes.set(DefSimple, none); err != nil { return }
-        if strName == "include" && len(params) > 1 {
-                // -include('<xxx.h>',...)
-                for _, value := range params[1:] {
-                        includesValues = append(includesValues, merge(value)...)
-                }
+        var name string
+        if name, err = target.Strval(); err != nil { diag.errorOf(target, "%v", err); return }
+
+        var def, alt = t.program.project.scope.define(t.program.project, name, nil)
+        if alt != nil { def, _ = alt.(*Def) }
+        if def != nil { result = def } else {
+                diag.errorAt(pos, "cannot define configuration `%s`", name)
+                return
         }
-        if value, ok := fields["include"]; ok { includesValues = append(includesValues, value) }
-        if value, ok := fields["includes"]; ok { includesValues = append(includesValues, value) }
-        for _, value := range includesValues {
-                var ( elems []Value; lines []string )
-                if value != nil {
-                        switch v := value.(type) {
-                        default: elems = []Value{ v }
-                        case *Group: elems = v.Elems
-                        case *List:  elems = v.Elems
-                        }
+        if optionTraceConfig {
+                t_config.tracef("%s: %v (%T)", def.name, def.value, def.value)
+                defer func() { t_config.tracef("%s: %v (%T)", def.name, def.value, def.value) } ()
+        }
+        if !isNil(def.value) { // Check if it's already configured?
+                if !optionReconfig { return } // return if not reconfigure
+                if done, found := configuration.done[def]; done && found { return }
+        }
+
+        var value Value
+        if len(args) == 0 { // Empty configuration: (configure)
+                if value = t.def.buffer.Call(pos); value == nil {
+                        diag.errorAt(pos, "`%v` not configured (%v)", target, value)
+                        return
+                } else if value == def || value.refs(def) {
+                        return
                 }
-                for _, elem := range merge(elems...) {
+                switch v := value.(type) {
+                default: err = def.set(DefConfig, value)
+                case *ExecResult:
                         var s string
-                        switch v := elem.(type) {
-                        case *String: s = v.string
-                        case *Bareword: s = v.string
-                        case *Compound:
-                                if s, err = elem.Strval(); err != nil { return }
-                                if !strings.HasPrefix(s, `<`) { s = `"`+s+`"` }
-                        default:
-                                if s, err = elem.Strval(); err != nil { return }
+                        if v.wg.Wait(); v.Status == 0 && v.Stdout.Buf != nil {
+                                s = v.Stdout.Buf.String()
+                        } else if v.Stderr.Buf != nil {
+                                s = v.Stderr.Buf.String()
                         }
-                        if !(strings.HasPrefix(s, `<`) || strings.HasPrefix(s, `"`)) {
-                                s = `"`+s+`"`
-                        }
-                        lines = append(lines, `#include `+s)
+                        err = def.set(DefConfig, MakeString(pos, s))
                 }
-                value = &String{trivial{pos},strings.Join(lines, "\n")}
-                if err = includes.set(DefExpand, value); err != nil { return }
+                if err != nil { diag.errorAt(pos, "%v", err) }
+                return
+        } else if err = def.set(DefConfig, nil); err != nil {
+                diag.errorOf(def, "%v", err)
+                return
         }
 
-        var loadlibsValues []Value
-        var loadlibs = configuration.project.scope.Lookup("_LOADLIBES_").(*Def)
-        defsChanged[loadlibs] = loadlibs.value
-        if err = loadlibs.set(DefSimple, none); err != nil { return }
-        if value, ok := fields["load"]; ok { loadlibsValues = append(loadlibsValues, value) }
-        if value, ok := fields["loadlib"]; ok { loadlibsValues = append(loadlibsValues, value) }
-        if value, ok := fields["loadlibs"]; ok { loadlibsValues = append(loadlibsValues, value) }
-        for _, value := range loadlibsValues {
-                var ( elems []Value; lines []string )
-                if value != nil {
-                        switch v := value.(type) {
-                        default: elems = []Value{ v }
-                        case *Group: elems = v.Elems
-                        case *List:  elems = v.Elems
-                        }
-                }
-                for _, elem := range merge(elems...) {
-                        var s string
-                        if s, err = elem.Strval(); err != nil { return }
-                        if !strings.HasPrefix(s, "lib") { s = "lib"+s+".a" }
-                        lines = append(lines, s)
-                }
-                value = &String{trivial{pos},strings.Join(lines, " ")}
-                if err = loadlibs.set(DefExpand, value); err != nil { return }
-        }
+        var configured bool
+ForConfig:
+        for i, a := range args {
+                if def.value == nil && i > 0 { break ForConfig }
 
-        var libsValues []Value
-        var libs = configuration.project.scope.Lookup("_LIBS_").(*Def)
-        defsChanged[libs] = libs.value
-        if err = libs.set(DefSimple, none); err != nil { return }
-        if value, ok := fields["lib"]; ok { libsValues = append(libsValues, value) }
-        if value, ok := fields["libs"]; ok { libsValues = append(libsValues, value) }
-        for _, value := range libsValues {
-                var ( elems []Value; lines []string )
-                if value != nil {
-                        switch v := value.(type) {
-                        default: elems = []Value{ v }
-                        case *Group: elems = v.Elems
-                        case *List:  elems = v.Elems
+                var ( name Value ; para []Value )
+                switch arg := a.(type) {
+                case *Argumented:
+                        if flag, okay := arg.value.(*Flag); !okay {
+                                diag.errorOf(a, "`%v` is unsupported\n", arg.value)
+                                return
+                        } else {
+                                name, para = flag.name, arg.args
                         }
+                case *Flag:
+                        if isNil(arg.name) || isNone(arg.name) {
+                                diag.errorOf(a, "`%v` is unsupported\n", arg.name)
+                                return
+                        } else {
+                                name = arg.name
+                        }
+                default:
+                        diag.errorOf(a, "`%v` is unsupported\n", a)
+                        return
                 }
-                for _, elem := range merge(elems...) {
-                        var s string
-                        if s, err = elem.Strval(); err != nil { return }
-                        if !strings.HasPrefix(s, "-l") { s = "-l" + s }
-                        lines = append(lines, s)
+                if name == nil {
+                        diag.errorOf(a, "unknown configure `%v` (%T)\n", a, a)
+                        return
                 }
-                value = &String{trivial{pos},strings.Join(lines, " ")}
-                if err = libs.set(DefExpand, value); err != nil { return }
-        }
-        if err = configMessageHead(pos, strName, fields, params...); err == nil {
-                configured, result, err = configureExec(pos, t, strName, params...)
-        }
 
-        delete(fields, "include")
-        delete(fields, "includes")
-        delete(fields, "load")
-        delete(fields, "loadlib")
-        delete(fields, "loadlibs")
-        delete(fields, "lib")
-        delete(fields, "libs")
-        return 
+                configured, value, err = configureDo(pos, t, target, def, name, para)
+                if err != nil {
+                        diag.errorAt(pos, "%v", err); return
+                } else if !configured {
+                        diag.warnAt(pos, "%s not configured", name)
+                        return
+                } else if value == nil {
+                        value = MakeNil(a.Position())
+                } else if value, err = value.expand(expandAll); err != nil {
+                        diag.errorOf(a, "%v", err)
+                } else if value == def || value.refs(def) {
+                        // Value is the Def, does nothing!
+                } else if optAccumulate {
+                        if err = def.append(value);         err != nil { diag.errorOf(a, "%v", err) }
+                } else {
+                        if err = def.set(DefConfig, value); err != nil { diag.errorOf(a, "%v", err) }
+                }
+
+                if err == nil { configuration.done[def] = true }
+                if optionTraceConfig {
+                        t_config.tracef("configured: %v (%s) (%v)", value, typeof(value), def.origin)
+                }
+        }
+        if !configured && err == nil {
+                diag.errorAt(pos, "`%v` not configured", target)
+        }
+        return
 }
 
 type filewalkFunc func(file *File, err error) error
@@ -1246,132 +1224,5 @@ ForSources:
         fmt.Fprintf(out, "%s:[(configure -check)]:\\\n", optTarget)
         for _, k := range keys { fmt.Fprintf(out, "  %s \\\n", k) }
         fmt.Fprintf(out, "\n")
-        return
-}
-
-// configure - configures a variable, example usage:
-//     (configure -answer)
-//     (configure -option(info='...'))
-//     (configure -package(xxx))
-//     (configure -include('xxx.h'))
-//     (configure -function(function,include='<xxx.h>'))
-//     (configure -library(lib,function))
-//     (configure -library(lib,function,include='<xxx.h>'))
-//     (configure -symbol(symbol,include='<xxx.h>'))
-//     (configure -compiles(info="..."))
-func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value, err error) {
-        if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", t.entry.target, optionReconfig))) }
-
-        var optAccumulate bool
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
-        if args, err = tryParseFlags(args, []string{
-                "a,accumulate",
-        }, func(ru rune, v Value) {
-                switch ru {
-                case 'a': if optAccumulate, err = trueVal(v, true); err != nil { return }
-                }
-        }); err != nil { return }
-
-        var target = t.def.target.value
-        if isNil(target) || isNone(target) {
-                diag.errorAt(pos, "target is nil for entry '%s'", t.entry.target)
-                return
-        }
-
-        var name string
-        if name, err = target.Strval(); err != nil { return }
-
-        var def, alt = t.program.project.scope.define(t.program.project, name, nil)
-        if alt != nil { def, _ = alt.(*Def) }
-        if def == nil {
-                diag.errorAt(pos, "cannot define configuration `%s`", name)
-                return
-        } else { result = def } // Set result above all!
-
-        if optionTraceConfig {
-                t_config.tracef("%s: %v (%T)", def.name, def.value, def.value)
-                defer func() { t_config.tracef("%s: %v (%T)", def.name, def.value, def.value) } ()
-        }
-
-        if !isNil(def.value) { // Check if it's already configured?
-                // reconfigure the def or return it
-                if !optionReconfig { return }
-                if done, found := configuration.done[def]; done && found {
-                  return // already executed (re)configuration
-                }
-        }
-
-        var value Value
-        if len(args) == 0 { // Empty configuration: (configure)
-                if value = t.def.buffer.Call(pos); value == nil {
-                        diag.errorAt(pos, "`%v` not configured (%v)", target, value)
-                        return
-                } else if value == def || value.refs(def) { return }
-                switch v := value.(type) {
-                default: err = def.set(DefConfig, value)
-                case *ExecResult:
-                        var s string
-                        if v.wg.Wait(); v.Status == 0 && v.Stdout.Buf != nil {
-                                s = v.Stdout.Buf.String()
-                        } else if v.Stderr.Buf != nil {
-                                s = v.Stderr.Buf.String()
-                        }
-                        err = def.set(DefConfig, &String{trivial{pos},s})
-                }
-                if err != nil { diag.errorAt(pos, "%v", err) }
-                return
-        } else if err = def.set(DefConfig, nil); err != nil { return }
-
-        var configured bool
-        ForConfig: for i, a := range args {
-                if def.value == nil && i > 0 { break ForConfig }
-
-                var ( name Value ; para []Value )
-                switch arg := a.(type) {
-                case *Argumented:
-                        if flag, okay := arg.value.(*Flag); !okay {
-                                diag.errorOf(a, "`%v` is unsupported\n", arg.value)
-                                return
-                        } else {
-                                name, para = flag.name, arg.args
-                        }
-                case *Flag:
-                        if isNil(arg.name) || isNone(arg.name) {
-                                diag.errorOf(a, "`%v` is unsupported\n", arg.name)
-                                return
-                        } else {
-                                name = arg.name
-                        }
-                default:
-                        diag.errorOf(a, "`%v` is unsupported\n", a)
-                        return
-                }
-                if name == nil {
-                        diag.errorOf(a, "unknown configure `%v` (%T)\n", a, a)
-                        return
-                }
-
-                configured, value, err = configureDo(pos, t, target, def, t.def.buffer, name, para)
-                if err != nil { diag.errorAt(pos, "%v", err); return } else if !configured {
-                        //diag.errorAt(pos, "%s not configured", name)
-                        return
-                }
-                if optionTraceConfig { t_config.tracef("configured: %v (%s) (%v)", value, typeof(value), def.origin) }
-                if value == nil { value = &Nil{trivial{a.Position()}} } else
-                if v, e := value.expand(expandAll); e == nil { value = v } else { diag.errorOf(a, "%v", e); return }
-                if value == def || value.refs(def) {
-                        // Value is the Def, does nothing!
-                } else if optAccumulate {
-                        err = def.append(value)
-                } else {
-                        err = def.set(DefConfig, value)
-                }
-                if err != nil { diag.errorAt(pos, "%v", err); return }
-                // Marks done (needed for reconfiguring)!
-                configuration.done[def] = true
-        }
-        if !configured && err == nil {
-                diag.errorAt(pos, "`%v` not configured", target)
-        }
         return
 }

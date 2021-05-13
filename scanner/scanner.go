@@ -6,11 +6,12 @@
 package scanner
 
 import (
-        "extbit.io/smart/token"
+	"extbit.io/smart/token"
 	"path/filepath"
 	"unicode"
 	"unicode/utf8"
-        "fmt"
+	"fmt"
+	//"os"
 )
 
 // A Scanner holds the scanner's internal state while processing
@@ -25,26 +26,54 @@ type Scanner struct {
 	src  []byte       // source
 	err  ErrorHandler // error reporting; or nil
 	mode Mode         // scanning mode
-        
+
 	// scanning state
 	ch         rune // current character
 	offset     int  // character offset
 	readOffset int  // reading offset (position after current character)
 	lineOffset int  // current line offset
-        parenDepth int  // number of nested parentheses
-        context context // scanning context
-        callParenDepths []int // paren detphs of call
-        
-        skipPostLineFeeds bool
+
+	bits    scanbits // scanning context bits
+	bitsv []scanbits // scan bits vector
 
 	// public state - ok to modify
 	ErrorCount int // number of errors encountered
 
-        DontScanComment bool // don't next scanComment
-        Debug bool
+	Debug bool
 }
 
 const bom = 0xFEFF // byte order mark, only permitted as very first character
+
+func (s *Scanner) bitsPush(bits scanbits) {
+	s.bitsv = append(s.bitsv, s.bits)
+	s.bits  = bits
+}
+
+func (s *Scanner) bitsPop(bits scanbits) {
+	if s.bits.is(bits) {
+		if n := len(s.bitsv) - 1; n >= 0 {
+			s.bits  = s.bitsv[  n]
+			s.bitsv = s.bitsv[0:n]
+		} else {
+			s.bits &^= bits
+		}
+		s.bits &^= isFirstOfLine // clear first-of-line bit
+	}
+}
+
+func (s *Scanner) SetBits(bits scanbits) (prev scanbits) {
+	prev = s.bits
+	s.bits = bits
+	return
+}
+
+func (s *Scanner) AddBits(bits scanbits) (prev scanbits) {
+	prev  = s.bits
+	s.bits |= bits
+	return
+}
+
+func (s *Scanner) IsFirstOfLine() bool { return s.bits.isFirstOfLine() }
 
 // Read the next Unicode char into s.ch.
 // s.ch < 0 means end-of-file.
@@ -56,22 +85,9 @@ func (s *Scanner) next() {
 			s.lineOffset = s.offset
 			s.file.AddLine(s.offset)
 		}
-		/*r, w := rune(s.src[s.readOffset]), 1
-		switch {
-		case r == 0:
-			s.error(s.offset, "illegal character NUL")
-		case r >= 0x80:
-			// not ASCII
-			r, w = utf8.DecodeRune(s.src[s.readOffset:])
-			if r == utf8.RuneError && w == 1 {
-				s.error(s.offset, "illegal UTF-8 encoding")
-			} else if r == bom && s.offset > 0 {
-				s.error(s.offset, "illegal byte order mark")
-			}
-		}*/
-                r, w := s.pick(s.readOffset)
+		var w int
+		s.ch, w = s.pick(s.readOffset)
 		s.readOffset += w
-		s.ch = r
 	} else {
 		s.offset = len(s.src)
 		if s.ch == '\n' {
@@ -80,28 +96,35 @@ func (s *Scanner) next() {
 		}
 		s.ch = -1 // eof
 	}
+	if s.bits.isFirstOfLine() && s.ch == '\t' {
+		s.bits |= canBeRecipeTab
+	} else if s.ch == '\n' {
+		s.bits |= isFirstOfLine
+	} else {
+		s.bits &^= isFirstOfLine // clear first-of-line bit
+	}
 }
 
 func (s *Scanner) pickNext() (ch rune, w int) {
 	if n := s.readOffset + 1; n < len(s.src) {
-                ch, w = s.pick(n)
-        }
-        return
+		ch, w = s.pick(n)
+	}
+	return
 }
 
 func (s *Scanner) pick(offset int) (ch rune, w int) {
-        switch ch, w = rune(s.src[offset]), 1; {
-        case ch == 0:
-                s.error(offset, "illegal character NUL")
-        case ch >= 0x80: // Not ASCII!
-                ch, w = utf8.DecodeRune(s.src[offset:])
-                if ch == utf8.RuneError && w == 1 {
-                        s.error(offset, "illegal UTF-8 encoding")
-                } else if ch == bom && offset > 0 {
-                        s.error(offset, "illegal byte order mark")
-                }
-        }
-        return
+	switch ch, w = rune(s.src[offset]), 1; {
+	case ch == 0:
+		s.error(offset, "illegal character NUL")
+	case ch >= 0x80: // Not ASCII!
+		ch, w = utf8.DecodeRune(s.src[offset:])
+		if ch == utf8.RuneError && w == 1 {
+			s.error(offset, "illegal UTF-8 encoding")
+		} else if ch == bom && offset > 0 {
+			s.error(offset, "illegal byte order mark")
+		}
+	}
+	return
 }
 
 // An ErrorHandler may be provided to Scanner.Init. If a syntax error is
@@ -115,23 +138,33 @@ type ErrorHandler func(pos token.Position, msg string)
 // They control scanner behavior.
 //
 type Mode uint
-type context uint
+type scanbits uint
+func (bits scanbits) isCompoundLine() bool { return bits&isCompoundLine != 0 }
+func (bits scanbits) isCompoundString() bool { return bits&isCompoundString != 0 }
+func (bits scanbits) isCompoundCallIdent() bool { return bits&isCompoundCallIdent != 0 }
+func (bits scanbits) isCompoundCallParen() bool { return bits&isCompoundCallParen != 0 }
+func (bits scanbits) isCompoundCallBrace() bool { return bits&isCompoundCallBrace != 0 }
+func (bits scanbits) isCompoundCallColonL() bool { return bits&isCompoundCallColonL != 0 }
+func (bits scanbits) isCompoundCallColonR() bool { return bits&isCompoundCallColonR != 0 }
+func (bits scanbits) isCommentsOff() bool { return bits&NoComments != 0 }
+func (bits scanbits) isFirstOfLine() bool { return bits&isFirstOfLine != 0 }
+func (bits scanbits) canBeRecipe()   bool { return bits&canBeRecipes != 0 && bits&canBeRecipeTab != 0 }
+func (bits scanbits) is(t scanbits)  bool { return bits&t != 0 }
 
 const (
-	ScanComments    Mode = 1 << iota // return comments as COMMENT tokens
-)
-
-const (
-        isCompoundLine    context = 1 << iota
-        isCompoundString    // "...."
-        isCompoundCallIdent // $.....
-        isCompoundCallParen // $(...)
-        isCompoundCallBrace // ${...}
-        isCompoundCallColonL // $:....
-        isCompoundCallColonR // $:...:
-        isCallColonL
-        isCallColonR
-        isCompoundCallColon = isCompoundCallColonL | isCompoundCallColonR
+	isCompoundLine    scanbits = 1 << iota // 1
+	isCompoundString     // "...."            2
+	isCompoundCallIdent  // $.....            4
+	isCompoundCallParen  // $(...)            8
+	isCompoundCallBrace  // ${...}            16
+	isCompoundCallColonL // $:....            32
+	isCompoundCallColonR // $:...:            64
+	isCompoundGroup      // (...)             128
+	isFirstOfLine
+	canBeRecipes
+	canBeRecipeTab
+	skipPostLineFeeds // TODO
+	NoComments // don't scan comments, '#' will be treat as HASH token
 )
 
 // Init prepares the scanner s to tokenize the text src by setting the
@@ -164,12 +197,8 @@ func (s *Scanner) Init(file *token.File, src []byte, err ErrorHandler, mode Mode
 	s.offset = 0
 	s.readOffset = 0
 	s.lineOffset = 0
-        s.parenDepth = 0
-        s.callParenDepths = []int{}
-        s.context = 0
-        
-        s.skipPostLineFeeds = false
-        
+	s.bits = 0
+
 	s.ErrorCount = 0
 
 	s.next()
@@ -178,12 +207,12 @@ func (s *Scanner) Init(file *token.File, src []byte, err ErrorHandler, mode Mode
 	}
 }
 
-func (s *Scanner) LeaveCompoundLineContext() {
-        s.context &= ^isCompoundLine
-}
+func (s *Scanner) LeaveCompoundLineContext() { s.bitsPop(isCompoundLine) }
+func (s *Scanner) TrunRecipesOn()  { s.bits  |= canBeRecipes }
+func (s *Scanner) TurnRecipesOff() { s.bits &^= canBeRecipes }
 
 func (s *Scanner) IsCompoundLineContext() bool {
-        return s.context&isCompoundLine != 0
+	return s.bits&isCompoundLine != 0
 }
 
 func (s *Scanner) error(offs int, msg string) {
@@ -193,71 +222,47 @@ func (s *Scanner) error(offs int, msg string) {
 	s.ErrorCount++
 }
 
-// func (s *Scanner) isUselessWhitespace(lf bool) bool {
-//         return s.ch == ' ' || s.ch == '\r' || 
-//                 (s.ch == '\t' && s.lineOffset < s.offset) || 
-//                 (s.ch == '\n' && (s.lineOffset == s.offset || s.skipPostLineFeeds /*|| s.parenDepth > 0*/ || lf)) ||
-//                 (s.ch == '\\' && s.readOffset < len(s.src) && s.src[s.readOffset] == '\n')
-// }
-
+/*
 func (s *Scanner) skipUselessWhitespace(lf bool) {
-	/*for s.isUselessWhitespace(lf) {
-                if s.ch == '\\' {
-                        s.next()
-                }
+skip:
+	for s.readOffset < len(s.src) {
+		switch s.ch {
+		default: break skip
+		case ' ', '\r': s.next()
+		case '\t':
+			if s.lineOffset < s.offset {
+				s.next()
+			} else {
+				break skip
+			}
+		case '\\':
+			if s.next(); s.ch == '\n' { // continual line
+				if i := s.offset+1; i < len(s.src) && s.src[i] == '\n' {
+					break skip // Avoid skipping \\\n\n
+				}
+				if s.bits&isCompoundLine == 0 {
+					s.next() // Eat the '\n'
+					// Eat tabs after a continual
+					for s.ch == '\t' { s.next() }
+				} else {
+					// preserves the '\n'
+					break skip
+				}
+			} else {
+				// TODO: escape character
+				s.next()//; break skip
+			}
+		}
+	}
+}*/
+
+func (s *Scanner) scanComment() (res string) {
+	for s.ch == ' '  || s.ch == '\t' { s.next() } // skip preceding spaces
+	for s.ch != '\n' && s.ch != -1 {
+		res += string(s.ch)
 		s.next()
-	}*/
-        skip: for s.readOffset < len(s.src) {
-                switch s.ch {
-                default: break skip
-                case ' ', '\r': s.next()
-                case '\n':
-                        if s.lineOffset == s.offset || s.skipPostLineFeeds /*|| s.parenDepth > 0*/ || lf {
-                                s.next()
-                        } else {
-                                break skip
-                        }
-                case '\t':
-                        if s.lineOffset < s.offset {
-                                s.next()
-                        } else {
-                                break skip
-                        }
-                case '\\':
-                        if s.next(); s.ch == '\n' { // continual line
-                                if i := s.offset+1; i < len(s.src) && s.src[i] == '\n' {
-                                        break skip // Avoid skipping \\\n\n 
-                                }
-                                //fmt.Printf("\\: %v %s\n", (s.context&isCompoundLine), string(s.src[s.offset:s.offset+20]))
-                                if s.context&isCompoundLine == 0 {
-                                        s.next() // Eat the '\n'
-                                        // Eat tabs after a continual
-                                        for s.ch == '\t' { s.next() }
-                                } else {
-                                        // preserves the '\n'
-                                        break skip
-                                }
-                        } else {
-                                // TODO: escape character
-                                s.next()//; break skip
-                        }
-                }
-        }
-        s.skipPostLineFeeds = false
-}
-
-func (s *Scanner) scanComment() string {
-	// initial '#' already consumed
-	offs := s.offset - 1 // position of initial '#'
-
-        for s.ch != '\n' && s.ch >= 0 { s.next() }
-
-        if offs == s.lineOffset {
-                // comment starts at the beginning of the current line
-                //s.interpretLineComment(s.src[offs:s.offset])
-        }
-
-	return string(s.src[offs:s.offset])
+	}
+	return
 }
 
 func isLetter(ch rune) bool {
@@ -270,142 +275,133 @@ func isDigit(ch rune) bool {
 
 // punctuation used as non-terminator
 func isUntermPunct(ch rune) bool {
-        // Most chars accepted in URI (RFC3986)
-        return ch == '-' || ch == '+' || ch == '@' /*|| ch == '.' || ch == '/'*/;
+	// Most chars accepted in URI (RFC3986)
+	return ch == '-' || ch == '+' || ch == '@' /*|| ch == '.' || ch == '/'*/;
 }
 
 func isDatetimeTerminator(ch rune) bool {
-        return  ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || 
-                ch == '(' || ch == ')' || ch == '{' || ch == '}' || 
-                ch == '$' || ch == '#' || ch == '\\'
+	return  ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' ||
+		ch == '(' || ch == ')' || ch == '{' || ch == '}' ||
+		ch == '$' || ch == '#' || ch == '\\'
 }
 
 func (s *Scanner) scanIdentifier() string {
-        // first char is letter (ensured)
+	// first char is letter (ensured)
 	offs := s.offset
 	Loop: for isLetter(s.ch) || isDigit(s.ch) || isUntermPunct(s.ch) /*|| s.ch == '\\'*/ {
-                /* if ident && (isUntermPunct(s.ch) || s.ch == '\\') {
+		/* if ident && (isUntermPunct(s.ch) || s.ch == '\\') {
                         ident = false
                 } */
-                switch {
-                /*case s.ch == '-' && ch == '>': // ->
+		switch {
+		/*case s.ch == '-' && ch == '>': // ->
                         break*/
-                /*case s.ch == '\\':
+		/*case s.ch == '\\':
                         switch s.next(); s.ch {
-                        case '\n': break loop
-                        default:
+		            case '\n': break loop
+		            default:
 				s.error(s.offset-1, fmt.Sprintf("illegal ident escape %#U", s.ch))
                                 break loop
                         }*/
-                default:
-                        switch s.next(); s.ch { // Accept one char here.
-                        case '-': // Looking at SELECT operators, need to stop at '->'
-                                if n := s.offset + 1; n < len(s.src) {
-                                        // No need UTF8 decoding!
-                                        if ch := rune(s.src[n]); ch == '>' {
-                                                break Loop
-                                        }
-                                }
-                        }
-                }
+		default:
+			switch s.next(); s.ch { // Accept one char here.
+			case '-': // Looking at SELECT operators, need to stop at '->'
+				if n := s.offset + 1; n < len(s.src) {
+					// No need UTF8 decoding!
+					if ch := rune(s.src[n]); ch == '>' {
+						break Loop
+					}
+				}
+			}
+		}
 	}
 	return string(s.src[offs:s.offset])
 }
 
 func (s *Scanner) scanCompoundString() (tok token.Token, lit string) {
 	offs := s.offset
-        switch s.ch {
-        case '\\':
-                if s.next(); s.scanEscape('"') {
-                        tok, lit = token.ESCAPE, string(s.src[offs+1:s.offset])
-                        //s.next() // escape
-                        return
-                } else {
-                        tok, lit = token.ILLEGAL, string(s.src[offs:s.offset])
-                        s.error(s.offset-1, fmt.Sprintf("illegal compound escape %#U", s.ch))
-                        s.next() // discard
-                        return
-                }
-        case '"':
-                tok = token.COMPOSED
-                s.context &= ^isCompoundString
-                s.next() // take the ending '"'
-                return
-        case '\n': // compound string terminated by line feed (mistake)
-                tok = token.LINEND
-                s.context &= ^isCompoundString
-                s.next() // take the ending '\n'
-                return
-        case '&', '$': // Escapes '&', '$', but '&&' or '$$' is not escaped.
-                if n := s.offset+1; n < len(s.src) && rune(s.src[n]) == s.ch {
-                        s.next() //! The first & or $
-                        s.next() //! The second & or $
-                        tok, lit = token.RAW, string(s.src[offs:s.offset])
-                } else if s.ch == '$' {
-                        tok = token.DELEGATE // escape to do token.DELEGATE
-                } else {
-                        tok = token.CLOSURE // escape to do token.CLOSURE
-                }
-                return
-        }
-        LoopChar: for s.readOffset < len(s.src) {
-                switch s.ch {
-                case '\\', '$', '&', '"', '\n':
-                        // just break it out, further scanning will decide escape
-                        break LoopChar
-                default:
-                        s.next()
-                }
-        }
-        tok, lit = token.RAW, string(s.src[offs:s.offset])
+	switch s.ch {
+	case '\\':
+		if s.next(); s.scanEscape('"') {
+			tok, lit = token.ESCAPE, string(s.src[offs+1:s.offset])
+			//s.next() // escape
+			return
+		} else {
+			tok, lit = token.ILLEGAL, string(s.src[offs:s.offset])
+			s.error(s.offset-1, fmt.Sprintf("illegal compound escape %#U", s.ch))
+			s.next() // discard
+			return
+		}
+	case '"':
+		tok = token.COMPOSED
+		s.bitsPop(isCompoundString) //s.bits &= ^isCompoundString
+		s.next() // take the ending '"'
+		return
+	case '\n': // compound string terminated by line feed (mistake)
+		tok = token.LINEND
+		s.bitsPop(isCompoundString) //s.bits &= ^isCompoundString
+		s.next() // take the ending '\n'
+		return
+	case '&', '$': // Escapes '&', '$', but '&&' or '$$' is not escaped.
+		if n := s.offset+1; n < len(s.src) && rune(s.src[n]) == s.ch {
+			s.next() //! The first & or $
+			s.next() //! The second & or $
+			tok, lit = token.RAW, string(s.src[offs:s.offset])
+		} else if s.ch == '$' {
+			tok = token.DELEGATE // escape to do token.DELEGATE
+		} else {
+			tok = token.CLOSURE // escape to do token.CLOSURE
+		}
+		return
+	}
+LoopChar:
+	for s.readOffset < len(s.src) {
+		switch s.ch {
+		case '\\', '$', '&', '"', '\n':
+			// just break it out, further scanning will decide escape
+			break LoopChar
+		default:
+			s.next()
+		}
+	}
+	tok, lit = token.RAW, string(s.src[offs:s.offset])
 	return 
 }
 
 func (s *Scanner) scanCompoundLine() (tok token.Token, lit string) {
 	offs := s.offset
-        switch s.ch {
-        case '\\':
-                /* switch s.next(); s.ch {
-                case '\n', '"':
-                        tok, lit = token.ESCAPE, string(s.ch)
-                        s.next() // escape
-                        return
-                default:
-                        tok, lit = token.ILLEGAL, string(s.ch)
-                        s.error(s.offset-1, fmt.Sprintf("illegal line escape %#U", s.ch))
-                        s.next() // discard
-                        return
-                } */
-                s.next()
-                tok, lit = token.ESCAPE, string(s.ch)
-                s.next() // skip escaped character
-                return
-        case '\n':
-                tok = token.LINEND
-                s.context &= ^isCompoundLine
-                s.next() // take the line-end
-                return
-        case '&', '$': // Escapes '&', '$', but '&&' and '$$' is not escaped.
-                if n := s.offset+1; n < len(s.src) && rune(s.src[n]) == s.ch {
-                        s.next() //! The first & or $
-                        s.next() //! The second & or $
-                        tok, lit = token.RAW, string(s.src[offs:s.offset])
-                } else if s.ch == '$' {
-                        tok = token.DELEGATE // escape to do token.DELEGATE
-                } else {
-                        tok = token.CLOSURE // escape to do token.CLOSURE
-                }
-                return
-        }
-        LoopChar: for s.ch != '\n' && s.readOffset < len(s.src){
-                switch s.ch {
-                case '\\', '$', '&':
-                        // just break it out, further scanning will decide
-                        break LoopChar
-                default:
-                        s.next()
-                }
-        }
+	switch s.ch {
+	case '\\':
+		s.next() // eat \
+		tok, lit = token.ESCAPE, string(s.ch)
+		s.next() // skip escaped character
+		return
+	case '\n':
+		tok = token.LINEND
+		s.bitsPop(isCompoundLine) //s.bits &= ^isCompoundLine
+		s.next() // take the line-end
+		return
+	case '&', '$': // Escapes '&', '$', but '&&' and '$$' is not escaped.
+		if n := s.offset+1; n < len(s.src) && rune(s.src[n]) == s.ch {
+			s.next() //! The first & or $
+			s.next() //! The second & or $
+			tok, lit = token.RAW, string(s.src[offs:s.offset])
+		} else if s.ch == '$' {
+			tok = token.DELEGATE // escape to do token.DELEGATE
+		} else {
+			tok = token.CLOSURE // escape to do token.CLOSURE
+		}
+		return
+	}
+LoopChar:
+	for s.ch != '\n' && s.readOffset < len(s.src){
+		switch s.ch {
+		case '\\', '$', '&':
+			// just break it out, further scanning will decide
+			break LoopChar
+		default:
+			s.next()
+		}
+	}
 	return token.RAW, string(s.src[offs:s.offset])
 }
 
@@ -424,164 +420,164 @@ func digitVal(ch rune) int {
 func (s *Scanner) scanMantissa(base int) {
 	if digitVal(s.ch) < base { // first digit
 		s.next()
-                for s.ch == '_' || digitVal(s.ch) < base {
-                        if s.ch == '_' {
-                                if s.next(); s.ch == '_' {
-                                        s.error(s.offset-1, "invalid digit group")
-                                        break
-                                }
-                        } else {
-                                s.next()
-                        }
-                }
+		for s.ch == '_' || digitVal(s.ch) < base {
+			if s.ch == '_' {
+				if s.next(); s.ch == '_' {
+					s.error(s.offset-1, "invalid digit group")
+					break
+				}
+			} else {
+				s.next()
+			}
+		}
 	}
 }
 
 func (s *Scanner) scanDatetime() (tok token.Token) {
-        var (
-                ch byte
-                hasDate = false
-                hasTime = false
-                o = s.offset
-                l = len(s.src)
-        )
-        if x := l-o; 8 <= x {
-                for i := 0; i < 2; i++ {
-                        if ch = s.src[o+i]; ch < '0' || '9' < ch {
-                                goto exit
-                        }
-                }
-                if s.src[o+2] == ':' || s.src[o+5] == ':' {
-                        hasTime = true; goto checkTime
-                }
-                if s.src[o+4] == '-' || s.src[o+7] == '-' && 10 <= x {
-                        hasDate = true; goto checkDate
-                }
-        }
+	var (
+		ch byte
+		hasDate = false
+		hasTime = false
+		o = s.offset
+		l = len(s.src)
+	)
+	if x := l-o; 8 <= x {
+		for i := 0; i < 2; i++ {
+			if ch = s.src[o+i]; ch < '0' || '9' < ch {
+				goto exit
+			}
+		}
+		if s.src[o+2] == ':' || s.src[o+5] == ':' {
+			hasTime = true; goto checkTime
+		}
+		if s.src[o+4] == '-' || s.src[o+7] == '-' && 10 <= x {
+			hasDate = true; goto checkDate
+		}
+	}
 
-        goto exit
+	goto exit
 
 checkDate:
-        // 4 digits fullyear (first two digit already checked)
-        for i := 2; i < 4; i++ {
-                if ch = s.src[o+i]; ch < '0' || '9' < ch {
-                        goto exit
-                }
-        }
+	// 4 digits fullyear (first two digit already checked)
+	for i := 2; i < 4; i++ {
+		if ch = s.src[o+i]; ch < '0' || '9' < ch {
+			goto exit
+		}
+	}
 
-        // month range is 01-12
-        if ch = s.src[o+5]; ch != '0' && ch != '1' {
-                s.error(o+5, "bad month"); goto exit
-        }
-        if ch = s.src[o+6]; ch < '0' || '9' < ch {
-                s.error(o+6, "bad month"); goto exit
-        }
-        
-        // month-day range is 01-28, 01-29, 01-30, 01-31 based on month/year
-        if ch = s.src[o+8]; ch < '0' && '3' < ch {
-                s.error(o+8, "bad month day"); goto exit
-        }
-        if ch = s.src[o+9]; ch < '0' || '9' < ch {
-                s.error(o+9, "bad month day"); goto exit
-        }
-        
-        if o += 10; o == l {
-                goto success // 1979-05-27
-        } else if ch = s.src[o]; isDatetimeTerminator(rune(ch)) {
-                goto success // 1979-05-27
-        } 
+	// month range is 01-12
+	if ch = s.src[o+5]; ch != '0' && ch != '1' {
+		s.error(o+5, "bad month"); goto exit
+	}
+	if ch = s.src[o+6]; ch < '0' || '9' < ch {
+		s.error(o+6, "bad month"); goto exit
+	}
 
-        if ch == 'T' || ch == 't' {
-                o += 1 // consume 'T'
-                hasTime = true
-        } else {
-                s.error(o, "bad time"); goto exit
-        }
+	// month-day range is 01-28, 01-29, 01-30, 01-31 based on month/year
+	if ch = s.src[o+8]; ch < '0' && '3' < ch {
+		s.error(o+8, "bad month day"); goto exit
+	}
+	if ch = s.src[o+9]; ch < '0' || '9' < ch {
+		s.error(o+9, "bad month day"); goto exit
+	}
 
-        if l-o < 9 || s.src[o+2] != ':' || s.src[o+5] != ':' {
-                s.error(o, "illegal time"); goto exit
-        }
+	if o += 10; o == l {
+		goto success // 1979-05-27
+	} else if ch = s.src[o]; isDatetimeTerminator(rune(ch)) {
+		goto success // 1979-05-27
+	}
+
+	if ch == 'T' || ch == 't' {
+		o += 1 // consume 'T'
+		hasTime = true
+	} else {
+		s.error(o, "bad time"); goto exit
+	}
+
+	if l-o < 9 || s.src[o+2] != ':' || s.src[o+5] != ':' {
+		s.error(o, "illegal time"); goto exit
+	}
 
 checkTime:
-        // hour range is 00-23
-        if ch = s.src[o+0]; ch < '0' || '2' < ch {
-                s.error(o+0, "bad hour"); goto exit
-        }
-        if ch = s.src[o+1]; ch < '0' || '9' < ch || ('3' < ch && s.src[o] == '2') {
-                s.error(o+1, "bad hour"); goto exit
-        }
+	// hour range is 00-23
+	if ch = s.src[o+0]; ch < '0' || '2' < ch {
+		s.error(o+0, "bad hour"); goto exit
+	}
+	if ch = s.src[o+1]; ch < '0' || '9' < ch || ('3' < ch && s.src[o] == '2') {
+		s.error(o+1, "bad hour"); goto exit
+	}
 
-        // minute range is 00-59
-        if ch = s.src[o+3]; ch < '0' || '5' < ch {
-                s.error(o+3, "bad minute"); goto exit
-        }
-        if ch = s.src[o+4]; ch < '0' || '9' < ch {
-                s.error(o+4, "bad minute"); goto exit
-        }
-        
-        // second ranges are 00-59 00-58, 00-59, 00-60 based on leap second rules
-        if ch = s.src[o+6]; ch < '0' || '5' < ch {
-                s.error(o+6, "bad second"); goto exit
-        }
-        if ch = s.src[o+7]; ch < '0' || '9' < ch {
-                s.error(o+7, "bad second"); goto exit
-        }
+	// minute range is 00-59
+	if ch = s.src[o+3]; ch < '0' || '5' < ch {
+		s.error(o+3, "bad minute"); goto exit
+	}
+	if ch = s.src[o+4]; ch < '0' || '9' < ch {
+		s.error(o+4, "bad minute"); goto exit
+	}
 
-        if ch = s.src[o+8]; isDatetimeTerminator(rune(ch)) {
-                o += 8; goto success // consume 00:00:00
-        } else if ch == 'Z' || ch == 'z' {
-                o += 9; goto success // consume 00:00:00Z
-        } else if ch == '.' {
-                for o += 9; o < l; o++ {// consume 00:00:00.
-                        if ch = s.src[o]; ch == 'Z' || ch == 'z' {
-                                o += 1; goto success // consume 'Z'
-                        } else if isDatetimeTerminator(rune(ch)) {
-                                goto success
-                        } else if ch == '+' || ch == '-' {
-                                o += 1; goto checkNumOffset // consume '+' or '-'
-                        } else if ch < '0' || '9' < ch {
-                                s.error(o, "bad secfrac"); goto exit
-                        }
-                }
-        } else if ch == '+' || ch == '-' {
-                o += 9; goto checkNumOffset // consume 00:00:00+
-        } else {
-                s.error(o, "bad time"); goto exit
-        }
+	// second ranges are 00-59 00-58, 00-59, 00-60 based on leap second rules
+	if ch = s.src[o+6]; ch < '0' || '5' < ch {
+		s.error(o+6, "bad second"); goto exit
+	}
+	if ch = s.src[o+7]; ch < '0' || '9' < ch {
+		s.error(o+7, "bad second"); goto exit
+	}
+
+	if ch = s.src[o+8]; isDatetimeTerminator(rune(ch)) {
+		o += 8; goto success // consume 00:00:00
+	} else if ch == 'Z' || ch == 'z' {
+		o += 9; goto success // consume 00:00:00Z
+	} else if ch == '.' {
+		for o += 9; o < l; o++ {// consume 00:00:00.
+			if ch = s.src[o]; ch == 'Z' || ch == 'z' {
+				o += 1; goto success // consume 'Z'
+			} else if isDatetimeTerminator(rune(ch)) {
+				goto success
+			} else if ch == '+' || ch == '-' {
+				o += 1; goto checkNumOffset // consume '+' or '-'
+			} else if ch < '0' || '9' < ch {
+				s.error(o, "bad secfrac"); goto exit
+			}
+		}
+	} else if ch == '+' || ch == '-' {
+		o += 9; goto checkNumOffset // consume 00:00:00+
+	} else {
+		s.error(o, "bad time"); goto exit
+	}
 
 checkNumOffset:
-        if ch = s.src[o+2]; ch != ':' {
-                s.error(o+2, "bad offset"); goto exit
-        }
-        
-        // hour range is 00-23
-        if ch = s.src[o+0]; ch < '0' || '2' < ch {
-                s.error(o+0, "bad hour"); goto exit
-        }
-        if ch = s.src[o+1]; ch < '0' || '9' < ch || ('3' < ch && s.src[o] == '2') {
-                s.error(o+1, "bad hour"); goto exit
-        }
+	if ch = s.src[o+2]; ch != ':' {
+		s.error(o+2, "bad offset"); goto exit
+	}
 
-        // minute range is 00-59
-        if ch = s.src[o+3]; ch < '0' || '5' < ch {
-                s.error(o+3, "bad minute"); goto exit
-        }
-        if ch = s.src[o+4]; ch < '0' || '9' < ch {
-                s.error(o+4, "bad minute"); goto exit
-        }
+	// hour range is 00-23
+	if ch = s.src[o+0]; ch < '0' || '2' < ch {
+		s.error(o+0, "bad hour"); goto exit
+	}
+	if ch = s.src[o+1]; ch < '0' || '9' < ch || ('3' < ch && s.src[o] == '2') {
+		s.error(o+1, "bad hour"); goto exit
+	}
 
-        o += 5 // consume 00:00
+	// minute range is 00-59
+	if ch = s.src[o+3]; ch < '0' || '5' < ch {
+		s.error(o+3, "bad minute"); goto exit
+	}
+	if ch = s.src[o+4]; ch < '0' || '9' < ch {
+		s.error(o+4, "bad minute"); goto exit
+	}
+
+	o += 5 // consume 00:00
 
 success:
-        for i := s.offset; i < o; i++ { s.next() }
-        switch {
-        case hasDate && hasTime: tok = token.DATETIME
-        case hasDate && !hasTime: tok = token.DATE
-        case !hasDate && hasTime: tok = token.TIME
-        default: tok = token.ILLEGAL
-        }
+	for i := s.offset; i < o; i++ { s.next() }
+	switch {
+	case hasDate && hasTime: tok = token.DATETIME
+	case hasDate && !hasTime: tok = token.DATE
+	case !hasDate && hasTime: tok = token.TIME
+	default: tok = token.ILLEGAL
+	}
 exit:
-        return
+	return
 }
 
 func (s *Scanner) scanNumber(seenDecimalPoint bool) (token.Token, string) {
@@ -596,10 +592,10 @@ func (s *Scanner) scanNumber(seenDecimalPoint bool) (token.Token, string) {
 		goto exponent
 	}
 
-        if t := s.scanDatetime(); t != token.ILLEGAL {
-                tok = t; goto exit
-        }
-        
+	if t := s.scanDatetime(); t != token.ILLEGAL {
+		tok = t; goto exit
+	}
+
 	if s.ch == '0' {
 		// int or float
 		offs := s.offset
@@ -608,7 +604,7 @@ func (s *Scanner) scanNumber(seenDecimalPoint bool) (token.Token, string) {
 			// binary int
 			s.next()
 			s.scanMantissa(2)
-                        tok = token.BIN
+			tok = token.BIN
 			if s.offset-offs <= 2 {
 				// only scanned "0b" or "0B"
 				s.error(offs, "illegal binary number")
@@ -617,7 +613,7 @@ func (s *Scanner) scanNumber(seenDecimalPoint bool) (token.Token, string) {
 			// hexadecimal int
 			s.next()
 			s.scanMantissa(16)
-                        tok = token.HEX
+			tok = token.HEX
 			if s.offset-offs <= 2 {
 				// only scanned "0x" or "0X"
 				s.error(offs, "illegal hexadecimal number")
@@ -630,7 +626,7 @@ func (s *Scanner) scanNumber(seenDecimalPoint bool) (token.Token, string) {
 				// illegal octal int or float
 				seenDecimalDigit = true
 				s.scanMantissa(10)
-                        }
+			}
 			if s.ch == '.' || s.ch == 'e' || s.ch == 'E' || s.ch == 'i' {
 				goto fraction
 			}
@@ -638,27 +634,27 @@ func (s *Scanner) scanNumber(seenDecimalPoint bool) (token.Token, string) {
 			if seenDecimalDigit {
 				s.error(offs, "illegal octal number")
 			}
-                        if s.offset-offs > 1 {
-                                tok = token.OCT
-                        } else {
-                                tok = token.INT // just '0'
-                        }
+			if s.offset-offs > 1 {
+				tok = token.OCT
+			} else {
+				tok = token.INT // just '0'
+			}
 		}
 		goto exit
 	}
 
-        // decimal int or float
-        s.scanMantissa(10)
+	// decimal int or float
+	s.scanMantissa(10)
 
 fraction:
 	if s.ch == '.' {
-                if n := s.offset+2; n < len(s.src) {
-                        if ch := rune(s.src[n]); /*unicode.IsSpace(ch) { // 1. -> FLOAT 1.0
+		if n := s.offset+2; n < len(s.src) {
+			if ch := rune(s.src[n]); /*unicode.IsSpace(ch) { // 1. -> FLOAT 1.0
                                 // do nothing here
                         } else if*/ !isDigit(ch) { // 1.o -> INT 1    DOT .    STRING o
-                                goto exit
-                        }
-                }
+				goto exit
+			}
+		}
 		tok = token.FLOAT
 		s.next()
 		s.scanMantissa(10)
@@ -674,7 +670,7 @@ exponent:
 		s.scanMantissa(10)
 	}
 
-        /*
+	/*
 	if s.ch == 'i' {
 		tok = token.IMAG
 		s.next()
@@ -687,7 +683,7 @@ exit:
 func (s *Scanner) scanRawString(ml bool) string {
 	// '\'' opening already consumed
 	offs := s.offset - 1
-        if ml { offs -= 1 }
+	if ml { offs -= 1 }
 
 	for s.readOffset < len(s.src) {
 		ch := s.ch
@@ -695,16 +691,16 @@ func (s *Scanner) scanRawString(ml bool) string {
 			s.error(offs, "raw string literal not terminated")
 			break
 		}
-                if ch == '\\' { s.next() } // escapes
+		if ch == '\\' { s.next() } // escapes
 		s.next()
 		if ch == '\'' { 
-                        if !ml { break }
-                        if s.ch == '\'' {                                
-                                if s.next(); s.ch == '\'' {
-                                        s.next()
-                                        break
-                                }
-                        }
+			if !ml { break }
+			if s.ch == '\'' {
+				if s.next(); s.ch == '\'' {
+					s.next()
+					break
+				}
+			}
 		}
 	}
 
@@ -731,8 +727,8 @@ func (s *Scanner) scanEscape(quote rune) bool {
 	case 'U':
 		s.next()
 		n, base, max = 8, 16, unicode.MaxRune
-        case '\n':
-                s.next()
+	case '\n':
+		s.next()
 	default:
 		msg := "unknown escape sequence"
 		if s.ch < 0 {
@@ -769,9 +765,9 @@ func (s *Scanner) scanEscape(quote rune) bool {
 func (s *Scanner) scanString(ml bool) string {
 	// '"' opening already consumed
 	offs := s.offset - 1
-        if ml {
-                offs -= 1
-        }
+	if ml {
+		offs -= 1
+	}
 
 	for s.readOffset < len(s.src) {
 		ch := s.ch
@@ -780,22 +776,22 @@ func (s *Scanner) scanString(ml bool) string {
 			break
 		}
 		s.next()
-                if ch == '"' {
-                        if !ml {
-                                break
-                        }
-                        if s.ch == '"' {
-                                if s.next(); s.ch == '"' {
-                                        s.next()
-                                        break
-                                }
-                        }
-                }
+		if ch == '"' {
+			if !ml {
+				break
+			}
+			if s.ch == '"' {
+				if s.next(); s.ch == '"' {
+					s.next()
+					break
+				}
+			}
+		}
 		switch ch {
-                case '\\':
+		case '\\':
 			s.scanEscape('"')
-                case '$':
-                        //
+		case '$':
+			//
 		}
 	}
 
@@ -806,355 +802,303 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 	// current token start
 	pos = s.file.Pos(s.offset)
 
-        //fmt.Printf("scan: [%v], %s (%v), %v, %v\n", s.context, string(s.ch), s.ch, s.offset, len(s.src))
+	if s.offset >= len(s.src) || s.ch == -1 {
+		tok = token.EOF; return
+	} else if s.bits.isCompoundLine() {
+		switch tok, lit = s.scanCompoundLine(); tok {
+		case token.DELEGATE, token.CLOSURE: break
+		default: return
+		}
+	} else if s.bits.isCompoundString() {
+		switch tok, lit = s.scanCompoundString(); tok {
+		case token.DELEGATE, token.CLOSURE: break
+		default: return
+		}
+	} else if /*s.offset == s.lineOffset*/false {
+		// remove line preceeding spaces
+		//s.skipUselessWhitespace(true)
+		if s.ch == -1 || s.offset == len(s.src) {
+			tok = token.EOF
+			return
+		}
+	}
 
-        if s.offset >= len(s.src) || s.ch == -1 {
-                tok = token.EOF; return
-        } else if s.context&(isCompoundLine|isCompoundString) != 0 {
-                // FIXME: this plain compound failed!
-                // 
-                //yaml:[((name port hosts)) (plain yaml)]
-                //	$(indent 4,$(join 'names:',$(names),"\n- "))
-                //
-                if s.context&(isCompoundCallIdent|isCompoundCallParen|isCompoundCallBrace|isCompoundCallColon) == 0 {
-                        switch {
-                        case s.context&isCompoundLine != 0:
-                                tok, lit = s.scanCompoundLine()
-                        case s.context&isCompoundString != 0:
-                                tok, lit = s.scanCompoundString()
-                        }
-                        switch tok {
-                        case token.DELEGATE, token.CLOSURE:
-                                // escape from '$', '&'
-                        case token.COMPOSED:
-                                // skip spaces after composing: "..."
-                                skip: for s.readOffset < len(s.src) {
-                                        switch s.ch {
-                                        default: break skip
-                                        case ' ', '\t': s.next()
-                                        case '\\': 
-                                                if s.next(); s.ch == '\n' {
-                                                        s.next()
-                                                } else {
-                                                        // TODO: escape???
-                                                }
-                                        }
-                                }
-                                return
-                        default:
-                                return
-                        }
-                }
-        }
-
-        // remove line preceeding spaces
-        if s.offset == s.lineOffset && s.context&(isCompoundLine|isCompoundString) != 0 {
-                s.skipUselessWhitespace(true)
-        }
-
-        // determine token value
-	switch ch := s.ch; {
-	case isLetter(ch):
+	if isLetter(s.ch) {
 		lit = s.scanIdentifier()
 		if len(lit) > 1 {
 			switch tok = token.Lookup(lit); {
-                        case tok == token.BAREWORD || tok.IsKeyword():
-                                // ...
-                        default:
+			case tok == token.BAREWORD || tok.IsKeyword():
+				// ...
+			default:
 				s.error(s.offset, "unexpected token '"+tok.String()+"'")
 			}
-                } else {
-                        tok = token.BAREWORD
-                }
-                if s.context&isCompoundCallIdent != 0 {
-                        s.context &= ^isCompoundCallIdent
-                }
-	case '0' <= ch && ch <= '9':
-                tok, lit = s.scanNumber(false)
-        case ch == -1 && s.offset == len(s.src):
-                tok = token.EOF
-        default:
-                s.next() // always progress to the next
-                switch ch {
-                case '#':
-                        tok = token.COMMENT
-                        if !s.DontScanComment {
-                                lit = s.scanComment()
-                                s.next() // discard '\n'
-                        }
-                case '@':
-                        tok = token.AT
-                case '|':
-                        tok = token.BAR
-                case '!':
-                        tok = token.EXC
-                        if s.ch == '=' {
-                                tok = token.EXC_ASSIGN
-                                s.next()
-                        }
-                case '?':
-                        tok = token.QUE
-                        if s.ch == '=' {
-                                tok = token.QUE_ASSIGN
-                                s.next()
-                        }
-                case '%':
-                        tok = token.PERC
-                case '+':
-                        tok = token.PLUS
-                        if s.ch == '=' {
-                                tok = token.ADD_ASSIGN
-                                s.next()
-                        }
-                case '→': // different from ' → '
-                        tok = token.SELECT_PROP
-                case '-':
-                        if s.ch == '-' { // "-->" => "-", "->"
-                                if s.readOffset < len(s.src) && s.src[s.readOffset] == '>' {
-                                        tok, lit = token.BAREWORD, "-"
-                                } else {
-                                        tok = token.MINUS
-                                }
-                        } else if s.ch == '=' { // -=
-                                tok = token.SUB_ASSIGN
-                                s.next()
-                                if s.ch == '+' { // -=+
-                                        tok = token.SSH_ASSIGN
-                                        s.next()
-                                }
-                        } else if s.ch == '+' { // -+
-                                s.next()
-                                if s.ch == '=' { // -+=
-                                        tok = token.SAD_ASSIGN
-                                        s.next()
-                                } else {
-                                        tok = token.ILLEGAL
-                                }
-                        } else if s.ch == '>' {
-                                tok = token.SELECT_PROP
-                                s.next()
-                                //s.skipPostLineFeeds = true
-                        } else if '0' <= s.ch && s.ch <= '9' {
-                                tok, lit = s.scanNumber(false)
-                                lit = "-" + lit // minus number
-                        } else {
-                                tok = token.MINUS
-                        }
-                case '/':
-                        tok = token.PCON
-                        /*
-                case '\\':
-                        fmt.Fprintf(stderr, "escape:%s %s\n", string(ch), string(s.ch))
-                        if s.ch == '\n' {
-                                goto scanAgain
-                        } */
-                case '\'':
-                        tok = token.STRING
-                        if s.ch == '\'' {
-                                s.next()
-                                if s.ch == '\'' { // '''
-                                        lit = s.scanRawString(true)
-                                } else if offs := s.offset - 2; false {
-                                        lit = string(s.src[offs:s.offset])
-                                } else {
-                                        lit = "" // empty string ''
-                                }
-                        } else {
-                                lit = s.scanRawString(false)
-                        }
-                case '"':
-                        if s.context&isCompoundString != 0 {
-                                tok = token.COMPOSED
-                                s.context &= ^isCompoundString
-                                s.next() // take the ending '"'
-                        } else {
-                                tok = token.COMPOUND
-                                s.context |= isCompoundString
-                        }
-                        
-                case '*':
-                        tok = token.STAR
-                case '$', '&':
-                        isDelegate := ch == '$'
-                        tok, ch = token.CLOSURE, rune(s.src[s.readOffset-1])
-                        switch {
-                        case ch == '/': tok = token.CLOSURE_R
-                        case ch == '.': tok = token.CLOSURE_D
-                        case ch == '@': tok = token.CLOSURE_A
-                        case ch == '|': tok = token.CLOSURE_B
-                        case ch == '<': tok = token.CLOSURE_L
-                        case ch == '^': tok = token.CLOSURE_U
-                        case ch == '*': tok = token.CLOSURE_S
-                        case ch == '-': tok = token.CLOSURE_M
-                        case ch == '+': tok = token.CLOSURE_P
-                        case ch == '?': tok = token.CLOSURE_Q
-                        case ch == '1': tok = token.CLOSURE_1
-                        case ch == '2': tok = token.CLOSURE_2
-                        case ch == '3': tok = token.CLOSURE_3
-                        case ch == '4': tok = token.CLOSURE_4
-                        case ch == '5': tok = token.CLOSURE_5
-                        case ch == '6': tok = token.CLOSURE_6
-                        case ch == '7': tok = token.CLOSURE_7
-                        case ch == '8': tok = token.CLOSURE_8
-                        case ch == '9': tok = token.CLOSURE_9
-                        case ch == '_': tok = token.CLOSURE__
-                        }
-                        if token.CLOSURE < tok {
-                                lit = string(ch)
-                                s.next() // eat special
-                        } else if s.context&(isCompoundString|isCompoundLine) != 0 {
-                                switch ch {
-                                case '(':
-                                        s.callParenDepths = append(s.callParenDepths, s.parenDepth)
-                                        s.context |= isCompoundCallParen
-                                case '{':
-                                        s.context |= isCompoundCallBrace
-                                case ':':
-                                        s.context |= isCompoundCallColonL
-                                default:
-                                        s.context |= isCompoundCallIdent
-                                }
-                        } else if ch == ':' {
-                                s.context |= isCallColonL
-                        }
-                        if isDelegate {
-                                tok = token.Token(token.DELEGATE + (tok - token.CLOSURE))
-                        }
-                case '(':
-                        tok = token.LPAREN
-                        s.skipPostLineFeeds = true
-                        s.parenDepth++
-                case ')':
-                        if s.parenDepth == 0 {
-				s.error(s.offset-2, "unexpected right parenthesis")
-                        } else {
-                                tok = token.RPAREN
-                                s.parenDepth--
-                        }
-                        if s.context&isCompoundCallParen != 0 {
-                                var (
-                                        l = len(s.callParenDepths)
-                                        callDepth = s.callParenDepths[l-1]
-                                )
-                                if  s.parenDepth == callDepth {
-                                        s.callParenDepths = s.callParenDepths[0:l-1]
-                                        if l == 1 {
-                                                s.context &= ^isCompoundCallParen
-                                        }
-                                }
-                        }
-                case '⇒': // =>
-                        tok = token.SELECT_PROG1
-                case '⇢': // ~>
-                        tok = token.SELECT_PROG2
-                case '=':
-                        if s.ch == '>' { // =>
-                                tok = token.SELECT_PROG1
-                                s.next() // concume the '>'
-                        } else if s.ch == '+' {
-                                tok = token.SHI_ASSIGN
-                                s.next()
-                        } else {
-                                tok = token.ASSIGN
-                        }
-                case '\n':
-                        /* if s.parenDepth == 0 {
-                                tok = token.LINEND
-                        } else {
-                                // ..
-                        } */
-                        tok = token.LINEND
-                        s.context &= ^isCompoundLine
-                case '\t':
-                        if s.lineOffset == s.offset-1 {
-                                tok, lit = token.RECIPE, string(ch)
-                                s.context |= isCompoundLine
-                        } else {
-				s.error(s.offset-2, "unexpected tab")
-                        }
-                case ',':
-                        tok = token.COMMA
-                        s.skipPostLineFeeds = true
-                case '~':
-                        if s.ch == '>' { // ~>
-                                tok = token.SELECT_PROG2
-                                s.next() // concume the '>'
-                        } else {
-                                tok = token.TILDE
-                                s.skipPostLineFeeds = false
-                        }
-                case '.':
-                        if tok = token.DOT; s.ch == '.' {
-                                tok = token.DOTDOT
-                                s.next()
-                        } else if isDigit(s.ch) {
-                                if n := s.offset-2; n > -1 && unicode.IsSpace(rune(s.src[n])) { // skip xxx.1 
-                                        tok, lit = s.scanNumber(true)
-                                        /*if s.offset < len(s.src) && !unicode.IsSpace(rune(s.src[s.offset])) {
-                                                tok = token.STRING
-                                        }*/
-                                }
-                        }
-                        //s.skipPostLineFeeds = true
-                //case '⩵':
-                //case '⩶':
-                case '≔':
-                        tok = token.SCO_ASSIGN
-                case '⩴':
-                        tok = token.DCO_ASSIGN
-                case ':':
-                        if s.ch == '=' {
-                                tok = token.SCO_ASSIGN
-                                s.next() // consume '='
-                        } else if s.context&isCallColonL != 0 {
-                                tok = token.LCOLON
-                                s.context &^= isCallColonL
-                                s.context  |= isCallColonR
-                        } else if s.context&isCallColonR != 0 {
-                                tok = token.RCOLON
-                                s.context &^= isCallColonR
-                        } else if s.context&isCompoundCallColonL != 0 {
-                                tok = token.LCOLON
-                                s.context &^= isCompoundCallColonL
-                                s.context  |= isCompoundCallColonR
-                        } else if s.context&isCompoundCallColonR != 0 {
-                                tok = token.RCOLON
-                                s.context &= ^isCompoundCallColonR
-                        } else if s.ch == ':' {
-                                tok = token.COLON2
-                                s.next() // consume the second ':'
-                                if s.ch == '=' {
-                                        tok = token.DCO_ASSIGN
-                                        s.next() // consume '='
-                                }
-                        } else {
-                                tok = token.COLON
-                        }
-                case ';':
-                        tok = token.SEMICOLON
-                        //s.skipPostLineFeeds = true
-                case '[':
-                        tok = token.LBRACK
-                case ']':
-                        tok = token.RBRACK
-                case '{':
-                        tok = token.LBRACE
-                case '}':
-                        tok = token.RBRACE
-                        s.context &= ^isCompoundCallBrace
-                default:
-			// next reports unexpected BOMs - don't repeat
-			if ch != bom {
-				s.error(s.file.Offset(pos), fmt.Sprintf("illegal character %#U", ch))
-			}
-			tok = token.ILLEGAL
-			lit = string(ch)
-                }
+		} else {
+			tok = token.BAREWORD
+		}
+		if s.bits&isCompoundCallIdent != 0 {
+			s.bitsPop(isCompoundCallIdent)//s.bits &= ^isCompoundCallIdent
+		}
+		//s.skipUselessWhitespace(false)
+		return
 	}
 
-        // eat consequence spaces
-        if s.context&(isCompoundLine|isCompoundString) == 0 || s.context&(isCompoundCallParen|isCompoundCallBrace|isCompoundCallColon) != 0 {
-                s.skipUselessWhitespace(false)
-        }
+	if '0' <= s.ch && s.ch <= '9' {
+		tok, lit = s.scanNumber(false)
+		return
+	}
+
+	// determine token value
+	var ch = s.ch
+	switch s.next(); ch {
+	case '#':
+		if s.bits.isCommentsOff() {
+			tok = token.HASH
+			lit = string(ch)
+		} else {
+			tok = token.COMMENT
+			lit = s.scanComment()
+			s.next() // discard '\n'
+		}
+	case '@':
+		tok = token.AT
+	case '|':
+		tok = token.BAR
+	case '!':
+		tok = token.EXC
+		if s.ch == '=' {
+			tok = token.EXC_ASSIGN
+			s.next()
+		}
+	case '?':
+		tok = token.QUE
+		if s.ch == '=' {
+			tok = token.QUE_ASSIGN
+			s.next()
+		}
+	case '%':
+		tok = token.PERC
+	case '+':
+		tok = token.PLUS
+		if s.ch == '=' {
+			tok = token.ADD_ASSIGN
+			s.next()
+		}
+	case '→': // different from ' → '
+		tok = token.SELECT_PROP
+	case '-':
+		if s.ch == '-' { // "-->" => "-", "->"
+			if s.readOffset < len(s.src) && s.src[s.readOffset] == '>' {
+				tok, lit = token.BAREWORD, "-"
+			} else {
+				tok = token.MINUS
+			}
+		} else if s.ch == '=' { // -=
+			tok = token.SUB_ASSIGN
+			s.next()
+			if s.ch == '+' { // -=+
+				tok = token.SSH_ASSIGN
+				s.next()
+			}
+		} else if s.ch == '+' { // -+
+			s.next()
+			if s.ch == '=' { // -+=
+				tok = token.SAD_ASSIGN
+				s.next()
+			} else {
+				tok = token.ILLEGAL
+			}
+		} else if s.ch == '>' {
+			tok = token.SELECT_PROP
+			s.next()
+		} else if '0' <= s.ch && s.ch <= '9' {
+			tok, lit = s.scanNumber(false)
+			lit = "-" + lit // minus number
+		} else {
+			tok = token.MINUS
+		}
+	case '/':
+		tok = token.PCON
+	case '\\':
+		tok, lit = token.ESCAPE, string(s.ch)
+		s.next() // eat escaped char
+	case '\'':
+		tok = token.STRING
+		if s.ch == '\'' {
+			s.next()
+			if s.ch == '\'' { // '''
+				lit = s.scanRawString(true)
+			} else if offs := s.offset - 2; false {
+				lit = string(s.src[offs:s.offset])
+			} else {
+				lit = "" // empty string ''
+			}
+		} else {
+			lit = s.scanRawString(false)
+		}
+	case '"':
+		if s.bits&isCompoundString != 0 {
+			tok = token.COMPOSED
+			s.bitsPop(isCompoundString) //s.bits &= ^isCompoundString
+			s.next() // take the ending '"'
+		} else {
+			tok = token.COMPOUND
+			s.bitsPush(isCompoundString) //s.bits |= isCompoundString
+		}
+
+	case '*':
+		tok = token.STAR
+	case '$', '&':
+		isDelegate := ch == '$'
+		tok, ch = token.CLOSURE, rune(s.src[s.readOffset-1])
+		switch {
+		case ch == '/': tok = token.CLOSURE_R
+		case ch == '.': tok = token.CLOSURE_D
+		case ch == '@': tok = token.CLOSURE_A
+		case ch == '|': tok = token.CLOSURE_B
+		case ch == '<': tok = token.CLOSURE_L
+		case ch == '^': tok = token.CLOSURE_U
+		case ch == '*': tok = token.CLOSURE_S
+		case ch == '-': tok = token.CLOSURE_M
+		case ch == '+': tok = token.CLOSURE_P
+		case ch == '?': tok = token.CLOSURE_Q
+		case ch == '1': tok = token.CLOSURE_1
+		case ch == '2': tok = token.CLOSURE_2
+		case ch == '3': tok = token.CLOSURE_3
+		case ch == '4': tok = token.CLOSURE_4
+		case ch == '5': tok = token.CLOSURE_5
+		case ch == '6': tok = token.CLOSURE_6
+		case ch == '7': tok = token.CLOSURE_7
+		case ch == '8': tok = token.CLOSURE_8
+		case ch == '9': tok = token.CLOSURE_9
+		case ch == '_': tok = token.CLOSURE__
+		}
+		if token.CLOSURE < tok {
+			lit = string(ch)
+			s.next() // eat special
+		} else {
+			var bits scanbits
+			switch ch {
+			case '(': bits = isCompoundCallParen
+			case '{': bits = isCompoundCallBrace
+			case ':': bits = isCompoundCallColonL
+			default:  bits = isCompoundCallIdent
+			}
+			s.bitsPush(bits)
+		}
+		if isDelegate {
+			tok = token.Token(token.DELEGATE + (tok - token.CLOSURE))
+		}
+	case '(':
+		tok, lit = token.LPAREN, string(ch)
+		if s.bits&isCompoundCallParen == 0 {
+			s.bitsPush(isCompoundGroup)
+		}
+	case ')':
+		tok, lit = token.RPAREN, string(ch)
+		s.bitsPop(isCompoundGroup|isCompoundCallParen)
+	case '⇒': // =>
+		tok = token.SELECT_PROG1
+	case '⇢': // ~>
+		tok = token.SELECT_PROG2
+	case '=':
+		if s.ch == '>' { // =>
+			tok = token.SELECT_PROG1
+			s.next() // concume the '>'
+		} else if s.ch == '+' {
+			tok = token.SHI_ASSIGN
+			s.next()
+		} else {
+			tok = token.ASSIGN
+		}
+	case '\n':
+		tok = token.LINEND
+		s.bitsPop(isCompoundLine)
+	case '\t':
+		if s.bits.canBeRecipe() && (s.lineOffset == s.offset-1) && !s.bits.is(
+			isCompoundCallParen|isCompoundCallBrace|isCompoundCallColonL|isCompoundCallColonR|
+			isCompoundGroup,
+		) {
+			tok, lit = token.RECIPE, string(ch)
+			s.bitsPush(isCompoundLine)
+		} else {
+			tok, lit = token.SPACE, string(ch)
+			for s.ch == '\t' || s.ch == ' ' {
+				lit += string(s.ch)
+				s.next()
+			}
+		}
+	case ' ':
+		tok, lit = token.SPACE, string(ch)
+		for s.ch == '\t' || s.ch == ' ' {
+			lit += string(s.ch)
+			s.next()
+		}
+		return
+	case ',':
+		tok = token.COMMA
+	case '~':
+		if s.ch == '>' { // ~>
+			tok = token.SELECT_PROG2
+			s.next() // concume the '>'
+		} else {
+			tok = token.TILDE
+		}
+	case '.':
+		if tok = token.DOT; s.ch == '.' {
+			tok = token.DOTDOT
+			s.next()
+		} else if isDigit(s.ch) {
+			if n := s.offset-2; n > -1 && unicode.IsSpace(rune(s.src[n])) { // skip xxx.1
+				tok, lit = s.scanNumber(true)
+			}
+		}
+	case '≔':
+		tok = token.SCO_ASSIGN
+	case '⩴':
+		tok = token.DCO_ASSIGN
+	case ':':
+		if s.ch == '=' {
+			tok = token.SCO_ASSIGN
+			s.next() // consume '='
+		} else if s.bits.isCompoundCallColonR() {
+			tok = token.RCOLON
+			s.bitsPop(isCompoundCallColonL|isCompoundCallColonR)
+		} else if s.bits.isCompoundCallColonL() {
+			tok = token.LCOLON
+			s.bits |= isCompoundCallColonR
+		} else if s.ch == ':' {
+			tok = token.COLON2
+			s.next() // consume the second ':'
+			if s.ch == '=' {
+				tok = token.DCO_ASSIGN
+				s.next() // consume '='
+			}
+		} else {
+			tok = token.COLON
+		}
+	case ';':
+		tok = token.SEMICOLON
+	case '[':
+		tok = token.LBRACK
+	case ']':
+		tok = token.RBRACK
+	case '{':
+		tok = token.LBRACE
+	case '}':
+		tok = token.RBRACE
+		s.bitsPop(isCompoundCallBrace) //s.bits &= ^isCompoundCallBrace
+	default:
+		// next reports unexpected BOMs - don't repeat
+		if ch != bom {
+			s.error(s.file.Offset(pos), fmt.Sprintf("illegal character %#U", ch))
+		}
+		tok = token.ILLEGAL
+		lit = string(ch)
+	}
+
+	// eat consequence spaces
+	if /*s.bits.is(isCompoundLine|isCompoundString|isCompoundCallParen|isCompoundCallBrace|isCompoundCallColon)*/false {
+		//s.skipUselessWhitespace(false)
+	}
 	return
 }

@@ -346,6 +346,10 @@ func (ctx *Context) loadwork() (err error) {
   } else if args = ctx.loader.loadText("@", text); err != nil {
     // ...
   } else if args, err = tryParseFlags(args, []string{
+    /* TODO: using struct and field tags: */
+    /* type struct { */
+    /*   optionHelp string `h,help` */
+    /* } */
     "h,help",
     "d,debug",
     "d,print-stack",
@@ -417,7 +421,7 @@ func (ctx *Context) loadwork() (err error) {
   } (time.Now())
   if optionVerboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
 
-  if err = ctx.loader.loadPath(base, nil); err != nil { return }
+  if !ctx.loader.loadPath(base, nil) { return }
   if ctx.loader.globe.main == nil { fmt.Fprintf(stderr, "nothing loaded\n") }
   return
 }
@@ -503,9 +507,7 @@ func CommandLine() {
   context.globe = NewGlobe("smart")
   context.flagEntries = make(map[string][]*RuleEntry)
 
-  if err := init_configuration(packagePaths); err != nil {
-    if diag.checkErrors(true) > 0 { return } //report(err)
-  } else if err = context.loadwork(); err != nil {
+  if err := context.loadwork(); err != nil {
     if diag.checkErrors(true) > 0 { return } //report(err)
   } else if optionHelp {
     do_helpscreen()

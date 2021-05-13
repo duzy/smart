@@ -4296,19 +4296,20 @@ func EscapeChar(s string) string {
         return s
 }
 
+func MakeNil(pos Position) Value { return &Nil{trivial{pos}} }
 func MakeAnswer(pos Position, v bool) (res Value) {
         if v {
-                res = &boolean{trivial{pos},true}
+                res = &answer{trivial{pos},true}
         } else {
-                res = &boolean{trivial{pos},false}
+                res = &answer{trivial{pos},false}
         }
         return
 }
 func MakeBoolean(pos Position, v bool) (res Value) {
         if v {
-                res = &answer{trivial{pos},true}
+                res = &boolean{trivial{pos},true}
         } else {
-                res = &answer{trivial{pos},false}
+                res = &boolean{trivial{pos},false}
         }
         return
 }
@@ -4340,6 +4341,7 @@ func MakeURL(pos Position, s *url.URL) *URL {
                 Fragment: &String{trivial{pos},s.Fragment},
         }
 }
+func MakeBareword(pos Position, word string) *Bareword { return &Bareword{trivial{pos},word} }
 func MakeBarecomp(pos Position, elems... Value) *Barecomp { return &Barecomp{trivial{pos},elements{elems}} }
 func MakeCompound(pos Position, elems... Value) *Compound { return &Compound{trivial{pos},elements{elems}} }
 func MakeList(pos Position, elems... Value) *List { return &List{elements{elems}} }

@@ -254,6 +254,7 @@ type Project struct {
   keyword  token.Token // project, package, module
 
   self *ProjectName // $:self:
+  configure *Project // .configure
 
   changedWD string
 	absPath string
