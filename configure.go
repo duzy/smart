@@ -10,8 +10,8 @@ import (
         "extbit.io/smart/scanner"
         "extbit.io/smart/token"
         "path/filepath"
-        "unicode/utf8"
-        "unicode"
+        //"unicode/utf8"
+        //"unicode"
         //"hash/crc64"
         "io/ioutil"
         "strings"
@@ -170,256 +170,12 @@ func configurationFileName(p *Project) (s string, err error) {
 }
 
 func configPrintf(pos Position, str string, args... interface{}) {
-        var debug bool
-        /*if o := configuration.scope.Lookup("DEBUG"); o != nil {
-                debug, _ = o.True()
-        }*/
-        if debug { str = fmt.Sprintf("%v:info: %s", pos, str) }
         fmt.Fprintf(stderr, str, args...)
 }
 
 func configMessageDone(pos Position, str string, args... interface{}) {
         if !strings.HasSuffix(str, "\n") { str += "\n" }
         configPrintf(pos, str, args...)
-}
-
-func configPrintMessageHead(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
-        var s string
-        if name, ok := fields["name"]; ok {
-                str = "Checking"
-                if s, err = name.Strval(); err != nil { return }
-                if str += " " + s; len(args) > 1 { str += "s" }
-        }
-        for i, a := range args {
-                if s, err = a.Strval(); err != nil { return }
-                str += " "
-                if i == 0 { str += "(" }
-                str += s
-                if i == len(args)-1 { str += ")" }
-        }
-        str += " …"
-        return
-}
-
-var configMessageHeadPrinters = map[string] func(Position, map[string]Value, ...Value) (string, error) {
-        "if":       configPrintMessageHead,
-        "option":   configPrintMessageHead,
-        "compiles": configPrintMessageHead,
-        "library": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
-                // Examples:
-                //   -library(foo,func,include='<foo.h>')
-                //   -library(foo,func)
-                //   -library(foobar)
-                // TODO: using this form instead:
-                //   -library(foo [,function=func] [,include='<foo.h>']...)
-                var libs = args[1:]
-                var s string
-                s, err = libs[0].Strval()
-                if err != nil { return }
-                str += "Checking library " + s
-                if len(libs) > 1 {
-                        s, err = libs[1].Strval()
-                        if err != nil { return }
-                        str += " (" + s
-                        for _, lib := range libs[2:] {
-                                if p, ok := lib.(*Pair); ok {
-                                        s, err = p.Key.Strval()
-                                        if err != nil { return }
-                                        if s == "include" {
-                                                s, err = p.Value.Strval()
-                                                if err != nil { return }
-                                                str += ", #include " + s
-                                        }
-                                }
-                        }
-                        str += ")"
-                }
-                str += " …"
-                return
-        },
-        "include": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
-                var s string
-                var incs = args[1:]
-                if len(incs) > 0 {
-                        s, err = incs[0].Strval()
-                        if err != nil { return }
-                } else {
-                        s, err = args[0].Strval()
-                        if err != nil { return }
-                }
-                str += "Checking include " + s
-                str += " …"
-                return
-        },
-        "symbol": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
-                var syms = args[1:]
-                var s string
-                s, err = syms[0].Strval()
-                if err != nil { return }
-                str += "Checking symbol " + s
-                if len(syms) > 1 {
-                        s, err = syms[1].Strval()
-                        if err != nil { return }
-                        str += " (" + s
-                        for _, lib := range syms[2:] {
-                                if p, ok := lib.(*Pair); ok {
-                                        s, err = p.Key.Strval()
-                                        if err != nil { return }
-                                        switch s {
-                                        case "include":
-                                                s, err = p.Value.Strval()
-                                                if err != nil { return }
-                                                str += ", #include " + s
-                                        case "library":
-                                                s, err = p.Value.Strval()
-                                                if err != nil { return }
-                                                str += ", -l" + s
-                                        }
-                                }
-                        }
-                        str += ")"
-                }
-                str += " …"
-                return
-        },
-        "function": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
-                var funcs = args[1:]
-                var s string
-                s, err = funcs[0].Strval()
-                if err != nil { return }
-                str += "Checking function " + s
-                if len(funcs) > 1 {
-                        s, err = funcs[1].Strval()
-                        if err != nil { return }
-                        str += " (" + s
-                        for _, lib := range funcs[2:] {
-                                if p, ok := lib.(*Pair); ok {
-                                        s, err = p.Key.Strval()
-                                        if err != nil { return }
-                                        switch s {
-                                        case "include":
-                                                s, err = p.Value.Strval()
-                                                if err != nil { return }
-                                                str += ", #include " + s
-                                        case "library":
-                                                s, err = p.Value.Strval()
-                                                if err != nil { return }
-                                                str += ", -l" + s
-                                        }
-                                }
-                        }
-                        str += ")"
-                }
-                str += " …"
-                return
-        },
-        "struct-member": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
-                // Examples:
-                //   -struct-member('struct stat',st_mtimespec.tv_nsec,include=('<sys/types.h>','<sys/stat.h>'))
-                var mems = args[1:]
-                var s string
-                if len(mems) > 1 {
-                        s, err = mems[0].Strval()
-                        if err != nil { return }
-                        str += "Checking (" + s + ") " // struct member
-
-                        s, err = mems[1].Strval()
-                        if err != nil { return }
-                        str += s
-                }
-                if len(mems) > 2 {
-                        str += " ("
-                        for _, val := range mems[3:] {
-                                if p, ok := val.(*Pair); ok {
-                                        s, err = p.Key.Strval()
-                                        if err != nil { return }
-                                        switch s {
-                                        case "include":
-                                                s, err = p.Value.Strval()
-                                                if err != nil { return }
-                                                str += ", #include " + s
-                                        case "library":
-                                                s, err = p.Value.Strval()
-                                                if err != nil { return }
-                                                str += ", -l" + s
-                                        }
-                                }
-                        }
-                        str += ")"
-                }
-                str += " …"
-                return
-        },
-        "type": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
-                var typs = args[1:]
-                var s string
-                s, err = typs[0].Strval()
-                if err != nil { return }
-                str += "Checking type " + s
-                if len(typs) > 1 {
-                        s, err = typs[1].Strval()
-                        if err != nil { return }
-                        str += " (" + s
-                        for _, lib := range typs[2:] {
-                                if p, ok := lib.(*Pair); ok {
-                                        s, err = p.Key.Strval()
-                                        if err != nil { return }
-                                        switch s {
-                                        case "include":
-                                                s, err = p.Value.Strval()
-                                                if err != nil { return }
-                                                str += ", #include " + s
-                                        }
-                                }
-                        }
-                        str += ")"
-                }
-                str += " …"
-                return
-        },
-        "sizeof": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
-                var syms = args[1:]
-                var s string
-                str += "Checking size of "
-                for _, sym := range syms {
-                        s, err = sym.Strval()
-                        if err != nil { return }
-                        str += s
-                }
-                str += " …"
-                return
-        },
-        "package": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
-                if len(args) > 2 {
-                        return configPrintMessageHead(pos, fields, args[2])
-                } else {
-                        return configPrintMessageHead(pos, fields, args[0])
-                }
-        },
-}
-
-func configMessageHead(pos Position, op string, fields map[string]Value, params ...Value) (err error) {
-        var ( s string; str = "configure: " )
-        if v, ok := fields["info"]; ok {
-                if l, ok := v.(*List); ok && len(l.Elems) > 0 { v = l.Elems[0] }
-                if s, err = v.Strval(); err == nil && len(s) > 0 {
-                        r, size := utf8.DecodeRuneInString(s)
-                        if size > 0 && unicode.IsUpper(r) {
-                                str += s
-                        } else {
-                                str += "Checking " + s
-                        }
-                        str += " …"
-                        configPrintf(pos, str)
-                }
-        } else {
-                f, ok := configMessageHeadPrinters[op]
-                if!ok { f = configPrintMessageHead }
-                if s, err = f(pos, fields, params...); err != nil { return }
-                str += s
-                configPrintf(pos, str)
-        }
-        return
 }
 
 // -dump
@@ -493,7 +249,7 @@ func configurePackage(pos Position, t *traversal, def *Def, fields map[string]Va
                 switch a := arg.(type) {
                 case *Pair:
                         var key, val string
-                        if key, err = a.Key.Strval(); err != nil { return }
+                        if key, err = a.Key.Strval();   err != nil { return }
                         if val, err = a.Value.Strval(); err != nil { return }
                         switch key {
                         case "type":
@@ -565,7 +321,6 @@ func configureExec(pos Position, t *traversal, s string, target Value, paramsOri
                 return
         }
 
-        var breakers []*breaker
         if false { defer setclosure(setclosure(cloctx.unshift(t.program.scope))) }
         if false { fmt.Fprintf(stderr, "%v: configureExec(%v %v): %v, %v\n", pos, entry, t.entry, paramsOrig, cloctx) }
 
@@ -574,8 +329,8 @@ func configureExec(pos Position, t *traversal, s string, target Value, paramsOri
         for _, par := range prog.params {
                 switch par.name {
                 case "TARGET": params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
-                case "LANG": params = append(params, MakePair(pos, MakeBareword(pos, "LANG"), MakeString(pos, t.program.language)))
-                case "VALUE": params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"), t.def.buffer))
+                case "LANG":   params = append(params, MakePair(pos, MakeBareword(pos, "LANG"), MakeString(pos, t.program.language)))
+                case "VALUE":  params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"), t.def.buffer))
                 }
                 for _, a := range paramsOrig {
                         if ap, ok := a.(*Pair); ok {
@@ -595,26 +350,24 @@ func configureExec(pos Position, t *traversal, s string, target Value, paramsOri
                         }
                 }
         }
+
+        defer func(v bool) { t.isConfigureExecution = false } (t.isConfigureExecution)
+        t.isConfigureExecution = true
+
+        var breakers []*breaker
         if result, breakers = prog.execute(t, entry, params); len(breakers) > 0 {
-                diag.errorAt(pos, "execution failed (%d breakers)", len(breakers))
-        }
-        if false { fmt.Fprintf(stderr, "%v: configureExec(%v %v): %v (%T), %v\n", pos, entry, t.entry, result, result, err) }
-
-        var status int
-        if err == nil { configured = true } else {
-                var n int
-                if n, status = scanExitStatus(err); n == 1 {
-                        configured = true
+                for i, brk := range breakers {
+                        if brk.what == breakErro {
+                                fmt.Fprintf(stderr, "%s: %d: %v\n", pos, i, brk.error)
+                        } else {
+                                fmt.Fprintf(stderr, "%s: %d: %v\n", pos, i, brk.what)
+                        }
                 }
+        } else if false {
+                fmt.Fprintf(stderr, "%s: %s: %v (%T)\n", pos, entry, result, result)
         }
 
-        if optionTraceConfig {
-                t_config.tracef("result=%v, status=%d, configured=%v, error=%v", result, status, configured, err!=nil)
-                if err != nil { fmt.Fprintf(stderr, "%v\n", err) }
-        }
-
-        if status == 0 { err = nil } else
-        if err != nil { diag.errorAt(pos, "%v", err) }
+        configured = true
         return
 }
 
@@ -623,7 +376,7 @@ func configureDo(pos Position, t *traversal, target Value, def, name Value, args
 
         var pipe = t.def.buffer
         var strName string
-        if strName, err = name.Strval(); err != nil {
+        if  strName, err = name.Strval(); err != nil {
                 diag.errorAt(pos, "%v: %v", name, err)
                 return
         } else if strName == "" {
@@ -656,32 +409,21 @@ ForArgs:
         var defsChanged = make(map[*Def]Value)
         defer func() {
                 for def, val := range defsChanged { def.value = val }
-
-                var t bool
-                if err == nil && result != nil { t, err = result.True() }
-                if err == nil && t && configured && !isNil(pipe.value) /*&& !isNone(pipe.value)*/ {
-                        /*switch strName { case "program-stdout", "program-stderr":
-                                if false { fmt.Fprintf(stderr, "%s: %v %v\n", pos, result, pipe.value) }
-                                result = pipe.value
-                        }*/
-                }
-                if err == nil {
-                        if result == nil {
-                                configMessageDone(pos, "… <nil>")
-                        } else if false {
-                                s := elementString(nil, result, elemExpand)
-                                configMessageDone(pos, "… %v", s)
+                if err != nil {
+                        if e, ok := err.(*scanner.Error); ok {
+                                configMessageDone(pos, "… (%v).", e.Brief())
                         } else {
-                                s, _ := result.Strval()
-                                configMessageDone(pos, "… %v", s)
+                                configMessageDone(pos, "… (%v).", err)
                         }
                         return
+                } else if result == nil {
+                        configMessageDone(pos, "… <nil>")
+                } else {
+                        var s string
+                        if  s, _ = result.Strval(); s == "" { s = "?" }
+                        configMessageDone(pos, "… %v", s)
                 }
-                switch e := err.(type) {
-                case *scanner.Error: configMessageDone(pos, "… (%v)", e.Brief())
-                default: configMessageDone(pos, "… (%v).", err)
-                }
-        } ()
+         } ()
 
         if isNil(info) {
                 configPrintf(pos, "configure: %v %v …", target, args)
@@ -806,20 +548,20 @@ ForConfig:
                 switch arg := a.(type) {
                 case *Argumented:
                         if flag, okay := arg.value.(*Flag); !okay {
-                                diag.errorOf(a, "`%v` is unsupported\n", arg.value)
+                                diag.errorOf(a, "`%v` is unsupported value (%T)\n", arg.value, arg.value)
                                 return
                         } else {
                                 name, para = flag.name, arg.args
                         }
                 case *Flag:
                         if isNil(arg.name) || isNone(arg.name) {
-                                diag.errorOf(a, "`%v` is unsupported\n", arg.name)
+                                diag.errorOf(a, "`%v` is unsupported flag (%T)\n", arg.name, arg.name)
                                 return
                         } else {
                                 name = arg.name
                         }
                 default:
-                        diag.errorOf(a, "`%v` is unsupported\n", a)
+                        diag.errorOf(a, "`%v` is unsupported (%T)\n", a, a)
                         return
                 }
                 if name == nil {

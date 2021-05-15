@@ -839,6 +839,11 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   log.filename = logFileName
 
   var run = func() {
+    if diag.checkErrors(false) > 0 {
+      fmt.Fprintf(stderr, "%v: still got errors\n", pos)
+      return
+    }
+
     var targetStr string
     defer func(start time.Time) {
       if err == nil { err = stamp(t, target, start, optPrompt) }
@@ -851,6 +856,10 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
           log.writer.Flush()
           logfile.Close()
         }
+      }
+      if t.isConfigureExecution && err != nil {
+        //if true { fmt.Fprintf(stderr, "%v: %v\n", pos, err) }
+        err = nil
       }
       if c := t.caller; c != nil { c.calleeDone(err) }
       if optPrompt {
@@ -873,7 +882,11 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
         }
       }
       exeres.wg.Done()
+
+      //if optSilent { diag.checkErrors(true) }
+      //if optSilent { diag.reset(); err = nil }
     } (time.Now())
+
     if optPrompt {
       targetStr = trimPromptString(targetName)
       if promStr == "" {

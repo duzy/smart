@@ -28,6 +28,7 @@ type Program struct {
         depends []Value // normal
         ordered []Value // order-only
         recipes []Value
+        defaultVal Value
         position Position
         language string
         changedWD string
@@ -37,6 +38,8 @@ type Program struct {
 func (prog *Program) Position() Position { return prog.position }
 func (prog *Program) Project() *Project { return prog.project }
 func (prog *Program) Scope() *Scope { return prog.scope }
+
+func (prog *Program) setDefaultValue(val Value) { prog.defaultVal = val }
 
 func (prog *Program) auto(name string, value Value) (auto *Def, err error) {
         var alt Object
@@ -55,10 +58,7 @@ func (prog *Program) auto(name string, value Value) (auto *Def, err error) {
 }
 
 func (prog *Program) interpret(pos Position, t *traversal, i interpreter, params []Value) (err error) {
-        if optionEnableBenchmarks {
-                s := fmt.Sprintf("Program.interpret(%s)", typeof(i))
-                defer bench(mark(s))
-        }
+        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.interpret(%s)", typeof(i)))) }
 
         for _, e := range t.breakers {
                 if e.what != breakCase { return }
@@ -68,7 +68,7 @@ func (prog *Program) interpret(pos Position, t *traversal, i interpreter, params
 
         var value Value
         if value, err = i.Evaluate(pos, t, params...); err == nil {
-                if value != nil { t.def.buffer.setval(value) }
+                if !isNil(value) { t.def.buffer.setval(value) }
                 _, _, err = t.updateRecipesHash()
         }
 
@@ -87,13 +87,15 @@ func (prog *Program) modify(t *traversal, m *modifier) (err error) {
                 v = append(v[1:], m.args...)
         }
 
+        var isConfigure = name == "configure"
         if f, ok := modifiers[name]; ok {
                 // Special modifier processing (implicit interpretation)
-                if name == "configure" && t.interpreted == nil {
+                if isConfigure && t.interpreted == nil {
                         // Evaluate for configure modifier
                         if i, ok := dialects["eval"]; ok && i != nil {
                                 if err = prog.interpret(m.Position(), t, i, v); err != nil {
-                                        diag.errorAt(m.Position(), "%v", err); return
+                                        diag.errorAt(m.Position(), "%v", err)
+                                        return
                                 }
                         }
                 }
@@ -219,13 +221,15 @@ const maxRecursion  = 16 //32 //64
 func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) (result Value, brks []*breaker) {
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.execute(%s)", entry.target))) }
         if optionEnableBenchspots { defer bench(spot("Program.execute")) }
+
+        var isConfigureExecution bool
+        if caller != nil { isConfigureExecution = caller.isConfigureExecution }
         defer func() {
-                if diag.checkErrors(true) > 0 {
+                if n := diag.checkErrors(true); n > 0 && !isConfigureExecution {
                         brks = append(brks, &breaker{
                                 pos: prog.position, what:breakErro,
-                                error: fmt.Errorf("%v: too many errors", entry),
+                                error: fmt.Errorf("%v: got %d errors", entry, n),
                         })
-                        if false { panic(fmt.Errorf("%v: too many errors", entry)) }
                 }
         } ()
 
@@ -260,6 +264,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 args: args,
                 caller: caller,
                 print: true,
+                isConfigureExecution: isConfigureExecution,
         }
         var ( none = &None{trivial{pos}} ; stem Value = none; f func() ; err error )
         if t.caller != nil {
@@ -304,9 +309,17 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                         file.updated = true
                 }
 
-                result = t.def.buffer.Call(prog.position)
+                if !isNil(t.def.buffer.value) && !isNone(t.def.buffer.value) {
+                        result = t.def.buffer.Call(prog.position)
+                } else if !isNil(prog.defaultVal) {
+                        result = prog.defaultVal
+                }
+                if caller != nil && !isNil(result) {
+                        caller.program.setDefaultValue(result)
+                }
+                prog.setDefaultValue(nil)
+
                 if !(isNil(target) || isNone(target)) && t.caller != nil {
-                        //if s, _ := target.Strval(); strings.Contains(s, "isl_srcdir.") { t.tracef("%v (%v) (%v)", s, t.target0, t.targets) }
                         t.caller.addNewTarget(target)
                 }
         } (setclosure(cloctx.unshift(prog.scope)), prog.project.changedWD)

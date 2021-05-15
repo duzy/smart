@@ -209,6 +209,7 @@ type traversal struct {
 
         breakers []*breaker
         interpreted []interpreter
+        isConfigureExecution bool
 
         print bool // printing work directories (Entering/Leaving)
         debug bool

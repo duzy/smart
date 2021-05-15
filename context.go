@@ -11,6 +11,7 @@ import (
   "path/filepath"
   "strings"
   "bufio"
+  "sync"
   "time"
   "fmt"
   "os"
@@ -77,37 +78,52 @@ func (d *diagnostic) getPosition() Position {
 
 type Diagnostic struct {
   points []*diagnostic
+  m sync.Mutex
 }
 func (diag *Diagnostic) infoOf(value Value, f string, args... interface{}) {
+  diag.m.Lock(); defer diag.m.Unlock()
   diag.points = append(diag.points, &diagnostic{ diagInfo, Position{}, value, fmt.Sprintf(f, args...) })
 }
 func (diag *Diagnostic) warnOf(value Value, f string, args... interface{}) {
+  diag.m.Lock(); defer diag.m.Unlock()
   diag.points = append(diag.points, &diagnostic{ diagWarn, Position{}, value, fmt.Sprintf(f, args...) })
 }
 func (diag *Diagnostic) errorOf(value Value, f string, args... interface{}) {
+  diag.m.Lock(); defer diag.m.Unlock()
   diag.points = append(diag.points, &diagnostic{ diagError, Position{}, value, fmt.Sprintf(f, args...) })
 }
 func (diag *Diagnostic) infoAt(pos Position, f string, args... interface{}) {
+  diag.m.Lock(); defer diag.m.Unlock()
   diag.points = append(diag.points, &diagnostic{ diagInfo, pos, nil, fmt.Sprintf(f, args...) })
 }
 func (diag *Diagnostic) warnAt(pos Position, f string, args... interface{}) {
+  diag.m.Lock(); defer diag.m.Unlock()
   diag.points = append(diag.points, &diagnostic{ diagWarn, pos, nil, fmt.Sprintf(f, args...) })
 }
 func (diag *Diagnostic) errorAt(pos Position, f string, args... interface{}) {
+  diag.m.Lock(); defer diag.m.Unlock()
   diag.points = append(diag.points, &diagnostic{ diagError, pos, nil, fmt.Sprintf(f, args...) })
 }
 func (diag *Diagnostic) info(f string, args... interface{}) {
+  diag.m.Lock(); defer diag.m.Unlock()
   diag.points = append(diag.points, &diagnostic{ diagInfo, Position{}, nil, fmt.Sprintf(f, args...) })
 }
 func (diag *Diagnostic) warn(f string, args... interface{}) {
+  diag.m.Lock(); defer diag.m.Unlock()
   diag.points = append(diag.points, &diagnostic{ diagWarn, Position{}, nil, fmt.Sprintf(f, args...) })
 }
 func (diag *Diagnostic) error(f string, args... interface{}) {
+  diag.m.Lock(); defer diag.m.Unlock()
   diag.points = append(diag.points, &diagnostic{ diagError, Position{}, nil, fmt.Sprintf(f, args...) })
 }
 
+func (diag *Diagnostic) reset() {
+  diag.m.Lock(); defer diag.m.Unlock()
+  diag.points = []*diagnostic{}
+}
 
 func (diag *Diagnostic) checkErrors(reset bool) (num int) {
+  diag.m.Lock(); defer diag.m.Unlock()
   for _, d := range diag.points {
     switch d.dt {
     case diagInfo:  fmt.Fprintf(stderr, "%v:info: %s\n",    d.getPosition(), d.message)
@@ -120,9 +136,7 @@ func (diag *Diagnostic) checkErrors(reset bool) (num int) {
       break
     }
   }
-  if reset {
-    diag.points = []*diagnostic{}
-  }
+  if reset { diag.points = []*diagnostic{} }
   return
 }
 
