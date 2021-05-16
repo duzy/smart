@@ -858,7 +858,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
         }
       }
       if t.isConfigureExecution && err != nil {
-        //if true { fmt.Fprintf(stderr, "%v: %v\n", pos, err) }
+        if false { fmt.Fprintf(stderr, "%v: %v\n", pos, err) }
         err = nil
       }
       if c := t.caller; c != nil { c.calleeDone(err) }

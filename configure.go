@@ -25,9 +25,10 @@ import (
 )
 
 type packagetype uint8
+
 const (
         packageUnknown packagetype = iota
-        packageSmart // smart package
+        packageSmart  // smart package
         packageConfig // pkgconfig
 )
 
@@ -159,9 +160,8 @@ func openConfigurationFile(p *Project) (file *os.File, err error) {
 }
 
 func configurationFileName(p *Project) (s string, err error) {
-        const name = "configuration.sm"
         var pos Position // TODO: find the position
-        if f := p.matchTempFile(pos, name); f != nil {
+        if f := p.matchTempFile(pos, "configuration.sm"); f != nil {
                 s, err = f.Strval()
         } else {
                 fmt.Fprintf(stderr, "%v: no file for configuration.sm\n", p)
@@ -328,9 +328,9 @@ func configureExec(pos Position, t *traversal, s string, target Value, paramsOri
         var prog = entry.programs[0]
         for _, par := range prog.params {
                 switch par.name {
+                case "LANG":   params = append(params, MakePair(pos, MakeBareword(pos, "LANG"),   MakeString(pos, t.program.language)))
                 case "TARGET": params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
-                case "LANG":   params = append(params, MakePair(pos, MakeBareword(pos, "LANG"), MakeString(pos, t.program.language)))
-                case "VALUE":  params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"), t.def.buffer))
+                case "VALUE":  params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"),  t.def.buffer))
                 }
                 for _, a := range paramsOrig {
                         if ap, ok := a.(*Pair); ok {
@@ -571,20 +571,28 @@ ForConfig:
 
                 configured, value, err = configureDo(pos, t, target, def, name, para)
                 if err != nil {
-                        diag.errorAt(pos, "%v", err); return
+                        diag.errorAt(pos, "configure error: %v", err)
+                        return
                 } else if !configured {
-                        diag.warnAt(pos, "%s not configured", name)
+                        diag.errorAt(pos, "%s not configured for %s", name, target)
                         return
                 } else if value == nil {
                         value = MakeNil(a.Position())
                 } else if value, err = value.expand(expandAll); err != nil {
-                        diag.errorOf(a, "%v", err)
-                } else if value == def || value.refs(def) {
+                        diag.errorOf(a, "configured with value error: %v", err)
+                        return
+                }
+
+                if value == def || value.refs(def) {
                         // Value is the Def, does nothing!
                 } else if optAccumulate {
-                        if err = def.append(value);         err != nil { diag.errorOf(a, "%v", err) }
-                } else {
-                        if err = def.set(DefConfig, value); err != nil { diag.errorOf(a, "%v", err) }
+                        if err = def.append(value); err != nil {
+                                diag.errorOf(a, "value accumulate error: %v", err)
+                                return
+                        }
+                } else if err = def.set(DefConfig, value); err != nil {
+                        diag.errorOf(a, "set config value error: %v", err)
+                        return
                 }
 
                 if err == nil { configuration.done[def] = true }

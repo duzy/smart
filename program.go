@@ -222,8 +222,10 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.execute(%s)", entry.target))) }
         if optionEnableBenchspots { defer bench(spot("Program.execute")) }
 
-        var isConfigureExecution bool
-        if caller != nil { isConfigureExecution = caller.isConfigureExecution }
+        var isConfigureExecution bool = prog.configure
+        if !isConfigureExecution && caller != nil {
+                isConfigureExecution = caller.isConfigureExecution
+        }
         defer func() {
                 if n := diag.checkErrors(true); n > 0 && !isConfigureExecution {
                         brks = append(brks, &breaker{
