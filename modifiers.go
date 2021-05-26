@@ -1973,20 +1973,26 @@ func modifierWait(pos Position, t *traversal, args... Value) (result Value, err 
                 optStdout bool
                 optStderr bool
                 optStatus bool
+                optTrim bool // trim heading and tailing spaces of the result
                 optExecRes bool
+                optAsType string
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
         if args, err = parseFlags(args, []string{
+                "a,as",
                 "o,stdout",
                 "e,stderr",
                 "s,status",
+                "t,trim",
                 "x,exec",
                 "v,verbose",
         }, func(ru rune, v Value) {
                 switch ru {
+                case 'a': if optAsType,  err = v.Strval(      ); err != nil { diag.errorOf(v, "%v", err); return }
                 case 'o': if optStdout , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
                 case 'e': if optStderr , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
                 case 's': if optStatus , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
+                case 't': if optTrim   , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
                 case 'x': if optExecRes, err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
                 case 'v': if optVerbose, err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
                 }
@@ -2007,16 +2013,31 @@ func modifierWait(pos Position, t *traversal, args... Value) (result Value, err 
         if (optStdout || optStderr || optStatus || optExecRes) && !isNil(t.def.buffer.value) {
                 if exeres, ok := t.def.buffer.value.(*ExecResult); ok {
                         exeres.wg.Wait()
-                        var a []Value
+                        var (
+                                a []Value
+                                s string
+                        )
                         if optStdout {
-                                var s string
                                 if b := exeres.Stdout.Buf; b != nil { s = b.String() }
-                                a = append(a, &String{trivial{pos},s})
+                                if optTrim { s = strings.TrimSpace(s) }
+                                var v Value
+                                switch optAsType {
+                                case "answer": v = MakeAnswer (pos,(s == "yes"))
+                                case "bool":   v = MakeBoolean(pos,(s == "true"))
+                                default:       v = MakeString (pos,s)
+                                }
+                                a = append(a, v)
                         }
                         if optStderr {
-                                var s string
                                 if b := exeres.Stderr.Buf; b != nil { s = b.String() }
-                                a = append(a, &String{trivial{pos},s})
+                                if optTrim { s = strings.TrimSpace(s) }
+                                var v Value
+                                switch optAsType {
+                                case "answer": v = MakeAnswer (pos,(s == "yes"))
+                                case "bool":   v = MakeBoolean(pos,(s == "true"))
+                                default:       v = MakeString (pos,s)
+                                }
+                                a = append(a, v)
                         }
                         if optStatus {
                                 a = append(a, &Int{integer{trivial{pos},int64(exeres.Status)}})

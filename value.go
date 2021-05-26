@@ -1973,7 +1973,7 @@ func (p *Path) stamp(t *traversal) (files []*File, err error) {
                         diag.errorOf(p, "no pathname for `%s`", p)
                 } else if file := stat(p.position,pathname,"","",nil); file != nil {
                         if files, err = file.stamp(t); err != nil {
-                                diag.errorOf(p, "stamp: %v", file)
+                                diag.errorOf(p, "stamp: %v (%v)", err, file)
                         }
                 }
         }

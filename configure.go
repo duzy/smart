@@ -317,7 +317,7 @@ func configureExec(pos Position, t *traversal, s string, target Value, paramsOri
                 diag.errorAt(pos, "resolve %v: %v", s, err)
                 return
         } else if entry == nil {
-                diag.errorAt(pos, "unknown configuration `%v` (no such entry)", s)
+                diag.errorAt(pos, "unknown configuration action `%v`, no such entry", s)
                 return
         }
 
