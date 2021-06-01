@@ -8,8 +8,6 @@ package smart
 
 import (
 	"extbit.io/smart/token"
-	"extbit.io/smart/scanner"
-	"errors"
 	"fmt"
 	"io"
 )
@@ -40,8 +38,6 @@ func un(p tracer) {
 }
 
 type tracing struct {
-	errors scanner.Errors
-
 	// Tracing/debugging
 	all bool
 	enabled bool // (mode&Trace != 0)
@@ -53,30 +49,20 @@ func (p *tracing) errorAt(pos token.Position, err interface{}, a ...interface{})
 	// as the last recorded error and stop parsing if there are more than
 	// 10 errors.
 	if p.all {
-		n := len(p.errors)
-		if n > 0 && p.errors[n-1].Pos.Line == pos.Line {
+		n := len(diag.points)
+		/*if n > 0 && p.errors[n-1].Pos.Line == pos.Line {
 			return // discard - likely a spurious error
-		}
-		if n > 10 {
-			panic(bailout{})
-		}
+		}*/
+		if n > 10 { panic(bailout{}) }
 	}
 
 	var s string
 	switch t := err.(type) {
-	case error:  p.errors.Add(pos, t); return
+	case error: diag.errorAt(Position(pos), "%T %v", t, t); return
 	case string: s = t
 	default: s = fmt.Sprintf("%v", err)
 	}
-	if len(a) > 0 {
-		/*for _, v := range a {
-						if e, ok := v.(error); ok {
-								panic(fmt.Sprintf("embedded error: %s", e))
-						}
-				}*/
-		s = fmt.Sprintf(s, a...)
-	}
-	p.errors.Add(pos, errors.New(s))
+	diag.errorAt(Position(pos), fmt.Sprintf(s, a...))
 }
 
 // Printing fields (splitted by \t).

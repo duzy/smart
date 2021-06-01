@@ -323,11 +323,10 @@ func (p *Project) getFilemap() (filemap []*FileMap) {
         var pats, paths []Value
         switch k := v.Key.(type) {
         case *Group: pats = k.Elems
-        default: pats = append(pats, v.Key)
+        default:     pats = append(pats, v.Key)
         }
         if a, err := mergeresult(ExpandAll(pats...)); err != nil {
-          fmt.Fprintf(stderr, "%s: expand error: %s\n", v.Position(), v)
-          fmt.Fprintf(stderr, "%s\n", err)
+          diag.errorAt(v.Position(), "error expanding '%v': %v", v, err)
         } else {
           pats = a 
         }

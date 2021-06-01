@@ -1060,7 +1060,10 @@ func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
                 if v.isSysFile() { return }
         default:
                 gc.targetDir = t.project.absPath
-                if targetName, err = v.Strval(); err != nil { return }
+                if targetName, err = v.Strval(); err != nil {
+                        diag.errorAt(pos, "grep %v: %s", v, err)
+                        return
+                }
                 if filepath.IsAbs(targetName) {
                         gc.targetFullName = targetName
                 } else {
@@ -1069,15 +1072,23 @@ func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
                 if file := stat(pos, gc.targetFullName, "", ""); file == nil {
                         diag.errorAt(pos, "grep: '%s' not found", gc.targetFullName)
                         return
-                } else { gc.targetInfo = file.info }
+                } else {
+                        gc.targetInfo = file.info
+                }
         }
-        if err != nil { diag.errorAt(pos, "%v", err); return }
+        if err != nil {
+                diag.errorAt(pos, "grep target %s: %v", targetName, err)
+                return
+        }
+
         if gc.targetInfo == nil { return }
         if gc.done == nil { gc.done = make(map[string]int) }
         if !filepath.IsAbs(gc.targetFullName) {
                 diag.errorAt(pos, "grep: '%s' is not abs", gc.targetFullName)
                 return
-        } else { gc.done[gc.targetFullName] += 1 }
+        } else {
+                gc.done[gc.targetFullName] += 1
+        }
         if n, done := gc.done[gc.targetFullName]; done && n > 1 {
                 if gc.debug { fmt.Fprintf(stderr, "%s: %v (done %v)\n", pos, gc.targetFullName, n) }
                 return
@@ -1086,49 +1097,90 @@ func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
         if false { defer un(trace(t, targetName)) }
 
         if files, cached := grepcache[gc.targetFullName]; cached {
-                if gc.debug { fmt.Fprintf(stderr, "%s: grepcache: %v → %v\n", pos, gc.targetFullName, files) }
-                t.grepped = append(t.grepped, files...)
-                if gc.recursive { for _, gc.target = range files {
-                        if err = t.grepFiles(pos, gc); err != nil { break }
-                }}
+                if gc.debug {
+                        fmt.Fprintf(stderr, "%s: grepcache: %v → %v\n", pos, gc.targetFullName, files)
+                }
+                if t.grepped = append(t.grepped, files...); gc.recursive {
+                        for _, gc.target = range files {
+                                if err = t.grepFiles(pos, gc); err != nil {
+                                        diag.errorAt(pos, "grep files: %v", err)
+                                        break
+                                }
+                        }
+                }
                 return
         }
         defer func(restore []Value) {
                 var touch = gc.greptouch
                 gc.files = restore
                 grepcache[gc.targetFullName] = touch.files
-                if gc.debug { fmt.Fprintf(stderr, "%s: grepped: %s → %v (grepped=%v) (saved=%s)\n", pos, gc.target, touch.files, len(t.grepped), gc.savedGrepFile) }
+                if gc.debug {
+                        fmt.Fprintf(stderr, "%s: grepped: %s → %v (grepped=%v) (saved=%s)\n",
+                                pos, gc.target, touch.files, len(t.grepped), gc.savedGrepFile)
+                }
                 if gc.recursive && len(touch.files) > 0 {
                         for _, gc.target = range touch.files {
                                 t.grepped = append(t.grepped, gc.target)
-                                if err = t.grepFiles(pos, gc); err != nil { break }
+                                if err = t.grepFiles(pos, gc); err != nil {
+                                        diag.errorAt(pos, "grep files (deferred): %v", err)
+                                        break
+                                }
                         }
                 }
-                if err == nil && gc.touch { err = touch.work(pos, gc) }
+                if err == nil && gc.touch {
+                        if err = touch.work(pos, gc); err != nil {
+                                diag.errorAt(pos, "grep touch: %v", err)
+                        }
+                }
         } (gc.files)
+
         gc.files = nil
 
         var savedGrepFile *os.File
         var savedGrepFileLoaded bool
         savedGrepFileLoaded, err = t.loadSavedGrepFile(pos, gc)
-        if false && gc.debug { fmt.Fprintf(stderr, "%s: saved: %v → %v (%v)\n", pos, gc.target, gc.files, err) }
-        if err != nil || savedGrepFileLoaded { return } else
+        if false && gc.debug {
+                fmt.Fprintf(stderr, "%s: saved: %v → %v (%v)\n", pos, gc.target, gc.files, err)
+        }
+        if err != nil {
+                diag.errorAt(pos, "grep loadSavedGrepFile: %v", err)
+                return
+        }
+        if savedGrepFileLoaded { return } else
         if dir := filepath.Dir(gc.savedGrepFileName); dir != "." && dir != ".." {
-                if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
+                if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
+                        diag.errorAt(pos, "grep mkdir: %v", err)
+                        return
+                }
         }
         if optionSaveGrepSourceName {
                 var perm = os.FileMode(0600)
                 var data = []byte(gc.targetFullName)
                 var name = gc.savedGrepFileName + ".src"
-                if err = ioutil.WriteFile(name, data, perm); err != nil { return }
+                if err = ioutil.WriteFile(name, data, perm); err != nil {
+                        diag.errorAt(pos, "grep write file: %v", err)
+                        return
+                }
         }
-        if savedGrepFile, err = os.Create(gc.savedGrepFileName); err != nil { return }
+        if savedGrepFile, err = os.Create(gc.savedGrepFileName); err != nil {
+                diag.errorAt(pos, "grep create %s: %v", gc.savedGrepFileName, err)
+                return
+        }
         gc.save = bufio.NewWriter(savedGrepFile)
-        defer func() { gc.save.Flush(); savedGrepFile.Close() } ()
+        defer func() {
+                gc.save.Flush()
+                savedGrepFile.Close()
+        } ()
 
         err = t.grepTargetFile(pos, gc)
-        if false && gc.debug { fmt.Fprintf(stderr, "%s: grepped: %v → %v (%v)\n", pos, gc.target, gc.files, t.grepped) }
-        if err != nil { if gc.discard { err = nil } else { diag.errorAt(pos, "%v", err) }}
+        if false && gc.debug {
+                fmt.Fprintf(stderr, "%s: grepped: %v → %v (%v)\n", pos, gc.target, gc.files, t.grepped)
+        }
+        if err != nil && !gc.discard {
+                diag.errorAt(pos, "grep target file: %v", err)
+        } else {
+                err = nil
+        }
         return
 }
 
@@ -1200,26 +1252,40 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
         if len(args) == 0 { args = append(args, t.def.target.value) }
 
         var grepped = t.grepped
-        ForTarget: for _, target := range args {
+ForTarget:
+        for _, target := range args {
                 gc.target = target
                 t.grepped = nil
-
-                if err = t.grepFiles(pos, &gc); err != nil { diag.errorAt(pos, "%v", err); break }
+                if err = t.grepFiles(pos, &gc); err != nil {
+                        diag.errorAt(pos, "%v", err)
+                        return
+                }
                 if !optNoTraverse && len(t.grepped) > 0 {
                         if false && gc.debug { fmt.Fprintf(stderr, "%v: %v: %v\n", t.project, pos, t.grepped) }
                         for _, val := range t.grepped {
                                 if brks := val.traverse(t); len(brks) > 0 {
-                                        diag.errorAt(pos, "%v", brks)
+                                        if true {
+                                                for _, brk := range brks {
+                                                        switch brk.what {
+                                                        case breakErro:
+                                                                diag.errorAt(brk.pos, "%v: %v", brk.what, brk.error)
+                                                        default:
+                                                                diag.errorAt(brk.pos, "%v: %v", brk.what, brk.message)
+                                                        }
+                                                }
+                                        }
+                                        diag.errorAt(pos, "breaked traversing %v", val)
                                         break ForTarget
                                 }
                         }
                 }
                 grepped = append(grepped, t.grepped...)
         }
-        if false && t.project.name == "c++" { fmt.Fprintf(stderr, "%v: %v: %v %v\n", t.project, pos, args, grepped) }
         t.grepped = grepped
 
-        if err != nil {} else if !optNoTraverse {
+        if err != nil {
+                diag.errorAt(pos, "grep-files error: %v", err)
+        } else if !optNoTraverse {
                 if false && gc.debug { fmt.Fprintf(stderr, "%s: %v\n", pos, t.grepped) }
                 t.def.grepped.value = &None{trivial{pos}}
                 t.grepped = nil
@@ -1311,7 +1377,8 @@ func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err
         }
         if optSilent && makeResult == nil { makeResult = MakeBoolean }
 
-        ForPairs: for _, p := range pairs {
+ForPairs:
+        for _, p := range pairs {
                 var key, str string
                 if key, err = p.Key.Strval(); err != nil { return }
                 switch key {
@@ -1323,7 +1390,10 @@ func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err
                         } else { exeres.wg.Wait() }
 
                         var num int64
-                        if num, err = p.Value.Integer(); err != nil { return }
+                        if num, err = p.Value.Integer(); err != nil {
+                                diag.errorAt(p.Value.Position(), "%v", err)
+                                return
+                        }
                         if optVerbose {
                                 fmt.Fprintf(stderr, "smart: Checking status ")
                                 if num != 0 { fmt.Fprintf(stderr, "== %d ", num) }
@@ -1336,6 +1406,8 @@ func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err
                                 if good { s = "Yes" } else { s = "No" }
                                 fmt.Fprintf(stderr, "… %s (%d)\n", s, exeres.Status)
                         }
+
+                        if false { fmt.Fprintf(stderr, "%s: %v, %v\n", pos, exeres.Status, num) }
 
                         if makeResult != nil {
                                 values = append(values, makeResult(pos, good))
@@ -2016,11 +2088,11 @@ func modifierWait(pos Position, t *traversal, args... Value) (result Value, err 
                         var (
                                 a []Value
                                 s string
+                                v Value
                         )
                         if optStdout {
                                 if b := exeres.Stdout.Buf; b != nil { s = b.String() }
                                 if optTrim { s = strings.TrimSpace(s) }
-                                var v Value
                                 switch optAsType {
                                 case "answer": v = MakeAnswer (pos,(s == "yes"))
                                 case "bool":   v = MakeBoolean(pos,(s == "true"))
@@ -2031,7 +2103,6 @@ func modifierWait(pos Position, t *traversal, args... Value) (result Value, err 
                         if optStderr {
                                 if b := exeres.Stderr.Buf; b != nil { s = b.String() }
                                 if optTrim { s = strings.TrimSpace(s) }
-                                var v Value
                                 switch optAsType {
                                 case "answer": v = MakeAnswer (pos,(s == "yes"))
                                 case "bool":   v = MakeBoolean(pos,(s == "true"))
@@ -2040,9 +2111,11 @@ func modifierWait(pos Position, t *traversal, args... Value) (result Value, err 
                                 a = append(a, v)
                         }
                         if optStatus {
-                                a = append(a, &Int{integer{trivial{pos},int64(exeres.Status)}})
+                                a = append(a, MakeInt(pos,int64(exeres.Status)))
                         }
-                        result = MakeListOrScalar(pos, a)
+                        if a != nil {
+                                result = MakeListOrScalar(pos, a)
+                        }
                 }
         }
         return

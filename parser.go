@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-	"errors"
 	"fmt"
 )
 
@@ -111,7 +110,7 @@ func (p *parser) init(l *loader, filename string, src []byte) {
 	}
 
 	eh := func(pos token.Position, msg string) {
-		p.errors.Add(pos, errors.New(msg))
+		diag.errorAt(Position(pos), "%s", msg)
 	}
 	p.scanner.Init(p.file, src, eh, m)
 	p.next(true)
@@ -2231,7 +2230,7 @@ func (p *parser) parseFile() *ast.File {
 
 	// Don't bother parsing the rest if we had errors scanning the first token.
 	// Likely not a Go source file at all.
-	if p.errors.Len() != 0 { return nil }
+	if len(diag.points) > 0 { return nil }
 
 	var (
 		filename = p.file.Name()
@@ -2357,7 +2356,7 @@ func (p *parser) parseFile() *ast.File {
 
 		// Don't bother parsing the rest if we had errors parsing the package clause.
 		// Likely not a Go source file at all.
-		if p.errors.Len() != 0 { return nil }
+		if len(diag.points) > 0 { return nil }
 		if p.mode&Flat == 0 {
 			if p.declare(keyword, ident, options, params) {
 				if filepath.Base(filename) == "build.smart" {

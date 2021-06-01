@@ -9,6 +9,7 @@ package smart
 import (
   "extbit.io/smart/token"
   "path/filepath"
+  //"runtime/debug"
   "strings"
   "bufio"
   "sync"
@@ -90,7 +91,12 @@ func (diag *Diagnostic) warnOf(value Value, f string, args... interface{}) {
 }
 func (diag *Diagnostic) errorOf(value Value, f string, args... interface{}) {
   diag.m.Lock(); defer diag.m.Unlock()
-  diag.points = append(diag.points, &diagnostic{ diagError, Position{}, value, fmt.Sprintf(f, args...) })
+  var s = fmt.Sprintf(f, args...)
+  /*if strings.Contains(s, ": error: core:") {
+    fmt.Fprintf(stderr, "1. '%v' -> %v\n", f, s)
+    debug.PrintStack()
+  }*/
+  diag.points = append(diag.points, &diagnostic{ diagError, Position{}, value, s })
 }
 func (diag *Diagnostic) infoAt(pos Position, f string, args... interface{}) {
   diag.m.Lock(); defer diag.m.Unlock()
@@ -102,7 +108,12 @@ func (diag *Diagnostic) warnAt(pos Position, f string, args... interface{}) {
 }
 func (diag *Diagnostic) errorAt(pos Position, f string, args... interface{}) {
   diag.m.Lock(); defer diag.m.Unlock()
-  diag.points = append(diag.points, &diagnostic{ diagError, pos, nil, fmt.Sprintf(f, args...) })
+  var s = fmt.Sprintf(f, args...)
+  /*if strings.Contains(s, ": error: core:") {
+    fmt.Fprintf(stderr, "2. '%v' -> %v\n", f, s)
+    debug.PrintStack()
+  }*/
+  diag.points = append(diag.points, &diagnostic{ diagError, pos, nil, s })
 }
 func (diag *Diagnostic) info(f string, args... interface{}) {
   diag.m.Lock(); defer diag.m.Unlock()
@@ -114,7 +125,12 @@ func (diag *Diagnostic) warn(f string, args... interface{}) {
 }
 func (diag *Diagnostic) error(f string, args... interface{}) {
   diag.m.Lock(); defer diag.m.Unlock()
-  diag.points = append(diag.points, &diagnostic{ diagError, Position{}, nil, fmt.Sprintf(f, args...) })
+  var s = fmt.Sprintf(f, args...)
+  /*if strings.Contains(s, ": error: core:") {
+    fmt.Fprintf(stderr, "3. '%v' -> %v\n", f, s)
+    debug.PrintStack()
+  }*/
+  diag.points = append(diag.points, &diagnostic{ diagError, Position{}, nil, s })
 }
 
 func (diag *Diagnostic) reset() {
@@ -125,14 +141,15 @@ func (diag *Diagnostic) reset() {
 func (diag *Diagnostic) checkErrors(reset bool) (num int) {
   diag.m.Lock(); defer diag.m.Unlock()
   for _, d := range diag.points {
+    var pos = d.getPosition()
     switch d.dt {
-    case diagInfo:  fmt.Fprintf(stderr, "%v:info: %s\n",    d.getPosition(), d.message)
-    case diagWarn:  fmt.Fprintf(stderr, "%v:warning: %s\n", d.getPosition(), d.message)
-    case diagError: fmt.Fprintf(stderr, "%v: %s\n",         d.getPosition(), d.message)
+    case diagInfo:  fmt.Fprintf(stderr, "%v:info: %s\n",    pos, d.message)
+    case diagWarn:  fmt.Fprintf(stderr, "%v:warning: %s\n", pos, d.message)
+    case diagError: fmt.Fprintf(stderr, "%v: %s\n",         pos, d.message)
       num += 1
     }
     if num > 22 {
-      fmt.Fprintf(stderr, "%v: too many errors\n", d.getPosition())
+      fmt.Fprintf(stderr, "%v: too many errors\n", pos)
       break
     }
   }
