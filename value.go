@@ -3157,6 +3157,16 @@ type closuredelegate struct {
         x Value
         a []Value
 }
+func (p *closuredelegate) isValidToken() (res bool) {
+        switch p.l {
+        case token.LCOLON, token.LPAREN, token.LBRACE, token.STRING, token.COMPOUND, token.ILLEGAL:
+                res = true
+        default:
+                // for $. $/ $1 ... &. &/ &1 ... etc.
+                res = p.l.IsClosure() || p.l.IsDelegate()
+        }
+        return
+}
 func (p *closuredelegate) string(o Object, k elemkind) (s string) { // source representation
         for i, a := range p.a {
                 if i == 0 { s = " " } else { s += "," }
@@ -3176,7 +3186,8 @@ func (p *closuredelegate) string(o Object, k elemkind) (s string) { // source re
                 } else {
                         s = fmt.Sprintf(":%s%s:", name, s)
                 }
-        case token.LPAREN: s = fmt.Sprintf("(%s%s)", name, s)
+        case token.LPAREN:
+                s = fmt.Sprintf("(%s%s)", name, s)
         case token.LBRACE:
                 if k&elemNoBrace == 0 {
                         s = fmt.Sprintf("{%s%s}", name, s)
@@ -3192,7 +3203,11 @@ func (p *closuredelegate) string(o Object, k elemkind) (s string) { // source re
                         s = fmt.Sprintf("[%s%s]", name, s)
                 }
         default:
-                s = fmt.Sprintf("[%s%s]!(%v)", name, s, p.l)
+                if p.l.IsClosure() || p.l.IsDelegate() {
+                        s = p.l.String()
+                } else {
+                        s = fmt.Sprintf("[%s%s]!(%v)", name, s, p.l)
+                }
         }
         return
 }
@@ -3454,6 +3469,12 @@ func (p *closure) String() (s string) { return p.elemstr(nil, 0) }
 func (p *closure) Strval() (s string, err error) {
         var v Value
 
+        if !p.isValidToken() {
+                err = fmt.Errorf("invalid closure token: %v", p.l)
+                //diag.errorAt(p.Position(), "invalid closure token: %v", p.l).debug()
+                return
+        }
+
         // &(...) -> $(...)
         if v, err = p.expand(expandClosure); err != nil {
                 return
@@ -3465,7 +3486,7 @@ func (p *closure) Strval() (s string, err error) {
         // $(...) -> .....
         if v, err = v.expand(expandDelegate); err != nil {
                 return
-        } else if !isNil(v) /*&& !v.refs(p)*/ {
+        } else if !isNil(v) {
                 s, err = v.Strval()
         } else {
                 //err = fmt.Errorf("{closure %+v $<nil>}", p.o)
@@ -3534,8 +3555,9 @@ func (p *closure) disclose() (res Value, err error) {
 
         var changed bool
         var name = o.Name()
-        ClosureTok: switch p.l {
-        case token.LPAREN, token.ILLEGAL:
+ClosureTok:
+        switch p.l {
+        default: //case token.LPAREN, token.ILLEGAL:
                 for _, scope := range cloctx {
                         if scope.project == nil { continue }
 
@@ -3574,10 +3596,7 @@ func (p *closure) disclose() (res Value, err error) {
                                 res = s; return
                         }
                 }
-        default:
-                diag.errorOf(p, "unknown closure `&%+v%+v`", p.l, name)
-                return
-        }
+       }
 
         var v Value
         if isNil(o) {

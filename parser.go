@@ -968,17 +968,17 @@ func (p *parser) parseClosureDelegateName(tok token.Token) (name Value) {
 	return
 }
 
-func (p *parser) parseClosureDelegate(tokCD token.Token) (result Value) {
+func (p *parser) parseClosureDelegate() (result Value) {
 	if p.tracing.enabled {	defer un(trace(p, "ClosureDelegate")) }
 
 	// FIXME: push p.bits before entering a $(...) or &(...)
-	defer func(a parsingBits) { p.bits = a }(p.bits)
+	defer func(a parsingBits) { p.bits = a } (p.bits)
 	p.bits = 0 // start with zero bits
 
 	var (
-		lpos = token.NoPos
 		pos  = p.pos
 		tok  = p.tok
+		posLp = token.NoPos
 		tokLp  token.Token
 		name   Value
 		rest []Value
@@ -1016,10 +1016,7 @@ func (p *parser) parseClosureDelegate(tokCD token.Token) (result Value) {
 					} else if obj, okay = v.(Object); !okay {
 						// just use the selected value
 					}
-				} else if tokCD.IsClosure() {
-					diag.infoOf(name, "FIXME: '%v' is nil, %v", name, p.project)
-					obj, okay = unresolved(p.project, name), true // recursive delegation or closure
-				} else if tokCD.IsClosure() || name.refdef(defany) || name.closured() {
+				} else if tok.IsClosure() || name.refdef(defany) || name.closured() {
 					obj, okay = unresolved(p.project, name), true // recursive delegation or closure
 				} else {
 					diag.errorOf(name, "resolved '%v' is nil", name)
@@ -1027,24 +1024,24 @@ func (p *parser) parseClosureDelegate(tokCD token.Token) (result Value) {
 			} else if sel, _ := resolved.(*selection); !isNil(sel) {
 				obj, okay = sel, true
 			} else if def, _ := resolved.(Caller); def == nil {
-				p.error(lpos, "resolved '%v' is not callable: %T", name, resolved)
+				p.error(posLp, "resolved '%v' is not callable: %T", name, resolved)
 			} else if obj, okay = def.(Object); isNil(obj) || !okay {
-				p.error(lpos, "resolved '%v' is not object: %T", name, def)
+				p.error(posLp, "resolved '%v' is not object: %T", name, def)
 			}
 		case token.LBRACE:
 			if resolved, err = p.find(name); err != nil {
-				p.error(lpos, "finding rule entry '%v' failed: %v", name, err)
+				p.error(posLp, "finding rule entry '%v' failed: %v", name, err)
 			} else if isNil(resolved) {
 				diag.errorOf(name, "resolved '%v' is nil", name)
 			} else if exe, _ := resolved.(Executer); exe == nil {
-				p.error(lpos, "resolved '%v' of '%T' is not Executer", name, resolved)
+				p.error(posLp, "resolved '%v' of '%T' is not Executer", name, resolved)
 			} else if obj, okay = exe.(Object); !okay || isNil(obj) {
-				p.error(lpos, "resolved Executer '%v' of '%T' is not Object", name, resolved)
+				p.error(posLp, "resolved Executer '%v' of '%T' is not Object", name, resolved)
 			}
 		case token.LCOLON:
 			s, err := name.Strval()
 			if err != nil {
-				p.error(lpos, "error stringify name '%v': %v", name, err)
+				p.error(posLp, "error stringify name '%v': %v", name, err)
 				return
 			}
 			switch s {
@@ -1054,7 +1051,7 @@ func (p *parser) parseClosureDelegate(tokCD token.Token) (result Value) {
 			case "usee":  resolved = p.project.using
 			case "self":  resolved = p.project.self
 			default:
-				p.error(lpos, "unknown special property: %v", s, err)
+				p.error(posLp, "unknown special property: %v", s, err)
 				return
 			}
 			obj, okay = resolved, true
@@ -1064,16 +1061,16 @@ func (p *parser) parseClosureDelegate(tokCD token.Token) (result Value) {
 
 	switch p._next(); p.tok {
 	case token.LPAREN, token.LBRACE, token.LCOLON: // $(...), ${...}, $:...:
-		lpos, tokLp = p.pos, p.tok
+		posLp, tokLp = p.pos, p.tok
 
 		p._next() // skips LPAREN, LBRACE, LCOLON
-		if lpos+1 != p.pos {
-			diag.errorAt(p.positionAt(lpos+1), "unexpected spaces").debug()
+		if posLp+1 != p.pos {
+			diag.errorAt(p.positionAt(posLp+1), "unexpected spaces").debug()
 			return MakeNil(p.position())
 		}
 
 		if name = p.parseClosureDelegateName(tokLp); isNil(name) {
-			p.error(lpos, "parsed name is nil")
+			p.error(posLp, "parsed name is nil")
 		} else if !name.closured() && !resolveObject() {
 			p.error(pos, "'%v' is unidentified", name)
 		}
@@ -1092,21 +1089,20 @@ func (p *parser) parseClosureDelegate(tokCD token.Token) (result Value) {
 		case token.LPAREN: p.expect(token.RPAREN)
 		case token.LBRACE: p.expect(token.RBRACE)
 		case token.LCOLON: p.expect(token.RCOLON)
-			if p.tok == token.ASSIGN { diag.errorOf(name, "unexpected assignment") }
+			if p.tok == token.ASSIGN { diag.errorAt(p.position(), "unexpected assignment") }
 		}
 
 	default:
-		position := p.position()
-		if tok != token.CLOSURE { // $(...), disabled $name.
+		if position := p.position(); tok != token.CLOSURE { // $(...), disabled $name.
 			// &(...), &{...}, &'...', &"..."
 			diag.errorAt(position, "expects `%v` or `%v` or quotes", token.LPAREN, token.LBRACE).debug()
 			return MakeNil(position)
 		} else if p.tok == token.STRING || p.tok == token.COMPOUND {
-			lpos, tokLp = p.pos, p.tok
+			posLp, tokLp = p.pos, p.tok
 
 			// &'xxxx' or &"xxxx"
 			if name = p.parseExpr(false); isNil(name) {
-				p.error(lpos, "parsed name is nil")
+				p.error(posLp, "parsed name is nil")
 			} else if !name.closured() && !resolveObject() {
 				p.error(pos, "'%v' is unidentified", name)
 			}
@@ -1126,9 +1122,9 @@ func (p *parser) parseClosureDelegate(tokCD token.Token) (result Value) {
 	}
 
 	if position := p.positionAt(pos); tok.IsDelegate() {
-		return MakeDelegate(position, tok, obj, rest...);
+		return MakeDelegate(position, tokLp, obj, rest...);
 	} else {
-		return MakeClosure(position, tok, obj, rest...);
+		return MakeClosure(position, tokLp, obj, rest...);
 	}
 }
 
@@ -1181,7 +1177,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
 		return p.parseCompoundLit(lhs)
 
 	case token.DELEGATE, token.CLOSURE: // delegate, closure
-		return p.parseClosureDelegate(p.tok)
+		return p.parseClosureDelegate()
 
 	case token.LPAREN:
 		return p.parseGroupExpr(lhs)
@@ -1966,7 +1962,7 @@ func (p *parser) parseModifiersExpr() *modifiergroup {
 	if p.tracing.enabled { defer un(trace(p, "Modifiers")) }
 
 	var (
-		lpos = p.expect(token.LBRACK)
+		posLp = p.expect(token.LBRACK)
 		elems []*modifier
 	)
 
@@ -2051,10 +2047,10 @@ ForModifiersExpr:
 	}
 	p.skipSpaces()
 	/*rpos := */p.expect(token.RBRACK)
-	if len(elems) == 0 { p.error(lpos, "empty modifier group") }
+	if len(elems) == 0 { p.error(posLp, "empty modifier group") }
 	if p.tok == token.COLON { p.error(p.pos, "unexpected colon after modifer") }
     return &modifiergroup{
-        valbase: valbase{p.positionAt(lpos)},
+        valbase: valbase{p.positionAt(posLp)},
         modifiers: elems,
     }
 }
