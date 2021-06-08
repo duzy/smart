@@ -37,23 +37,23 @@ type Object interface {
         redecl(*Scope)
 }
 
-type trivialobject struct { // generally unnamed objects
-        trivial
+type objbase struct { // generally unnamed objects
+        valbase
         scope *Scope
         owner *Project
 }
-func (p *trivialobject) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *trivialobject) Name() string { panic("inquiring name of an unknown object") }
-func (p *trivialobject) DeclScope() *Scope { return p.scope }
-func (p *trivialobject) OwnerProject() *Project { return p.owner }
-func (p *trivialobject) Strval() (string, error) { return fmt.Sprintf("{unknown %p}", p), nil }
-func (p *trivialobject) String() string { return fmt.Sprintf("{unknown %p}", p) }
-func (p *trivialobject) Get(name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
-func (p *trivialobject) redecl(scope *Scope) { panic("redeclaring unknown object") }
-func (p *trivialobject) exists() existence { return existenceMatterless }
-func (p *trivialobject) cmp(v Value) (res cmpres) {
-        if a, ok := v.(*trivialobject); ok {
-                assert(ok, "value is not trivialobject")
+func (p *objbase) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *objbase) Name() string { panic("inquiring name of an unknown object") }
+func (p *objbase) DeclScope() *Scope { return p.scope }
+func (p *objbase) OwnerProject() *Project { return p.owner }
+func (p *objbase) Strval() (string, error) { return fmt.Sprintf("{unknown %p}", p), nil }
+func (p *objbase) String() string { return fmt.Sprintf("{unknown %p}", p) }
+func (p *objbase) Get(name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
+func (p *objbase) redecl(scope *Scope) { panic("redeclaring unknown object") }
+func (p *objbase) exists() existence { return existenceMatterless }
+func (p *objbase) cmp(v Value) (res cmpres) {
+        if a, ok := v.(*objbase); ok {
+                assert(ok, "value is not objbase")
                 if p.owner == a.owner && p.scope == a.scope {
                         res = cmpEqual
                 }
@@ -62,7 +62,7 @@ func (p *trivialobject) cmp(v Value) (res cmpres) {
 }
 
 type knownobject struct { // generally named objects
-        trivialobject
+        objbase
         name string
 }
 func (p *knownobject) expand(_ expandwhat) (Value, error) { return p, nil }
@@ -91,7 +91,7 @@ func (p *knownobject) cmp(v Value) (res cmpres) {
 }
 
 type unresolvedobject struct { // named callable/executable objects
-        trivialobject
+        objbase
         name Value // name could be closured
 }
 func (p *unresolvedobject) traverse(t *traversal) (breakers []*breaker) { return }
@@ -135,7 +135,7 @@ func (p *unresolvedobject) cmp(v Value) (res cmpres) {
 }
 
 func unresolved(p *Project, v Value) *unresolvedobject {
-        return &unresolvedobject{trivialobject{ scope: p.scope, owner: p }, v}
+        return &unresolvedobject{objbase{ scope: p.scope, owner: p }, v}
 }
 
 type ProjectName struct {
@@ -167,7 +167,7 @@ func (p *ProjectName) Get(name string) (value Value, err error) {
 // Call a ProjectName returns the project name.
 func (p *ProjectName) Call(pos Position, a... Value) (value Value) {
         if p.project != nil {
-                value = &String{trivial{pos},p.project.name}
+                value = &String{valbase{pos},p.project.name}
         }
         return
 }
@@ -351,7 +351,7 @@ func (d *Def) set(origin DefOrigin, value Value) (err error) {
                 if optionPrintStack { debug.PrintStack() }
                 return
         } else if origin != DefExecute && isNil(value) {
-                value = &None{trivial{d.position}}
+                value = &None{valbase{d.position}}
         }
 
         switch d.origin = origin; origin {
@@ -368,8 +368,8 @@ func (d *Def) set(origin DefOrigin, value Value) (err error) {
 
                         var pos = value.Position()
                         if !pos.IsValid() { pos = d.Position() }
-                        if err = sh.Run(); err != nil { value = &None{trivial{pos}} } else {
-                                value = &String{trivial{pos},strings.TrimSpace(stdout.String())}
+                        if err = sh.Run(); err != nil { value = &None{valbase{pos}} } else {
+                                value = &String{valbase{pos},strings.TrimSpace(stdout.String())}
                         }
                         stdout.Reset()
                         stderr.Reset()
@@ -377,7 +377,7 @@ func (d *Def) set(origin DefOrigin, value Value) (err error) {
                 } else {
                         var pos = value.Position()
                         if !pos.IsValid() { pos = d.Position() }
-                        d.value = &None{trivial{pos}}
+                        d.value = &None{valbase{pos}}
                 }
         default: // DefDefault, DefArg: keeps delegates and closures.
                 d.value = value
@@ -440,7 +440,7 @@ func (d *Def) Call(pos Position, a... Value) (res Value) {
                 // ...
         } else if list, ok := res.(*List); ok {
                 if n := len(list.Elems); n == 0 {
-                        res = &None{trivial{d.position}}
+                        res = &None{valbase{d.position}}
                 } else if n == 1 {
                         res = list.Elems[0] 
                 }
@@ -458,7 +458,7 @@ func (d *Def) DiscloseValue() (res Value, err error) {
 
 func (d *Def) Get(name string) (Value, error) {
         switch name {
-        case "name": return &String{trivial{d.Position()},d.name}, nil
+        case "name": return &String{valbase{d.Position()},d.name}, nil
         case "value": return d.value, nil
         }
         return nil, fmt.Errorf("no such property `%s' (Def)", name)
@@ -673,8 +673,8 @@ ForPrograms:
 }
 func (entry *RuleEntry) Get(name string) (Value, error) {
         switch name {
-        case "class": return &String{trivial{entry.position},entry.class.String()}, nil
-        case "name": return &String{trivial{entry.position},entry.Name()}, nil
+        case "class": return &String{valbase{entry.position},entry.class.String()}, nil
+        case "name": return &String{valbase{entry.position},entry.Name()}, nil
         // case "prerequisites": ...
         }
         return nil, fmt.Errorf("no such entry property (%s)", name)
@@ -895,7 +895,7 @@ func (p *StemmedEntry) _target(t *traversal, target string) (breakers []*breaker
         } else if file := t.project.matchFile(target); file != nil {
                 p.target = file
         } else {
-                p.target = &String{trivial{p.position}, target}
+                p.target = &String{valbase{p.position}, target}
         }
 
         breakers = p.RuleEntry.traverse(t)

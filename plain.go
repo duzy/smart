@@ -15,7 +15,7 @@ import (
 
 // Value returned by (plain) modifier.
 type Plain struct {
-        trivial
+        valbase
         Name, Value string
 }
 func (p *Plain) expand(_ expandwhat) (Value, error) { return p, nil }
@@ -52,7 +52,7 @@ func (_ *plain) Evaluate(pos Position, t *traversal, args ...Value) (result Valu
         }
         if str, err = multiline(t.program.recipes...); err != nil { diag.errorOf(args[0], "%v", err); return }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
-        result = &Plain{trivial{pos},name,str}
+        result = &Plain{valbase{pos},name,str}
         return
 }
 

@@ -44,9 +44,9 @@ func init() {
         universe = NewScope(Position{}, nil, nil, "universe")
 
         var pos Position
-        bin, args := &String{trivial{pos},os.Args[0]}, new(List)
+        bin, args := &String{valbase{pos},os.Args[0]}, new(List)
         for _, a := range os.Args[1:] {
-                args.Elems = append(args.Elems, &String{trivial{pos},a})
+                args.Elems = append(args.Elems, &String{valbase{pos},a})
         }
         _, _ = universe.define(nil, "SMART.BIN", bin)
         _, _ = universe.define(nil, "SMART.ARGS", args)
@@ -128,7 +128,7 @@ func (g *Globe) project(pos Position, outer *Scope, absPath, relPath, tmpPath, s
 
                 g.main = m
 
-                var none = &None{trivial{pos}}
+                var none = &None{valbase{pos}}
 
                 def, _ := g.scope.define(m, "_", none)
                 if enable_assertions { assert(def != nil, "'$_' is nil") }

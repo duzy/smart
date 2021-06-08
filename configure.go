@@ -225,7 +225,7 @@ func configureAnswer(pos Position, t *traversal, def *Def, fields map[string]Val
 // -option
 // -option('message...')
 func configureOption(pos Position, t *traversal, def *Def, fields map[string]Value, args ...Value) (result Value, err error) {
-    if result = def.Call(pos); isNil(result) { result = &answer{trivial{pos},false} }
+    if result = def.Call(pos); isNil(result) { result = &answer{valbase{pos},false} }
     if result != nil {
         var res Value
         if res, err = result.expand(expandAll); err == nil && res != result {
@@ -278,7 +278,7 @@ func configurePackage(pos Position, t *traversal, def *Def, fields map[string]Va
             }
             if info != nil {
                 configuration.packages[name] = info
-                result = &answer{trivial{pos},true}
+                result = &answer{valbase{pos},true}
                 break
             }
         }

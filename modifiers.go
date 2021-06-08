@@ -132,7 +132,7 @@ func break_with(pos Position, w breakind, s string, a... interface{}) *breaker {
 } */
 
 type modifier struct {
-        trivial
+        valbase
         name Value
         args []Value
 }
@@ -178,7 +178,7 @@ func (m *modifier) String() (s string) {
 }
 
 type modifiergroup struct {
-        trivial
+        valbase
         modifiers []*modifier
 }
 func (g *modifiergroup) refs(v Value) bool {
@@ -367,7 +367,7 @@ func modifierPrint(pos Position, t *traversal, args... Value) (result Value, err
         if content, err = t.def.buffer.value.Strval(); err != nil { return }
         if optStdout { fmt.Fprint(stdout, content) }
         if optStderr { fmt.Fprint(stderr, content) }
-        t.def.buffer.value = &None{trivial{pos}}
+        t.def.buffer.value = &None{valbase{pos}}
         return
 }
 
@@ -414,7 +414,7 @@ func modifierEnv(pos Position, t *traversal, args... Value) (result Value, err e
 func modifierSet(pos Position, t *traversal, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         var defs []Value
-        var none = &None{trivial{pos}}
+        var none = &None{valbase{pos}}
         ForArgs: for _, arg := range args {
                 var name string
                 var value Value = none
@@ -1287,7 +1287,7 @@ ForTarget:
                 diag.errorAt(pos, "grep-files error: %v", err)
         } else if !optNoTraverse {
                 if false && gc.debug { fmt.Fprintf(stderr, "%s: %v\n", pos, t.grepped) }
-                t.def.grepped.value = &None{trivial{pos}}
+                t.def.grepped.value = &None{valbase{pos}}
                 t.grepped = nil
         } else { result = MakeListOrScalar(pos, t.grepped) }
 
@@ -1535,8 +1535,8 @@ func copyRegular(pos Position, src, dst string, opts *copyopts) (err error) {
                         context.globe.stamp(dst, file.info.ModTime())
                 }
         } (def1.value, def2.value)
-        def1.value = &String{trivial{pos},dst}
-        def2.value = &String{trivial{pos},src}
+        def1.value = &String{valbase{pos},dst}
+        def2.value = &String{valbase{pos},src}
 
         var head, foot string
         if opts.head != nil {
@@ -1887,7 +1887,7 @@ func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, 
                                 diag.errorAt(pos, "%v", err); return
                         }
                 }
-                t.def.buffer.value = &String{trivial{pos},s}
+                t.def.buffer.value = &String{valbase{pos},s}
         } else {
                 err = &breaker{pos:pos, what:breakFail, message:err.Error()}
         }
@@ -2347,7 +2347,7 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
         }
 
         if optSilent { reason = "" }
-        result = &prediction{boolean{trivial{pos},dirty},reason}
+        result = &prediction{boolean{valbase{pos},dirty},reason}
         return
 }
 
@@ -2369,7 +2369,7 @@ func modifierNoLoop(pos Position, t *traversal, args... Value) (result Value, er
         var s string
         if !loop { s = "not " }
         s = fmt.Sprintf("loop %sdetected (%v)", s, t.def.target.value)
-        result = &prediction{boolean{trivial{pos},!loop},s}
+        result = &prediction{boolean{valbase{pos},!loop},s}
         return
 }
 
@@ -2405,7 +2405,7 @@ func modifierTarget1stVisit(pos Position, t *traversal, args... Value) (result V
         } else { s = fmt.Sprintf("%v visits", num+1)
         }
 
-        result = &prediction{boolean{trivial{pos},num==0},s}
+        result = &prediction{boolean{valbase{pos},num==0},s}
         return
 }
 
@@ -2470,7 +2470,7 @@ func modifierTargetMaxVisit(pos Position, t *traversal, args... Value) (result V
         } else if num < nth { //s = "nth"
         } else { s = fmt.Sprintf("%d visits", num+1) }
 
-        result = &prediction{boolean{trivial{pos},num<nth},s}
+        result = &prediction{boolean{valbase{pos},num<nth},s}
         return
 }
 
@@ -2500,7 +2500,7 @@ func modifierGitModified(pos Position, t *traversal, args... Value) (result Valu
         var rx = regexp.MustCompile(`\n\tmodified:[\t ]*(.+?)\n`)
         var sm = rx.FindAllSubmatch(out.Bytes(), -1)
         if len(sm) > 0 {
-                var pred = &prediction{boolean{trivial{pos},false},""}
+                var pred = &prediction{boolean{valbase{pos},false},""}
                 if result = pred; len(args) == 0 {
                         pred.bool, pred.reason = true, "modified"
                         return
@@ -2547,7 +2547,7 @@ func modifierGitAhead(pos Position, t *traversal, args... Value) (result Value, 
         var sm = rx.FindAllSubmatch(out.Bytes(), 1)
         if len(sm) > 0 {
                 var val bool = true
-                result = &prediction{boolean{trivial{pos},val},"Work branch has new commits to push"}
+                result = &prediction{boolean{valbase{pos},val},"Work branch has new commits to push"}
         }
         return
 }

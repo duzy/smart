@@ -6,7 +6,7 @@
 package token
 
 import (
-        got "go/token"
+	got "go/token"
 )
 
 /*
@@ -17,14 +17,17 @@ import (
 	Column   int     -- column number, starting at 1 (byte count)
 */
 type Position struct {
-        got.Position
+	got.Position
 }
 
+func (p *Position) IsValid() bool {
+	return p.Filename != "" && p.Offset >= 0 && p.Line > 0 && p.Column > 0
+}
 func (p *Position) Equals(o *Position) bool {
-        return p.Filename == o.Filename &&
-                p.Offset == o.Offset &&
-                p.Line == o.Line &&
-                p.Column == o.Column
+	return p.Filename == o.Filename &&
+		p.Offset == o.Offset &&
+		p.Line == o.Line &&
+		p.Column == o.Column
 }
 
 const NoPos Pos = Pos(got.NoPos)
@@ -32,15 +35,15 @@ const NoPos Pos = Pos(got.NoPos)
 type Pos got.Pos
 
 func (p Pos) IsValid() bool {
-        return got.Pos(p).IsValid() 
+	return got.Pos(p).IsValid()
 }
-        
+
 type File struct {
-        *got.File
+	*got.File
 }
 
 func (f *File) Offset(p Pos) int {
-        return f.File.Offset(got.Pos(p))
+	return f.File.Offset(got.Pos(p))
 }
 
 func (f *File) Line(p Pos) int {
@@ -48,19 +51,19 @@ func (f *File) Line(p Pos) int {
 }
 
 func (f *File) Pos(offset int) Pos {
-        return Pos(f.File.Pos(offset))
+	return Pos(f.File.Pos(offset))
 }
 
 func (f *File) PositionFor(p Pos, adjusted bool) (pos Position) {
-        return Position{ f.File.PositionFor(got.Pos(p), adjusted) }
+	return Position{ f.File.PositionFor(got.Pos(p), adjusted) }
 }
 
 func (f *File) Position(p Pos) (pos Position) {
-        return Position{ f.File.Position(got.Pos(p)) }
+	return Position{ f.File.Position(got.Pos(p)) }
 }
 
 type FileSet struct {
-        *got.FileSet
+	*got.FileSet
 }
 
 // NewFileSet creates a new file set.
@@ -69,11 +72,11 @@ func NewFileSet() *FileSet {
 }
 
 func (s *FileSet) AddFile(filename string, base, size int) *File {
-        return &File{ s.FileSet.AddFile(filename, base, size) }
+	return &File{ s.FileSet.AddFile(filename, base, size) }
 }
 
 func (s *FileSet) Iterate(f func(*File) bool) {
-        s.FileSet.Iterate(func(file *got.File) bool {
-                return f(&File{ file })
-        })
+	s.FileSet.Iterate(func(file *got.File) bool {
+		return f(&File{ file })
+	})
 }

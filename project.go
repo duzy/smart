@@ -337,7 +337,7 @@ func (p *Project) getFilemap() (filemap []*FileMap) {
         for _, k := range pats { mapfile(k, paths) }
       case Value:
         var pats, paths []Value
-        paths = []Value{&String{trivial{v.Position()},p.absPath}}
+        paths = []Value{&String{valbase{v.Position()},p.absPath}}
         switch g := v.(type) {
         default: pats = append(pats, v)
         case *Group: pats = g.Elems
@@ -890,7 +890,7 @@ func enter(prog *Program, dir string) (err error) {
   if wd, err = os.Getwd(); err != nil { return }
   if err = lockCD(dir, 0); err != nil { return }
   if !filepath.IsAbs(dir) { dir = filepath.Join(wd, dir) }
-  prog.auto("CWD", &String{trivial{prog.position},dir})
+  prog.auto("CWD", &String{valbase{prog.position},dir})
 
   var ( enter *enterec ; ok bool )
   if enter, ok = cd.enters[dir]; !ok {

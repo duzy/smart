@@ -15,7 +15,7 @@ import (
 var usingPrepared = make(map[*Project]int)
 
 type using struct {
-        trivial
+        valbase
         project *Project
         params []Value
         opts useoptions
@@ -38,7 +38,7 @@ func (p *using) expand(w expandwhat) (Value, error) {
         if params, num, err := expandallcount(w, p.params...); err != nil {
                 return nil, err
         } else if num > 0 {
-                return &using{p.trivial,p.project,params,p.opts}, nil
+                return &using{p.valbase,p.project,params,p.opts}, nil
         }
         return p, nil
 }
@@ -224,7 +224,7 @@ func (p *usinglist) append(pos Position, proj *Project, params []Value, opts use
                         return
                 }
         }
-        p.list = append(p.list, &using{trivial{pos},proj,params,opts})
+        p.list = append(p.list, &using{valbase{pos},proj,params,opts})
 }
 
 func (p *usinglist) Get(name string) (result Value, err error) {
@@ -242,7 +242,7 @@ func (p *usinglist) Get(name string) (result Value, err error) {
                 if list != nil {
                         result = MakeListOrScalar(p.Position(), list)
                 } else {
-                        result = &None{trivial{p.Position()}}
+                        result = &None{valbase{p.Position()}}
                 }
         }
         return

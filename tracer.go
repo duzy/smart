@@ -114,7 +114,7 @@ func printIndentDots(indent int, a ...interface{}) {
         fprintIndentDots(stderr, indent, a...)
 }
 
-func (p *tracing) traceAt(pos token.Position, a ...interface{}) {
+func (p *tracing) traceAt(pos Position, a ...interface{}) {
 	fmt.Fprintf(stderr, "%7d:%3d: ", pos.Line, pos.Column)
         printIndentDots(p.indent, a...)
 }

@@ -74,6 +74,20 @@ func (v existence) String() (s string) {
         return
 }
 
+// A Comment node represents a single #-style comment.
+type Comment struct {
+	Pos Position // position of "#" starting the comment
+	Text  string // comment text (excluding '\n')
+}
+
+// A CommentGroup represents a sequence of comments
+// with no other tokens and no empty lines between.
+type CommentGroup struct {
+	List []*Comment // len(List) > 0
+}
+
+func (g *CommentGroup) Position() Position { return g.List[0].Pos }
+
 // Value represents a value of a type.
 type Value interface {
         Positioner // The position where the value appears (or NoPos).
@@ -752,25 +766,25 @@ func elementString(o Object, elem Value, k elemkind) (s string) {
         return
 }
 
-type trivial struct { position Position }
-func (_ *trivial) refs(_ Value) (res bool) { return }
-func (_ *trivial) closured() (res bool) { return }
-func (_ *trivial) refdef(origin DefOrigin) (res bool) { return }
-func (_ *trivial) expand(_ expandwhat) (v Value, err error) { return }
-func (_ *trivial) cmp(_ Value) (res cmpres) { return }
-func (_ *trivial) mod(t *traversal) (res time.Time, err error) { return }
-func (_ *trivial) exists() existence { return existenceMatterless }
-func (_ *trivial) stamp(t *traversal) (file []*File, err error) { return }
-func (t *trivial) Position() (res Position) { return t.position }
-func (_ *trivial) True() (res bool, err error) { return }
-func (_ *trivial) Integer() (i int64, err error) { return }
-func (_ *trivial) Float() (f float64, err error) { return }
-func (_ *trivial) String() (s string) { return }
-func (_ *trivial) Strval() (s string, err error) { return }
-func (_ *trivial) traverse(t *traversal) (breakers []*breaker) { return }
+type valbase struct { position Position }
+func (_ *valbase) refs(_ Value) (res bool) { return }
+func (_ *valbase) closured() (res bool) { return }
+func (_ *valbase) refdef(origin DefOrigin) (res bool) { return }
+func (_ *valbase) expand(_ expandwhat) (v Value, err error) { return }
+func (_ *valbase) cmp(_ Value) (res cmpres) { return }
+func (_ *valbase) mod(t *traversal) (res time.Time, err error) { return }
+func (_ *valbase) exists() existence { return existenceMatterless }
+func (_ *valbase) stamp(t *traversal) (file []*File, err error) { return }
+func (t *valbase) Position() (res Position) { return t.position }
+func (_ *valbase) True() (res bool, err error) { return }
+func (_ *valbase) Integer() (i int64, err error) { return }
+func (_ *valbase) Float() (f float64, err error) { return }
+func (_ *valbase) String() (s string) { return }
+func (_ *valbase) Strval() (s string, err error) { return }
+func (_ *valbase) traverse(t *traversal) (breakers []*breaker) { return }
 
 type returner struct {
-        trivial
+        valbase
         Values []Value
 }
 
@@ -892,14 +906,14 @@ func (p *Argumented) checkPatternDepends(t *traversal, project *Project, se *Ste
         return
 }
 
-type None struct { trivial }
+type None struct { valbase }
 func (p *None) expand(_ expandwhat) (Value, error) { return p, nil }
 func (_ *None) cmp(v Value) (res cmpres) { 
         if _, ok := v.(*None); ok { res = cmpEqual }
         return
 }
 
-type Nil struct { trivial }
+type Nil struct { valbase }
 func (p *Nil) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Nil) cmp(v Value) (res cmpres) {
         if _, ok := v.(*Nil); ok { res = cmpEqual }
@@ -1012,13 +1026,13 @@ func (p *Any) traverse(t *traversal) (breakers []*breaker) {
         return 
 }
 
-type negative struct { trivial; x Value }
+type negative struct { valbase; x Value }
 func (p *negative) refs(o Value) bool { return p.x.refs(o) }
 func (p *negative) closured() bool { return p.x.closured() }
 func (p *negative) expand(w expandwhat) (res Value, err error) {
         var v Value
         if v, err = p.x.expand(w); err != nil { return }
-        if v == p.x { res = p } else { res = &negative{p.trivial,v} }
+        if v == p.x { res = p } else { res = &negative{p.valbase,v} }
         return
 }
 func (p *negative) cmp(v Value) (res cmpres) {
@@ -1059,9 +1073,9 @@ func (p *negative) traverse(t *traversal) (breakers []*breaker) {
         return
 }
 
-func Negative(val Value) *negative { return &negative{trivial{val.Position()},val} }
+func Negative(val Value) *negative { return &negative{valbase{val.Position()},val} }
 
-type boolean struct { trivial; bool }
+type boolean struct { valbase; bool }
 func (p *boolean) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *boolean) True() (bool, error) { return p.bool, nil }
 func (p *boolean) Strval() (string, error) { return p.String(), nil }
@@ -1106,7 +1120,7 @@ func (p *boolean) cmp(v Value) (res cmpres) {
         return
 }
 
-type answer struct { trivial; bool }
+type answer struct { valbase; bool }
 func (p *answer) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *answer) True() (bool, error) { return p.bool, nil }
 func (p *answer) Strval() (string, error) { return p.String(), nil }
@@ -1151,7 +1165,7 @@ func (p *answer) cmp(v Value) (res cmpres) {
         return
 }
 
-type option struct { trivial; bool }
+type option struct { valbase; bool }
 func (p *option) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *option) True() (bool, error) { return p.bool, nil }
 func (p *option) Strval() (string, error) { return p.String(), nil }
@@ -1203,7 +1217,7 @@ type prediction struct {
 func (p *prediction) expand(_ expandwhat) (Value, error) { return p, nil }
 
 type integer struct {
-        trivial
+        valbase
         int64
 }
 func (p *integer) True() (bool, error) { return p.int64 != 0, nil }
@@ -1244,7 +1258,7 @@ func (p *Hex) Strval() (string, error) { return strconv.FormatInt(int64(p.int64)
 
 const FloatEpsilon = 1e-15 /* 1e-16 */
 type Float struct {
-        trivial
+        valbase
         float64
 } // IEEE-754 64-bit binary floating-point
 func (p *Float) expand(_ expandwhat) (Value, error) { return p, nil }
@@ -1269,7 +1283,7 @@ func (p *Float) cmp(v Value) (res cmpres) {
 }
 
 type DateTime struct {
-        trivial
+        valbase
         t time.Time
 }
 func (p *DateTime) expand(_ expandwhat) (Value, error) { return p, nil }
@@ -1309,7 +1323,7 @@ func (p *DateTime) cmp(v Value) (res cmpres) {
 func ParseDateTime(pos Position, s string) *DateTime {
         // time.RFC3339Nano
         if t, e := time.Parse("2006-01-02T15:04:05.999999999Z07:00", s); e == nil {
-                return &DateTime{trivial{pos},t}
+                return &DateTime{valbase{pos},t}
         } else {
                 panic(e)
         }
@@ -1344,7 +1358,7 @@ func (p *Time) Float() (float64, error) { i, e := p.Integer(); return float64(i)
 //                └(//)┬──────────────┬<host>┬──────────┬┘      └(?)─<query>┘└(#)─<fragment>┘
 //                     └<userinfo>─(@)┘      └(:)─<port>┘
 type URL struct {
-        trivial
+        valbase
         Scheme Value
         Username Value
         Password Value
@@ -1503,7 +1517,7 @@ func (p *URL) Validate() (res *url.URL) {
 }
 
 type Raw struct {
-        trivial
+        valbase
         string
 }
 func (p *Raw) expand(_ expandwhat) (Value, error) { return p, nil }
@@ -1520,7 +1534,7 @@ func (p *Raw) cmp(v Value) (res cmpres) {
 }
 
 type String struct {
-        trivial
+        valbase
         string
 }
 func (p *String) expand(_ expandwhat) (Value, error) { return p, nil }
@@ -1561,7 +1575,7 @@ func isTrueString(s string) (t bool) {
 }
 
 type Bareword struct {
-        trivial
+        valbase
         string
 }
 func (p *Bareword) expand(_ expandwhat) (Value, error) { return p, nil }
@@ -1589,7 +1603,7 @@ func (p *Bareword) cmp(v Value) (res cmpres) {
 }
 
 type Qualiword struct {
-        trivial
+        valbase
         words []string
 }
 func (p *Qualiword) expand(_ expandwhat) (Value, error) { return p, nil }
@@ -1644,8 +1658,8 @@ func (p *elements) Take(n int) (v Value) {
         }
         return 
 }
-func (p *elements) ToBarecomp() *Barecomp { return &Barecomp{trivial{},*p} }
-func (p *elements) ToCompound() *Compound { return &Compound{trivial{},*p} }
+func (p *elements) ToBarecomp() *Barecomp { return &Barecomp{valbase{},*p} }
+func (p *elements) ToCompound() *Compound { return &Compound{valbase{},*p} }
 func (p *elements) ToList() *List { return &List{*p} }
 func (p *elements) True() (t bool, err error) { // (or elems...)
         for _, elem := range p.Elems {
@@ -1688,7 +1702,7 @@ func (p *elements) cmpElems(elems []Value) (res cmpres) {
         return
 }
 
-type Barecomp struct { trivial ; elements }
+type Barecomp struct { valbase ; elements }
 func (p *Barecomp) refs(v Value) bool { return p.elements.refs(v) }
 func (p *Barecomp) refdef(origin DefOrigin) bool { return p.elements.refdef(origin) }
 func (p *Barecomp) closured() bool { return p.elements.closured() }
@@ -1726,7 +1740,7 @@ func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
         if elems, num, err = expandallcount(w, p.Elems...); err == nil {
                 if num > 0 {
-                        res = &Barecomp{p.trivial,elements{elems}}
+                        res = &Barecomp{p.valbase,elements{elems}}
                 } else {
                         res = p
                 }
@@ -1748,10 +1762,19 @@ func (p *Barecomp) cmp(v Value) (res cmpres) {
         if a, ok := v.(*Barecomp); ok { res = p.cmpElems(a.Elems) }
         return
 }
+func (p *Barecomp) Combine(x Value) {
+        if o, ok := x.(*Barecomp); ok {
+                for _, elem := range o.Elems {
+			p.Combine(elem)
+		}
+	} else {
+		p.Elems = append(p.Elems, x)
+	}
+}
 
 // Barefile works like an alias of a File, the Strval() is identical to File.
 type Barefile struct {
-        trivial
+        valbase
         Name Value
         File *File
 }
@@ -1761,7 +1784,7 @@ func (p *Barefile) expand(w expandwhat) (res Value, err error) {
         var name Value
         if name, err = p.Name.expand(w); err == nil {
                 if name != p.Name {
-                        res = &Barefile{p.trivial,name,p.File}
+                        res = &Barefile{p.valbase,name,p.File}
                 } else {
                         res = p
                 }
@@ -1835,7 +1858,7 @@ func (p *Barefile) cmp(v Value) (res cmpres) {
 }
 
 type GlobMeta struct {
-        trivial
+        valbase
         token.Token
 }
 func (p *GlobMeta) expand(_ expandwhat) (Value, error) { return p, nil }
@@ -1850,14 +1873,14 @@ func (p *GlobMeta) cmp(v Value) (res cmpres) {
 
 // `[a-b]`, `[abc]`, ...
 // `a-b`, `abc`, `a$(var)c`, `a$(spaces)c`...
-type GlobRange struct { trivial ; Chars Value }
+type GlobRange struct { valbase ; Chars Value }
 func (p *GlobRange) refs(v Value) bool { return p.Chars.refs(v) }
 func (p *GlobRange) closured() bool { return p.Chars.closured() }
 func (p *GlobRange) expand(w expandwhat) (Value, error) {
         if v, err := p.Chars.expand(w); err != nil {
                 return nil, err
         } else if v != p.Chars {
-                return &GlobRange{p.trivial,v}, nil
+                return &GlobRange{p.valbase,v}, nil
         } else {
                 return p, nil
         }
@@ -1881,7 +1904,7 @@ func (p *GlobRange) cmp(v Value) (res cmpres) {
 // Path is addressing a file (dynamically), the real located file varies
 // base on 'elements' and the context.
 type Path struct {
-        trivial
+        valbase
         elements
 }
 func (p *Path) elemstr(o Object, k elemkind) (s string) {
@@ -1950,7 +1973,7 @@ func (p *Path) expand(w expandwhat) (res Value, err error) {
                 elems = vals
         }
         if num > 0 {
-                res = &Path{p.trivial,elements{elems}}
+                res = &Path{p.valbase,elements{elems}}
         } else {
                 res = p
         }
@@ -2199,7 +2222,7 @@ ForPathSegs:
 }
 
 type PathSeg struct {
-        trivial
+        valbase
         rune
 }
 func (p *PathSeg) expand(_ expandwhat) (Value, error) { return p, nil }
@@ -2394,7 +2417,7 @@ func stat(pos Position, name, sub, dir string, infos ...os.FileInfo) (file *File
                 filecache[fullname] = base
         }
 GotFile:
-        file = &File{trivial{pos},base,stub} // FIXME: needs position information
+        file = &File{valbase{pos},base,stub} // FIXME: needs position information
         if enable_assertions {
                 if !addNotExisted {
                         assert(exists(file), "`%s` file not existed", fullname)
@@ -2421,7 +2444,7 @@ GotFile:
 }
 
 type File struct {
-        trivial
+        valbase
         *filebase
         *filestub
 }
@@ -2731,14 +2754,14 @@ type FileContent struct {
         content []byte
 }
 
-type Flag struct { trivial ; name Value }
+type Flag struct { valbase ; name Value }
 func (p *Flag) refs(v Value) bool { return p.name.refs(v) }
 func (p *Flag) closured() bool { return p.name.closured() }
 func (p *Flag) expand(w expandwhat) (res Value, err error) {
         var name Value
         if name, err = p.name.expand(w); err == nil {
                 if name != p.name {
-                        res = &Flag{p.trivial,name}
+                        res = &Flag{p.valbase,name}
                 } else {
                         res = p
                 }
@@ -2815,12 +2838,12 @@ func (p *Flag) traverse(t *traversal) (breakers []*breaker) {
 
 const escapedChars = "\"\r\n"
 
-type Compound struct { trivial ; elements } // "compound string"
+type Compound struct { valbase ; elements } // "compound string"
 func (p *Compound) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
         if elems, num, err = expandallcount(w, p.Elems...); err == nil {
                 if num > 0 {
-                        res = &Compound{p.trivial,elements{elems}}
+                        res = &Compound{p.valbase,elements{elems}}
                 } else {
                         res = p
                 }
@@ -3005,7 +3028,7 @@ func (p *List) cmp(v Value) (res cmpres) {
         return
 }
 
-type Group struct { trivial ; List }
+type Group struct { valbase ; List }
 func (p *Group) elemstr(o Object, k elemkind) string {
         var strs []string
         for _, elem := range p.Elems {
@@ -3013,10 +3036,10 @@ func (p *Group) elemstr(o Object, k elemkind) string {
         }
         return fmt.Sprintf("(%s)", strings.Join(strs, " "))
 }
-func (p *Group) mod(t *traversal) (time.Time, error) { return p.trivial.mod(t) }
-func (p *Group) Position() Position { return p.trivial.Position() }
-func (p *Group) Float() (float64, error) { return p.trivial.Float() }
-func (p *Group) Integer() (int64, error) { return p.trivial.Integer() }
+func (p *Group) mod(t *traversal) (time.Time, error) { return p.valbase.mod(t) }
+func (p *Group) Position() Position { return p.valbase.Position() }
+func (p *Group) Float() (float64, error) { return p.valbase.Float() }
+func (p *Group) Integer() (int64, error) { return p.valbase.Integer() }
 func (p *Group) True() (t bool, err error) {
         t = len(p.List.Elems) > 0
         return
@@ -3035,7 +3058,7 @@ func (p *Group) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
         if elems, num, err = expandallcount(w, p.Elems...); err == nil {
                 if num > 0 {
-                        res = &Group{p.trivial,List{elements{elems}}}
+                        res = &Group{p.valbase,List{elements{elems}}}
                 } else {
                         res = p
                 }
@@ -3066,7 +3089,7 @@ func parseGroupValue(g *Group) (result Value) {
 }
 
 type Pair struct { // key=value
-        trivial
+        valbase
         Key Value
         Value Value
 }
@@ -3083,10 +3106,10 @@ func (p *Pair) expand(x expandwhat) (res Value, err error) {
                                 if k != p.Key || v != p.Value {
                                         if k == nil { k = p.Key }
                                         if v == nil { v = p.Value }
-                                        res = &Pair{p.trivial,k,v}
+                                        res = &Pair{p.valbase,k,v}
                                 }
                         }
-                } else if k != nil && k != p.Key {res = &Pair{p.trivial,k,p.Value}}
+                } else if k != nil && k != p.Key {res = &Pair{p.valbase,k,p.Value}}
         }
         return
 }
@@ -3175,7 +3198,7 @@ func (p *closuredelegate) string(o Object, k elemkind) (s string) { // source re
 }
 
 // Delegate wraps '$(foo a,b,c)' into Valuer
-type delegate struct { trivial ; closuredelegate }
+type delegate struct { valbase ; closuredelegate }
 func (p *delegate) True() (t bool, err error) {
         var v Value
         if v, err = p.expand(expandAll); err == nil {
@@ -3246,7 +3269,7 @@ func (p *delegate) expand(w expandwhat) (res Value, err error) {
                         res, err = res.expand(expandClosure)
                 }
                 if err == nil && res == nil {
-                        res = &None{trivial{p.position}}
+                        res = &None{valbase{p.position}}
                 }
         }
         return
@@ -3334,7 +3357,7 @@ func (p *delegate) reveal() (res Value, err error) {
                 debug.PrintStack()
         }
 
-        if err == nil && res == nil { res = &None{trivial{p.position}} }
+        if err == nil && res == nil { res = &None{valbase{p.position}} }
         return
 }
 func (p *delegate) disclose() (res Value, err error) {
@@ -3350,7 +3373,7 @@ func (p *delegate) disclose() (res Value, err error) {
         }
         if err == nil {
                 if changed {
-                        res = &delegate{p.trivial,closuredelegate{p.l,x,args}}
+                        res = &delegate{p.valbase,closuredelegate{p.l,x,args}}
                 } else {
                         res = p
                 }
@@ -3411,7 +3434,7 @@ func (p *delegate) cmp(v Value) (res cmpres) {
         return
 }
 
-type closure struct { trivial ; closuredelegate }
+type closure struct { valbase ; closuredelegate }
 func (p *closure) True() (t bool, err error) {
         var v Value
         if v, err = p.expand(expandAll); err == nil {
@@ -3434,7 +3457,7 @@ func (p *closure) Strval() (s string, err error) {
         // &(...) -> $(...)
         if v, err = p.expand(expandClosure); err != nil {
                 return
-        } else if v == nil {
+        } else if isNil(v) {
                 //err = fmt.Errorf("{closure %+v &<nil>}", p.o)
                 return
         }
@@ -3442,7 +3465,7 @@ func (p *closure) Strval() (s string, err error) {
         // $(...) -> .....
         if v, err = v.expand(expandDelegate); err != nil {
                 return
-        } else if v != nil {
+        } else if !isNil(v) /*&& !v.refs(p)*/ {
                 s, err = v.Strval()
         } else {
                 //err = fmt.Errorf("{closure %+v $<nil>}", p.o)
@@ -3480,7 +3503,7 @@ func (p *closure) reveal() (res Value, err error) {
         }
 
         if x != nil || num > 1 {
-                res = &closure{p.trivial,closuredelegate{p.l,x,a}}
+                res = &closure{p.valbase,closuredelegate{p.l,x,a}}
         }
         return
 }
@@ -3585,7 +3608,7 @@ func (p *closure) disclose() (res Value, err error) {
         }
 
         if changed && err == nil {
-                res = &delegate{p.trivial,closuredelegate{p.l,o,args}}
+                res = &delegate{p.valbase,closuredelegate{p.l,o,args}}
         }
         return
 }
@@ -3631,7 +3654,7 @@ func (p *closure) cmp(v Value) (res cmpres) {
 }
 
 type selection struct {
-        trivial
+        valbase
         t token.Token
         o Value // Object or selection
         s Value
@@ -3758,7 +3781,7 @@ func (p *selection) expand(w expandwhat) (res Value, err error) {
                 if s == nil { s = p.s }
         }
         if o != p.o || s != p.s {
-                res = &selection{p.trivial,p.t,o,s}
+                res = &selection{p.valbase,p.t,o,s}
         } else {
                 res = p
         }
@@ -3814,7 +3837,7 @@ type Pattern interface {
 
 // PercPattern represents percent pattern expressions (e.g. '%.o')
 type PercPattern struct {
-        trivial // TODO: supporting multiple %: foo%bar%xxx
+        valbase // TODO: supporting multiple %: foo%bar%xxx
         Prefix Value
         Suffix Value
 }
@@ -3940,7 +3963,7 @@ func (p *PercPattern) traverse(t *traversal) (breakers []*breaker) {
         } else if len(rest) > 0 || target == "" {
                 // just relax
         } else if breakers = t.target(p.position, target); len(breakers) == 0 {
-                //t.addNewTarget(&String{trivial{p.position},target})
+                //t.addNewTarget(&String{valbase{p.position},target})
         }
         return
 }
@@ -3987,7 +4010,7 @@ func percperc(p Pattern) (t bool, prefix, suffix Value) {
 //		'\\' c      matches character c
 //		lo '-' hi   matches character c for lo <= c <= hi
 type GlobPattern struct {
-        trivial
+        valbase
         Components []Value
 }
 func (p *GlobPattern) expand(_ expandwhat) (Value, error) { return p, nil }
@@ -4087,7 +4110,7 @@ func (p *GlobPattern) cmp(v Value) (res cmpres) {
 }
 
 // TODO: implement regexp pattern
-type RegexpPattern struct { trivial }
+type RegexpPattern struct { valbase }
 func (p *RegexpPattern) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *RegexpPattern) String() string { return "{RegexpPattern}" }
 func (p *RegexpPattern) Strval() (s string, err error) { return "", nil }
@@ -4297,92 +4320,97 @@ func EscapeChar(s string) string {
         return s
 }
 
-func MakeNil(pos Position) Value { return &Nil{trivial{pos}} }
+func MakeNil(pos Position) Value { return &Nil{valbase{pos}} }
+func MakeNone(pos Position) Value { return &None{valbase{pos}} }
+func MakeSelection(pos Position, tok token.Token, lhs, rhs Value) Value { return &selection{valbase{pos}, tok, lhs, rhs} }
 func MakeAnswer(pos Position, v bool) (res Value) {
         if v {
-                res = &answer{trivial{pos},true}
+                res = &answer{valbase{pos},true}
         } else {
-                res = &answer{trivial{pos},false}
+                res = &answer{valbase{pos},false}
         }
         return
 }
 func MakeBoolean(pos Position, v bool) (res Value) {
         if v {
-                res = &boolean{trivial{pos},true}
+                res = &boolean{valbase{pos},true}
         } else {
-                res = &boolean{trivial{pos},false}
+                res = &boolean{valbase{pos},false}
         }
         return
 }
-func MakeBin(pos Position, i int64) *Bin { return &Bin{integer{trivial{pos},i}} }
-func MakeOct(pos Position, i int64) *Oct { return &Oct{integer{trivial{pos},i}} }
-func MakeInt(pos Position, i int64) *Int { return &Int{integer{trivial{pos},i}} }
-func MakeHex(pos Position, i int64) *Hex { return &Hex{integer{trivial{pos},i}} }
-func MakeFloat(pos Position, f float64) *Float { return &Float{trivial{pos},f} }
-func MakeDate(pos Position, s time.Time) *Date { return &Date{DateTime{trivial{pos},s}} }
-func MakeTime(pos Position, t time.Time) *Time { return &Time{DateTime{trivial{pos},t}} }
-func MakeString(pos Position, s string) *String { return &String{trivial{pos},s} }
-func MakeFlag(pos Position, s string) *Flag { return &Flag{trivial{pos}, &Bareword{trivial{pos},s}} }
+func MakeBin(pos Position, i int64) *Bin { return &Bin{integer{valbase{pos},i}} }
+func MakeOct(pos Position, i int64) *Oct { return &Oct{integer{valbase{pos},i}} }
+func MakeInt(pos Position, i int64) *Int { return &Int{integer{valbase{pos},i}} }
+func MakeHex(pos Position, i int64) *Hex { return &Hex{integer{valbase{pos},i}} }
+func MakeFloat(pos Position, f float64) *Float { return &Float{valbase{pos},f} }
+func MakeDate(pos Position, s time.Time) *Date { return &Date{DateTime{valbase{pos},s}} }
+func MakeTime(pos Position, t time.Time) *Time { return &Time{DateTime{valbase{pos},t}} }
+func MakeRaw(pos Position, s string) *Raw { return &Raw{valbase{pos},s} }
+func MakeString(pos Position, s string) *String { return &String{valbase{pos},s} }
+func MakeFlag(pos Position, s string) *Flag { return &Flag{valbase{pos}, &Bareword{valbase{pos},s}} }
+func MakeFlagValue(pos Position, v Value) *Flag { return &Flag{valbase{pos}, v} }
 func MakeURL(pos Position, s *url.URL) *URL {
         var host, port string
         v := strings.Split(s.Host, ":")
         if len(v) == 1 { host = v[0] }
         if len(v) == 2 { host, port = v[0], v[1] }
         var password Value
-        if t, ok := s.User.Password(); ok {password = &String{trivial{pos},t}}
+        if t, ok := s.User.Password(); ok {password = &String{valbase{pos},t}}
         return &URL{ // FIXME: calculate component positions
-                trivial: trivial{pos},
-                Scheme: &String{trivial{pos},s.Scheme},
-                Username: &String{trivial{pos},s.User.Username()},
+                valbase: valbase{pos},
+                Scheme: &String{valbase{pos},s.Scheme},
+                Username: &String{valbase{pos},s.User.Username()},
                 Password: password,
-                Host: &String{trivial{pos},host},
-                Port: &String{trivial{pos},port},
-                Path: &String{trivial{pos},s.Path},
-                Query: &String{trivial{pos},s.RawQuery},
-                Fragment: &String{trivial{pos},s.Fragment},
+                Host: &String{valbase{pos},host},
+                Port: &String{valbase{pos},port},
+                Path: &String{valbase{pos},s.Path},
+                Query: &String{valbase{pos},s.RawQuery},
+                Fragment: &String{valbase{pos},s.Fragment},
         }
 }
-func MakeBareword(pos Position, word string) *Bareword { return &Bareword{trivial{pos},word} }
-func MakeBarecomp(pos Position, elems... Value) *Barecomp { return &Barecomp{trivial{pos},elements{elems}} }
-func MakeCompound(pos Position, elems... Value) *Compound { return &Compound{trivial{pos},elements{elems}} }
-func MakeList(pos Position, elems... Value) *List { return &List{elements{elems}} }
-func MakeGroup(pos Position, elems... Value) (v *Group) { return &Group{trivial{pos},List{elements{elems}}} }
-func MakeGlobMeta(pos Position, tok token.Token) *GlobMeta { return &GlobMeta{trivial{pos},tok} }
-func MakeGlobRange(pos Position, v Value) *GlobRange { return &GlobRange{trivial{pos},v} }
-func MakePath(pos Position, segments... Value) (v *Path) { return &Path{trivial{pos},elements{segments}/*, nil*/} }
-func MakePathSeg(pos Position, ch rune) *PathSeg { return &PathSeg{trivial{pos},ch} }
+func MakeBareword(pos Position, word string) *Bareword { return &Bareword{valbase{pos},word} }
+func MakeBarecomp(pos Position, elems... Value) *Barecomp { return &Barecomp{valbase{pos},elements{elems}} }
+func MakeCompound(pos Position, elems... Value) *Compound { return &Compound{valbase{pos},elements{elems}} }
+func MakeArgumented(val Value, args... Value) *Argumented { return &Argumented{val, args} }
+func MakeList(elems... Value) *List { return &List{elements{elems}} }
+func MakeGroup(pos Position, elems... Value) (v *Group) { return &Group{valbase{pos},List{elements{elems}}} }
+func MakeGlobMeta(pos Position, tok token.Token) *GlobMeta { return &GlobMeta{valbase{pos},tok} }
+func MakeGlobRange(pos Position, v Value) *GlobRange { return &GlobRange{valbase{pos},v} }
+func MakePath(pos Position, segments... Value) (v *Path) { return &Path{valbase{pos},elements{segments}/*, nil*/} }
+func MakePathSeg(pos Position, ch rune) *PathSeg { return &PathSeg{valbase{pos},ch} }
 func MakePathStr(pos Position, str string) (v *Path) {
         var segments []Value
         for _, s := range strings.Split(str, PathSep) {
                 // TODO: calculate position of each segment
-                segments = append(segments, &Bareword{trivial{pos},s})
+                segments = append(segments, &Bareword{valbase{pos},s})
         }
         return MakePath(pos, segments...)
 }
 func MakePair(pos Position, k, v Value) (p *Pair) {
-        p = &Pair{trivial{pos},nil,nil}
+        p = &Pair{valbase{pos},nil,nil}
         p.SetKey(k)
         p.SetValue(v)
         return
 }
-func MakePercPattern(pos Position, prefix, suffix Value) Pattern {
-        if prefix == nil { prefix = &None{} }
-        if suffix == nil { suffix = &None{} }
+func MakePercPattern(pos Position, prefix, suffix Value) *PercPattern {
+        if prefix == nil { prefix = MakeNone(pos) }
+        if suffix == nil { suffix = MakeNone(pos) }
         return &PercPattern{
-                trivial: trivial{pos},
+                valbase: valbase{pos},
                 Prefix: prefix,
                 Suffix: suffix,
         }
 }
 func MakeGlobPattern(pos Position, components... Value) Pattern {
-        return &GlobPattern{trivial:trivial{pos},Components:components}
+        return &GlobPattern{valbase:valbase{pos},Components:components}
 }
 func MakeDelegate(pos Position, tok token.Token, obj Value, args... Value) Value {
-        return &delegate{trivial{pos},closuredelegate{tok,obj,args}}
+        return &delegate{valbase{pos},closuredelegate{tok,obj,args}}
 }
 func MakeClosure(pos Position, tok token.Token, obj Value, args... Value) Value {
-        if obj == nil { panic("closure of nil") }
-        return &closure{trivial{pos},closuredelegate{tok,obj,args}}
+        if obj == nil { panic("making closure to nil object") }
+        return &closure{valbase{pos},closuredelegate{tok,obj,args}}
 }
 func MakeListOrScalar(pos Position, elems []Value) (res Value) {
         if x := len(elems); x > 1 {
@@ -4390,7 +4418,7 @@ func MakeListOrScalar(pos Position, elems []Value) (res Value) {
         } else if x == 1 {
                 res = elems[0]
         } else {
-                res = &None{trivial{/*pos*/}}
+                res = &None{valbase{/*pos*/}}
         }
         return
 }
@@ -4402,8 +4430,8 @@ func Make(pos Position, in interface{}) (out Value) {
         case int64:     out = MakeInt(pos,v)
         case float32:   out = MakeFloat(pos,float64(v))
         case float64:   out = MakeFloat(pos,v)
-        case string:    out = &String{trivial{pos},v}
-        case time.Time: out = &DateTime{trivial{pos},v} // FIXME: NewDate, NewTime
+        case string:    out = &String{valbase{pos},v}
+        case time.Time: out = &DateTime{valbase{pos},v} // FIXME: NewDate, NewTime
         case Value:     out = v
         default:        out = &Any{in} // TODO: position for any
         }

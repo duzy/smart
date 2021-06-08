@@ -264,10 +264,10 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         print: true,
         isConfigureExecution: isConfigureExecution,
     }
-    var ( none = &None{trivial{pos}} ; stem Value = none; f func() ; err error )
+    var ( none = &None{valbase{pos}} ; stem Value = none; f func() ; err error )
     if t.caller != nil {
         if optionTraceTraversalNestIndent { t.traceLevel = t.caller.traceLevel }
-        if t.stems = t.caller.stems; t.stems != nil { stem = &String{trivial{pos}, t.stems[0]} }
+        if t.stems = t.caller.stems; t.stems != nil { stem = &String{valbase{pos}, t.stems[0]} }
     }
     if t.def.stem,    err = prog.auto("*", stem); err != nil { diag.errorAt(pos, "%v", err); return }
     if t.def.target,  err = prog.auto("@", none); err != nil { diag.errorAt(pos, "%v", err); return }

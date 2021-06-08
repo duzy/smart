@@ -63,13 +63,13 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
                 case xml_enc.ProcInst:
                         // TODO: ...
                 case xml_enc.StartElement:
-                        nn := MakeGroup(pos, &Bareword{trivial{pos},elem.Name.Local})
+                        nn := MakeGroup(pos, &Bareword{valbase{pos},elem.Name.Local})
                         for _, a := range elem.Attr {
                                 var k, v Value
-                                k = &Bareword{trivial{pos},a.Name.Local}
-                                v = &String{trivial{pos},a.Value}
+                                k = &Bareword{valbase{pos},a.Name.Local}
+                                v = &String{valbase{pos},a.Value}
                                 if s := a.Name.Space; s != "" {
-                                        k = MakeGroup(pos, &String{trivial{pos},s}, k)
+                                        k = MakeGroup(pos, &String{valbase{pos},s}, k)
                                 }
                                 nn.Append(MakePair(pos, k, v))
                         }
@@ -89,10 +89,10 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
                         if x := len(stack); x > 0 {
                                 node, s := stack[x-1], string(elem)
                                 if ws {
-                                        node.Append(&String{trivial{pos},s})
+                                        node.Append(&String{valbase{pos},s})
                                 } else {
                                         if s = strings.TrimSpace(s); s != "" {
-                                                node.Append(&String{trivial{pos},s})
+                                                node.Append(&String{valbase{pos},s})
                                         }
                                 }
                         }
@@ -124,7 +124,7 @@ func (p *xml) Evaluate(pos Position, t *traversal, args ...Value) (result Value,
         if result, err = DecodeXML(source, p.whitespace); err == nil {
                 result = &XML{ result }
         } else {
-                result = &XML{ &None{trivial{t.program.position}} }
+                result = &XML{ &None{valbase{t.program.position}} }
         }
         return
 }

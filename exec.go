@@ -468,7 +468,7 @@ func (p *ExecBuffer) runAndProcessKnownErrors(pos Position, t *traversal, dock *
 }
 
 type ExecResult struct {
-  trivial
+  valbase
   wg *sync.WaitGroup
   Stdout ExecBuffer
   Stderr ExecBuffer
@@ -815,7 +815,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
 
   var log ExecLog
   var logfile *os.File
-  var exeres = &ExecResult{trivial:trivial{pos},wg:new(sync.WaitGroup)}
+  var exeres = &ExecResult{valbase:valbase{pos},wg:new(sync.WaitGroup)}
   if optBuffOut { exeres.Stdout.Buf = new(bytes.Buffer) }
   if optBuffErr { exeres.Stderr.Buf = new(bytes.Buffer) }
   if optVerbout { exeres.Stdout.Tie = stdout }

@@ -9,9 +9,10 @@ package smart
 import (
   "extbit.io/smart/token"
   "path/filepath"
-  //"runtime/debug"
+  "runtime/debug"
   "strings"
   "bufio"
+  "bytes"
   "sync"
   "time"
   "fmt"
@@ -68,6 +69,7 @@ type diagnostic struct {
   position Position
   value Value
   message string
+  stack []byte // see debug.Stack()
 }
 func (d *diagnostic) getPosition() Position {
   if isNil(d.value) {
@@ -76,66 +78,71 @@ func (d *diagnostic) getPosition() Position {
     return d.value.Position()
   }
 }
+func (d *diagnostic) debug() {
+ 	const skips = 5 // skips the standard stack lines, which is not very useful
+	var (
+		ln = []byte{ '\n' }
+		v = bytes.Split(debug.Stack(), ln)
+		i int = 0
+	)
+	if skips > 0 && len(v) > skips { i = skips }
+  d.stack = bytes.Join(v[i:], ln)
+}
 
 type Diagnostic struct {
   points []*diagnostic
   m sync.Mutex
 }
-func (diag *Diagnostic) infoOf(value Value, f string, args... interface{}) {
+func (diag *Diagnostic) reset() {
   diag.m.Lock(); defer diag.m.Unlock()
-  diag.points = append(diag.points, &diagnostic{ diagInfo, Position{}, value, fmt.Sprintf(f, args...) })
+  diag.points = []*diagnostic{}
 }
-func (diag *Diagnostic) warnOf(value Value, f string, args... interface{}) {
+func (diag *Diagnostic) add(point *diagnostic) *diagnostic {
   diag.m.Lock(); defer diag.m.Unlock()
-  diag.points = append(diag.points, &diagnostic{ diagWarn, Position{}, value, fmt.Sprintf(f, args...) })
+  diag.points = append(diag.points, point)
+  return point
 }
-func (diag *Diagnostic) errorOf(value Value, f string, args... interface{}) {
-  diag.m.Lock(); defer diag.m.Unlock()
+func (diag *Diagnostic) infoOf(value Value, f string, args... interface{}) *diagnostic {
+  return diag.add(&diagnostic{ diagInfo, value.Position(), value, fmt.Sprintf(f, args...), nil })
+}
+func (diag *Diagnostic) warnOf(value Value, f string, args... interface{}) *diagnostic {
+  return diag.add(&diagnostic{ diagWarn, value.Position(), value, fmt.Sprintf(f, args...), nil })
+}
+func (diag *Diagnostic) errorOf(value Value, f string, args... interface{}) *diagnostic {
   var s = fmt.Sprintf(f, args...)
   /*if strings.Contains(s, ": error: core:") {
     fmt.Fprintf(stderr, "1. '%v' -> %v\n", f, s)
     debug.PrintStack()
   }*/
-  diag.points = append(diag.points, &diagnostic{ diagError, Position{}, value, s })
+  return diag.add(&diagnostic{ diagError, value.Position(), value, s, nil })
 }
-func (diag *Diagnostic) infoAt(pos Position, f string, args... interface{}) {
-  diag.m.Lock(); defer diag.m.Unlock()
-  diag.points = append(diag.points, &diagnostic{ diagInfo, pos, nil, fmt.Sprintf(f, args...) })
+func (diag *Diagnostic) infoAt(pos Position, f string, args... interface{}) *diagnostic {
+  return diag.add(&diagnostic{ diagInfo, pos, nil, fmt.Sprintf(f, args...), nil })
 }
-func (diag *Diagnostic) warnAt(pos Position, f string, args... interface{}) {
-  diag.m.Lock(); defer diag.m.Unlock()
-  diag.points = append(diag.points, &diagnostic{ diagWarn, pos, nil, fmt.Sprintf(f, args...) })
+func (diag *Diagnostic) warnAt(pos Position, f string, args... interface{}) *diagnostic {
+  return diag.add(&diagnostic{ diagWarn, pos, nil, fmt.Sprintf(f, args...), nil })
 }
-func (diag *Diagnostic) errorAt(pos Position, f string, args... interface{}) {
-  diag.m.Lock(); defer diag.m.Unlock()
+func (diag *Diagnostic) errorAt(pos Position, f string, args... interface{}) *diagnostic {
   var s = fmt.Sprintf(f, args...)
   /*if strings.Contains(s, ": error: core:") {
     fmt.Fprintf(stderr, "2. '%v' -> %v\n", f, s)
     debug.PrintStack()
   }*/
-  diag.points = append(diag.points, &diagnostic{ diagError, pos, nil, s })
+  return diag.add(&diagnostic{ diagError, pos, nil, s, nil })
 }
-func (diag *Diagnostic) info(f string, args... interface{}) {
-  diag.m.Lock(); defer diag.m.Unlock()
-  diag.points = append(diag.points, &diagnostic{ diagInfo, Position{}, nil, fmt.Sprintf(f, args...) })
+func (diag *Diagnostic) info(f string, args... interface{}) *diagnostic {
+  return diag.add(&diagnostic{ diagInfo, Position{}, nil, fmt.Sprintf(f, args...), nil })
 }
-func (diag *Diagnostic) warn(f string, args... interface{}) {
-  diag.m.Lock(); defer diag.m.Unlock()
-  diag.points = append(diag.points, &diagnostic{ diagWarn, Position{}, nil, fmt.Sprintf(f, args...) })
+func (diag *Diagnostic) warn(f string, args... interface{}) *diagnostic {
+  return diag.add(&diagnostic{ diagWarn, Position{}, nil, fmt.Sprintf(f, args...), nil })
 }
-func (diag *Diagnostic) error(f string, args... interface{}) {
-  diag.m.Lock(); defer diag.m.Unlock()
+func (diag *Diagnostic) error(f string, args... interface{}) *diagnostic {
   var s = fmt.Sprintf(f, args...)
   /*if strings.Contains(s, ": error: core:") {
     fmt.Fprintf(stderr, "3. '%v' -> %v\n", f, s)
     debug.PrintStack()
   }*/
-  diag.points = append(diag.points, &diagnostic{ diagError, Position{}, nil, s })
-}
-
-func (diag *Diagnostic) reset() {
-  diag.m.Lock(); defer diag.m.Unlock()
-  diag.points = []*diagnostic{}
+  return diag.add(&diagnostic{ diagError, Position{}, nil, s, nil })
 }
 
 func (diag *Diagnostic) checkErrors(reset bool) (num int) {
@@ -148,6 +155,7 @@ func (diag *Diagnostic) checkErrors(reset bool) (num int) {
     case diagError: fmt.Fprintf(stderr, "%v: %s\n",         pos, d.message)
       num += 1
     }
+    if d.stack != nil { fmt.Fprintf(stderr, "%s", d.stack) }
     if num > 22 {
       fmt.Fprintf(stderr, "%v: too many errors\n", pos)
       break
@@ -356,12 +364,12 @@ func (ctx *Context) loadwork() (err error) {
     scope:    ctx.globe.scope,
   }
   ctx.goals = &Def{
-    knownobject{trivialobject{scope:ctx.globe.scope}, "goals"},
-    DefDefault, &None{trivial{pos}},
+    knownobject{objbase{scope:ctx.globe.scope}, "goals"},
+    DefDefault, MakeNone(pos),
   }
   ctx.mode = &Def{
-    knownobject{trivialobject{scope:ctx.globe.scope}, "mode"},
-    DefDefault, &None{trivial{pos}},
+    knownobject{objbase{scope:ctx.globe.scope}, "mode"},
+    DefDefault, MakeNone(pos),
   }
 
   if _, e := os.Stat(sp); e == nil { ctx.loader.AddSearchPaths(sp) }

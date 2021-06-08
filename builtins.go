@@ -338,7 +338,7 @@ func builtinTypeOf(pos Position, args... Value) (res Value) {
                 //   $(fun a,b,c)               args: (a),(b),(c)
                 //   $(fun a b c,1 2 3)         args: (a b c),(1 2 3)
                 s = typeof(arg)
-                elems = append(elems, &String{trivial{pos},s})
+                elems = append(elems, &String{valbase{pos},s})
         }
         return MakeListOrScalar(pos, elems)
 }
@@ -357,10 +357,10 @@ func builtinPosition(pos Position, args... Value) (res Value) {
                 diag.errorAt(pos, "position: %v", err); return
         } else if _, err = parseFlags(args, opts, func(ru rune, val Value) {
                 switch ru {
-                case 'f': vals = append(vals, &String{trivial{pos},pos.Filename})
-                case 'q': vals = append(vals, &String{trivial{pos},"\""+pos.Filename+"\""})
-                case 'l': vals = append(vals, &Int{integer{trivial{pos},int64(pos.Line)}})
-                case 'c': vals = append(vals, &Int{integer{trivial{pos},int64(pos.Column)}})
+                case 'f': vals = append(vals, &String{valbase{pos},pos.Filename})
+                case 'q': vals = append(vals, &String{valbase{pos},"\""+pos.Filename+"\""})
+                case 'l': vals = append(vals, &Int{integer{valbase{pos},int64(pos.Line)}})
+                case 'c': vals = append(vals, &Int{integer{valbase{pos},int64(pos.Column)}})
                 case 'a':
                         if len(vals) == 0 { break }
                         var last, okay = Scalar(vals[len(vals)-1]).(*Int)
@@ -376,7 +376,7 @@ func builtinPosition(pos Position, args... Value) (res Value) {
         if len(vals) > 0 {
                 res = MakeListOrScalar(pos, vals)
         } else {
-                res = &String{trivial{pos},pos.String()}
+                res = &String{valbase{pos},pos.String()}
         }
         return
 }
@@ -466,11 +466,11 @@ func builtinNot(pos Position, args... Value) (res Value) {
         for _, a := range args {
                 if t, e = a.True(); e != nil { diag.errorAt(pos, "not: error: %v", e); return } else
                 if t {
-                        res = &boolean{trivial{pos},false}
+                        res = &boolean{valbase{pos},false}
                         return
                 }
         }
-        if e == nil {res = &boolean{trivial{pos},true}}
+        if e == nil {res = &boolean{valbase{pos},true}}
         return
 }
 
@@ -478,7 +478,7 @@ func builtinNotEqual(pos Position, args... Value) (res Value) {
         if n := len(args); n != 2 {
                 diag.errorAt(pos, "wrong number of arguments, try: $(match <value-list>,<regexp-list>)")
         } else if args[0].cmp(args[1]) != cmpEqual {
-                res = &boolean{trivial{pos},true}
+                res = &boolean{valbase{pos},true}
         }
         return
 }
@@ -487,7 +487,7 @@ func builtinEqual(pos Position, args... Value) (res Value) {
         if n := len(args); n != 2 {
                 diag.errorAt(pos, "wrong number of arguments, try: $(match <value-list>,<regexp-list>)")
         } else if cmp := args[0].cmp(args[1]); cmp == cmpEqual {
-                res = &boolean{trivial{pos},true}
+                res = &boolean{valbase{pos},true}
         }
         return
 }
@@ -511,7 +511,7 @@ ForMatchValues:
                         if isNil(srcval) { continue } else
                         if src, err = srcval.Strval(); err != nil { diag.errorOf(srcval, "strval: %v", err); return } else
                         if r.MatchString(src) {
-                                res = &boolean{trivial{pos},true}
+                                res = &boolean{valbase{pos},true}
                                 break ForMatchValues
                         }
                 }
@@ -601,7 +601,7 @@ func builtinFor(pos Position, args... Value) (res Value) {
                 for _, a := range args[1:] {
                         if values, err = mergeresult(ExpandAll(a)); err != nil { diag.errorAt(pos, "%v", err); return }
                         if len(values) == 0 {
-                                list = append(list, &None{trivial{pos}})
+                                list = append(list, &None{valbase{pos}})
                         } else if len(values) == 1 {
                                 list = append(list, values[0])
                         } else {
@@ -650,7 +650,7 @@ func builtinForEach(pos Position, args... Value) (res Value) {
                                 }
                         }
                         if n = len(list); n == 0 {
-                                resList = append(resList, &None{trivial{pos}})
+                                resList = append(resList, &None{valbase{pos}})
                         } else if n == 1 {
                                 resList = append(resList, list[0])
                         } else {
@@ -675,7 +675,7 @@ func builtinEnv(pos Position, args... Value) (res Value) {
                         // discard
                 } else if v, err = val.Strval(); err == nil {
                         if s := strings.TrimSpace(v); s != "" {
-                                vals = append(vals, &String{trivial{pos},os.Getenv(s)})
+                                vals = append(vals, &String{valbase{pos},os.Getenv(s)})
                         }
                 } else {
                         diag.errorAt(pos, "%v", err)
@@ -698,7 +698,7 @@ func builtinValue(pos Position, args... Value) (res Value) {
                 if def := scope.FindDef(s); def != nil {
                         vals = append(vals, def.value)
                 } else {
-                        vals = append(vals, &None{trivial{pos}})
+                        vals = append(vals, &None{valbase{pos}})
                 }
         }
         return MakeListOrScalar(pos, vals)
@@ -721,7 +721,7 @@ func builtinShell(pos Position, args... Value) (res Value) {
                         diag.errorAt(pos, "%s", err)
                         return
                 }
-                val := &String{trivial{pos},strings.TrimSpace(bufout.String())}
+                val := &String{valbase{pos},strings.TrimSpace(bufout.String())}
                 vals = append(vals, val)
                 bufout.Reset()
                 buferr.Reset()
@@ -880,7 +880,7 @@ func builtinPlus(pos Position, args... Value) (result Value) {
                 }
                 num += v
         } 
-        return &Int{integer{trivial{pos},num}}
+        return &Int{integer{valbase{pos},num}}
 }
 
 func builtinMinus(pos Position, args... Value) (result Value) {
@@ -897,7 +897,7 @@ func builtinMinus(pos Position, args... Value) (result Value) {
                         num -= v
                 }
         }
-        return &Int{integer{trivial{pos},num}}
+        return &Int{integer{valbase{pos},num}}
 }
 
 func builtinUnique(pos Position, args... Value) (res Value) {
@@ -973,7 +973,7 @@ func builtinJoin(pos Position, args... Value) (res Value) {
                         if v, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if v != "" { fields = append(fields, v) }
                 }
-                res = &String{trivial{pos},strings.Join(fields, sep)}
+                res = &String{valbase{pos},strings.Join(fields, sep)}
         }
         return
 }
@@ -988,9 +988,9 @@ func builtinQuote(pos Position, args... Value) (res Value) {
                         if v, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if v != "" { fields = append(fields, v) }
                 }
-                res = &String{trivial{pos},strconv.Quote(strings.Join(fields, " "))}
+                res = &String{valbase{pos},strconv.Quote(strings.Join(fields, " "))}
         } else {
-                res = &None{trivial{pos}}
+                res = &None{valbase{pos}}
         }
         return
 }
@@ -1014,9 +1014,9 @@ func builtinQuoteJoin(pos Position, args... Value) (res Value) {
                         if v, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if v != "" { fields = append(fields, v) }
                 }
-                res = &String{trivial{pos},strconv.Quote(strings.Join(fields, sep))}
+                res = &String{valbase{pos},strconv.Quote(strings.Join(fields, sep))}
         } else {
-                res = &None{trivial{pos}}
+                res = &None{valbase{pos}}
         }
         return
 }
@@ -1029,11 +1029,11 @@ func builtinSplitString(pos Position, args... Value) (res Value) {
                 for _, a := range args {
                         var s string
                         if s, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                        if s != "" { fields = append(fields, &String{trivial{a.Position()},s}) }
+                        if s != "" { fields = append(fields, &String{valbase{a.Position()},s}) }
                 }
                 res = &List{elements{fields}}
         } else {
-                res = &None{trivial{pos}}
+                res = &None{valbase{pos}}
         }
         return
 }
@@ -1062,7 +1062,7 @@ func joinstrings(value Value, sep string) (res Value, err error) {
                         if s, err = v.Strval(); err != nil { break ValueType }
                         if s != "" { strs = append(strs, s) }
                 }
-                res = &String{trivial{value.Position()},strings.Join(strs, sep)}
+                res = &String{valbase{value.Position()},strings.Join(strs, sep)}
         }
         return
 }
@@ -1105,7 +1105,7 @@ func builtinSplitJoinQuote(pos Position, args... Value) (res Value) {
                 if v, err = joinstrings(v, sep); err == nil {
                         var s string
                         if s, err = v.Strval(); err == nil {
-                                res = &String{trivial{pos},strconv.Quote(s)}
+                                res = &String{valbase{pos},strconv.Quote(s)}
                         }
                 }
         }
@@ -1132,10 +1132,10 @@ func builtinField(pos Position, args... Value) (res Value) {
                 }
                 if n := int(i)-1; 0 <= n && n < len(fields) {
                         s = strings.TrimSpace(fields[n])
-                        res = &String{trivial{pos},s}
+                        res = &String{valbase{pos},s}
                 }
         } else {
-                res = &None{trivial{pos}}
+                res = &None{valbase{pos}}
         }
         return
 }
@@ -1193,7 +1193,7 @@ func builtinString(pos Position, args... Value) (result Value) {
                 if v, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 s.WriteString(v)
         }
-        result = &String{trivial{pos},s.String()}
+        result = &String{valbase{pos},s.String()}
         return
 }
 
@@ -1242,7 +1242,7 @@ func builtinFilterValues(pos Position, neg bool, args... Value) (res Value) {
                         res = MakeListOrScalar(pos, vals)
                 }
         }
-        if res == nil && err == nil { res = &None{trivial{pos}} }
+        if res == nil && err == nil { res = &None{valbase{pos}} }
         return
 }
 
@@ -1285,7 +1285,7 @@ func builtinSubstring(pos Position, args... Value) (res Value) {
                         if s, err = arg.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if i := len(s); i <= a { s = "" } else
                         if b == -1 || i <= b { s = s[a:b] } else { s = s[a:] }
-                        list = append(list, &String{trivial{pos},s})
+                        list = append(list, &String{valbase{pos},s})
                 }
         }
         res = MakeListOrScalar(pos, list)
@@ -1304,7 +1304,7 @@ func builtinSubst(pos Position, args... Value) (res Value) {
                 if a, err = mergeresult(Reveal(args[2:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
                 for _, arg := range a {
                         if s, err = arg.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                        list = append(list, &String{trivial{pos},strings.Replace(s, s1, s2, -1)})
+                        list = append(list, &String{valbase{pos},strings.Replace(s, s1, s2, -1)})
                 }
         }
         res = MakeListOrScalar(pos, list)
@@ -1436,7 +1436,7 @@ ForSources:
                                 continue ForDstPats
 
                         default:
-                                list = append(list, &String{trivial{pos},name})
+                                list = append(list, &String{valbase{pos},name})
                                 continue ForDstPats
                         }
                 }
@@ -1451,7 +1451,7 @@ func builtinStrip(pos Position, args... Value) (res Value) {
 }
 
 func builtinTrimSpace(pos Position, args... Value) (res Value) {
-        return builtinTrim(pos, append([]Value{&None{trivial{pos}}}, args...)...)
+        return builtinTrim(pos, append([]Value{&None{valbase{pos}}}, args...)...)
 }
 
 func builtinTitle(pos Position, args... Value) (res Value) {
@@ -1466,7 +1466,7 @@ func builtinTitle(pos Position, args... Value) (res Value) {
                 if s, err = a.Strval(); err != nil {
                         return
                 } else if s != "" {
-                        list = append(list, &String{trivial{a.Position()},strings.Title(s)})
+                        list = append(list, &String{valbase{a.Position()},strings.Title(s)})
                 }
         }
         if err == nil {
@@ -1490,9 +1490,9 @@ func builtinTrim(pos Position, args... Value) (res Value) {
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
-                                list = append(list, &String{trivial{pos},strings.TrimSpace(s)})
+                                list = append(list, &String{valbase{pos},strings.TrimSpace(s)})
                         } else {
-                                list = append(list, &String{trivial{pos},strings.Trim(s, cutset)})
+                                list = append(list, &String{valbase{pos},strings.Trim(s, cutset)})
                         }
                 }
         }
@@ -1517,9 +1517,9 @@ func builtinTrimLeft(pos Position, args... Value) (res Value) {
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
-                                list = append(list, &String{trivial{a.Position()},strings.TrimLeftFunc(s, unicode.IsSpace)})
+                                list = append(list, &String{valbase{a.Position()},strings.TrimLeftFunc(s, unicode.IsSpace)})
                         } else {
-                                list = append(list, &String{trivial{a.Position()},strings.TrimLeft(s, cutset)})
+                                list = append(list, &String{valbase{a.Position()},strings.TrimLeft(s, cutset)})
                         }
                 }
         }
@@ -1544,9 +1544,9 @@ func builtinTrimRight(pos Position, args... Value) (res Value) {
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
-                                list = append(list, &String{trivial{a.Position()},strings.TrimRightFunc(s, unicode.IsSpace)})
+                                list = append(list, &String{valbase{a.Position()},strings.TrimRightFunc(s, unicode.IsSpace)})
                         } else {
-                                list = append(list, &String{trivial{a.Position()},strings.TrimRight(s, cutset)})
+                                list = append(list, &String{valbase{a.Position()},strings.TrimRight(s, cutset)})
                         }
                 }
         }
@@ -1584,7 +1584,7 @@ func _builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
                         }
 
                         if s != "" {
-                                list = append(list, &String{trivial{a.Position()},s})
+                                list = append(list, &String{valbase{a.Position()},s})
                         }
                 }
         } else if cutset, err = prefix.Strval(); err != nil {
@@ -1601,7 +1601,7 @@ func _builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
                                 }
                         }
                         if s != "" {
-                                list = append(list, &String{trivial{a.Position()},s})
+                                list = append(list, &String{valbase{a.Position()},s})
                         }
                 }
         }
@@ -1657,7 +1657,7 @@ func builtinTrimPrefix(pos Position, args... Value) (res Value) {
                 if s == "" && value != nil {
                         if s, err = value.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 }
-                if s != "" { list = append(list, &String{trivial{pos},s}) }
+                if s != "" { list = append(list, &String{valbase{pos},s}) }
         }
         if err == nil { res = MakeListOrScalar(pos, list) }
         return
@@ -1678,9 +1678,9 @@ func builtinTrimSuffix(pos Position, args... Value) (res Value) {
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
-                                list = append(list, &String{trivial{a.Position()},strings.TrimRightFunc(s, unicode.IsSpace)})
+                                list = append(list, &String{valbase{a.Position()},strings.TrimRightFunc(s, unicode.IsSpace)})
                         } else {
-                                list = append(list, &String{trivial{a.Position()},strings.TrimSuffix(s, cutset)})
+                                list = append(list, &String{valbase{a.Position()},strings.TrimSuffix(s, cutset)})
                         }
                 }
         }
@@ -1707,9 +1707,9 @@ func builtinTrimExt(pos Position, args... Value) (res Value) {
                         if i == 0 && len(args) > 1 {
                                 ext = s
                         } else if ext == "" {
-                                list = append(list, &String{trivial{a.Position()},strings.TrimSuffix(s, filepath.Ext(s))})
+                                list = append(list, &String{valbase{a.Position()},strings.TrimSuffix(s, filepath.Ext(s))})
                         } else if ext == filepath.Ext(s) {
-                                list = append(list, &String{trivial{a.Position()},strings.TrimRight(s, ext)})
+                                list = append(list, &String{valbase{a.Position()},strings.TrimRight(s, ext)})
                         }
                 }
         }
@@ -1744,7 +1744,7 @@ func builtinIndent(pos Position, args... Value) (res Value) {
                 for _, line := range strings.Split(v, "\n") {
                         lines = append(lines, s + line)
                 }
-                l = append(l, &String{trivial{a.Position()},strings.Join(lines, "\n")})
+                l = append(l, &String{valbase{a.Position()},strings.Join(lines, "\n")})
         }
         res = MakeListOrScalar(pos, l)
         return
@@ -1815,7 +1815,7 @@ func builtinContains(pos Position, args... Value) (res Value) {
                 va = nil
         }
         if optVerbose { fmt.Fprintf(stderr, "%s: %v contains %v: %v (%v, %v)\n", pos, list, vals, (n==x), n, x) }
-        res = &boolean{trivial{pos},(n == x)}
+        res = &boolean{valbase{pos},(n == x)}
         return
 }
 
@@ -1873,7 +1873,7 @@ func builtinEncodeBase64(pos Position, args... Value) (res Value) {
                         enc.Write([]byte(s))
                 }
                 enc.Close()
-                res = &String{trivial{pos},buf.String()}
+                res = &String{valbase{pos},buf.String()}
         }
         return
 }
@@ -1892,7 +1892,7 @@ func builtinDecodeBase64(pos Position, args... Value) (res Value) {
                         }
                         dat, err = base64.StdEncoding.DecodeString(s)
                         if err == nil {
-                                list = append(list, &String{trivial{a.Position()},string(dat)})
+                                list = append(list, &String{valbase{a.Position()},string(dat)})
                         } else {
                                 diag.errorAt(pos, "%v", err); return
                         }
@@ -1917,7 +1917,7 @@ func builtinBase(pos Position, args... Value) (res Value) {
                         diag.errorAt(pos, "%v", err); return
                 }
                 s = filepath.Base(s) // the last element of path
-                l = append(l, &String{trivial{a.Position()},s})
+                l = append(l, &String{valbase{a.Position()},s})
         }
         res = MakeListOrScalar(pos, l)
         return
@@ -2117,7 +2117,7 @@ func builtinDirChop(pos Position, args... Value) (res Value) {
                                 v[0] = PathSep // for absolute paths
                         }
                 }
-                l = append(l, &String{trivial{a.Position()},filepath.Join(v...)})
+                l = append(l, &String{valbase{a.Position()},filepath.Join(v...)})
         }
         res = MakeListOrScalar(pos, l)
         return
@@ -2137,7 +2137,7 @@ func builtinRelativeDir(pos Position, args... Value) (res Value) {
                 if i == 0 {
                         t = s
                 } else if s, err = filepath.Rel(t, s); err == nil {
-                        l = append(l, &String{trivial{a.Position()},s})
+                        l = append(l, &String{valbase{a.Position()},s})
                 } else {
                         diag.errorAt(pos, "%v", err)
                         return
@@ -2584,25 +2584,25 @@ func builtinFileExists(pos Position, args... Value) (res Value) {
         var reses []Value
         var check = func(file *File) {
                 if file.info == nil {
-                        reses = append(reses, &boolean{trivial{pos},false})
+                        reses = append(reses, &boolean{valbase{pos},false})
                         return
                 }
                 var mode = file.info.Mode()
                 switch optKind {
                 case 'd': if mode&os.ModeDir != 0 { // IsDir()
-                        reses = append(reses, &boolean{trivial{pos},true})//file
+                        reses = append(reses, &boolean{valbase{pos},true})//file
                         return
                 }
                 case 's': if mode&os.ModeSymlink != 0 {
-                        reses = append(reses, &boolean{trivial{pos},true})//file
+                        reses = append(reses, &boolean{valbase{pos},true})//file
                         return
                 }
                 case 'f': if mode&os.ModeType != 0 { // IsRegular()
-                        reses = append(reses, &boolean{trivial{pos},true})//file
+                        reses = append(reses, &boolean{valbase{pos},true})//file
                         return
                 }
                 default:
-                        reses = append(reses, &boolean{trivial{pos},true})//file
+                        reses = append(reses, &boolean{valbase{pos},true})//file
                         return
                 }
         }
@@ -2649,7 +2649,7 @@ func builtinFileSource(pos Position, args... Value) (res Value) {
                 var str string
                 if str, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 if file := proj./*searchFile*/matchFile(str); file != nil {
-                        l = append(l, &String{trivial{a.Position()},file.sub})
+                        l = append(l, &String{valbase{a.Position()},file.sub})
                 }
         }
         if err == nil {
@@ -2756,11 +2756,11 @@ func builtinReadDir(pos Position, args... Value) (res Value) {
                 if fis, err = ioutil.ReadDir(str); err == nil {
                         v := new(List)
                         for _, fi := range fis {
-                                v.Append(&String{trivial{a.Position()},fi.Name()})
+                                v.Append(&String{valbase{a.Position()},fi.Name()})
                         }
                         l = append(l, v)
                 } else {
-                        break //l = append(l, &None{trivial{pos}})
+                        break //l = append(l, &None{valbase{pos}})
                 }
         }
         if len(l) > 0 {
@@ -2785,7 +2785,7 @@ func builtinReadFile(pos Position, args... Value) (res Value) {
                         break
                 }
                 if s, err = ioutil.ReadFile(str); err == nil {
-                        l = append(l, &String{trivial{pos},string(s)})
+                        l = append(l, &String{valbase{pos},string(s)})
                 } else {
                         break
                 }
@@ -2979,22 +2979,22 @@ func builtinGrep(pos Position, args... Value) (res Value) {
                         for _, n := range linesPos {
                                 var ss, ok = greps[n]
                                 if !ok || ss == nil { continue }
-                                var elems = []Value{&Int{integer{trivial{pos},int64(line+n)}}}
+                                var elems = []Value{&Int{integer{valbase{pos},int64(line+n)}}}
                                 for _, s := range ss {
-                                        elems = append(elems, &String{trivial{pos},s})
+                                        elems = append(elems, &String{valbase{pos},s})
                                 }
-                                list = append(list, &Group{trivial{pos},List{elements{elems}}})
+                                list = append(list, &Group{valbase{pos},List{elements{elems}}})
                         }
 
                         line += 1 // go behind the last line 
                         for _, n := range linesNeg {
                                 var ss, ok = greps[line+n]
                                 if !ok || ss == nil { continue }
-                                var elems = []Value{&Int{integer{trivial{pos},int64(line+n)}}}
+                                var elems = []Value{&Int{integer{valbase{pos},int64(line+n)}}}
                                 for _, s := range ss {
-                                        elems = append(elems, &String{trivial{pos},s})
+                                        elems = append(elems, &String{valbase{pos},s})
                                 }
-                                list = append(list, &Group{trivial{pos},List{elements{elems}}})
+                                list = append(list, &Group{valbase{pos},List{elements{elems}}})
                         }
                 }
                 greps = nil
@@ -3125,5 +3125,5 @@ func configure(pos Position, out *bytes.Buffer, project *Project, str string) (e
 
 func builtinReturn(pos Position, args... Value) Value {
         //if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
-        return &returner{ trivial{pos}, args }
+        return &returner{ valbase{pos}, args }
 }

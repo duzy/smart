@@ -35,7 +35,7 @@ func (p *yaml) Evaluate(pos Position, t *traversal, args ...Value) (result Value
         if result, err = DecodeYAML(source, p.whitespace); err == nil {
                 result = &YAML{ result }
         } else {
-                result = &YAML{ &None{trivial{t.program.position}} }
+                result = &YAML{ &None{valbase{t.program.position}} }
         }
         return
 }
