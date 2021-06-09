@@ -121,6 +121,7 @@ type parser struct {
 	// Ordinary identifier scopes
 	imports []*usespec // list of imports
 
+	targets []Value // targets of current rule
 	params []*Def // parameters of current rule
 	dialect string // recipe dialect of current rule
 	configure bool // is parsing configure program?
@@ -180,7 +181,7 @@ func (p *parser) scanNext() {
 	var pos = p.pos
 	p.pos, p.tok, p.lit = p.scanner.Scan()
 	if false && p.tok == token.EOF {
-		diag.errorAt(p.positionAt(pos), "unexpected end of file").debug()
+		diag.errorAt(p.positionAt(pos), "unexpected end of file").debug(optionDebugErrors)
 	}
 }
 
@@ -314,7 +315,7 @@ func (p *parser) expected(pos token.Pos, msg string, a... interface{}) {
 			}
 		}
 	}
-	diag.errorAt(p.positionAt(pos), msg).debug()
+	diag.errorAt(p.positionAt(pos), msg).debug(optionDebugErrors)
 }
 
 func (p *parser) expect(tok token.Token) token.Pos {
@@ -426,7 +427,7 @@ func (p *parser) parseSelect(lhs Value) (res Value) {
                 if tok == token.SELECT_PROG2 {
 					res = MakeNil(position) // ignore
                 } else {
-					diag.errorAt(position, "'%v' is undefined", lhs)
+					diag.errorOf(lhs, "'%v' is undefined", lhs)
                 }
                 return
             } else {
@@ -437,11 +438,11 @@ func (p *parser) parseSelect(lhs Value) (res Value) {
         if o, err := p.resolve(t); err != nil {
 			diag.errorOf(lhs, "resolve selection object '%v' error: %v", lhs, err)
 			return
-        } else if o == nil {
+        } else if isNil(o) {
 			if tok == token.SELECT_PROG2 {
 				res = MakeNil(position) // ignore
 			} else {
-				diag.errorAt(position, "'%v' is undefined", lhs)
+				diag.errorOf(lhs, "'%v' is undefined", lhs)
 			}
 			return
 		} else {
@@ -843,7 +844,7 @@ func (p *parser) parsePathExpr(lhs bool, start Value) *Path {
 		path *Path
 	)
 	if start == nil {
-		diag.errorAt(position, "bad closure/delegate name").debug()
+		diag.errorAt(position, "bad closure/delegate name").debug(optionDebugErrors)
 		p._next()
 		return MakePath(position) // empty path
 	} else if path, _ = start.(*Path); path == nil {
@@ -901,13 +902,13 @@ func (p *parser) parseURLExpr(lhs bool, scheme Value) (res Value) {
 			p.expect(token.PCON) // the second '/'
 		} else {
 			diag.errorAt(p.position(), "TODO: URL path: %v (%T) (next: %s (%s))",
-				scheme, scheme,  p.tok, p.lit).debug()
+				scheme, scheme,  p.tok, p.lit).debug(optionDebugErrors)
 			res = MakeNil(p.position())
 			return
 		}
 	} else if !p.isEndOfURL(lhs) {
 		diag.errorAt(p.positionAt(colon1), "TODO: URL: %v (%T) (next: %s (%s))",
-			scheme, scheme,  p.tok, p.lit).debug()
+			scheme, scheme,  p.tok, p.lit).debug(optionDebugErrors)
 		res = MakeNil(p.position())
 		return
 	}
@@ -962,7 +963,7 @@ func (p *parser) parseClosureDelegateName(tok token.Token) (name Value) {
 
 	var pos = p.position()
 	if name = p.parseExpr(false); isNil(name) {
-		diag.errorAt(pos, "bad closure/delegate name").debug()
+		diag.errorAt(pos, "bad closure/delegate name").debug(optionDebugErrors)
 		name = MakeNil(pos)
 	}
 	return
@@ -1065,14 +1066,14 @@ func (p *parser) parseClosureDelegate() (result Value) {
 
 		p._next() // skips LPAREN, LBRACE, LCOLON
 		if posLp+1 != p.pos {
-			diag.errorAt(p.positionAt(posLp+1), "unexpected spaces").debug()
+			diag.errorAt(p.positionAt(posLp+1), "unexpected spaces").debug(optionDebugErrors)
 			return MakeNil(p.position())
 		}
 
 		if name = p.parseClosureDelegateName(tokLp); isNil(name) {
 			p.error(posLp, "parsed name is nil")
 		} else if !name.closured() && !resolveObject() {
-			p.error(pos, "'%v' is unidentified", name)
+			diag.errorOf(name, "name '%v' is unidentified", name)
 		}
 
 		if  (tokLp == token.LPAREN && p.tok != token.RPAREN) ||
@@ -1095,7 +1096,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 	default:
 		if position := p.position(); tok != token.CLOSURE { // $(...), disabled $name.
 			// &(...), &{...}, &'...', &"..."
-			diag.errorAt(position, "expects `%v` or `%v` or quotes", token.LPAREN, token.LBRACE).debug()
+			diag.errorAt(position, "expects `%v` or `%v` or quotes", token.LPAREN, token.LBRACE).debug(optionDebugErrors)
 			return MakeNil(position)
 		} else if p.tok == token.STRING || p.tok == token.COMPOUND {
 			posLp, tokLp = p.pos, p.tok
@@ -1104,11 +1105,11 @@ func (p *parser) parseClosureDelegate() (result Value) {
 			if name = p.parseExpr(false); isNil(name) {
 				p.error(posLp, "parsed name is nil")
 			} else if !name.closured() && !resolveObject() {
-				p.error(pos, "'%v' is unidentified", name)
+				diag.errorOf(name, "name '%v' is unidentified", name)
 			}
 		} else {
 			// &(...), &{...}, &'...', &"..."
-			diag.errorAt(position, "expects `%v`, `%v` or quotes", token.LPAREN, token.LBRACE).debug()
+			diag.errorAt(position, "expects `%v`, `%v` or quotes", token.LPAREN, token.LBRACE).debug(optionDebugErrors)
 			return MakeNil(position)
 		}
 	}
@@ -1200,7 +1201,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
 		} else if tok == token.TILDE { // TODO: ~user
 			return makePathSeg(p.positionAt(pos), tok)
 		} else {
-			diag.errorAt(position, "unexpected path segment").debug()
+			diag.errorAt(position, "unexpected path segment").debug(optionDebugErrors)
 			return MakeNil(position)
 		}
 
@@ -1234,7 +1235,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
 	}
 
 	position := p.position()
-	diag.errorAt(position, "'%v' bad unary expression (lit=%s,lhs=%v)\n", p.tok, p.lit, lhs).debug()
+	diag.errorAt(position, "'%v' bad unary expression (lit=%s,lhs=%v)\n", p.tok, p.lit, lhs).debug(optionDebugErrors)
 	p._next() // go to next token
 	return MakeNil(position)
 }
@@ -1929,7 +1930,19 @@ func (p *parser) parseModifySetVar(args []Value) (err error) {
 	return
 }
 
-func (p *parser) parseModifyParms(args []Value) (err error) {
+func (p *parser) defineConfigureModifierVars() {
+	for _, t := range p.targets {
+		if name, e := t.Strval(); e != nil {
+			diag.errorOf(t, "stringify target '%v' failed: %v", t, e)
+		} else if def, alt := p.def(t.Position(), name); alt != nil {
+			diag.errorOf(t, "configuration '%s' already defined: %v", name, alt)
+		} else if def != nil {
+			if false { diag.infoOf(def, "configure: %v", def) }
+		}
+	}
+}
+
+func (p *parser) parseModifyParams(args []Value) (err error) {
 	for _, elem := range args {
 		switch elem.(type) {
 		case *Bareword, *Barecomp:
@@ -1995,11 +2008,12 @@ ForModifiersExpr:
 				p.parseModifySetVar(group.Elems)
 				continue ForModifiersExpr
 			} else if name == "configure" {
-				p.configure = true
+				p.defineConfigureModifierVars()
+				p.configure = true // set configure flag and define configure variables
 			}
 			goto checkNameAndAdd
 		case *Group: // parameters: ((foo bar))
-			p.parseModifyParms(n.Elems)
+			p.parseModifyParams(n.Elems)
 			continue ForModifiersExpr
 		case *delegate, *closure, *Barecomp, *String:
 			var v []Value
@@ -2111,7 +2125,7 @@ func (p *parser) parseRuleEntry(tok token.Token, special specialRule, options, t
 	for _, s := range automatics {
 		var def, alt = p.def(position, s)
 		if alt != nil {
-			p.error(p.pos, "Name `%s' already taken, not automatic (%T).", s, alt)
+			p.error(p.pos, "name `%s' already taken, not automatic (%T).", s, alt)
 		} else if def == nil {
 			p.error(p.pos, "'%s' is not defined", s)
 		} else {
@@ -2143,7 +2157,9 @@ func (p *parser) parseRuleEntry(tok token.Token, special specialRule, options, t
 		}
 	}
 
+	defer func(t []Value) { p.targets = t } (p.targets)
 	p.skipSpaces()
+	p.targets = targets // save targets for further usage
 
 	if p.tok != token.SEMICOLON && p.tok != token.BAR && !p.isEndOfLine() {
 		depends = p.parseDependList()
@@ -2271,7 +2287,7 @@ func (p *parser) parseClause() {
 	position := p.position()
 	switch p.tok {
 	case token.USE:
-		diag.errorAt(position, "`%v` unexpected here", p.tok).debug()
+		diag.errorAt(position, "`%v` unexpected here", p.tok).debug(optionDebugErrors)
 		return
 	case token.INCLUDE:
 		p.parseGenericClause(token.INCLUDE, p.expect(token.INCLUDE), p.parseIncludeSpec)
@@ -2309,7 +2325,7 @@ func (p *parser) parseClause() {
 
 	position = p.position()
 	//p.expected(pos, "assign or colon")
-	diag.errorAt(position, "BadClause: %v (%s)", p.tok, p.lit).debug()
+	diag.errorAt(position, "BadClause: %v (%s)", p.tok, p.lit).debug(optionDebugErrors)
 }
 
 func parseUsingNameProps(nameprops string) (name string, parts []string, optUnique, optReverse bool) {

@@ -3471,7 +3471,7 @@ func (p *closure) Strval() (s string, err error) {
 
         if !p.isValidToken() {
                 err = fmt.Errorf("invalid closure token: %v", p.l)
-                //diag.errorAt(p.Position(), "invalid closure token: %v", p.l).debug()
+                diag.errorAt(p.Position(), err.Error()).debug(optionDebugErrors)
                 return
         }
 

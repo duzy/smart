@@ -41,6 +41,10 @@ var (
   optionPrintStack = false
   optionNoExec = false
 
+  optionDebugErrors = true
+  optionDebugWarns = false
+  optionDebugInfos = false
+
   // Tracking options
   optionTraceLaunch = false
   optionTraceParsing = false
@@ -78,15 +82,17 @@ func (d *diagnostic) getPosition() Position {
     return d.value.Position()
   }
 }
-func (d *diagnostic) debug() {
- 	const skips = 5 // skips the standard stack lines, which is not very useful
-	var (
-		ln = []byte{ '\n' }
-		v = bytes.Split(debug.Stack(), ln)
-		i int = 0
-	)
-	if skips > 0 && len(v) > skips { i = skips }
-  d.stack = bytes.Join(v[i:], ln)
+func (d *diagnostic) debug(enabled bool) {
+  const skips = 5 // skips the standard stack lines, which is not very useful
+  if enabled {
+    var (
+      ln = []byte{ '\n' }
+      v = bytes.Split(debug.Stack(), ln)
+      i int = 0
+    )
+    if skips > 0 && len(v) > skips { i = skips }
+    d.stack = bytes.Join(v[i:], ln)
+  }
 }
 
 type Diagnostic struct {
