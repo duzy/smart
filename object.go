@@ -167,7 +167,7 @@ func (p *ProjectName) Get(name string) (value Value, err error) {
 // Call a ProjectName returns the project name.
 func (p *ProjectName) Call(pos Position, a... Value) (value Value) {
         if p.project != nil {
-                value = &String{valbase{pos},p.project.name}
+                value = MakeString(pos, p.project.name)
         }
         return
 }
@@ -227,23 +227,26 @@ func (p *ScopeName) cmp(v Value) (res cmpres) {
         return
 }
 
-type DefOrigin int
+type Origin int
 const (
+        DefVoid Origin = iota // no initialization
+
         // =
-        DefDefault DefOrigin = iota // normal value
+        DefDefault // normal value
 
         // :=
-        DefSimple // expand delegates
+        DefExpand1 // expand delegates (simple expand)
 
         // ::=
-        DefExpand // expand all (delegates, closures, paths)
+        DefExpand2 // expand all (delegates, closures, paths)
 
         // !=
-        DefExecute // executed result
+        DefExecute  // value to be executed
+        DefExecuted // executed result
 
         DefAuto // automatic: $1, $2, $3, etc.
         DefArg  // ((arg))
-        DefDecl //
+        DefDecl // declaration names
         DefConfDir
         DefConfRef // referred by config
         DefConfig
@@ -251,16 +254,20 @@ const (
         defany // referred any def
 )
 
-func (o DefOrigin) String() (s string) {
+func (o Origin) String() (s string) {
         switch o {
+        case DefVoid:    s = "Void"
         case DefDefault: s = "Default"
-        case DefSimple:  s = "Simple"
-        case DefExpand:  s = "Expand"
+        case DefExpand1: s = "Expand1"
+        case DefExpand2: s = "Expand2"
         case DefExecute: s = "Execute"
         case DefAuto:    s = "Auto"
         case DefArg:     s = "Arg"
         case DefDecl:    s = "Decl"
         case DefConfDir: s = "ConfDir"
+        case DefConfRef: s = "ConfRef"
+        case DefConfig:  s = "Config"
+        case defany:     s = "any"
         default: s = fmt.Sprintf("Origin<%d>", o)
         }
         return
@@ -269,7 +276,7 @@ func (o DefOrigin) String() (s string) {
 // A Def represents a definition, it's a Caller but mustn't be a Valuer.
 type Def struct {
         knownobject
-        origin DefOrigin
+        origin Origin
         value Value
 }
 
@@ -323,8 +330,8 @@ func (d *Def) elemstr(o Object, k elemkind) (s string) {
 func (d *Def) String() (s string) {
         switch s = d.name; d.origin {
         case DefDefault: s += "="
-        case DefSimple:  s += ":="
-        case DefExpand:  s += "::="
+        case DefExpand1:  s += ":="
+        case DefExpand2:  s += "::="
         case DefExecute: s += "!="
         default:         s += " = "
         }
@@ -340,46 +347,59 @@ func (d *Def) Strval() (s string, e error) {
         return
 }
 
-func (d *Def) setval(value Value) (err error) { return d.set(d.origin, value) }
-func (d *Def) set(origin DefOrigin, value Value) (err error) {
-        if origin != DefSimple && !isNil(value) && value.refs(d) {
+func (d *Def) val(value Value) (err error) { return d.set(d.origin, value) }
+func (d *Def) set(origin Origin, value Value) (err error) {
+        if origin != DefExpand1 && !isNil(value) && value.refs(d) {
                 var pos = d.position
                 if !pos.IsValid() && d.value != nil { pos = d.value.Position() }
-                diag.errorAt(pos, "value refers `%s`: %v (%T)", d.name, value, value)
+                diag.errorAt(pos, "value refers to assigning Def '%s': %v (%T)", d.name, value, value)
 
                 if optionVerbose { fmt.Fprintf(stderr, "%v\n", err) }
                 if optionPrintStack { debug.PrintStack() }
                 return
         } else if origin != DefExecute && isNil(value) {
-                value = &None{valbase{d.position}}
+                value = MakeNone(d.position)
         }
 
-        switch d.origin = origin; origin {
-        case DefSimple: // Eval expands delegates in the value.
-                if d.value, err = value.expand(expandDelegate); err != nil { return }
-        case DefExpand:
-                if d.value, err = value.expand(expandAll); err != nil { return }
+        switch d.origin = origin; d.origin {
+        case DefExpand1: // expands delegates
+                if d.value, err = value.expand(expandDelegate); err != nil {
+                        diag.errorOf(value, "%v: expand value '%v' failed: %v", d.origin, value, err)
+                        return
+                }
+        case DefExpand2: // expands delegates and closures
+                if d.value, err = value.expand(expandAll); err != nil {
+                        diag.errorOf(value, "%v: expand value '%v' failed: %v", d.origin, value, err)
+                        return
+                }
         case DefExecute:
-                var ( stdout, stderr bytes.Buffer; s string )
-                if isNone(value) || isNil(value) { d.value = nil } else
-                if s, err = value.Strval(); err == nil {
-                        sh := exec.Command("sh", "-c", s)
+                var (
+                        cmd string
+                        stdout, stderr bytes.Buffer
+                        pos = value.Position()
+                )
+                if !pos.IsValid() { pos = d.position }
+                if isNone(value) || isNil(value) {
+                        d.value = nil
+                } else if cmd, err = value.Strval(); err != nil {
+                        diag.errorOf(value, "%v: stringify value '%v' failed: %v", d.origin, value, err)
+                        d.value = MakeNone(pos)
+                } else {
+                        // TODO: possibility to run command in the specified container
+                        sh := exec.Command("sh", "-c", cmd)
                         sh.Stdout, sh.Stderr = &stdout, &stderr
-
-                        var pos = value.Position()
-                        if !pos.IsValid() { pos = d.Position() }
-                        if err = sh.Run(); err != nil { value = &None{valbase{pos}} } else {
-                                value = &String{valbase{pos},strings.TrimSpace(stdout.String())}
+                        if err = sh.Run(); err != nil {
+                                diag.errorOf(value, "%v: execute command '%v' failed: %v", d.origin, cmd, err)
+                                value = MakeNone(pos)
+                        } else {
+                                value = MakeString(pos, strings.TrimSpace(stdout.String()))
                         }
                         stdout.Reset()
                         stderr.Reset()
+                        d.origin = DefExecuted
                         d.value = value
-                } else {
-                        var pos = value.Position()
-                        if !pos.IsValid() { pos = d.Position() }
-                        d.value = &None{valbase{pos}}
                 }
-        default: // DefDefault, DefArg: keeps delegates and closures.
+        default: // DefVoid, DefDefault, DefArg, etc.
                 d.value = value
         }
         return
@@ -387,11 +407,10 @@ func (d *Def) set(origin DefOrigin, value Value) (err error) {
 
 func (d *Def) append(va... Value) (err error) {
         for _, value := range va {
-                if value != nil && value.refs(d) {
-                        err = fmt.Errorf("append recursive variable `%s` (from %v)", d.name, d.OwnerProject())
+                if !isNil(value) && value.refs(d) {
+                        err = fmt.Errorf("%v: append recursive variable '%s'", d.owner, d.name)
                         if true || optionVerbose {
-                                fmt.Fprintf(stderr, "error: %v\n", err)
-                                debug.PrintStack()
+                                diag.infoAt(d.position, "%v", err).debug(optionDebugErrors)
                         }
                         return
                 }
@@ -399,23 +418,13 @@ func (d *Def) append(va... Value) (err error) {
 
         var list *List
         if num := len(va); num == 0 {
-                // Does nothing...
+                return // Does nothing...
         } else if isNone(d.value) || isNil(d.value) {
-                list = &List{elements{ merge(va...) }}
-        } else if list, _ = d.value.(*List); list != nil {
-                list.Append(merge(va...)...)
-        } else {
-                elems := []Value{ d.value }
-                elems = append(elems, merge(va...)...)
-                list = &List{elements{ elems }}
+                list = MakeList( merge(va...) ...)
+        } else if list, _ = d.value.(*List); list == nil {
+                list = MakeList(d.value)
         }
-        if list != nil {
-                if d.origin == DefExecute {
-                        err = d.set(DefDefault, list)
-                } else {
-                        err = d.setval(list)
-                }
-        }
+        err = d.val(list)
         return
 }
 
@@ -433,14 +442,14 @@ func (d *Def) Call(pos Position, a... Value) (res Value) {
                 }
                 res, err = d.value.expand(expandClosure|expandDelegate)
                 if err != nil { diag.errorAt(pos, "%v", err) }
-        default: // DefArg, DefSimple, DefExpand, DefExecute:
+        default: // DefArg, DefExpand1, DefExpand2, DefExecute:
                 res = d.value
         }
         if res == nil {
                 // ...
         } else if list, ok := res.(*List); ok {
                 if n := len(list.Elems); n == 0 {
-                        res = &None{valbase{d.position}}
+                        res = MakeNone(d.position)
                 } else if n == 1 {
                         res = list.Elems[0] 
                 }
@@ -458,7 +467,7 @@ func (d *Def) DiscloseValue() (res Value, err error) {
 
 func (d *Def) Get(name string) (Value, error) {
         switch name {
-        case "name": return &String{valbase{d.Position()},d.name}, nil
+        case "name": return MakeString(d.Position(), d.name), nil
         case "value": return d.value, nil
         }
         return nil, fmt.Errorf("no such property `%s' (Def)", name)
@@ -483,7 +492,7 @@ func (p *undetermined) refs(v Value) bool {
 func (p *undetermined) closured() bool {
         return p.identifier.closured() || p.value.closured()
 }
-func (p *undetermined) refdef(origin DefOrigin) bool { return false }
+func (p *undetermined) refdef(origin Origin) bool { return false }
 func (p *undetermined) expand(w expandwhat) (res Value, err error) {
         var i, v Value
         res = p // set the original value
@@ -673,8 +682,8 @@ ForPrograms:
 }
 func (entry *RuleEntry) Get(name string) (Value, error) {
         switch name {
-        case "class": return &String{valbase{entry.position},entry.class.String()}, nil
-        case "name": return &String{valbase{entry.position},entry.Name()}, nil
+        case "class": return MakeString(entry.position, entry.class.String()), nil
+        case "name": return MakeString(entry.position, entry.Name()), nil
         // case "prerequisites": ...
         }
         return nil, fmt.Errorf("no such entry property (%s)", name)
@@ -711,7 +720,7 @@ func (entry *RuleEntry) refs(v Value) bool {
         }
         return false
 }
-func (entry *RuleEntry) refdef(origin DefOrigin) bool {
+func (entry *RuleEntry) refdef(origin Origin) bool {
         return entry.target.refdef(origin)
 }
 func (entry *RuleEntry) closured() bool {
@@ -895,7 +904,7 @@ func (p *StemmedEntry) _target(t *traversal, target string) (breakers []*breaker
         } else if file := t.project.matchFile(target); file != nil {
                 p.target = file
         } else {
-                p.target = &String{valbase{p.position}, target}
+                p.target = MakeString(p.position,  target)
         }
 
         breakers = p.RuleEntry.traverse(t)

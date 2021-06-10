@@ -225,7 +225,7 @@ func (scope *Scope) define(owner *Project, name string, value Value) (def *Def, 
 					owner: owner,
 				}, name,
 			},
-			DefDefault, value,
+			Origin(0), value,
 		}
 		scope.replace(name, def)
 	}

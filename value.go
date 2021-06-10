@@ -124,7 +124,7 @@ type Value interface {
         refs(v Value) bool
 
         closured() bool
-        refdef(origin DefOrigin) bool
+        refdef(origin Origin) bool
 
         // &(...) -> $(...)
         // $(...) -> ......
@@ -769,7 +769,7 @@ func elementString(o Object, elem Value, k elemkind) (s string) {
 type valbase struct { position Position }
 func (_ *valbase) refs(_ Value) (res bool) { return }
 func (_ *valbase) closured() (res bool) { return }
-func (_ *valbase) refdef(origin DefOrigin) (res bool) { return }
+func (_ *valbase) refdef(origin Origin) (res bool) { return }
 func (_ *valbase) expand(_ expandwhat) (v Value, err error) { return }
 func (_ *valbase) cmp(_ Value) (res cmpres) { return }
 func (_ *valbase) mod(t *traversal) (res time.Time, err error) { return }
@@ -811,7 +811,7 @@ func (p *Argumented) closured() bool {
         }
         return false
 }
-func (p *Argumented) refdef(origin DefOrigin) bool {
+func (p *Argumented) refdef(origin Origin) bool {
         return p.value.refdef(origin)
 }
 func (p *Argumented) expand(w expandwhat) (res Value, err error) {
@@ -970,7 +970,7 @@ func (p *Any) refs(o Value) (res bool) {
         if v, ok := p.value.(Value); ok { res = v.refs(o) }
         return
 }
-func (p *Any) refdef(origin DefOrigin) (res bool) {
+func (p *Any) refdef(origin Origin) (res bool) {
         if v, ok := p.value.(Value); ok { res = v.refdef(origin) }
         return
 }
@@ -1684,7 +1684,7 @@ func (p *elements) closured() bool {
         }
         return false 
 }
-func (p *elements) refdef(origin DefOrigin) bool {
+func (p *elements) refdef(origin Origin) bool {
         for _, elem := range p.Elems {
                 if elem.refdef(origin) { return true }
         }
@@ -1704,7 +1704,7 @@ func (p *elements) cmpElems(elems []Value) (res cmpres) {
 
 type Barecomp struct { valbase ; elements }
 func (p *Barecomp) refs(v Value) bool { return p.elements.refs(v) }
-func (p *Barecomp) refdef(origin DefOrigin) bool { return p.elements.refdef(origin) }
+func (p *Barecomp) refdef(origin Origin) bool { return p.elements.refdef(origin) }
 func (p *Barecomp) closured() bool { return p.elements.closured() }
 func (p *Barecomp) Strval() (s string, e error) {
         for _, elem := range p.Elems {
@@ -1955,7 +1955,7 @@ func (p *Path) True() (t bool, err error) {
 }
 func (p *Path) refs(v Value) (res bool) { return p.elements.refs(v) }
 func (p *Path) closured() (res bool) { return p.elements.closured() }
-func (p *Path) refdef(origin DefOrigin) bool { return p.refdef(origin) }
+func (p *Path) refdef(origin Origin) bool { return p.refdef(origin) }
 func (p *Path) expand(w expandwhat) (res Value, err error) {
         var (elems []Value; num int)
         if elems, num, err = expandallcount(w, p.Elems...); err != nil { return }
@@ -2913,7 +2913,7 @@ func (p *Compound) Integer() (i int64, err error) {
 func (p *Compound) True() (bool, error) { return p.elements.True() }
 func (p *Compound) refs(v Value) bool { return p.elements.refs(v) }
 func (p *Compound) closured() bool { return p.elements.closured() }
-func (p *Compound) refdef(origin DefOrigin) bool { return p.refdef(origin) }
+func (p *Compound) refdef(origin Origin) bool { return p.refdef(origin) }
 func (p *Compound) cmp(v Value) (res cmpres) {
         if a, ok := v.(*Compound); ok {
                 s1, e := p.Strval()
@@ -3409,7 +3409,7 @@ func (p *delegate) closured() bool {
         }
         return false
 }
-func (p *delegate) refdef(origin DefOrigin) (res bool) {
+func (p *delegate) refdef(origin Origin) (res bool) {
   if origin == defany {
     res = true
   } else if d, ok := p.x.(*Def); ok {

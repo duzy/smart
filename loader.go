@@ -153,6 +153,7 @@ type loader struct {
     project  *Project // the current project
     scope    *Scope   // the current scope
     vs string // verbose prefix
+    isLoadingBases bool
 }
 
 func (l *loader) error(pos token.Pos, f string, a... interface{}) {
@@ -1089,8 +1090,8 @@ func (l *loader) declare(keyword token.Token, ident *Bareword, options []Value) 
             outer = outer.outer
         }
 
-        dec = new(declare)
-        dec.project = l.globe.project(pos, outer, absDir, relPath, tmpPath, linfo.specName, name)
+        dec = &declare{ project: l.globe.project(pos,
+            outer, absDir, relPath, tmpPath, linfo.specName, name) }
         l.loaded[linfo.absPath()] = dec.project
         linfo.declares[name] = dec
     }
@@ -1157,7 +1158,7 @@ func (l *loader) declare(keyword token.Token, ident *Bareword, options []Value) 
                     return
                 }
             }
-            if def != nil { def.setval(t.Value) }
+            if def != nil { def.val(t.Value) }
         }
     }
 
@@ -1166,178 +1167,7 @@ func (l *loader) declare(keyword token.Token, ident *Bareword, options []Value) 
         return
     }
 
-    /*
-    // no bases or docking for external packages
-    if keyword == token.PACKAGE { return true }
-
-    var (
-        optFinal, optNoDock bool
-        bases []Value
-    )
-    for _, param := range params {
-        switch t := param.(type) {
-        case *Flag:
-            var ( s string; err error )
-            if s, err = t.name.Strval(); err != nil { diag.errorOf(t.name, "%v", err); return }
-            switch s {
-            case "final": optFinal = true;
-            case "nodock": optNoDock = true;
-            }
-        default:
-            bases = append(bases, t)
-        }
-    }
-    if !optFinal && !l.loadBases(pos, linfo, bases) {
-        diag.errorAt(pos, "%v: load bases failed", ident)
-        return
-    }
-
-    // FIXES: set cloctx immediately to ensure the right configuration is matched!
-    defer setclosure(setclosure(cloctx.unshift(l.scope)))
-
-    if s, err := configurationFileName(l.project); err != nil {
-        diag.errorAt(pos, "%v", err)
-        return
-    } else if declared || optionConfigure {
-        var exists bool
-        for _, v := range configuration.clean { if s == v { exists = true; break }}
-        if !exists { configuration.clean = append(configuration.clean, s) }
-    } else if file := stat(pos, filepath.Base(s), "", filepath.Dir(s)); file != nil {
-        if optionVerboseImport || optionVerboseLoading {
-            full, _ := file.Strval()
-            fmt.Fprintf(stderr, "smart: Configuration for %s (%s) ⇒ %s\n", l.project, l.project.spec, full)
-        } else if optionVerbose || true {
-            fmt.Fprintf(stderr, "smart: Configuration for %s (%s)\n", l.project, l.project.spec)
-        }
-        l.isIncludingConf = true
-        l.includeFile(pos, file)
-        l.isIncludingConf = false
-    }
-
-    if !(optNoDock || l.project.name == dotContainer) {
-        if _, e := os.Stat(".dock"); e == nil {
-            diag.errorAt(pos, "Must rename .dock into .container !")
-            return
-        }
-
-        // Looking for project specific .container module
-        if file := stat(pos, dotContainer, "", l.project.absPath); exists(file) {
-            if !l.loadDotContainer(ident, file) {
-                //diag.errorAt(pos, "declare %s: %s/.container", name, l.project.absPath)
-            }
-            return
-        }
-
-        // Looking for .smart/.container
-        walkSmartBaseDirs(l.project.absPath, func(s string) bool {
-            var file = stat(pos, dotContainer, "", filepath.Join(s, ".smart"))
-            if !exists(file) {
-                // no docking enabled
-            } else if !l.loadDotContainer(ident, file) {
-                //diag.errorAt(pos, "%v", err)
-            }
-            return false
-        })
-    }
-
-    if l.project.name != dotConfigure {
-        // Looking for project specific .configure module
-        if file := stat(pos, dotConfigure, "", l.project.absPath); exists(file) {
-            if ident.string == dotConfigure {
-                diag.errorAt(pos, "provided .configure for a .configure project")
-            } else if !l.loadDotConfigure(ident, file) {
-                //diag.errorAt(pos, "declare %s: %s/.configure", name, l.project.absPath)
-            }
-        }
-    }
-    */
-    return true
-}
-func (l *loader) _loadBasesAndConfigure(keyword token.Token, ident *Bareword, declared bool, params []Value) (result bool) {
-    var (
-        pos = ident.Position()
-        linfo = l.loads[len(l.loads)-1]
-        optFinal, optNoDock bool
-        bases []Value
-    )
-    for _, param := range params {
-        switch t := param.(type) {
-        case *Flag:
-            var ( s string; err error )
-            if s, err = t.name.Strval(); err != nil { diag.errorOf(t.name, "%v", err); return }
-            switch s {
-            case "final": optFinal = true;
-            case "nodock": optNoDock = true;
-            }
-        default:
-            bases = append(bases, t)
-        }
-    }
-    if !optFinal && !l.loadBases(pos, linfo, bases...) {
-        diag.errorAt(pos, "%v: load bases failed", ident)
-        return
-    }
-
-    // FIXES: set cloctx immediately to ensure the right configuration is matched!
-    defer setclosure(setclosure(cloctx.unshift(l.scope)))
-
-    if s, err := configurationFileName(l.project); err != nil {
-        diag.errorAt(pos, "%v", err)
-        return
-    } else if declared || optionConfigure {
-        var exists bool
-        for _, v := range configuration.clean { if s == v { exists = true; break }}
-        if !exists { configuration.clean = append(configuration.clean, s) }
-    } else if file := stat(pos, filepath.Base(s), "", filepath.Dir(s)); file != nil {
-        if optionVerboseImport || optionVerboseLoading {
-            full, _ := file.Strval()
-            fmt.Fprintf(stderr, "smart: Configuration for %s (%s) ⇒ %s\n", l.project, l.project.spec, full)
-        } else if optionVerbose || true {
-            fmt.Fprintf(stderr, "smart: Configuration for %s (%s)\n", l.project, l.project.spec)
-        }
-        l.isIncludingConf = true
-        l.includeFile(pos, file)
-        l.isIncludingConf = false
-    }
-
-    if !(optNoDock || l.project.name == dotContainer) {
-        if _, e := os.Stat(".dock"); e == nil {
-            diag.errorAt(pos, "Must rename .dock into .container !")
-            return
-        }
-
-        // Looking for project specific .container module
-        if file := stat(pos, dotContainer, "", l.project.absPath); exists(file) {
-            if !l.loadDotContainer(ident, file) {
-                //diag.errorAt(pos, "declare %s: %s/.container", name, l.project.absPath)
-            }
-            return
-        }
-
-        // Looking for .smart/.container
-        walkSmartBaseDirs(l.project.absPath, func(s string) bool {
-            var file = stat(pos, dotContainer, "", filepath.Join(s, ".smart"))
-            if !exists(file) {
-                // no docking enabled
-            } else if !l.loadDotContainer(ident, file) {
-                //diag.errorAt(pos, "%v", err)
-            }
-            return false
-        })
-    }
-
-    if l.project.name != dotConfigure {
-        // Looking for project specific .configure module
-        if file := stat(pos, dotConfigure, "", l.project.absPath); exists(file) {
-            if ident.string == dotConfigure {
-                diag.errorAt(pos, "provided .configure for a .configure project")
-            } else if !l.loadDotConfigure(ident, file) {
-                //diag.errorAt(pos, "declare %s: %s/.configure", name, l.project.absPath)
-            }
-        }
-    }
-
-    return true
+   return true
 }
 
 func (l *loader) loadProjectConfiguration(ident *Bareword, declared bool) (result bool) {
@@ -1377,6 +1207,7 @@ func (l *loader) loadProjectConfiguration(ident *Bareword, declared bool) (resul
     }
     return true
 }
+
 func (l *loader) loadProjectContainer(ident *Bareword) (result bool) {
     // FIXES: set cloctx immediately to ensure the right configuration is matched!
     defer setclosure(setclosure(cloctx.unshift(l.scope)))
@@ -1463,24 +1294,19 @@ func (l *loader) OpenNamedScope(name, comment string) (loaderScope, error) {
     return ls, nil
 }
 
-func (l *loader) resolve(value Value) (obj Value, err error) {
+func (l *loader) resolve(value Value) (result Value, err error) {
     if sel, ok := value.(*selection); ok {
-        obj = sel
+        result = sel
         return
     }
 
     var name string
-    if name, err = value.Strval(); err != nil { return }
-
-
-    if l.scope != nil { _, obj = l.scope.Find(name) }
-    if obj == nil && l.project != nil {
-        obj, err = l.project.resolveObject(name)
+    if name, err = value.Strval(); err == nil {
+        if l.scope != nil { _, result = l.scope.Find(name) }
+        if isNil(result) && l.project != nil {
+            result, err = l.project.resolveObject(name)
+        }
     }
-
-    /*if obj == nil {
-    diag.errorOf(value, "`%s` is nil (%T)", name, value)
-  }*/
     return
 }
 
@@ -1569,9 +1395,9 @@ func (l *loader) assign(pos token.Pos, tok token.Token, def *Def, alt Object, va
     case token.QUE_ASSIGN: // ?=
         if alt == nil { err = def.set(DefDefault, value) }
     case token.SCO_ASSIGN: // :=
-        err = def.set(DefSimple, value)
+        err = def.set(DefExpand1, value)
     case token.DCO_ASSIGN: // ::=
-        err = def.set(DefExpand, value)
+        err = def.set(DefExpand2, value)
     }
     return
 }
@@ -1776,6 +1602,11 @@ func (l *loader) ParseDir(pos Position, path string, filter func(os.FileInfo) bo
 
     ls := l.openScope(fmt.Sprintf("dir %s", path))
     defer l.closeScope(ls)
+
+    // FIXES: use 'globe' scope as outer to avoid chaining scopes to other unrelated
+    // projects which are in consequence load order. Setting dir scope outer to such
+    // project scopes will cause resolving objects to the wrong ones.
+    ls.scope.outer = context.globe.scope
 
     mods = make(map[string]*Project)
 ListLoop:

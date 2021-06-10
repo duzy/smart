@@ -42,7 +42,7 @@ func (prog *Program) auto(name string, value Value) (auto *Def, err error) {
     if auto, alt = prog.scope.define(prog.project, name, value); alt != nil {
         var found = false
         if auto, found = alt.(*Def); found {
-            auto.setval(value)
+            auto.val(value)
         } else {
             err = fmt.Errorf("`%v` name already taken (%T)", name, alt)
         }
@@ -64,7 +64,7 @@ func (prog *Program) interpret(pos Position, t *traversal, i interpreter, params
 
     var value Value
     if value, err = i.Evaluate(pos, t, params...); err == nil {
-        if !isNil(value) { t.def.buffer.setval(value) }
+        if !isNil(value) { t.def.buffer.val(value) }
         _, _, err = t.updateRecipesHash()
     }
 
@@ -99,7 +99,7 @@ func (prog *Program) modify(t *traversal, m *modifier) (err error) {
         var value Value
         if value, err = f(m.position, t, v...); err == nil && value != nil {
             if value != t.def.buffer && value != t.def.buffer.value {
-                err = t.def.buffer.setval(value)
+                err = t.def.buffer.val(value)
             }
         }
     } else if i, _ := dialects[name]; i != nil {
@@ -328,12 +328,12 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     // because the target could be overrided by parameters.
     switch a := t.entry.target.(type) {
     case *Flag:
-        t.def.target.setval(a)
+        t.def.target.val(a)
         // Flag target (-foo) turns off printing automatically
         t.print = false
     case *File:
         alreadyUpdated = a.info != nil && a.updated
-        t.def.target.setval(a)
+        t.def.target.val(a)
     default:
         var name string
         var target = t.entry.target
@@ -342,7 +342,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
             alreadyUpdated = file.info != nil && file.updated
             target = file
         }
-        t.def.target.setval(target)
+        t.def.target.val(target)
     }
     if alreadyUpdated {
         if optionTraceTraversal { t.tracef("Program.execute: '%v' already updated (%v)", t.def.target.value, t.targets) }

@@ -1,4 +1,4 @@
-//
+///
 //  Copyright (C) 2012-2018, Duzy Chan <code@duzy.info>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
@@ -992,7 +992,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 		switch tokLp {
 		case token.LPAREN:
 			if resolved, err = p.resolve(name); err != nil {
-				diag.errorOf(name, "resolving name '%v' failed: %v", name, err)
+				diag.errorOf(name, "resolve '%v' failed: %v", name, err)
 			} else if isNil(resolved) {
 				if p.isIncludingConf {
 					if s, err := name.Strval(); err != nil {
@@ -1921,9 +1921,9 @@ func (p *parser) parseModifySetVar(args []Value) (err error) {
 			diag.errorOf(k, "Def '%v' already existed: %T", name, alt)
 		} else if def != nil {
 			if g, ok := v.(*Group); ok {
-				def.setval(g.ToList())
+				def.val(g.ToList())
 			} else {
-				def.setval(v)
+				def.val(v)
 			}
 		}
 	}
@@ -2392,8 +2392,12 @@ func (p *parser) parseFile() *parsedFile {
 	if len(diag.points) > 0 { return nil }
 
 	var (
-		filename = p.file.Name()
 		abs, rel, tmp string
+		ident *Bareword
+		keyword = p.tok
+		filename = p.file.Name()
+		position = p.position()
+		ls = p.openScope(fmt.Sprintf("file %s", filename))
 	)
 	/*if filename == confinitFilename {
                 abs, rel = context.workdir, "."
@@ -2408,20 +2412,15 @@ func (p *parser) parseFile() *parsedFile {
 		tmp = joinTmpPath(p.workdir, rel)
 	}
 
-	var (
-		//doc, pos = p.leadComment, p.pos
-		position = p.position()
-		ls = p.openScope(fmt.Sprintf("file %s", filename))
-	)
 	if ls.scope != nil {
 		defer p.closeScope(ls)
 		var ( def *Def ; s = ls.scope )
 		if p.mode&Flat == 0 {
-			def, _ = p.def(position, "/")
-			def.set(DefAuto, MakePathStr(position, abs))
-
 			def, _ = p.def(position, ".")
 			def.set(DefAuto, MakePathStr(position, rel))
+
+			def, _ = p.def(position, "/")
+			def.set(DefAuto, MakePathStr(position, abs))
 
 			def, _ = p.def(position, "CTD") // Current Temp Directory
 			def.set(DefAuto, MakePathStr(position, tmp))
@@ -2441,8 +2440,6 @@ func (p *parser) parseFile() *parsedFile {
 		diag.errorAt(position, "opened invalid scope for %s", filename)
 	}
 
-	var ident *Bareword
-	var keyword = p.tok
 	switch keyword {
 	case token.CONFIGURE:
 		switch p.next(true); p.tok {
@@ -2524,6 +2521,15 @@ func (p *parser) parseFile() *parsedFile {
 			_, declared = linfo.declares[ident.string]
 		)
 		if (p.mode&Flat == 0) && p.declare(keyword, ident, options) {
+			// Change the 'default' owners into the new declared project
+			if s := ls.scope; s != nil {
+				if def := s.FindDef("."  ); def != nil { def.owner = p.project }
+				if def := s.FindDef("/"  ); def != nil { def.owner = p.project }
+				if def := s.FindDef("CTD"); def != nil { def.owner = p.project }
+				if def := s.FindDef("CWD"); def != nil { def.owner = p.project }
+			} else {
+				diag.errorAt(position, "file scope is nil")
+			}
 			defer func(proj *Project) {
 				if filepath.Base(filename) == "build.smart" {
 					var using Value
@@ -2532,11 +2538,13 @@ func (p *parser) parseFile() *parsedFile {
 					}
 					if !isNil(using) { p.applyUseeVars(ident.Position(), proj, using) }
 				}
+				p.isLoadingBases = false
 				p.closeCurrent(ident)
 			} (p.project)
 		}
 
 		if p.tok == token.LPAREN {
+			p.isLoadingBases = true
 			for p.tok != token.EOF {
 				for p.next(true); !p.isEndOfList(false); {
 					p.skipSpaces()
@@ -2567,6 +2575,7 @@ func (p *parser) parseFile() *parsedFile {
 				}
 				if p.tok != token.COMMA { break }
 			}
+			p.isLoadingBases = false
 			p.expect(token.RPAREN)
 		}
 		p.expectLinend()

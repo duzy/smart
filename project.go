@@ -587,6 +587,12 @@ func (p *Project) resolveObject(s string) (obj Object, err error) {
         break
       }
     }
+  } else if obj != nil && false {
+    var s string = p.scope.comment
+    for o := p.scope.outer; o != nil; o = o.outer {
+      s += " -> " + o.comment
+    }
+    diag.infoOf(obj, "%v => %v, %v, %v", p, obj, obj.OwnerProject(), s)
   }
   return
 }
