@@ -52,6 +52,7 @@ const (
   rxTooManyPosArgs_i
   rxUndefinedReference_i
   rxShcmdNotFound_i
+  rxExitStatus_i
 )
 var (
   defaultShell = "bash"
@@ -75,6 +76,7 @@ var (
   errTooManyPosArgs = `(.+?): Too many positional arguments specified!`
   errUndefinedReference = `  +"(.+?)", referenced from:`
   errShcmdNotFound = `sh: (.+?): not found`
+  errExitStatus = `exit status (\-?[0-9]+)`
 
   rxNotTTYDevice = regexp.MustCompile(errNotTTYDevice)
   rxNoContainer = regexp.MustCompile(errNoContainer)
@@ -94,6 +96,7 @@ var (
   rxTooManyPosArgs = regexp.MustCompile(errTooManyPosArgs)
   rxUndefinedReference = regexp.MustCompile(errUndefinedReference)
   rxShcmdNotFound = regexp.MustCompile(errShcmdNotFound)
+  rxExitStatus = regexp.MustCompile(errExitStatus)
 
   knownerrors = []*regexp.Regexp{
     rxNotTTYDevice_i:           rxNotTTYDevice,
@@ -114,6 +117,7 @@ var (
     rxTooManyPosArgs_i:         rxTooManyPosArgs,
     rxUndefinedReference_i:     rxUndefinedReference,
     rxShcmdNotFound_i:          rxShcmdNotFound,
+    rxExitStatus_i:             rxExitStatus,
   }
 
   workingMutex = new(sync.Mutex)
@@ -406,6 +410,11 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
       if p.report { diag.errorAt(lpos, "clang-%s: %s", string(v[1]), string(v[2])) }
     case rxLLDError_i:
       if p.report { diag.errorAt(lpos, "%s", string(v[2])) }
+    case rxLLDWarning_i:
+      if p.report {
+        fmt.Fprintf(stderr, "%s: warning: %s\n", lpos, string(v[2]))
+        fmt.Fprintf(stderr, "%s: warning: …from here\n", pos)
+      }
     case rxCouldnotParseObj_i:
       if p.report { diag.errorAt(lpos, "%s", string(v[3])) }
     case rxTooManyPosArgs_i:
@@ -414,12 +423,12 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
       if p.report { diag.errorAt(lpos, "Undefined reference '%s'", string(v[1])) }
     case rxShcmdNotFound_i:
       if p.report { diag.errorAt(lpos, "%s: command not found", string(v[1])) }
-    case rxLLDWarning_i:
-      if p.report {
-        fmt.Fprintf(stderr, "%s: warning: %s\n", lpos, string(v[2]))
-        fmt.Fprintf(stderr, "%s: warning: …from here\n", pos)
+    case rxExitStatus_i:
+      if s := string(v[1]); s != "0" && p.report {
+        // FIXME: the 'exit status' report is not working
+        diag.errorAt(lpos, "abnormal exist status %s", s)
       }
-    }
+   }
     if err != nil { break }
   }
   return
@@ -444,22 +453,23 @@ func (p *ExecBuffer) runAndProcessKnownErrors(pos Position, t *traversal, dock *
 
     if p.log != nil && p.log.writer != nil {
       fmt.Fprintf(p.log, "\n%s\n", err)
-      if p.report {
-        var pos Position
-        pos.Filename = p.log.filename
-        pos.Offset = 0 // FIXME: what should be the offset?
-        pos.Line = p.log.lines
-        pos.Column = 0
-        diag.errorAt(pos, "%v", err)
-      }
-    }
+   }
 
     p.retried = nil
     status, e = p.processKnownErrors(pos, t, dock, sh, x, num)
     if p.retried != nil && len(p.retried) > 0 {
-      if e != nil { diag.errorAt(pos, "%v", e) } else
+      if e != nil { diag.errorAt(pos, "process known errors failed: %v", e) } else
       if status == 0 { err = nil } else { es.code = status }
     } else { status = es.code }
+
+    if p.report {
+      var pos Position
+      pos.Filename = p.log.filename
+      pos.Line = p.log.lines
+      pos.Column = 0
+      pos.Offset = 0 // FIXME: what should be the offset?
+      diag.errorAt(pos, "%v", es)
+    }
   } else {
     if status == 0 { status = -1 }
     if e != nil { err = e }

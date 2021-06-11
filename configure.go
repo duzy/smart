@@ -225,7 +225,7 @@ func configureAnswer(pos Position, t *traversal, def *Def, fields map[string]Val
 // -option
 // -option('message...')
 func configureOption(pos Position, t *traversal, def *Def, fields map[string]Value, args ...Value) (result Value, err error) {
-    if result = def.Call(pos); isNil(result) { result = &answer{valbase{pos},false} }
+    if result = def.Call(pos); isNil(result) { result = MakeAnswer(pos, false) }
     if result != nil {
         var res Value
         if res, err = result.expand(expandAll); err == nil && res != result {
@@ -278,7 +278,7 @@ func configurePackage(pos Position, t *traversal, def *Def, fields map[string]Va
             }
             if info != nil {
                 configuration.packages[name] = info
-                result = &answer{valbase{pos},true}
+                result = MakeAnswer(pos, true)
                 break
             }
         }
@@ -299,7 +299,7 @@ func scanExitStatus(err error) (n, status int) {
     return
 }
 
-func configureExec(pos Position, t *traversal, s string, target Value, paramsOrig ...Value) (configured bool, result Value, err error) {
+func configureExec(pos Position, t *traversal, optVerbose bool, s string, target Value, paramsOrig ...Value) (configured bool, result Value, err error) {
     if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("configureExec(%s %v)", s, t.entry.target))) }
 
     var projectConfigure = t.program.project.configure
@@ -310,7 +310,7 @@ func configureExec(pos Position, t *traversal, s string, target Value, paramsOri
 
     var entry *RuleEntry
     if entry, err = projectConfigure.resolveEntry("-"+s); err != nil {
-        diag.errorAt(pos, "resolve %v: %v", s, err)
+        diag.errorAt(pos, "resolve '%v' failed: %v", s, err)
         return
     } else if entry == nil {
         diag.errorAt(pos, "unknown configuration action `%v`, no such entry", s)
@@ -320,6 +320,7 @@ func configureExec(pos Position, t *traversal, s string, target Value, paramsOri
     if false { defer setclosure(setclosure(cloctx.unshift(t.program.scope))) }
     if false { fmt.Fprintf(stderr, "%v: configureExec(%v %v): %v, %v\n", pos, entry, t.entry, paramsOrig, cloctx) }
 
+    var silent bool
     var params []Value
     var prog = entry.programs[0]
     for _, par := range prog.params {
@@ -329,9 +330,14 @@ func configureExec(pos Position, t *traversal, s string, target Value, paramsOri
         case "VALUE":  params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"),  t.def.buffer))
         }
         for _, a := range paramsOrig {
-            if ap, ok := a.(*Pair); ok {
+            if f, ok := a.(*Flag); ok {
+                if s, _ := f.name.Strval(); s == "s" { silent = true }
+            } else if ap, ok := a.(*Pair); ok {
                 s, e := ap.Key.Strval()
-                if e != nil { diag.errorOf(ap.Key, "%v", e); return }
+                if e != nil {
+                    diag.errorOf(ap.Key, "stringify key '%v' failed: %v", ap.Key, e)
+                    return
+                }
                 if par.name == s {
                        params = append(params, a)
                 } else if par.name == strings.ToUpper(s) {
@@ -347,6 +353,9 @@ func configureExec(pos Position, t *traversal, s string, target Value, paramsOri
         }
     }
 
+    // Turn on verbose mode if no silent flag was set
+    if !optVerbose && !silent { optVerbose = true }
+
     defer func(v bool) { t.isConfigureExecution = false } (t.isConfigureExecution)
     t.isConfigureExecution = true
 
@@ -359,15 +368,15 @@ func configureExec(pos Position, t *traversal, s string, target Value, paramsOri
                 fmt.Fprintf(stderr, "%s: %d: %v\n", pos, i, brk.what)
             }
         }
-    } else if false {
-        fmt.Fprintf(stderr, "%s: %s: %v (%T)\n", pos, entry, result, result)
+    } else if optVerbose {
+        diag.infoAt(pos, "%v: %v = %v, params = %v", entry, target, result, params)
     }
 
     configured = true
     return
 }
 
-func configureDo(pos Position, t *traversal, target Value, def, name Value, args []Value) (configured bool, result Value, err error) {
+func configureDo(pos Position, t *traversal, optVerbose bool, target Value, def, name Value, args []Value) (configured bool, result Value, err error) {
     if optionTraceConfig { defer un(trace(t_config, "configureDo")) }
 
     var pipe = t.def.buffer
@@ -426,7 +435,7 @@ ForArgs:
     } else if s, e := info.Strval(); e == nil {
         configPrintf(pos, "configure: %s …", s)
     } else {
-        diag.errorAt(pos, "%v", e)
+        diag.errorAt(pos, "stringify configure message failed: %v", e)
     }
 
     // Process configurations like:
@@ -447,8 +456,8 @@ ForArgs:
         }
     }
 
-    if configured, result, err = configureExec(name.Position(), t, strName, target, params...); err != nil {
-        diag.errorAt(pos, "%v", err)
+    if configured, result, err = configureExec(name.Position(), t, optVerbose, strName, target, params...); err != nil {
+        diag.errorAt(pos, "configure exec '%v' failed: %v", name, err)
     } else if configured {
         if optionTraceConfig {
             t_config.tracef("configured: %v, result = %v (%s)", configured, result, typeof(result))
@@ -475,15 +484,23 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
         return
     }
 
-    var optAccumulate bool
+    var (
+        optAccumulate bool
+        optVerbose bool
+    )
     if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
     if args, err = tryParseFlags(args, []string{
         "a,accumulate",
+        "v,verbose",
     }, func(ru rune, v Value) {
         switch ru {
         case 'a': if optAccumulate, err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
+        case 'v': if optVerbose   , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
         }
-    }); err != nil { diag.errorAt(pos, "%v", err); return }
+    }); err != nil {
+        diag.errorAt(pos, "parsing configure flags failed: %v", err)
+        return
+    }
 
     var target = t.def.target.value
     if isNil(target) || isNone(target) {
@@ -565,7 +582,7 @@ ForConfig:
             return
         }
 
-        configured, value, err = configureDo(pos, t, target, def, name, para)
+        configured, value, err = configureDo(pos, t, optVerbose, target, def, name, para)
         if err != nil {
             diag.errorAt(pos, "configure error: %v", err)
             return
