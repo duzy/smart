@@ -330,8 +330,8 @@ func (d *Def) elemstr(o Object, k elemkind) (s string) {
 func (d *Def) String() (s string) {
         switch s = d.name; d.origin {
         case DefDefault: s += "="
-        case DefExpand1:  s += ":="
-        case DefExpand2:  s += "::="
+        case DefExpand1: s += ":="
+        case DefExpand2: s += "::="
         case DefExecute: s += "!="
         default:         s += " = "
         }
@@ -376,18 +376,18 @@ func (d *Def) set(origin Origin, value Value) (err error) {
                 var (
                         cmd string
                         stdout, stderr bytes.Buffer
-                        pos = value.Position()
                 )
-                if !pos.IsValid() { pos = d.position }
                 if isNone(value) || isNil(value) {
                         d.value = nil
                 } else if cmd, err = value.Strval(); err != nil {
                         diag.errorOf(value, "%v: stringify value '%v' failed: %v", d.origin, value, err)
-                        d.value = MakeNone(pos)
+                        d.value = MakeNone(value.Position())
                 } else {
                         // TODO: possibility to run command in the specified container
                         sh := exec.Command("sh", "-c", cmd)
                         sh.Stdout, sh.Stderr = &stdout, &stderr
+
+                        var pos = value.Position()
                         if err = sh.Run(); err != nil {
                                 diag.errorOf(value, "%v: execute command '%v' failed: %v", d.origin, cmd, err)
                                 value = MakeNone(pos)
@@ -410,12 +410,11 @@ func (d *Def) append(va... Value) (err error) {
                 if !isNil(value) && value.refs(d) {
                         err = fmt.Errorf("%v: append recursive variable '%s'", d.owner, d.name)
                         if true || optionVerbose {
-                                diag.infoAt(d.position, "%v", err).debug(optionDebugErrors)
+                                diag.infoAt(d.position, "%v", err).debug(optionDebugInfos)
                         }
                         return
                 }
         }
-
         var list *List
         if num := len(va); num == 0 {
                 return // Does nothing...
@@ -424,8 +423,7 @@ func (d *Def) append(va... Value) (err error) {
         } else if list, _ = d.value.(*List); list == nil {
                 list = MakeList(d.value)
         }
-        err = d.val(list)
-        return
+        return d.val(list)
 }
 
 func (d *Def) Call(pos Position, a... Value) (res Value) {
@@ -441,7 +439,7 @@ func (d *Def) Call(pos Position, a... Value) (res Value) {
                         def.value = a[i]
                 }
                 res, err = d.value.expand(expandClosure|expandDelegate)
-                if err != nil { diag.errorAt(pos, "%v", err) }
+                if err != nil { diag.errorAt(pos, "expand def value failed: %v", err) }
         default: // DefArg, DefExpand1, DefExpand2, DefExecute:
                 res = d.value
         }

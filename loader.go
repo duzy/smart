@@ -1438,32 +1438,32 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *pars
 
     var text []byte
     if text, err = readSource(filename, src); err != nil {
-        l.error(l.pos, "readSource: %v", err)
+        diag.errorAt(l.position(), "read source file failed: %v", err)
         return
     }
 
     if optionTraceParsing { mode |= Trace }
 
     defer func(saved *parser, m Mode) {
+        var panics int
+        var pos Position
+        if l.parser != nil && l.parser.file != nil {
+            pos = l.parser.position()
+        } else {
+            pos.Filename = filename
+        }
         for e := recover(); e != nil; e = recover() {
-            if _, ok := e.(bailout); ok { continue }
-
-            var pos Position
-            if l.parser != nil && l.parser.file != nil {
-                pos = Position(l.parser.file.Position(l.pos))
-            } else {
-                pos.Filename = filename
+            if _, ok := e.(bailout); !ok {
+                diag.errorAt(pos, "panic %v", e)
+                panics += 1
             }
-
-            var er, ok = e.(error)
-            if !ok { er = fmt.Errorf("%v", e) }
-            diag.errorAt(pos, "%v", er)
         }
-        if err != nil && optionPrintStack {
-            fmt.Fprintf(stderr, "%v\n", err)
-            debug.PrintStack()
+        if panics > 0 {
+            diag.errorAt(pos, "got %d panics", panics).debug(optionDebugErrors)
         }
-
+        if err != nil {
+            diag.errorAt(pos, "parse file failed: %v", err).debug(optionDebugErrors)
+        }
         l.parser.loader = nil
         l.parser = saved
         l.mode = m

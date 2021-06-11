@@ -351,7 +351,7 @@ func (p *parser) expectLinend() {
 // may be past the file's EOF position, which would lead to panics if used
 // later on.
 //
-func (p *parser) safePos(pos token.Pos) (res token.Pos) {
+func (p *parser) _safePos(pos token.Pos) (res token.Pos) {
 	defer func() {
 		if recover() != nil {
 			res = token.Pos(p.file.Base() + p.file.Size()) // EOF position

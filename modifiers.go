@@ -309,7 +309,7 @@ func init() {
 func RegisterModifiers(m map[string]ModifierFunc) (err error) {
         for s, f := range m {
                 if _, existed := modifiers[s]; existed {
-                        err = fmt.Errorf("Modifier '%s' already existed", s)
+                        err = fmt.Errorf("modifier '%s' already existed", s)
                         break
                 } else {
                         modifiers[s] = f
@@ -334,6 +334,7 @@ func promptShellResult(value Value, n int) (err error) {
                         if str, err = elem.Strval(); err == nil && str == "shell" {
                                 if elem = g.Get(n); elem != nil {
                                         if str, err = elem.Strval(); err != nil {
+                                                diag.errorOf(elem, "stringify '%v' failed: %v", elem, err)
                                                 return
                                         } else if strings.HasSuffix(str, "\n") {
                                                 fmt.Fprintf(stderr, "%s", str)
@@ -367,7 +368,7 @@ func modifierPrint(pos Position, t *traversal, args... Value) (result Value, err
         if content, err = t.def.buffer.value.Strval(); err != nil { return }
         if optStdout { fmt.Fprint(stdout, content) }
         if optStderr { fmt.Fprint(stderr, content) }
-        t.def.buffer.value = &None{valbase{pos}}
+        t.def.buffer.value = MakeNone(pos)
         return
 }
 
@@ -414,8 +415,9 @@ func modifierEnv(pos Position, t *traversal, args... Value) (result Value, err e
 func modifierSet(pos Position, t *traversal, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         var defs []Value
-        var none = &None{valbase{pos}}
-        ForArgs: for _, arg := range args {
+        var none = MakeNone(pos)
+ForArgs:
+        for _, arg := range args {
                 var name string
                 var value Value = none
                 switch a := arg.(type) {
@@ -440,7 +442,10 @@ func modifierSet(pos Position, t *traversal, args... Value) (result Value, err e
                         def.set(DefDefault, value)
                         defs = append(defs, def)
                 }
-                if err != nil { diag.errorAt(pos, "%v", err); break ForArgs }
+                if err != nil {
+                        diag.errorAt(pos, "%v", err)
+                        break ForArgs
+                }
         }
         if len(defs) > 0 { result = MakeListOrScalar(pos, defs) }
         return
@@ -646,11 +651,7 @@ func parseDependList(pos Position, t *traversal, dependList *List) (depends *Lis
                                 diag.errorAt(pos, "unsupported entry depend `%v' (%v)", d, d.Class())
                         }
                 case *String:
-                        /*if t.program.project.IsFile(d.Strval()) {
-                                Fail("compare: discarded file depend %v (%T)", depend, depend)
-                        } else*/ {
-                                depends.Append(d)
-                        }
+                        depends.Append(d)
                 case *File:
                         depends.Append(d)
                 default:
@@ -934,7 +935,7 @@ func (t *traversal) searchGrepped(pos Position, gc *grepctx, sys bool, linum, co
                         if true || gc.debug { fmt.Fprintf(stderr, "%s: touch %v → %v (%v)\n", pos, gc.target, file, t) } //gc.targetFullName
                         t = launchTime //time.Now() // ...
                         err, tt = os.Chtimes(gc.targetFullName, t, t), t
-                        if err != nil { diag.errorAt(pos, "%v", err); return }
+                        if err != nil { diag.errorAt(pos, "chtimes failed: %v", err); return }
                 }
         }
 
@@ -966,7 +967,7 @@ func (t *traversal) savedGrepFileName(pos Position, targetFullName string) (file
 
 func (t *traversal) loadSavedGrepFile(pos Position, gc *grepctx) (okay bool, err error) {
         gc.savedGrepFileName, err = t.savedGrepFileName(pos, gc.targetFullName)
-        if err != nil { diag.errorAt(pos, "%v", err); return }
+        if err != nil { diag.errorAt(pos, "get saved grep filename failed: %v", err); return }
 
         gc.savedGrepFile = stat(pos, gc.savedGrepFileName, "", "")
         if gc.savedGrepFile == nil { return } // No saved grepfile yet!
@@ -985,7 +986,7 @@ func (t *traversal) loadSavedGrepFile(pos Position, gc *grepctx) (okay bool, err
 
         var savedGrepOSFile *os.File
         if savedGrepOSFile, err = os.Open(gc.savedGrepFileName); err != nil {
-                diag.errorAt(pos, "%v", err); return
+                diag.errorAt(pos, "open saved grep filename failed: %v", err); return
         }
 
         var gp Position
@@ -1007,7 +1008,7 @@ func (t *traversal) loadSavedGrepFile(pos Position, gc *grepctx) (okay bool, err
                 }
         }
         gc.savedGrepFile.info, err = savedGrepOSFile.Stat()
-        if err != nil { diag.errorAt(pos, "%v", err) } else { okay = true }
+        if err != nil { diag.errorAt(pos, "stat saved grep filename error: %v", err) } else { okay = true }
         return
 }
 
@@ -1217,12 +1218,17 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
                 case 't': if gc.touch     , err = trueVal(v,true); err != nil { diag.errorOf(v, "%v", err); return }
                 case 'n': if optNoTraverse, err = trueVal(v,true); err != nil { diag.errorOf(v, "%v", err); return }
                 case 's', 'x': if v != nil {
-                        if s, err = v.Strval(); err != nil { diag.errorOf(v, "%v", err); return }
+                        if s, err = v.Strval(); err != nil {
+                                diag.errorOf(v, "stringify '%v' failed: %v", v, err)
+                                return
+                        }
                         gc.rxs = append(gc.rxs, &greprex{s, ru=='s', nil})
                 }
                 case 'l': if v != nil {
-                        if s, err = v.Strval(); err != nil { diag.errorOf(v, "%v", err); return } else
-                        if info, ok := langInfos[s]; !ok || info == nil {
+                        if s, err = v.Strval(); err != nil {
+                                diag.errorOf(v, "stringify '%v' failed: %v", v, err)
+                                return
+                        } else if info, ok := langInfos[s]; !ok || info == nil {
                                 diag.errorAt(v.Position(), "unknown lang: %s", s)
                                 return
                         } else {
@@ -1231,7 +1237,7 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
                         }
                 }}
         }); err != nil {
-                diag.errorAt(pos, "%v", err)
+                diag.errorAt(pos, "parse grep-files flags failed: %v", err)
                 return
         }
         if len(gc.rxs) == 0 {
@@ -1257,7 +1263,7 @@ ForTarget:
                 gc.target = target
                 t.grepped = nil
                 if err = t.grepFiles(pos, &gc); err != nil {
-                        diag.errorAt(pos, "%v", err)
+                        diag.errorAt(pos, "grep files failed: %v", err)
                         return
                 }
                 if !optNoTraverse && len(t.grepped) > 0 {

@@ -372,7 +372,7 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
       if p.report { diag.errorAt(lpos, "Needs TTY (input device)") }
     case rxDockerDaemonNotRunning_i:
       err = p.startDockerDaemon(lpos, t, container, string(v[1]))
-      if err != nil { diag.errorAt(pos, "%v", err) }
+      if err != nil { diag.errorAt(pos, "start container failed: %v", err) }
     case rxNoContainer_i:
       if name := string(v[1]); p.skips(name) {
         if p.report { diag.errorAt(lpos, "container not running: %v", name) }
@@ -393,10 +393,10 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
     case rxIncludedFrom_i:
       if p.report { fmt.Fprintf(stderr, "%s:%s:%s: included here\n", v[1], v[2], v[3]) }
     case rxFileNotFound_i:
-      if p.report { diag.errorAt(lpos, "`%v` file not found, required by `%s` (exec)", v[4], filepath.Base(string(v[1]))) }
+      if p.report { diag.errorAt(lpos, "'%v' file not found, required by `%s` (exec)", v[4], filepath.Base(string(v[1]))) }
       if p.report { fmt.Fprintf(stderr, "%s:%s:%s: exec: `%s` file not found\n", v[1], v[2], v[3], v[4]) }
     case rxArNoSuchFile_i:
-      if p.report { diag.errorAt(lpos, "`%v` file not found", filepath.Base(string(v[1]))) }
+      if p.report { diag.errorAt(lpos, "'%v' file not found", filepath.Base(string(v[1]))) }
       if p.report { fmt.Fprintf(stderr, "exec: (ar): '%s' not found (as '%s')", filepath.Base(string(v[1])), v[1]) }
     case rxBashNoSuchFile_i:
       if p.report { diag.errorAt(lpos, "%v: no such command", string(v[1])) }

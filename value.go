@@ -316,7 +316,7 @@ func (t *traversal) filestub(p *Project, file *File, stub *filestub) (okay bool,
         /// Searching entries from the most derived project.
         var ( entry *RuleEntry; err error )
         if entry, err = p.resolveEntry(stub.name); err != nil {
-                diag.errorOf(stub.match.pattern, "%v", err)
+                diag.errorOf(stub.match.pattern, "resolve entry failed: %v", err)
                 return
         } else if entry != nil {
                 breakers = entry.traverse(t)
@@ -326,7 +326,7 @@ func (t *traversal) filestub(p *Project, file *File, stub *filestub) (okay bool,
         /// Searching patterns from the most derived project.
         var entries []*StemmedEntry
         if entries, err = p.resolvePatterns(stub); err != nil {
-                diag.errorOf(stub.match.pattern, "%v", err)
+                diag.errorOf(stub.match.pattern, "resolve patterns error: %v", err)
                 return
         }
 
@@ -392,7 +392,7 @@ func (t *traversal) file(file *File) (breakers []*breaker) {
         for _, project := range projects {
                 var entries []*StemmedEntry
                 if entries, err = project.resolvePatterns(file.name); err != nil {
-                        diag.errorAt(file.position, "%v", err); return
+                        diag.errorAt(file.position, "resolve patterns failed: %v", err); return
                 }
         ForEntry:
                 for _, entry := range entries {
@@ -405,7 +405,7 @@ func (t *traversal) file(file *File) (breakers []*breaker) {
                                 if !good { continue ForEntry }
                         }
                         if breakers = entry.file(t, file); len(breakers) > 0 {
-                                diag.errorAt(file.position, "%v", file)
+                                diag.errorAt(file.position, "entry file error: %v", file)
                                 return
                         } else {
                                 okay = true // entry executed
@@ -1754,7 +1754,7 @@ func (p *Barecomp) traverse(t *traversal) (breakers []*breaker) {
                 if false { fmt.Fprintf(stderr, "%s: %v (%s)\n", p.position, p, target) }
                 breakers = t.target(p.position, target)
         } else {
-                diag.errorOf(p, "%v", err)
+                diag.errorOf(p, "stringify '%v' error: %v", p, err)
         }
         return
 }
@@ -1819,7 +1819,7 @@ func (p *Barefile) traverse(t *traversal) (breakers []*breaker) {
         if p.File == nil { // it happens if p.Name refers argument
                 var ( target string; err error )
                 if target, err = p.Strval(); err != nil {
-                        diag.errorOf(p, "%v", err)
+                        diag.errorOf(p, "stringify '%v' failed: %v", p, err)
                         return
                 }
                 
@@ -2018,7 +2018,7 @@ func (p *Path) traverse(t *traversal) (breakers []*breaker) {
         if pathname, err = p.pathname(t.stems); err == nil && pathname == "" {
                 diag.errorAt(p.position, "path matches no target: %v", p); return
         } else if err != nil {
-                diag.errorAt(p.position, "%v", err); return
+                diag.errorAt(p.position, "compute pathname failed: %v", err); return
         }
 
         // Stat the file by pathname.

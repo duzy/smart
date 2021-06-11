@@ -231,7 +231,7 @@ func configureOption(pos Position, t *traversal, def *Def, fields map[string]Val
         if res, err = result.expand(expandAll); err == nil && res != result {
             result = res
         } else if err != nil {
-            diag.errorAt(pos, "%v", err)
+            diag.errorAt(pos, "expand configure option failed: %v", err)
         }
     }
     return
