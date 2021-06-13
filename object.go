@@ -409,9 +409,7 @@ func (d *Def) append(va... Value) (err error) {
         for _, value := range va {
                 if !isNil(value) && value.refs(d) {
                         err = fmt.Errorf("%v: append recursive variable '%s'", d.owner, d.name)
-                        if true || optionVerbose {
-                                diag.infoAt(d.position, "%v", err).debug(optionDebugInfos)
-                        }
+                        diag.infoAt(d.position, "%v", err).debug(optionVerbose && optionDebugInfos)
                         return
                 }
         }
