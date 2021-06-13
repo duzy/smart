@@ -1448,7 +1448,6 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
 		}
 	}); err != nil { return }
 
-	//p.loadUseSpec(opts, spec)
 	var (
         specOpts importspecoptions
         specNames []string
@@ -1535,9 +1534,9 @@ func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ 
 
 func (p *parser) parseConfigurationSpec(doc *CommentGroup, generic *genericoptions, _ int) {
 	name := p.parseExpr(false)
-	define := p.parseDefineClause(p.tok, name)
+	def  := p.parseDefineClause(p.tok, name)
 	if !generic.dontOperate {
-		diag.errorAt(define.Position(), "configuration section is deprecated")
+		diag.errorAt(def.position, "configuration section is deprecated")
 	}
 }
 
@@ -1767,23 +1766,22 @@ func (p *parser) parseDefineClause(tok token.Token, ident Value) (def *Def) {
 	if p.scope.comment == usecomment {
 		switch i := ident.(type) {
 		case *selection:
-			diag.errorAt(ident.Position(), "should use scoped names instead of `%v`", i)
+			diag.errorOf(ident, "should use scoped names instead of `%v`", i)
 		default:
-			diag.errorAt(ident.Position(), "FIXME: unexpected name expression: %T", i)
+			diag.errorOf(ident, "FIXME: unexpected name expression: %T", i)
 		}
 		return
 	}
 
 	var (
 		// TODO: doc = p.leadComment
-		pos = p.expect(tok)
-		elems = p.parseRhsList()
 		// TODO: comment = p.lineComment
+		position = p.positionAt(p.expect(tok))
+		elems = p.parseRhsList()
 		value Value
 	)
 
-	// Take it from parser, since the line comment is assigned
-	// to the DefineClause.
+	// Take the line comment, since the line comment is assigned.
 	p.lineComment = nil
 
 	// Create List value or use the first elem.
@@ -1792,14 +1790,11 @@ func (p *parser) parseDefineClause(tok token.Token, ident Value) (def *Def) {
 	} else if n > 1 {
 		value = MakeList(elems...)
 	}
-
-	return p.determine(pos, tok, ident, value)
+	return p.determine(position, tok, ident, value)
 }
 
 func (p *parser) parseDefine(ident Value) (def *Def) {
-	def = p.parseDefineClause(p.tok, ident)
-	//p.define(clause)
-	return
+	return p.parseDefineClause(p.tok, ident)
 }
 
 func (p *parser) parseRecipeDefineClause(x Value) Value {

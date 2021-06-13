@@ -8,7 +8,6 @@ package smart
 import (
     "extbit.io/smart/token"
     "extbit.io/smart/scanner"
-    "runtime/debug"
     "bytes"
     "io/ioutil"
     "io"
@@ -664,80 +663,76 @@ func (l *loader) useProject2(position Position, usee *Project, params []Value, o
     return // :user: rules are deprecated!
 }
 
-func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Value) (def *Def) {
+func (l *loader) determine(position Position, tok token.Token, identifier, value Value) (def *Def) {
+    var dbg bool
     var alt Object
     switch t := identifier.(type) {
     case *selection:
         var v, err = t.value()
         if err != nil {
-            l.error(pos, "determine `%v`: %v", t, err)
+            diag.errorAt(position, "determine `%v`: %v", t, err)
             return
         } else if d, ok := v.(*Def); ok {
             def = d
         } else {
-            l.error(pos, "`%v` is not a def (%T)", t, v)
+            diag.errorAt(position, "`%v` is not a def (%T)", t, v)
             return
         }
 
     case *Bareword, *Barecomp, *Qualiword:
         var name, err = t.Strval()
         if err != nil {
-            l.error(pos, "determine `%v`: %v", t, err)
+            diag.errorAt(position, "determine `%v`: %v", t, err)
             return
         } else if _, ok := builtins[name]; ok {
-            l.error(pos, "`%v` (%v) is builtin name", identifier, name)
+            diag.errorAt(position, "`%v` (%v) is builtin name", identifier, name)
             return
         }
 
         // Resolve base value to derive.
         var prev Object
         prev, err = l.project.resolveObject(name)
-        if err != nil { l.error(pos, "%v", err) }
-        if def, alt = l.def(/*pos*/Position{}, name); alt == nil {
+        if err != nil { diag.errorAt(position, "resolve '%s' failed: %v", name, err) }
+        if def, alt = l.def(position, name); alt == nil {
             // does nothing...
         } else if alt != nil && (tok == token.ASSIGN || tok == token.EXC_ASSIGN) {
             var ( okay bool; ad *Def )
             if ad, okay = alt.(*Def); !okay {
-                l.error(pos, "`%v` already defined (%T) (%v,%v)", identifier, alt, alt.OwnerProject(), l.project)
-                if optionPrintStack {
-                    fmt.Fprintf(stderr, "%s: `%v` already defined here\n", alt.Position(), alt)
-                    debug.PrintStack()
-                }
+                diag.errorAt(position, "`%v` already defined (%T) (%v,%v)", identifier, alt, alt.OwnerProject(), l.project).
+                    debug(optionDebugErrors && optionPrintStack)
                 return
             } else if ad.owner == l.project && ad.origin != DefConfRef {
-                l.error(pos, "`%v` already defined (%T) (%v)", identifier, alt, l.project)
-                if optionPrintStack {
-                    fmt.Fprintf(stderr, "%s: `%v` already defined here\n", alt.Position(), alt)
-                    debug.PrintStack()
-                }
+                diag.errorAt(position, "`%v` already defined (%T) (%v)", identifier, alt, l.project).
+                    debug(optionDebugErrors && optionPrintStack)
                 return
             } else {
                 def = ad
             }
-        } else if alt != nil { def = alt.(*Def) }
+        } else if alt != nil {
+            def = alt.(*Def)
+        }
 
         if prev == nil {
             // no derived value
         } else if prev.OwnerProject() == l.project {
-            // don't derive in the same project
+            // not derivable def if in the same project
         } else if derived, okay := prev.(*Def); !okay {
             // not a def
         } else if derived == nil {
-            assert(false, "encounterred nil def `%s`", name)
+            diag.errorAt(position, "def '%s' is nil", name)
         } else if derived == def || def.value.refs(derived) {
             // same def
         } else if tok == token.ADD_ASSIGN {
             // Unshift the delegation to derive value.
-            position := Position(l.parser.file.Position(pos))
             err := def.append(MakeDelegate(position, token.LPAREN, derived))
             if err != nil {
-                l.error(pos, "%v", err)
+                diag.errorAt(position, "append def '%s' failed: %v", def.name, err)
             }
         }
     }
 
     if def == nil {
-        l.error(pos, "identifier `%v' is nil", identifier)
+        diag.errorAt(position, "identifier `%v' is nil", identifier)
         return
     }
 
@@ -745,8 +740,13 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
     // project context.
     defer setclosure(setclosure(cloctx.unshift(l.scope)))
 
-    if err := l.assign(pos, tok, def, alt, value); err != nil {
-        l.error(pos, "%v", err)
+    def.position = position
+    if err := l.assign(tok, def, alt, value); err != nil {
+        diag.errorAt(position, "assign '%v' failed: %v", def.name, err)
+    } else if dbg {
+        s, _ := def.value.Strval()
+        diag.infoAt(position, "%v: %v->%v: %v -> %s (%v)", l.project, def.owner, def.name, def.value, s, value).
+            debug(dbg)
     }
     return
 }
@@ -957,7 +957,7 @@ ParamsLoop:
             var name string
             if name, err = p.Key.Strval(); err != nil { diag.errorAt(position, "%v", err); return }
             if len(name) > 0 && name[0] == '.' { identifier = MakeBarecomp(position, MakeBareword(position, "project"), p.Key) }
-            var def = l.determine(l.pos, token.ASSIGN, identifier, p.Value)
+            var def = l.determine(position, token.ASSIGN, identifier, p.Value)
             if isNil(def) {/* FIXME: ... */}
             continue ParamsLoop
         }
@@ -1335,69 +1335,84 @@ func (l *loader) def(position Position, name string) (def *Def, alt Object) {
     return
 }
 
-func (l *loader) assign(pos token.Pos, tok token.Token, def *Def, alt Object, value Value) (err error) {
-    def.position = Position(l.parser.file.Position(pos))
+func (l *loader) assign(tok token.Token, def *Def, alt Object, value Value) (err error) {
     switch tok {
     case token.ASSIGN: // =
         err = def.set(DefDefault, value)
-    case token.EXC_ASSIGN: // !=
-        err = def.set(DefExecute, value)
-    case token.ADD_ASSIGN: // +=
-        if value ==  nil {
-            // NOOP
-        } else if def.value == nil || !def.value.refs(value) {
-            err = def.append(value)
-        }
-    case token.SHI_ASSIGN: // =+
-        if !def.value.refs(value) {
-            var tail = def.value
-            if err = def.set(DefDefault, value); err == nil {
-                err = def.append(tail)
-            }
-        }
-    case token.SUB_ASSIGN: // -=
-        if def.value == nil {
-            // ...
-        } else if _, ok := def.value.(*None); ok {
-            var vals []Value
-            for _, val := range merge(def.value) {
-                if val.cmp(value) != cmpEqual {
-                    vals = append(vals, val)
-                }
-            }
-            def.value = &List{elements{vals}}
-        }
-    case token.SAD_ASSIGN: // -+=
-        var vals []Value
-        if def.value == nil {
-            // ...
-        } else if _, ok := def.value.(*None); ok {
-            for _, val := range merge(def.value) {
-                if val.cmp(value) != cmpEqual || true {
-                    vals = append(vals, val)
-                }
-            }
-        }
-        vals = append(vals, value)
-        def.value = &List{elements{vals}}
-    case token.SSH_ASSIGN: // -=+
-        var vals = []Value{ value }
-        if def.value == nil {
-            // ...
-        } else if _, ok := def.value.(*None); ok {
-            for _, val := range merge(def.value) {
-                if val.cmp(value) != cmpEqual {
-                    vals = append(vals, val)
-                }
-            }
-        }
-        def.value = &List{elements{vals}}
-    case token.QUE_ASSIGN: // ?=
-        if alt == nil { err = def.set(DefDefault, value) }
     case token.SCO_ASSIGN: // :=
         err = def.set(DefExpand1, value)
     case token.DCO_ASSIGN: // ::=
         err = def.set(DefExpand2, value)
+    case token.EXC_ASSIGN: // !=
+        err = def.set(DefExecute, value)
+    case token.QUE_ASSIGN: // ?=
+        if isNil(alt) {
+            err = def.set(DefDefault, value)
+        }
+    case token.ADD_ASSIGN: // +=
+        if isNil(value) || isNone(value) {
+            // NOOP
+        } else if isNil(def.value) || !def.value.refs(value) {
+            err = def.append(value)
+        } else {
+            err = fmt.Errorf("can't append value '%v' to: %v", value, def)
+        }
+    case token.SHI_ASSIGN: // =+
+        if !def.value.refs(value) {
+            var tail = def.value
+            if err = def.val(value); err == nil {
+                err = def.append(merge(tail)...)
+            }
+        }
+    case token.SUB_ASSIGN: // -=
+        if isNil(def.value) || isNone(def.value) {
+            // ...
+        } else {
+            var (
+                vals []Value
+                sub = merge(value)
+            )
+            for _, val := range merge(def.value) {
+                var b bool
+                for _, v := range sub {
+                    if b = val.cmp(v) == cmpEqual; b { break }
+                }
+                if !b { vals = append(vals, val) }
+            }
+            def.value = MakeList(vals...)
+        }
+    case token.SAD_ASSIGN: // -+=
+        var vals []Value
+        if isNil(def.value) || isNone(def.value) {
+            // ...
+        } else {
+            var sub = merge(value)
+            for _, val := range merge(def.value) {
+                var b bool
+                for _, v := range sub {
+                    if b = val.cmp(v) == cmpEqual; b { break }
+                }
+                if !b { vals = append(vals, val) }
+            }
+            vals = append(vals, sub...)
+        }
+        def.value = MakeList(vals...)
+    case token.SSH_ASSIGN: // -=+
+        var vals []Value
+        if isNil(def.value) || isNone(def.value) {
+            // ...
+        } else {
+            var sub = merge(value)
+            for _, val := range merge(def.value) {
+                var b bool
+                for _, v := range sub {
+                    if b = val.cmp(v) == cmpEqual; b { break }
+                }
+                if !b { vals = append(vals, val) }
+            }
+            vals = append(sub, vals...)
+        }
+        def.value = MakeList(vals...)
     }
     return
 }

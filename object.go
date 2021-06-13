@@ -418,11 +418,12 @@ func (d *Def) append(va... Value) (err error) {
         var list *List
         if num := len(va); num == 0 {
                 return // Does nothing...
-        } else if isNone(d.value) || isNil(d.value) {
-                list = MakeList( merge(va...) ...)
+        } else if isNil(d.value) || isNone(d.value) {
+                list = MakeList()
         } else if list, _ = d.value.(*List); list == nil {
                 list = MakeList(d.value)
         }
+        list.Append(merge(va...)...)
         return d.val(list)
 }
 
