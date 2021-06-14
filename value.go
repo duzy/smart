@@ -739,13 +739,15 @@ func (t *traversal) isRecipesDirty() (dirty bool, err error) {
 
 func (t *traversal) wait(pos Position) {
         if optionEnableBenchmarks && false { defer bench(mark("traversal.wait")) }
-        var errs []error
         t.group.Wait()
         t.calleeErrsM.Lock()
-        errs = t.calleeErrs
+        var errs = t.calleeErrs
         t.calleeErrs = nil
         t.calleeErrsM.Unlock()
-        for _, err := range errs { diag.errorAt(pos, "%v: %v", t.def.target.value, err) }
+        for _, err := range errs {
+                diag.errorAt(pos, "waiting '%v' error: %v", t.def.target.value, err).
+                        debug(optionDebugErrors)
+        }
         return
 }
 
@@ -3223,7 +3225,11 @@ func (p *delegate) True() (t bool, err error) {
 }
 func (p *delegate) elemstr(o Object, k elemkind) (s string) {
         if k&elemExpand == 0 {
-                s = "$"+p.string(o, k)
+                if token.DELEGATE < p.l && p.l <= token.DELEGATE__ {
+                        s = p.string(o, k)
+                } else {
+                        s = "$"+p.string(o, k)
+                }
         } else if v, e := p.expand(expandDelegate); e == nil {
                 s = elementString(o, v, k)
         }
@@ -3459,7 +3465,11 @@ func (p *closure) True() (t bool, err error) {
 }
 func (p *closure) elemstr(o Object, k elemkind) (s string) {
         if k&elemExpand == 0 {
-                s = "&"+p.string(o, k)
+                if token.CLOSURE < p.l && p.l <= token.CLOSURE__ {
+                        s = p.string(o, k)
+                } else {
+                        s = "&"+p.string(o, k)
+                }
         } else if v, e := p.expand(expandDelegate); e == nil {
                 s = elementString(o, v, k)
         }

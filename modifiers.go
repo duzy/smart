@@ -107,30 +107,6 @@ func break_with(pos Position, w breakind, s string, a... interface{}) *breaker {
         return &breaker{ pos:pos, what:w, scope:breakGroup, message:fmt.Sprintf(s, a...) }
 }
 
-/*func extractBreakers(err error) (res []*breaker, rest []error) {
-        if err == nil { return }
-        if optionEnableBenchmarks {
-                s := fmt.Sprintf("extractBreakers(%s)", typeof(err))
-                defer bench(mark(s))
-        }
-        switch t := err.(type) {
-        case nil: break
-        case *scanner.Error:
-                //var pos = Position(t.Pos)
-                for _, e := range t.Errs {
-                        brks, errs := extractBreakers(e)
-                        if res = append(res, brks...); len(errs) > 0 {
-                                rest = append(rest, errs...)
-                        }
-                }
-        case *breaker:
-                res = append(res, t)
-        default:
-                rest = append(rest, err)
-        }
-        return
-} */
-
 type modifier struct {
         valbase
         name Value

@@ -553,7 +553,7 @@ func (p *Project) matchTempFile(pos Position, name string) (file *File) {
     // stat temp file (maybe not existed)
     file = stat(pos, filepath.Join(s, name), "", "", nil)
   } else {
-    fmt.Fprintf(stderr, "%v: %v\n", p, err)
+    fmt.Fprintf(stderr, "%v: stringify temp directory failed: %v\n", p, err)
   }
   return
 }

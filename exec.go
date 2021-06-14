@@ -851,7 +851,12 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   var run = func() {
     var targetStr string
     defer func(start time.Time) {
-      if err == nil { err = stamp(t, target, start, optPrompt) }
+      if err == nil {
+        if err = stamp(t, target, start, optPrompt); err != nil {
+          diag.errorAt(pos, "exec: stamp '%v' failed: %v", target, err).
+            debug(optionDebugErrors)
+        }
+      }
       if log.writer != nil {
         if false && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
           // Discard log buffer.
@@ -863,7 +868,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
         }
       }
       if t.isConfigureExecution && err != nil {
-        if false { fmt.Fprintf(stderr, "%v: %v\n", pos, err) }
+        if false { diag.infoAt(pos, "configure exec failed: %v", err) }
         err = nil
       }
       if c := t.caller; c != nil { c.calleeDone(err) }

@@ -797,7 +797,8 @@ func (l *loader) rule(clause *parsedRuleData) (entries []*RuleEntry) {
         }
         var ( name string ; entry *RuleEntry ; err error )
         if name, err = target.Strval(); err != nil {
-            diag.errorOf(target, "%v", err)
+            diag.errorOf(target, "stringify target '%v' failed: %v", target, err).
+                debug(optionDebugErrors)
         }
         if true {// it should work too if not checking against files
             switch target.(type) {
