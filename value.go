@@ -324,7 +324,7 @@ func (t *traversal) filestub(p *Project, file *File, stub *filestub) (okay bool,
     }
 
     /// Searching patterns from the most derived project.
-    var entries []*StemmedEntry
+    var entries []*stemmed
     if entries, err = p.resolvePatterns(stub); err != nil {
         diag.errorOf(stub.match.pattern, "resolve patterns error: %v", err)
         return
@@ -390,7 +390,7 @@ func (t *traversal) file(file *File) (breakers []*breaker) {
     }
 
     for _, project := range projects {
-        var entries []*StemmedEntry
+        var entries []*stemmed
         if entries, err = project.resolvePatterns(file.name); err != nil {
             diag.errorAt(file.position, "resolve patterns failed: %v", err); return
         }
@@ -565,7 +565,7 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (breakers
     }
 
     for _, project := range projects {
-        var entries []*StemmedEntry
+        var entries []*stemmed
         if entries, err = project.resolvePatterns(target); err != nil {
             diag.errorAt(pos, "%v", err); return
         }
@@ -579,7 +579,7 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (breakers
                 if!good { continue ForEntry }
             }
 
-            // Associate StemmedEntry with the target.
+            // Associate stemmed with the target.
             if breakers = entry._target(t, target); len(breakers) > 0 { okay = true; return }
         }
     }
@@ -744,11 +744,25 @@ func (t *traversal) wait(pos Position) {
     var errs = t.calleeErrs
     t.calleeErrs = nil
     t.calleeErrsM.Unlock()
-    for _, err := range errs {
-        diag.errorOf(t.def.target.value, "waiting '%v' error: %v", t.def.target.value, err).
-            debug(optionDebugErrors)
-    }
-    return
+    if n := len(errs); n > 0 {
+        var targetPos = t.def.target.Position()
+        for _, err := range errs {
+            diag.errorAt(targetPos, "%v: %v", t.def.target.value, err)
+        }
+        if !pos.Equals(&targetPos) {
+            diag.errorAt(pos, "got %d errors waiting '%v'", len(errs), t.def.target.value)
+        }
+        var targetValuePos = t.def.target.value.Position()
+        if targetValuePos.IsValid() && !targetValuePos.Equals(&targetPos) {
+            diag.errorAt(targetValuePos, "%v", t.def.target.value).
+                debug(optionDebugErrors && t.closure == nil)
+        }
+        if c := t.closure; c != nil {
+            diag.errorAt(c.position, "closured from %v", c.comment).
+                debug(optionDebugErrors)
+        }
+     }
+     return
 }
 
 type elemkind int
@@ -897,7 +911,7 @@ func (p *Argumented) traverse(t *traversal) (breakers []*breaker) {
     breakers = p.value.traverse(t)
     return
 }
-func (p *Argumented) checkPatternDepends(t *traversal, project *Project, se *StemmedEntry, prog *Program) (ok, res1 bool, breakers []*breaker) {
+func (p *Argumented) checkPatternDepends(t *traversal, project *Project, se *stemmed, prog *Program) (ok, res1 bool, breakers []*breaker) {
     switch v := p.value.(type) {
     case Pattern:
         res1, breakers = checkPatternDepend(t, project, se, prog, v)
@@ -2591,7 +2605,7 @@ func (p *File) traverse(t *traversal) (breakers []*breaker) {
 
 // check pattern depends to find out if all depends are updatable
 // or updated/exists.
-func checkPatternDepends(t *traversal, project *Project, se *StemmedEntry, prog *Program) (res bool, breakers []*breaker) {
+func checkPatternDepends(t *traversal, project *Project, se *stemmed, prog *Program) (res bool, breakers []*breaker) {
     if optionEnableBenchspots { defer bench(spot("checkPatternDepends")) }
     if len(prog.depends) == 0 {
         // Pattern is always good as no depends to check.
@@ -2644,7 +2658,7 @@ func checkPatternDepends(t *traversal, project *Project, se *StemmedEntry, prog 
     return
 }
 
-func checkPatternDepend(t *traversal, project *Project, se *StemmedEntry, prog *Program, pat Pattern) (res bool, breakers []*breaker) {
+func checkPatternDepend(t *traversal, project *Project, se *stemmed, prog *Program, pat Pattern) (res bool, breakers []*breaker) {
     if optionEnableBenchspots { defer bench(spot("checkPatternDepend")) }
 
     var err error
@@ -2672,7 +2686,7 @@ func checkPatternDepend(t *traversal, project *Project, se *StemmedEntry, prog *
 
     // Check pattern rules for the name, it's 'exists' if there's a
     // non-empty pattern rule for the name.
-    var ses []*StemmedEntry
+    var ses []*stemmed
     if ses, err = project.resolvePatterns(name); err != nil {
         diag.errorAt(se.Position(), "%v", err)
         return

@@ -2104,7 +2104,6 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		scopeComment string
 	)
 
-	p.next(true) // skip rule delims
 	p.params = nil
 	p.dialect = ""
 
@@ -2153,7 +2152,7 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 	}
 
 	defer func(t []Value) { p.targets = t } (p.targets)
-	p.skipSpaces()
+	p.next(true) // skip rule delimeters and spaces
 	p.targets = targets // save targets for further usage
 
 	if p.tok != token.SEMICOLON && p.tok != token.BAR && !p.isEndOfLine() {

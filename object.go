@@ -852,22 +852,22 @@ func (p *PatternEntry) cmp(v Value) (res cmpres) {
         return
 }
 
-type StemmedEntry struct {
+type stemmed struct {
         *PatternEntry
         Stems []string // stem string
 }
-func (p *StemmedEntry) expand(w expandwhat) (res Value, err error) {
+func (p *stemmed) expand(w expandwhat) (res Value, err error) {
         var v Value
         if v, err = p.PatternEntry.expand(w); err != nil {
                 return
         } else if v != p.PatternEntry {
-                res = &StemmedEntry{v.(*PatternEntry),p.Stems}
+                res = &stemmed{v.(*PatternEntry),p.Stems}
         }
         return
 }
-func (p *StemmedEntry) cmp(v Value) (res cmpres) {
-        if a, ok := v.(*StemmedEntry); ok {
-                assert(ok, "value is not StemmedEntry")
+func (p *stemmed) cmp(v Value) (res cmpres) {
+        if a, ok := v.(*stemmed); ok {
+                assert(ok, "value is not stemmed")
                 if len(p.Stems) != len(p.Stems) { return }
                 for i, stem := range p.Stems {
                         if stem != a.Stems[i] { return }
@@ -876,10 +876,10 @@ func (p *StemmedEntry) cmp(v Value) (res cmpres) {
         }
         return
 }
-func (p *StemmedEntry) String() (s string) {
+func (p *stemmed) String() (s string) {
         return fmt.Sprintf("<%s,%s>", p.PatternEntry, p.Stems)
 }
-func (p *StemmedEntry) traverse(t *traversal) (breakers []*breaker) {
+func (p *stemmed) traverse(t *traversal) (breakers []*breaker) {
         diag.errorAt(p.position, "cant traverse stemmed entry directly")
         breakers = append(breakers, &breaker{
                 pos: p.position, what:breakErro,
@@ -887,10 +887,10 @@ func (p *StemmedEntry) traverse(t *traversal) (breakers []*breaker) {
         })
         return
 }
-func (p *StemmedEntry) _target(t *traversal, target string) (breakers []*breaker) {
+func (p *stemmed) _target(t *traversal, target string) (breakers []*breaker) {
         if optionTraceTraversal { defer un(tt(t, p)) }
-        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("StemmedEntry.traverse(%v)", p))) }
-        if optionEnableBenchspots { defer bench(spot("StemmedEntry.traverse")) }
+        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("stemmed.traverse(%v)", p))) }
+        if optionEnableBenchspots { defer bench(spot("stemmed.traverse")) }
 
         defer func(a Value) { p.target = a } (p.target)
         defer func(stems []string) { t.stems = stems } (t.stems)
@@ -907,10 +907,10 @@ func (p *StemmedEntry) _target(t *traversal, target string) (breakers []*breaker
         breakers = p.RuleEntry.traverse(t)
         return
 }
-func (p *StemmedEntry) file(t *traversal, file *File) (breakers []*breaker) {
+func (p *stemmed) file(t *traversal, file *File) (breakers []*breaker) {
         if optionTraceTraversal { defer un(tt(t, p)) }
-        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("StemmedEntry.file(%v)", p))) }
-        if optionEnableBenchspots { defer bench(spot("StemmedEntry.file")) }
+        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("stemmed.file(%v)", p))) }
+        if optionEnableBenchspots { defer bench(spot("stemmed.file")) }
 
         defer func(a Value) { p.target = a } (p.target)
         defer func(stems []string) { t.stems = stems } (t.stems)

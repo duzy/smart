@@ -860,8 +860,12 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
       if err == nil {
         if err = stamp(t, target, start, optPrompt); err != nil {
           // NOTE: we put two error diagnotics here to help finding the right spot position.
-          diag.errorAt(pos, "exec: %v", err)
-          diag.errorOf(target, "exec: %v", err).debug(optionDebugErrors)
+          var (
+            targetPos = target.Position()
+            samePos = targetPos.Equals(&pos)
+          )
+          diag.errorAt(pos, "%v", err).debug(optionDebugErrors && samePos)
+          if !samePos { diag.errorOf(target, "%v", err).debug(optionDebugErrors) }
         }
       }
       if log.writer != nil {
@@ -899,9 +903,6 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
         }
       }
       exeres.wg.Done()
-
-      //if optSilent { diag.checkErrors(true) }
-      //if optSilent { diag.reset(); err = nil }
     } (time.Now())
 
     if diag.checkErrors(false) > 0 {

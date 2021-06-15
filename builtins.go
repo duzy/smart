@@ -30,6 +30,11 @@ import (
 )
 
 type Position token.Position
+
+func (pos *Position) Equals(other *Position) bool {
+        return (*token.Position)(pos).Equals((*token.Position)(other))
+}
+
 type BuiltinFunc func(pos Position, args... Value) (Value)
 
 var builtins = map[string]BuiltinFunc {

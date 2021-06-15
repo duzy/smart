@@ -625,10 +625,10 @@ func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
   return
 }
 
-func (p *Project) resolvePatterns(i interface{}) (res []*StemmedEntry, err error) {
+func (p *Project) resolvePatterns(i interface{}) (res []*stemmed, err error) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.resolvePatterns")) }
   if optionEnableBenchspots { defer bench(spot("Project.resolvePatterns")) }
-  var v []*StemmedEntry
+  var v []*stemmed
   if res, err = p._resolvePatterns1(i); err != nil { return }
   if v, err = p._resolvePatterns2(i); err != nil { return } else {
     res = append(res, v...)
@@ -640,23 +640,23 @@ func (p *Project) resolvePatterns(i interface{}) (res []*StemmedEntry, err error
   return
 }
 
-func (p *Project) _resolvePatterns1(i interface{}) (res []*StemmedEntry, err error) {
+func (p *Project) _resolvePatterns1(i interface{}) (res []*stemmed, err error) {
   if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns1")) }
   for _, pat := range p.patterns {
     var ( s string ; stems []string )
     if s, stems, err = pat.Pattern.match(i); err != nil {
       return
     } else if s != "" && stems != nil {
-      res = append(res, &StemmedEntry{pat, stems})
+      res = append(res, &stemmed{pat, stems})
     }
   }
   return
 }
 
-func (p *Project) _resolvePatterns2(i interface{}) (res []*StemmedEntry, err error) {
+func (p *Project) _resolvePatterns2(i interface{}) (res []*stemmed, err error) {
   if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns2")) }
   for _, base := range p.bases {
-    var ses []*StemmedEntry
+    var ses []*stemmed
     ses, err = base.resolvePatterns(i)
     if err != nil { return }
     res = append(res, ses...)
@@ -664,10 +664,10 @@ func (p *Project) _resolvePatterns2(i interface{}) (res []*StemmedEntry, err err
   return
 }
 
-func (p *Project) _resolvePatterns3(i interface{}) (res []*StemmedEntry, err error) {
+func (p *Project) _resolvePatterns3(i interface{}) (res []*stemmed, err error) {
   if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns3")) }
   for _, using := range p.using.list {
-    var ses []*StemmedEntry
+    var ses []*stemmed
     ses, err = using.project.resolvePatterns(i)
     if err != nil { return }
     res = append(res, ses...)
