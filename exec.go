@@ -21,6 +21,7 @@ import (
   "time"
   "fmt"
   "io"
+  "io/fs"
   "os"
 )
 
@@ -752,12 +753,17 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
 
   var targetName string
   var target = t.def.target.value
-  if targetName, err = target.Strval(); err != nil { diag.errorOf(target, "%v", err); return }
+  if targetName, err = target.Strval(); err != nil {
+    diag.errorOf(target, "stringify target '%v' failed: %v", target, err)
+    return
+  }
   if optPath {
     var s string
     if s = filepath.Dir(targetName); s != "" && s != "." && s != "/" {
-      err = os.MkdirAll(s, os.FileMode(0755))
-      if err != nil { diag.errorOf(target, "%v", err); return }
+      if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
+        diag.errorOf(target, "make path '%s' for target failed: %v", s, err)
+        return
+      }
     }
   }
 
@@ -766,12 +772,12 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     if l, _ := def.value.(*List); l != nil {
       for _, v := range l.Elems {
         if v, err = v.expand(expandClosure); err != nil {
-          diag.errorOf(v, "%v", err);
+          diag.errorOf(v, "expand value '%v' failed: %v", v, err);
           return
         } else if p, ok := v.(*Pair); ok {
           envars = append(envars, p)
         } else {
-          diag.errorOf(v, "env expecting pairs (%T)", v);
+          diag.errorOf(v, "env expecting pairs: %T", v);
           return
         }
       }
@@ -853,13 +859,14 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     defer func(start time.Time) {
       if err == nil {
         if err = stamp(t, target, start, optPrompt); err != nil {
-          diag.errorAt(pos, "exec: stamp '%v' failed: %v", target, err).
-            debug(optionDebugErrors)
+          // NOTE: we put two error diagnotics here to help finding the right spot position.
+          diag.errorAt(pos, "exec: %v", err)
+          diag.errorOf(target, "exec: %v", err).debug(optionDebugErrors)
         }
       }
       if log.writer != nil {
         if false && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
-          // Discard log buffer.
+          // Discard empty log buffer.
           logfile.Close()
           os.Remove(logFileName)
         } else {
@@ -1004,6 +1011,8 @@ func stamp(t *traversal, target Value, start time.Time, verb bool) (err error) {
       d := file.info.ModTime().Sub(start);
       fmt.Printf("smart: Updated %v (%v)\n", file, d)
     }
+  } else if pe, ok := err.(*fs.PathError); ok {
+    err = fmt.Errorf("stamp %s: %s", pe.Path, pe.Err.Error())
   }
   return
 }

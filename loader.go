@@ -814,7 +814,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []*RuleEntry) {
 
         entry, err = l.project.entry(clause.special, clause.options, target, prog)
         if err != nil {
-            diag.errorOf(target, "%v", err)
+            diag.errorOf(target, "creating entry '%v' failed: %v", target, err)
             return
         } else /*if entry != nil*/ {
             entry.position = target.Position()
@@ -823,7 +823,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []*RuleEntry) {
         if t, okay := entry.target.(*Flag); okay && t != nil {
             var s string
             if s, err = t.name.Strval(); err != nil {
-                diag.errorOf(target, "%v", err)
+                diag.errorOf(target, "stringify flag target name '%v' failed: %v", t.name, err)
             } else if l.project.name != "~" {
                 flags, _ := context.flagEntries[s]
                 flags = append(flags, entry)
@@ -857,8 +857,6 @@ func (l *loader) includeFile(pos Position, spec Value) {
     }
 
     switch t := spec.(type) {
-    /*case *Path:
-        panic(fmt.Sprintf("include not implemented (%T)", t))*/
     case *File:
         if t.info == nil {
             diag.errorAt(pos, "`%v` no source file", t)
@@ -901,9 +899,7 @@ func (l *loader) includeFile(pos Position, spec Value) {
 func (l *loader) openScope(comment string) loaderScope {
     if false && optionTraceLaunch { defer un(trace(t_launch, "loader.openScope")) }
     var pos Position
-    if l.parser != nil {
-        pos = Position(l.file.Position(l.pos))
-    }
+    if l.parser != nil { pos = l.position() }
     l.scope = NewScope(pos, l.scope, l.project, comment)
     cc := setclosure(cloctx.unshift(l.scope))
     return loaderScope{ cc, l.scope }
@@ -916,8 +912,8 @@ func (l *loader) closeScope(ls loaderScope) {
         if ls.cc != nil { setclosure(ls.cc) }
 
         // Must change the outer of dir scope to globe to avoid Finding symbols
-        // recursively.
-        if s := ls.scope.Comment(); strings.HasPrefix(s, "dir ") /*|| strings.HasPrefix(s, "file ")*/ {
+        // into the wrong context.
+        if s := ls.scope.Comment(); strings.HasPrefix(s, "dir ") {
             l.globe.SetScopeOuter(ls.scope)
         }
     }

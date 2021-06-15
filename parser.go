@@ -1524,7 +1524,7 @@ func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ 
 	)
 
 	if p.tok == token.COLON {
-		x = p.parseRuleEntry(p.tok, specialRuleNor, nil, []Value{x}) // this should return a RuleEntry
+		x = p.parseRuleEntry(specialRuleNor, nil, []Value{x}) // this should return a RuleEntry
 	}
 
 	if !generic.dontOperate {
@@ -1803,7 +1803,7 @@ func (p *parser) parseRecipeDefineClause(x Value) Value {
 }
 
 func (p *parser) parseRecipeRuleClause(elems []Value) (x Value) {
-	return p.parseRuleEntry(p.tok, specialRuleRec, nil, elems)
+	return p.parseRuleEntry(specialRuleRec, nil, elems)
 }
 
 func (p *parser) parseRecipeExpr() Value {
@@ -2088,7 +2088,7 @@ var automatics = []string{
 	"-",  "~",
 }
 
-func (p *parser) parseRuleEntry(tok token.Token, special specialRule, options, targets []Value) (result Value) {
+func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (result Value) {
 	if p.project.keyword == token.PACKAGE {
 		p.error(p.pos, "rules forbidden: %v", targets)
 		return nil
@@ -2104,7 +2104,7 @@ func (p *parser) parseRuleEntry(tok token.Token, special specialRule, options, t
 		scopeComment string
 	)
 
-	p.expect(tok)
+	p.next(true) // skip rule delims
 	p.params = nil
 	p.dialect = ""
 
@@ -2265,7 +2265,7 @@ func (p *parser) parseSpecialRuleClause() Value {
 		}
 		p.setbits(bits) // restore bits
 		if p.tok.IsRuleDelim() {
-			return p.parseRuleEntry(p.tok, specialRuleUse, options, []Value{
+			return p.parseRuleEntry(specialRuleUse, options, []Value{
 				MakeBareword(p.positionAt(pos), name),
 			})
 		}
@@ -2309,18 +2309,17 @@ func (p *parser) parseClause() {
 		return
 	}
 
-	list := []Value{ x }
+	var list = []Value{ x }
 	if !p.tok.IsRuleDelim() {
 		list = append(list, p.parseLhsList()...)
 	}
 	if p.tok.IsRuleDelim() {
-		p.parseRuleEntry(p.tok, specialRuleNor, nil, list)
+		p.parseRuleEntry(specialRuleNor, nil, list)
 		return
 	}
 
-	position = p.position()
-	//p.expected(pos, "assign or colon")
-	diag.errorAt(position, "BadClause: %v (%s)", p.tok, p.lit).debug(optionDebugErrors)
+	diag.errorAt(p.position(), "bad clause: %v (%s)", p.tok, p.lit).
+		debug(optionDebugErrors)
 }
 
 func parseUsingNameProps(nameprops string) (name string, parts []string, optUnique, optReverse bool) {
@@ -2605,7 +2604,7 @@ func (p *parser) parseFile() *parsedFile {
 						if p.project == nil {
 							p.error(p.pos, "no project declared before defining rules")
 						} else {
-							x = p.parseRuleEntry(p.tok, specialRuleNor, nil, []Value{x})
+							x = p.parseRuleEntry(specialRuleNor, nil, []Value{x})
 						}
 						break ForInit
 					} else {

@@ -1401,6 +1401,7 @@ ForSources:
                         name = filepath.Clean(name)
 
                         // Deal with special source value
+                        var pos = dst.Position()
                         switch t := src.(type) {
                         case *File:
                                 var pre string
@@ -1436,7 +1437,7 @@ ForSources:
                                 continue ForDstPats
 
                         default:
-                                list = append(list, &String{valbase{pos},name})
+                                list = append(list, MakeString(pos, name))
                                 continue ForDstPats
                         }
                 }
