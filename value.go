@@ -23,6 +23,7 @@ import (
     "os"
 )
 
+
 const (
     enable_assertions = true
     enable_grep_bench = true
@@ -333,9 +334,8 @@ func (t *traversal) filestub(p *Project, file *File, stub *filestub) (okay bool,
 ForEntries:
     for _, entry := range entries {
         for _, prog := range entry.programs {
-            if  okay, breakers = checkPatternDepends(t, p, entry, prog); len(breakers) > 0 {
-                break ForEntries
-            }
+            okay, breakers = checkPatternDepends(t, p, entry, prog)
+            if len(breakers) > 0 { break ForEntries }
             if !okay { continue ForEntries }
         }
         if breakers = entry.file(t, file); len(breakers) == 0 { okay = true }
@@ -425,7 +425,7 @@ func (t *traversal) file(file *File) (breakers []*breaker) {
         } else if file != nil { okay = file.searchInMatchedPaths(project) }
 
         if !okay {
-            var alt = project.matchFile(file.name)
+            var alt = project.FindFile(file.name)
             if alt != nil { okay = alt.sub == "-" || exists(alt) }
             if !okay && false {
                 s, _ := file.Strval()
@@ -497,7 +497,7 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (breakers
             }
         }
 
-        if file = project.matchFile(target); file != nil {
+        if file = project.FindFile(target); file != nil {
             if optionTraceTraversal { t.tracef("traversal.target: file=%v (project %v)", file, project) }
             file.position = pos // Change the position for tracing
             t.addNewTarget(file) // Add new file target
@@ -548,7 +548,7 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (breakers
             }
             if false { fmt.Fprintf(stderr, "%s: %s: %v (found=%v)\n", project, file.position, file.name, okay) }
             if !okay && file.name != target {
-                var alt = file //project.matchFile(file.name)
+                var alt = file //project.FindFile(file.name)
                 if alt != nil { okay = alt.sub == "-" || exists(alt) }
                 if !okay && false {
                     s, _ := file.Strval()
@@ -561,7 +561,7 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (breakers
         } else if vals != nil && false {
             fmt.Fprintf(stderr, "%s: %s: %v %v\n", project, vals[0].Position(), target, vals)
         }
-        if optionTraceTraversal { t.tracef("project.matchFile: file=%v", file) }
+        if optionTraceTraversal { t.tracef("project.FindFile: file=%v", file) }
     }
 
     for _, project := range projects {
@@ -752,9 +752,24 @@ func (t *traversal) wait(pos Position) {
         if !pos.Equals(&targetPos) {
             diag.errorAt(pos, "got %d errors waiting '%v'", len(errs), t.def.target.value)
         }
-        var targetValuePos = t.def.target.value.Position()
+        var (
+                v = t.def.target.value
+                targetValuePos = v.Position()
+        )
+        if l, ok := v.(*List); ok && l.Len() == 1 { v = l.Elems[0] }
         if targetValuePos.IsValid() && !targetValuePos.Equals(&targetPos) {
-            diag.errorAt(targetValuePos, "%v", t.def.target.value).
+                if f, ok := v.(*File); ok && f.match != nil {
+                        diag.errorAt(targetValuePos, "%v", t.def.target.value)
+                        diag.errorOf(f.match.pattern, "%v (of %v)", v, f.match.project).
+                                debug(optionDebugErrors && t.def.target.value == v && t.closure == nil)
+                } else {
+                        diag.errorAt(targetValuePos, "%v", t.def.target.value).
+                                debug(optionDebugErrors && t.def.target.value == v && t.closure == nil)
+                }
+        }
+        if def, ok := v.(*Def); ok && t.def.target.value != v && t.def.target.value != def.value {
+            // trace source Def in diagnostics
+            diag.errorOf(def.value, "%v: %v", def.name, def.value).
                 debug(optionDebugErrors && t.closure == nil)
         }
         if c := t.closure; c != nil {
@@ -1841,7 +1856,7 @@ func (p *Barefile) traverse(t *traversal) (breakers []*breaker) {
 
         var okay bool
         okay, err = t.forClosureProject(func(project *Project) (bool, error) {
-            p.File = project.matchFile(target)
+            p.File = project.FindFile(target)
             return p.File != nil, nil
         })
         if !okay || p.File == nil {
@@ -2567,7 +2582,7 @@ func (p *File) traverse(t *traversal) (breakers []*breaker) {
             var s string
             var err error
             if s, err = a.Strval(); err != nil { diag.errorOf(a, "%v", err); return }
-            if file := t.project.matchFile(s); file != nil {
+            if file := t.project.FindFile(s); file != nil {
                 t.def.target.value = file
                 if optionTraceTraversal { t.tracef("FIX: barecomp file: %v", p) }
             }
@@ -2704,7 +2719,7 @@ func checkPatternDepend(t *traversal, project *Project, se *stemmed, prog *Progr
     }
 
     // Matches a FileMap (IsKnown(), may exists or not)
-    if exists(project.matchFile(name)) { return true, nil }
+    if exists(project.FindFile(name)) { return true, nil }
     if filepath.IsAbs(name) {
         if exists(stat(project.position, name, "", "")) { return true, nil }
     }

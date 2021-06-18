@@ -798,10 +798,10 @@ func (t *traversal) searchGreppedName0(pos Position, gc *grepctx, sys bool, linu
         } else if isRel = isRelPath(name); isRel { // relative to target dir
                 file = stat(pos, name, "", gc.targetDir, nil)
                 if !exists(file) {
-                        var f = t.project.matchFile(name)
+                        var f = t.project.FindFile(name)
                         if f != nil { file = f }
                 }
-        } else if file = t.project.matchFile(name); file == nil {
+        } else if file = t.project.FindFile(name); file == nil {
                 return // file not found
                 /*
         } else if !sys && file.match != nil && len(file.match.Paths) == 1 {
@@ -828,7 +828,7 @@ func (t *traversal) searchGreppedName0(pos Position, gc *grepctx, sys bool, linu
 
         // Search 'name.xxx' and check dir for
         // 'foo/bar' suffix. We use it if found.
-        alt = t.project.matchFile(filepath.Base(name))
+        alt = t.project.FindFile(filepath.Base(name))
         if alt != nil && strings.HasSuffix(alt.dir, PathSep+s) {
                 dir := strings.TrimSuffix(alt.dir, PathSep+s)
                 ok1 := alt.change(dir, s, alt.name) // <dir>, foo/bar, name.xxx
@@ -844,7 +844,7 @@ func (t *traversal) searchGreppedName0(pos Position, gc *grepctx, sys bool, linu
 
 func (t *traversal) searchGreppedName(pos Position, gc *grepctx, sys bool, linum, colnum int, name string) (file *File) {
         var isAbs, isRel bool
-        if file = t.project.matchFile(name); file != nil && exists(file) {
+        if file = t.project.FindFile(name); file != nil && exists(file) {
                 return // found existed file
         } else if isAbs = filepath.IsAbs(name); isAbs {
                 file = stat(pos, name, "", "", nil)
@@ -874,7 +874,7 @@ func (t *traversal) searchGreppedName(pos Position, gc *grepctx, sys bool, linum
 
         // Search 'name.xxx' and check dir for
         // 'foo/bar' suffix. We use it if found.
-        alt = t.project.matchFile(filepath.Base(name))
+        alt = t.project.FindFile(filepath.Base(name))
         if alt != nil && strings.HasSuffix(alt.dir, PathSep+s) {
                 dir := strings.TrimSuffix(alt.dir, PathSep+s)
                 ok1 := alt.change(dir, s, alt.name) // <dir>, foo/bar, name.xxx
@@ -1428,7 +1428,7 @@ ForPairs:
                         var file *File
                         var project = t.project
                         if str, err = p.Value.Strval(); err != nil { return }
-                        if file := project.matchFile(str); !exists(file) {
+                        if file := project.FindFile(str); !exists(file) {
                                 err = break_with(pos, optBreak, "`%v` no such file or directory", p.Value)
                                 break ForPairs
                         }
@@ -1695,7 +1695,7 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
         default:
                 if filename, err = target.Strval(); err != nil {
                         return
-                } else if file := project.matchFile(filename); file != nil {
+                } else if file := project.FindFile(filename); file != nil {
                         if filename, err = file.Strval(); err != nil {
                                 return
                         } else {
@@ -1716,7 +1716,7 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
         default:
                 if srcname, err = source.Strval(); err != nil {
                         return
-                } else if file := project.matchFile(srcname); file != nil {
+                } else if file := project.FindFile(srcname); file != nil {
                         if srcname, err = file.Strval(); err != nil {
                                 return
                         } else {
@@ -1942,7 +1942,7 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                 if filename, err = p.Strval(); err != nil { return }
         default:
                 if filename, err = target.Strval(); err != nil { return } else
-                if file := t.project.matchFile(filename); file != nil {
+                if file := t.project.FindFile(filename); file != nil {
                         if filename, err = file.Strval(); err != nil { return } else {
                                 target = file
                         }

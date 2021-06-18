@@ -2621,7 +2621,7 @@ func builtinFileExists(pos Position, args... Value) (res Value) {
                 } else {
                         file = stat(pos, s, "", proj.absPath)
                 }
-                if file == nil { file = proj./*searchFile*/matchFile(s) }
+                if file == nil { file = proj./*searchFile*/FindFile(s) }
                 if file != nil { check(file) }
         }
 
@@ -2654,7 +2654,7 @@ func builtinFileSource(pos Position, args... Value) (res Value) {
         for _, a := range args {
                 var str string
                 if str, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                if file := proj./*searchFile*/matchFile(str); file != nil {
+                if file := proj./*searchFile*/FindFile(str); file != nil {
                         l = append(l, &String{valbase{a.Position()},file.sub})
                 }
         }
@@ -2700,7 +2700,7 @@ func builtinFile(pos Position, args... Value) (res Value) {
                 } else if str, err = a.Strval(); err != nil {
                         diag.errorAt(pos, "%v", err)
                         return
-                } else if file = proj.matchFile(str); file != nil {
+                } else if file = proj.FindFile(str); file != nil {
                         list = append(list, file)
                         if optReportMissing { fmt.Fprintf(stderr, "%s: `%v` no such file\n", pos, a) }
                 } else {

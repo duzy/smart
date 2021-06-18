@@ -278,6 +278,7 @@ type genericoptions struct {
 
 type useoptions struct {
     allowReuse bool
+    noFiles bool
 }
 
 type importoptions struct {
@@ -287,6 +288,7 @@ type importoptions struct {
 type importspecoptions struct {
     unuse bool
     reuse bool
+    noFiles bool
 }
 
 func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName string, specOpts *importspecoptions, params []Value) {
@@ -471,6 +473,9 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
         // override reuse option
         useopts.allowReuse = true
     }
+    if specOpts.noFiles {
+        useopts.noFiles = true
+    }
 
     if optionVerboseImport {
         defer func(t time.Time) {
@@ -579,7 +584,7 @@ func (l *loader) convertBarefiles(targets []Value) []Value {
         var pos = target.Position()
         switch t := target.(type) {
         case *Bareword:
-            if file := l.project.matchFile(t.string); file != nil {
+            if file := l.project.FindFile(t.string); file != nil {
                 targets[i] = &Barefile{ Name:target, File:file }
                 file.position = pos
             }
@@ -587,7 +592,7 @@ func (l *loader) convertBarefiles(targets []Value) []Value {
             if t.closured() || t.refdef(DefArg) { break }
             if s, err := t.Strval(); err != nil {
                 diag.errorAt(pos, "stringify '%v' failed: %v", t, err)
-            } else if file := l.project.matchFile(s); file != nil {
+            } else if file := l.project.FindFile(s); file != nil {
                 targets[i] = &Barefile{ Name:target, File:file }
                 file.position = pos
             }
@@ -804,7 +809,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []*RuleEntry) {
             switch target.(type) {
             case *File, *Path, Pattern:
             default:
-                var file = l.project.matchFile(name)
+                var file = l.project.FindFile(name)
                 if file != nil {
                     file.position = target.Position()
                     target = file

@@ -714,7 +714,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
 
         var okay bool
         okay, err = t.forClosureProject(func(p *Project) (ok bool, err error) {
-            if file = p.matchFile(s); file != nil { project, ok = p, true }
+            if file = p.FindFile(s); file != nil { project, ok = p, true }
             if optDebug && file != nil { fmt.Fprintf(stderr, "%s: %v: file %v\n", pos, p, file) }
             return
         })
@@ -726,7 +726,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
     if!filepath.IsAbs(filename) {
         // FIXES: match file map to have the full filename.
         t.forClosureProject(func(p *Project) (ok bool, err error) {
-            if f := p.matchFile(filename); f != nil {
+            if f := p.FindFile(filename); f != nil {
                 var s string
                 ok, file = true, f
                 s, err = f.Strval()

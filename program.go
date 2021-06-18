@@ -137,7 +137,7 @@ func (prog *Program) prerequisites(t *traversal, args []Value) (result []Value, 
                 panic(s)
             }
 
-            if file := t.project.matchFile(s); file != nil {
+            if file := t.project.FindFile(s); file != nil {
                 file.position = pos
                 result = append(result, file)
                 break
@@ -224,6 +224,11 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     }
     defer func() {
         if n := diag.checkErrors(true); n > 0 && !isConfigureExecution {
+            // create a new error point for next checking
+            var pos = entry.position
+            if !pos.IsValid() { pos = entry.Position() }
+            if !pos.IsValid() { pos = prog.position }
+            diag.errorAt(pos, "execute '%v' yields %d errors", n, entry.target)
             brks = append(brks, &breaker{
                 pos: prog.position, what:breakErro,
                 error: fmt.Errorf("%v: got %d errors", entry, n),
@@ -338,7 +343,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         var name string
         var target = t.entry.target
         if name, err = target.Strval(); err != nil { diag.errorAt(pos, "%v", err);  return }
-        if file := prog.project.matchFile(name); file != nil {
+        if file := prog.project.FindFile(name); file != nil {
             alreadyUpdated = file.info != nil && file.updated
             target = file
         }

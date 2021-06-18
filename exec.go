@@ -862,10 +862,10 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
           // NOTE: we put two error diagnotics here to help finding the right spot position.
           var (
             targetPos = target.Position()
-            samePos = targetPos.Equals(&pos)
+            isSamePos = targetPos.Equals(&pos)
           )
-          diag.errorAt(pos, "%v", err).debug(optionDebugErrors && samePos)
-          if !samePos { diag.errorOf(target, "%v", err).debug(optionDebugErrors) }
+          diag.errorAt(pos, "%v", err).debug(optionDebugErrors && isSamePos)
+          if !isSamePos { diag.errorOf(target, "%v", err).debug(optionDebugErrors) }
         }
       }
       if log.writer != nil {

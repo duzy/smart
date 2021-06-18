@@ -592,7 +592,14 @@ type RuleEntry struct {
         position Position
 }
 
-func (entry *RuleEntry) Position() Position { return entry.position/*entry.target.Position()*/ }
+func (entry *RuleEntry) Position() (pos Position) {
+        if pos = entry.position; !pos.IsValid() {
+                if pos = entry.target.Position(); !pos.IsValid() {
+                        pos = entry.programs[0].position
+                }
+        }
+        return
+}
 func (entry *RuleEntry) stamp(t *traversal) (files []*File, err error) { return entry.target.stamp(t) }
 func (entry *RuleEntry) exists() existence { return entry.target.exists() }
 func (entry *RuleEntry) True() (bool, error) { return entry.target.True() }
@@ -898,7 +905,7 @@ func (p *stemmed) _target(t *traversal, target string) (breakers []*breaker) {
 
         if _, ok := p.Pattern.(*Path); ok {
                 p.target = MakePathStr(p.position, target)
-        } else if file := t.project.matchFile(target); file != nil {
+        } else if file := t.project.FindFile(target); file != nil {
                 p.target = file
         } else {
                 p.target = MakeString(p.position,  target)
@@ -918,7 +925,7 @@ func (p *stemmed) file(t *traversal, file *File) (breakers []*breaker) {
         p.target = file
 
         if file.info == nil && file.match == nil { // !isAbsOrRel()
-                if f := t.project.matchFile(file.name); f != nil { *file = *f }
+                if f := t.project.FindFile(file.name); f != nil { *file = *f }
                 if file.info == nil { file.info, _ = os.Stat(file.name) }
         }
 

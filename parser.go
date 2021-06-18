@@ -588,9 +588,9 @@ func (p *parser) parseArgumentedExpr(x Value) *Argumented {
 }
 
 func (p *parser) parseGlobMeta() (x *GlobMeta) {
-	position, tok := p.position(), p.tok
+	pos, tok := p.position(), p.tok
 	p._next()
-	return MakeGlobMeta(position, tok)
+	return MakeGlobMeta(pos, tok)
 }
 
 func (p *parser) parseGlobRange() (x *GlobRange) {
@@ -608,19 +608,20 @@ func (p *parser) parseGlobRange() (x *GlobRange) {
 func (p *parser) parseGlobExpr(x Value) Value {
 	if p.tracing.enabled { defer un(trace(p, "Glob")) }
 
-	var components []Value
-	if x != nil {
-		components = append(components, x)
-	}
+	var (
+		pos = p.position()
+		components []Value
+	)
+	if !isNil(x) { components = []Value{ x } }
 
 	// avoid nesting glob expressions
 	defer p.setbits(p.setbit(composingGLOB))
-
-ForTok:
+ForGlobTok:
 	for {
+		if p.lineComment != nil { break ForGlobTok }
 		switch p.tok {
 		case token.RPAREN, token.COMMA, token.SPACE, token.LINEND, token.EOF:
-			break ForTok
+			break ForGlobTok
 		case token.STAR, token.QUE: // * ?
 			x = p.parseGlobMeta()
 		case token.LBRACK:
@@ -631,9 +632,11 @@ ForTok:
 			x = p.parseExpr(false)
 		}
 		components = append(components, x)
-		if p.lineComment != nil { break ForTok }
 	}
-	return MakeGlobPattern(x.Position(), components...)
+	if components == nil {
+		diag.errorAt(pos, "nil glob expression (tok=%v, lit=%v)", p.tok, p.lit)
+	}
+	return MakeGlobPattern(pos, components...)
 }
 
 func (p *parser) parsePercExpr(lhs bool, x Value) Value {
@@ -1442,9 +1445,11 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
 	var ( opts importoptions ; err error )
 	if _, err = parseFlags(generic.options, []string{
 		"r,reusing",
+		"n,nofiles",
 	}, func(ru rune, v Value) {
 		switch ru {
 		case 'r': if opts.allowReuse, err = trueVal(v, false); err != nil { diag.errorOf(v, "%v", err); return }
+		case 'p': if opts.noFiles   , err = trueVal(v, false); err != nil { diag.errorOf(v, "%v", err); return }
 		}
 	}); err != nil { return }
 

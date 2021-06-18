@@ -21,6 +21,7 @@ import (
 const PathSep = string(filepath.Separator)
 
 type FileMap struct {
+  project *Project
   pattern Value
   Paths []Value
 }
@@ -30,12 +31,15 @@ func (filemap *FileMap) Patterns() (pats []Value) {
   if filemap.pattern.closured() {
     var err error
     if pats, err = mergeresult(ExpandAll(filemap.pattern)); err != nil {
-      fmt.Fprintf(stderr, "%v: %v\n", filemap.pattern.Position(), filemap.pattern)
+      diag.errorOf(filemap.pattern, "merge pattern '%v' failed: %v", filemap.pattern, err)
+    } else if pats, err = ExpandAll(pats...); err != nil {
+      // Do a second expand to ensure converted closures are expanded
+      diag.errorOf(filemap.pattern, "sencond expand patterns '%v' failed: %v", pats, err)
     }
   } else {
     pats = append(pats, filemap.pattern)
   }
-  return
+  return merge(pats...)
 }
 
 func isRealPattern(pattern Value) (result bool) {
@@ -69,10 +73,19 @@ func (filemap *FileMap) Match(filename string) (matched bool, pre string) {
 }
 
 func (filemap *FileMap) match(pattern Value, filename string) (matched bool, pre string) {
-  if matched, pre = globMatch(pattern, filename); matched { return }
+  matched, pre = globMatch(pattern, filename)
   if false { // TODO: support percent (%, %%) and regex matching
-    var ( s, t string ; e error )
+    var ( t string ; e error )
     if t, e = pattern.Strval(); e != nil { return }
+    if s := filemap.pattern.String(); t == "event.pb.cc" || (s == "$(gen)" && filename == "event.pb.cc") {
+      //s, _ = filemap.pattern.Strval()
+      //fmt.Fprintf(stderr, "%v: %v -> %s (%v, %v, %v)\n", pattern.Position(), filemap.pattern, s, filename, matched, pre)
+      fmt.Fprintf(stderr, "%v: %T %v -> %s (%v, %v, %v, %v)\n", pattern.Position(), pattern, pattern, t, s, filename, matched, pre)
+    }
+  }
+  if matched { return }
+  if false {
+    var ( s, t string ; e error )
     for _, p := range filemap.Paths {
       if s, e = p.Strval(); e != nil { return }
       if filename == filepath.Join(s, t) {
@@ -196,10 +209,17 @@ func hasGlobMeta(path string) bool {
 // the last filename component is compared with the pattern, and the prefix
 // components are returned in 'pre'.
 func globMatch(patval Value, filename string) (matched bool, pre string) {
+  switch patval.(type) {
+  default: // good to go!
+  case *List:
+    diag.errorOf(patval, "invalid glob matching pattern: %v (%T)", patval, patval)
+    return
+  }
+
   pattern, err := patval.Strval()
   if err != nil { return false, "" }
 
-  list0 := strings.Split(filepath.Clean(pattern), PathSep)
+  list0 := strings.Split(filepath.Clean(pattern ), PathSep)
   list1 := strings.Split(filepath.Clean(filename), PathSep)
   if len(list0) == 0 {
     // FIXME: match any?
@@ -306,16 +326,16 @@ func (p *Project) Chain(bases ...*Project) {
 
 func (p *Project) mapfile(pat Value, paths []Value) {
   // List order is significant, duplication is acceptable.
-  p._filemap_ = append(p._filemap_, &FileMap{ pat, paths })
+  p._filemap_ = append(p._filemap_, &FileMap{ p, pat, paths })
 }
-func (p *Project) getFilemap() (filemap []*FileMap) {
+func (p *Project) myFilemaps() (filemap []*FileMap) {
   if true { return p._filemap_ }
 
   var _filemap_ []*FileMap
   if len(_filemap_) == 0 && len(p._files_) > 0 {
     var mapfile = func (pat Value, paths []Value) {
       // List order is significant, duplication is acceptable.
-      _filemap_ = append(_filemap_, &FileMap{ pat, paths })
+      _filemap_ = append(_filemap_, &FileMap{ p, pat, paths })
     }
     for _, spec := range p._files_ {
       switch v := spec.(type) {
@@ -344,7 +364,7 @@ func (p *Project) getFilemap() (filemap []*FileMap) {
         }
         for _, k := range pats { mapfile(k, paths) }
       default:
-        fmt.Fprintf(stderr, "%s: invalid file spec: %v\n", v.Position(), v)
+        diag.errorOf(v, "invalid file spec: %v", v)
       }
     }
   }
@@ -359,13 +379,14 @@ func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
     for _, m := range filemaps {
       if a == m || (a.pattern == m.pattern && &a.Paths == &m.Paths) { return } else
       if a.pattern == m.pattern && len(a.Paths) == len(m.Paths) {
+
         var same = true // initially assumes all paths are identical
         for i, ap := range a.Paths {
           if ap != m.Paths[i] { same = false; break }
         }
         if same { return } else {
           diag.warnOf(a.pattern,  "files might be duplicated: %v (paths=%v),", a, a.Paths)
-          diag.warnOf(m.pattern,  "                     with: %v (paths=%v)", m, m.Paths)
+          diag.warnOf(m.pattern,  "                     with: %v (paths=%v)" , m, m.Paths)
           diag.warnOf(a.Paths[0], "          differred paths: %v", a.Paths[0])
           diag.warnOf(m.Paths[0], "                      and: %v", m.Paths[0])
           numDuplicated += 1
@@ -375,37 +396,21 @@ func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
     if numDuplicated > 0 { diag.errorOf(a.pattern, "duplicated files: %v", a.pattern) }
     filemaps = append(filemaps, a)
   }
-  for _, m := range p.getFilemap() { uniqueAppend(m) }
+
+  for _, m := range p.myFilemaps() { uniqueAppend(m) }
+  for _, base := range p.bases {
+    for _, m := range base.filemaps(/*using*/false) { uniqueAppend(m) }
+  }
   if using {
-    if true {
-      // takes a big longer time to map usee filemaps, but acceptable
-      var appendUsingList func(*Project)
-      appendUsingList = func(p *Project) {
-        for _, m := range p.getFilemap() {
-          uniqueAppend(m)
-        }
-        for _, u := range p.using.list {
-          appendUsingList(u.project)
-        }
-      }
-      appendUsingList(p)
-    } else {
+    // takes a big longer time to map usee filemaps, but acceptable
+    var appendUsingList func(*Project)
+    appendUsingList = func(p *Project) {
+      for _, m := range p.myFilemaps() { uniqueAppend(m) }
       for _, u := range p.using.list {
-        if false {
-          // low performance doing recursivly file mapping
-          for _, m := range u.project.filemaps(/*using*/false) {
-            uniqueAppend(m) //app(u.project.filemaps(loads))
-          }
-        } else {
-          for _, m := range u.project.getFilemap() {
-            uniqueAppend(m)
-          }
-        }
+        if u.opts.noFiles { appendUsingList(u.project) }
       }
     }
-  }
-  for _, base := range p.bases {
-    for _, m := range base.filemaps(using) { uniqueAppend(m) }
+    appendUsingList(p)
   }
   return
 }
@@ -489,15 +494,11 @@ ForPats:
             // Append this non-existed/missing file.
             file := stat(pos, name, sub, prefix, nil)
             files = append(files, file)
-
-            if false { fmt.Fprintf(stderr, "%s: %s -> %s\n", pos, pat, file) }
           } else if ok && len(fm.Paths) == 1 {
             // Just report that the pattern matches no files in the
             // file system (if only one path specified).
-            var pp1 = pattern.Position()
-            var pp2 =     pat.Position()
-            fmt.Fprintf(stderr, "%s: %s: %s: '%v' not found in '%v'\n", pp1, p.name, pat, fm, sub)
-            fmt.Fprintf(stderr, "%s: %s: wildcard: %v (try using flag -m, aka -include-missing)\n", pp2, p.name, pat)
+            diag.warnOf(pattern, "%s: %s: '%v' not found in '%v'", p.name, pat, fm, sub)
+            diag.warnOf(    pat, "%s: wildcard: %v (try using flag -m, aka -include-missing)", p.name, pat)
           } else if optionWildcardMissingError {
             err = fmt.Errorf("files like '%v' not found", fm)
             break ForPats
@@ -509,26 +510,33 @@ ForPats:
   return
 }
 
-func (p *Project) matchFile(name string) (file *File) {
-  if optionEnableBenchmarks && false { defer bench(mark("Project.matchFile")) }
-  if optionEnableBenchspots { defer bench(spot("Project.matchFile")) }
-
-  //[optional]: defer setclosure(setclosure(cloctx.unshift(p.scope)))
+func (p *Project) FindFile(name string) (file *File) {
+  if optionEnableBenchmarks && false { defer bench(mark("Project.FindFile")) }
+  if optionEnableBenchspots { defer bench(spot("Project.FindFile")) }
 
   var first *File
+
 ForFilemaps:
   for _, filemap := range p.filemaps(true) {
     // Match the represented file name.
     var matched, pre = filemap.Match(name)
     if !matched { continue ForFilemaps }
     if p.changedWD != "" { file = filemap.stat(p.changedWD, pre, name) }
-    if file == nil { file = filemap.stat(p.absPath, pre, name) }
-    if false { fmt.Fprintf(stderr, "%s: %s (file=%v (aka. file.name), exists=%v, cwd=%s) (project.matchFile)\n", p, name, file, exists(file), p.changedWD) }
+    if file == nil       { file = filemap.stat(p.absPath,   pre, name) }
+    if false {
+      var s1, s2 string
+      var pos = filemap.pattern.Position()
+      if file  != nil { s1 = file.fullname() }
+      if first != nil { s2 = first.fullname() }
+      fmt.Fprintf(stderr, "%s: %s: %s (file=%v, exists=%v, first=%v, cwd=%s, filemap=%v, patterns=%v, pre=%v)\n",
+        pos, p, name, s1, exists(file), s2, p.changedWD, filemap.pattern, filemap.Patterns(), pre)
+    }
     if file != nil {
       if file.match == nil { file.match = filemap }
       if pre != "" { /* FIXME: file.change(...pre) */ }
       if exists(file) { break ForFilemaps }
       if first == nil { first = file }
+      file = nil // reset for the next match
     }
     // If the filemap entry is defined by the project itself,
     // we have to break the matching loop. So that the current
@@ -536,7 +544,7 @@ ForFilemaps:
     // usefull when the bases (or imported projects) have also
     // matched files. The current project have the highest
     // priority to match.
-    for _, fm := range p.getFilemap() {
+    for _, fm := range p.myFilemaps() {
       if filemap == fm { break ForFilemaps }
     }
   }
@@ -545,7 +553,7 @@ ForFilemaps:
 }
 
 func (p *Project) matchTempFile(pos Position, name string) (file *File) {
-  if file = p.matchFile(name); file != nil {
+  if file = p.FindFile(name); file != nil {
     // good
   } else if ctd := p.scope.FindDef("CTD"); ctd == nil {
     unreachable()
@@ -553,7 +561,7 @@ func (p *Project) matchTempFile(pos Position, name string) (file *File) {
     // stat temp file (maybe not existed)
     file = stat(pos, filepath.Join(s, name), "", "", nil)
   } else {
-    fmt.Fprintf(stderr, "%v: stringify temp directory failed: %v\n", p, err)
+    diag.errorAt(pos, "%v: stringify temp directory failed: %v", p, err)
   }
   return
 }
