@@ -479,11 +479,6 @@ ForArgs:
 //     (configure -compiles(info="..."))
 func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value, err error) {
     if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", t.entry.target, optionReconfig))) }
-    if t.program.project.configure == nil {
-        diag.errorAt(pos, "%v: .configure not provided", t.program.project)
-        return
-    }
-
     var (
         optAccumulate bool
         optVerbose bool
@@ -500,6 +495,29 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
     }); err != nil {
         diag.errorAt(pos, "parsing configure flags failed: %v", err)
         return
+    }
+
+    if t.program.project.configure == nil {
+        if t.program.project.name == "configure" {
+            if o := t.program.project.scope.Lookup(dotConfigure); !isNil(o) {
+                if d, ok := o.(*Def); ok && !isNil(d.value) && !isNone(d.value) {
+                    if val, err := d.value.True(); err != nil {
+                        diag.errorAt(pos, "truthify '%v' failed: %v", d.value, err)
+                        diag.errorOf(d.value, "value '%v' from here", d.value)
+                        diag.errorOf(d, "define for '%s' here", d.name)
+                    } else if val {
+                        t.program.project.configure = t.program.project
+                        if optVerbose {
+                            diag.infoAt(pos, "self-configure project enabled: %v", t.project)
+                        }
+                    }
+                }
+            }
+        }
+        if t.program.project.configure == nil {
+            diag.errorAt(pos, "%v: .configure not provided", t.program.project)
+            return
+        }
     }
 
     var target = t.def.target.value

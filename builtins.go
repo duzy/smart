@@ -56,6 +56,7 @@ var builtins = map[string]BuiltinFunc {
 
         `not-equal`:    builtinNotEqual,
         `equal`:        builtinEqual,
+        `equals`:       builtinEqual,
         `match`:        builtinMatch,
 
         `if`:           builtinBranchIf,

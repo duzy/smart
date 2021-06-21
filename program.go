@@ -228,7 +228,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
             var pos = entry.position
             if !pos.IsValid() { pos = entry.Position() }
             if !pos.IsValid() { pos = prog.position }
-            diag.errorAt(pos, "execute '%v' yields %d errors", n, entry.target)
+            diag.errorAt(pos, "'%v' yields %d errors", entry, n)
             brks = append(brks, &breaker{
                 pos: prog.position, what:breakErro,
                 error: fmt.Errorf("%v: got %d errors", entry, n),
