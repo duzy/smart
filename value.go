@@ -3412,6 +3412,11 @@ func (p *delegate) reveal() (res Value, err error) {
 }
 func (p *delegate) disclose() (res Value, err error) {
     var ( x = p.x; v Value; changed bool )
+    if isNil(x) {
+            diag.errorAt(p.position, "delegate nil value")
+            err = fmt.Errorf("delegate nil value")
+            return
+    }
     if v, err = x.expand(expandClosure); err != nil { return }
     if v != nil && v != x { changed, x = true, v }
 
