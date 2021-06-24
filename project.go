@@ -304,8 +304,7 @@ type Project struct {
   plugin *plugin.Plugin
   pluginScope *Scope
 
-  multiUseAllowed bool // this project is used multiple times
-  breakUseLoop bool // don't recursively use this project
+  opts declareOpts
 }
 
 func (p *Project) String() string { return p.name }
@@ -866,7 +865,7 @@ func (p *Project) isUsingDirectly(proj *Project) (res bool) {
 }
 
 func (p *Project) usees(post bool) (res []*Project) {
-  if p.breakUseLoop { return }
+  if p.opts.breakUseLoop { return }
   for _, u := range p.using.list {
     if !post { res = append(res, u.project) }
     for _, u := range u.project.usees(post) {

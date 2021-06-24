@@ -52,7 +52,7 @@ const (
   rxCouldnotParseObj_i
   rxTooManyPosArgs_i
   rxUndefinedReference_i
-  rxShcmdNotFound_i
+  rxShellCmdNotFound_i
   rxExitStatus_i
 )
 var (
@@ -76,7 +76,7 @@ var (
   errCouldnotParseObj = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`
   errTooManyPosArgs = `(.+?): Too many positional arguments specified!`
   errUndefinedReference = `  +"(.+?)", referenced from:`
-  errShcmdNotFound = `sh: (.+?): not found`
+  errShellCmdNotFound = `(.+?): (.+?):( command)? not found`
   errExitStatus = `exit status (\-?[0-9]+)`
 
   rxNotTTYDevice = regexp.MustCompile(errNotTTYDevice)
@@ -96,7 +96,7 @@ var (
   rxCouldnotParseObj = regexp.MustCompile(errCouldnotParseObj)
   rxTooManyPosArgs = regexp.MustCompile(errTooManyPosArgs)
   rxUndefinedReference = regexp.MustCompile(errUndefinedReference)
-  rxShcmdNotFound = regexp.MustCompile(errShcmdNotFound)
+  rxShellCmdNotFound = regexp.MustCompile(errShellCmdNotFound)
   rxExitStatus = regexp.MustCompile(errExitStatus)
 
   knownerrors = []*regexp.Regexp{
@@ -117,7 +117,7 @@ var (
     rxCouldnotParseObj_i:       rxCouldnotParseObj,
     rxTooManyPosArgs_i:         rxTooManyPosArgs,
     rxUndefinedReference_i:     rxUndefinedReference,
-    rxShcmdNotFound_i:          rxShcmdNotFound,
+    rxShellCmdNotFound_i:       rxShellCmdNotFound,
     rxExitStatus_i:             rxExitStatus,
   }
 
@@ -422,8 +422,8 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
       if p.report { diag.errorAt(lpos, "%s: too many positional arguments", string(v[1])) }
     case rxUndefinedReference_i:
       if p.report { diag.errorAt(lpos, "Undefined reference '%s'", string(v[1])) }
-    case rxShcmdNotFound_i:
-      if p.report { diag.errorAt(lpos, "%s: command not found", string(v[1])) }
+    case rxShellCmdNotFound_i:
+      if p.report { diag.errorAt(lpos, "%s: command not found", string(v[2])) }
     case rxExitStatus_i:
       if s := string(v[1]); s != "0" && p.report {
         // FIXME: the 'exit status' report is not working
@@ -493,7 +493,10 @@ func (p *ExecResult) cmp(v Value) (res cmpres) {
   }
   return
 }
-func (p *ExecResult) True() (bool, error) { return p.Status == 0 && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */, nil }
+func (p *ExecResult) True() (res bool, err error) {
+  res = p.Status == 0 && p.Stderr.Buf != nil && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */
+  return
+}
 func (p *ExecResult) Integer() (int64, error) { return int64(p.Status), nil }
 func (p *ExecResult) Float() (float64, error) { return float64(p.Status), nil }
 func (p *ExecResult) Strval() (s string, err error) {

@@ -49,7 +49,7 @@ func (p *tracing) errorAt(pos token.Position, err interface{}, a ...interface{})
 	// as the last recorded error and stop parsing if there are more than
 	// 10 errors.
 	if p.all {
-		n := len(diag.points)
+		n := diag.numErrors()
 		/*if n > 0 && p.errors[n-1].Pos.Line == pos.Line {
 			return // discard - likely a spurious error
 		}*/

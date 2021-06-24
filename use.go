@@ -57,7 +57,7 @@ func (p *using) traverse(pc *traversal) (breakers []*breaker) {
                 return
         }
         if entry := p.project.DefaultEntry(); entry != nil {
-                if p.project.breakUseLoop {
+                if p.project.opts.breakUseLoop {
                         // FIXME: break use loop
                 } else if breakers = entry.traverse(pc); breakers != nil {
                         // ...

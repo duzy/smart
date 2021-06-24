@@ -2812,6 +2812,21 @@ func (p *Flag) Strval() (s string, e error) {
     }
     return
 }
+func (p *Flag) opt(short, long string) (res string, match bool) {
+        if isNil(p.name) {
+                diag.errorOf(p, "flag name is nil")
+        } else if f, ok := p.name.(*Flag); ok {
+                res, match = f.opt(short, long)
+        } else if s, err := p.name.Strval(); err != nil {
+                diag.errorOf(p.name, "stringify '%v' failed: %v", p.name, err)
+        } else if s == short {
+                res, match = short, true
+        } else if s == long {
+                res, match = long, true
+        }
+        return
+}
+// DEPRECATED
 func (p *Flag) opts(try bool, opts ...string) (runes []rune, names []string, err error) {
     switch t := p.name.(type) {
     case *Flag:
@@ -3248,7 +3263,11 @@ type delegate struct { valbase ; closuredelegate }
 func (p *delegate) True() (t bool, err error) {
     var v Value
     if v, err = p.expand(expandAll); err == nil {
-        t, err = v.True()
+            if isNil(v) {
+                    diag.errorAt(p.position, "expanded '%v' is nil", p)
+            } else {
+                    t, err = v.True()
+            }
     }
     return
 }

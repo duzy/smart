@@ -2400,7 +2400,7 @@ func (p *parser) parseFile() *parsedFile {
 
 	// Don't bother parsing the rest if we had errors scanning the first token.
 	// Likely not a Go source file at all.
-	if len(diag.points) > 0 { return nil }
+	if diag.numErrors() > 0 { return nil }
 
 	var (
 		abs, rel, tmp string
@@ -2476,7 +2476,7 @@ func (p *parser) parseFile() *parsedFile {
 
 		// Options are *Flag or *Pair of a Flag.
 		var (
-			optFinal, optNoDock bool
+			optFinal, optNoDock bool // TODO: move these opts into declareOpts
 			options []Value
 		)
 		for p.tok == token.MINUS {
@@ -2496,41 +2496,55 @@ func (p *parser) parseFile() *parsedFile {
 			options = append(options, opt)
 		}
 
+		var linfo = p.loads[len(p.loads)-1]
+
 		// Smart-lang spec:
 		//   * the project clause is not a declaration;
 		//   * the project name does not appear in any scope.
-		if p.tok == token.LPAREN || p.tok == token.LINEND {
-			// TODO: validate basename as a valid identifier
-			ident = MakeBareword(position, filepath.Base(filepath.Dir(filename)))
+		if p.tok == token.LPAREN || p.tok == token.LINEND || p.lineComment != nil {
+			var (
+				dir = filepath.Dir(filename)
+				base = filepath.Base(dir)
+			)
+			if linfo.loadee != nil && linfo.absDir == dir {
+				ident = MakeBareword(position, linfo.loadee.name)
+			} else {
+				// TODO: validate basename as a valid identifier
+				ident = MakeBareword(position, base)
+			}
 		} else if p.tok == token.TILDE {
 			/*if filename == confinitFilename {
-                                ident = &ast.Bareword{ ValuePos:pos, Value:"~" }
+                ident = &ast.Bareword{ ValuePos:pos, Value:"~" }
             } else*/ if ext := filepath.Ext(filename); ext != ".smart" {
-				p.error(p.pos, "`%v` not a smart file", filepath.Base(filename))
+				diag.errorAt(p.position(), "`%v` not a smart file", filepath.Base(filename))
 			} else if s := strings.TrimSuffix(filepath.Base(filename), ext); s != "" {
 				ident = MakeBareword(position, s)
 			} else {
-				p.error(p.pos, "`%v` not tilde name", filepath.Base(filename))
+				diag.errorAt(p.position(), "`%v` not tilde name", filepath.Base(filename))
 			}
 			p.next(true) // skip tilde
 		} else {
 			x := p.parseBarewordConstant(false); p.skipSpaces()
 			if ident, _ = x.(*Bareword); isNil(ident) {
-				p.error(p.pos, "package name '%v' is not a Bareword: %T", x, x)
+				diag.errorAt(p.position(), "package name '%v' is not a Bareword: %T", x, x)
+			} else if linfo.loadee != nil && ident.string != linfo.loadee.name {
+				diag.warnAt(ident.position, "declare multiple project in the same directory")
 			}
 		}
 
 		if ident.string == "_" && p.mode&DeclarationErrors != 0 {
-			p.error(p.pos, "invalid package name _")
+			diag.errorAt(p.position(), "package name '_' is preserved")
+			return nil
 		}
 
 		// Don't bother parsing the rest if we had errors parsing the package clause.
 		// Likely not a Go source file at all.
-		if len(diag.points) > 0 { return nil }
-		var (
-			linfo = p.loads[len(p.loads)-1]
-			_, declared = linfo.declares[ident.string]
-		)
+		if n := diag.numErrors(); n > 0 {
+			diag.errorAt(p.position(), "got %d errors parsing file: %s", filename)
+			return nil
+		}
+
+		var _, declared = linfo.declares[ident.string]
 		if (p.mode&Flat == 0) && p.declare(keyword, ident, options) {
 			// Change the 'default' owners into the new declared project
 			if s := ls.scope; s != nil {
@@ -2541,6 +2555,7 @@ func (p *parser) parseFile() *parsedFile {
 			} else {
 				diag.errorAt(position, "file scope is nil")
 			}
+			if linfo.loadee == nil { linfo.loadee = p.project }
 			defer func(proj *Project) {
 				if filepath.Base(filename) == "build.smart" {
 					var using Value

@@ -299,7 +299,7 @@ func scanExitStatus(err error) (n, status int) {
     return
 }
 
-func configureExec(pos Position, t *traversal, optVerbose bool, s string, target Value, paramsOrig ...Value) (configured bool, result Value, err error) {
+func configureExec(pos Position, t *traversal, opts *modifierConfigureOpts, s string, target Value, paramsOrig ...Value) (configured bool, result Value, err error) {
     if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("configureExec(%s %v)", s, t.entry.target))) }
 
     var projectConfigure = t.program.project.configure
@@ -354,6 +354,7 @@ func configureExec(pos Position, t *traversal, optVerbose bool, s string, target
     }
 
     // Turn on verbose mode if no silent flag was set
+    var optVerbose = opts.verbose
     if !optVerbose && !silent { optVerbose = true }
 
     defer func(v bool) { t.isConfigureExecution = false } (t.isConfigureExecution)
@@ -368,7 +369,7 @@ func configureExec(pos Position, t *traversal, optVerbose bool, s string, target
                 fmt.Fprintf(stderr, "%s: %d: %v\n", pos, i, brk.what)
             }
         }
-    } else if optVerbose {
+    } else if optVerbose && false {
         diag.infoAt(pos, "%v: %v = %v, params = %v", entry, target, result, params)
     }
 
@@ -376,21 +377,23 @@ func configureExec(pos Position, t *traversal, optVerbose bool, s string, target
     return
 }
 
-func configureDo(pos Position, t *traversal, optVerbose bool, target Value, def, name Value, args []Value) (configured bool, result Value, err error) {
+func configureDo(pos Position, t *traversal, opts *modifierConfigureOpts, target Value, def, name Value, args []Value) (configured bool, result Value, err error) {
     if optionTraceConfig { defer un(trace(t_config, "configureDo")) }
 
-    var pipe = t.def.buffer
-    var strName string
-    if  strName, err = name.Strval(); err != nil {
-        diag.errorAt(pos, "%v: %v", name, err)
+    var (
+        pipe = t.def.buffer
+        strName string
+        params []Value
+        info Value
+    )
+    if strName, err = name.Strval(); err != nil {
+        diag.errorAt(pos, "stringify '%v' failed: %v", name, err)
         return
     } else if strName == "" {
-        diag.errorAt(pos, "`%v` empty configuration (%T)", name, name)
+        diag.errorAt(pos, "empty configure name: %v (%T)", name, name)
         return
     }
 
-    var info Value
-    var params []Value
 ForArgs:
     for _, arg := range args {
         var list, ok = arg.(*List)
@@ -411,24 +414,25 @@ ForArgs:
         return
     }
 
-    var defsChanged = make(map[*Def]Value)
     defer func() {
-        for def, val := range defsChanged { def.value = val }
         if err != nil {
             if e, ok := err.(*scanner.Error); ok {
-                configMessageDone(pos, "… (%v).", e.Brief())
+                configMessageDone(pos, "… (%v)", e.Brief())
             } else {
-                configMessageDone(pos, "… (%v).", err)
+                configMessageDone(pos, "… (%v)", err)
             }
-            return
-        } else if result == nil {
+        } else if isNil(result) {
             configMessageDone(pos, "… <nil>")
+        } else if isNone(result) {
+            configMessageDone(pos, "… <none>")
+        } else if  s, e := result.Strval(); e != nil {
+            configMessageDone(pos, "… (%v)", e)
+            diag.errorAt(pos, "stringify configure result '%v' failed: %v", result, e)
         } else {
-            var s string
-            if  s, _ = result.Strval(); s == "" { s = "?" }
+            if s == "" { s = fmt.Sprintf("? (%s)", result) }
             configMessageDone(pos, "… %v", s)
         }
-     } ()
+    } ()
 
     if isNil(info) {
         configPrintf(pos, "configure: %v %v …", target, args)
@@ -436,6 +440,7 @@ ForArgs:
         configPrintf(pos, "configure: %s …", s)
     } else {
         diag.errorAt(pos, "stringify configure message failed: %v", e)
+        return
     }
 
     // Process configurations like:
@@ -446,27 +451,30 @@ ForArgs:
     if config, ok := configurationOps[strName]; ok {
         params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
         if result, err = config(pos, t, pipe, nil, params...); err != nil {
-            diag.errorAt(pos, "config: %v", err)
+            diag.errorAt(pos, "configure '%s' failed: %v", strName, err)
         } else {
-            configured = true
             if optionTraceConfig {
                 t_config.tracef("configured: %v, result = %v (%s)", configured, result, typeof(result))
             }
+            configured = true
             return
         }
     }
 
-    if configured, result, err = configureExec(name.Position(), t, optVerbose, strName, target, params...); err != nil {
+    if configured, result, err = configureExec(name.Position(), t, opts, strName, target, params...); err != nil {
         diag.errorAt(pos, "configure exec '%v' failed: %v", name, err)
     } else if configured {
         if optionTraceConfig {
             t_config.tracef("configured: %v, result = %v (%s)", configured, result, typeof(result))
         }
-        return
     }
     return
 }
 
+type modifierConfigureOpts struct {
+    accumulate bool `a,accumulate;a,add`
+    verbose bool `v,verbose`
+}
 // configure - configures a variable, example usage:
 //     (configure -answer)
 //     (configure -option(info='...'))
@@ -479,21 +487,14 @@ ForArgs:
 //     (configure -compiles(info="..."))
 func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value, err error) {
     if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", t.entry.target, optionReconfig))) }
-    var (
-        optAccumulate bool
-        optVerbose bool
-    )
-    if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
-    if args, err = tryParseFlags(args, []string{
-        "a,accumulate",
-        "v,verbose",
-    }, func(ru rune, v Value) {
-        switch ru {
-        case 'a': if optAccumulate, err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
-        case 'v': if optVerbose   , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
-        }
-    }); err != nil {
-        diag.errorAt(pos, "parsing configure flags failed: %v", err)
+    if args, err = mergeresult(ExpandAll(args...)); err != nil {
+        diag.errorAt(pos, "merge configure args failed: %v", err)
+        return
+    }
+
+    var opts modifierConfigureOpts
+    if args, err = parseOpts(pos, &opts, args...); err != nil {
+        diag.errorAt(pos, "parse configure opts failed: %v", err)
         return
     }
 
@@ -507,7 +508,7 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
                         diag.errorOf(d, "define for '%s' here", d.name)
                     } else if val {
                         t.program.project.configure = t.program.project
-                        if optVerbose {
+                        if opts.verbose {
                             diag.infoAt(pos, "self-configure project enabled: %v", t.project)
                         }
                     }
@@ -527,7 +528,13 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
     }
 
     var name string
-    if name, err = target.Strval(); err != nil { diag.errorOf(target, "%v", err); return }
+    if name, err = target.Strval(); err != nil {
+        diag.errorOf(target, "stringify target '%v' failed: %v", target, err)
+        return
+    }
+    if len(t.program.project.bases) == 0 {
+        diag.warnOf(target, "%v: %v %v", name, t.program.project.bases, cloctx)
+    }
 
     var def, alt = t.program.project.scope.define(t.program.project, name, nil)
     if alt != nil { def, _ = alt.(*Def) }
@@ -563,10 +570,12 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
             }
             err = def.set(DefConfig, MakeString(pos, s))
         }
-        if err != nil { diag.errorAt(pos, "%v", err) }
+        if err != nil {
+            diag.errorOf(def, "set config '%s' value failed: %v", def.name, err)
+        }
         return
     } else if err = def.set(DefConfig, nil); err != nil {
-        diag.errorOf(def, "%v", err)
+        diag.errorOf(def, "set config '%s' value failed: %v", def.name, err)
         return
     }
 
@@ -600,7 +609,7 @@ ForConfig:
             return
         }
 
-        configured, value, err = configureDo(pos, t, optVerbose, target, def, name, para)
+        configured, value, err = configureDo(pos, t, &opts, target, def, name, para)
         if err != nil {
             diag.errorAt(pos, "configure error: %v", err)
             return
@@ -609,6 +618,8 @@ ForConfig:
             return
         } else if value == nil {
             value = MakeNil(a.Position())
+        } else if isNil(value) || isNone(value) {
+            // noop
         } else if value, err = value.expand(expandAll); err != nil {
             diag.errorOf(a, "configured with value error: %v", err)
             return
@@ -616,7 +627,7 @@ ForConfig:
 
         if value == def || value.refs(def) {
             // Value is the Def, does nothing!
-        } else if optAccumulate {
+        } else if opts.accumulate {
             if err = def.append(value); err != nil {
                 diag.errorOf(a, "value accumulate error: %v", err)
                 return
@@ -690,38 +701,34 @@ func walkFiles(pos Position, root string, pats []Value, fn filewalkFunc) error {
 
 var configuredFiles = make(map[string]*Scope,8)
 
+type modifierConfigureFileOpts struct {
+    mode os.FileMode `m,mode`
+    makePath bool `p,path`
+    reconfig bool `r,reconfig`
+    verbose bool `v,verbose`
+    debug bool `d,debug`
+}
 // configure-file modifier (see also builtinConfigureFile), example usage:
 // 
 //     config.h: config.h.in [(configure-file)]
 //     
 func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Value, err error) {
-    var (
-        optPath = false
-        optDebug = false
-        optVerbose = false
-        optReconfig = false
-        optMode = os.FileMode(0600)
-    )
-    if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
-    if args, err = parseFlags(args, []string{
-        "m,mode",
-        "p,path",
-        "r,reconfig",
-        "v,verbose",
-        "d,debug",
-    }, func(ru rune, v Value) {
-        switch ru {
-        case 'd': if optDebug, err = trueVal(v, true); err != nil { return }
-        case 'p': if optPath, err = trueVal(v, true); err != nil { return }
-        case 'v': if optVerbose, err = trueVal(v, true); err != nil { return }
-        case 'r': if optReconfig, err = trueVal(v, true); err != nil { return }
-        case 'm': if v != nil {
+    if args, err = mergeresult(ExpandAll(args...)); err != nil {
+        diag.errorAt(pos, "merge configure-file args failed: %v", err)
+        return
+    }
+
+    /*
             var num int64
             if num, err = v.Integer(); err != nil { return } else {
                 optMode = os.FileMode(num & 0777)
             }
-        }}
-    }); err != nil { diag.errorAt(pos, "%v", err); return }
+     */
+    var opts = modifierConfigureFileOpts{ mode: os.FileMode(0600) }
+    if args, err = parseOpts(pos, &opts, args...); err != nil {
+        diag.errorAt(pos, "parse configure-file opts failed: %v", err)
+        return
+    }
 
     var project *Project
     var filename string
@@ -733,7 +740,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
         var okay bool
         okay, err = t.forClosureProject(func(p *Project) (ok bool, err error) {
             if file = p.FindFile(s); file != nil { project, ok = p, true }
-            if optDebug && file != nil { fmt.Fprintf(stderr, "%s: %v: file %v\n", pos, p, file) }
+            if opts.debug && file != nil { fmt.Fprintf(stderr, "%s: %v: file %v\n", pos, p, file) }
             return
         })
         if err != nil { return } else if !okay { diag.errorAt(pos, "'%s' is not a file", s); return }
@@ -750,7 +757,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
                 s, err = f.Strval()
                 t.def.target.value = file // reset target file
                 project, filename = p, s // using full filename instead
-                if optDebug { fmt.Fprintf(stderr, "%s: configure-file: %v: %s->%s\n", pos, p, f, s) }
+                if opts.debug { fmt.Fprintf(stderr, "%s: configure-file: %v: %s->%s\n", pos, p, f, s) }
             }
             return
         })
@@ -758,7 +765,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
     }
     if file.info == nil { if f := stat(pos, filename, "", ""); f != nil { file.info = f.info }}
     if project == nil { project = t.project }
-    if optDebug && file != nil {
+    if opts.debug && file != nil {
         var s, _ = file.Strval()
         var target = t.def.target.value
         fmt.Fprintf(stderr, "%s: configure-file: %v: %v (%s) (%v, %v) (%v)\n", pos,
@@ -771,7 +778,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
     if configuredFiles != nil {
         var okay bool
         closure, okay = configuredFiles[filename]
-        if okay && closure != nil && !optReconfig { return }
+        if okay && closure != nil && !opts.reconfig { return }
     }
     if closure == nil { closure = t.closure }
     defer func(s string, c *Scope) {
@@ -789,10 +796,10 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
     }
     if data.Len() == 0 { diag.errorAt(pos, "no input data"); return }
 
-    if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", file) }
+    if opts.verbose { fmt.Fprintf(stderr, "smart: Checking %v …", file) }
     if file.info != nil {
-        if same, e := crc64CheckFileModeContent(filename, data.Bytes(), optMode); e != nil {
-            if optVerbose { fmt.Fprintf(stderr, "… (error: %s)\n", e) }
+        if same, e := crc64CheckFileModeContent(filename, data.Bytes(), opts.mode); e != nil {
+            if opts.verbose { fmt.Fprintf(stderr, "… (error: %s)\n", e) }
             diag.errorAt(pos, "%v", e); return
         } else if same {
             var tt = file.info.ModTime()
@@ -801,20 +808,20 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
                 if dt := f.info.ModTime(); dt.After(tt) { tt = dt }
             }
             if tt.After(file.info.ModTime()) { err = touch(file, 0, false, tt) }
-            if optVerbose { fmt.Fprintf(stderr, "… Good\n") }
+            if opts.verbose { fmt.Fprintf(stderr, "… Good\n") }
             result = file
             return
         }
-    } else if dir := filepath.Dir(filename); optPath && dir != "." && dir != PathSep {
+    } else if dir := filepath.Dir(filename); opts.makePath && dir != "." && dir != PathSep {
         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
             diag.errorAt(pos, "%v", err)
             return
         }
     }
-    if optVerbose { fmt.Fprintf(stderr, "… Outdated (%s)\n", filename) }
+    if opts.verbose { fmt.Fprintf(stderr, "… Outdated (%s)\n", filename) }
 
     var status string
-    if optVerbose {
+    if opts.verbose {
         printEnteringDirectory()
         fmt.Fprintf(stderr, "smart: Updating %v …", file)
         defer func() {
@@ -824,7 +831,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
         } ()
     }
 
-    if err = ioutil.WriteFile(filename, data.Bytes(), optMode); err != nil {
+    if err = ioutil.WriteFile(filename, data.Bytes(), opts.mode); err != nil {
         diag.errorAt(pos, "%v", err)
         return
     }
@@ -838,48 +845,26 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
     return
 }
 
+type modifierExtractConfigurationOpts struct {
+    mode os.FileMode "m,mode"
+    makePath bool "p,path"
+    target string "t,target"
+    rxs []*regexp.Regexp "r,regex;r,rx" // regexp.Compile(s)
+}
 // extract-configuration extracts configuration from C/C++ files, example usage:
 //
 //      config.h.in:[(extract-configuration)]: $(wildcard *.cpp)
 //
 func modifierExtractConfiguration(pos Position, pc *traversal, args ...Value) (result Value, err error) {
-    var pats []Value
-    var rxs []*regexp.Regexp
-    var optTarget string
-    var optPath bool
-    var optPerm = os.FileMode(0640) // sys default 0666
     if args, err = mergeresult(ExpandAll(args...)); err != nil {
+        diag.errorAt(pos, "merge args failed: %v", err)
         return
-    } else if args, err = parseFlags(args, []string{
-        "p,path",
-        "r,rx",
-        "r,regex",
-        "g,grep",
-        "m,mode",
-        "t,target",
-    }, func(ru rune, v Value) {
-        switch ru {
-        case 'p': optPath = true
-        case 'r':
-            var (s string; x *regexp.Regexp)
-            if s, err = v.Strval(); err != nil {
-                return
-            } else if x, err = regexp.Compile(s); err != nil {
-                return
-            } else {
-                rxs = append(rxs, x)
-            }
-        case 't':
-            if optTarget, err = v.Strval(); err != nil {
-                return
-            }
-        case 'm': if v != nil {
-            var num int64
-            if num, err = v.Integer(); err != nil { return } else {
-                optPerm = os.FileMode(num & 0777)
-            }
-        }}
-    }); err != nil { return }
+    }
+
+    var opts = modifierExtractConfigurationOpts{ mode:os.FileMode(0640) } // sys default 0666
+    if args, err = parseOpts(pos, &opts, args...); err != nil { return }
+
+    var pats []Value
     for _, arg := range args {
         switch a := arg.(type) {
         default:
@@ -892,24 +877,24 @@ func modifierExtractConfiguration(pos Position, pc *traversal, args ...Value) (r
         err = fmt.Errorf("extract-configuration: missing file names (patterns)")
         return
     }
-    if len(rxs) == 0 {
+    if len(opts.rxs) == 0 {
         err = fmt.Errorf("extract-configuration: missing -rx=... flags")
         return
     }
-    if optTarget == "" {
-        optTarget = "configuration"
+    if opts.target == "" {
+        opts.target = "configuration"
     }
 
     var outFile string
     if outFile, err = pc.def.target.value.Strval(); err != nil { return }
-    if optPath {
+    if opts.makePath {
         if err = os.MkdirAll(filepath.Dir(outFile), os.FileMode(0755)); err != nil {
             return
         }
     }
 
     var ( fil *os.File; out *bufio.Writer )
-    fil, err = os.OpenFile(outFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, optPerm)
+    fil, err = os.OpenFile(outFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, opts.mode)
     if err != nil { return } else { out = bufio.NewWriter(fil) }
     defer func() {
         out.Flush()
@@ -979,7 +964,7 @@ ForSources:
         scanner.Split(bufio.ScanLines)
         for scanner.Scan() {
             s := scanner.Text()
-            ForOpts: for _, x := range rxs {
+            ForOpts: for _, x := range opts.rxs {
                 sm := x.FindStringSubmatch(s)
                 if sm == nil { continue }
                 exprs[sm[1]] += 1
@@ -1002,7 +987,7 @@ ForSources:
     }
 
     fmt.Fprintf(out, "\n")
-    fmt.Fprintf(out, "%s:[(configure -check)]:\\\n", optTarget)
+    fmt.Fprintf(out, "%s:[(configure -check)]:\\\n", opts.target)
     for _, k := range keys { fmt.Fprintf(out, "  %s \\\n", k) }
     fmt.Fprintf(out, "\n")
     return

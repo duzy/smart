@@ -111,8 +111,9 @@ type loadinfo struct {
     specName string
     useesExecuted []*Project
     loader *Project
+    loadee *Project // the current loading project
     scope *Scope
-    declares map[string]*declare // all project declares in the loaded dir
+    declares map[string]*declare // all projects declared in the load dir
 }
 
 func (li *loadinfo) absPath() string {
@@ -123,7 +124,7 @@ func (li *loadinfo) breakUseLoop() (result bool) {
     var first bool = true
     for _, decl := range li.declares {
         if first || result {
-            result = decl.project.breakUseLoop
+            result = decl.project.opts.breakUseLoop
         }
         if !result { break }
         first = false
@@ -325,7 +326,7 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
                     s += load.specName + " → "
                 }
             }
-            if loadedValid && loaded.breakUseLoop {
+            if loadedValid && loaded.opts.breakUseLoop {
                 s += "<" + specName + ">"
             } else {
                 s += specName
@@ -443,7 +444,7 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
             } else {
                 diag.errorOf(specVal, "`%s` is already a base", specName)
             }
-        } else if res && !lp.multiUseAllowed {
+        } else if res && !lp.opts.multiUseAllowed {
             diag.warnAt(position, "`%s` has already imported `%s` (from %s)", loaded, lp, proj)
         }
 
@@ -452,7 +453,7 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
             return
         } else if isb {
             diag.warnAt(position, "`%s` is already base of `%s` (%s)", loaded, lp, proj)
-        } else if res && !loaded.multiUseAllowed {
+        } else if res && !loaded.opts.multiUseAllowed {
             diag.warnAt(position, "`%s` has already been imported by `%s` (from %s)", loaded, lp, proj)
         }
     }
@@ -497,7 +498,7 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
         for _, nameprops := range names {
             var name, _, _, _ = parseUsingNameProps(nameprops)
             var usingVarName = fmt.Sprintf("using.%s", name)
-            var def, alt = l.project.scope.define(l.project, name, &None{valbase{position}})
+            var def, alt = l.project.scope.define(l.project, name, MakeNone(position))
             if def != nil && alt == nil { // if it's new Def (first time being defined)
                 for _, base := range l.project.bases {
                     if obj, err := base.resolveObject(name); err == nil && !(isNil(obj) || isNone(obj)) {
@@ -1044,6 +1045,11 @@ func (l *loader) loadDotConfigure(ident *Bareword, file *File) (result bool) {
     return
 }
 
+type declareOpts struct {
+    breakUseLoop bool `b,break;l,loop`  // don't recursively use this project
+    multiUseAllowed bool `m,multi`  // this project is used multiple times
+}
+
 func (l *loader) declare(keyword token.Token, ident *Bareword, options []Value) (result bool) {
     var pos = ident.Position()
     if ident.string == "@" {
@@ -1110,17 +1116,10 @@ func (l *loader) declare(keyword token.Token, ident *Bareword, options []Value) 
         }
     }
 
-    if _, err := parseFlags(options, []string{
-        "b,break",
-        "l,loop",
-        "m,multi",
-    }, func(ru rune, v Value) {
-        var err error
-        switch ru {
-        case 'b', 'l':  if dec.project.breakUseLoop     , err = trueVal(v, false); err != nil { diag.errorOf(v, "%v", err); return }
-        case 'm':       if dec.project.multiUseAllowed  , err = trueVal(v, false); err != nil { diag.errorOf(v, "%v", err); return }
-        }
-    }); err != nil { diag.errorAt(pos, "%v", err); return }
+    if _, err := parseOpts(pos, &dec.project.opts, options...); err != nil {
+        diag.errorAt(pos, "parse declare opts failed: %v", err)
+        return
+    }
 
     dec.backproj = l.project
     dec.backscope = l.scope

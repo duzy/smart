@@ -16,9 +16,11 @@ import (
         "net/http"
         "os/exec"
         goctx "context"
+        "reflect"
         "strings"
         "strconv"
         "unicode"
+        "unsafe"
         "errors"
         "regexp"
         "bytes"
@@ -263,7 +265,11 @@ func trimRightSpaces(s string) string {
 
 func parseFlags(args []Value, opts []string, opt func(ru rune, v Value)) (va []Value, err error) {
 ForArgs:
-        for _, v := range args {
+        for i, v := range args {
+                if i == 0 && false {
+                        diag.warnOf(v, "FIXME: parseFlags is deprecated by parseOpts").
+                                debug(optionDebugErrors)
+                }
                 var ( runes []rune ; names []string )
                 switch a := v.(type) {
                 case *Flag:
@@ -302,6 +308,131 @@ ForArgs:
                 if enable_assertions { assert(len(runes) == len(names), "Flag.opts(...) error") }
                 if len(runes) > 0 { for _, ru := range runes { opt(ru, v) }
                 } else { va = append(va, v) }
+        }
+        return
+}
+
+func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... Value) (rest []Value, err error) {
+        var (
+                val = reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
+                opt = string(tag)
+                short, long []string // short and long opt name
+                s, l string
+                ok bool
+        )
+        if s, ok = tag.Lookup("s"    ); ok { short = append(short, s) }
+        if l, ok = tag.Lookup("l"    ); ok { long  = append(long , l) }
+        if s, ok = tag.Lookup("short"); ok { short = append(short, s) }
+        if l, ok = tag.Lookup("long" ); ok { long  = append(long , l) }
+        if len(short) == 0 && len(long) == 0 {
+                var t = opt[:]
+                if i := strings.IndexRune(t, ','); i >= 0 {
+                        for {
+                                if j := strings.IndexAny(t[i+1:], "; "); j == 0 {
+                                        diag.errorAt(pos, "illform option tag: %s", t).
+                                                debug(optionDebugErrors)
+                                        return
+                                } else if j > 0 {
+                                        s, l = t[:i], t[i+1:i+1+j]
+                                        short, long = append(short, s), append(long, l)
+                                        t = t[i+1+j+1:]
+                                } else {
+                                        s, l = t[:i], t[i+1:]
+                                        short, long = append(short, s), append(long, l)
+                                        break
+                                }
+                        }
+                } else {
+                        diag.errorAt(pos, "illform option tag: %s", tag).
+                                debug(optionDebugErrors)
+                        return
+                }
+        }
+        if len(short) != len(long) {
+                diag.errorAt(pos, "short and long option names not matching: %v, %v", short, long).
+                        debug(/*optionDebugErrors*/true)
+                return
+        }
+
+        var set func(reflect.Value, Value)
+        set = func(val reflect.Value, v Value) {
+                switch val.Kind() {
+                case reflect.Bool:
+                        if t, e := v.True(); e == nil { val.SetBool(t) } else {
+                                diag.errorOf(v, "truthify '%v' failed: %v", v, e)
+                        }
+                case reflect.Float32, reflect.Float64:
+                        if t, e := v.Float(); e == nil { val.SetFloat(t) } else {
+                                diag.errorOf(v, "floatify '%v' failed: %v", v, e)
+                        }
+                case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+                        if t, e := v.Integer(); e == nil { val.SetInt(t) } else {
+                                diag.errorOf(v, "integify '%v' failed: %v", v, e)
+                        }
+                case reflect.String:
+                        if t, e := v.Strval(); e == nil { val.SetString(t) } else {
+                                diag.errorOf(v, "stringify '%v' failed: %v", v, e)
+                        }
+                case reflect.Slice:
+                        if tp := reflect.New(val.Type().Elem()); tp.Kind() == reflect.Ptr {
+                                var tv = tp.Elem()
+                                set(tv, v)
+                                val.Set(reflect.Append(val, tv))
+                        }
+                default:
+                        // TODO: regex.Regex
+                        // TODO: os.FileMode
+                        diag.errorOf(v, "option type unsupported: %T -> %v", v, val.Type()).
+                                debug(optionDebugErrors)
+                }
+        }
+ForArgs:
+        for _, arg := range args {
+                var (
+                        okay bool
+                        flag *Flag
+                        value Value
+                )
+                if flag, okay = arg.(*Flag); okay {
+                        value = MakeBoolean(flag.position, true)
+                } else if pair, okay := arg.(*Pair); okay {
+                        if flag, okay = pair.Key.(*Flag); okay { value = pair.Value }
+                }
+                if !okay || flag == nil {
+                        rest = append(rest, arg)
+                        continue ForArgs
+                }
+                for i := 0; i < len(short) && i < len(long); i += 1 {
+                        if _, match := flag.opt(short[i], long[i]); match {
+                                set(val, value)
+                                continue ForArgs
+                        }
+                }
+                rest = append(rest, arg)
+                continue ForArgs
+         }
+        if false && len(args) > 0 {
+                diag.infoAt(pos, "%v,%v: %v %v %v", short, long, field.Kind(), field, rest)
+        }
+        return
+}
+
+func parseOpts(pos Position, iOpts interface{}, args... Value) (rest []Value, err error) {
+        rest = args // NOTE: set the returning args first of all!
+        if opts := reflect.ValueOf(iOpts); opts.Kind() != reflect.Ptr {
+                diag.errorAt(pos, "opts must be ptr: %v", opts.Kind()).
+                        debug(optionDebugErrors)
+        } else if opts = opts.Elem(); opts.Kind() == reflect.Struct {
+                var otyp = opts.Type()
+                if false { diag.infoAt(pos, "opts: %v, %v", opts.Kind(), otyp) }
+                for i := 0; i < otyp.NumField(); i += 1 {
+                        var ft = otyp.Field(i)
+                        var fv = opts.Field(i)
+                        rest, err = parseOpt(pos, ft.Tag, fv, rest...)
+                }
+        } else {
+                diag.errorAt(pos, "opts is not ptr of struct: %v", opts.Kind()).
+                        debug(optionDebugErrors)
         }
         return
 }
@@ -1315,6 +1446,10 @@ func builtinSubst(pos Position, args... Value) (res Value) {
         }
         res = MakeListOrScalar(pos, list)
         return
+}
+
+type builtinPatsubstOpts struct {
+        noFileMap bool `n,no-filemap`
 }
 
 // TODO:

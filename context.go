@@ -151,6 +151,15 @@ func (diag *Diagnostic) error(f string, args... interface{}) *diagnostic {
   return diag.add(&diagnostic{ diagError, Position{}, nil, s, nil })
 }
 
+func (diag *Diagnostic) numErrors() (num int) {
+  diag.m.Lock(); defer diag.m.Unlock()
+  for _, d := range diag.points {
+    if d.dt == diagError {
+      num += 1
+    }
+  }
+  return
+}
 func (diag *Diagnostic) checkErrors(reset bool) (num int) {
   diag.m.Lock(); defer diag.m.Unlock()
   for _, d := range diag.points {
