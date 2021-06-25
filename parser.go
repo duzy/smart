@@ -2555,7 +2555,10 @@ func (p *parser) parseFile() *parsedFile {
 			} else {
 				diag.errorAt(position, "file scope is nil")
 			}
-			if linfo.loadee == nil { linfo.loadee = p.project }
+			if linfo.loadee == nil {
+				// NOTE: build.smart is always the first loaded, so the loadee will be pointed to it
+				linfo.loadee = p.project
+			}
 			defer func(proj *Project) {
 				if filepath.Base(filename) == "build.smart" {
 					var using Value

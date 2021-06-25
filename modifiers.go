@@ -1351,7 +1351,7 @@ func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err
                 diag.errorAt(pos, "parse check args failed: %v", err)
                 return
         }
-        if opts.good    { optBreak = breakDone }
+        if opts.good    { optBreak   = breakDone }
         if opts.answer  { makeResult = MakeAnswer }
         if opts.boolean { makeResult = MakeBoolean }
         if opts.silent && makeResult == nil { makeResult = MakeBoolean }

@@ -35,7 +35,8 @@ type exitstatus struct { code int }
 func (e *exitstatus) Error() string { return fmt.Sprintf(exitstatusFmt, e.code) }
 
 const (
-  rxNotTTYDevice_i int = iota
+  rxErrorPreprocess_i int = iota
+  rxNotTTYDevice_i
   rxNoContainer_i
   rxNoNetwork_i
   rxDockerDaemonNotRunning_i
@@ -58,6 +59,8 @@ const (
 var (
   defaultShell = "bash"
 
+  errErrorPreprocess = `#error (.*)`
+
   errNotTTYDevice = `the input device is not a TTY`
   errNoContainer = `Error.*: No such container: (.*)`
   errNoNetwork = `Error.*: network (.*) not found\.`
@@ -79,6 +82,7 @@ var (
   errShellCmdNotFound = `(.+?): (.+?):( command)? not found`
   errExitStatus = `exit status (\-?[0-9]+)`
 
+  rxErrorPreprocess = regexp.MustCompile(errErrorPreprocess)
   rxNotTTYDevice = regexp.MustCompile(errNotTTYDevice)
   rxNoContainer = regexp.MustCompile(errNoContainer)
   rxNoNetwork = regexp.MustCompile(errNoNetwork)
@@ -100,6 +104,7 @@ var (
   rxExitStatus = regexp.MustCompile(errExitStatus)
 
   knownerrors = []*regexp.Regexp{
+    rxErrorPreprocess_i:        rxErrorPreprocess,
     rxNotTTYDevice_i:           rxNotTTYDevice,
     rxNoContainer_i:            rxNoContainer,
     rxNoNetwork_i:              rxNoNetwork,
@@ -373,6 +378,8 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
   if m != nil { lpos.Line = m.l }
   for _, v := range m.v { // captures
     switch m.i {
+    case rxErrorPreprocess_i:
+      if p.report { diag.errorAt(lpos, "%s", string(v[1])) }
     case rxNotTTYDevice_i:
       if p.report { diag.errorAt(lpos, "Needs TTY (input device)") }
     case rxDockerDaemonNotRunning_i:
