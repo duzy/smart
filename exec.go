@@ -35,8 +35,7 @@ type exitstatus struct { code int }
 func (e *exitstatus) Error() string { return fmt.Sprintf(exitstatusFmt, e.code) }
 
 const (
-  rxErrorPreprocess_i int = iota
-  rxNotTTYDevice_i
+  rxNotTTYDevice_i int = iota
   rxNoContainer_i
   rxNoNetwork_i
   rxDockerDaemonNotRunning_i
@@ -59,7 +58,7 @@ const (
 var (
   defaultShell = "bash"
 
-  errErrorPreprocess = `#error (.*)`
+  errErrorPreprocess = `#error (.+)`
 
   errNotTTYDevice = `the input device is not a TTY`
   errNoContainer = `Error.*: No such container: (.*)`
@@ -82,7 +81,6 @@ var (
   errShellCmdNotFound = `(.+?): (.+?):( command)? not found`
   errExitStatus = `exit status (\-?[0-9]+)`
 
-  rxErrorPreprocess = regexp.MustCompile(errErrorPreprocess)
   rxNotTTYDevice = regexp.MustCompile(errNotTTYDevice)
   rxNoContainer = regexp.MustCompile(errNoContainer)
   rxNoNetwork = regexp.MustCompile(errNoNetwork)
@@ -104,7 +102,6 @@ var (
   rxExitStatus = regexp.MustCompile(errExitStatus)
 
   knownerrors = []*regexp.Regexp{
-    rxErrorPreprocess_i:        rxErrorPreprocess,
     rxNotTTYDevice_i:           rxNotTTYDevice,
     rxNoContainer_i:            rxNoContainer,
     rxNoNetwork_i:              rxNoNetwork,
@@ -378,8 +375,6 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
   if m != nil { lpos.Line = m.l }
   for _, v := range m.v { // captures
     switch m.i {
-    case rxErrorPreprocess_i:
-      if p.report { diag.errorAt(lpos, "%s", string(v[1])) }
     case rxNotTTYDevice_i:
       if p.report { diag.errorAt(lpos, "Needs TTY (input device)") }
     case rxDockerDaemonNotRunning_i:
@@ -398,7 +393,7 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
       if p.report { diag.errorAt(lpos, "Network not found (%v)", string(v[1])) }
     case rxCompilation_i:
       var pos Position
-      pos.Filename  = string(v[1])
+      pos.Filename  =              string(v[1])
       pos.Line,   _ = strconv.Atoi(string(v[2]))
       pos.Column, _ = strconv.Atoi(string(v[3]))
       if p.report { diag.errorAt(lpos, "%s", string(v[4])) }
