@@ -1380,7 +1380,7 @@ func (l *loader) assign(tok token.Token, def *Def, alt Object, value Value) (err
                 }
                 if !b { vals = append(vals, val) }
             }
-            def.value = MakeList(vals...)
+            def.value = MakeList(def.position, vals...)
         }
     case token.SAD_ASSIGN: // -+=
         var vals []Value
@@ -1397,7 +1397,7 @@ func (l *loader) assign(tok token.Token, def *Def, alt Object, value Value) (err
             }
             vals = append(vals, sub...)
         }
-        def.value = MakeList(vals...)
+        def.value = MakeList(def.position, vals...)
     case token.SSH_ASSIGN: // -=+
         var vals []Value
         if isNil(def.value) || isNone(def.value) {
@@ -1413,7 +1413,7 @@ func (l *loader) assign(tok token.Token, def *Def, alt Object, value Value) (err
             }
             vals = append(sub, vals...)
         }
-        def.value = MakeList(vals...)
+        def.value = MakeList(def.position, vals...)
     }
     return
 }

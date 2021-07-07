@@ -14,6 +14,16 @@ import (
 	//"os"
 )
 
+type ScanState struct {
+	ch         rune // current character
+	offset     int  // character offset
+	readOffset int  // reading offset (position after current character)
+	lineOffset int  // current line offset
+
+	bits    scanbits // scanning context bits
+	bitsv []scanbits // scan bits vector
+}
+
 // A Scanner holds the scanner's internal state while processing
 // a given text.  It can be allocated as part of another data
 // structure but must be initialized via Init before use.
@@ -28,13 +38,7 @@ type Scanner struct {
 	mode Mode         // scanning mode
 
 	// scanning state
-	ch         rune // current character
-	offset     int  // character offset
-	readOffset int  // reading offset (position after current character)
-	lineOffset int  // current line offset
-
-	bits    scanbits // scanning context bits
-	bitsv []scanbits // scan bits vector
+	ScanState
 
 	// public state - ok to modify
 	ErrorCount int // number of errors encountered
@@ -797,6 +801,9 @@ func (s *Scanner) scanString(ml bool) string {
 
 	return string(s.src[offs:s.offset])
 }
+
+func (s *Scanner) SetState(state ScanState) { s.ScanState = state }
+func (s *Scanner) State() (ScanState) { return s.ScanState }
 
 func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 	// current token start

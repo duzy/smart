@@ -87,6 +87,16 @@ type parsedRuleData struct {
 	config bool
 }
 
+type template struct {
+	//p *parser
+	state scanner.ScanState
+	pos token.Pos   // token position
+	tok token.Token // one token look-ahead
+	lit string      // token literal
+	verb string
+	params []Value
+}
+
 type parser struct {
 	*loader
 
@@ -103,13 +113,14 @@ type parser struct {
 	tok token.Token // one token look-ahead
 	lit string      // token literal
 
+	templates []*template
 
 	// Error recovery
 	// (used to limit the number of calls to syncXXX functions
 	// w/o making scanning progress - avoids potential endless
 	// loops across multiple parser functions during error recovery)
-	syncPos token.Pos // last synchronization position
-	syncCnt int       // number of calls to syncXXX without progress
+	//syncPos token.Pos // last synchronization position
+	//syncCnt int       // number of calls to syncXXX without progress
 
 	// Non-syntactic parser control
 	exprLev int  // < 0: in control clause, >= 0: in expression
@@ -530,7 +541,7 @@ func (p *parser) parseExprList(lhs bool) (list []Value) {
 }
 
 func (p *parser) parseListExpr(lhs bool) *List {
-	return MakeList(p.parseExprList(lhs)...)
+	return MakeList(p.position(), p.parseExprList(lhs)...)
 }
 
 func (p *parser) setRHS(v bool) (old bool) {
@@ -563,7 +574,7 @@ func (p *parser) parseGroupExpr(lhs bool) *Group {
 		p.next(true)
 		next := p.parseListExpr(false)
 		if !converted {
-			elems = []Value{ MakeList(elems...), next }
+			elems = []Value{ MakeList(p.position(), elems...), next }
 			converted = true
 		} else {
 			elems = append(elems, next)
@@ -1550,13 +1561,14 @@ func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ 
 	}
 }
 
+/*
 func (p *parser) parseConfigurationSpec(doc *CommentGroup, generic *genericoptions, _ int) {
 	name := p.parseExpr(false)
 	def  := p.parseDefineClause(p.tok, name)
 	if !generic.dontOperate {
 		diag.errorAt(def.position, "configuration section is deprecated")
 	}
-}
+} */
 
 func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ int) {
 	defer p.setbits(p.setbit(parsingFilesSpec))
@@ -1806,7 +1818,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident Value) (def *Def) {
 	if n := len(elems); n == 1 {
 		value = elems[0]
 	} else if n > 1 {
-		value = MakeList(elems...)
+		value = MakeList(p.position(), elems...)
 	}
 	return p.determine(position, tok, ident, value)
 }
@@ -1877,7 +1889,7 @@ SwitchDialect:
 				cmdargs = append(cmdargs, x)
 				if p.tok == token.COMMA {
 					p.next(true)
-					elems = append(elems, MakeList(cmdargs...))
+					elems = append(elems, MakeList(p.position(), cmdargs...))
 					cmdargs = []Value{}
 				}
 				if p.lineComment != nil {
@@ -1885,7 +1897,7 @@ SwitchDialect:
 					break
 				}
 			}
-			elems = append(elems, MakeList(cmdargs...))
+			elems = append(elems, MakeList(p.position(), cmdargs...))
 		}
 
 	default:
@@ -1909,7 +1921,7 @@ SwitchDialect:
     if len(elems) == 0 {
         return MakeNone(position)
     } else if p.dialect == "" || p.dialect == "eval" {
-        return MakeList(elems...)
+        return MakeList(p.position(), elems...)
     } else {
         return MakeCompound(position, elems...)
     }
@@ -1934,7 +1946,7 @@ func (p *parser) parseModifySetVar(args []Value) (err error) {
 			diag.errorOf(k, "Def '%v' already existed: %T", name, alt)
 		} else if def != nil {
 			if g, ok := v.(*Group); ok {
-				def.val(g.ToList())
+				def.val(g.ToList(def.position))
 			} else {
 				def.val(v)
 			}
@@ -2197,22 +2209,21 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 	}
 
 	var params []string
-	if p.configure {
-		if name, ok := targets[0].(*Bareword); ok {
-			proj := p.project
-			d, a := proj.scope.define(proj, name.string, nil)
+	if t := targets[0]; p.configure {
+		if name, err := t.Strval(); err != nil {
+			diag.errorOf(t, "stringify configure target '%v' failed: %v", t, err)
+		} else {
+			d, a := p.project.scope.define(p.project, name, nil)
 			if d == nil && a == nil {
-				diag.errorOf(targets[0], "Cannot define configure target (%v)", name)
+				diag.errorOf(t, "cannot define configure target '%v'", name)
 			} else if a != nil {
 				if _, ok := a.(*Def); !ok {
-					diag.errorOf(targets[0], "Configure target name already taken (%T %v)", a, a)
+					diag.errorOf(t, "configure target '%v' already taken: %T %v", name, a, a)
 				}
 			}
 			if d != nil && !d.position.IsValid() {
-				d.position = name.Position()
+				d.position = t.Position()
 			}
-		} else {
-			diag.errorOf(targets[0], "Configure target is not bareword (%v, %T)", targets[0], targets[0])
 		}
 	} else {
 		for _, d := range p.params { params = append(params, d.name) }
@@ -2235,7 +2246,7 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		if res = p.rule(parsedData); len(res) == 1 {
 			result = res[0]
 		} else if len(res) > 1 {
-			var list = MakeList()
+			var list = MakeList(res[0].position)
 			for _, v := range res { list.Elems = append(list.Elems, v) }
 			result = list
 		} else {
@@ -2295,17 +2306,120 @@ func (p *parser) parseSpecialRuleClause() Value {
 	}
 }
 
-func (p *parser) parseClause() {
-	position := p.position()
+func (p *parser) expandForeach(t *template, vars map[string]Value, params []Value, endPos token.Pos) {
+	p.scanner.SetState(t.state)
+	p.pos, p.tok, p.lit = t.pos, t.tok, t.lit
+
+	// TODO: deal with params
+	defer p.closeScope(p.openScope("template expand"))
+
+	for s, v := range vars {
+		var def, alt = p.def(p.position(), s)
+		if alt == nil { def.set(DefAuto, v) } else {
+			diag.errorAt(p.position(), "variable '%s' already taken", s).
+				debug(optionDebugErrors)
+		}
+	}
+
+	for p.tok != token.EOF && p.pos < endPos {
+		switch p.tok {
+		case token.LINEND: p.next(true)
+		default: p.parseClause(endPos)
+		}
+	}
+}
+
+func (p *parser) expandTemplate(params []Value, endPos token.Pos) {
+	defer func(pos token.Pos, tok token.Token, lit string, state scanner.ScanState) {
+		p.pos, p.tok, p.lit	 = pos, tok, lit
+		p.scanner.SetState(state)
+	}(p.pos, p.tok, p.lit, p.scanner.State())
+
+	// template foreach val1 val2 val3 val4 ...
+	// template for name1=(val1 val2 val3 ...) name2=(val1 val2 val3)
+	var (
+		l = len(p.templates)
+		t = p.templates[l-1]
+	)
+	switch t.verb {
+	case "foreach":
+		for _, a := range t.params {
+			p.expandForeach(t, map[string]Value{ "_" : a }, params, endPos)
+		}
+	case "for":
+		for _, a := range t.params {
+			if pair, ok := a.(*Pair); ok {
+				if s, e := pair.Key.Strval(); e != nil {
+					diag.errorOf(pair.Key, "expand template %v", e).
+						debug(optionDebugErrors)
+				} else if g, ok := pair.Value.(*Group); ok {
+					for _, v := range g.Elems {
+						p.expandForeach(t, map[string]Value{ s : v }, params, endPos)
+					}
+				} else {
+					p.expandForeach(t, map[string]Value{ s : pair.Value }, params, endPos)
+				}
+			}
+		}
+	default:
+		diag.errorAt(p.position(), "expand template %v: %v", t.verb, params).
+			debug(optionDebugErrors)
+	}
+}
+
+func (p *parser) parseTemplateClause() (end bool) {
+	var pos = p.pos
+	p.expect(token.TEMPLATE) // expect and skip 'template'
+	p.skipSpaces()
+
+	var verb string
+	var op = p.parseExpr(false); p.skipSpaces()
+	if w, ok := op.(*Bareword); ok { verb = w.string } else {
+		diag.errorOf(op, "unknown template verb: %v", op).
+			debug(optionDebugErrors)
+		return
+	}
+
+	var params = p.parseExprList(false); p.expect(token.LINEND)
+	switch verb {
+	case "expand":
+		p.expandTemplate(params, pos)
+		end = true
+		return
+	case "save":
+		diag.errorOf(op, "TODO: save template for later usage: ", params).debug(true)
+		return
+	}
+
+	p.templates = append(p.templates, &template{
+		state: p.scanner.State(),
+		pos: p.pos, tok: p.tok, lit: p.lit,
+		verb: verb, params: params,
+	})
+
+ForToken:
+	for newline := false; p.tok != token.EOF; {
+		switch p._next(); p.tok {
+		case token.SPACE:
+		case token.LINEND: newline = true
+		case token.TEMPLATE:
+			if !newline { continue ForToken }
+			if p.parseTemplateClause() { break ForToken }
+		default:
+			newline = false
+		}
+	}
+	return
+}
+
+func (p *parser) parseClause(endPos token.Pos) {
+	var position = p.position()
 	switch p.tok {
 	case token.USE:
 		diag.errorAt(position, "`%v` unexpected here", p.tok).debug(optionDebugErrors)
 		return
 	case token.INCLUDE:
 		p.parseGenericClause(token.INCLUDE, p.expect(token.INCLUDE), p.parseIncludeSpec)
-		return
-	case token.CONFIGURATION:
-		p.parseGenericClause(token.CONFIGURATION, p.expect(token.CONFIGURATION), p.parseConfigurationSpec)
 		return
 	case token.FILES:
 		p.parseGenericClause(token.FILES, p.expect(token.FILES), p.parseFilesSpec)
@@ -2315,6 +2429,9 @@ func (p *parser) parseClause() {
 		return
 	case token.COLON:
 		p.parseSpecialRuleClause()
+		return
+	case token.TEMPLATE:
+		p.parseTemplateClause()
 		return
 	}
 
@@ -2655,7 +2772,7 @@ func (p *parser) parseFile() *parsedFile {
 				case token.LINEND:
 					p.next(true) // skip empty lines
 				default:
-					p.parseClause()
+					p.parseClause(token.NoPos)
 				}
 			}
 		}

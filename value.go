@@ -1689,9 +1689,9 @@ func (p *elements) Take(n int) (v Value) {
     }
     return
 }
-func (p *elements) ToBarecomp() *Barecomp { return &Barecomp{valbase{},*p} }
-func (p *elements) ToCompound() *Compound { return &Compound{valbase{},*p} }
-func (p *elements) ToList() *List { return &List{*p} }
+func (p *elements) ToBarecomp(pos Position) *Barecomp { return &Barecomp{valbase{pos},*p} }
+func (p *elements) ToCompound(pos Position) *Compound { return &Compound{valbase{pos},*p} }
+func (p *elements) ToList(pos Position) *List { return &List{pos, *p} }
 func (p *elements) True() (t bool, err error) { // (or elems...)
     for _, elem := range p.Elems {
         if elem == nil { continue }
@@ -2971,7 +2971,10 @@ func (p *Compound) cmp(v Value) (res cmpres) {
     return
 }
 
-type List struct { elements }
+type List struct {
+        position Position
+        elements
+}
 func (p *List) elemstr(o Object, k elemkind) (s string) {
     var strs []string
     for _, elem := range p.Elems {
@@ -2980,10 +2983,10 @@ func (p *List) elemstr(o Object, k elemkind) (s string) {
     return strings.Join(strs, " ")
 }
 func (p *List) Position() (pos Position) {
-    if len(p.Elems) > 0 {
-        pos = p.Elems[0].Position()
-    }
-    return
+        /*if len(p.Elems) > 0 {
+                pos = p.Elems[0].Position()
+        }*/
+        return p.position
 }
 func (p *List) Float() (float64, error) {
     i, e := p.Integer(); return float64(i), e
@@ -3018,7 +3021,7 @@ func (p *List) expand(w expandwhat) (res Value, err error) {
     var ( elems []Value; num int )
     if elems, num, err = expandallcount(w, p.Elems...); err == nil {
         if num > 0 {
-            res = &List{ elements{ elems } }
+            res = &List{ p.position, elements{ elems } }
         } else {
             res = p
         }
@@ -3104,7 +3107,7 @@ func (p *Group) expand(w expandwhat) (res Value, err error) {
     var ( elems []Value; num int )
     if elems, num, err = expandallcount(w, p.Elems...); err == nil {
         if num > 0 {
-            res = &Group{p.valbase,List{elements{elems}}}
+            res = &Group{p.valbase,List{p.Position(), elements{elems}}}
         } else {
             res = p
         }
@@ -3127,7 +3130,7 @@ func parseGroupValue(g *Group) (result Value) {
     if word != nil {
         switch word.string {
         case "plain", "json", "yaml", "xml":
-            result = &List{elements{g.Elems[1:]}}
+                result = MakeList(g.Elems[1].Position(), g.Elems[1:]...)
         }
     }
     if result == nil { result = g }
@@ -3413,7 +3416,7 @@ func (p *delegate) reveal() (res Value, err error) {
                 }
                 return
             }
-        } else { res = &List{elements{args}} }
+        } else { res = MakeList(args[0].Position(), args...) }
     }
 
     if false && selected && res == nil && err == nil {
@@ -4043,7 +4046,7 @@ func (p *PercPattern) traverse(t *traversal) (breakers []*breaker) {
     } else if len(rest) > 0 || target == "" {
         // just relax
     } else if breakers = t.target(p.position, target); len(breakers) == 0 {
-        //t.addNewTarget(&String{valbase{p.position},target})
+        //t.addNewTarget(MakeString(p.position, target))
     }
     return
 }
@@ -4436,25 +4439,25 @@ func MakeURL(pos Position, s *url.URL) *URL {
     if len(v) == 1 { host = v[0] }
     if len(v) == 2 { host, port = v[0], v[1] }
     var password Value
-    if t, ok := s.User.Password(); ok {password = &String{valbase{pos},t}}
+    if t, ok := s.User.Password(); ok {password = MakeString(pos, t)}
     return &URL{ // FIXME: calculate component positions
         valbase: valbase{pos},
-        Scheme: &String{valbase{pos},s.Scheme},
-        Username: &String{valbase{pos},s.User.Username()},
+        Scheme: MakeString(pos, s.Scheme),
+        Username: MakeString(pos, s.User.Username()),
         Password: password,
-        Host: &String{valbase{pos},host},
-        Port: &String{valbase{pos},port},
-        Path: &String{valbase{pos},s.Path},
-        Query: &String{valbase{pos},s.RawQuery},
-        Fragment: &String{valbase{pos},s.Fragment},
+        Host: MakeString(pos, host),
+        Port: MakeString(pos, port),
+        Path: MakeString(pos, s.Path),
+        Query: MakeString(pos, s.RawQuery),
+        Fragment: MakeString(pos, s.Fragment),
     }
 }
 func MakeBareword(pos Position, word string) *Bareword { return &Bareword{valbase{pos},word} }
 func MakeBarecomp(pos Position, elems... Value) *Barecomp { return &Barecomp{valbase{pos},elements{elems}} }
 func MakeCompound(pos Position, elems... Value) *Compound { return &Compound{valbase{pos},elements{elems}} }
 func MakeArgumented(val Value, args... Value) *Argumented { return &Argumented{val, args} }
-func MakeList(elems... Value) *List { return &List{elements{elems}} }
-func MakeGroup(pos Position, elems... Value) (v *Group) { return &Group{valbase{pos},List{elements{elems}}} }
+func MakeList(pos Position, elems... Value) *List { return &List{pos,elements{elems}} }
+func MakeGroup(pos Position, elems... Value) (v *Group) { return &Group{valbase{pos},List{pos,elements{elems}}} }
 func MakeGlobMeta(pos Position, tok token.Token) *GlobMeta { return &GlobMeta{valbase{pos},tok} }
 func MakeGlobRange(pos Position, v Value) *GlobRange { return &GlobRange{valbase{pos},v} }
 func MakePath(pos Position, segments... Value) (v *Path) { return &Path{valbase{pos},elements{segments}/*, nil*/} }
@@ -4494,11 +4497,11 @@ func MakeClosure(pos Position, tok token.Token, obj Value, args... Value) Value 
 }
 func MakeListOrScalar(pos Position, elems []Value) (res Value) {
     if x := len(elems); x > 1 {
-        res = &List{elements{elems}}
+        res = MakeList(elems[0].Position(), elems...)
     } else if x == 1 {
         res = elems[0]
     } else {
-        res = &None{valbase{/*pos*/}}
+        res = MakeNone(pos)
     }
     return
 }
@@ -4510,7 +4513,7 @@ func Make(pos Position, in interface{}) (out Value) {
     case int64:     out = MakeInt(pos,v)
     case float32:   out = MakeFloat(pos,float64(v))
     case float64:   out = MakeFloat(pos,v)
-    case string:    out = &String{valbase{pos},v}
+    case string:    out = MakeString(pos, v)
     case time.Time: out = &DateTime{valbase{pos},v} // FIXME: NewDate, NewTime
     case Value:     out = v
     default:    out = &Any{in} // TODO: position for any

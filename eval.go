@@ -46,7 +46,7 @@ ForRecipes:
                                         if n := len(a); n == 1 {
                                                 v = a[0]
                                         } else if n > 1 {
-                                                v = &List{elements{a}}
+                                                v = MakeList(recipe.Position(), a...)
                                         }
                                 } else {
                                         for _, brk := range brks {

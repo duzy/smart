@@ -347,7 +347,7 @@ func configureExec(pos Position, t *traversal, opts *modifierConfigureOpts, s st
                     return
                 }
             } else {
-                diag.errorOf(a, "unsupported parameter: %v (%T)", a, a)
+                diag.errorOf(a, "unsupported parameter of %T: %v", a, a)
                 return
             }
         }
@@ -397,8 +397,15 @@ func configureDo(pos Position, t *traversal, opts *modifierConfigureOpts, target
 ForArgs:
     for _, arg := range args {
         var list, ok = arg.(*List)
+        if ok && list != nil {
+            if list.Elems, err = mergeresult(ExpandAll(list.Elems...)); err != nil {
+                diag.errorOf(arg, "merge list elements '%v' failed: %v", arg, err)
+                return
+            }
+        }
         if ok && list != nil && len(list.Elems) == 1 {
             switch t := list.Elems[0].(type) {
+            case *None: continue ForArgs
             case *Pair:
                 params = append(params, t)
                 continue ForArgs
@@ -408,9 +415,12 @@ ForArgs:
                 params = append(params, arg)
                 info = t
                 continue ForArgs
+            default:
+                diag.errorOf(arg, "parameter of %T unsupported: %v", t, t)
+                return
             }
         }
-        diag.errorOf(arg, "unsupported parameter: %v (%T)", arg, arg)
+        diag.errorOf(arg, "unsupported parameter of %T: %v", arg, arg)
         return
     }
 

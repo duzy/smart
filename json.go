@@ -57,7 +57,7 @@ func DecodeJSON(source string) (result Value, err error) {
                 case json_enc.Delim:
                         switch d {
                         case '[':
-                                nn := &Group{valbase{pos},List{elements{[]Value{&Bareword{valbase{pos},JsonArray}}}}}
+                                nn := MakeGroup(pos, MakeBareword(pos, JsonArray))
                                 if x == 0 {
                                         nodes = append(nodes, nn)
                                 } else {
@@ -66,7 +66,7 @@ func DecodeJSON(source string) (result Value, err error) {
                                 stack = append(stack, nn) // APPEND
                                 break SwitchNodeType
                         case '{':
-                                nn := &Group{valbase{pos},List{elements{[]Value{&Bareword{valbase{pos},JsonObject}}}}}
+                                nn := MakeGroup(pos, MakeBareword(pos, JsonObject))
                                 if x == 0 {
                                         nodes = append(nodes, nn)
                                 } else {
@@ -127,30 +127,30 @@ func DecodeJSON(source string) (result Value, err error) {
                         case json_enc.Delim:
                                 var vn *Group
                                 switch vd {
-                                case '[': vn = &Group{valbase{pos},List{elements{[]Value{&Bareword{valbase{pos},JsonArray}}}}}
-                                case '{': vn = &Group{valbase{pos},List{elements{[]Value{&Bareword{valbase{pos},JsonObject}}}}}
+                                case '[': vn = MakeGroup(pos, MakeBareword(pos, JsonArray))
+                                case '{': vn = MakeGroup(pos, MakeBareword(pos, JsonObject))
                                 default: err = ErrorIllJson; break LoopJSON
                                 }
                                 stack = append(stack, vn)
-                                node.Append(&Pair{valbase{pos},sv,vn})
+                                node.Append(MakePair(pos, sv, vn))
                         case string:
-                                node.Append(&Pair{valbase{pos},sv,&String{valbase{pos},vd}})
+                                node.Append(MakePair(pos, sv, MakeString(pos, vd)))
                         case float64:
-                                node.Append(&Pair{valbase{pos},sv,&Float{valbase{pos},vd}})
+                                node.Append(MakePair(pos, sv, MakeFloat(pos, vd)))
                         case nil: // null
-                                node.Append(&Pair{valbase{pos},sv,&Bareword{valbase{pos},"null"}})
+                                node.Append(MakePair(pos, sv, MakeBareword(pos, "null")))
                         default:
                                 err = ErrorIllJson; break LoopJSON
                         }
                         //fmt.Fprintf(stderr, "node: %v\n", node)
                 case float64:
-                        if v := Value(&Float{valbase{pos},d}); x == 0 {
+                        if v := Value(MakeFloat(pos, d)); x == 0 {
                                 nodes = append(nodes, v)
                         } else {
                                 node, value = stack[x-1], v
                         }
                 case nil: // null
-                        if v := Value(&Bareword{valbase{pos},"null"}); x == 0 {
+                        if v := Value(MakeBareword(pos, "null")); x == 0 {
                                 nodes = append(nodes, v)
                         } else {
                                 node, value = stack[x-1], v
@@ -174,7 +174,7 @@ func DecodeJSON(source string) (result Value, err error) {
         if x := len(nodes); x == 1 {
                 result = nodes[0]
         } else {
-                g := &Group{}
+                g := MakeGroup(pos)
                 for _, v := range nodes {
                         g.Append(v)
                 }
@@ -191,7 +191,7 @@ func (_ *json) Evaluate(pos Position, t *traversal, args ...Value) (result Value
         if result, err = DecodeJSON(source); err == nil {
                 result = &JSON{ result }
         } else {
-                result = &JSON{ &None{valbase{t.program.position}} }
+                result = &JSON{ MakeNone(t.program.position) }
         }
         return
 }

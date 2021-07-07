@@ -417,9 +417,9 @@ func (d *Def) append(va... Value) (err error) {
         if num := len(va); num == 0 {
                 return // Does nothing...
         } else if isNil(d.value) || isNone(d.value) {
-                list = MakeList()
+                list = MakeList(d.position)
         } else if list, _ = d.value.(*List); list == nil {
-                list = MakeList(d.value)
+                list = MakeList(d.position, d.value)
         }
         list.Append(merge(va...)...)
         return d.val(list)

@@ -149,7 +149,6 @@ const (
 	PACKAGE    // package a
 	MODULE     // module a
 	CONFIGURE  // configure [...] TODO: use a different keyword
-	CONFIGURATION
 	USE        // use b
 	EVAL       // evaluate a builtin immediately
 	EXPORT     // export ...
@@ -157,6 +156,7 @@ const (
 	IMPORT     // import a.smart
 	INSTANCE   // instance
 	FILES      // files
+	TEMPLATE   // template
 
 	constant_beg
 	TRUE    // boolean `true`
@@ -285,7 +285,6 @@ var tokens = [...]string{
 	PACKAGE:    "package",
 	MODULE:     "module",
 	CONFIGURE:  "configure",
-	CONFIGURATION: "configuration",
 	USE:        "use",
 	EVAL:       "eval",
 	EXPORT:     "export",
@@ -293,6 +292,7 @@ var tokens = [...]string{
 	IMPORT:     "import",
 	INSTANCE:   "instance",
 	FILES:      "files",
+	TEMPLATE:   "template",
 
 	TRUE:   "true",
 	FALSE:  "false",

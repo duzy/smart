@@ -7,7 +7,6 @@
 package smart
 
 import (
-        //"extbit.io/smart/scanner"
         "extbit.io/smart/token"
         "encoding/base64"
         "path/filepath"
@@ -61,6 +60,9 @@ var builtins = map[string]BuiltinFunc {
         `equals`:       builtinEqual,
         `match`:        builtinMatch,
 
+        `greater`:      builtinGreater,
+        `less`:         builtinLess,
+
         `if`:           builtinBranchIf,
         `ifeq`:         builtinBranchIfEq,
         `ifne`:         builtinBranchIfNE,
@@ -100,7 +102,6 @@ var builtins = map[string]BuiltinFunc {
         `path`:         builtinPath,
         `string`:       builtinString,
         `strip`:        builtinStrip,
-        `title`:        builtinTitle,
         `trim`:         builtinTrim,
         `trim-space`:   builtinTrimSpace,
         `trim-left`:    builtinTrimLeft,
@@ -108,6 +109,10 @@ var builtins = map[string]BuiltinFunc {
         `trim-prefix`:  builtinTrimPrefix,
         `trim-suffix`:  builtinTrimSuffix,
         `trim-ext`:     builtinTrimExt,
+
+        `uppercase`:    builtinUpperCase,
+        `lowercase`:    builtinLowerCase,
+        `title`:        builtinTitle,
 
         `indent`:       builtinIndent,
 
@@ -475,7 +480,7 @@ func builtinTypeOf(pos Position, args... Value) (res Value) {
                 //   $(fun a,b,c)               args: (a),(b),(c)
                 //   $(fun a b c,1 2 3)         args: (a b c),(1 2 3)
                 s = typeof(arg)
-                elems = append(elems, &String{valbase{pos},s})
+                elems = append(elems, MakeString(pos, s))
         }
         return MakeListOrScalar(pos, elems)
 }
@@ -494,8 +499,8 @@ func builtinPosition(pos Position, args... Value) (res Value) {
                 diag.errorAt(pos, "position: %v", err); return
         } else if _, err = parseFlags(args, opts, func(ru rune, val Value) {
                 switch ru {
-                case 'f': vals = append(vals, &String{valbase{pos},pos.Filename})
-                case 'q': vals = append(vals, &String{valbase{pos},"\""+pos.Filename+"\""})
+                case 'f': vals = append(vals, MakeString(pos, pos.Filename))
+                case 'q': vals = append(vals, MakeString(pos, "\""+pos.Filename+"\""))
                 case 'l': vals = append(vals, &Int{integer{valbase{pos},int64(pos.Line)}})
                 case 'c': vals = append(vals, &Int{integer{valbase{pos},int64(pos.Column)}})
                 case 'a':
@@ -513,7 +518,7 @@ func builtinPosition(pos Position, args... Value) (res Value) {
         if len(vals) > 0 {
                 res = MakeListOrScalar(pos, vals)
         } else {
-                res = &String{valbase{pos},pos.String()}
+                res = MakeString(pos, pos.String())
         }
         return
 }
@@ -613,7 +618,7 @@ func builtinNot(pos Position, args... Value) (res Value) {
 
 func builtinNotEqual(pos Position, args... Value) (res Value) {
         if n := len(args); n != 2 {
-                diag.errorAt(pos, "wrong number of arguments, try: $(match <value-list>,<regexp-list>)")
+                diag.errorAt(pos, "wrong number of arguments, try: $(not-equal <value-list>,<regexp-list>)")
         } else if args[0].cmp(args[1]) != cmpEqual {
                 res = &boolean{valbase{pos},true}
         }
@@ -622,8 +627,26 @@ func builtinNotEqual(pos Position, args... Value) (res Value) {
 
 func builtinEqual(pos Position, args... Value) (res Value) {
         if n := len(args); n != 2 {
-                diag.errorAt(pos, "wrong number of arguments, try: $(match <value-list>,<regexp-list>)")
+                diag.errorAt(pos, "wrong number of arguments, try: $(equal <value-list>,<regexp-list>)")
         } else if cmp := args[0].cmp(args[1]); cmp == cmpEqual {
+                res = &boolean{valbase{pos},true}
+        }
+        return
+}
+
+func builtinGreater(pos Position, args... Value) (res Value) {
+        if n := len(args); n != 2 {
+                diag.errorAt(pos, "wrong number of arguments, try: $(greater <value-list>,<regexp-list>)")
+        } else if cmp := args[0].cmp(args[1]); cmp == cmpGreater {
+                res = &boolean{valbase{pos},true}
+        }
+        return
+}
+
+func builtinLess(pos Position, args... Value) (res Value) {
+        if n := len(args); n != 2 {
+                diag.errorAt(pos, "wrong number of arguments, try: $(less <value-list>,<regexp-list>)")
+        } else if cmp := args[0].cmp(args[1]); cmp == cmpSmaller {
                 res = &boolean{valbase{pos},true}
         }
         return
@@ -662,7 +685,7 @@ func builtinBranchIf(pos Position, args... Value) (res Value) {
         if n := len(args); n > 1 {
                 var t bool
                 if t, err = args[0].True(); err != nil {
-                        diag.errorAt(pos, "if: error: %v", err)
+                        diag.errorAt(pos, "truthify if condition failed: %v", err)
                 } else if t { 
                         res = args[1]
                 } else if n > 1 {
@@ -717,7 +740,10 @@ func builtinFor(pos Position, args... Value) (res Value) {
                 diag.errorAt(pos, "not enough arguments, try: $(foreach <list>,<template>)")
         } else {
                 var ( defs []*Def ; vals, values []Value; err error )
-                if values, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return }
+                if values, err = mergeresult(ExpandAll(args[0])); err != nil {
+                        diag.errorAt(pos, "merge '%v' failed: %v", args[0], err)
+                        return
+                }
 
                 scope := context.globe.scope
                 for i := 1; i <= maxNumVarVal; i += 1 {
@@ -736,13 +762,16 @@ func builtinFor(pos Position, args... Value) (res Value) {
 
                 var list []Value
                 for _, a := range args[1:] {
-                        if values, err = mergeresult(ExpandAll(a)); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if values, err = mergeresult(ExpandAll(a)); err != nil {
+                                diag.errorAt(pos, "merge '%v' failed: %v", a, err)
+                                return
+                        }
                         if len(values) == 0 {
-                                list = append(list, &None{valbase{pos}})
+                                list = append(list, MakeNone(pos))
                         } else if len(values) == 1 {
                                 list = append(list, values[0])
                         } else {
-                                list = append(list, &List{elements{values}})
+                                list = append(list, MakeList(a.Position(), values...))
                         }
                 }
                 res = MakeListOrScalar(pos, list)
@@ -787,11 +816,11 @@ func builtinForEach(pos Position, args... Value) (res Value) {
                                 }
                         }
                         if n = len(list); n == 0 {
-                                resList = append(resList, &None{valbase{pos}})
+                                resList = append(resList, MakeNone(pos))
                         } else if n == 1 {
                                 resList = append(resList, list[0])
                         } else {
-                                resList = append(resList, &List{elements{list}})
+                                resList = append(resList, MakeList(list[0].Position(), list...))
                         }
                 }
                 res = MakeListOrScalar(pos, resList)
@@ -812,7 +841,7 @@ func builtinEnv(pos Position, args... Value) (res Value) {
                         // discard
                 } else if v, err = val.Strval(); err == nil {
                         if s := strings.TrimSpace(v); s != "" {
-                                vals = append(vals, &String{valbase{pos},os.Getenv(s)})
+                                vals = append(vals, MakeString(pos, os.Getenv(s)))
                         }
                 } else {
                         diag.errorAt(pos, "%v", err)
@@ -835,7 +864,7 @@ func builtinValue(pos Position, args... Value) (res Value) {
                 if def := scope.FindDef(s); def != nil {
                         vals = append(vals, def.value)
                 } else {
-                        vals = append(vals, &None{valbase{pos}})
+                        vals = append(vals, MakeNone(pos))
                 }
         }
         return MakeListOrScalar(pos, vals)
@@ -858,7 +887,7 @@ func builtinShell(pos Position, args... Value) (res Value) {
                         diag.errorAt(pos, "%s", err)
                         return
                 }
-                val := &String{valbase{pos},strings.TrimSpace(bufout.String())}
+                val := MakeString(pos, strings.TrimSpace(bufout.String()))
                 vals = append(vals, val)
                 bufout.Reset()
                 buferr.Reset()
@@ -1110,7 +1139,7 @@ func builtinJoin(pos Position, args... Value) (res Value) {
                         if v, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if v != "" { fields = append(fields, v) }
                 }
-                res = &String{valbase{pos},strings.Join(fields, sep)}
+                res = MakeString(pos, strings.Join(fields, sep))
         }
         return
 }
@@ -1125,9 +1154,9 @@ func builtinQuote(pos Position, args... Value) (res Value) {
                         if v, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if v != "" { fields = append(fields, v) }
                 }
-                res = &String{valbase{pos},strconv.Quote(strings.Join(fields, " "))}
+                res = MakeString(pos, strconv.Quote(strings.Join(fields, " ")))
         } else {
-                res = &None{valbase{pos}}
+                res = MakeNone(pos)
         }
         return
 }
@@ -1151,9 +1180,9 @@ func builtinQuoteJoin(pos Position, args... Value) (res Value) {
                         if v, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if v != "" { fields = append(fields, v) }
                 }
-                res = &String{valbase{pos},strconv.Quote(strings.Join(fields, sep))}
+                res = MakeString(pos, strconv.Quote(strings.Join(fields, sep)))
         } else {
-                res = &None{valbase{pos}}
+                res = MakeNone(pos)
         }
         return
 }
@@ -1166,11 +1195,11 @@ func builtinSplitString(pos Position, args... Value) (res Value) {
                 for _, a := range args {
                         var s string
                         if s, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                        if s != "" { fields = append(fields, &String{valbase{a.Position()},s}) }
+                        if s != "" { fields = append(fields, MakeString(a.Position(), s)) }
                 }
-                res = &List{elements{fields}}
+                res = MakeList(pos, fields...)
         } else {
-                res = &None{valbase{pos}}
+                res = MakeNone(pos)
         }
         return
 }
@@ -1199,7 +1228,7 @@ func joinstrings(value Value, sep string) (res Value, err error) {
                         if s, err = v.Strval(); err != nil { break ValueType }
                         if s != "" { strs = append(strs, s) }
                 }
-                res = &String{valbase{value.Position()},strings.Join(strs, sep)}
+                res = MakeString(value.Position(), strings.Join(strs, sep))
         }
         return
 }
@@ -1242,7 +1271,7 @@ func builtinSplitJoinQuote(pos Position, args... Value) (res Value) {
                 if v, err = joinstrings(v, sep); err == nil {
                         var s string
                         if s, err = v.Strval(); err == nil {
-                                res = &String{valbase{pos},strconv.Quote(s)}
+                                res = MakeString(pos, strconv.Quote(s))
                         }
                 }
         }
@@ -1269,10 +1298,10 @@ func builtinField(pos Position, args... Value) (res Value) {
                 }
                 if n := int(i)-1; 0 <= n && n < len(fields) {
                         s = strings.TrimSpace(fields[n])
-                        res = &String{valbase{pos},s}
+                        res = MakeString(pos, s)
                 }
         } else {
-                res = &None{valbase{pos}}
+                res = MakeNone(pos)
         }
         return
 }
@@ -1330,7 +1359,7 @@ func builtinString(pos Position, args... Value) (result Value) {
                 if v, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 s.WriteString(v)
         }
-        result = &String{valbase{pos},s.String()}
+        result = MakeString(pos, s.String())
         return
 }
 
@@ -1379,7 +1408,7 @@ func builtinFilterValues(pos Position, neg bool, args... Value) (res Value) {
                         res = MakeListOrScalar(pos, vals)
                 }
         }
-        if res == nil && err == nil { res = &None{valbase{pos}} }
+        if res == nil && err == nil { res = MakeNone(pos) }
         return
 }
 
@@ -1422,7 +1451,7 @@ func builtinSubstring(pos Position, args... Value) (res Value) {
                         if s, err = arg.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                         if i := len(s); i <= a { s = "" } else
                         if b == -1 || i <= b { s = s[a:b] } else { s = s[a:] }
-                        list = append(list, &String{valbase{pos},s})
+                        list = append(list, MakeString(pos, s))
                 }
         }
         res = MakeListOrScalar(pos, list)
@@ -1441,7 +1470,7 @@ func builtinSubst(pos Position, args... Value) (res Value) {
                 if a, err = mergeresult(Reveal(args[2:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
                 for _, arg := range a {
                         if s, err = arg.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                        list = append(list, &String{valbase{pos},strings.Replace(s, s1, s2, -1)})
+                        list = append(list, MakeString(pos, strings.Replace(s, s1, s2, -1)))
                 }
         }
         res = MakeListOrScalar(pos, list)
@@ -1593,12 +1622,15 @@ func builtinStrip(pos Position, args... Value) (res Value) {
 }
 
 func builtinTrimSpace(pos Position, args... Value) (res Value) {
-        return builtinTrim(pos, append([]Value{&None{valbase{pos}}}, args...)...)
+        return builtinTrim(pos, append([]Value{MakeNone(pos)}, args...)...)
 }
 
 func builtinTitle(pos Position, args... Value) (res Value) {
         var err error
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err)
+                return
+        }
 
         var (
                 list []Value
@@ -1606,9 +1638,60 @@ func builtinTitle(pos Position, args... Value) (res Value) {
         )
         for _, a := range args {
                 if s, err = a.Strval(); err != nil {
+                        diag.errorOf(a, "stringify '%v' failed: %v", a, err)
                         return
                 } else if s != "" {
-                        list = append(list, &String{valbase{a.Position()},strings.Title(s)})
+                        list = append(list, MakeString(a.Position(), strings.Title(s)))
+                }
+        }
+        if err == nil {
+                res = MakeListOrScalar(pos, list)
+        }
+        return
+}
+
+func builtinUpperCase(pos Position, args... Value) (res Value) {
+        var err error
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err)
+                return
+        }
+
+        var (
+                list []Value
+                s string
+        )
+        for _, a := range args {
+                if s, err = a.Strval(); err != nil {
+                        diag.errorOf(a, "stringify '%v' failed: %v", a, err)
+                        return
+                } else if s != "" {
+                        list = append(list, MakeString(a.Position(), strings.ToUpper(s)))
+                }
+        }
+        if err == nil {
+                res = MakeListOrScalar(pos, list)
+        }
+        return
+}
+
+func builtinLowerCase(pos Position, args... Value) (res Value) {
+        var err error
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err)
+                return
+        }
+
+        var (
+                list []Value
+                s string
+        )
+        for _, a := range args {
+                if s, err = a.Strval(); err != nil {
+                        diag.errorOf(a, "stringify '%v' failed: %v", a, err)
+                        return
+                } else if s != "" {
+                        list = append(list, MakeString(a.Position(), strings.ToLower(s)))
                 }
         }
         if err == nil {
@@ -1632,9 +1715,9 @@ func builtinTrim(pos Position, args... Value) (res Value) {
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
-                                list = append(list, &String{valbase{pos},strings.TrimSpace(s)})
+                                list = append(list, MakeString(pos, strings.TrimSpace(s)))
                         } else {
-                                list = append(list, &String{valbase{pos},strings.Trim(s, cutset)})
+                                list = append(list, MakeString(pos, strings.Trim(s, cutset)))
                         }
                 }
         }
@@ -1659,9 +1742,9 @@ func builtinTrimLeft(pos Position, args... Value) (res Value) {
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
-                                list = append(list, &String{valbase{a.Position()},strings.TrimLeftFunc(s, unicode.IsSpace)})
+                                list = append(list, MakeString(a.Position(), strings.TrimLeftFunc(s, unicode.IsSpace)))
                         } else {
-                                list = append(list, &String{valbase{a.Position()},strings.TrimLeft(s, cutset)})
+                                list = append(list, MakeString(a.Position(), strings.TrimLeft(s, cutset)))
                         }
                 }
         }
@@ -1686,9 +1769,9 @@ func builtinTrimRight(pos Position, args... Value) (res Value) {
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
-                                list = append(list, &String{valbase{a.Position()},strings.TrimRightFunc(s, unicode.IsSpace)})
+                                list = append(list, MakeString(a.Position(), strings.TrimRightFunc(s, unicode.IsSpace)))
                         } else {
-                                list = append(list, &String{valbase{a.Position()},strings.TrimRight(s, cutset)})
+                                list = append(list, MakeString(a.Position(), strings.TrimRight(s, cutset)))
                         }
                 }
         }
@@ -1726,7 +1809,7 @@ func _builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
                         }
 
                         if s != "" {
-                                list = append(list, &String{valbase{a.Position()},s})
+                                list = append(list, MakeString(a.Position(), s))
                         }
                 }
         } else if cutset, err = prefix.Strval(); err != nil {
@@ -1743,7 +1826,7 @@ func _builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
                                 }
                         }
                         if s != "" {
-                                list = append(list, &String{valbase{a.Position()},s})
+                                list = append(list, MakeString(a.Position(), s))
                         }
                 }
         }
@@ -1799,7 +1882,7 @@ func builtinTrimPrefix(pos Position, args... Value) (res Value) {
                 if s == "" && value != nil {
                         if s, err = value.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 }
-                if s != "" { list = append(list, &String{valbase{pos},s}) }
+                if s != "" { list = append(list, MakeString(pos, s)) }
         }
         if err == nil { res = MakeListOrScalar(pos, list) }
         return
@@ -1820,9 +1903,9 @@ func builtinTrimSuffix(pos Position, args... Value) (res Value) {
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
-                                list = append(list, &String{valbase{a.Position()},strings.TrimRightFunc(s, unicode.IsSpace)})
+                                list = append(list, MakeString(a.Position(), strings.TrimRightFunc(s, unicode.IsSpace)))
                         } else {
-                                list = append(list, &String{valbase{a.Position()},strings.TrimSuffix(s, cutset)})
+                                list = append(list, MakeString(a.Position(), strings.TrimSuffix(s, cutset)))
                         }
                 }
         }
@@ -1849,9 +1932,9 @@ func builtinTrimExt(pos Position, args... Value) (res Value) {
                         if i == 0 && len(args) > 1 {
                                 ext = s
                         } else if ext == "" {
-                                list = append(list, &String{valbase{a.Position()},strings.TrimSuffix(s, filepath.Ext(s))})
+                                list = append(list, MakeString(a.Position(), strings.TrimSuffix(s, filepath.Ext(s))))
                         } else if ext == filepath.Ext(s) {
-                                list = append(list, &String{valbase{a.Position()},strings.TrimRight(s, ext)})
+                                list = append(list, MakeString(a.Position(), strings.TrimRight(s, ext)))
                         }
                 }
         }
@@ -1886,7 +1969,7 @@ func builtinIndent(pos Position, args... Value) (res Value) {
                 for _, line := range strings.Split(v, "\n") {
                         lines = append(lines, s + line)
                 }
-                l = append(l, &String{valbase{a.Position()},strings.Join(lines, "\n")})
+                l = append(l, MakeString(a.Position(), strings.Join(lines, "\n")))
         }
         res = MakeListOrScalar(pos, l)
         return
@@ -2015,7 +2098,7 @@ func builtinEncodeBase64(pos Position, args... Value) (res Value) {
                         enc.Write([]byte(s))
                 }
                 enc.Close()
-                res = &String{valbase{pos},buf.String()}
+                res = MakeString(pos, buf.String())
         }
         return
 }
@@ -2034,7 +2117,7 @@ func builtinDecodeBase64(pos Position, args... Value) (res Value) {
                         }
                         dat, err = base64.StdEncoding.DecodeString(s)
                         if err == nil {
-                                list = append(list, &String{valbase{a.Position()},string(dat)})
+                                list = append(list, MakeString(a.Position(), string(dat)))
                         } else {
                                 diag.errorAt(pos, "%v", err); return
                         }
@@ -2059,7 +2142,7 @@ func builtinBase(pos Position, args... Value) (res Value) {
                         diag.errorAt(pos, "%v", err); return
                 }
                 s = filepath.Base(s) // the last element of path
-                l = append(l, &String{valbase{a.Position()},s})
+                l = append(l, MakeString(a.Position(), s))
         }
         res = MakeListOrScalar(pos, l)
         return
@@ -2259,7 +2342,7 @@ func builtinDirChop(pos Position, args... Value) (res Value) {
                                 v[0] = PathSep // for absolute paths
                         }
                 }
-                l = append(l, &String{valbase{a.Position()},filepath.Join(v...)})
+                l = append(l, MakeString(a.Position(), filepath.Join(v...)))
         }
         res = MakeListOrScalar(pos, l)
         return
@@ -2279,7 +2362,7 @@ func builtinRelativeDir(pos Position, args... Value) (res Value) {
                 if i == 0 {
                         t = s
                 } else if s, err = filepath.Rel(t, s); err == nil {
-                        l = append(l, &String{valbase{a.Position()},s})
+                        l = append(l, MakeString(a.Position(), s))
                 } else {
                         diag.errorAt(pos, "%v", err)
                         return
@@ -2791,7 +2874,7 @@ func builtinFileSource(pos Position, args... Value) (res Value) {
                 var str string
                 if str, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
                 if file := proj./*searchFile*/FindFile(str); file != nil {
-                        l = append(l, &String{valbase{a.Position()},file.sub})
+                        l = append(l, MakeString(a.Position(), file.sub))
                 }
         }
         if err == nil {
@@ -2898,11 +2981,11 @@ func builtinReadDir(pos Position, args... Value) (res Value) {
                 if fis, err = ioutil.ReadDir(str); err == nil {
                         v := new(List)
                         for _, fi := range fis {
-                                v.Append(&String{valbase{a.Position()},fi.Name()})
+                                v.Append(MakeString(a.Position(), fi.Name()))
                         }
                         l = append(l, v)
                 } else {
-                        break //l = append(l, &None{valbase{pos}})
+                        break //l = append(l, MakeNone(pos))
                 }
         }
         if len(l) > 0 {
@@ -2927,7 +3010,7 @@ func builtinReadFile(pos Position, args... Value) (res Value) {
                         break
                 }
                 if s, err = ioutil.ReadFile(str); err == nil {
-                        l = append(l, &String{valbase{pos},string(s)})
+                        l = append(l, MakeString(pos, string(s)))
                 } else {
                         break
                 }
@@ -3123,9 +3206,9 @@ func builtinGrep(pos Position, args... Value) (res Value) {
                                 if !ok || ss == nil { continue }
                                 var elems = []Value{&Int{integer{valbase{pos},int64(line+n)}}}
                                 for _, s := range ss {
-                                        elems = append(elems, &String{valbase{pos},s})
+                                        elems = append(elems, MakeString(pos, s))
                                 }
-                                list = append(list, &Group{valbase{pos},List{elements{elems}}})
+                                list = append(list, &Group{valbase{pos},List{pos,elements{elems}}})
                         }
 
                         line += 1 // go behind the last line 
@@ -3134,9 +3217,9 @@ func builtinGrep(pos Position, args... Value) (res Value) {
                                 if !ok || ss == nil { continue }
                                 var elems = []Value{&Int{integer{valbase{pos},int64(line+n)}}}
                                 for _, s := range ss {
-                                        elems = append(elems, &String{valbase{pos},s})
+                                        elems = append(elems, MakeString(pos, s))
                                 }
-                                list = append(list, &Group{valbase{pos},List{elements{elems}}})
+                                list = append(list, &Group{valbase{pos},List{pos,elements{elems}}})
                         }
                 }
                 greps = nil
