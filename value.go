@@ -567,7 +567,7 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (breakers
     for _, project := range projects {
         var entries []*stemmed
         if entries, err = project.resolvePatterns(target); err != nil {
-            diag.errorAt(pos, "%v", err); return
+            diag.errorAt(pos, "resolve patterns '%v' failed: %v", target, err); return
         }
     ForEntry:
         for _, entry := range entries {
@@ -775,6 +775,9 @@ func (t *traversal) wait(pos Position) {
         if c := t.closure; c != nil {
             diag.errorAt(c.position, "closured from %v", c.comment).
                 debug(optionDebugErrors)
+        }
+        if t.isConfigureExecution {
+            //diag.errorOf(t., "%v: %v = %v", s, t, result)
         }
      }
      return

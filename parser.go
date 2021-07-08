@@ -2340,14 +2340,20 @@ func (p *parser) expandTemplate(params []Value, endPos token.Pos) {
 	var (
 		l = len(p.templates)
 		t = p.templates[l-1]
+		list, err = mergeresult(ExpandAll(t.params...)) // TODO: parseOpts
 	)
+	if err != nil {
+		diag.errorAt(p.position(), "merge result %s failed", err)
+		return
+	}
+	if false { diag.errorAt(p.position(), "%v", cloctx) }
 	switch t.verb {
 	case "foreach":
-		for _, a := range t.params {
+		for _, a := range list {
 			p.expandForeach(t, map[string]Value{ "_" : a }, params, endPos)
 		}
 	case "for":
-		for _, a := range t.params {
+		for _, a := range list {
 			if pair, ok := a.(*Pair); ok {
 				if s, e := pair.Key.Strval(); e != nil {
 					diag.errorOf(pair.Key, "expand template %v", e).

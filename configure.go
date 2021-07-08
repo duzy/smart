@@ -369,8 +369,15 @@ func configureExec(pos Position, t *traversal, opts *modifierConfigureOpts, s st
                 fmt.Fprintf(stderr, "%s: %d: %v\n", pos, i, brk.what)
             }
         }
-    } else if optVerbose && false {
-        diag.infoAt(pos, "%v: %v = %v, params = %v", entry, target, result, params)
+    } else if optVerbose {
+        if false { diag.infoAt(pos, "%v: %v = %v, params = %v", entry, target, result, params) }
+        var res bool
+        if !isNil(result) { res, _ = result.True() }
+        if !res {
+            t, _ := target.Strval()
+            diag.errorAt(pos, "%v: %v = %v", s, t, result)
+        }
+        _ = diag.checkErrors(true)
     }
 
     configured = true
@@ -478,7 +485,7 @@ ForArgs:
             t_config.tracef("configured: %v, result = %v (%s)", configured, result, typeof(result))
         }
     }
-    return
+   return
 }
 
 type modifierConfigureOpts struct {
