@@ -353,6 +353,7 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                         return
                 }
         }
+        if false { fmt.Fprintf(stderr, "%v -> %v %v\n", tag, short, long) }
         if len(short) != len(long) {
                 diag.errorAt(pos, "short and long option names not matching: %v, %v", short, long).
                         debug(/*optionDebugErrors*/true)
@@ -400,7 +401,7 @@ ForArgs:
                 )
                 if flag, okay = arg.(*Flag); okay {
                         value = MakeBoolean(flag.position, true)
-                } else if pair, okay := arg.(*Pair); okay {
+                } else if pair, ok := arg.(*Pair); ok {
                         if flag, okay = pair.Key.(*Flag); okay { value = pair.Value }
                 }
                 if !okay || flag == nil {
@@ -415,7 +416,7 @@ ForArgs:
                 }
                 rest = append(rest, arg)
                 continue ForArgs
-         }
+        }
         if false && len(args) > 0 {
                 diag.infoAt(pos, "%v,%v: %v %v %v", short, long, field.Kind(), field, rest)
         }

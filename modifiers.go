@@ -1218,7 +1218,7 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
                 }
         }
         if len(gc.rxs) == 0 {
-                diag.errorAt(pos, "no grep expressions")
+                diag.errorAt(pos, "no grep expressions: %v %v %v %v", opts.sys, opts.reg, opts.langs, args)
                 return
         }
 
