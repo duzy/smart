@@ -2117,8 +2117,6 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		defer un(trace(t_traverse, "Rule"))
 	}
 
-	var ( a = t_traverse.elapsed(); b = a )
-
 	var (
 		// TODO: doc = p.leadComment
 		depends []Value

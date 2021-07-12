@@ -683,8 +683,6 @@ func (p *Project) _resolvePatterns3(i interface{}) (res []*stemmed, err error) {
 }
 
 func (p *Project) entry(special specialRule, options []Value, target Value, prog *Program) (entry *RuleEntry, err error) {
-	var ( a = t_traverse.elapsed(); b = a )
-
   defer func() {
     if entry != nil && err == nil {
       entry.programs = append(entry.programs, prog)
