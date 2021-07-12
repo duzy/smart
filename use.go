@@ -50,7 +50,7 @@ func (p *using) mod(t *traversal) (res time.Time, err error) {
         return
 }
 func (p *using) traverse(pc *traversal) (breakers []*breaker) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
+        if optionTraceTraversal { defer un(tt(t_traverse, pc, p)) }
         if _, done := usingPrepared[p.project]; done {
                 usingPrepared[p.project] += 1
                 // FIXME: allow re-using the project
@@ -139,7 +139,7 @@ func (p *usinglist) expand(w expandwhat) (Value, error) {
         return p, nil
 }
 func (p *usinglist) traverse(pc *traversal) (breakers []*breaker) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
+        if optionTraceTraversal { defer un(tt(t_traverse, pc, p)) }
         for _, elem := range p.list {
                 if breakers = elem.traverse(pc); len(breakers) > 0 {
                        break

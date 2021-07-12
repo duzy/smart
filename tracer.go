@@ -8,33 +8,73 @@ package smart
 
 import (
 	"extbit.io/smart/token"
+	"time"
 	"fmt"
 	"io"
 )
 
 var (
-	t_launch = new(tracing)
-	t_parse = new(tracing) // UNUSED
-	t_traverse = new(tracing) // UNUSED
-	t_exec = new(tracing)
-	t_config = new(tracing)
+	t_launch   = &tracing{ tm: time.Now() }
+	t_load     = &tracing{ tm: time.Now() }
+	t_parse    = &tracing{ tm: time.Now() } // UNUSED
+	t_traverse = &tracing{ tm: time.Now() }
+	t_config   = &tracing{ tm: time.Now() }
+	t_exec     = &tracing{ tm: time.Now() }
 )
 
 type tracer interface {
+	elapsed() time.Duration
+	tracef(s string, a ...interface{})
 	trace(a ...interface{})
 	level(n int)
 }
 
-func trace(p tracer, msg string) tracer {
-	p.trace(msg, "(")
-	p.level(+1)
-	return p
+func trace(t tracer, s string) tracer {
+	t.trace(s, "(")
+	t.level(+1)
+	if true { t.tracef("%v", t.elapsed()) }
+	return t
 }
 
-// Usage pattern: defer un(trace(p, "..."))
-func un(p tracer) {
-	p.level(-1)
-	p.trace(")")
+func tracef(t tracer, f string, a ...interface{}) tracer {
+	t.trace(fmt.Sprintf(f, a...), "(")
+	t.level(+1)
+	if true { t.tracef("%v", t.elapsed()) }
+	return t
+}
+
+// Usage:
+//   defer un(trace(p, "..."))
+//   defer un(tracef(p, "..."))
+//   defer un(tr(p, "..."))
+//   defer un(tt(p, t, "..."))
+func un(t tracer) {
+	if true { t.tracef("%v", t.elapsed()) }
+	t.level(-1)
+	t.trace(")")
+}
+
+func tr(t tracer, i Value) tracer {
+	t.tracef("%s{%v} (", typeof(i), i)
+	t.level(+1)
+	if true { t.tracef("%v", t.elapsed()) }
+    return t
+}
+
+func tt(t tracer, tr *traversal, i Value) tracer {
+    // Note that t.args and t.arguments are different, they're
+    // target execution args and argumented-prerequisite args.
+    var a string
+    if tar := tr.entry.target; len(tr.args) > 0 {
+        a = fmt.Sprintf("%s{%s}%s", typeof(tar), tar, tr.args)
+    } else {
+        a = fmt.Sprintf("%s{%v}", typeof(tar), tar)
+    }
+    var b = fmt.Sprintf("%s{%v}", typeof(i), i)
+    t.trace(a, ":", b, "(")
+    t.level(+1)
+	if true { t.tracef("%v", t.elapsed()) }
+    return t
 }
 
 type tracing struct {
@@ -42,6 +82,7 @@ type tracing struct {
 	all bool
 	enabled bool // (mode&Trace != 0)
 	indent int  // indentation used for tracing output
+	tm time.Time
 }
 
 func (p *tracing) errorAt(pos token.Position, err interface{}, a ...interface{}) {
@@ -69,11 +110,11 @@ func (p *tracing) errorAt(pos token.Position, err interface{}, a ...interface{})
 //var lenPrintField = lenPrintTab * 1
 
 const (
-		// Tab size helps formatting fields.
-        lenPrintTab = 8
+	// Tab size helps formatting fields.
+	lenPrintTab = 8
 
-        dots = ". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . "
-        ndots = len(dots)
+	dots = ". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . "
+	ndots = len(dots)
 )
 
 func fprintIndentDots(w io.Writer, indent int, a ...interface{}) {
@@ -85,48 +126,53 @@ func fprintIndentDots(w io.Writer, indent int, a ...interface{}) {
 	// i <= n
 	fmt.Fprint(w, dots[0:i])
 	if false && len(a) > 0 {
-                fmt.Fprintln(w, a...)
-        } else {
-                var fieldLen = 0
-                for i, v := range a {
-                        if r, ok := v.(rune); ok && r == '\t' {
-                                const sps = "                         "
-                                if m := fieldLen % lenPrintTab; m > 0 {
-                                        if m > len(sps) { m = len(sps)-1 }
-                                        fmt.Fprint(w, sps[:m])
-                                }
-                                fieldLen = 0
-                        } else if s := fmt.Sprint(v); s != "" {
-                                if i > 0 {
-                                        fmt.Fprint(w, " ", s)
-                                        fieldLen += len(s) + 1
-                                } else {
-                                        fmt.Fprint(w, s)
-                                        fieldLen += len(s)
-                                }
-                        }
-                }
-                fmt.Fprintln(w)
-        }
+		fmt.Fprintln(w, a...)
+	} else {
+		var fieldLen = 0
+		for i, v := range a {
+			if r, ok := v.(rune); ok && r == '\t' {
+				const sps = "                         "
+				if m := fieldLen % lenPrintTab; m > 0 {
+					if m > len(sps) { m = len(sps)-1 }
+					fmt.Fprint(w, sps[:m])
+				}
+				fieldLen = 0
+			} else if s := fmt.Sprint(v); s != "" {
+				if i > 0 {
+					fmt.Fprint(w, " ", s)
+					fieldLen += len(s) + 1
+				} else {
+					fmt.Fprint(w, s)
+					fieldLen += len(s)
+				}
+			}
+		}
+		fmt.Fprintln(w)
+	}
 }
 
 func printIndentDots(indent int, a ...interface{}) {
-        fprintIndentDots(stderr, indent, a...)
+	fprintIndentDots(stderr, indent, a...)
 }
 
 func (p *tracing) traceAt(pos Position, a ...interface{}) {
 	fmt.Fprintf(stderr, "%7d:%3d: ", pos.Line, pos.Column)
-        printIndentDots(p.indent, a...)
+		printIndentDots(p.indent, a...)
 }
 
 func (p *tracing) trace(a ...interface{}) {
-        printIndentDots(p.indent, a...)
+	printIndentDots(p.indent, a...)
 }
 
 func (p *tracing) tracef(s string, a ...interface{}) {
-        printIndentDots(p.indent, fmt.Sprintf(s, a...))
+	printIndentDots(p.indent, fmt.Sprintf(s, a...))
 }
 
 func (p *tracing) level(n int) {
-        p.indent += n
+	p.indent += n
+}
+
+func (p *tracing) elapsed() time.Duration {
+	if false && p.tm.IsZero() { p.tm = time.Now() }
+	return time.Now().Sub(p.tm)
 }

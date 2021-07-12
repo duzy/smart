@@ -134,7 +134,7 @@ func (_ *modifier) cmp(v Value) (res cmpres) {
 }
 func (m *modifier) traverse(t *traversal) (breakers []*breaker) {
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("modifier.traverse(%s)", m))) }
-        if optionTraceTraversal { defer un(tt(t, m)) }
+        if optionTraceTraversal { defer un(tt(t_traverse, t, m)) }
         if err := t.program.modify(t, m); err != nil {
                 if brk, ok := err.(*breaker); ok {
                         breakers = []*breaker{ brk }
@@ -190,7 +190,7 @@ func (_ *modifiergroup) cmp(v Value) (res cmpres) {
         return
 }
 func (g *modifiergroup) traverse(t *traversal) (breakers []*breaker) {
-        if optionTraceTraversal { defer un(tt(t, g)) }
+        if optionTraceTraversal { defer un(tt(t_traverse, t, g)) }
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("modifiergroup.traverse(%s)", g))) }
         var done bool
         for _, m := range g.modifiers {
@@ -1080,8 +1080,7 @@ func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
                 return
         }
 
-        if false { defer un(trace(t, targetName)) }
-
+        if false { defer un(tt(t_traverse, t, gc.target)) }
         if files, cached := grepcache[gc.targetFullName]; cached {
                 if gc.debug {
                         fmt.Fprintf(stderr, "%s: grepcache: %v → %v\n", pos, gc.targetFullName, files)
@@ -1209,10 +1208,6 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
         }
         for _, s := range opts.sys { gc.rxs = append(gc.rxs, &greprex{s, true , nil}) }
         for _, s := range opts.reg { gc.rxs = append(gc.rxs, &greprex{s, false, nil}) }
-        if len(gc.rxs) == 0 {
-                diag.errorAt(pos, "no grep expressions")
-                return
-        }
         for _, s := range opts.langs {
                 if info, ok := langInfos[s]; !ok || info == nil {
                         diag.errorAt(pos, "lang '%s' is unknown", s)
@@ -1221,6 +1216,10 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
                         for _, re := range info.rxs { gc.rxs = append(gc.rxs, &greprex{re, false, nil}) }
                         for _, re := range info.sys { gc.rxs = append(gc.rxs, &greprex{re, true , nil}) }
                 }
+        }
+        if len(gc.rxs) == 0 {
+                diag.errorAt(pos, "no grep expressions")
+                return
         }
 
         var files []Value
@@ -2332,8 +2331,8 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
 
         if optionTraceTraversal {
                 var v = t.def.target.value
-                t.tracef("dirty: %v (updated=%v, exists=%v, target=%v)", dirty, len(t.updated), exists(v), v)
-                if len(t.updated) > 0 { t.tracef("dirty: updated=%v", t.updated) }
+                t_traverse.tracef("dirty: %v (updated=%v, exists=%v, target=%v)", dirty, len(t.updated), exists(v), v)
+                if len(t.updated) > 0 { t_traverse.tracef("dirty: updated=%v", t.updated) }
         }
 
         if optSilent { reason = "" }

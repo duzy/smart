@@ -67,10 +67,10 @@ const (
     ImportsOnly               // stop parsing after import declarations
     ParseComments             // parse comments and add them to AST
     Flat                  // parsing in flat mode (donot create a new module)
-    Trace                 // print a trace of parsed productions
+    //Trace                 // print a trace of parsed productions
     DeclarationErrors         // report declaration errors
     SpuriousErrors            // same as AllErrors, for backward-compatibility
-    AllErrors = SpuriousErrors    // report all errors (not just the first 10 on different lines)
+    //AllErrors = SpuriousErrors    // report all errors (not just the first 10 on different lines)
     parsingDir
 )
 
@@ -140,7 +140,6 @@ type loaderScope struct {
 type loader struct {
     *Context
     *parser
-    tracing // tracing/debugging
     mode Mode // parsing mode
     fset     *token.FileSet
     paths    searchlist
@@ -760,6 +759,9 @@ func (l *loader) determine(position Position, tok token.Token, identifier, value
 func (l *loader) rule(clause *parsedRuleData) (entries []*RuleEntry) {
     defer setclosure(setclosure(cloctx.unshift(l.project.scope)))
 
+	var ( a = t_traverse.elapsed(); b = a )
+	if xxx_debug { defer un(tracef(t_traverse, "rule(%s)", clause.targets)) }
+
     var (
         params  []*Def
         depends []Value
@@ -796,6 +798,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []*RuleEntry) {
         position: clause.position,
     }
 
+	if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v", b, (b-a)) }
     for _, target := range clause.targets {
         if target == nil {
             diag.errorOf(target, "nil target (%T)", target)
@@ -818,7 +821,9 @@ func (l *loader) rule(clause *parsedRuleData) (entries []*RuleEntry) {
             }
         }
 
+        //if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v", b, (b-a)) }
         entry, err = l.project.entry(clause.special, clause.options, target, prog)
+        //if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v", b, (b-a)) }
         if err != nil {
             diag.errorOf(target, "creating entry '%v' failed: %v", target, err)
             return
@@ -856,8 +861,8 @@ func (l *loader) includeFile(pos Position, spec Value) {
         if result, breakers = entry.Execute(entry.position); len(breakers) > 0 {
             diag.errorAt(pos, "include error occurred (entry %v)", entry)
             return
-        } else if result != nil {
-            // result ignored
+        } else if result != nil && optionVerbose {
+            diag.infoAt(pos, "include %v: %v", entry, result)
         }
         spec = entry.target
     }
@@ -887,18 +892,16 @@ func (l *loader) includeFile(pos Position, spec Value) {
         return
     }
 
-    var mode = l.mode
+    if false { defer un(trace(t_traverse, "includeFile.ParseFile")) } // xxx_debug
+
     var absDir, baseName = filepath.Split(fullname)
+    defer func(mode Mode) { l.mode = mode } (l.mode) // Must restore parse mode!
     defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
-    if _, err = l.ParseFile(fullname, nil, parseMode|Flat); diag.checkErrors(true) > 0 {
-        return
-    } else if err != nil {
+    if _, err = l.ParseFile(fullname, nil, parseMode|Flat); err != nil {
         diag.errorAt(pos, "include error occurred (from %v)", fullname)
-    } else  {
-        // The parse mode could still be 'Flat' here as ParseFile
-        // changed it, so we have to restore the previous parse mode.
-        l.mode = mode
     }
+
+    _ = diag.checkErrors(true)
     return
 }
 
@@ -1174,6 +1177,7 @@ func (l *loader) declare(keyword token.Token, ident *Bareword, options []Value) 
 func (l *loader) loadProjectConfiguration(ident *Bareword, declared bool) (result bool) {
     // FIXES: set cloctx immediately to ensure the right configuration is matched!
     defer setclosure(setclosure(cloctx.unshift(l.scope)))
+    if false { defer un(tracef(t_traverse, "loadProjectConfiguration(%v)", ident)) }
 
     var pos = ident.Position()
     // Get configuration file name for the project and include it in flat mode.
@@ -1187,9 +1191,9 @@ func (l *loader) loadProjectConfiguration(ident *Bareword, declared bool) (resul
     } else if file := stat(pos, filepath.Base(s), "", filepath.Dir(s)); file != nil {
         if optionVerboseImport || optionVerboseLoading {
             full, _ := file.Strval()
-            fmt.Fprintf(stderr, "smart: Configuration for %s (%s) ⇒ %s\n", l.project, l.project.spec, full)
+            fmt.Fprintf(stderr, "Configuration for %s (%s) ⇒ %s\n", l.project, l.project.spec, full)
         } else if optionVerbose || true {
-            fmt.Fprintf(stderr, "smart: Configuration for %s (%s)\n", l.project, l.project.spec)
+            fmt.Fprintf(stderr, "Configuration for %s (%s)\n", l.project, l.project.spec)
         }
         l.isIncludingConf = true
         l.includeFile(pos, file)
@@ -1458,8 +1462,7 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *pars
         return
     }
 
-    if optionTraceParsing { mode |= Trace }
-
+    //if optionTraceParsing { mode |= Trace }
     defer func(saved *parser, m Mode) {
         var panics int
         var pos Position
@@ -1483,16 +1486,16 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *pars
         l.parser.loader = nil
         l.parser = saved
         l.mode = m
-        l.tracing.all = l.mode&AllErrors != 0
-        l.tracing.enabled = l.mode&Trace != 0
+        //l.tracing.all = l.mode&AllErrors != 0
+        //l.tracing.enabled = l.mode&Trace != 0
     } (l.parser, l.mode)
 
     // set the current parser
     l.parser = new(parser)
     l.parser.init(l, filename, text)
     l.mode = mode
-    l.tracing.all = l.mode&AllErrors != 0
-    l.tracing.enabled = l.mode&Trace != 0
+    //l.tracing.all = l.mode&AllErrors != 0
+    //l.tracing.enabled = l.mode&Trace != 0
 
     // set result values
     if f = l.parser.parseFile(); f == nil {

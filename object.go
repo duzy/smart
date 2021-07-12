@@ -172,7 +172,7 @@ func (p *ProjectName) Call(pos Position, a... Value) (value Value) {
         return
 }
 func (p *ProjectName) traverse(t *traversal) (breakers []*breaker) {
-        if optionTraceTraversal { defer un(tt(t, p)) }
+        if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
         var entry = p.project.DefaultEntry()
         if entry != nil && entry.class != UseRuleEntry {
                 breakers = entry.traverse(t)
@@ -766,7 +766,7 @@ func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
         return
 }
 func (entry *RuleEntry) traverse(t *traversal) (breakers []*breaker) {
-        if optionTraceTraversal { defer un(tt(t, entry.target)) }
+        if optionTraceTraversal { defer un(tt(t_traverse, t, entry.target)) }
         if optionEnableBenchmarks && false { defer bench(mark("RuleEntry.traverse")) }
         if optionEnableBenchspots { defer bench(spot("RuleEntry.traverse")) }
         var numErrors int
@@ -895,7 +895,7 @@ func (p *stemmed) traverse(t *traversal) (breakers []*breaker) {
         return
 }
 func (p *stemmed) _target(t *traversal, target string) (breakers []*breaker) {
-        if optionTraceTraversal { defer un(tt(t, p)) }
+        if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("stemmed.traverse(%v)", p))) }
         if optionEnableBenchspots { defer bench(spot("stemmed.traverse")) }
 
@@ -915,7 +915,7 @@ func (p *stemmed) _target(t *traversal, target string) (breakers []*breaker) {
         return
 }
 func (p *stemmed) file(t *traversal, file *File) (breakers []*breaker) {
-        if optionTraceTraversal { defer un(tt(t, p)) }
+        if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("stemmed.file(%v)", p))) }
         if optionEnableBenchspots { defer bench(spot("stemmed.file")) }
 

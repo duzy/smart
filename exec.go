@@ -910,7 +910,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
       exeres.wg.Done()
     } (time.Now())
 
-    if diag.checkErrors(false) > 0 {
+    if diag.numErrors() > 0 {
       fmt.Fprintf(stderr, "%v: got errors, cancel execution\n", pos)
       return
     }

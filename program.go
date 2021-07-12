@@ -220,15 +220,19 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
 
     var isConfigureExecution bool = prog.configure
     if !isConfigureExecution && caller != nil {
-        isConfigureExecution = caller.isConfigureExecution
+        isConfigureExecution =  caller.isConfigureExecution
     }
+    /*if n := diag.checkErrors(true); n > 0 && !isConfigureExecution {
+        diag.errorAt(prog.position, "%v: %d errors, discard execution", entry, n)
+        return
+    }*/
     defer func() {
         if n := diag.checkErrors(true); n > 0 && !isConfigureExecution {
             // create a new error point for next checking
-            var pos = entry.position
+            var pos = prog.position
             if !pos.IsValid() { pos = entry.Position() }
-            if !pos.IsValid() { pos = prog.position }
-            diag.errorAt(pos, "'%v' yields %d errors", entry, n)
+            if !pos.IsValid() { pos = entry.position }
+            diag.errorAt(pos, "%v: yields %d errors", entry, n)
             brks = append(brks, &breaker{
                 pos: prog.position, what:breakErro,
                 error: fmt.Errorf("%v: got %d errors", entry, n),

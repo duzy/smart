@@ -683,6 +683,9 @@ func (p *Project) _resolvePatterns3(i interface{}) (res []*stemmed, err error) {
 }
 
 func (p *Project) entry(special specialRule, options []Value, target Value, prog *Program) (entry *RuleEntry, err error) {
+	var ( a = t_traverse.elapsed(); b = a )
+	if xxx_debug { defer un(tracef(t_traverse, "entry(%s)", target)) }
+
   defer func() {
     if entry != nil && err == nil {
       entry.programs = append(entry.programs, prog)
@@ -721,6 +724,8 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
     err = fmt.Errorf("name '%v' already taken as `%T'", name)
     return
   }
+
+  if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v - 1", b, (b-a)) }
 
   // Looking for pattern rule entries.
   switch t := target.(type) {
@@ -771,16 +776,21 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
   }
 
   // Looking for concrete rule entries.
+  //if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v %v", b, (b-a), p.concrete) }
   for _, rec := range p.concrete {
+    if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v %v - 1", b, (b-a), rec) }
     var sv string
     if closured && rec.String() == name {
       entry = rec; break
-    } else if sv, err = rec.Strval(); err != nil {
+    }
+    if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v %v - 2", b, (b-a), rec) }
+    if sv, err = rec.Strval(); err != nil {
       return
     } else if sv == strval {
       entry = rec; break
     }
   }
+  if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v", b, (b-a)) }
   if entry == nil {
     entry = &RuleEntry{
       class: GeneralRuleEntry,
@@ -957,12 +967,12 @@ func printEnteringDirectory() {
     for _, p := range cd.stack {
       if p.print && p != enter {
         p.print = false
-        fmt.Fprintf(stderr, "smart:  Leaving directory '%s'\n", p.dir)
+        diag.prompt("smart:  Leaving directory '%s'\n", p.dir)
       }
     }
     if !enter.print {
       enter.print = true
-      fmt.Fprintf(stderr, "smart: Entering directory '%s'\n", enter.dir)
+      diag.prompt("smart: Entering directory '%s'\n", enter.dir)
     }
   }
 }
@@ -972,7 +982,7 @@ func printLeavingDirectory() {
     for _, enter := range cd.stack {
       if enter.print {
         enter.print = false
-        fmt.Fprintf(stderr, "smart:  Leaving directory '%s'\n", enter.dir)
+        diag.prompt("smart:  Leaving directory '%s'\n", enter.dir)
       }
     }
   }

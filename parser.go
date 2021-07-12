@@ -169,7 +169,7 @@ func (p *parser) clearbit(bit parsingBits) (bits parsingBits) {
 // ----------------------------------------------------------------------------
 // Parsing support
 
-func (p *parser) trace(a ...interface{}) { p.traceAt(p.position(), a...) }
+func (p *parser) trace(a ...interface{}) { t_traverse.traceAt(p.position(), a...) }
 
 // Advance to the next token.
 func (p *parser) scanNext() {
@@ -177,7 +177,7 @@ func (p *parser) scanNext() {
 	// when tracing as it provides a more readable output. The
 	// very first token (!p.pos.IsValid()) is not initialized
 	// (it is token.ILLEGAL), so don't print it .
-	if p.tracing.enabled && p.pos.IsValid() {
+	if t_traverse.enabled && p.pos.IsValid() {
 		s := p.tok.String()
 		switch {
 		case p.tok.IsLiteral():
@@ -413,7 +413,7 @@ func (p *parser) parseSelector() (res Value) {
 }
 
 func (p *parser) parseSelect(lhs Value) (res Value) {
-	if p.tracing.enabled { defer un(trace(p, "Select")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Select")) }
 
 	pos := p.pos
 	tok := p.tok // the arrow '->' or '=>'
@@ -509,7 +509,7 @@ func (p *parser) isEndOfDotConcat(lhs bool) bool {
 }
 
 func (p *parser) parseDependList() (list []Value) {
-	if p.tracing.enabled { defer un(trace(p, "Depends")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Depends")) }
 	for p.tok != token.SEMICOLON && p.tok != token.BAR && !p.isEndOfLine() {
 		if p.tok == token.COLON { // FIXME: this check is not working!
 			// FIXME: detects unexpected colon ':'
@@ -526,7 +526,7 @@ func (p *parser) parseDependList() (list []Value) {
 
 // If lhs is set, result list elements which are identifiers are not resolved.
 func (p *parser) parseExprList(lhs bool) (list []Value) {
-	if p.tracing.enabled { defer un(trace(p, "List")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "List")) }
 	for p.skipSpaces(); !p.isEndOfList(lhs); {
 		p.skipSpaces()
 		list = append(list, p.parseExpr(lhs))
@@ -565,7 +565,7 @@ func (p *parser) parseRhsList() []Value {
 // Expressions
 
 func (p *parser) parseGroupExpr(lhs bool) *Group {
-	if p.tracing.enabled { defer un(trace(p, "Group")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Group")) }
 
 	position := p.position()
 	p.next(true)
@@ -585,7 +585,7 @@ func (p *parser) parseGroupExpr(lhs bool) *Group {
 }
 
 func (p *parser) parseArgumentedExpr(x Value) *Argumented {
-	if p.tracing.enabled { defer un(trace(p, "Argumented")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Argumented")) }
 
 	p.next(true) // skip token.LPAREN
 
@@ -605,7 +605,7 @@ func (p *parser) parseGlobMeta() (x *GlobMeta) {
 }
 
 func (p *parser) parseGlobRange() (x *GlobRange) {
-	if p.tracing.enabled { defer un(trace(p, "Glob")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Glob")) }
 
 	position := p.position()
 	p.expect(token.LBRACK) // skip '['
@@ -617,7 +617,7 @@ func (p *parser) parseGlobRange() (x *GlobRange) {
 }
 
 func (p *parser) parseGlobExpr(x Value) Value {
-	if p.tracing.enabled { defer un(trace(p, "Glob")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Glob")) }
 
 	var (
 		pos = p.position()
@@ -651,7 +651,7 @@ ForGlobTok:
 }
 
 func (p *parser) parsePercExpr(lhs bool, x Value) Value {
-	if p.tracing.enabled { defer un(trace(p, "Perc")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Perc")) }
 
 	// avoid nesting percent expressions
 	defer p.setbits(p.setbit(composingPERC))
@@ -699,7 +699,7 @@ func (p *parser) parsePercExpr(lhs bool, x Value) Value {
 }
 
 func (p *parser) parseRegexpExpr() (x Value) {
-	if p.tracing.enabled { defer un(trace(p, "Regexp")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Regexp")) }
 
 	// avoid nesting percent expressions
 	defer p.setbits(p.setbit(composingREXP))
@@ -710,13 +710,13 @@ func (p *parser) parseRegexpExpr() (x Value) {
 }
 
 func (p *parser) parseKeyValueExpr(x Value) *Pair {
-	if p.tracing.enabled { defer un(trace(p, "Pair")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Pair")) }
 	position := p.position(); p._next()
 	return MakePair(position, x, p.parseExpr(false))
 }
 
 func (p *parser) parseFlagExpr(lhs bool) *Flag {
-	if p.tracing.enabled { defer un(trace(p, "Flag")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Flag")) }
 
 	var (
 		position = p.position()
@@ -737,7 +737,7 @@ func (p *parser) parseFlagExpr(lhs bool) *Flag {
 }
 
 func (p *parser) parseNegExpr(lhs bool) *negative {
-	if p.tracing.enabled { defer un(trace(p, "Negative")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Negative")) }
 	p.expect(token.EXC)
 	return Negative(p.parseExpr(lhs))
 }
@@ -802,7 +802,7 @@ ForCompound:
 //   ..'foo'
 //   .foo.bar
 func (p *parser) parseDotExpr(lhs bool, x Value) (res *Barecomp) {
-	if p.tracing.enabled { defer un(trace(p, "Dot")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Dot")) }
 
 	defer p.setbits(p.setbit(composingDOT))
 
@@ -849,7 +849,7 @@ func (p *parser) parsePathSeg() (v *PathSeg) {
 }
 
 func (p *parser) parsePathExpr(lhs bool, start Value) *Path {
-	if p.tracing.enabled { defer un(trace(p, "Path")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Path")) }
 
 	defer p.setbits(p.setbit(composingPATH))
 
@@ -898,7 +898,7 @@ func isKnownURLScheme(s string) (result bool) {
 }
 
 func (p *parser) parseURLExpr(lhs bool, scheme Value) (res Value) {
-	if p.tracing.enabled { defer un(trace(p, "URL")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "URL")) }
 
 	defer p.setbits(p.setbit(composingURL))
 
@@ -973,7 +973,7 @@ func (p *parser) parseURLExpr(lhs bool, scheme Value) (res Value) {
 }
 
 func (p *parser) parseClosureDelegateName(tok token.Token) (name Value) {
-	if p.tracing.enabled {	defer un(trace(p, "ClosureDelegateName")) }
+	if t_traverse.enabled {	defer un(trace(t_traverse, "ClosureDelegateName")) }
 
 	var pos = p.position()
 	if name = p.parseExpr(false); isNil(name) {
@@ -984,7 +984,7 @@ func (p *parser) parseClosureDelegateName(tok token.Token) (name Value) {
 }
 
 func (p *parser) parseClosureDelegate() (result Value) {
-	if p.tracing.enabled {	defer un(trace(p, "ClosureDelegate")) }
+	if t_traverse.enabled {	defer un(trace(t_traverse, "ClosureDelegate")) }
 
 	// FIXME: push p.bits before entering a $(...) or &(...)
 	defer func(a parsingBits) { p.bits = a } (p.bits)
@@ -1157,8 +1157,8 @@ func (p *parser) parseClosureDelegate() (result Value) {
 }
 
 func (p *parser) parseSpecialClosureDelegate(lhs bool) Value {
-	if p.tracing.enabled {
-		defer un(trace(p, "SpecialClosureDelegate"))
+	if t_traverse.enabled {
+		defer un(trace(t_traverse, "SpecialClosureDelegate"))
 	}
 
 	pos, tok, s := p.pos, p.tok, p.tok.String()[1:]
@@ -1190,7 +1190,7 @@ func (p *parser) parseSpecialClosureDelegate(lhs bool) Value {
 }
 
 func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
-	if p.tracing.enabled && false { defer un(trace(p, "Unary")) }
+	if t_traverse.enabled && false { defer un(trace(t_traverse, "Unary")) }
 
 	switch p.tok {
 	case token.BAREWORD, token.AT:
@@ -1268,7 +1268,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
 }
 
 func (p *parser) parseComposedExpr(lhs bool) (x Value) {
-	if p.tracing.enabled { defer un(trace(p, "Composed")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Composed")) }
 	switch x = p.parseUnaryExpr(lhs); p.tok { // check composible expressions
 	case token.SELECT_PROP, token.SELECT_PROG1, token.SELECT_PROG2: // foo->bar  foo=>bar  foo~>bar
 		if p.bits&composingNoSelect == 0 {
@@ -1318,7 +1318,7 @@ func (p *parser) parseComposedExpr(lhs bool) (x Value) {
 }
 
 func (p *parser) parseText() (res []Value) {
-	if false && p.tracing.enabled { defer un(trace(p, "Text")) }
+	if false && t_traverse.enabled { defer un(trace(t_traverse, "Text")) }
 	for p.tok != token.EOF {
 		res = append(res, p.parseExpr(false))
 	}
@@ -1326,7 +1326,7 @@ func (p *parser) parseText() (res []Value) {
 }
 
 func (p *parser) parseExpr(lhs bool) (x Value) {
-	if false && p.tracing.enabled { defer un(trace(p, "Expression")) }
+	if false && t_traverse.enabled { defer un(trace(t_traverse, "Expression")) }
 
 	pos, tok := p.pos, p.tok
 	if x = p.parseComposedExpr(lhs); x == nil {
@@ -1544,7 +1544,7 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
 }
 
 func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ int) {
-	if p.tracing.enabled { defer un(trace(p, "Spec")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Spec")) }
 
 	var (
 		x = p.parseExpr(false)
@@ -1560,15 +1560,6 @@ func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ 
 		p.includeFile(p.position(), x)
 	}
 }
-
-/*
-func (p *parser) parseConfigurationSpec(doc *CommentGroup, generic *genericoptions, _ int) {
-	name := p.parseExpr(false)
-	def  := p.parseDefineClause(p.tok, name)
-	if !generic.dontOperate {
-		diag.errorAt(def.position, "configuration section is deprecated")
-	}
-} */
 
 func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ int) {
 	defer p.setbits(p.setbit(parsingFilesSpec))
@@ -1673,7 +1664,7 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 }
 
 func (p *parser) parseDirectiveSpec() (props []Value) {
-	if p.tracing.enabled { defer un(trace(p, "Spec")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Spec")) }
 
 	var (
 		//doc = p.leadComment
@@ -1703,7 +1694,7 @@ ParamsParseLoop: // Parse the directive parameters
 }
 
 func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseSpecFunc) {
-	if p.tracing.enabled { defer un(trace(p, "Clause("+keyword.String()+")")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Clause("+keyword.String()+")")) }
 
 	p.skipSpaces()
 
@@ -1790,7 +1781,7 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 }
 
 func (p *parser) parseDefineClause(tok token.Token, ident Value) (def *Def) {
-	if p.tracing.enabled { defer un(trace(p, fmt.Sprintf("Define(%s)", ident))) }
+	if t_traverse.enabled { defer un(trace(t_traverse, fmt.Sprintf("Define(%s)", ident))) }
 
 	// Only accept scoped identifiers if it's ":user:" program
 	if p.scope.comment == usecomment {
@@ -1837,7 +1828,7 @@ func (p *parser) parseRecipeRuleClause(elems []Value) (x Value) {
 }
 
 func (p *parser) parseRecipeExpr() Value {
-	if p.tracing.enabled { defer un(trace(p, "Recipe")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Recipe")) }
 
 	var (
 		// TODO: comment *CommentGroup
@@ -1997,7 +1988,7 @@ func (p *parser) parseModifyParams(args []Value) (err error) {
 }
 
 func (p *parser) parseModifiersExpr() *modifiergroup {
-	if p.tracing.enabled { defer un(trace(p, "Modifiers")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Modifiers")) }
 
 	var (
 		posLp = p.expect(token.LBRACK)
@@ -2122,9 +2113,12 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 	if p.project.keyword == token.PACKAGE {
 		p.error(p.pos, "rules forbidden: %v", targets)
 		return nil
-	} else if p.tracing.enabled {
-		defer un(trace(p, "Rule"))
+	} else if t_traverse.enabled {
+		defer un(trace(t_traverse, "Rule"))
 	}
+
+	var ( a = t_traverse.elapsed(); b = a )
+	if xxx_debug { defer un(tracef(t_traverse, "parseRuleEntry(%s)", targets)) }
 
 	var (
 		// TODO: doc = p.leadComment
@@ -2167,6 +2161,8 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		}
 	}
 
+	if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v %v", b, (b-a), p.tok) }
+
 	switch special {
 	case specialRuleUse:
 		if name, alt := p.scope.ProjectName(p.project, selfproj, p.project); alt != nil {
@@ -2181,6 +2177,12 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		}
 	}
 
+	// NOTE: expand targets to speed up for later usage, it might spend lots of time in
+	// project.entry while matching for entry looked up if not expanded right now.
+	var err error
+	targets, err = ExpandAll(targets...)
+	if err != nil { p.error(p.pos, "expand targets '%v' failed: %v", targets, err) }
+
 	defer func(t []Value) { p.targets = t } (p.targets)
 	p.next(true) // skip rule delimeters and spaces
 	p.targets = targets // save targets for further usage
@@ -2194,6 +2196,8 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 			ordered = p.parseDependList()
 		}
 	}
+
+	if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v %v", b, (b-a), p.tok) }
 
 	if p.tok == token.SEMICOLON { // :;
 		// Parse inline recipe in the program scope.
@@ -2229,6 +2233,7 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		for _, d := range p.params { params = append(params, d.name) }
 	}
 
+	if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v %v", b, (b-a), p.tok) }
 	parsedData := &parsedRuleData{
 		// TODO: lang: 0,
 		params:   params,
@@ -2241,6 +2246,8 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		options:  options,
 		special:  special,
 	}
+
+	if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v %v", b, (b-a), p.tok) }
 	if special != specialRuleRec {
 		var res []*RuleEntry
 		if res = p.rule(parsedData); len(res) == 1 {
@@ -2254,6 +2261,7 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		}
 	}
 
+	if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v %v", b, (b-a), p.tok) }
 	// Close the rule scope and go back to project scope. The current
 	// scope must be project scope befor Rule.
 	p.closeScope(ls)
@@ -2264,8 +2272,8 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 }
 
 func (p *parser) parseSpecialRuleClause() Value {
-	if p.tracing.enabled {
-		defer un(trace(p, "SpecialRule"))
+	if t_traverse.enabled {
+		defer un(trace(t_traverse, "SpecialRule"))
 	}
 
 	p.expect(token.COLON) // expect and skip ':'
@@ -2306,13 +2314,17 @@ func (p *parser) parseSpecialRuleClause() Value {
 	}
 }
 
+var xxx_debug = false
 func (p *parser) expandForeach(t *template, vars map[string]Value, params []Value, endPos token.Pos) {
 	p.scanner.SetState(t.state)
 	p.pos, p.tok, p.lit = t.pos, t.tok, t.lit
 
+	if false { defer un(tracef(t_traverse, "expandForeach(%v, %v)", len(params), vars)) }
+
 	// TODO: deal with params
 	defer p.closeScope(p.openScope("template expand"))
 
+	//t_traverse.tracef("%v %v", t_traverse.elapsed(), vars)
 	for s, v := range vars {
 		var def, alt = p.def(p.position(), s)
 		if alt == nil { def.set(DefAuto, v) } else {
@@ -2321,12 +2333,17 @@ func (p *parser) expandForeach(t *template, vars map[string]Value, params []Valu
 		}
 	}
 
+	//xxx_debug = true
 	for p.tok != token.EOF && p.pos < endPos {
 		switch p.tok {
 		case token.LINEND: p.next(true)
-		default: p.parseClause(endPos)
+		default:
+			//t_traverse.tracef("%v %v", t_traverse.elapsed(), p.tok)
+			p.parseClause(endPos)
 		}
 	}
+	if false { t_traverse.tracef("%v %v", t_traverse.elapsed(), p.tok) }
+	//xxx_debug = false
 }
 
 func (p *parser) expandTemplate(params []Value, endPos token.Pos) {
@@ -2340,20 +2357,15 @@ func (p *parser) expandTemplate(params []Value, endPos token.Pos) {
 	var (
 		l = len(p.templates)
 		t = p.templates[l-1]
-		list, err = mergeresult(ExpandAll(t.params...)) // TODO: parseOpts
 	)
-	if err != nil {
-		diag.errorAt(p.position(), "merge result %s failed", err)
-		return
-	}
 	if false { diag.errorAt(p.position(), "%v", cloctx) }
 	switch t.verb {
 	case "foreach":
-		for _, a := range list {
+		for _, a := range t.params {
 			p.expandForeach(t, map[string]Value{ "_" : a }, params, endPos)
 		}
 	case "for":
-		for _, a := range list {
+		for _, a := range t.params {
 			if pair, ok := a.(*Pair); ok {
 				if s, e := pair.Key.Strval(); e != nil {
 					diag.errorOf(pair.Key, "expand template %v", e).
@@ -2387,6 +2399,8 @@ func (p *parser) parseTemplateClause() (end bool) {
 	}
 
 	var params = p.parseExprList(false); p.expect(token.LINEND)
+	if false { defer un(tracef(t_traverse, "parseTemplateClause(%v, %v, %v)", verb, len(params), pos)) }
+
 	switch verb {
 	case "expand":
 		p.expandTemplate(params, pos)
@@ -2394,6 +2408,12 @@ func (p *parser) parseTemplateClause() (end bool) {
 		return
 	case "save":
 		diag.errorOf(op, "TODO: save template for later usage: ", params).debug(true)
+		return
+	}
+
+	var err error
+	if params, err = mergeresult(ExpandAll(params...)); err != nil {
+		diag.errorAt(p.positionAt(pos), "merge params %s failed", err)
 		return
 	}
 
@@ -2419,6 +2439,8 @@ ForToken:
 }
 
 func (p *parser) parseClause(endPos token.Pos) {
+	if false { defer un(tracef(t_traverse, "parseClause(%v, %v)", p.tok, p.pos)) }
+	if xxx_debug { t_traverse.tracef("%v %v - 0", t_traverse.elapsed(), p.tok) }
 	var position = p.position()
 	switch p.tok {
 	case token.USE:
@@ -2441,7 +2463,7 @@ func (p *parser) parseClause(endPos token.Pos) {
 		return
 	}
 
-	if p.tracing.enabled { defer un(trace(p, "Clause(?)")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "Clause(?)")) }
 
 	var x = p.parseExpr(true); p.skipSpaces()
 	if p.tok.IsAssign() {
@@ -2454,7 +2476,11 @@ func (p *parser) parseClause(endPos token.Pos) {
 		list = append(list, p.parseLhsList()...)
 	}
 	if p.tok.IsRuleDelim() {
+		var a = t_traverse.elapsed()
+		if xxx_debug { t_traverse.tracef("%v %v - 1", a, p.tok) }
 		p.parseRuleEntry(specialRuleNor, nil, list)
+		var b = t_traverse.elapsed()
+		if xxx_debug { t_traverse.tracef("%v %v %v", b, (b-a), p.tok) }
 		return
 	}
 
@@ -2519,7 +2545,8 @@ func (p *parser) applyUseeVars(position Position, proj *Project, using Value) {
 
 func (p *parser) parseFile() *parsedFile {
 	if optionTraceLaunch { defer un(trace(t_launch, "parser.parseFile")) }
-	if p.tracing.enabled { defer un(trace(p, "File '"+p.file.Name()+"'")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "File '"+p.file.Name()+"'")) }
+    if false { defer un(tracef(t_traverse, "parseFile(%s)", p.file.Name())) }
 
 	// Don't bother parsing the rest if we had errors scanning the first token.
 	// Likely not a Go source file at all.

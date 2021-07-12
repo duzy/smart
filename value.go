@@ -230,21 +230,6 @@ type traversal struct {
     debug bool
 }
 
-// Usage pattern: defer un(tt(pc, "..."))
-func tt(t *traversal, i Value) *traversal {
-    // Note that t.args and t.arguments are different, they're
-    // target execution args and argumented-prerequisite args.
-    var a string
-    if tar := t.entry.target; len(t.args) > 0 {
-        a = fmt.Sprintf("%s{%s}%s", typeof(tar), tar, t.args)
-    } else {
-        a = fmt.Sprintf("%s{%v}", typeof(tar), tar)
-    }
-    var b = fmt.Sprintf("%s{%v}", typeof(i), i)
-    t.trace(a, ":", b, "(")
-    t.level(+1)
-    return t
-}
 func (t *traversal) level(n int) { t.traceLevel += n }
 func (t *traversal) trace(a ...interface{}) { printIndentDots(t.traceLevel, a...) }
 func (t *traversal) tracef(s string, a ...interface{}) { printIndentDots(t.traceLevel, fmt.Sprintf(s, a...)) }
@@ -920,7 +905,7 @@ func (p *Argumented) Strval() (s string, err error) {
     return
 }
 func (p *Argumented) traverse(t *traversal) (breakers []*breaker) {
-    if optionTraceTraversal { defer un(tt(t, p)) }
+    if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     //!< IMPORTANT! - Don't merge-expand arguments here!
     //!< Arguments should be passed to Execute as it's
     //!< represented.
@@ -1055,7 +1040,7 @@ func (p *Any) Strval() (s string, err error) {
 }
 func (p *Any) String() string { return fmt.Sprintf("<%v>", p.value) }
 func (p *Any) traverse(t *traversal) (breakers []*breaker) {
-    if optionTraceTraversal { defer un(tt(t, p)) }
+    if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     if v, ok := p.value.(Value); ok { breakers = v.traverse(t) }
     return
 }
@@ -1102,7 +1087,7 @@ func (p *negative) Integer() (res int64, err error) {
     return
 }
 func (p *negative) traverse(t *traversal) (breakers []*breaker) {
-    if optionTraceTraversal { defer un(tt(t, p)) }
+    if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     if p.x != nil { breakers = p.x.traverse(t) }
     return
 }
@@ -1582,7 +1567,7 @@ func (p *String) Strval() (string, error) { return strings.Replace(p.string, "\\
 func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
 func (p *String) traverse(t *traversal) (breakers []*breaker) {
-    if optionTraceTraversal { defer un(tt(t, p)) }
+    if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     breakers = t.target(p.position, p.string)
     return
 }
@@ -1619,7 +1604,7 @@ func (p *Bareword) Strval() (string, error) { return p.string, nil }
 func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *Bareword) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
 func (p *Bareword) traverse(t *traversal) (breakers []*breaker) {
-    if optionTraceTraversal { defer un(tt(t, p)) }
+    if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     breakers = t.target(p.position, p.string)
     return
 }
@@ -1647,7 +1632,7 @@ func (p *Qualiword) Strval() (string, error) { return p.String(), nil }
 func (p *Qualiword) Integer() (int64, error) { return int64(len(p.words)), nil }
 func (p *Qualiword) Float() (float64, error) { return float64(len(p.words)), nil }
 func (p *Qualiword) traverse(t *traversal) (breakers []*breaker) {
-    if optionTraceTraversal { defer un(tt(t, p)) }
+    if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     breakers = t.target(p.position, p.String())
     return
 }
@@ -1782,7 +1767,7 @@ func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
     return
 }
 func (p *Barecomp) traverse(t *traversal) (breakers []*breaker) {
-    if optionTraceTraversal { defer un(tt(t, p)) }
+    if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     var ( target string; err error )
     if target, err = p.Strval(); err == nil {
         if false { fmt.Fprintf(stderr, "%s: %v (%s)\n", p.position, p, target) }
@@ -1849,7 +1834,7 @@ func (p *Barefile) Float() (float64, error) {
     return float64(i), e
 }
 func (p *Barefile) traverse(t *traversal) (breakers []*breaker) {
-    if optionTraceTraversal { defer un(tt(t, p)) }
+    if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     if p.File == nil { // it happens if p.Name refers argument
         var ( target string; err error )
         if target, err = p.Strval(); err != nil {
@@ -2045,7 +2030,7 @@ func (p *Path) exists() existence {
     return existenceNegated
 }
 func (p *Path) traverse(t *traversal) (breakers []*breaker) {
-    if optionTraceTraversal { defer un(tt(t, p)) }
+    if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
 
     // Path pathname.
     var ( pathname string; err error ) // the addressed file target
@@ -2563,7 +2548,7 @@ func (p *File) isSysFile() (res bool) {
     return
 }
 func (p *File) traverse(t *traversal) (breakers []*breaker) {
-    if optionTraceTraversal { defer un(tt(t, p)) }
+    if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     if optionTraceExec { defer un(trace(t_exec, fmt.Sprintf("File %v", p))) }
     if p.isSysFile() { if optionTraceTraversal { t.tracef("SysFile: true") }
         return
@@ -2875,7 +2860,7 @@ func (p *Flag) cmp(v Value) (res cmpres) {
     return
 }
 func (p *Flag) traverse(t *traversal) (breakers []*breaker) {
-    if optionTraceTraversal { defer un(tt(t, p)) }
+    if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     var ( s string; err error )
     if s, err = p.Strval(); err == nil {
         breakers = t.target(p.position, s)
@@ -3034,7 +3019,7 @@ func (p *List) expand(w expandwhat) (res Value, err error) {
 
 func (p *List) traverse(t *traversal) (breakers []*breaker) {
     if len(p.Elems) == 0 { return }
-    if optionTraceTraversal { defer un(tt(t, p)) }
+    if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     for _, v := range p.Elems {
         if breakers = v.traverse(t); len(breakers) > 0 { break }
     }
@@ -3483,7 +3468,7 @@ func (p *delegate) refdef(origin Origin) (res bool) {
   return
 }
 func (p *delegate) traverse(t *traversal) (breakers []*breaker) {
-    if optionTraceTraversal { defer un(tt(t, p)) }
+    if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     var ( val Value; err error )
     if val, err = p.expand(expandAll); err == nil {
         breakers = t.dispatch(val)
@@ -3705,7 +3690,7 @@ func (p *closure) refs(v Value) bool {
 }
 func (p *closure) closured() bool { return true }
 func (p *closure) traverse(t *traversal) (breakers []*breaker) {
-    if optionTraceTraversal { defer un(tt(t, p)) }
+    if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     if v, e := p.expand(expandClosure); e != nil {
         diag.errorOf(p, "expand: %v", e)
     } else if v == nil {
@@ -3874,7 +3859,7 @@ func (p *selection) expand(w expandwhat) (res Value, err error) {
     return
 }
 func (p *selection) traverse(t *traversal) (breakers []*breaker) {
-    if optionTraceTraversal { defer un(tt(t, p)) }
+    if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     var ( v Value; err error )
     if v, err = p.value(); err != nil {
         diag.errorOf(p, "value: %v", err)
@@ -4039,7 +4024,7 @@ func (p *PercPattern) stencil(stems []string) (s string, rest []string, err erro
 func (p *PercPattern) refs(v Value) bool { return p.Prefix.refs(v) || p.Suffix.refs(v) }
 func (p *PercPattern) closured() bool { return p.Prefix.closured() || p.Suffix.closured() }
 func (p *PercPattern) traverse(t *traversal) (breakers []*breaker) {
-    if optionTraceTraversal { defer un(tt(t, p)); t.tracef("stems: %v", t.stems) }
+    if optionTraceTraversal { defer un(tt(t_traverse, t, p)); t.tracef("stems: %v", t.stems) }
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("PercPattern.traverse(%v)", p))) }
     if optionEnableBenchspots { defer bench(spot("PercPattern.traverse")) }
     if t.stems == nil { diag.errorAt(p.position, "no stems"); return }
@@ -4164,7 +4149,7 @@ func (p *GlobPattern) closured() (res bool) {
     return
 }
 func (p *GlobPattern) traverse(t *traversal) (breakers []*breaker) {
-    if optionTraceTraversal { defer un(tt(t, p)) }
+    if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     if t.stems == nil { return }
 
     var (

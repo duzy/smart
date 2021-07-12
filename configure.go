@@ -78,9 +78,9 @@ func do_configuration() {
         if _, e := os.Stat(s); e != nil {
             // ...
         } else if e = os.Remove(s); e == nil {
-            fmt.Fprintf(stderr, "configure: Remove %s\n", s)
+            fmt.Fprintf(stderr, "Remove %s\n", s)
         } else if true {
-            fmt.Fprintf(stderr, "configure: %s\n", e)
+            fmt.Fprintf(stderr, "Remove: %s\n", e)
         }
     }
 
@@ -108,7 +108,7 @@ func do_configuration() {
             file, writer = f, bufio.NewWriter(f)
             fmt.Fprintf(writer, "# %s (%s) configuration\n", p.spec, p.relPath)
 
-            fmt.Fprintf(stderr, "configure: Project %s …… (%s)\n", p.spec, p.relPath)
+            fmt.Fprintf(stderr, "Project %s …… (%s)\n", p.spec, p.relPath)
             project = p
         }
         if _, e := entry.Execute(entry.position); e != nil {
@@ -166,7 +166,7 @@ func configurationFileName(p *Project) (s string, err error) {
 }
 
 func configPrintf(pos Position, str string, args... interface{}) {
-    fmt.Fprintf(stderr, str, args...)
+    diag.prompt(str, args...) //fmt.Fprintf(stderr, str, args...)
 }
 
 func configMessageDone(pos Position, str string, args... interface{}) {
@@ -375,9 +375,9 @@ func configureExec(pos Position, t *traversal, opts *modifierConfigureOpts, s st
         if isNil(result) || isNone(result) { res = true } else {
             res, _ = result.True()
         }
-        if !res || diag.numErrors() > 0 {
+        if n := diag.numErrors(); !res || n > 0 {
             t, _ := target.Strval()
-            diag.errorAt(pos, "%v: %v = %v", s, t, result)
+            diag.errorAt(pos, "%v: %v = %v (FIXME: errs = %d)", s, t, result, n)
         }
         _ = diag.checkErrors(true)
     }
@@ -454,9 +454,9 @@ ForArgs:
     } ()
 
     if isNil(info) {
-        configPrintf(pos, "configure: %v %v …", target, args)
+        configPrintf(pos, "%v %v …", target, args)
     } else if s, e := info.Strval(); e == nil {
-        configPrintf(pos, "configure: %s …", s)
+        configPrintf(pos, "%s …", s)
     } else {
         diag.errorAt(pos, "stringify configure message failed: %v", e)
         return
@@ -737,12 +737,6 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
         return
     }
 
-    /*
-            var num int64
-            if num, err = v.Integer(); err != nil { return } else {
-                optMode = os.FileMode(num & 0777)
-            }
-     */
     var opts = modifierConfigureFileOpts{ mode: os.FileMode(0600) }
     if args, err = parseOpts(pos, &opts, args...); err != nil {
         diag.errorAt(pos, "parse configure-file opts failed: %v", err)
@@ -801,9 +795,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
     }
     if closure == nil { closure = t.closure }
     defer func(s string, c *Scope) {
-        if err == nil { configuredFiles[s] = c } else {
-            diag.errorAt(pos, "%v", err)
-        }
+        if err == nil { configuredFiles[s] = c } else { diag.errorAt(pos, "%v", err) }
     } (filename, closure)
 
     var data bytes.Buffer
@@ -841,7 +833,6 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
 
     var status string
     if opts.verbose {
-        printEnteringDirectory()
         fmt.Fprintf(stderr, "smart: Updating %v …", file)
         defer func() {
             if err != nil { status = "error!" } else

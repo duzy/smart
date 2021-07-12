@@ -66,6 +66,7 @@ const (
   diagInfo diagType = iota
   diagWarn
   diagError
+  diagPrompt
 )
 
 type diagnostic struct {
@@ -116,10 +117,6 @@ func (diag *Diagnostic) warnOf(value Value, f string, args... interface{}) *diag
 }
 func (diag *Diagnostic) errorOf(value Value, f string, args... interface{}) *diagnostic {
   var s = fmt.Sprintf(f, args...)
-  /*if strings.Contains(s, ": error: core:") {
-    fmt.Fprintf(stderr, "1. '%v' -> %v\n", f, s)
-    debug.PrintStack()
-  }*/
   return diag.add(&diagnostic{ diagError, value.Position(), value, s, nil })
 }
 func (diag *Diagnostic) infoAt(pos Position, f string, args... interface{}) *diagnostic {
@@ -130,10 +127,6 @@ func (diag *Diagnostic) warnAt(pos Position, f string, args... interface{}) *dia
 }
 func (diag *Diagnostic) errorAt(pos Position, f string, args... interface{}) *diagnostic {
   var s = fmt.Sprintf(f, args...)
-  /*if strings.Contains(s, ": error: core:") {
-    fmt.Fprintf(stderr, "2. '%v' -> %v\n", f, s)
-    debug.PrintStack()
-  }*/
   return diag.add(&diagnostic{ diagError, pos, nil, s, nil })
 }
 func (diag *Diagnostic) info(f string, args... interface{}) *diagnostic {
@@ -144,19 +137,17 @@ func (diag *Diagnostic) warn(f string, args... interface{}) *diagnostic {
 }
 func (diag *Diagnostic) error(f string, args... interface{}) *diagnostic {
   var s = fmt.Sprintf(f, args...)
-  /*if strings.Contains(s, ": error: core:") {
-    fmt.Fprintf(stderr, "3. '%v' -> %v\n", f, s)
-    debug.PrintStack()
-  }*/
   return diag.add(&diagnostic{ diagError, Position{}, nil, s, nil })
+}
+func (diag *Diagnostic) prompt(f string, args... interface{}) *diagnostic {
+  var s = fmt.Sprintf(f, args...)
+  return diag.add(&diagnostic{ diagPrompt, Position{}, nil, s, nil })
 }
 
 func (diag *Diagnostic) numErrors() (num int) {
   diag.m.Lock(); defer diag.m.Unlock()
   for _, d := range diag.points {
-    if d.dt == diagError {
-      num += 1
-    }
+    if d.dt == diagError { num += 1 }
   }
   return
 }
@@ -165,6 +156,7 @@ func (diag *Diagnostic) checkErrors(reset bool) (num int) {
   for _, d := range diag.points {
     var pos = d.getPosition()
     switch d.dt {
+    case diagPrompt:fmt.Fprintf(stderr, "%s",                    d.message)
     case diagInfo:  fmt.Fprintf(stderr, "%v:info: %s\n",    pos, d.message)
     case diagWarn:  fmt.Fprintf(stderr, "%v:warning: %s\n", pos, d.message)
     case diagError: fmt.Fprintf(stderr, "%v: %s\n",         pos, d.message)
@@ -172,7 +164,7 @@ func (diag *Diagnostic) checkErrors(reset bool) (num int) {
     }
     if d.stack != nil { fmt.Fprintf(stderr, "%s", d.stack) }
     if num > 22 {
-      fmt.Fprintf(stderr, "%v: too many errors\n", pos)
+      fmt.Fprintf(stderr, "%v: too many errors (%d)\n", pos, num)
       break
     }
   }
