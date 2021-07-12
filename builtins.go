@@ -510,7 +510,8 @@ func builtinPosition(pos Position, args... Value) (res Value) {
                         if okay {
                                 var n int64
                                 if n, err = int64Val(val, 0); err != nil {
-                                        diag.errorAt(pos, "position: %v", err); return
+                                        diag.errorAt(pos, "position: %v", err)
+                                        return
                                 }
                                 last.int64 += n
                         }
@@ -3233,7 +3234,7 @@ func builtinGrep(pos Position, args... Value) (res Value) {
 
 var (
         rsConfigRef = `\$\{([^\s\}]+)\}|@([^\s\@]+)@`
-        rsConfigure = `^[\t ]*#[\t ]*(define|smartdefine|smartdefine01|cmakedefine|cmakedefine01)[\t ]+([A-Za-z0-9_]+)(?:[\t ]+([^\n]*))?$`
+        rsConfigure = `^[\t ]*#[\t ]*(define|undef|smartdefine|smartdefine01|cmakedefine|cmakedefine01)[\t ]+([A-Za-z0-9_]+)(?:[\t ]+([^\n]*))?$`
         rxConfigure = regexp.MustCompile(fmt.Sprintf(`(?m:%s)`, rsConfigure))
         rxConfigRef = regexp.MustCompile(rsConfigRef)
 )
@@ -3302,23 +3303,55 @@ func configure(pos Position, out *bytes.Buffer, project *Project, str string) (e
                 var name = str[m[4]:m[5]]
                 var hasv = m[6] > m[0] && m[7] > m[6]
                 var def *Def
-                if def, err = project.config(name); err != nil { diag.errorAt(pos, "%v", err); return }
+                if def, err = project.config(name); err != nil {
+                        diag.errorAt(pos, "config '%s' failed: %v", name, err)
+                        return
+                } else if def == nil {
+                        // ...
+                } else if t, err = def.True(); err != nil {
+                        diag.errorAt(pos, "truthify '%v failed: %v", def, err)
+                        return
+                }
                 //fmt.Fprintf(stderr, "%v: configure: %v %v %v\n", scope.comment, verb, name, def)
                 switch verb {
                 case "define":
-                        if project.name == "Basic" { fmt.Fprintf(stderr, "%s: %s: %v %v %v\n%s\n", project, pos, name, hasv, def, s) }
                         if hasv /*&& !(def == nil || def.value == nil)*/ {
                                 v := str[m[6]:m[7]]
                                 s = fmt.Sprintf("#define %s %s", name, v)
                         } else {
                                 s = fmt.Sprintf("#define %s", name)
                         }
-                case "smartdefine", "cmakedefine":
-                        if def != nil {
-                                if t, err = def.True(); err != nil {
-                                        return
+                case "undef":
+                        var va []Value
+                        if def == nil {
+                                s = fmt.Sprintf("#undef %s", name)
+                        } else if isNil(def.value) || isNone(def.value) {
+                                s = fmt.Sprintf("#undef %s /* %v */", name, def.value)
+                        } else if va, err = ExpandAll(def.value); err != nil {
+                                diag.errorOf(def.value, "expand '%v' failed: %v", def.value, err)
+                                return
+                        } else if len(va) == 1 {
+                                switch v := va[0].(type) {
+                                case *answer, *boolean:
+                                        if b, e := v.True(); e != nil {
+                                                diag.errorOf(def.value, "truthify '%v' failed: %v", v, e)
+                                                return
+                                        } else if b {
+                                                s = fmt.Sprintf("#define %s 1 /* %T %v */", name, v, v)
+                                        } else {
+                                                s = fmt.Sprintf("#undef %s /* %T %v */", name, v, v)
+                                        }
+                                case *String:
+                                        s = strings.Replace(v.string, "\"", "\\\"", -1)
+                                        s = fmt.Sprintf("#define %s \"%s\"", name, v.string)
+                                default:
+                                        s = fmt.Sprintf("#define %s %v /* %T */", name, v, v)
                                 }
+                        } else {
+                                var v = def.value
+                                s = fmt.Sprintf("#define %s %v /* %T %v */", name, v, v, va)
                         }
+                case "smartdefine", "cmakedefine":
                         if !t {
                                 s = fmt.Sprintf("/* #undef %s */", name)
                         } else if hasv {
@@ -3328,11 +3361,6 @@ func configure(pos Position, out *bytes.Buffer, project *Project, str string) (e
                                 s = fmt.Sprintf("#define %s", name)
                         }
                 case "smartdefine01", "cmakedefine01":
-                        if def != nil {
-                                if t, err = def.True(); err != nil {
-                                        return
-                                }
-                        }
                         if !t {
                                 s = fmt.Sprintf("#define %s 0", name)
                         } else if hasv {

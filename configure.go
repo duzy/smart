@@ -776,6 +776,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
         })
         if err != nil { diag.errorAt(pos, "%v", err); return }
     }
+
     if file.info == nil { if f := stat(pos, filename, "", ""); f != nil { file.info = f.info }}
     if project == nil { project = t.project }
     if opts.debug && file != nil {
