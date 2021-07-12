@@ -759,9 +759,6 @@ func (l *loader) determine(position Position, tok token.Token, identifier, value
 func (l *loader) rule(clause *parsedRuleData) (entries []*RuleEntry) {
     defer setclosure(setclosure(cloctx.unshift(l.project.scope)))
 
-	var ( a = t_traverse.elapsed(); b = a )
-	if xxx_debug { defer un(tracef(t_traverse, "rule(%s)", clause.targets)) }
-
     var (
         params  []*Def
         depends []Value
@@ -798,7 +795,6 @@ func (l *loader) rule(clause *parsedRuleData) (entries []*RuleEntry) {
         position: clause.position,
     }
 
-	if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v", b, (b-a)) }
     for _, target := range clause.targets {
         if target == nil {
             diag.errorOf(target, "nil target (%T)", target)
@@ -821,9 +817,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []*RuleEntry) {
             }
         }
 
-        //if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v", b, (b-a)) }
         entry, err = l.project.entry(clause.special, clause.options, target, prog)
-        //if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v", b, (b-a)) }
         if err != nil {
             diag.errorOf(target, "creating entry '%v' failed: %v", target, err)
             return
@@ -891,8 +885,6 @@ func (l *loader) includeFile(pos Position, spec Value) {
         diag.errorAt(pos, "`%v` is empty string", spec)
         return
     }
-
-    if false { defer un(trace(t_traverse, "includeFile.ParseFile")) } // xxx_debug
 
     var absDir, baseName = filepath.Split(fullname)
     defer func(mode Mode) { l.mode = mode } (l.mode) // Must restore parse mode!

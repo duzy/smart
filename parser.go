@@ -2118,7 +2118,6 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 	}
 
 	var ( a = t_traverse.elapsed(); b = a )
-	if xxx_debug { defer un(tracef(t_traverse, "parseRuleEntry(%s)", targets)) }
 
 	var (
 		// TODO: doc = p.leadComment
@@ -2161,8 +2160,6 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		}
 	}
 
-	if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v %v", b, (b-a), p.tok) }
-
 	switch special {
 	case specialRuleUse:
 		if name, alt := p.scope.ProjectName(p.project, selfproj, p.project); alt != nil {
@@ -2196,8 +2193,6 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 			ordered = p.parseDependList()
 		}
 	}
-
-	if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v %v", b, (b-a), p.tok) }
 
 	if p.tok == token.SEMICOLON { // :;
 		// Parse inline recipe in the program scope.
@@ -2233,7 +2228,6 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		for _, d := range p.params { params = append(params, d.name) }
 	}
 
-	if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v %v", b, (b-a), p.tok) }
 	parsedData := &parsedRuleData{
 		// TODO: lang: 0,
 		params:   params,
@@ -2247,7 +2241,6 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		special:  special,
 	}
 
-	if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v %v", b, (b-a), p.tok) }
 	if special != specialRuleRec {
 		var res []*RuleEntry
 		if res = p.rule(parsedData); len(res) == 1 {
@@ -2261,7 +2254,6 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		}
 	}
 
-	if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v %v", b, (b-a), p.tok) }
 	// Close the rule scope and go back to project scope. The current
 	// scope must be project scope befor Rule.
 	p.closeScope(ls)
@@ -2314,12 +2306,9 @@ func (p *parser) parseSpecialRuleClause() Value {
 	}
 }
 
-var xxx_debug = false
 func (p *parser) expandForeach(t *template, vars map[string]Value, params []Value, endPos token.Pos) {
 	p.scanner.SetState(t.state)
 	p.pos, p.tok, p.lit = t.pos, t.tok, t.lit
-
-	if false { defer un(tracef(t_traverse, "expandForeach(%v, %v)", len(params), vars)) }
 
 	// TODO: deal with params
 	defer p.closeScope(p.openScope("template expand"))
@@ -2333,7 +2322,6 @@ func (p *parser) expandForeach(t *template, vars map[string]Value, params []Valu
 		}
 	}
 
-	//xxx_debug = true
 	for p.tok != token.EOF && p.pos < endPos {
 		switch p.tok {
 		case token.LINEND: p.next(true)
@@ -2342,8 +2330,6 @@ func (p *parser) expandForeach(t *template, vars map[string]Value, params []Valu
 			p.parseClause(endPos)
 		}
 	}
-	if false { t_traverse.tracef("%v %v", t_traverse.elapsed(), p.tok) }
-	//xxx_debug = false
 }
 
 func (p *parser) expandTemplate(params []Value, endPos token.Pos) {
@@ -2440,7 +2426,6 @@ ForToken:
 
 func (p *parser) parseClause(endPos token.Pos) {
 	if false { defer un(tracef(t_traverse, "parseClause(%v, %v)", p.tok, p.pos)) }
-	if xxx_debug { t_traverse.tracef("%v %v - 0", t_traverse.elapsed(), p.tok) }
 	var position = p.position()
 	switch p.tok {
 	case token.USE:
@@ -2476,11 +2461,7 @@ func (p *parser) parseClause(endPos token.Pos) {
 		list = append(list, p.parseLhsList()...)
 	}
 	if p.tok.IsRuleDelim() {
-		var a = t_traverse.elapsed()
-		if xxx_debug { t_traverse.tracef("%v %v - 1", a, p.tok) }
 		p.parseRuleEntry(specialRuleNor, nil, list)
-		var b = t_traverse.elapsed()
-		if xxx_debug { t_traverse.tracef("%v %v %v", b, (b-a), p.tok) }
 		return
 	}
 

@@ -684,7 +684,6 @@ func (p *Project) _resolvePatterns3(i interface{}) (res []*stemmed, err error) {
 
 func (p *Project) entry(special specialRule, options []Value, target Value, prog *Program) (entry *RuleEntry, err error) {
 	var ( a = t_traverse.elapsed(); b = a )
-	if xxx_debug { defer un(tracef(t_traverse, "entry(%s)", target)) }
 
   defer func() {
     if entry != nil && err == nil {
@@ -724,8 +723,6 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
     err = fmt.Errorf("name '%v' already taken as `%T'", name)
     return
   }
-
-  if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v - 1", b, (b-a)) }
 
   // Looking for pattern rule entries.
   switch t := target.(type) {
@@ -776,21 +773,17 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
   }
 
   // Looking for concrete rule entries.
-  //if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v %v", b, (b-a), p.concrete) }
   for _, rec := range p.concrete {
-    if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v %v - 1", b, (b-a), rec) }
     var sv string
     if closured && rec.String() == name {
       entry = rec; break
     }
-    if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v %v - 2", b, (b-a), rec) }
     if sv, err = rec.Strval(); err != nil {
       return
     } else if sv == strval {
       entry = rec; break
     }
   }
-  if b = t_traverse.elapsed(); xxx_debug { t_traverse.tracef("%v %v", b, (b-a)) }
   if entry == nil {
     entry = &RuleEntry{
       class: GeneralRuleEntry,
