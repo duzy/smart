@@ -2175,8 +2175,23 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 	// NOTE: expand targets to speed up for later usage, it might spend lots of time in
 	// project.entry while matching for entry looked up if not expanded right now.
 	var err error
-	targets, err = ExpandAll(targets...)
-	if err != nil { p.error(p.pos, "expand targets '%v' failed: %v", targets, err) }
+	if true {
+		targets, err = ExpandAll(targets...)
+		if err != nil { p.error(p.pos, "expand targets '%v' failed: %v", targets, err) }
+	} else {
+		var ta []Value
+		for _, t := range targets {
+			if t.closured() {
+				diag.infoOf(t, "%v", t)
+				ta = append(ta, t)
+			} else if a, e := ExpandAll(t); e == nil {
+				ta = append(ta, a...)
+			} else {
+				p.error(p.pos, "expand targets '%v' failed: %v", targets, e)
+			}
+		}
+		targets = ta
+	}
 
 	defer func(t []Value) { p.targets = t } (p.targets)
 	p.next(true) // skip rule delimeters and spaces
