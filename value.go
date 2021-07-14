@@ -738,19 +738,19 @@ func (t *traversal) wait(pos Position) {
             diag.errorAt(pos, "got %d errors waiting '%v'", len(errs), t.def.target.value)
         }
         var (
-                v = t.def.target.value
-                targetValuePos = v.Position()
+            v = t.def.target.value
+            targetValuePos = v.Position()
         )
         if l, ok := v.(*List); ok && l.Len() == 1 { v = l.Elems[0] }
         if targetValuePos.IsValid() && !targetValuePos.Equals(&targetPos) {
-                if f, ok := v.(*File); ok && f.match != nil {
-                        diag.errorAt(targetValuePos, "%v", t.def.target.value)
-                        diag.errorOf(f.match.pattern, "%v (of %v)", v, f.match.project).
-                                debug(optionDebugErrors && t.def.target.value == v && t.closure == nil)
-                } else {
-                        diag.errorAt(targetValuePos, "%v", t.def.target.value).
-                                debug(optionDebugErrors && t.def.target.value == v && t.closure == nil)
-                }
+            if f, ok := v.(*File); ok && f.match != nil {
+                diag.errorAt(targetValuePos, "%v", t.def.target.value)
+                diag.errorOf(f.match.pattern, "%v (of %v)", v, f.match.project).
+                    debug(optionDebugErrors && t.def.target.value == v && t.closure == nil)
+            } else {
+                diag.errorAt(targetValuePos, "%v", t.def.target.value).
+                    debug(optionDebugErrors && t.def.target.value == v && t.closure == nil)
+            }
         }
         if def, ok := v.(*Def); ok && t.def.target.value != v && t.def.target.value != def.value {
             // trace source Def in diagnostics
@@ -764,8 +764,8 @@ func (t *traversal) wait(pos Position) {
         if t.isConfigureExecution {
             //diag.errorOf(t., "%v: %v = %v", s, t, result)
         }
-     }
-     return
+    }
+    return
 }
 
 type elemkind int

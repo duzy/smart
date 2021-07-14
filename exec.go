@@ -869,8 +869,19 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
             targetPos = target.Position()
             isSamePos = targetPos.Equals(&pos)
           )
-          diag.errorAt(pos, "%v", err).debug(optionDebugErrors && isSamePos)
-          if !isSamePos { diag.errorOf(target, "%v", err).debug(optionDebugErrors) }
+          if isSamePos {
+            diag.errorAt(pos, "%v", err).debug(optionDebugErrors)
+          } else if targetPos.IsValid() {
+            var a, b = pos, targetPos
+            diag.errorAt(a, "(a) %v", err).debug(optionDebugErrors)
+            diag.errorAt(b, "(b) %v", err).debug(optionDebugErrors)
+          } else {
+            diag.errorAt(pos, "%v", err)
+            for c := t; c != nil; c = c.caller {
+              diag.errorAt(c.program.position, "called from here")
+            }
+            diag.errorAt(pos, "from here").debug(optionDebugErrors)
+          }
         }
       }
       if log.writer != nil {
