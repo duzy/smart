@@ -23,6 +23,9 @@ type Position struct {
 func (p *Position) IsValid() bool {
 	return p.Filename != "" && p.Offset >= 0 && p.Line > 0 && p.Column > 0
 }
+func (p *Position) SameLine(o *Position) bool {
+	return p.Filename == o.Filename && p.Line == o.Line
+}
 func (p *Position) Equals(o *Position) bool {
 	return p.Filename == o.Filename &&
 		p.Offset == o.Offset &&

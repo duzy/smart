@@ -88,13 +88,14 @@ func (e pathNotFoundError) Error() string {
 }
 
 func (e fileNotFoundError) Error() string {
+    var s = trimPromptString(e.file.fullname())
     if false { debug.PrintStack() }
     if false {
-        return fmt.Sprintf("%s: `%v` file not found (%s) (sub=%s,dir=%s)", e.project.name, e.file.name, e.file.fullname(), e.file.sub, e.file.dir)
+        return fmt.Sprintf("%s: `%v` file not found (%s) (sub=%s,dir=%s)", e.project.name, e.file.name, s, e.file.sub, e.file.dir)
     } else if false {
-        return fmt.Sprintf("%s: `%v` file not found (%s)", e.project.name, e.file.name, e.file.fullname())
+        return fmt.Sprintf("%s: `%v` file not found (%s)", e.project.name, e.file.name, s)
     } else {
-        return fmt.Sprintf("`%v` not found at %s", e.file.name, e.file.fullname())
+        return fmt.Sprintf("`%v` not found at %s", e.file.name, s)
     }
 }
 

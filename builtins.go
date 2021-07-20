@@ -36,6 +36,10 @@ func (pos *Position) Equals(other *Position) bool {
         return (*token.Position)(pos).Equals((*token.Position)(other))
 }
 
+func (pos *Position) SameLine(other *Position) bool {
+        return (*token.Position)(pos).SameLine((*token.Position)(other))
+}
+
 type BuiltinFunc func(pos Position, args... Value) (Value)
 
 var builtins = map[string]BuiltinFunc {
@@ -325,6 +329,7 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                 s, l string
                 ok bool
         )
+        if tag == "" { return args, nil }
         if s, ok = tag.Lookup("s"    ); ok { short = append(short, s) }
         if l, ok = tag.Lookup("l"    ); ok { long  = append(long , l) }
         if s, ok = tag.Lookup("short"); ok { short = append(short, s) }

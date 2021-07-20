@@ -77,21 +77,22 @@ type breaker struct {
         message string
         misstar *updatedtarget
         updated []*updatedtarget
+        value Value
         error error
 }
 
-func (p *breaker) Error() (s string) {
+func (p *breaker) _error() (s string) {
         switch p.what {
         case breakUnkn: s = "unknown"
         case breakDone: s = "done" // ineligible (cond) is ignored
         case breakNext: s = "next"
         case breakCase: s = "case"
         case breakFail: s = "failure" // "break with assertion failure"
-        case breakErro: s = fmt.Sprintf("error: %v", p.error) // "break with an error"
+        case breakErro: s = fmt.Sprintf("break error: %v", p.error) // "break with an error"
         }
         if p.pos.IsValid() {
                 if p.message != "" { s += ": " + p.message }
-                s = fmt.Sprintf("%s: %s", p.pos, s)
+                if false { s = fmt.Sprintf("%s: %s", p.pos, s) }
         }
         return
 }
@@ -101,10 +102,6 @@ func (p *breaker) prerequisites() (res []*updatedtarget) {
                 res = append(res, u.prerequisites...)
         }
         return
-}
-
-func break_with(pos Position, w breakind, s string, a... interface{}) *breaker {
-        return &breaker{ pos:pos, what:w, scope:breakGroup, message:fmt.Sprintf(s, a...) }
 }
 
 type modifier struct {
@@ -132,15 +129,11 @@ func (_ *modifier) cmp(v Value) (res cmpres) {
         if _, ok := v.(*modifier); ok { res = cmpEqual }
         return
 }
-func (m *modifier) traverse(t *traversal) (breakers []*breaker) {
+func (m *modifier) traverse(t *traversal) {
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("modifier.traverse(%s)", m))) }
-        if optionTraceTraversal { defer un(tt(t_traverse, t, m)) }
+        if optionTraceTraversal   { defer un(tt(t_traverse, t, m)) }
         if err := t.program.modify(t, m); err != nil {
-                if brk, ok := err.(*breaker); ok {
-                        breakers = []*breaker{ brk }
-                } else {
-                        diag.errorAt(m.position, "%s: %v", m.name, err)
-                }
+                diag.errorAt(m.position, "modifier '%s' failed: %v", m.name, err)
         }
         return
 }
@@ -189,33 +182,24 @@ func (_ *modifiergroup) cmp(v Value) (res cmpres) {
         if _, ok := v.(*modifiergroup); ok { res = cmpEqual }
         return
 }
-func (g *modifiergroup) traverse(t *traversal) (breakers []*breaker) {
+func (g *modifiergroup) traverse(t *traversal) {
         if optionTraceTraversal { defer un(tt(t_traverse, t, g)) }
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("modifiergroup.traverse(%s)", g))) }
-        var done bool
         for _, m := range g.modifiers {
-                if done, breakers = g.one(t, m); done || len(breakers) > 0 { break }
-        }
-        return
-}
-func (g *modifiergroup) one(t *traversal, m *modifier) (bool, []*breaker) {
-        if optionEnableBenchmarks && false { defer bench(mark(fmt.Sprintf("modifiergroup.one(%s)", m))) }
-        // traverse (invoke) the modifler and handle the breakers
-        return g.handle(t, m.traverse(t))
-}
-func (g *modifiergroup) handle(t *traversal, brks []*breaker) (done bool, breakers []*breaker) {
-        if optionEnableBenchmarks && false { defer bench(mark(fmt.Sprintf("modifiergroup.handle"))) }
-        for _, brk := range brks { // otherwise, we check break reasons
-                t.breakers = append(t.breakers, brk) // for (dirty) and interpreters.
-                if brk.what == breakCase { continue /* case selected */ }
-                if brk.what == breakDone && brk.scope == breakGroup {
-                        done = true
-                } else {
-                        breakers = append(breakers, brk) // return the breakers
+                if m.traverse(t); t.hasBreakers() {
+                        /*var breakers = t.breakers; t.breakers = nil
+                        for _, brk := range breakers { // otherwise, we check break reasons
+                                t.breakers = append(t.breakers, brk) // for (dirty) and interpreters.
+                                if brk.what == breakDone && brk.scope == breakGroup {
+                                        done = true
+                                }
+                        }*/
+                        break
                 }
         }
         return
 }
+
 func (g *modifiergroup) String() (s string) {
         s = "["
         for i, m := range g.modifiers {
@@ -257,6 +241,7 @@ var (
                 `configure`:      modifierConfigure,
 
                 `wait`:         modifierWait,
+                `stamp`:        modifierStamp,
 
                 `check`:        modifierCheck,
                 `assert`:       modifierAssert,
@@ -619,8 +604,7 @@ func parseDependList(pos Position, t *traversal, dependList *List) (depends *Lis
                         }
                 case *ExecResult:
                         if d.Status != 0 {
-                                s := fmt.Sprintf("bad status %v", d.Status)
-                                err = &breaker{ pos:pos, what:breakFail, message:s }
+                                t._break(pos, breakFail).message = fmt.Sprintf("bad status %v", d.Status)
                                 return // target shall be updated
                         } else {
                                 depends.Append(d)
@@ -1246,18 +1230,18 @@ ForTarget:
                 if !opts.noTraverse && len(t.grepped) > 0 {
                         if false && gc.debug { fmt.Fprintf(stderr, "%v: %v: %v\n", t.project, pos, t.grepped) }
                         for _, val := range t.grepped {
-                                if brks := val.traverse(t); len(brks) > 0 {
+                                if val.traverse(t); t.hasBreakers() {
                                         if true {
-                                                for _, brk := range brks {
+                                                for _, brk := range t.breakers {
                                                         switch brk.what {
                                                         case breakErro:
-                                                                diag.errorAt(brk.pos, "%v: %v", brk.what, brk.error)
+                                                                diag.errorAt(brk.pos, "grep '%v' breaked with error: %v", val, brk.error)
                                                         default:
-                                                                diag.errorAt(brk.pos, "%v: %v", brk.what, brk.message)
+                                                                diag.errorAt(brk.pos, "grep '%v' breaked: (%v) %v", val, brk.what, brk.message)
                                                         }
                                                 }
                                         }
-                                        diag.errorAt(pos, "breaked traversing %v", val)
+                                        diag.errorAt(pos, "grep traversing '%v' breaked", val)
                                         break ForTarget
                                 }
                         }
@@ -1374,7 +1358,8 @@ ForPairs:
                 case "status":
                         var exeres, _ = value.(*ExecResult)
                         if exeres == nil {
-                                err = break_with(pos, optBreak, "not an exec result (%T)", value)
+                                diag.errorOf(value, "value '%v' (%T) is not exec result", value, value)
+                                t._breakf(pos, optBreak, "value '%v' is not exec result", value)
                                 return
                         } else { exeres.wg.Wait() }
 
@@ -1401,13 +1386,13 @@ ForPairs:
                         if makeResult != nil {
                                 values = append(values, makeResult(pos, good))
                         } else if !good {
-                                err = break_with(pos, optBreak, "bad status (%v) (expects %v)", exeres.Status, p.Value)
+                                t._breakf(pos, optBreak, "bad status (%v) (expects %v)", exeres.Status, p.Value)
                                 break ForPairs
                         }
                 case "stdout", "stderr":
                         var exeres, _ = value.(*ExecResult)
                         if exeres == nil {
-                                err = break_with(pos, optBreak, "not an exec result (%T)", value)
+                                t._breakf(pos, optBreak, "not an exec result (%T)", value)
                                 return
                         } else { exeres.wg.Wait() }
                         if opts.verbose { fmt.Printf("(status=%d)", exeres.Status) }
@@ -1420,7 +1405,7 @@ ForPairs:
                         }
 
                         if v == nil {
-                                err = break_with(pos, optBreak, "bad %s (expects %v)", key, p.Value)
+                                t._breakf(pos, optBreak, "bad %s (expects %v)", key, p.Value)
                                 break ForPairs
                         }
                         if str, err = p.Value.Strval(); err != nil { 
@@ -1428,7 +1413,7 @@ ForPairs:
                         } else if res := v.String() == str; makeResult != nil {
                                 values = append(values, makeResult(pos, res))
                         } else if !res {
-                                err = break_with(pos, optBreak, "bad %s (%v) (expects %v)", key, v, p.Value)
+                                t._breakf(pos, optBreak, "bad %s (%v) (expects %v)", key, v, p.Value)
                                 break ForPairs
                         }
                 case "file", "dir":
@@ -1436,7 +1421,7 @@ ForPairs:
                         var project = t.project
                         if str, err = p.Value.Strval(); err != nil { return }
                         if file := project.FindFile(str); !exists(file) {
-                                err = break_with(pos, optBreak, "`%v` no such file or directory", p.Value)
+                                t._breakf(pos, optBreak, "`%v` no such file or directory", p.Value)
                                 break ForPairs
                         }
                         switch key {
@@ -1444,14 +1429,14 @@ ForPairs:
                                 if res := file.info.Mode().IsRegular(); makeResult != nil {
                                         values = append(values, makeResult(pos, res))
                                 } else if !res {
-                                        err = break_with(pos, optBreak, "`%v` is not a regular file", p.Value)
+                                        t._breakf(pos, optBreak, "`%v` is not a regular file", p.Value)
                                         break ForPairs
                                 }
                         case "dir":
                                 if res := file.info.Mode().IsDir(); makeResult != nil {
                                         values = append(values, makeResult(pos, res))
                                 } else if !res {
-                                        err = break_with(pos, optBreak, "`%v` is not a directory", p.Value)
+                                        t._breakf(pos, optBreak, "`%v` is not a directory", p.Value)
                                         break ForPairs
                                 }
                         default: unreachable()
@@ -1459,7 +1444,7 @@ ForPairs:
                 case "var":
                         var g, ok = p.Value.(*Group)
                         if !ok {
-                                err = break_with(pos, optBreak, "`%v` is not a group value", p.Value)
+                                t._breakf(pos, optBreak, "`%v` is not a group value", p.Value)
                                 break ForPairs
                         }
                         for _, elem := range g.Elems {
@@ -1474,17 +1459,17 @@ ForPairs:
                                                 if res := a != b; makeResult != nil {
                                                         values = append(values, makeResult(pos, res))
                                                 } else if !res {
-                                                        err = break_with(pos, optBreak, "`%v` != `%v`", p.Key, p.Value)
+                                                        t._breakf(pos, optBreak, "`%v` != `%v`", p.Key, p.Value)
                                                         break ForPairs
                                                 }
                                         } else if makeResult != nil {
                                                 values = append(values, makeResult(pos, false))
                                         } else {
-                                                err = break_with(pos, optBreak, "`%v` is not defined", k)
+                                                t._breakf(pos, optBreak, "`%v` is not defined", k)
                                                 break ForPairs
                                         }
                                 default:
-                                        err = break_with(pos, optBreak, "`%v` unsupported checks", elem)
+                                        t._breakf(pos, optBreak, "`%v` unsupported checks", elem)
                                         break ForPairs
                                 }
                         }
@@ -1632,46 +1617,22 @@ func copyFile(pos Position, srcFi os.FileInfo, src, dst string, opts *copyopts) 
 // (copy-file -p)
 // (copy-file -p,filename)
 // (copy-file -p,filename,source)
+type modifierCopyFileOpts struct {
+        path bool "p,path"
+        recursive bool "r,recursive"
+        verbose bool "v,verbose"
+        silent bool "s,silent"
+        override bool "o,override"
+        update bool "u,update"
+        quick bool "q,quick"
+        mode os.FileMode "m,mode"
+        head Value "h,head"
+        foot Value "f,foot"
+}
 func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, err error) {
-        var (
-                optPath bool
-                optRecursive bool
-                optVerbose bool
-                optSilent bool
-                optOverride bool
-                optUpdate bool
-                optQuick bool
-                optMode os.FileMode
-                optHead Value
-                optFoot Value
-        )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
-        if args, err = parseFlags(args, []string{
-                "p,path", // prepare paths for files
-                "r,recursive",
-                "v,verbose",
-                "s,silent", // optSilent
-                "s,silent-existed", // optSilent
-                "o,override",
-                "u,update",
-                "m,mode",
-                "h,head", // insert header content
-                "f,foot", // insert footer content
-                "q,quick",
-        }, func(ru rune, v Value) {
-                switch ru {
-                case 'p': if optPath     , err = trueVal(v, true); err != nil { return }
-                case 'r': if optRecursive, err = trueVal(v, true); err != nil { return }
-                case 'v': if optVerbose  , err = trueVal(v, true); err != nil { return }
-                case 's': if optSilent   , err = trueVal(v, true); err != nil { return }
-                case 'o': if optOverride , err = trueVal(v, true); err != nil { return }
-                case 'u': if optUpdate   , err = trueVal(v, true); err != nil { return }
-                case 'q': if optQuick    , err = trueVal(v, true); err != nil { return }
-                case 'm': if optMode     , err = permVal(v, 0600); err != nil { return }
-                case 'h': if !(isNil(v) || isNone(v)) { optHead = v }
-                case 'f': if !(isNil(v) || isNone(v)) { optFoot = v }
-                }
-        }); err != nil { return }
+        var opts modifierCopyFileOpts
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
+        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
 
         var target Value
         var source Value
@@ -1745,57 +1706,57 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
         }
 
         if !filetime.IsZero() && filetime.After(srctime) {
-          if optUpdate {
-            if optVerbose { fmt.Fprintf(stderr, "smart: Update %v …", target) }
-          } else if optOverride {
-            if optVerbose { fmt.Fprintf(stderr, "smart: Override %v …", target) }
+          if opts.update {
+            if opts.verbose { fmt.Fprintf(stderr, "smart: Update %v …", target) }
+          } else if opts.override {
+            if opts.verbose { fmt.Fprintf(stderr, "smart: Override %v …", target) }
           } else {
-            if optVerbose { fmt.Fprintf(stderr, "smart: Copy %v …… already existed!\n", target) }
-            if !optSilent { diag.errorAt(pos, "file already existed (%s)", target) }
+            if opts.verbose { fmt.Fprintf(stderr, "smart: Copy %v …… already existed!\n", target) }
+            if !opts.silent { diag.errorAt(pos, "file already existed (%s)", target) }
             return
           }
-        } else if optVerbose {
-                if optUpdate {
+        } else if opts.verbose {
+                if opts.update {
                         fmt.Fprintf(stderr, "smart: Checking %v …", target)
                 } else {
                         fmt.Fprintf(stderr, "smart: Copy %v …", target)
                 }
         }
 
-        if optQuick {
+        if opts.quick {
                 var file = stat(pos,filename,"","",nil)
                 if file == nil || file.info != nil {
-                        if optVerbose { fmt.Fprintf(stderr, "… Good\n") }
+                        if opts.verbose { fmt.Fprintf(stderr, "… Good\n") }
                         return
                 }
         }
 
-        var opts = &copyopts{
-                t.program, optPath||optRecursive,
-                optUpdate, optMode, optHead, optFoot,
+        var copts = &copyopts{
+                t.program, opts.path||opts.recursive,
+                opts.update, opts.mode, opts.head, opts.foot,
                 0, 0, 0,
         }
         var file *File
         if file = stat(pos,srcname,"","",nil); file == nil || file.info == nil {
                 diag.errorAt(pos, "'%s' source file not found", srcname)
         } else if !file.info.IsDir() {
-                if optMode == 0 { optMode = file.info.Mode() }
-                if err = copyFile(pos, file.info, srcname, filename, opts); err != nil { diag.errorAt(pos, "%v", err) }
-        } else if optRecursive {
-                if err = copyDir(pos, srcname, filename, opts); err != nil { diag.errorAt(pos, "%v", err) }
+                if opts.mode == 0 { opts.mode = file.info.Mode() }
+                if err = copyFile(pos, file.info, srcname, filename, copts); err != nil { diag.errorAt(pos, "%v", err) }
+        } else if opts.recursive {
+                if err = copyDir(pos, srcname, filename, copts); err != nil { diag.errorAt(pos, "%v", err) }
         } else {
                 diag.errorAt(pos, "`%v` is a directory (use -r to solve it)", source)
         }
 
-        if optVerbose {
+        if opts.verbose {
                 if err != nil {
                         fmt.Fprintf(stderr, "… error\n")
-                } else if opts.copied == 0 {
-                        fmt.Fprintf(stderr, "… Good (%d files)\n", opts.files)
-                } else if opts.copied == 1 {
-                        fmt.Fprintf(stderr, "… Copied %d bytes\n", opts.bytes)
+                } else if copts.copied == 0 {
+                        fmt.Fprintf(stderr, "… Good (%d files)\n", copts.files)
+                } else if copts.copied == 1 {
+                        fmt.Fprintf(stderr, "… Copied %d bytes\n", copts.bytes)
                 } else {
-                        fmt.Fprintf(stderr, "… Copied %d bytes (%d/%d)\n", opts.bytes, opts.copied, opts.files)
+                        fmt.Fprintf(stderr, "… Copied %d bytes (%d/%d)\n", copts.bytes, copts.copied, copts.files)
                 }
         }
         return
@@ -1820,34 +1781,21 @@ func modifierWriteFile(pos Position, t *traversal, args... Value) (result Value,
                         os.Remove(filename)
                 }
         } else {
-                s := fmt.Sprintf("file %s not generated", t.def.target.value)
-                err = &breaker{ pos:pos, what:breakFail, message:s }
+                t._break(pos, breakFail).message = fmt.Sprintf("file %s not generated", t.def.target.value)
         }
         return
 }
 
+type modifierReadFileOpts struct {
+        debug bool "d,debug"
+        verbose bool "v,verbose"
+        head Value "h,head"
+        foot Value "f,foot"
+}
 func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, err error) {
-        var (
-                optDebug bool
-                optVerbose bool
-                optHead Value
-                optFoot Value
-                filename string
-        )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
-        if args, err = parseFlags(args, []string{
-                "d,debug",
-                "v,verbose",
-                "h,head", // insert header content
-                "f,foot", // insert footer content
-        }, func(ru rune, v Value) {
-                switch ru {
-                case 'd': if optDebug  , err = trueVal(v, true); err != nil { return }
-                case 'v': if optVerbose, err = trueVal(v, true); err != nil { return }
-                case 'h': if !(isNil(v) || isNone(v)) { optHead = v }
-                case 'f': if !(isNil(v) || isNone(v)) { optFoot = v }
-                }
-        }); err != nil { return }
+        var ( opts modifierReadFileOpts; filename string )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
+        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
 
         if n := len(args); n > 1 {
                 diag.errorAt(pos, "too many files: %v", args)
@@ -1858,27 +1806,27 @@ func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, 
                 return
         }
 
-        if optDebug {
+        if opts.debug {
                 fmt.Fprintf(stderr, "%s:debug: read-file: %v\n", pos, filename)
         }
 
         var bytes []byte
         if bytes, err = ioutil.ReadFile(filename); err == nil {
                 var s, v string
-                if optHead != nil {
-                        if v, err = optHead.Strval(); err == nil { s = v } else {
+                if opts.head != nil {
+                        if v, err = opts.head.Strval(); err == nil { s = v } else {
                                 diag.errorAt(pos, "%v", err); return
                         }
                 }
                 s += string(bytes)
-                if optFoot != nil {
-                        if v, err = optFoot.Strval(); err == nil { s += v } else {
+                if opts.foot != nil {
+                        if v, err = opts.foot.Strval(); err == nil { s += v } else {
                                 diag.errorAt(pos, "%v", err); return
                         }
                 }
                 t.def.buffer.value = &String{valbase{pos},s}
         } else {
-                err = &breaker{pos:pos, what:breakFail, message:err.Error()}
+                t._break(pos, breakErro).error = err
         }
         return
 }
@@ -1916,32 +1864,20 @@ func crc64CompareFileChecksum(filename1, filename2 string) (same bool, err error
         return crc64CheckFileModeContent(filename2, s, 0)
 }
 
+type modifierUpdateFileOpts struct {
+        path bool "p,path"
+        debug bool "d,debug"
+        verbose bool "v,verbose"
+        mode os.FileMode "m,mode"
+}
 func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value, err error) {
-        var (
-                optPath bool
-                optDebug bool
-                optVerbose bool
-                optMode = os.FileMode(0640) // sys default 0666
-                filename, content string
-        )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
-        if args, err = parseFlags(args, []string{
-                "d,debug",
-                "p,path",
-                "v,verbose",
-                "m,mode",
-        }, func(ru rune, v Value) {
-                switch ru {
-                case 'd': if optDebug  , err = trueVal(v, true); err != nil { return }
-                case 'p': if optPath   , err = trueVal(v, true); err != nil { return }
-                case 'v': if optVerbose, err = trueVal(v, true); err != nil { return }
-                case 'm': if optMode   , err = permVal(v, 0600); err != nil { return }
-                }
-        }); err != nil { return }
+        var ( opts = modifierUpdateFileOpts{ mode: os.FileMode(0640) }; filename string )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
+        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
 
         var target Value
         if len(args) > 0 { target = args[0] } else { target = t.def.target.value }
-        if len(args) > 1 { if optMode, err = permVal(args[1], 0600); err != nil { return }}
+        if len(args) > 1 { if opts.mode, err = permVal(args[1], 0600); err != nil { return }}
 
         // Get target filename
         switch p := target.(type) {
@@ -1956,11 +1892,11 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                 }
         }
 
-        if optDebug {
+        if opts.debug {
                 fmt.Fprintf(stderr, "%s:debug: update-file: %v (%v) (%v, %v)\n", pos, target, filename, t.project, cloctx)
         }
 
-        if optPath { // Make path (mkdir -p)
+        if opts.path { // Make path (mkdir -p)
                 if p := filepath.Dir(filename); p != "." && p != "/" {
                         err = os.MkdirAll(p, os.FileMode(0755))
                         if err != nil { return }
@@ -1968,25 +1904,26 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
         }
 
         // Check existed file content checksum
+        var content string
         if content, err = t.def.buffer.value.Strval(); err != nil { return }
-        if content == "" && (optVerbose || optDebug) { fmt.Fprintf(stderr, "%s: empty content\n", pos) }
-        if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", trimPromptString(target.String())) }
-        if same, e := crc64CheckFileModeContent(filename, []byte(content), optMode); e != nil {
+        if content == "" && (opts.verbose || opts.debug) { fmt.Fprintf(stderr, "%s: empty content\n", pos) }
+        if opts.verbose { fmt.Fprintf(stderr, "smart: Checking %v …", trimPromptString(target.String())) }
+        if same, e := crc64CheckFileModeContent(filename, []byte(content), opts.mode); e != nil {
                 if false { // discard error (e.g.: no such file or directory)
                         fmt.Fprintf(stderr, "… (error: %s)\n", e)
                         diag.errorAt(pos, "%v", e)
                         return
                 }
         } else if same {
-                if optVerbose { fmt.Fprintf(stderr, "… Good\n") }
+                if opts.verbose { fmt.Fprintf(stderr, "… Good\n") }
                 t.removeCallerUpdated(target) // remove timestamp updated
                 result = stat(pos, filename, "", "")
                 return
-        } else if optVerbose {
+        } else if opts.verbose {
                 fmt.Fprintf(stderr, "… Outdated (%s)\n", filename)
         }
 
-        if optVerbose {
+        if opts.verbose {
                 printEnteringDirectory()
                 if false {
                         fmt.Fprintf(stderr, "smart: Update %v …", filename)
@@ -2000,7 +1937,7 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
         // Create or update the file with new content
 
         var f *os.File
-        f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, optMode)
+        f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, opts.mode)
         if err == nil && f != nil {
                 defer func() {
                         if f.Close(); err != nil {
@@ -2016,62 +1953,43 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                         }
                 } ()
                 if _, err = f.WriteString(content); err == nil {
-                        if optVerbose { fmt.Fprintf(stderr, "… (ok)\n") }
+                        if opts.verbose { fmt.Fprintf(stderr, "… (ok)\n") }
                 } else {
-                        if optVerbose { fmt.Fprintf(stderr, "… (%s)\n", err) }
+                        if opts.verbose { fmt.Fprintf(stderr, "… (%s)\n", err) }
                 }
         } else {
-                if optVerbose { fmt.Fprintf(stderr, "… (%s)\n", err) }
-                s := fmt.Sprintf("file %s not updated", t.def.target.value)
-                err = &breaker{ pos:pos, what:breakFail, message:s }
+                if opts.verbose { fmt.Fprintf(stderr, "… (%s)\n", err) }
+                t._break(pos, breakFail).message = fmt.Sprintf("file %s not updated", t.def.target.value)
         }
         return
 }
 
+type modifierWaitOpts struct {
+        verbose bool "v,verbose"
+        stdout bool "o,stdout"
+        stderr bool "e,stderr"
+        status bool "s,status"
+        trim bool "t,trim" // trim heading and tailing spaces of the result
+        execRes bool "x,exec"
+        asType string "a,as"
+}
 func modifierWait(pos Position, t *traversal, args... Value) (result Value, err error) {
-        var (
-                optVerbose bool
-                optStdout bool
-                optStderr bool
-                optStatus bool
-                optTrim bool // trim heading and tailing spaces of the result
-                optExecRes bool
-                optAsType string
-        )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
-        if args, err = parseFlags(args, []string{
-                "a,as",
-                "o,stdout",
-                "e,stderr",
-                "s,status",
-                "t,trim",
-                "x,exec",
-                "v,verbose",
-        }, func(ru rune, v Value) {
-                switch ru {
-                case 'a': if optAsType,  err = v.Strval(      ); err != nil { diag.errorOf(v, "%v", err); return }
-                case 'o': if optStdout , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
-                case 'e': if optStderr , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
-                case 's': if optStatus , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
-                case 't': if optTrim   , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
-                case 'x': if optExecRes, err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
-                case 'v': if optVerbose, err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
-                }
-        }); err != nil { diag.errorAt(pos, "%v", err); return }
-
-        if optVerbose {
+        var opts modifierWaitOpts
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
+        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
+        if opts.verbose {
                 fmt.Fprintf(stderr, "smart: Wait (%v) …\n", t.def.target.value)
         }
 
         t.wait(pos) // wait for prerequisites
 
-        if optVerbose {
+        if opts.verbose {
                 var s = "Done"
                 if err != nil { s = "Fail" }
                 fmt.Fprintf(stderr, "smart: %s (%v), updated=%v\n", s, t.def.target.value, t.updated)
         }
 
-        if (optStdout || optStderr || optStatus || optExecRes) && !isNil(t.def.buffer.value) {
+        if (opts.stdout || opts.stderr || opts.status || opts.execRes) && !isNil(t.def.buffer.value) {
                 if exeres, ok := t.def.buffer.value.(*ExecResult); ok {
                         exeres.wg.Wait()
                         var (
@@ -2079,27 +1997,27 @@ func modifierWait(pos Position, t *traversal, args... Value) (result Value, err 
                                 s string
                                 v Value
                         )
-                        if optStdout {
+                        if opts.stdout {
                                 if b := exeres.Stdout.Buf; b != nil { s = b.String() }
-                                if optTrim { s = strings.TrimSpace(s) }
-                                switch optAsType {
+                                if opts.trim { s = strings.TrimSpace(s) }
+                                switch opts.asType {
                                 case "answer": v = MakeAnswer (pos,(s == "yes"))
                                 case "bool":   v = MakeBoolean(pos,(s == "true"))
                                 default:       v = MakeString (pos,s)
                                 }
                                 a = append(a, v)
                         }
-                        if optStderr {
+                        if opts.stderr {
                                 if b := exeres.Stderr.Buf; b != nil { s = b.String() }
-                                if optTrim { s = strings.TrimSpace(s) }
-                                switch optAsType {
+                                if opts.trim { s = strings.TrimSpace(s) }
+                                switch opts.asType {
                                 case "answer": v = MakeAnswer (pos,(s == "yes"))
                                 case "bool":   v = MakeBoolean(pos,(s == "true"))
                                 default:       v = MakeString (pos,s)
                                 }
                                 a = append(a, v)
                         }
-                        if optStatus {
+                        if opts.status {
                                 a = append(a, MakeInt(pos,int64(exeres.Status)))
                         }
                         if a != nil {
@@ -2110,10 +2028,65 @@ func modifierWait(pos Position, t *traversal, args... Value) (result Value, err 
         return
 }
 
+type modifierStampOpts struct {
+        debug bool "d,debug"
+        prompt bool "m,prompt"
+        verbose bool "v,verbose"
+}
+func modifierStamp(pos Position, t *traversal, args... Value) (result Value, err error) {
+        var opts modifierStampOpts
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
+        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
+
+        // Wait for prerequisites
+        t.wait(pos)
+
+        // And wait for ExecResult (see also modifier (wait -exec))
+        if v := t.def.buffer.value; v != nil {
+                if exeres, ok := v.(*ExecResult); ok {
+                        exeres.wg.Wait()
+                }
+        }
+
+        var target = t.def.target.value
+        if err = stamp(t, target, t.start, opts.prompt); err != nil {
+                if t.stems != nil {
+                        if false {
+                                diag.warnAt(pos, "target = %v, stems = %v: %v", target, t.stems, err).
+                                        debug(optionDebugErrors /*&& opts.debug*/, 1)
+                        } else {
+                                diag.warnAt(pos, "%v", err).
+                                        debug(optionDebugErrors /*&& opts.debug*/, 1)
+                        }
+                        t._break(pos, breakNext).scope = breakTrave
+                        err = nil // discard the error
+                } else if pos.IsValid() {
+                        t.traceCallStack(pos, "failed: %v", err).
+                                debug(optionDebugErrors)
+                } else if targetPos := target.Position(); targetPos.IsValid() {
+                        t.traceCallStack(targetPos, "failed: %v", err).
+                                debug(optionDebugErrors)
+                } else {
+                        // TODO: dump more diagnostics information here
+                }
+        } else if opts.verbose {
+                // TODO: verbose file stamp
+        }
+        return
+}
+
+type predictOpts struct {
+        and bool "a,and"
+        group bool "g,group"
+        traverse bool "t,traverse;t,trave;t,target"
+        message string "m,message;m,msg"
+        verbose bool "v,verbose"
+        verbose0 bool
+}
 func predict(pos Position, t *traversal, args... Value) (result bool, breakScope breaksco, message string, err error) {
         var target string
         if target, err = t.def.target.value.Strval(); err != nil {
-                diag.errorAt(pos, "predict: %v", err)
+                diag.errorAt(pos, "stringify predict target failed: %v", err)
                 return
         }
 
@@ -2134,9 +2107,9 @@ func predict(pos Position, t *traversal, args... Value) (result bool, breakScope
         target = filepath.Base(target)
 
         var reasons []string
-        var optVerbose, optAnd, verbose0 bool
+        var opts predictOpts
         defer func() {
-                if optVerbose {
+                if opts.verbose {
                         var status string
                         if reasons != nil {
                                 s := strings.Join(reasons, ",")
@@ -2154,30 +2127,23 @@ func predict(pos Position, t *traversal, args... Value) (result bool, breakScope
         } ()
 
         for _, arg := range args {
-                var va = merge(arg)
-                if va, err = parseFlags(va, []string{
-                        "a,and",
-                        "g,group",  // breakGroup
-                        "t,trave",  // breakTrave
-                        "t,target", // breakTrave
-                        "m,message", // message
-                        "m,msg",     // message
-                        "v,verbose",
-                }, func(ru rune, v Value) {
-                        switch ru {
-                        case 'a': if optAnd, err = trueVal(v, false); err != nil { return }
-                        case 'g': breakScope = breakGroup
-                        case 't': breakScope = breakTrave
-                        case 'm': message, err = v.Strval()
-                        case 'v': if optVerbose, err = trueVal(v, optVerbose); err != nil { return }
-                                if optVerbose && !verbose0 {
-                                        fmt.Fprintf(stderr, "smart: Checking %v …", target)
-                                        verbose0 = true
-                                }
-                        }
-                }); err != nil { return }
-                //if optAnd && !result { continue }
-                if !optAnd || (optAnd && result) { for i, a := range va {
+                var va []Value // va = merge(arg)
+                if va, err = mergeresult(ExpandAll(arg))  ; err != nil {
+                        diag.errorAt(pos, "merge arg '%v' failed: %v", arg, err)
+                        return
+                }
+                if va, err = parseOpts(pos, &opts, va...) ; err != nil {
+                        diag.errorAt(pos, "parse opts failed: %v", err)
+                        return
+                }
+                if opts.group    { breakScope = breakGroup }
+                if opts.traverse { breakScope = breakTrave }
+                if opts.verbose && !opts.verbose0 {
+                        fmt.Fprintf(stderr, "smart: Checking %v …", target)
+                        opts.verbose0 = true
+                }
+                //if opts.and && !result { continue }
+                if !opts.and || (opts.and && result) { for i, a := range va {
                         if g, ok := a.(*Group); ok && len(g.Elems) > 0 {
                                 var name string
                                 if name, err = g.Elems[0].Strval(); err != nil {
@@ -2190,6 +2156,9 @@ func predict(pos Position, t *traversal, args... Value) (result bool, breakScope
                                         if err != nil { diag.errorOf(a, "predict: %v", err); return }
                                         a = res // replace
                                 }
+                        } else {
+                                diag.errorOf(a, "unknown predictor: %v (%T)", a, a)
+                                return
                         }
 
                         var t bool
@@ -2204,9 +2173,9 @@ func predict(pos Position, t *traversal, args... Value) (result bool, breakScope
                                 reasons = append(reasons, fmt.Sprintf("#%v", i+1))
                         }
 
-                        if optAnd {
+                        if opts.and {
                                 result = result && t
-                                optAnd = false // reset -and flag
+                                opts.and = false // reset -and flag
                         } else if t {
                                 result = true
                                 break
@@ -2219,13 +2188,17 @@ func predict(pos Position, t *traversal, args... Value) (result bool, breakScope
 // (assert condition,'error message...')
 func modifierAssert(pos Position, t *traversal, args... Value) (result Value, err error) {
         var ( res bool; sco breaksco; msg string )
-        if res, sco, msg, err = predict(pos, t, args...); !res && err == nil {
+        if res, sco, msg, err = predict(pos, t, args...); err != nil {
+                diag.errorAt(pos, "prediction %v failed: %v", args, err)
+        } else if !res {
                 if msg == "" {
-                        msg = fmt.Sprintf("%v", args)
+                        diag.errorAt(pos, "assertion failed: %v", args)
                 } else {
-                        msg = fmt.Sprintf("%v: %v", args, msg)
+                        diag.errorAt(pos, "assertion %v failed: %v", args, msg)
                 }
-                err = &breaker{ pos:pos, what:breakFail, message:msg, scope:sco }
+                brk := t._break(pos, breakFail)
+                brk.message = "assertion failure"
+                brk.scope = sco
         }
         return
 }
@@ -2235,7 +2208,9 @@ func modifierCond(pos Position, t *traversal, args... Value) (result Value, err 
         if res, sco, msg, err = predict(pos, t, args...); err != nil {
                 diag.errorAt(pos, "predict: %v", err)
         } else if !res {
-                err = &breaker{ pos:pos, what:breakDone, message:msg, scope:sco }
+                brk := t._break(pos, breakDone)
+                brk.message = msg
+                brk.scope = sco
         }
         return
 }
@@ -2243,40 +2218,30 @@ func modifierCond(pos Position, t *traversal, args... Value) (result Value, err 
 func modifierCase(pos Position, t *traversal, args... Value) (result Value, err error) {
         var ( res bool; sco breaksco; msg string )
         if res, sco, msg, err = predict(pos, t, args...); err == nil {
-                var what = breakNext // next case
-                if res { what = breakCase } // select case
-                err = &breaker{ pos:pos, what:what, message:msg, scope:sco }
+                brk := t._break(pos, breakNext) // next case
+                brk.message = msg
+                brk.scope = sco
+                if res { brk.what = breakCase } // select case
         }
         return
 }
 
+type modifierDirtyOpts struct {
+        checksum bool "c,checksum"
+        debug bool "d,debug"
+        verbose bool "v,verbose"
+        silent bool "s,silent"
+}
 func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err error) {
-        var (
-                optChecksum bool
-                optDebug bool
-                optVerbose bool
-                optSilent bool
-        )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
-        if args, err = parseFlags(args, []string{
-                "c,checksum",
-                "d,debug",
-                "v,verbose",
-                "s,silent",
-        }, func(ru rune, v Value) {
-                switch ru {
-                case 'c': if optChecksum, err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
-                case 'd': if optDebug   , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
-                case 'v': if optVerbose , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
-                case 's': if optSilent  , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
-                }
-        }); err != nil { diag.errorAt(pos, "%v", err); return }
+        var opts modifierDirtyOpts
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
+        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
 
         t.wait(pos) // Wait for prerequisites
 
         var reason string
         var dirty bool
-        if dirty = len(t.breakers) > 0; dirty {
+        if dirty = t.hasBreakers(); dirty {
                 reason = fmt.Sprintf("dirty (%v breakers)", len(t.breakers))
         } else if dirty = !exists(t.def.target.value); dirty {
                 reason = "dirty: target not exists"
@@ -2286,7 +2251,7 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                 diag.errorAt(pos, "%v", err); return
         } else if dirty {
                 reason = "dirty: recipes changed"
-        } else if optChecksum && !(isNil(t.def.depend0.value) || isNone(t.def.depend0.value)) {
+        } else if opts.checksum && !(isNil(t.def.depend0.value) || isNone(t.def.depend0.value)) {
                 var file1, file2 string
                 if file1, err = t.def.target.value.Strval(); err != nil {
                         diag.errorAt(pos, "%v", err); return
@@ -2306,14 +2271,14 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                 reason = "Good"
         }
 
-        if optDebug {
+        if opts.debug {
                 var e = exists(t.def.target.value)
                 var a = typeof(t.def.target.value)
                 var s, _ = t.def.target.value.Strval()
                 fmt.Fprintf(stderr, "%s: %s %s (exists=%v, dirty=%v, updated=%v)\n", pos, a, s, e, dirty, t.updated)
         }
 
-        if optVerbose {
+        if opts.verbose {
                 var s string
                 if len(t.updated) > 0 { //s = fmt.Sprintf(", %v", t.updated)
                         s = ", ["
@@ -2335,7 +2300,7 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                 if len(t.updated) > 0 { t_traverse.tracef("dirty: updated=%v", t.updated) }
         }
 
-        if optSilent { reason = "" }
+        if opts.silent { reason = "" }
         result = &prediction{boolean{valbase{pos},dirty},reason}
         return
 }
@@ -2362,17 +2327,13 @@ func modifierNoLoop(pos Position, t *traversal, args... Value) (result Value, er
         return
 }
 
+type modifierTarget1stVisitOpts struct {
+        silent bool "s,silent"
+}
 func modifierTarget1stVisit(pos Position, t *traversal, args... Value) (result Value, err error) {
-        var optSilent bool
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, []string{
-                "s,silent",
-        }, func(ru rune, v Value) {
-                switch ru {
-                case 's': if optSilent, err = trueVal(v, true); err != nil { return }
-                }
-        }); err != nil { return }
+        var opts modifierTarget1stVisitOpts
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
+        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
 
         var num int
         for caller := t.caller; caller != nil; caller= caller.caller {
@@ -2389,7 +2350,7 @@ func modifierTarget1stVisit(pos Position, t *traversal, args... Value) (result V
         }
 
         var s string
-        ;      if optSilent {
+        ;      if opts.silent {
         } else if num == 0  { //s = "zero"
         } else { s = fmt.Sprintf("%v visits", num+1)
         }
@@ -2398,26 +2359,15 @@ func modifierTarget1stVisit(pos Position, t *traversal, args... Value) (result V
         return
 }
 
+type modifierTargetMaxVisitOpts struct {
+        closure bool "c,closure"
+        debug bool "d,debug;d,debug-trace;d,dump"
+        silent bool "s,silent"
+}
 func modifierTargetMaxVisit(pos Position, t *traversal, args... Value) (result Value, err error) {
-        var (
-                optClosure bool
-                optDump bool
-                optSilent bool
-        )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
-        if args, err = parseFlags(args, []string{
-                "c,closure",
-                "d,debug-trace", // debug-trace
-                "d,debug", // debug-trace
-                "d,dump", // debug-trace
-                "s,silent", // for reason
-        }, func(ru rune, v Value) {
-                switch ru {
-                case 'c': if optClosure, err = trueVal(v, true); err != nil { return }
-                case 'd': if optDump   , err = trueVal(v, true); err != nil { return }
-                case 's': if optSilent , err = trueVal(v, true); err != nil { return }
-                }
-        }); err != nil { return }
+        var opts modifierTargetMaxVisitOpts
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
+        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
 
         var nth int64
         for _, a := range args {
@@ -2434,7 +2384,7 @@ func modifierTargetMaxVisit(pos Position, t *traversal, args... Value) (result V
         var head bool = true
         for caller := t.caller; caller != nil; caller= caller.caller {
                 if false {
-                        if optClosure && caller.closure == t.closure { continue }
+                        if opts.closure && caller.closure == t.closure { continue }
                         var same = t.def.target.value == caller.def.target.value
                         if !same && false {
                                 cmp := t.def.target.value.cmp(caller.def.target.value)
@@ -2444,7 +2394,7 @@ func modifierTargetMaxVisit(pos Position, t *traversal, args... Value) (result V
                 } else if n, ok := caller.visited[t.def.target.value]; ok && n > 0 {
                         num += int64(n)
                 }
-                if optDump && num > 0 {
+                if opts.debug && num > 0 {
                         if head { head = false
                                 fmt.Fprintf(stderr, "  %s: nth(%d)\n", pos, nth)
                         }
@@ -2453,8 +2403,8 @@ func modifierTargetMaxVisit(pos Position, t *traversal, args... Value) (result V
                 }
         }
 
-        var s string
-        ;      if optSilent {
+        var s string;
+        if opts.silent {
         } else if num == 0  { //s = "nth: zero"
         } else if num < nth { //s = "nth"
         } else { s = fmt.Sprintf("%d visits", num+1) }
@@ -2463,22 +2413,15 @@ func modifierTargetMaxVisit(pos Position, t *traversal, args... Value) (result V
         return
 }
 
+type modifierGitModifiedOpts struct {
+        debug bool "d,debug"
+        verbose bool "v,verbose"
+}
 func modifierGitModified(pos Position, t *traversal, args... Value) (result Value, err error) {
-        var (
-                optDebug bool
-                optVerbose bool
-        )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
-        if args, err = parseFlags(args, []string{
-                "d,debug",
-                "v,verbose",
-        }, func(ru rune, v Value) {
-                switch ru {
-                case 'd': if optDebug   , err = trueVal(v, true); err != nil { return }
-                case 'v': if optVerbose , err = trueVal(v, true); err != nil { return }
-                }
-        }); err != nil { return }
-        
+        var opts modifierGitModifiedOpts
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
+        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
+
         var out = new(bytes.Buffer)
         var git = exec.Command("git", "status")
         git.Stdout, git.Stderr = out, os.Stderr
@@ -2509,22 +2452,15 @@ func modifierGitModified(pos Position, t *traversal, args... Value) (result Valu
         return
 }
 
+type modifierGitAheadOpts struct {
+        debug bool "d,debug"
+        verbose bool "v,verbose"
+}
 func modifierGitAhead(pos Position, t *traversal, args... Value) (result Value, err error) {
-        var (
-                optDebug bool
-                optVerbose bool
-        )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
-        if args, err = parseFlags(args, []string{
-                "d,debug",
-                "v,verbose",
-        }, func(ru rune, v Value) {
-                switch ru {
-                case 'd': if optDebug   , err = trueVal(v, true); err != nil { return }
-                case 'v': if optVerbose , err = trueVal(v, true); err != nil { return }
-                }
-        }); err != nil { return }
-        
+        var opts modifierGitAheadOpts
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
+        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
+
         var out = new(bytes.Buffer)
         var git = exec.Command("git", "status")
         git.Stdout, git.Stderr = out, os.Stderr
@@ -2543,21 +2479,14 @@ func modifierGitAhead(pos Position, t *traversal, args... Value) (result Value, 
 
 var onceMutex sync.Mutex
 var onceCache = make(map[HashBytes]int,64)
+type modifierOnceOpts struct {
+        debug bool "d,debug"
+        verbose bool "v,verbose"
+}
 func modifierOnce(pos Position, t *traversal, args... Value) (result Value, err error) {
-        var (
-                optDebug bool
-                optVerbose bool
-        )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
-        if args, err = parseFlags(args, []string{
-                "d,debug",
-                "v,verbose",
-        }, func(ru rune, v Value) {
-                switch ru {
-                case 'd': if optDebug   , err = trueVal(v, true); err != nil { return }
-                case 'v': if optVerbose , err = trueVal(v, true); err != nil { return }
-                }
-        }); err != nil { return }
+        var opts modifierOnceOpts
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
+        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
 
         var s string
         var h = sha256.New()
@@ -2582,15 +2511,14 @@ func modifierOnce(pos Position, t *traversal, args... Value) (result Value, err 
 
         var num = onceCache[sum]
 
-        if optDebug {
+        if opts.debug {
                 fmt.Fprintf(stderr, "%s: %v (once: num=%d)\n", pos, t.def.target.value, num)
-        } else if optVerbose {
+        } else if opts.verbose {
                 fmt.Fprintf(stderr, "once: %v (num=%d)\n", t.def.target.value, num)
         }
 
         if num > 1 {
-                msg := fmt.Sprintf("once (num=%d)", num)
-                err = &breaker{ pos:pos, what:breakDone, message:msg }
+                t._break(pos, breakDone).message = fmt.Sprintf("once (num=%d)", num)
         }
         return
 }

@@ -9,6 +9,7 @@ package smart
 import (
     "strconv"
     "sync"
+    "time"
     "fmt"
 )
 
@@ -112,7 +113,7 @@ func (prog *Program) modify(t *traversal, m *modifier) (err error) {
     return
 }
 
-func (prog *Program) prerequisites(t *traversal, args []Value) (result []Value, err error) {
+/*func (prog *Program) prerequisites(t *traversal, args []Value) (result []Value, err error) {
     if optionEnableBenchmarks && false { defer bench(mark("Program.prerequisites")) }
     if optionEnableBenchspots { defer bench(spot("Program.prerequisites")) }
     // IMPORTANT: don't expand the args here. The prerequisites like
@@ -133,7 +134,7 @@ func (prog *Program) prerequisites(t *traversal, args []Value) (result []Value, 
                 return
             }
             if len(rest) > 0 {
-                fmt.Fprintf(stderr, "%v: unhandled stems: %v, %v, %v, %v\n", pos, arg, s, rest, t.stems)
+                diag.errorAt(pos, "unhandled stems: %v, %v, %v, %v\n", arg, s, rest, t.stems)
                 panic(s)
             }
 
@@ -155,7 +156,7 @@ func (prog *Program) prerequisites(t *traversal, args []Value) (result []Value, 
         }
     }
     return
-}
+}*/
 
 func (prog *Program) args(args []Value) (params []*Def, restore func(), err error) {
     var argnum int // setup named/number parameters ($1, $2, etc.)
@@ -214,7 +215,7 @@ func (prog *Program) args(args []Value) (params []*Def, restore func(), err erro
 
 const maxRecursion  = 16 //32 //64
 
-func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) (result Value, brks []*breaker) {
+func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) (result Value) {
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.execute(%s)", entry.target))) }
     if optionEnableBenchspots { defer bench(spot("Program.execute")) }
 
@@ -232,11 +233,13 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
             var pos = prog.position
             if !pos.IsValid() { pos = entry.Position() }
             if !pos.IsValid() { pos = entry.position }
-            diag.errorAt(pos, "%v: yields %d errors", entry, n)
-            brks = append(brks, &breaker{
-                pos: prog.position, what:breakErro,
-                error: fmt.Errorf("%v: got %d errors", entry, n),
-            })
+            diag.errorAt(pos, "execution of %v yields %d errors", entry, n).
+                debug(optionDebugErrors, 1)
+            if caller != nil {
+                brk := caller._break(prog.position, breakErro)
+                brk.error = fmt.Errorf("%v: got %d errors", entry, n)
+                caller.breakers = append(caller.breakers, brk)
+            }
         }
     } ()
 
@@ -262,6 +265,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     }}
 
     var t = &traversal{
+        start: time.Now(),
         program: prog,
         project: prog.project,
         closure: prog.scope,
@@ -273,10 +277,17 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         print: true,
         isConfigureExecution: isConfigureExecution,
     }
-    var ( none = &None{valbase{pos}} ; stem Value = none; f func() ; err error )
+    defer func() {
+        // Pass breakers to the caller for handling breakNext, breakCase, breakDone, etc.
+        if caller != nil && t.hasBreakers() {
+            caller.breakers = append(caller.breakers, t.breakers...)
+        }
+    } ()
+
+    var ( none = MakeNone(pos) ; stem Value = none; f func() ; err error )
     if t.caller != nil {
         if optionTraceTraversalNestIndent { t.traceLevel = t.caller.traceLevel }
-        if t.stems = t.caller.stems; t.stems != nil { stem = &String{valbase{pos}, t.stems[0]} }
+        if t.stems = t.caller.stems; t.stems != nil { stem = MakeString(pos, t.stems[0]) }
     }
     if t.def.stem,    err = prog.auto("*", stem); err != nil { diag.errorAt(pos, "%v", err); return }
     if t.def.target,  err = prog.auto("@", none); err != nil { diag.errorAt(pos, "%v", err); return }
@@ -286,7 +297,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     if t.def.grepped, err = prog.auto("~", none); err != nil { diag.errorAt(pos, "%v", err); return }
     if t.def.updated, err = prog.auto("?", none); err != nil { diag.errorAt(pos, "%v", err); return }
     if t.def.buffer,  err = prog.auto("-", none); err != nil { diag.errorAt(pos, "%v", err); return }
-    if t.def.params,f,err = prog.args(args); err != nil { diag.errorAt(pos, "%v", err); return } else {
+    if t.def.params,f,err = prog.args(args)     ; err != nil { diag.errorAt(pos, "%v", err); return } else {
         defer f()
     }
 
@@ -365,7 +376,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     return t.exec(prog)
 }
 
-func (t *traversal) exec(prog *Program) (result Value, breakers []*breaker) {
+func (t *traversal) exec(prog *Program) (result Value) {
     if optionEnableBenchmarks { defer bench(mark("traversal.exec")) }
     if optionEnableBenchspots { defer bench(spot("traversal.exec")) }
     if optionTraceExec {
@@ -384,13 +395,13 @@ func (t *traversal) exec(prog *Program) (result Value, breakers []*breaker) {
     var pos = prog.position
 
     // Update normal prerequisites
-    if breakers = t.traverseNormalPrerequisites(pos);    len(breakers) > 0 { return }
+    if t.traverseNormalPrerequisites(pos);    t.hasBreakers() { return }
 
     // Update order-only prerequisites
-    if breakers = t.traverseOrderOnlyPrerequisites(pos); len(breakers) > 0 { return }
+    if t.traverseOrderOnlyPrerequisites(pos); t.hasBreakers() { return }
 
     // Update grapped files
-    if breakers = t.traverseGreppedFiles(pos);       len(breakers) > 0 { return }
+    if t.traverseGreppedFiles(pos);           t.hasBreakers() { return }
 
     if len(t.interpreted) == 0 {
         // Using the default statements interpreter.
@@ -416,8 +427,88 @@ func (t *traversal) exec(prog *Program) (result Value, breakers []*breaker) {
     return
 }
 
-func (t *traversal) traverseNormalPrerequisites(pos Position) (breakers []*breaker) {
-    if optionTraceExec { defer un(trace(t_exec, t.def.depends.name)) }
+/*func (t *traversal) traversePrerequisites(pos Position, prerequisites []Value) {
+    var err error
+    if prerequisites, err = t.program.prerequisites(t, prerequisites); err != nil {
+        diag.errorAt(pos, "calculate prerequisites failed: %v", err)
+        return
+    }
+
+    if t.dispatch(prerequisites); t.hasBreakers() && t.stems != nil && false {
+        if brks := t.breakersNot(breakNext, breakCase, breakDone); len(brks) > 0 {
+            diag.warnAt(pos, "broken traversal: %v (target = %v, stems = %v)", brks[0].what,
+                t.def.target.value, t.stems).debug(optionDebugErrors)
+            return
+        }
+    } else if false {
+        diag.infoAt(pos, "prerequisites: %v, %v, %v, %v", t.entry, t.stems, t.def.target.value, prerequisites)
+    }
+
+    // Wait for the prerequisites to be ready. It could be a NOOP.
+    t.wait(pos)
+}*/
+
+func (t *traversal) prerequisite(pos Position, prerequisite Value) {
+    switch a := prerequisite.(type) {
+    case Pattern:
+        // Double checks for path pattern.
+        if p, ok := prerequisite.(*Path); ok && !p.isPattern() {
+            t.dispatch(prerequisite)
+            break
+        }
+
+        var pos = prerequisite.Position()
+        var ( s string ; rest []string; err error; okay bool )
+        if s, rest, err = a.stencil(t.stems); err != nil {
+            diag.errorAt(t.program.position, "stencil '%v' with %v failed: %v", a, t.stems, err).
+                debug(optionDebugErrors, 1)
+            return
+        } else if len(rest) > 0 {
+            diag.errorAt(pos, "unhandled stems: %v, %v, %v, %v\n", prerequisite, s, rest, t.stems).
+                debug(optionDebugErrors, 1)
+            panic(s)
+        }
+
+        if file := t.project.FindFile(s); file != nil {
+            file.position = pos
+            okay = t.file(file)
+        } else {
+            okay = t.target(pos, s)
+        }
+
+        if !okay && t.stems != nil {
+            b := t._break(pos, breakNext)
+            b.scope = breakTrave
+            b.value = prerequisite
+        }
+
+        if !okay && false {
+            diag.warnAt(pos, "missing file %v required by %v",
+                s, t.def.target.value).debug(optionDebugErrors, 1)
+        }
+
+    default:
+        t.dispatch(prerequisite)
+    }
+}
+
+func (t *traversal) traversePrerequisites(pos Position, prerequisites []Value) {
+    // IMPORTANT: don't expand the args here. The prerequisites like
+    // '$(or &@,...)' have to be expanded when it's used (e.g. compare).
+    for _, prerequisite := range prerequisites {
+        if t.prerequisite(pos, prerequisite); t.hasBreakers() {
+            var brks = t.breakersNot(breakNext, breakCase, breakDone)
+            if len(brks) > 0 && t.stems != nil && false {
+                diag.warnAt(pos, "broken traversal: %v (target = %v, stems = %v)", brks[0].what,
+                    t.def.target.value, t.stems).debug(optionDebugErrors)
+            }
+            break
+        }
+    }
+}
+
+func (t *traversal) traverseNormalPrerequisites(pos Position) {
+    if optionTraceExec        { defer un(trace(t_exec, t.def.depends.name)) }
     if optionEnableBenchmarks { defer bench(mark("traversal.traverseNormalPrerequisites")) }
 
     t.target0 = t.def.depend0
@@ -432,17 +523,11 @@ func (t *traversal) traverseNormalPrerequisites(pos Position) (breakers []*break
         }
     } ()
 
-    var ( depends []Value; err error )
-    if depends, err = t.program.prerequisites(t, t.program.depends); err != nil {
-        diag.errorAt(pos, "prerequisites: %v", err)
-    }
-    if breakers = t.dispatch(depends); len(breakers) > 0 {  }
-    t.wait(pos) // wait for prerequisites
-    return
+    t.traversePrerequisites(pos, t.program.depends)
 }
 
-func (t *traversal) traverseOrderOnlyPrerequisites(pos Position) (breakers []*breaker) {
-    if optionTraceExec    { defer un(trace(t_exec, t.def.ordered.name)) }
+func (t *traversal) traverseOrderOnlyPrerequisites(pos Position) {
+    if optionTraceExec        { defer un(trace(t_exec, t.def.ordered.name)) }
     if optionEnableBenchmarks { defer bench(mark("traversal.traverseOrderOnlyPrerequisites")) }
 
     t.target0 = nil
@@ -451,17 +536,11 @@ func (t *traversal) traverseOrderOnlyPrerequisites(pos Position) (breakers []*br
         t.target0, t.targets = nil, nil
     } ()
 
-    var ( ordered []Value; err error )
-    if ordered, err = t.program.prerequisites(t, t.program.ordered); err != nil {
-        diag.errorAt(pos, "%v", err)
-    }
-    if breakers = t.dispatch(ordered); len(breakers) > 0 {  }
-    t.wait(pos) // wait for prerequisites
-    return
+    t.traversePrerequisites(pos, t.program.ordered)
 }
 
-func (t *traversal) traverseGreppedFiles(pos Position) (breakers []*breaker) {
-    if optionTraceExec    { defer un(trace(t_exec, t.def.grepped.name)) }
+func (t *traversal) traverseGreppedFiles(pos Position) {
+    if optionTraceExec        { defer un(trace(t_exec, t.def.grepped.name)) }
     if optionEnableBenchmarks { defer bench(mark("traversal.traverseGreppedFiles")) }
 
     t.target0 = nil
@@ -470,11 +549,5 @@ func (t *traversal) traverseGreppedFiles(pos Position) (breakers []*breaker) {
         t.target0, t.targets = nil, nil
     } ()
 
-    var ( grepped []Value; err error )
-    if grepped, err = t.program.prerequisites(t, t.grepped); err != nil {
-        diag.errorAt(pos, "%v", err)
-    }
-    if breakers = t.dispatch(grepped); len(breakers) > 0 {  }
-    t.wait(pos) // wait for prerequisites
-    return
+    t.traversePrerequisites(pos, t.grepped)
 }

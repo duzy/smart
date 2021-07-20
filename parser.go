@@ -1648,7 +1648,7 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
         default:
             var ( name string; err error )
             if name, err = op.Strval(); err != nil {
-                diag.errorAt(position, "%s: %v", op, err)
+                diag.errorAt(position, "stringify '%s' failed: %v", op, err)
             } else if _, obj := p.scope.Find(name); obj == nil {
                 diag.errorAt(position, "`%s` undefined", name)
             } else if f, _ := obj.(Caller); f == nil {
@@ -2529,11 +2529,11 @@ func (p *parser) applyUseeVars(position Position, proj *Project, using Value) {
 					cc = nil
 				}
 			} else {
-				diag.errorAt(position, "%v: %v (usng.%s)", proj, e, name)
+				diag.errorAt(position, "%v: %v (using.%s)", proj, e, name)
 			}
 		}
 	} else {
-		diag.errorAt(position, "%v: %v", proj, using)
+		diag.errorAt(position, "applying usee '%v' (%v) failed: %v", using, proj, e)
 	}
 }
 

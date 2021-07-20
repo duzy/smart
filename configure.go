@@ -111,9 +111,11 @@ func do_configuration() {
             fmt.Fprintf(stderr, "Project %s …… (%s)\n", p.spec, p.relPath)
             project = p
         }
-        if _, e := entry.Execute(entry.position); e != nil {
-            diag.errorAt(entry.position, "%v", e)
-        } else if s, e := entry.target.Strval(); e != nil {
+
+        if val := entry.Execute(entry.position); val != nil {
+            diag.infoAt(entry.position, "%v", val)
+        }
+        if s, e := entry.target.Strval(); e != nil {
             diag.errorAt(entry.position, "%v", e)
         } else if def := project.scope.FindDef(s); def != nil {
             if d, ok := defs[s]; ok && d != nil {
@@ -360,9 +362,8 @@ func configureExec(pos Position, t *traversal, opts *modifierConfigureOpts, s st
     defer func(v bool) { t.isConfigureExecution = false } (t.isConfigureExecution)
     t.isConfigureExecution = true
 
-    var breakers []*breaker
-    if result, breakers = prog.execute(t, entry, params); len(breakers) > 0 {
-        for i, brk := range breakers {
+    if result = prog.execute(t, entry, params); t.hasBreakers() {
+        for i, brk := range t.breakers {
             if brk.what == breakErro {
                 fmt.Fprintf(stderr, "%s: %d: %v\n", pos, i, brk.error)
             } else {
@@ -751,7 +752,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
         if s, err = t.def.target.value.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
 
         var okay bool
-        okay, err = t.forClosureProject(func(p *Project) (ok bool, err error) {
+        okay, err = t.forClosuredProjects(func(p *Project) (ok bool, err error) {
             if file = p.FindFile(s); file != nil { project, ok = p, true }
             if opts.debug && file != nil { fmt.Fprintf(stderr, "%s: %v: file %v\n", pos, p, file) }
             return
@@ -763,7 +764,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
     if filename == "" { diag.errorAt(pos, "`%v` has empty filename", file); return } else
     if!filepath.IsAbs(filename) {
         // FIXES: match file map to have the full filename.
-        t.forClosureProject(func(p *Project) (ok bool, err error) {
+        t.forClosuredProjects(func(p *Project) (ok bool, err error) {
             if f := p.FindFile(filename); f != nil {
                 var s string
                 ok, file = true, f

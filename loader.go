@@ -435,7 +435,7 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
         }
 
         if proj, res, isb, err = loaded.hasLoaded(lp, breakUseLoop); err != nil {
-            diag.errorOf(specVal, "%s: %s", specName, err)
+            diag.errorOf(specVal, "load '%s' failed: %s", specName, err)
             return
         } else if isb {
             if l.project.hasBase(lp) {
@@ -448,7 +448,7 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
         }
 
         if proj, res, isb, err = lp.hasLoaded(loaded, breakUseLoop); err != nil {
-            diag.errorOf(specVal, "%s: %s", specName, err)
+            diag.errorOf(specVal, "load '%s' failed: %s", specName, err)
             return
         } else if isb {
             diag.warnAt(position, "`%s` is already base of `%s` (%s)", loaded, lp, proj)
@@ -851,8 +851,8 @@ func (l *loader) includeFile(pos Position, spec Value) {
 
     // Execute the rule entry to update include source.
     if entry, ok := spec.(*RuleEntry); ok && entry != nil {
-        var ( result []Value; breakers []*breaker )
-        if result, breakers = entry.Execute(entry.position); len(breakers) > 0 {
+        var result []Value
+        if result = entry.Execute(entry.position); /*len(breakers) > 0*/false {
             diag.errorAt(pos, "include error occurred (entry %v)", entry)
             return
         } else if result != nil && optionVerbose {

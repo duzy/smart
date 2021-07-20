@@ -7,7 +7,7 @@
 package smart
 
 import (
-       "fmt"
+        "fmt"
 )
 
 // evaluer evaluates smart statements
@@ -53,7 +53,7 @@ ForRecipes:
                                                 var s string
                                                 if brk.message != "" { s = brk.message }
                                                 if brk.error != nil { s += fmt.Sprintf(" (error: %s)", brk.error) }
-                                                diag.errorAt(brk.pos, "%s: %s", brk.what, s)
+                                                diag.errorAt(brk.pos, "eval '%v' breaked: (%s) %s", stmt, brk.what, s)
                                         }
                                 }
 

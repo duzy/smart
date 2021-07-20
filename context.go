@@ -11,6 +11,7 @@ import (
   "path/filepath"
   "runtime/debug"
   "strings"
+  "regexp"
   "bufio"
   "bytes"
   "sync"
@@ -69,6 +70,10 @@ const (
   diagPrompt
 )
 
+var (
+  goStackLine1 = regexp.MustCompile(`^(.+)\(.*\)$`)
+  goStackLine2 = regexp.MustCompile(`^	(.*?:\d+) \+.*$`)
+)
 type diagnostic struct {
   dt diagType
   position Position
@@ -83,16 +88,43 @@ func (d *diagnostic) getPosition() Position {
     return d.value.Position()
   }
 }
-func (d *diagnostic) debug(enabled bool) {
+func (d *diagnostic) debug(enabled bool, args ...interface{}) {
   const skips = 5 // skips the standard stack lines, which is not very useful
   if enabled {
     var (
       ln = []byte{ '\n' }
       v = bytes.Split(debug.Stack(), ln)
-      i int = 0
+      i, j int
     )
     if skips > 0 && len(v) > skips { i = skips }
-    d.stack = bytes.Join(v[i:], ln)
+    if len(args) > 0 {
+      if n, ok := args[0].(int); ok { j = n }
+    }
+    if j == 1 {
+      var (
+        sm1 = goStackLine1.FindAllSubmatch(v[i+0], 1)
+        sm2 = goStackLine2.FindAllSubmatch(v[i+1], 1)
+      )
+      if sm1 != nil && sm2 != nil {
+        var s string
+        switch d.dt {
+        case diagPrompt: s = "note:"
+        case diagInfo:   s = "info:"
+        case diagWarn:   s = "warning:"
+        }
+        d.stack = append(sm2[0][1], []byte(":"+s+" ")...)
+        d.stack = append(d.stack, sm1[0][1]...)
+        d.stack = append(d.stack, []byte("\n")...)
+        return
+      }
+    }
+    if 0 < j && i+j <= len(v) {
+      if j % 2 != 0 { j += 1 }
+      ending := []byte(" (and more frames…)\n") //[]byte("\n…more frames not displayed ……\n")
+      d.stack = append(bytes.Join(v[i:i+j], ln), ending...)
+    } else {
+      d.stack = bytes.Join(v[i:], ln)
+    }
   }
 }
 
@@ -217,14 +249,10 @@ func (ctx *Context) run() (result []Value, breakers []*breaker) {
     var args, _ = ctx.args[flag]
     var entries, _ = ctx.flagEntries[s]
     for _, entry := range entries {
-      var ( res []Value; brks []*breaker )
-      res, brks = entry.Execute(entry.position, args...)
-      if len(brks) == 0 {
-        result = append(result, res...)
-        done = true
-      } else {
-        return
-      }
+      var res []Value
+      res = entry.Execute(entry.position, args...)
+      result = append(result, res...)
+      done = true
     }
   }
   if done { return }
@@ -263,23 +291,17 @@ func (ctx *Context) run() (result []Value, breakers []*breaker) {
     }
   }
   for _, goal := range goals {
-    var res []Value
-    var brks []*breaker
     var args, _ = ctx.args[goal]
-    if res, brks = updateGoal(goal, args); len(brks) > 0 {
-      break
-    } else {
-      result = append(result, res...)
-      updated += 1
-    }
+    result = append(result, updateGoal(goal, args)...)
+    updated += 1
   }
   return
 }
 
-func updateGoal(goal Value, args []Value) (result []Value, breakers []*breaker) {
+func updateGoal(goal Value, args []Value) (result []Value) {
   if !isNil(goal) {
     switch g := goal.(type) {
-    case *RuleEntry: result, breakers = g.Execute(g.position, args...)
+    case *RuleEntry: result = g.Execute(g.position, args...)
     default: diag.errorOf(goal, "'%v' is not an entry (%T)", goal, goal)
     }
   }

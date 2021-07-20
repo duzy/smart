@@ -726,6 +726,14 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
   switch t := target.(type) {
   case *PercPattern:
     assert(t != nil, "nil PercPattern")
+    if false {
+      for _, pe := range p.patterns {
+        if pe.Pattern.cmp(t) == cmpEqual {
+          entry = pe.RuleEntry
+          return
+        }
+      }
+    }
     entry = &RuleEntry{
       class: PercRuleEntry,
       target: target,

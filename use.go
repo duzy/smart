@@ -49,7 +49,7 @@ func (p *using) mod(t *traversal) (res time.Time, err error) {
         }
         return
 }
-func (p *using) traverse(pc *traversal) (breakers []*breaker) {
+func (p *using) traverse(pc *traversal) {
         if optionTraceTraversal { defer un(tt(t_traverse, pc, p)) }
         if _, done := usingPrepared[p.project]; done {
                 usingPrepared[p.project] += 1
@@ -59,7 +59,7 @@ func (p *using) traverse(pc *traversal) (breakers []*breaker) {
         if entry := p.project.DefaultEntry(); entry != nil {
                 if p.project.opts.breakUseLoop {
                         // FIXME: break use loop
-                } else if breakers = entry.traverse(pc); breakers != nil {
+                } else if entry.traverse(pc); pc.hasBreakers() {
                         // ...
                 } else {
                         usingPrepared[p.project] += 1
@@ -138,12 +138,10 @@ func (p *usinglist) expand(w expandwhat) (Value, error) {
         }
         return p, nil
 }
-func (p *usinglist) traverse(pc *traversal) (breakers []*breaker) {
+func (p *usinglist) traverse(pc *traversal) {
         if optionTraceTraversal { defer un(tt(t_traverse, pc, p)) }
         for _, elem := range p.list {
-                if breakers = elem.traverse(pc); len(breakers) > 0 {
-                       break
-                }
+                if elem.traverse(pc); pc.hasBreakers() { break }
         }
         return
 }
