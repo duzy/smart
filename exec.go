@@ -802,10 +802,10 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     // no log required
   } else if err = os.MkdirAll(filepath.Dir(opts.logFileName), os.FileMode(0755)); err != nil {
     diag.errorAt(t.program.position, "%v", err)
-    return // FIXME: err for outer func
+    return
   } else if logFile, err = os.Create(opts.logFileName); err != nil {
     diag.errorAt(t.program.position, "%v", err)
-    return // FIXME: err for outer func
+    return
   } else {
     cmdline := strings.Join(sources, "\n")
     log.createWriter(logFile, dir, cmdline)
@@ -820,24 +820,11 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     var targetStr string
     defer func(start time.Time) {
       if err == nil {
-        /*if err = stamp(t, target, start, opts.prompt); err != nil {
-          if t.stems != nil {
-            diag.warnAt(pos, "%v, %T %v, %v", t.stems, target, target, err).
-              debug(optionDebugErrors && false)
-            err  = &breaker{ pos: pos, what: breakNext, scope: breakTrave }
-          } else if pos.IsValid() {
-            t.traceCallStack(pos, "failed: %v", err).
-              debug(optionDebugErrors)
-          } else if targetPos := target.Position(); targetPos.IsValid() {
-            t.traceCallStack(targetPos, "failed: %v", err).
-              debug(optionDebugErrors)
-          } else {
-            // TODO: dump more diagnostics information here
-          }
-        }*/
-        if _, ok := target.(*File); ok {
-          diag.warnAt(pos, "TODO: stamp %v after shell, stems=%v", target, t.stems).
+        if len(t.program.getModifies("stamp")) == 0 {
+          if _, ok := target.(*File); ok {
+            diag.warnAt(pos, "TODO: stamp %v after shell, stems=%v", target, t.stems).
               debug(optionDebugErrors, 1)
+          }
         }
       }
       if log.writer != nil {

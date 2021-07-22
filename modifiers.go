@@ -38,11 +38,11 @@ type breaksco int
 
 func (k breakind) String() (s string) {
         switch k {
-        case breakDone:         s = "break.done"
-        case breakNext:         s = "break.next"
-        case breakCase:         s = "break.case"
-        case breakFail:         s = "break.fail"
-        case breakErro:         s = "break.error"
+        case breakDone: s = "break.done"
+        case breakNext: s = "break.next"
+        case breakCase: s = "break.case"
+        case breakFail: s = "break.fail"
+        case breakErro: s = "break.error"
         }
         return
 }
@@ -683,15 +683,11 @@ type greptouch struct {
         targetFullName string // see splitTargetFileName
 }
 type grepctx struct {
-        debug bool
-        verbose bool
-        discard bool
+        modifierGrepFilesOpts
+        greptouch
         report bool // discard or report missing greps
-        recursive bool
-        touch bool
         rxs []*greprex
         done map[string]int
-        greptouch
         savedGrepFileName string
         savedGrepFile *File
         save *bufio.Writer
@@ -1172,27 +1168,18 @@ type modifierGrepFilesOpts struct {
 //      
 // https://github.com/google/re2/wiki/Syntax
 func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value, err error) {
+        var gc grepctx
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 diag.errorAt(pos, "merge grep-files args failed: %v", err)
                 return
         }
-
-        var opts modifierGrepFilesOpts
-        if args, err = parseOpts(pos, &opts, args...); err != nil {
+        if args, err = parseOpts(pos, &gc.modifierGrepFilesOpts, args...); err != nil {
                 diag.errorAt(pos, "parse grep-files args failed: %v", err)
                 return
         }
-
-        var gc = grepctx{
-                discard:   opts.discard,
-                debug:     opts.debug,
-                verbose:   opts.verbose,
-                recursive: opts.recursive,
-                touch:     opts.touch,
-        }
-        for _, s := range opts.sys { gc.rxs = append(gc.rxs, &greprex{s, true , nil}) }
-        for _, s := range opts.reg { gc.rxs = append(gc.rxs, &greprex{s, false, nil}) }
-        for _, s := range opts.langs {
+        for _, s := range gc.sys { gc.rxs = append(gc.rxs, &greprex{s, true , nil}) }
+        for _, s := range gc.reg { gc.rxs = append(gc.rxs, &greprex{s, false, nil}) }
+        for _, s := range gc.langs {
                 if info, ok := langInfos[s]; !ok || info == nil {
                         diag.errorAt(pos, "lang '%s' is unknown", s)
                         return
@@ -1202,7 +1189,7 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
                 }
         }
         if len(gc.rxs) == 0 {
-                diag.errorAt(pos, "no grep expressions: %v %v %v %v", opts.sys, opts.reg, opts.langs, args)
+                diag.errorAt(pos, "no grep expressions: %v %v %v %v", gc.sys, gc.reg, gc.langs, args)
                 return
         }
 
@@ -1216,18 +1203,28 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
                 } (time.Now())
         }
 
-        if len(args) == 0 { args = append(args, t.def.target.value) }
-
-        var grepped = t.grepped
+        var ( targets = args; grepped = t.grepped )
+        if len(targets) == 0 { targets = append(targets, t.def.target.value) }
 ForTarget:
-        for _, target := range args {
+        for i, target := range targets {
+                if isNil(target) {
+                        diag.errorAt(pos, "grep target#%d of %v is nil for %v", i, args,
+                                t.def.target.value).debug(optionDebugErrors, 1)
+                        return
+                }
+                if isNone(target) {
+                        diag.errorAt(pos, "grep target#%d of %v is none for %v", i, args,
+                                t.def.target.value).debug(optionDebugErrors, 1)
+                        return
+                }
+
                 gc.target = target
                 t.grepped = nil
                 if err = t.grepFiles(pos, &gc); err != nil {
-                        diag.errorAt(pos, "grep files failed: %v", err)
+                        diag.errorAt(pos, "grep files from %v failed: %v", target, err)
                         return
                 }
-                if !opts.noTraverse && len(t.grepped) > 0 {
+                if !gc.noTraverse && len(t.grepped) > 0 {
                         if false && gc.debug { fmt.Fprintf(stderr, "%v: %v: %v\n", t.project, pos, t.grepped) }
                         for _, val := range t.grepped {
                                 if val.traverse(t); t.hasBreakers() {
@@ -1235,13 +1232,13 @@ ForTarget:
                                                 for _, brk := range t.breakers {
                                                         switch brk.what {
                                                         case breakErro:
-                                                                diag.errorAt(brk.pos, "grep '%v' breaked with error: %v", val, brk.error)
+                                                                diag.errorAt(brk.pos, "borken grep '%v' with error: %v", val, brk.error)
                                                         default:
-                                                                diag.errorAt(brk.pos, "grep '%v' breaked: (%v) %v", val, brk.what, brk.message)
+                                                                diag.errorAt(brk.pos, "borken grep '%v': (%v) %v", val, brk.what, brk.message)
                                                         }
                                                 }
                                         }
-                                        diag.errorAt(pos, "grep traversing '%v' breaked", val)
+                                        diag.errorAt(pos, "broken grep traversal '%v'", val)
                                         break ForTarget
                                 }
                         }
@@ -1252,13 +1249,13 @@ ForTarget:
 
         if err != nil {
                 diag.errorAt(pos, "grep-files error: %v", err)
-        } else if !opts.noTraverse {
+        } else if !gc.noTraverse {
                 if false && gc.debug { fmt.Fprintf(stderr, "%s: %v\n", pos, t.grepped) }
-                t.def.grepped.value = &None{valbase{pos}}
+                t.def.grepped.value = MakeNone(pos)
                 t.grepped = nil
-        } else { result = MakeListOrScalar(pos, t.grepped) }
-
-        //if stopgrep += 1; stopgrep > 99 { diag.errorAt(pos, "pause") }
+        } else {
+                result = MakeListOrScalar(pos, t.grepped)
+        }
         return
 }
 
@@ -2029,6 +2026,8 @@ func modifierWait(pos Position, t *traversal, args... Value) (result Value, err 
 }
 
 type modifierStampOpts struct {
+        next bool "n,next" // breakNext if failed to stamp
+        error bool "e,err;e,error" // breakErro if failed to stamp
         debug bool "d,debug"
         prompt bool "m,prompt"
         verbose bool "v,verbose"
@@ -2049,28 +2048,26 @@ func modifierStamp(pos Position, t *traversal, args... Value) (result Value, err
         }
 
         var target = t.def.target.value
+        if opts.verbose { diag.prompt("stamp %v", target) }
         if err = stamp(t, target, t.start, opts.prompt); err != nil {
-                if t.stems != nil {
-                        if false {
-                                diag.warnAt(pos, "target = %v, stems = %v: %v", target, t.stems, err).
-                                        debug(optionDebugErrors /*&& opts.debug*/, 1)
-                        } else {
-                                diag.warnAt(pos, "%v", err).
-                                        debug(optionDebugErrors /*&& opts.debug*/, 1)
-                        }
+                if opts.next {
+                        if opts.verbose { diag.warnAt(pos, "%v", err).debug(optionDebugErrors, 1) }
+                        t._break(pos, breakNext).scope = breakTrave
+                        err = nil // discard the error
+                } else if opts.error {
+                        diag.errorAt(pos, "%v", err).debug(optionDebugErrors, 1)
+                        t._break(pos, breakErro).error = err
+                } else if t.stems != nil {
+                        diag.warnAt(pos, "%v", err).debug(optionDebugErrors /*&& opts.debug*/, 1)
                         t._break(pos, breakNext).scope = breakTrave
                         err = nil // discard the error
                 } else if pos.IsValid() {
-                        t.traceCallStack(pos, "failed: %v", err).
-                                debug(optionDebugErrors)
+                        t.traceCallStack(pos, "failed: %v", err).debug(optionDebugErrors, 1)
                 } else if targetPos := target.Position(); targetPos.IsValid() {
-                        t.traceCallStack(targetPos, "failed: %v", err).
-                                debug(optionDebugErrors)
+                        t.traceCallStack(targetPos, "failed: %v", err).debug(optionDebugErrors, 1)
                 } else {
                         // TODO: dump more diagnostics information here
                 }
-        } else if opts.verbose {
-                // TODO: verbose file stamp
         }
         return
 }

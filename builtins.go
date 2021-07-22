@@ -1373,18 +1373,24 @@ func builtinString(pos Position, args... Value) (result Value) {
 func filterValues(pats []Value, neg bool, values... Value) (result []Value, err error) {
         var f = func(v Value) bool {
                 for _, pat := range pats {
-                        //fmt.Fprintf(stderr, "filter: (%T %v) (%T %v)\n", pat, pat, v, v)
+                        if p, ok := pat.(*Path); ok &&
+                                strings.Contains(pat.String(), "Modules/_test") &&
+                                strings.Contains(v.String(), "Modules/_test") &&
+                                p != nil {
+                                s, stems, _ := p.match(v)
+                                diag.infoOf(pat, "TODO: %v %v <-> %T %v --> %v %v",
+                                        p.isPattern(), pat, v, v, s, stems).debug(true, 1)
+                                /*s, retained, stems, _ := p.partialMatch(v)
+                                diag.infoOf(pat, "TODO: %v %v <-> %T %v --> %v %v %v",
+                                        p.isPattern(), pat, v, v, s, retained, stems).debug(true, 1)*/
+                        }
                         switch p := pat.(type) {
-                        case *PercPattern:
+                        case Pattern: //*PercPattern:
                                 var ( s string ; stems []string )
                                 if s, stems, err = p.match(v); err != nil { break }
-                                if s != "" && stems != nil {
-                                        return true
-                                }
+                                if s != "" && len(stems) > 0 { return true }
                         default:
-                                if pat.cmp(v) == cmpEqual {
-                                        return true
-                                }
+                                if pat.cmp(v) == cmpEqual { return true }
                                 switch p := v.(type) {
                                 case *File:
                                         var s string
@@ -1395,7 +1401,10 @@ func filterValues(pats []Value, neg bool, values... Value) (result []Value, err 
                 }
                 return false
         }
-        if values, err = mergeresult(Reveal(values...)); err != nil { diag.errorOf(values[0], "%v", err); return }
+        if values, err = mergeresult(Reveal(values...)); err != nil {
+                diag.errorOf(values[0], "%v", err)
+                return
+        }
         for _, v := range values {
                 var okay = f(v)
                 if err != nil { break }
@@ -1409,11 +1418,9 @@ func builtinFilterValues(pos Position, neg bool, args... Value) (res Value) {
         var err error
         if len(args) > 1 {
                 var ( pats []Value; vals []Value )
-                if pats, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return }
+                if pats, err = mergeresult(ExpandAll(args[0]))    ; err != nil { diag.errorAt(pos, "%v", err); return }
                 if vals, err = mergeresult(ExpandAll(args[1:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
-                if vals, err = filterValues(pats, neg, vals...); err == nil {
-                        res = MakeListOrScalar(pos, vals)
-                }
+                if vals, err = filterValues(pats, neg, vals...); err == nil { res = MakeListOrScalar(pos, vals) }
         }
         if res == nil && err == nil { res = MakeNone(pos) }
         return

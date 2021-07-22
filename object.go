@@ -345,7 +345,7 @@ func (d *Def) Strval() (s string, e error) {
         if d.value != nil { s, e = d.value.Strval() }
         return
 }
-
+func (d *Def) isEmpty() bool { return isNone(d.value) || isNil(d.value) }
 func (d *Def) val(value Value) (err error) { return d.set(d.origin, value) }
 func (d *Def) set(origin Origin, value Value) (err error) {
         if origin != DefExpand1 && !isNil(value) && value.refs(d) {
@@ -770,9 +770,10 @@ ForPrograms:
                 var breakers []*breaker = t.breakers
                 t.breakers = nil // take and reset breakers
                 for _, brk := range breakers {
-                        // NOTE: breakNext is remained for traversal.file and traversal.target
+                        // NOTE: see traversal.file and traversal.target for further processing
                         switch brk.what {
                         case breakCase, breakDone:
+                                // FIXME: t.breakers = append(t.breakers, brk)
                                 break ForPrograms // case selected or execution fully done
                         case breakFail, breakErro:
                                 t.breakers = append(t.breakers, brk)
@@ -783,6 +784,7 @@ ForPrograms:
                         default:
                                 diag.warnAt(prog.position, "broken traversal %v: %v",
                                         entry, brk.what).debug(optionDebugErrors, 2)
+                                break ForPrograms
                         }
                 }
         }
