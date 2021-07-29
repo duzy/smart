@@ -90,6 +90,9 @@ func (p *using) cmp(v Value) (res cmpres) {
         }
         return
 }
+func (p *using) patterned() bool { return false }
+func (p *using) match(i interface{}) (full bool, s string, stems []string) { return }
+func (p *using) stencil(stems []string) (s string, rest []string) { return }
 func (p *using) True() (bool, error) { return p.project != nil, nil }
 func (p *using) String() string {
         if len(p.params) > 0 {
@@ -199,6 +202,9 @@ func (p *usinglist) cmp(v Value) (res cmpres) {
         }
         return
 }
+func (p *usinglist) patterned() bool { return false }
+func (p *usinglist) match(i interface{}) (full bool, s string, stems []string) { return }
+func (p *usinglist) stencil(stems []string) (s string, rest []string) { return }
 func (p *usinglist) Strval() (s string, err error) {
         for i, elem := range p.list {
                 if i > 0 { s += " " }

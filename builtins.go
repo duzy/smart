@@ -46,6 +46,7 @@ var builtins = map[string]BuiltinFunc {
         `typeof`:       builtinTypeOf,
 
         `position`:     builtinPosition,
+        `date`:         builtinDate,
 
         `error`:        builtinError,
         //`warning`:      builtinWarning,
@@ -144,6 +145,9 @@ var builtins = map[string]BuiltinFunc {
         `decode-hex`
         `encode-csv`
         `decode-csv` */
+
+        // Fullname of a file or identical to the input
+        `fullname`: builtinFullname,
 
         // TODO: move these into builtin package `path', `filepath'
         `base`:       builtinBase,
@@ -526,6 +530,25 @@ func builtinPosition(pos Position, args... Value) (res Value) {
                 res = MakeListOrScalar(pos, vals)
         } else {
                 res = MakeString(pos, pos.String())
+        }
+        return
+}
+
+type builtinDateOpts struct {
+        now bool `n,now`
+        today bool `t,today`
+}
+func builtinDate(pos Position, args... Value) (res Value) {
+        var (
+                opts = builtinDateOpts{ today:true }
+                err error
+        )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
+        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
+        if t := time.Now(); opts.now {
+                res = MakeTime(pos, t)
+        } else if opts.today {
+                res = MakeDate(pos, t)
         }
         return
 }
@@ -1371,33 +1394,15 @@ func builtinString(pos Position, args... Value) (result Value) {
 }
 
 func filterValues(pats []Value, neg bool, values... Value) (result []Value, err error) {
+        const info = false
         var f = func(v Value) bool {
                 for _, pat := range pats {
-                        if p, ok := pat.(*Path); ok &&
-                                strings.Contains(pat.String(), "Modules/_test") &&
-                                strings.Contains(v.String(), "Modules/_test") &&
-                                p != nil {
-                                s, stems, _ := p.match(v)
-                                diag.infoOf(pat, "TODO: %v %v <-> %T %v --> %v %v",
-                                        p.isPattern(), pat, v, v, s, stems).debug(true, 1)
-                                /*s, retained, stems, _ := p.partialMatch(v)
-                                diag.infoOf(pat, "TODO: %v %v <-> %T %v --> %v %v %v",
-                                        p.isPattern(), pat, v, v, s, retained, stems).debug(true, 1)*/
-                        }
-                        switch p := pat.(type) {
-                        case Pattern: //*PercPattern:
-                                var ( s string ; stems []string )
-                                if s, stems, err = p.match(v); err != nil { break }
-                                if s != "" && len(stems) > 0 { return true }
-                        default:
-                                if pat.cmp(v) == cmpEqual { return true }
-                                switch p := v.(type) {
-                                case *File:
-                                        var s string
-                                        if s, err = pat.Strval(); err != nil { break }
-                                        if p.name == s { return true }
-                                }                        
-                        }
+                        if info { if full, s, stems := pat.match(v); full || s != "" {
+                                diag.warnOf(pat, "pat=%v (%T) value=%v (%T) => full=%v result=%v stems=%v",
+                                        pat, pat, v, v, full, s, stems).
+                                        debug(true, 1)
+                        }}
+                        if ok, _, _ := pat.match(v); ok { return true }
                 }
                 return false
         }
@@ -1495,101 +1500,79 @@ type builtinPatsubstOpts struct {
         noFileMap bool `n,no-filemap`
 }
 
+// $(patsubst pattern,replacement,text)
 // TODO:
 //   $(var:pattern=replacement)
 //   $(var:suffix=replacement)
 func builtinPatsubst(pos Position, args... Value) (res Value) {
-        // $(patsubst pattern,replacement,text)
         var list []Value
         if len(args) < 3 { return }
 
-        var ( optNoFilemap bool; arg0 []Value; err error )
-        if arg0, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return } else
-        if arg0, err = parseFlags(arg0, []string{
-                "n,no-filemap",
-        }, func(ru rune, v Value) {
-                switch ru {
-                case 'n': if optNoFilemap, err = trueVal(v, true); err != nil { diag.errorAt(pos, "%v", err); return }
-                }
-        }); err != nil { diag.errorAt(pos, "%v", err); return }
+        var (
+                opts builtinPatsubstOpts
+                arg0 []Value
+                err error
+        )
+        if arg0, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return }
+        if arg0, err = parseOpts(pos, &opts, arg0...) ; err != nil { diag.errorAt(pos, "%v", err); return }
 
         // TODO: support flags -name and -full for name-only and full-name-only matching
         var srcPats, dstPats, sources []Value
         if len(arg0) > 0 {
                 srcPats = arg0
-                if dstPats, err = mergeresult(ExpandAll(args[1])); err != nil { diag.errorAt(pos, "%v", err); return }
+                if dstPats, err = mergeresult(ExpandAll(args[1]))    ; err != nil { diag.errorAt(pos, "%v", err); return }
                 if sources, err = mergeresult(ExpandAll(args[2:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
         } else {
-                if srcPats, err = mergeresult(ExpandAll(args[1])); err != nil { diag.errorAt(pos, "%v", err); return }
-                if dstPats, err = mergeresult(ExpandAll(args[2])); err != nil { diag.errorAt(pos, "%v", err); return }
+                if srcPats, err = mergeresult(ExpandAll(args[1]))    ; err != nil { diag.errorAt(pos, "%v", err); return }
+                if dstPats, err = mergeresult(ExpandAll(args[2]))    ; err != nil { diag.errorAt(pos, "%v", err); return }
                 if sources, err = mergeresult(ExpandAll(args[3:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
         }
 
         var proj = current()
         if proj == nil {
-                err = fmt.Errorf("unknown most derived context")
+                diag.errorAt(pos, "unknown most derived context")
                 return
         }
 
         // Using the most derived context for correct &(...)
         defer setclosure(setclosure(cloctx.unshift(proj.scope)))
+
         var filemaps []*FileMap
-        if !optNoFilemap {
-                filemaps = proj.filemaps(false)
-        }
+        if !opts.noFileMap { filemaps = proj.filemaps(false) }
 
 ForSources:
         for _, src := range sources {
-                var ( stems []string ; matched bool )
-
-        ForSrcPats:
+                var ( matched bool; stems []string )
                 for _, elem := range srcPats {
-                        switch pat := elem.(type) {
-                        case Pattern:
-                                var s string
-                                if s, stems, err = pat.match(src); err != nil {
-                                        break ForSources
-                                } else if s != "" && len(stems) > 0 {
-                                        matched = true
-                                        break ForSrcPats
-                                }
-                        }
+                        if matched, _, stems = elem.match(src); matched { break }
                 }
-
                 if !matched {
-                        // Just return what the src is if not matched.
-                        if !isNone(src) {
-                                list = append(list, src)
-                        }
+                        // Just return the src if no matching.
+                        if !(isNil(src) || isNone(src)) { list = append(list, src) }
                         continue ForSources
                 }
 
                 // Compose the matched results with stem value.
         ForDstPats:
                 for _, dst := range dstPats {
-                        var name string
-                        switch pat := dst.(type) {
-                        case Pattern:
-                                var rest []string
-                                name, rest, err = pat.stencil(stems)
-                                if err != nil { break ForSources }
-                                if len(rest) > 0 {
-                                        continue ForDstPats
-                                }
-                        default:
-                                if name, err = pat.Strval(); err != nil {
-                                        break ForSources
-                                }
+                        var (
+                                name string
+                                rest []string
+                        )
+                        if name, rest = dst.stencil(stems); name == "" || len(rest) > 0 {
+                                continue ForDstPats
+                        } else {
+                                name = filepath.Clean(name)
                         }
-
-                        name = filepath.Clean(name)
 
                         // Deal with special source value
                         var pos = dst.Position()
                         switch t := src.(type) {
                         case *File:
-                                var pre string
-                                var match *FileMap
+                                var (
+                                        pre string
+                                        match *FileMap
+                                )
                                 for _, m := range filemaps {
                                         if ok, s := m.Match(name); ok {
                                                 match, pre = m, s
@@ -1599,19 +1582,19 @@ ForSources:
 
                                 var file *File
                                 if match != nil {
-                                  if file = match.stat(t.dir, pre, name); file != nil {
-                                    assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (t.dir=%s, pre=%s)", file.name, name, t.dir, pre))
-                                  } else if file = match.stat(proj.absPath, pre, name); file != nil {
-                                    assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (proj.absPath=%s, pre=%s)", file.name, name, proj.absPath, pre))
-                                  }/* else if match.Paths != nil {
-                                    var ( path = match.Paths[0] ; sub string )
-                                    if sub, err = path.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                                    if filepath.IsAbs(sub) {
-                                      file = stat(name, "", sub, nil)
-                                    } else {
-                                      file = stat(name, sub, t.dir, nil)
-                                    }
-                                  } */
+                                        if file = match.stat(t.dir, pre, name); file != nil {
+                                                assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (t.dir=%s, pre=%s)", file.name, name, t.dir, pre))
+                                        } else if file = match.stat(proj.absPath, pre, name); file != nil {
+                                                assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (proj.absPath=%s, pre=%s)", file.name, name, proj.absPath, pre))
+                                        } /* else if match.Paths != nil {
+                                                var ( path = match.Paths[0] ; sub string )
+                                                if sub, err = path.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                                if filepath.IsAbs(sub) {
+                                                        file = stat(name, "", sub, nil)
+                                                } else {
+                                                        file = stat(name, sub, t.dir, nil)
+                                                }
+                                        } */
                                 }
                                 if file == nil {
                                         file = stat(pos, name, t.sub, t.dir, nil/* okay missing */)
@@ -1798,104 +1781,52 @@ func builtinTrimRight(pos Position, args... Value) (res Value) {
 // $(trim-prefix foo%, fooxxx foo123)
 // $(trim-prefix %/foo, xxx/foo/a/b/c)
 // $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
-// FIXME: %%/foo is not working
-func _builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
-        if len(args) == 0 { return }
-
-        var (
-                prefix = args[0]
-                list []Value
-                cutset, s string
-        )
-        //fmt.Fprintf(stderr, "trim-prefix: %T %v : %v\n", prefix, prefix, args)
-        //err = fmt.Errorf("debug"); return
-        if pat, ok := prefix.(partialMatcher); ok {
-                for _, a := range args[1:] {
-                        var ( result string; rest, stems []string )
-                        result, rest, stems, err = pat.partialMatch(a)
-                        if result != "" && stems != nil && rest != nil {
-                                s = filepath.Join(rest...)
-                        } else if s, err = a.Strval(); err != nil {
-                                return
-                        } else if s == "" {
-                                continue // ignore empty string
-                        }
-
-                        if s != "" {
-                                list = append(list, MakeString(a.Position(), s))
-                        }
-                }
-        } else if cutset, err = prefix.Strval(); err != nil {
-                return
-        } else {
-                for _, a := range args[1:] {
-                        if s, err = a.Strval(); err != nil {
-                                return
-                        } else if s != "" {
-                                if cutset == "" {
-                                        s = strings.TrimLeftFunc(s, unicode.IsSpace)
-                                } else {
-                                        s = strings.TrimPrefix(s, cutset)
-                                }
-                        }
-                        if s != "" {
-                                list = append(list, MakeString(a.Position(), s))
-                        }
-                }
-        }
-        if err == nil {
-                res = MakeListOrScalar(pos, list)
-        }
-        return
-}
 func builtinTrimPrefix(pos Position, args... Value) (res Value) {
-        var err error
-        var prefixs, values, list []Value
+        const info = false
+        var (
+                prefixs, values, list []Value
+                err error
+        )
         if len(args) == 0 { return } else
-        if prefixs, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return }
+        if prefixs, err = mergeresult(ExpandAll(args[0])); err != nil {
+                diag.errorOf(args[0], "merge args '%v' failed: %v", args[0], err)
+                return
+        }
         if len(args) == 1 {
                 if len(prefixs) > 1 { values = prefixs[1:] }
-        } else {
-                if values, err = mergeresult(ExpandAll(args[1:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
+        } else if values, err = mergeresult(ExpandAll(args[1:]...)); err != nil {
+                diag.errorOf(args[1], "merge args '%v' failed: %v", args[1:], err)
+                return
         }
         if len(values) == 0 { return } else if len(prefixs) == 0 {
                 res = MakeListOrScalar(pos, values)
                 return
         }
-        ForValue: for _, value := range values {
-                var pos Position
-                var cutset, s string
-                ForPrefix: for _, prefix := range prefixs {
-                        if pat, ok := prefix.(partialMatcher); ok {
-                                var ( result string; rest, stems []string )
-                                result, rest, stems, err = pat.partialMatch(value)
-                                if result != "" && stems != nil && rest != nil {
-                                        s = filepath.Join(rest...)
-                                        pos, value = prefix.Position(), nil
-                                        break ForPrefix
+        for _, value := range values {
+                var (
+                        pos = value.Position()
+                        s string
+                )
+                if s, err = value.Strval(); err != nil {
+                        diag.errorOf(value, "strval '%v' failed: %v", value, err)
+                        return
+                }
+        ForPrefix:
+                for _, prefix := range prefixs {
+                        var full, cutset, stems = prefix.match(value)
+                        if info { diag.warnOf(prefix, "prefix=%v (%T); value=%v (%T) -> full=%v cutset=%v stems=%v",
+                                prefix, prefix, value, value, full, cutset, stems).debug(true, 1) }
+                        if s != "" && (cutset == "" || strings.HasPrefix(s, cutset)) {
+                                if cutset == "" {
+                                        s = strings.TrimLeftFunc(s, unicode.IsSpace)
+                                } else {
+                                        s = strings.TrimPrefix(s, cutset)
                                 }
-                        } else if cutset, err = prefix.Strval(); err != nil {
-                                diag.errorAt(pos, "%v", err); return
-                        } else {
-                                if s == "" {
-                                        if s, err = value.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                                        if s == "" { continue ForValue }
-                                }
-                                if s != "" && strings.HasPrefix(s, cutset) {
-                                        if cutset == "" {
-                                                s = strings.TrimLeftFunc(s, unicode.IsSpace)
-                                        } else {
-                                                s = strings.TrimPrefix(s, cutset)
-                                        }
-                                        pos, value = prefix.Position(), nil
-                                        break ForPrefix
-                                }
+                                pos = prefix.Position()
+                                break ForPrefix
                         }
                 }
-                if s == "" && value != nil {
-                        if s, err = value.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                }
+                if info { diag.warnAt(pos, "list=%v trimmed=%v", list, s).debug(true, 1) }
                 if s != "" { list = append(list, MakeString(pos, s)) }
         }
         if err == nil { res = MakeListOrScalar(pos, list) }
@@ -2141,9 +2072,53 @@ func builtinDecodeBase64(pos Position, args... Value) (res Value) {
         return
 }
 
+func fullname(a Value) (s string, ok bool) {
+        var f *File
+        switch t := a.(type) {
+        case *File     : f = t
+        case *Barefile : f = t.File
+        case *RuleEntry:               return fullname(t.target)
+        case *Def: if t.value != nil { return fullname(t.value ) }
+        }
+        if f != nil && (f.dir != "" || f.sub != "") {
+                s, ok = f.fullname(), true
+        }
+        return
+}
+
+func fullnameOrStrval(a Value) (s string, err error) {
+        var ok bool
+        if s, ok = fullname(a); !ok {
+                s, err = a.Strval()
+        }
+        return
+}
+
+func builtinFullname(pos Position, args... Value) (res Value) {
+        var err error
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err)
+                return
+        }
+
+        var l []Value
+        for _, a := range args {
+                if s, ok := fullname(a); ok {
+                        l = append(l, MakeString(a.Position(), s))
+                } else {
+                        l = append(l, a)
+                }
+        }
+        res = MakeListOrScalar(pos, l)
+        return
+}
+
 func builtinBase(pos Position, args... Value) (res Value) {
         var err error
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "%v", err)
+                return
+        }
 
         var s string
         var l []Value
@@ -2152,7 +2127,7 @@ func builtinBase(pos Position, args... Value) (res Value) {
                 case *File:
                         fmt.Fprintf(stderr, "todo: base File{%v %v %v}\n", t.dir, t.sub, t.name)
                 }*/
-                if s, err = a.Strval(); err != nil {
+                if s, err = fullnameOrStrval(a); err != nil {
                         diag.errorAt(pos, "%v", err); return
                 }
                 s = filepath.Base(s) // the last element of path
@@ -2169,7 +2144,7 @@ func dirx(pos Position, n int, args... Value) (res Value) {
                 err error
         )
         for _, a := range args {
-                if s, err = a.Strval(); err != nil {
+                if s, err = fullnameOrStrval(a); err != nil {
                         diag.errorAt(pos, "%v", err); return
                 }
                 s = filepath.Dir(s)
@@ -2189,7 +2164,7 @@ func undirx(pos Position, n int, args... Value) (res Value) {
                 err error
         )
         for _, a := range args {
-                if s, err = a.Strval(); err != nil {
+                if s, err = fullnameOrStrval(a); err != nil {
                         diag.errorAt(pos, "%v", err); return
                 }
                 v := strings.Split(s, PathSep)

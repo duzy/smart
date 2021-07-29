@@ -587,7 +587,7 @@ func (p *executor) ensureContainerRunning(t *traversal, container *Project, cont
 type executorEvaluateOpts struct {
   debug bool "d,debug"
   prompt bool
-  promStr string "c,cmd;c,prompt"
+  promStr string "c,cmd;m,prompt"
   verbout bool "v,verbout"
   verberr bool "w,verberr"
   buffOut bool "o,stdout"
@@ -715,7 +715,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
 
   var targetName string
   var target = t.def.target.value
-  if targetName, err = target.Strval(); err != nil {
+  if targetName, err = fullnameOrStrval(target); err != nil {
     diag.errorOf(target, "stringify target '%v' failed: %v", target, err)
     return
   }

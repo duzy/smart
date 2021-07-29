@@ -42,15 +42,6 @@ func (filemap *FileMap) Patterns() (pats []Value) {
   return merge(pats...)
 }
 
-func isRealPattern(pattern Value) (result bool) {
-  if t, ok := pattern.(*Path); ok {
-    result = t.isPattern()
-  } else if _, ok := pattern.(Pattern); ok {
-    result = true
-  }
-  return
-}
-
 // Match split filename into list and match each part with the pattern correspondingly.
 func (filemap *FileMap) Match(filename string) (matched bool, pre string) {
   /*if filemap.Pattern.closured() {
@@ -484,7 +475,7 @@ ForPats:
                 assert(file != nil, "`%s` missing (%s)", s, name)
               }
             }
-          } else if ok := isRealPattern(pattern); !ok && wo.optIncludeMissing {
+          } else if ok := pattern.patterned(); !ok && wo.optIncludeMissing {
             // If the filemap is not a pattern (e.g. foobar.cpp), we include it in the returning files
             var name string
             name, err = pattern.Strval()
@@ -531,7 +522,7 @@ ForFilemaps:
         pos, p, name, s1, exists(file), s2, p.changedWD, filemap.pattern, filemap.Patterns(), pre)
     }
     if file != nil {
-      if file.match == nil { file.match = filemap }
+      if file.filemap == nil { file.filemap = filemap }
       if pre != "" { /* FIXME: file.change(...pre) */ }
       if exists(file) { break ForFilemaps }
       if first == nil { first = file }
@@ -632,52 +623,37 @@ func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
   return
 }
 
-func (p *Project) resolvePatterns(i interface{}) (res []*stemmed, err error) {
+func (p *Project) resolvePatterns(i interface{}) (res []*stemmed) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.resolvePatterns")) }
   if optionEnableBenchspots { defer bench(spot("Project.resolvePatterns")) }
-  var v []*stemmed
-  if res, err = p._resolvePatterns1(i); err != nil { return }
-  if v, err = p._resolvePatterns2(i); err != nil { return } else {
-    res = append(res, v...)
-  }
+  res = p._resolvePatterns1(i)
+  if v := p._resolvePatterns2(i); len(v) > 0 { res = append(res, v...) }
   if true { /* FAST */ } else /* SLOW */
-  if v, err = p._resolvePatterns3(i); err != nil { return } else {
-    res = append(res, v...)
-  }
+  if v := p._resolvePatterns3(i); len(v) > 0 { res = append(res, v...) }
   return
 }
 
-func (p *Project) _resolvePatterns1(i interface{}) (res []*stemmed, err error) {
+func (p *Project) _resolvePatterns1(i interface{}) (res []*stemmed) {
   if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns1")) }
   for _, pat := range p.patterns {
-    var ( s string ; stems []string )
-    if s, stems, err = pat.Pattern.match(i); err != nil {
-      return
-    } else if s != "" && stems != nil {
-      res = append(res, &stemmed{pat, stems})
-    }
+    var full, _, stems = pat.Pattern.match(i)
+    if full { res = append(res, &stemmed{pat, stems}) }
   }
   return
 }
 
-func (p *Project) _resolvePatterns2(i interface{}) (res []*stemmed, err error) {
+func (p *Project) _resolvePatterns2(i interface{}) (res []*stemmed) {
   if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns2")) }
   for _, base := range p.bases {
-    var ses []*stemmed
-    ses, err = base.resolvePatterns(i)
-    if err != nil { return }
-    res = append(res, ses...)
+    res = append(res, base.resolvePatterns(i)...)
   }
   return
 }
 
-func (p *Project) _resolvePatterns3(i interface{}) (res []*stemmed, err error) {
+func (p *Project) _resolvePatterns3(i interface{}) (res []*stemmed) {
   if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns3")) }
   for _, using := range p.using.list {
-    var ses []*stemmed
-    ses, err = using.project.resolvePatterns(i)
-    if err != nil { return }
-    res = append(res, ses...)
+    res = append(res, using.project.resolvePatterns(i)...)
   }
   return
 }
@@ -690,7 +666,7 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
   } ()
 
   var strval string
-  if strval, err = target.Strval(); err != nil {
+  if strval, err = fullnameOrStrval(target); err != nil {
     return
   }
 
@@ -715,7 +691,7 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
   }
 
   var name string
-  if name, err = target.Strval(); err != nil {
+  if name, err = fullnameOrStrval(target); err != nil {
     return
   } else if name == "" {
     err = fmt.Errorf("name '%v' already taken as `%T'", name)
@@ -784,7 +760,7 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
     if closured && rec.String() == name {
       entry = rec; break
     }
-    if sv, err = rec.Strval(); err != nil {
+    if sv, err = fullnameOrStrval(rec); err != nil {
       return
     } else if sv == strval {
       entry = rec; break

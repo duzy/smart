@@ -93,7 +93,7 @@ func (g *CommentGroup) Position() Position { return g.List[0].Pos }
 type Value interface {
     Positioner // The position where the value appears (or NoPos).
 
-    // Lit returns the literal representations of the value.
+    // Literal representations of the value.
     String() string
 
     // Strval returns the string form of the value.
@@ -111,13 +111,22 @@ type Value interface {
     // Equality compare.
     cmp(v Value) cmpres
 
+    // whether this value can be used as a pattern
+    patterned() bool
+
+    // Match a Value or string, returned 's' is the matched string (or heading part).
+    match(i interface{}) (full bool, s string, stems []string)
+
+    // Stencil this value with stems.
+    stencil(stems []string) (s string, rest []string)
+
     // Returns the modification time.
     mod(t *traversal) (time.Time, error)
 
-    // Returns value existence (as a target)
+    // Returns value existence (aka. as a file target)
     exists() existence
 
-    // Stamp the value if it's file (update FileInfo).
+    // Stamp the value if it's a file (aka. update FileInfo).
     stamp(t *traversal) ([]*File, error)
 
     // Recursively detecting whether this value references
@@ -361,7 +370,7 @@ func (t *traversal) filestub(p *Project, file *File, stub *filestub) (okay bool)
     /// Searching entries from the most derived project.
     var ( entry *RuleEntry; err error )
     if entry, err = p.resolveEntry(stub.name); err != nil {
-        diag.errorOf(stub.match.pattern, "resolve entry failed: %v", err)
+        diag.errorOf(stub.filemap.pattern, "resolve entry failed: %v", err)
         return
     } else if entry != nil {
         entry.traverse(t)
@@ -369,11 +378,7 @@ func (t *traversal) filestub(p *Project, file *File, stub *filestub) (okay bool)
     }
 
     /// Searching patterns from the most derived project.
-    var entries []*stemmed
-    if entries, err = p.resolvePatterns(stub); err != nil {
-        diag.errorOf(stub.match.pattern, "resolve patterns error: %v", err)
-        return
-    }
+    var entries []*stemmed = p.resolvePatterns(stub)
 
     //ForEntries:
     for _, entry := range entries {
@@ -455,11 +460,7 @@ func (t *traversal) file(file *File) (okay bool) {
         stemmedList []*stemmed
     )
     for _, project := range projects {
-        var ents []*stemmed
-        if ents, err = project.resolvePatterns(file.name); err != nil {
-            t.traceCallStack(file.position, "resolve patterns for '%v' failed: %v", file.name, err)
-            return
-        }
+        var ents []*stemmed = project.resolvePatterns(file.name)
         for _, ent := range ents {
             if _, ok := stemmedEntries[ent.RuleEntry]; !ok {
                 stemmedList = append(stemmedList, ent)
@@ -631,7 +632,7 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
                 names[name] = true // mark to avoid duplication
 
                 var sub = filepath.Join(file.sub, s)
-                var stub = &filestub{ file.dir, sub, name, file.match, file.filestub.other }
+                var stub = &filestub{ file.dir, sub, name, file.filemap, file.filestub.other }
                 file.filestub.other = stub
 
                 if okay = t.filestub(project, file, stub); t.hasBreakers() { return }
@@ -661,8 +662,9 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
                 if !okay && false {
                     s, _ := file.Strval()
                     e, _ := project.resolveEntry(file.name)
-                    fmt.Fprintf(stderr, "%s: %s: %v (file=%v, match=%v, cwd=%s, alt.sub=%v, entry=%v, fullname=%s)\n", project, file.position, target, file, file.match, project.changedWD, alt.sub, e, s)
-                    if true { debug.PrintStack() }
+                    diag.infoAt(file.position, "%s: %v (file=%v, match=%v, cwd=%s, alt.sub=%v, entry=%v, fullname=%s)\n",
+                        project, target, file, file.filemap, project.changedWD, alt.sub, e, s).
+                        debug(true, 1)
                 }
             }
             if okay { return } // Done!
@@ -675,11 +677,7 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
         stemmedList []*stemmed
     )
     for _, project := range projects {
-        var ents []*stemmed
-        if ents, err = project.resolvePatterns(target); err != nil {
-            t.traceCallStack(file.position, "resolve patterns for '%v' failed: %v", target, err)
-            return
-        }
+        var ents []*stemmed = project.resolvePatterns(target)
         for _, ent := range ents {
             if _, ok := stemmedEntries[ent.RuleEntry]; !ok {
                 stemmedList = append(stemmedList, ent)
@@ -717,27 +715,28 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
             t.traceCallStack(entry.position, "unknown breakers for target %v (%v)", target, t.breakers[0].what).
                 debug(optionDebugErrors, 1)
             return
-         }
+        }
+        if false && strings.Contains(fmt.Sprintf("%s", entry), ".c.include") {
+            diag.warnOf(entry, "%v %v %v", entry, target, t.isConfigureExecution).debug(true, 1)
+        }
     }
 
     if err != nil {
         t.traceCallStack(pos, "%v: target(%v), file=%v: error: %v", t.project, target, file, err).
             debug(optionDebugErrors && true)
-    } else if !okay && t.stems == nil {
+    } else if !okay && !t.isConfigureExecution && t.stems == nil {
         if optionTraceTraversal { t.tracef("%v: `target(%s)` not found (file=%v)", t.project, target, file) }
         if file != nil {
             if false { fmt.Fprintf(stderr, "%s: %s: %v (not found, sub=%s, dir=%s, cwd=%s) (traversal.target)\n", t.project, file.position, file.name, file.sub, file.dir, t.project.changedWD) }
-            //diag.errorAt(file.position, "%v: file not found: %v", t.project, file)
-            t.traceCallStack(file.position, "traverse missing target file (for %v): %v", t.project, file).
-                debug(optionDebugErrors && true)
+            t.traceCallStack(file.position, "traverse missing target file %v for %v", file, t.project).
+                debug(optionDebugErrors)
             brk := t._break(file.position, breakErro)
             brk.error = fileNotFoundError{t.project, file}
             t.breakers = append(t.breakers, brk)
         } else {
-            //diag.errorAt(pos, "%v: target not found: %v (closure: %v)", t.project, target, projects)
-            t.traceCallStack(file.position, "traverse missing target (for %v): %v", t.project, target).
-                debug(optionDebugErrors && true)
-            brk := t._break(file.position, breakErro)
+            t.traceCallStack(pos, "traverse missing target %v for %v", target, t.project).
+                debug(optionDebugErrors)
+            brk := t._break(pos, breakErro)
             brk.error = targetNotFoundError{t.project, target}
             t.breakers = append(t.breakers, brk)
         }
@@ -811,7 +810,7 @@ func (t *traversal) cmdHash(values ...Value) (k, v HashBytes, err error) {
         val = sha256.New()
         str string
     )
-    if str, err = t.def.target.value.Strval(); err != nil { return }
+    if str, err = fullnameOrStrval(t.def.target.value); err != nil { return }
     fmt.Fprintf(key, "%s", t.program.project.absPath)
     fmt.Fprintf(key, "%v", str)
 
@@ -915,9 +914,9 @@ func (t *traversal) wait(pos Position) {
         )
         if l, ok := v.(*List); ok && l.Len() == 1 { v = l.Elems[0] }
         if targetValuePos.IsValid() && !targetValuePos.Equals(&targetPos) {
-            if f, ok := v.(*File); ok && f.match != nil {
+            if f, ok := v.(*File); ok && f.filemap != nil {
                 diag.errorAt(targetValuePos, "waiting for '%v'", t.def.target.value)
-                diag.errorOf(f.match.pattern, "via pattern '%v' (of %v)", v, f.match.project).
+                diag.errorOf(f.filemap.pattern, "via pattern '%v' (of %v)", v, f.filemap.project).
                     debug(optionDebugErrors && t.def.target.value == v && t.closure == nil, 1)
             } else {
                 diag.errorAt(targetValuePos, "waiting for '%v'", t.def.target.value).
@@ -967,6 +966,9 @@ func (_ *valbase) closured() (res bool) { return }
 func (_ *valbase) refdef(origin Origin) (res bool) { return }
 func (_ *valbase) expand(_ expandwhat) (v Value, err error) { return }
 func (_ *valbase) cmp(_ Value) (res cmpres) { return }
+func (_ *valbase) patterned() bool { return false }
+func (_ *valbase) match(i interface{}) (full bool, s string, stems []string) { return }
+func (_ *valbase) stencil(stems []string) (s string, rest []string) { return }
 func (_ *valbase) mod(t *traversal) (res time.Time, err error) { return }
 func (_ *valbase) exists() existence { return existenceMatterless }
 func (_ *valbase) stamp(t *traversal) (file []*File, err error) { return }
@@ -977,6 +979,35 @@ func (_ *valbase) Float() (f float64, err error) { return }
 func (_ *valbase) String() (s string) { return }
 func (_ *valbase) Strval() (s string, err error) { return }
 func (_ *valbase) traverse(t *traversal) { }
+func (_ *valbase) _match(p Value, i interface{}) (full bool, s string, stems []string) {
+    var ( v string; e error )
+    if v, e = p.Strval(); e == nil {
+        var is string
+        switch t := i.(type) {
+        case string: is = t
+        case Value:
+            if is, e = t.Strval(); e != nil {
+                diag.errorOf(t, "strval '%v' error: %v", t, e)
+                return
+            }
+        }
+        if strings.HasPrefix(is, v) {
+            s, full = v, (len(v) == len(is))
+        }
+    } else {
+        diag.errorOf(p, "strval '%v' error: %v", p, e)
+    }
+    return
+}
+func (_ *valbase) _stencil(p Value, stems []string) (s string, rest []string) {
+    var ( v string; e error )
+    if v, e = p.Strval(); e == nil {
+        s, rest = v, stems
+    } else {
+        diag.errorOf(p, "strval '%v' error: %v", p, e)
+    }
+    return
+}
 
 type returner struct {
     valbase
@@ -1031,6 +1062,16 @@ func (p *Argumented) cmp(v Value) (res cmpres) {
     }
     return
 }
+func (p *Argumented) patterned() bool { return p.value.patterned() }
+func (p *Argumented) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p.value.match(i)
+    return
+}
+func (p *Argumented) stencil(stems []string) (s string, rest []string) {
+    s, rest = p.value.stencil(stems)
+    return
+}
+
 func (p *Argumented) stamp(t *traversal) ([]*File, error) { return p.value.stamp(t) }
 func (p *Argumented) exists() existence { return p.value.exists() }
 func (p *Argumented) mod(t *traversal) (time.Time, error) {
@@ -1089,7 +1130,7 @@ func (p *Argumented) traverse(t *traversal) {
     t.arguments = p.args
     p.value.traverse(t)
 }
-func (p *Argumented) checkPatternDepends(t *traversal, project *Project, se *stemmed, prog *Program) (ok, res1 bool, breakers []*breaker) {
+/*func (p *Argumented) checkPatternDepends(t *traversal, project *Project, se *stemmed, prog *Program) (ok, res1 bool, breakers []*breaker) {
     switch v := p.value.(type) {
     case Pattern:
         res1, breakers = checkPatternDepend(t, project, se, prog, v)
@@ -1098,7 +1139,7 @@ func (p *Argumented) checkPatternDepends(t *traversal, project *Project, se *ste
         ok, res1, breakers = v.checkPatternDepends(t, project, se, prog)
     }
     return
-}
+    }*/
 
 type None struct { valbase }
 func (p *None) expand(_ expandwhat) (Value, error) { return p, nil }
@@ -1128,15 +1169,45 @@ func isNil(v Value) (t bool) {
 // Any is used to box an arbitrary value
 type Any struct { value interface{} }
 func (p *Any) cmp(v Value) (res cmpres) {
-    if a, ok := v.(*Any); ok {
-        assert(ok, "value is not Any")
-        if v1, ok := p.value.(Value); ok {
+    switch a := v.(type) {
+    case *Any:
+        if p.value == a.value {
+            res = cmpEqual
+        } else if v1, ok := p.value.(Value); ok {
             if v2, ok := a.value.(Value); ok {
                 res = v1.cmp(v2)
             }
-        } else if p.value == a.value {
-            res = cmpEqual
         }
+    case Value:
+        if p.value == a {
+            res = cmpEqual
+        } else if v1, ok := p.value.(Value); ok {
+            res = v1.cmp(a)
+        }
+    }
+    return
+}
+func (p *Any) patterned() (res bool) {
+    if p.value == nil {
+        // does nothing
+    } else if v, ok := p.value.(Value); ok {
+       res = v.patterned()
+    }
+    return
+}
+func (p *Any) match(i interface{}) (full bool, s string, stems []string) {
+    if p.value == nil {
+        // does nothing
+    } else if v, ok := p.value.(Value); ok {
+        full, s, stems = v.match(i)
+    }
+    return
+}
+func (p *Any) stencil(stems []string) (s string, rest []string) {
+    if p.value == nil {
+        // does nothing
+    } else if v, ok := p.value.(Value); ok {
+        s, rest = v.stencil(stems)
     }
     return
 }
@@ -1311,6 +1382,14 @@ func (p *boolean) cmp(v Value) (res cmpres) {
     }
     return
 }
+func (p *boolean) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p._match(p, i)
+    return
+}
+func (p *boolean) stencil(stems []string) (s string, rest []string) {
+    s, rest = p._stencil(p, stems)
+    return
+}
 
 type answer struct { valbase; bool }
 func (p *answer) expand(_ expandwhat) (Value, error) { return p, nil }
@@ -1354,6 +1433,14 @@ func (p *answer) cmp(v Value) (res cmpres) {
             res = cmpGreater
         }
     }
+    return
+}
+func (p *answer) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p._match(p, i)
+    return
+}
+func (p *answer) stencil(stems []string) (s string, rest []string) {
+    s, rest = p._stencil(p, stems)
     return
 }
 
@@ -1401,6 +1488,14 @@ func (p *option) cmp(v Value) (res cmpres) {
     }
     return
 }
+func (p *option) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p._match(p, i)
+    return
+}
+func (p *option) stencil(stems []string) (s string, rest []string) {
+    s, rest = p._stencil(p, stems)
+    return
+}
 
 type prediction struct {
     boolean
@@ -1432,21 +1527,53 @@ type Bin struct { integer }
 func (p *Bin) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Bin) String() string { return fmt.Sprintf("0b%s", strconv.FormatInt(int64(p.int64),2)) }
 func (p *Bin) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),2), nil }
+func (p *Bin) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p._match(p, i)
+    return
+}
+func (p *Bin) stencil(stems []string) (s string, rest []string) {
+    s, rest = p._stencil(p, stems)
+    return
+}
 
 type Oct struct { integer }
 func (p *Oct) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Oct) String() string { return fmt.Sprintf("0%s", strconv.FormatInt(int64(p.int64),8)) }
 func (p *Oct) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),8), nil }
+func (p *Oct) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p._match(p, i)
+    return
+}
+func (p *Oct) stencil(stems []string) (s string, rest []string) {
+    s, rest = p._stencil(p, stems)
+    return
+}
 
 type Int struct { integer }
 func (p *Int) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Int) String() string { return strconv.FormatInt(int64(p.int64),10) }
 func (p *Int) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),10), nil }
+func (p *Int) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p._match(p, i)
+    return
+}
+func (p *Int) stencil(stems []string) (s string, rest []string) {
+    s, rest = p._stencil(p, stems)
+    return
+}
 
 type Hex struct { integer }
 func (p *Hex) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Hex) String() string { return fmt.Sprintf("0x%s", strconv.FormatInt(int64(p.int64),16)) }
 func (p *Hex) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),16), nil }
+func (p *Hex) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p._match(p, i)
+    return
+}
+func (p *Hex) stencil(stems []string) (s string, rest []string) {
+    s, rest = p._stencil(p, stems)
+    return
+}
 
 const FloatEpsilon = 1e-15 /* 1e-16 */
 type Float struct {
@@ -1471,6 +1598,14 @@ func (p *Float) cmp(v Value) (res cmpres) {
             res = cmpGreater
         }
     }
+    return
+}
+func (p *Float) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p._match(p, i)
+    return
+}
+func (p *Float) stencil(stems []string) (s string, rest []string) {
+    s, rest = p._stencil(p, stems)
     return
 }
 
@@ -1511,6 +1646,14 @@ func (p *DateTime) cmp(v Value) (res cmpres) {
     }
     return
 }
+func (p *DateTime) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p._match(p, i)
+    return
+}
+func (p *DateTime) stencil(stems []string) (s string, rest []string) {
+    s, rest = p._stencil(p, stems)
+    return
+}
 
 func ParseDateTime(pos Position, s string) *DateTime {
     // time.RFC3339Nano
@@ -1532,6 +1675,14 @@ func (p *Date) String() string {
 func (p *Date) Strval() (string, error) { return time.Time(p.t).Format("2006-01-02"), nil }
 func (p *Date) Integer() (int64, error) { return p.t.Unix(), nil }
 func (p *Date) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+func (p *Date) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p._match(p, i)
+    return
+}
+func (p *Date) stencil(stems []string) (s string, rest []string) {
+    s, rest = p._stencil(p, stems)
+    return
+}
 
 type Time struct { DateTime }
 func (p *Time) String() string {
@@ -1544,6 +1695,14 @@ func (p *Time) String() string {
 func (p *Time) Strval() (string, error) { return time.Time(p.t).Format("15:04:05.999999999Z07:00"), nil }
 func (p *Time) Integer() (int64, error) { return p.t.Unix(), nil }
 func (p *Time) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+func (p *Time) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p._match(p, i)
+    return
+}
+func (p *Time) stencil(stems []string) (s string, rest []string) {
+    s, rest = p._stencil(p, stems)
+    return
+}
 
 // ie. https://en.wikipedia.org/wiki/URL
 // ▶▶─<scheme>─(:)┬──────────────────────────────────────┬<path>┬───────────┬┬──────────────┬─▶◀
@@ -1703,6 +1862,14 @@ func (p *URL) cmp(v Value) (res cmpres) {
     }
     return
 }
+func (p *URL) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p._match(p, i)
+    return
+}
+func (p *URL) stencil(stems []string) (s string, rest []string) {
+    s, rest = p._stencil(p, stems)
+    return
+}
 func (p *URL) Validate() (res *url.URL) {
     panic(fmt.Sprintf("validate %s", p))
     return
@@ -1722,6 +1889,14 @@ func (p *Raw) cmp(v Value) (res cmpres) {
     if a, ok := v.(*Raw); ok && p.string == a.string {
         res = cmpEqual
     }
+    return
+}
+func (p *Raw) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p._match(p, i)
+    return
+}
+func (p *Raw) stencil(stems []string) (s string, rest []string) {
+    s, rest = p._stencil(p, stems)
     return
 }
 
@@ -1753,6 +1928,14 @@ func (p *String) cmp(v Value) (res cmpres) {
             res = cmpGreater
         }
     }
+    return
+}
+func (p *String) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p._match(p, i)
+    return
+}
+func (p *String) stencil(stems []string) (s string, rest []string) {
+    s, rest = p._stencil(p, stems)
     return
 }
 
@@ -1791,6 +1974,14 @@ func (p *Bareword) cmp(v Value) (res cmpres) {
     }
     return
 }
+func (p *Bareword) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p._match(p, i)
+    return
+}
+func (p *Bareword) stencil(stems []string) (s string, rest []string) {
+    s, rest = p._stencil(p, stems)
+    return
+}
 
 type Qualiword struct {
     valbase
@@ -1827,6 +2018,14 @@ func (p *Qualiword) cmp(v Value) (res cmpres) {
             break
         }
     }
+    return
+}
+func (p *Qualiword) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p._match(p, i)
+    return
+}
+func (p *Qualiword) stencil(stems []string) (s string, rest []string) {
+    s, rest = p._stencil(p, stems)
     return
 }
 
@@ -1940,24 +2139,32 @@ func (p *Barecomp) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     var ( target string; err error )
     if target, err = p.Strval(); err == nil {
-        if false { fmt.Fprintf(stderr, "%s: %v (%s)\n", p.position, p, target) }
+        if false { diag.warnAt(p.position, "%v (%s)\n", p, target).debug(true, 1) }
         t.target(p.position, target)
     } else {
-        diag.errorOf(p, "stringify '%v' error: %v", p, err)
+        diag.errorOf(p, "strval '%v' error: %v", p, err)
     }
 }
 func (p *Barecomp) cmp(v Value) (res cmpres) {
     if a, ok := v.(*Barecomp); ok { res = p.cmpElems(a.Elems) }
     return
 }
+func (p *Barecomp) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = p._match(p, i)
+    return
+}
+func (p *Barecomp) stencil(stems []string) (s string, rest []string) {
+    s, rest = p._stencil(p, stems)
+    return
+}
 func (p *Barecomp) Combine(x Value) {
     if o, ok := x.(*Barecomp); ok {
         for _, elem := range o.Elems {
-			p.Combine(elem)
-		}
-	} else {
-		p.Elems = append(p.Elems, x)
-	}
+            p.Combine(elem)
+        }
+    } else {
+        p.Elems = append(p.Elems, x)
+    }
 }
 
 // Barefile works like an alias of a File, the Strval() is identical to File.
@@ -2007,7 +2214,7 @@ func (p *Barefile) traverse(t *traversal) {
     if p.File == nil { // it happens if p.Name refers argument
         var ( target string; err error )
         if target, err = p.Strval(); err != nil {
-            diag.errorOf(p, "stringify '%v' failed: %v", p, err)
+            diag.errorOf(p, "strval '%v' failed: %v", p, err)
             return
         }
 
@@ -2041,6 +2248,22 @@ func (p *Barefile) mod(t *traversal) (res time.Time, err error) {
 }
 func (p *Barefile) cmp(v Value) (res cmpres) {
     if a, ok := v.(*Barefile); ok { res = p.Name.cmp(a.Name) }
+    return
+}
+func (p *Barefile) match(i interface{}) (full bool, s string, stems []string) {
+    if p.File != nil {
+        full, s, stems = p.File.match(i)
+    } else {
+        full, s, stems = p.Name.match(i)
+    }
+    return
+}
+func (p *Barefile) stencil(stems []string) (s string, rest []string) {
+    if p.File != nil {
+        s, rest = p.File.stencil(stems)
+    } else {
+        s, rest = p.Name.stencil(stems)
+    }
     return
 }
 
@@ -2168,10 +2391,11 @@ func (p *Path) expand(w expandwhat) (res Value, err error) {
 }
 func (p *Path) pathname(stems []string) (pathname string, err error) {// the addressed file target
     var rest []string // unmatched path segmants
-    if len(stems) == 0 { pathname, err = p.Strval()  } else
-    if pathname, rest, err = p.stencil(stems); err != nil {
-        // ...
-    } else if len(rest) > 0 {
+    if len(stems) == 0 {
+        if pathname, err = p.Strval(); err != nil {
+            //diag.errorAt(p.position, "strval '%v' failed: %v", p, e)
+        }
+    } else if pathname, rest = p.stencil(stems); len(rest) > 0 {
         //err = errorf(p.position, "partial match: %v", rest)
     }
     return
@@ -2228,10 +2452,9 @@ func (p *Path) mod(t *traversal) (res time.Time, err error) {
     }
     return
 }
-func (p *Path) isPattern() (result bool) {
+func (p *Path) patterned() (result bool) {
     for _, seg := range p.Elems {
-        _, result = seg.(Pattern)
-        if result { return }
+        if result = seg.patterned(); result { break }
     }
     return
 }
@@ -2239,182 +2462,221 @@ func (p *Path) cmp(v Value) (res cmpres) {
     if a, ok := v.(*Path); ok { res = p.cmpElems(a.Elems) }
     return
 }
-func (p *Path) match(i interface{}) (result string, stems []string, err error) {
-    if optionEnableBenchspots { defer bench(spot("Path.match")) }
-    var retained []string
-    result, retained, stems, err = p.partialMatch(i)
-    if len(retained) > 0 {
-        // clear results if not fully matched
-        result, stems = "", nil
-    }
-    return
-}
-func (p *Path) partialMatch(i interface{}) (result string, retained, stems []string, err error) {
-    switch t := i.(type) {
-    case *filestub: i = filepath.Join(t.dir, t.sub, t.name)
-    case *File:     i = filepath.Join(t.dir, t.sub, t.name)
-    }
-    return p.match1(i)
-}
-func (p *Path) match1(i interface{}) (result string, retained, stems []string, err error) {
+func (p *Path) match1(str string) (full bool, result string, stems []string) {
     var (
         srcs []string
         segs []Value
-        idx = 0
+        err error
     )
-    if segs, err = ExpandAll(p.Elems...); err != nil { return } else {
-        switch t := i.(type) {
-        case []string: srcs = t
-        case   string: srcs = strings.Split(t, PathSep)
-        case Value:
-            var s string
-            if s, err = t.Strval(); err == nil {
-                srcs = strings.Split(s, PathSep)
-            } else { return }
-        default: unreachable("path.match1: %T %v", i, i)
-        }
+    if srcs = strings.Split(str, PathSep); len(srcs) == 0 {
+        //diag.errorAt(p.position, "match")
+        return
     }
-ForPathSegs:
-    for n, seg := range segs {
-        if len(srcs) <= idx { break ForPathSegs }
+    if segs, err = ExpandAll(p.Elems...); err != nil {
+        diag.errorAt(p.position, "failed to expand path '%v': %v", p, segs)
+        return
+    }
 
-        var ( s string ; r []string )
-        switch t := seg.(type) {
-        case *Path:// Note that Path is also a Pattern!
-            var ss []string
-            if s, r, ss, err = t.match1(srcs[idx:]); err != nil {
-                break ForPathSegs
-            } else if s == "" {
-                return
-            } else if len(r) > 0 {
-                // not fully matched
+    //var info = strings.Contains(p.String(), "...") && strings.Contains(str, "...")
+    const info = false
+    var (
+        lenSegs = len(segs)
+        lenSrcs = len(srcs)
+        res []string
+    )
+SegsLoop:
+    for n, m := 0, 0; n < lenSegs && m < lenSrcs; {
+        var (
+            seg, si = segs[n], n
+            f, s, ss = seg.match(srcs[m])
+        )
+        if info { diag.infoOf(seg, "%d: path=%v seg=%v (%T); str=%v srcs[%d]=%v -> f=%v s=%v ss=%v => res=%v stems=%v",
+            n, p, seg, seg, str, m, srcs[m], f, s, ss, res, stems).debug(false, 1) }
+        if !(f || s == srcs[m]) {
+            if ps, ok := seg.(*PathSeg); (s == "" && ok && ps.rune == 0) || s != "" {
+                res = append(res, s)
+            } else {
+                res, stems = nil, nil
             }
-            stems = append(stems, ss...)
-            idx += len(strings.Split(s, PathSep))
-        case Pattern:// Note that Path is also a Pattern!
-            var ss []string
+            if info { diag.infoOf(seg, "%d, a: res=%v stems=%v s=%s srcs[%d]=%s",
+                n, res, stems, s, m, srcs[m]) }
+            break SegsLoop
+        }
 
-            // Special case for "/%%/" to match many segs at once.
-            if ok, prefix, suffix := percperc(t); ok && isNone(prefix) && isNone(suffix) {
-                if n+1 < len(segs) && idx+1 < len(srcs) {
-                    // Find 'next' matched seg, ie. %%/next/xxx
-                    var next = segs[n+1] // e.g. '.smart' like in '%%/.smart/modules'
-                    switch t := next.(type) {
-                    case Pattern:
-                        for x, src := range srcs[idx+1:] {
-                            var res string
-                            res, ss, err = t.match(src)
-                            if err != nil { return }
-                            if res != "" && len(ss) > 0 {
-                                end := idx + 1 + x
-                                stem := strings.Join(srcs[idx:end], PathSep)
-                                stems = append(stems, stem)
-                                idx = end
-                                continue ForPathSegs //break //
-                            }
-                        }
-                    default:
-                        for x, src := range srcs[idx+1:] {
-                            var res string
-                            if res, err = t.Strval(); err != nil {
-                                return
-                            }
-                            if res == src {
-                                end := idx + 1 + x
-                                stem := strings.Join(srcs[idx:end], PathSep)
-                                stems = append(stems, stem)
-                                idx = end
-                                continue ForPathSegs //break //
-                            }
-                        }
+        // NOTE: `s` could be empty string, e.g. when `str` is absolute path
+        res   = append(res  , s)
+        stems = append(stems, ss...)
+        n += 1 // move forward to the next seg
+        m += 1 // move forward to the next src
+
+         // Checking for patterns like %% or xx%%yy
+        var pp, pre, suf = percperc(seg)
+        if !pp {
+            //stems = append(stems, ss...)
+            if false { diag.infoOf(seg, "%d/%d: path=%v str=%v -> f=%v s=%v ss=%v -> res=%v stems=%v m=%d/%d",
+                n, lenSegs, p, str, f, s, ss, res, stems, m, lenSrcs) }
+            continue SegsLoop
+        } else if pre != nil && suf != nil {
+            //stems = append(stems, s)
+        }
+
+        // Iterate segs after a %%, e.g. bar, baz in foo/%%/bar/baz
+    PercPercLoop:
+        for k := n; n < lenSegs; n += 1 {
+            var next Value
+            if n == lenSegs { // if the pattern has no more segs, e.g. foo/%%
+                if n < lenSrcs { res = append(res, srcs[n:]...) }
+                if info { diag.infoOf(seg, "%d, b: res=%v stems=%v", n, res, stems) }
+                break SegsLoop
+            }
+
+            next = segs[n]
+            if info {
+                diag.infoOf(next, "segs[%d,%d]=(%v,%v) (%T) -> srcs=%v srcs[%d]=%v -> s=%v ss=%v res=%v",
+                    si, n, seg, next, next, srcs, n, srcs[n], s, ss, res).debug(false, 1)
+            }
+
+            /*if _, pp1 := next.(*PercPattern); pp1 {
+                diag.errorOf(next, "the continual % has no sense")
+                return
+            }*/
+            if pp, pre, suf = percperc(next); pp {
+                if n == k { // disable patterns like foo/%%/%%/bar, aka. more than one continual %%.
+                    diag.errorOf(next, "the continual %%/%% has no sense")
+                    return
+                }
+
+                // allow more than one seperated %%, e.g. foo/%%/bar/%%/baz
+                k = n  // reset the position of %%, continue with the new one
+                continue PercPercLoop
+            }
+
+            for ; m < lenSrcs; m += 1 {
+                if f, s, ss = next.match(srcs[m]); f || s == srcs[m] {
+                    res = append(res, s)
+                    if k == n && s == "" && len(ss) == 0 {
+                        stems = append(stems, "") // special stem for the root PathSeg: /
+                    } else {
+                        stems = append(stems, ss...)
                     }
-                } else if n+1 == len(segs) && idx < len(srcs) {
-                    // Matching the last seg, ie. /foo/bar/%% <-> /foo/bar/x/y/z,
-                    // where 'segs[n] == %%' and 'srcs[idx] == x'
-                    stem := strings.Join(srcs[idx:], PathSep)
-                    stems = append(stems, stem)
-                    idx = len(srcs)
-                    break ForPathSegs
-                } else if len(srcs) < len(segs) {
-                    // No matches, e.g.
-                    //   '%%/xxx.txt' <-> 'xxx.txt'
-                    break ForPathSegs
-                } else if false && len(srcs) > 1 { // FIXME: this matches '%%/xxx.txt' to 'xxx.txt'
-                    stem := strings.Join(srcs[idx:], PathSep) // WRONG!
-                    stems = append(stems, stem)
-                    idx = len(srcs)
-                    break ForPathSegs
+                    if info {
+                        diag.infoOf(next, "y: segs[%d]=%v (%T) srcs[%d]=%v -> s=%v ss=%v => res=%v stems=%v",
+                            n, next, next, m, srcs[m], s, ss, res, stems).debug(false, 1)
+                    }
+                    if false {
+                        m += 1; break
+                    } else {
+                        m += 1; continue PercPercLoop
+                    }
+                } else if k == n { // still for the %% seg
+                    // add dismatched srcs if it's %%, aka. for example of foo/%%/bar,
+                    // 'k == n' indicates it's on seg '%%', if the seg is 'bar', it breaks
+                    s   = srcs[m]
+                    res = append(res, s)
+                    if len(ss) > 0 {
+                        stems = append(stems, ss...)
+                    } else if j := len(stems)-1; j < 0 {
+                        stems = append(stems, s)
+                    } else {
+                        stems[j] = strings.Join([]string{stems[j], s}, PathSep)
+                    }
+                    if info {
+                        diag.infoOf(next, "x: segs[%d]=%v (%T) srcs[%d]=%v -> s=%v ss=%v => res=%v stems=%v",
+                            n, next, next, m, srcs[m], s, ss, res, stems).debug(false, 1)
+                    }
                 } else {
-                    // FIXME: this matches '%%/xxx.txt' to 'xxx.txt'
-                    fmt.Fprintf(stderr, "Path.match1.FIXME: %v !> %v (n=%v, idx=%v)\n", segs, srcs, n, idx)
-                    break ForPathSegs
+                    // this is the ending partial match, e.g. in foo/%%/bar/, the final '/' will go here
+                    res   = append(res  , s    )
+                    stems = append(stems, ss...)
+                    if info {
+                        diag.infoOf(next, "z: segs[%d]=%v (%T) srcs[%d]=%v -> s=%v ss=%v => res=%v stems=%v",
+                            n, next, next, m, srcs[m], s, ss, res, stems).debug(false, 1)
+                    }
+                    break SegsLoop
                 }
             }
-
-            if s, ss, err = t.match(srcs[idx]); err != nil {
-                break ForPathSegs
-            } else if s == "" || ss == nil {
-                return
-            }
-            stems = append(stems, ss...)
-            idx += 1
-        default:
-            if s, err = seg.Strval(); err != nil {
-                break ForPathSegs
-            }
-            for _, s := range strings.Split(s, PathSep) {
-                if srcs[idx] != s { return }
-                idx += 1
-            }
         }
     }
-
-    if 0 < idx && idx <= len(srcs) {
-        // Don't use filepath.Join as in the case that ""
-        // have to be root "/".
-        result = strings.Join(srcs[:idx], PathSep)
-        retained = srcs[idx:]
+    if lenRes := len(res); lenRes > 0 { // full or partial matched
+        result = strings.Join(res, PathSep) // NOTE: don NOT use `filepath.Join(res...)` here
+        full = lenRes == lenSrcs && str == result
+        if info {
+            diag.infoOf(p, "Path.match: path=%v str=%v res=%v -> full=%v result=%v stems=%v lens=%d,%d",
+                p, str, res, full, result, stems, lenRes, lenSrcs).debug(true, 1)
+        }
+        assert((!full && strings.HasPrefix(str, result)) || (full && str == result),
+            "incorrect result: res=%v result=%v full=%v stems=%v str=%s", res, result, full, stems, str)
     }
     return
 }
-func (p *Path) stencil(stems []string) (result string, rest []string, err error) {
+func (p *Path) match(i interface{}) (full bool, result string, stems []string) {
+    var ( str string; err error )
+    switch t := i.(type) {
+    case *File:
+        for stub := t.filestub; true; stub = stub.other {
+            if full, result, stems = p.match1(stub.name); full || result != "" {
+                return
+            } else if stub.other == t.filestub { break }
+        }
+        {
+            var s = t.name
+            if t.sub != "" {
+                s = filepath.Join(t.sub, t.name)
+                if full, result, stems = p.match1(s); full || result != "" {
+                    return
+                }
+            }
+            if t.dir != "" {
+                s = filepath.Join(t.dir, s)
+                if full, result, stems = p.match1(s); full || result != "" {
+                    return
+                }
+            }
+        }
+    case string: str = t
+    case Value : if str, err = t.Strval(); err != nil {
+        diag.errorOf(t, "strval '%v' failed: %v", t, err)
+        return }
+    default:
+        diag.errorAt(p.position, "matching unsupport value: %T %v", i, i)
+        return
+    }
+    if str != "" {
+        full, result, stems = p.match1(str)
+    }
+    return
+}
+
+func (p *Path) stencil(stems []string) (result string, rest []string) {
     var (
         strs []string
         segs []Value
+        err error
     )
     if segs, err = ExpandAll(p.Elems...); err != nil {
+        diag.errorOf(p, "expand path '%v' failed: %v", p, err)
         return
     }
 
 ForPathSegs:
     for _, seg := range segs {
         var s string
-        switch t := seg.(type) {
-        case Pattern: // including *Path
-            if len(stems) > 0 {
-                s, stems, err = t.stencil(stems)
-                if err != nil { return }
-                strs = append(strs, s)
-                continue ForPathSegs
-            }
-        }
-        if s, err = seg.Strval(); err != nil {
+        if s, stems = seg.stencil(stems); s != "" {
+            strs = append(strs, s)
+            continue ForPathSegs
+        } else if s, err = seg.Strval(); err != nil {
+            diag.errorOf(seg, "strval seg '%v' failed: %v", seg, err)
             break ForPathSegs
         } else {
             strs = append(strs, s)
         }
     }
-    if err == nil {
-        result = strings.Join(strs, PathSep)
-        rest = stems // the rest stems
-    }
+    result = strings.Join(strs, PathSep)
+    rest = stems // the rest stems
     return
 }
 
-type PathSeg struct {
-    valbase
-    rune
-}
+type PathSeg struct { valbase; rune }
 func (p *PathSeg) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *PathSeg) String() (s string) { 
     var e error
@@ -2427,8 +2689,8 @@ func (p *PathSeg) Strval() (s string, e error) {
     case '~': s = "~"
     case '.': s = "."
     case '^': s = ".."
-    case 0:   s = "" // empty segment after the last '/', e.g. /foo/bar/
-    default:  e = fmt.Errorf("unknown pathseg (%s)", p.rune)
+    case 0  : s = "" // empty segment after the last '/', e.g. /foo/bar/
+    default : e = fmt.Errorf("unknown pathseg (%s)", p.rune)
     }
     return
 }
@@ -2436,12 +2698,39 @@ func (p *PathSeg) cmp(v Value) (res cmpres) {
     if a, ok := v.(*PathSeg); ok && p.rune == a.rune { res = cmpEqual }
     return
 }
+func (p *PathSeg) match(i interface{}) (full bool, result string, stems []string) {
+    var s string
+    switch t := i.(type) {
+    case string: s = t
+    case Value:
+        var e error
+        if s, e = t.Strval(); e != nil {
+            diag.errorAt(p.position, "strval '%v' failed: %v", t, e)
+            return
+        }
+    }
+    switch p.rune {
+    case '/': if s == ""   { result, full = s, true }
+    case '~': if s == "~"  { result, full = s, true }
+    case '.': if s == "."  { result, full = s, true }
+    case '^': if s == ".." { result, full = s, true }
+    case 0  : if s == ""   { result, full = s, true }
+    }
+    return
+}
+func (p *PathSeg) stencil(stems []string) (result string, rest []string) {
+    var e error
+    if result, e = p.Strval(); e != nil {
+        diag.errorAt(p.position, "strval '%v' failed: %v", p, e)
+    }
+    return
+}
 
 type filestub struct {
-    dir string       // full directory where the file was or should be found
-    sub string       // matched sub path (see Project.search), may be Dir (absoletep path)
+    dir  string      // full directory where the file was or should be found
+    sub  string      // matched sub path (see Project.search), may be Dir (absoletep path)
     name string      // constant represented name (e.g. relative filename)
-    match *FileMap   // matched pattern (see 'files' directive)
+    filemap *FileMap // matched pattern (see 'files' directive)
     other *filestub  // pointed to another stub (in a different project) of the same file
 }
 
@@ -2646,7 +2935,9 @@ func (p *File) True() (t bool, err error) {
     return
 }
 func (p *File) String() string { return p.name }
-func (p *File) Strval() (s string, err error) { s = p.fullname(); return }
+func (p *File) Strval() (s string, err error) {
+    if false { diag.warnOf(p, "use file.fullname() instead").debug(true, 8) }
+    s = p.name; return }
 func (p *File) BaseName() (s string) {
     if p.info != nil { s = p.info.Name() } else {
         s = filepath.Base(p.name)
@@ -2657,11 +2948,11 @@ func (p *File) fullname() (s string) {
     return filepath.Join(p.dir, p.sub, p.name)
 }
 func (p *File) searchInMatchedPaths(proj *Project) (res bool) {
-    if p.match != nil {
+    if p.filemap != nil {
         var pre string
         // FIXME: File should keep both 'match' and 'pre',
         // or just remove searchInMatchedPaths
-        f := p.match.stat(proj.absPath, pre, p.name)
+        f := p.filemap.stat(proj.absPath, pre, p.name)
         if f.info != nil { p.info, res = f.info, true }
     }
     return
@@ -2706,12 +2997,12 @@ func (p *File) exists() existence {
     }
 }
 func (p *File) isSysFile() (res bool) {
-    if p.match != nil && len(p.match.Paths) == 1 {
+    if p.filemap != nil && len(p.filemap.Paths) == 1 {
         // system files defined by:
         //     files (
         //     (foo.xxx) ⇒ -
         //     )
-        if f, ok := p.match.Paths[0].(*Flag); ok {
+        if f, ok := p.filemap.Paths[0].(*Flag); ok {
             res = isNone(f.name) || isNil(f.name)
             //fmt.Fprintf(stderr, "sys: %v %v %v\n", p, res, p.match)
         }
@@ -2772,7 +3063,7 @@ func (p *File) traverse(t *traversal) {
 
 // check pattern depends to find out if all depends are updatable
 // or updated/exists.
-func checkPatternDepends(t *traversal, project *Project, se *stemmed, prog *Program) (res bool, breakers []*breaker) {
+/*func checkPatternDepends(t *traversal, project *Project, se *stemmed, prog *Program) (res bool, breakers []*breaker) {
     if optionEnableBenchspots { defer bench(spot("checkPatternDepends")) }
     if len(prog.depends) == 0 {
         // Pattern is always good as no depends to check.
@@ -2806,15 +3097,13 @@ func checkPatternDepends(t *traversal, project *Project, se *stemmed, prog *Prog
             if ok && !res1 { break }
             res = res1
         default:
-            /*
-            var name, str string
-            var rest []string // rest stems
-            name, rest, err = se.stencil(se.Stems)
-            if err != nil { return }
-            if len(rest) > 0 { panic("FIXME: unhandled stems") }
-            if str, err = dep.Strval(); err != nil { return }
-            if res = str == name; !res { break }
-            */
+            // var name, str string
+            // var rest []string // rest stems
+            // name, rest, err = se.stencil(se.Stems)
+            // if err != nil { return }
+            // if len(rest) > 0 { panic("FIXME: unhandled stems") }
+            // if str, err = dep.Strval(); err != nil { return }
+            // if res = str == name; !res { break }
         }
     }
     if !res && checkedPatterns == 0 {
@@ -2879,6 +3168,7 @@ func checkPatternDepend(t *traversal, project *Project, se *stemmed, prog *Progr
     // TODO: check filepath.Join(project.absPath, name)
     return
 }
+*/
 
 func (p *File) mod(t *traversal) (res time.Time, err error) {
     if p.info == nil { p.info, /*err*/_ = os.Stat(p.fullname()) }
@@ -2892,7 +3182,7 @@ func (p *File) mod(t *traversal) (res time.Time, err error) {
 }
 
 func (p *File) cmp(v Value) (res cmpres) {
-    if v == nil {
+    if isNil(v) || isNone(v) {
         // ...
     } else if a, ok := v.(*File); ok {
         if a == nil {
@@ -2909,6 +3199,31 @@ func (p *File) cmp(v Value) (res cmpres) {
             fmt.Fprintf(stderr, "%s: warning: files may differ: %s != %s :%s\n", p.position, p.name, a.name, s)
         }
     }
+    return
+}
+
+func (p *File) patterned() bool { return false }
+func (p *File) match(i interface{}) (full bool, s string, stems []string) {
+    switch t := i.(type) {
+    case string: if p.name == t { s, full = p.name, true }
+    case Value:
+        if !(isNil(t) || isNone(t)) {
+            var ( v string; e error )
+            if v, e = t.Strval(); e != nil {
+                diag.errorOf(t, "strval '%v' failed: %v", t, e)
+            } else if name := p.name; name == v {
+                s, full = p.name, true
+            } else if name = filepath.Join(p.sub, p.name); name == v {
+                s, full = name, true
+            }
+        }
+    default:
+        diag.errorAt(p.position, "matching file '%v' with unknown input: %v", p, i)
+    }
+    return
+}
+func (p *File) stencil(stems []string) (s string, rest []string) {
+    s = p.name
     return
 }
 
@@ -2972,7 +3287,7 @@ func (p *Flag) opt(short, long string) (res string, match bool) {
         } else if f, ok := p.name.(*Flag); ok {
                 res, match = f.opt(short, long)
         } else if s, err := p.name.Strval(); err != nil {
-                diag.errorOf(p.name, "stringify '%v' failed: %v", p.name, err)
+                diag.errorOf(p.name, "strval '%v' failed: %v", p.name, err)
         } else if s == short {
                 res, match = short, true
         } else if s == long {
@@ -3230,6 +3545,24 @@ func (p *List) cmp(v Value) (res cmpres) {
     return
 }
 
+func (p *List) patterned() bool {
+    // TODO: apply to each element:
+    /*for _, elem := range p.Elems {
+        if elem.patterned() { return true }
+    }*/
+    return false
+}
+
+func (p *List) match(i interface{}) (full bool, s string, stems []string) {
+    // TODO: match each element
+    return
+}
+
+func (p *List) stencil(stems []string) (s string, rest []string) {
+    // TODO: stencil each element
+    return
+}
+
 type Group struct { valbase ; List }
 func (p *Group) elemstr(o Object, k elemkind) string {
     var strs []string
@@ -3271,6 +3604,9 @@ func (p *Group) cmp(v Value) (res cmpres) {
     if a, ok := v.(*Group); ok { res = p.cmpElems(a.Elems) }
     return
 }
+func (p *Group) patterned() bool { return false }
+func (p *Group) match(i interface{}) (full bool, s string, stems []string) { return }
+func (p *Group) stencil(stems []string) (s string, rest []string) { return }
 
 func parseGroupValue(g *Group) (result Value) {
     if len(g.Elems) == 0 { return g }
@@ -4052,6 +4388,7 @@ func (p *selection) cmp(v Value) (res cmpres) {
     return
 }
 
+/*
 type partialMatcher interface {
     partialMatch(i interface{}) (result string, rest, stems []string, err error)
 }
@@ -4060,13 +4397,14 @@ type partialMatcher interface {
 type endingMatcher interface {
     endingMatch(i interface{}) (result string, rest, stems []string, err error)
 }
+*/
 
 // Pattern
-type Pattern interface {
+/*type Pattern interface {
     Value
     match(i interface{}) (s string, stems []string, err error)
     stencil(stems []string) (s string, rest []string, err error)
-}
+}*/
 
 // PercPattern represents percent pattern expressions (e.g. '%.o')
 type PercPattern struct {
@@ -4101,85 +4439,137 @@ func (p *PercPattern) Strval() (s string, err error) {
     }
     return
 }
-func (p *PercPattern) match(i interface{}) (result string, stems []string, err error) {
+func (p *PercPattern) patterned() bool { return true }
+func (p *PercPattern) match(i interface{}) (full bool, result string, stems []string) {
     if optionEnableBenchspots { defer bench(spot("PercPattern.match")) }
-    var s string
+
+    var err error
+    var rep string // representation
     switch t := i.(type) {
-    case string: s = t
-    case *File: s = t.name
-    case *filestub: s = t.name
+    case string:    rep = t
+    case *File:     rep = t.name
+    case *filestub: rep = t.name
     case Value:
-        s, err = t.Strval()
-        if err != nil { return }
+        if rep, err = t.Strval(); err != nil {
+            diag.errorOf(t, "strval '%v' failed: %v", t, err)
+            return
+        }
     default:
         unreachable(fmt.Sprintf("perc.match: %T %v", i, i))
     }
 
-
     var prefix string
-    if p.Prefix == nil {
-        // ...
-    } else if !isNone(p.Prefix) {
-        prefix, err = p.Prefix.Strval()
-        if err != nil { return }
-        if !strings.HasPrefix(s, prefix) {
+    if !(isNil(p.Prefix) || isNone(p.Prefix)) {
+        // FIXME: the prefix could be Glob, Regexp, etc.
+        if prefix, err = p.Prefix.Strval(); err != nil {
+            diag.errorOf(p.Prefix, "prefix strval '%v' failed: %v", p.Prefix, err)
+            return
+        } else if strings.HasPrefix(rep, prefix) {
+            result = prefix
+        } else {
             return
         }
     }
 
-    switch t := p.Suffix.(type) {
-    case *None:
-        if a, b := len(prefix), len(s); a < b {
-            stems = []string{ s[a:] }
-            result = s
-        }
-    case Pattern:
-        if a, b := len(prefix), len(s); a < b {
-            var res string
-            res, stems, err = t.match(s[a:])
-            if res != "" && len(stems) > 0 {
-                result = s
+    var a, b = len(prefix), len(rep)
+    if isNil(p.Suffix) || isNone(p.Suffix) {
+        if a < b { stems, result, full = append(stems, rep[a:]), rep, true }
+    } else if pp, ok := p.Suffix.(*PercPattern); a < b && ok {
+        // fooxxbaryybaz -> foo%bar%baz => (foo xx bar yy baz) [xx yy]
+        var suffix = p.Suffix
+        for ok {
+            if isNil(pp.Prefix) || isNone(pp.Prefix) {
+                // does nothing
+            } else if s, e := pp.Prefix.Strval(); e != nil {
+                diag.errorOf(pp.Prefix, "strval '%v' failed: %v", pp.Prefix, e)
+                return
+            } else if s != "" {
+                if n := strings.Index(rep[a:], s); n < 0 {
+                    break
+                } else {
+                    var v = rep[a:a+n]
+                    stems = append(stems, v)
+                    result += v + s
+                    a += n + len(s)
+                }
+            }
+            if pp, ok = suffix.(*PercPattern); ok {
+                suffix = pp.Suffix
+            } else if s, e := suffix.Strval(); e != nil {
+                diag.errorOf(pp.Prefix, "strval '%v' failed: %v", suffix, e)
+                return
+            } else if s != "" && strings.HasSuffix(rep[a:], s) {
+                if b -= len(s); a < b {
+                    stems = append(stems, rep[a:b])
+                    result += rep[a:]
+                    full = true
+                }
+                break
             }
         }
-    default:
-        var suffix string
-        suffix, err = t.Strval()
-        if err != nil { break }
-        if !strings.HasSuffix(s, suffix) { break }
-        if a, b := len(prefix), len(s)-len(suffix); a < b {
-            stems = []string{ s[a:b] }
-            result = s
+    } else if a < b && p.Suffix.patterned() {
+        if true {
+            diag.warnOf(p.Suffix, "mixing % pattern might have performance impact: %v", p).
+                debug(optionDebugErrors, 1)
         }
+        for n := b-1; a < n; n -= 1 {
+            if f, s, ss := p.Suffix.match(rep[n:]); f && s != "" {
+                stems = append(append(stems, rep[a:n]), ss...)
+                result += s // rep[a:]
+                full = f
+                break
+            }
+        }
+   } else if a <= b {
+        var s string
+        if s, err = p.Suffix.Strval(); err != nil {
+            diag.errorOf(p.Suffix, "strval '%v' failed: %v", p.Suffix, err)
+        } else if strings.HasSuffix(rep[a:], s) {
+            if b -= len(s); a < b {
+                stems = append(stems, rep[a:b])
+                result = rep
+                full = true
+            }
+        }
+    } else {
+        // does nothing
     }
     return
 }
-func (p *PercPattern) stencil(stems []string) (s string, rest []string, err error) {
+func (p *PercPattern) stencil(stems []string) (s string, rest []string) {
     if optionEnableBenchmarks && false { defer bench(mark(fmt.Sprintf("PercPattern.stencil(%v)", p))) }
     if optionEnableBenchspots { defer bench(spot("PercPattern.stencil")) }
 
-    if !isNone(p.Prefix) {
+    var err error
+    if !(isNil(p.Prefix) || isNone(p.Prefix)) {
         // FIXME: the prefix could be Glob, Regexp, etc.
-        s, err = p.Prefix.Strval()
-        if err != nil { return }
+        if s, err = p.Prefix.Strval(); err != nil {
+            diag.errorOf(p.Suffix, "strval prefix '%v' failed: %v", p.Prefix, err)
+            return
+        }
+    }
+
+    if len(stems) < 1 {
+        return
+    } else {
+        s += stems[0]
+        stems = stems[1:]
     }
 
     var v string
-    if isNone(p.Suffix) {
-        s += stems[0]
-        rest = stems[1:]
-    } else if pp, ok := p.Suffix.(*PercPattern); ok {
-        // patterns like '%%...' use only one stem,
-        // patterns like '%xxx%...' use multiple stems.
-        if !isNone(pp.Prefix) {
-            s += stems[0]
-            stems = stems[1:]
-        }
-        if v, rest, err = pp.stencil(stems); err == nil { s += v }
-    } else if pp, ok := p.Suffix.(Pattern); ok {
-        if v, rest, err = pp.stencil(stems); err == nil { s += v }
-    } else if v, err = p.Suffix.Strval(); err == nil {
-        s += stems[0] + v
-        rest = stems[1:]
+    if isNil(p.Suffix) || isNone(p.Suffix) {
+        rest = stems
+    } else if p.Suffix.patterned() {
+        // FIXME: patterns like '%%...' use only one stem,
+        // FIXME: patterns like '%xxx%...' use multiple stems.
+        v, rest = p.Suffix.stencil(stems)
+        s += v
+    } else if v, err = p.Suffix.Strval(); err != nil {
+        diag.errorOf(p.Suffix, "strval suffix '%v' failed: %v", p.Suffix, err)
+        return
+    } else {
+        s += v
+        rest = stems
     }
     return
 }
@@ -4190,10 +4580,8 @@ func (p *PercPattern) traverse(t *traversal) {
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("PercPattern.traverse(%v)", p))) }
     if optionEnableBenchspots { defer bench(spot("PercPattern.traverse")) }
     if t.stems == nil { diag.errorAt(p.position, "no stems"); return }
-    var ( rest []string; target string; err error )
-    if target, rest, err = p.stencil(t.stems); err != nil {
-        diag.errorOf(p, "stencil: %v", err)
-    } else if len(rest) > 0 || target == "" {
+    var ( rest []string; target string )
+    if target, rest = p.stencil(t.stems); target == "" || len(rest) > 0 {
         // just relax
     } else {
         t.target(p.position, target)
@@ -4212,7 +4600,7 @@ func (p *PercPattern) cmp(v Value) (res cmpres) {
 }
 
 // Check for patterns like foo%%bar
-func percperc(p Pattern) (t bool, prefix, suffix Value) {
+func percperc(p Value) (t bool, prefix, suffix Value) {
     if p1, ok := p.(*PercPattern); ok {
         if p2, ok := p1.Suffix.(*PercPattern); ok {
             // assert(isNone(p2.Prefix))
@@ -4264,28 +4652,33 @@ func (p *GlobPattern) Strval() (s string, err error) {
     }
     return
 }
-func (p *GlobPattern) match(i interface{}) (result string, stems []string, err error) {
+func (p *GlobPattern) patterned() bool { return true }
+func (p *GlobPattern) match(i interface{}) (full bool, result string, stems []string) {
     if optionEnableBenchspots { defer bench(spot("GlobPattern.match")) }
-    var pat, s string
+    var ( pat, s string; e error )
     switch t := i.(type) {
     case string: s = t
     case *File: s = t.name
     case *filestub: s = t.name
     case Value:
-        s, err = t.Strval()
-        if err != nil { return }
+        if s, e = t.Strval(); e != nil {
+            diag.errorOf(t, "strval '%v' failed: %v", t, e)
+            return
+        }
     default:
         unreachable("glob.match: %T %v", i, i)
     }
-    if pat, err = p.Strval(); err == nil {
-        var matched bool
-        matched, err = filepath.Match(pat, s)
-        if matched { result = s }
+    if pat, e = p.Strval(); e != nil {
+        diag.errorAt(p.position, "strval '%v' failed: %v", p, e)
+    } else if full, e = filepath.Match(pat, s); e != nil {
+        diag.errorAt(p.position, "glob match '%s' failed: %v", pat, e)
+    } else if full {
+        result = s
+        // FIXME: calculate stems from matching
     }
-    // FIXME: calculate stems from matching
     return
 }
-func (p *GlobPattern) stencil(stems []string) (s string, rest []string, err error) {
+func (p *GlobPattern) stencil(stems []string) (s string, rest []string) {
     unreachable(fmt.Sprintf("Unimplemented GlobPattern stencil %v (stems=%v)", p, stems))
     return
 }
@@ -4315,13 +4708,10 @@ func (p *GlobPattern) traverse(t *traversal) {
     if t.stems == nil { return }
 
     var (
-        err error
         target string
         rest []string
     )
-    if target, rest, err = p.stencil(t.stems); err != nil {
-        diag.errorOf(p, "stencil: %v", err)
-    } else if len(rest) > 0 || target == "" {
+    if target, rest = p.stencil(t.stems); target == "" || len(rest) > 0 {
         // just relax
     } else {
         t.target(p.position, target)
@@ -4346,12 +4736,13 @@ type RegexpPattern struct { valbase }
 func (p *RegexpPattern) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *RegexpPattern) String() string { return "{RegexpPattern}" }
 func (p *RegexpPattern) Strval() (s string, err error) { return "", nil }
-func (p *RegexpPattern) match(i interface{}) (result string, stems []string, err error) {
+func (p *RegexpPattern) patterned() bool { return true }
+func (p *RegexpPattern) match(i interface{}) (full bool, result string, stems []string) {
     if optionEnableBenchspots { defer bench(spot("RegexpPattern.match")) }
     unreachable("regexp.match: %T %v", i, i)
     return
 }
-func (p *RegexpPattern) stencil(stems []string) (s string, rest []string, err error) {
+func (p *RegexpPattern) stencil(stems []string) (s string, rest []string) {
     unreachable("regexp.stencil: %v", stems)
     return
 }
@@ -4362,8 +4753,8 @@ func (p *RegexpPattern) cmp(v Value) (res cmpres) {
     return
 }
 
-func NewRegexpPattern() Pattern {
-    return &RegexpPattern{}
+func NewRegexpPattern() Value {
+    return &RegexpPattern{} // TODO: RegexpPattern implementation
 }
 
 type Valuer interface {
@@ -4615,7 +5006,7 @@ func MakePathStr(pos Position, str string) (v *Path) {
     var segments []Value
     for _, s := range strings.Split(str, PathSep) {
         // TODO: calculate position of each segment
-        segments = append(segments, &Bareword{valbase{pos},s})
+        segments = append(segments, MakeBareword(pos,s))
     }
     return MakePath(pos, segments...)
 }
@@ -4634,7 +5025,7 @@ func MakePercPattern(pos Position, prefix, suffix Value) *PercPattern {
         Suffix: suffix,
     }
 }
-func MakeGlobPattern(pos Position, components... Value) Pattern {
+func MakeGlobPattern(pos Position, components... Value) Value {
     return &GlobPattern{valbase:valbase{pos},Components:components}
 }
 func MakeDelegate(pos Position, tok token.Token, obj Value, args... Value) Value {

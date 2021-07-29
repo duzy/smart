@@ -591,7 +591,7 @@ func (l *loader) convertBarefiles(targets []Value) []Value {
         case *Barecomp:
             if t.closured() || t.refdef(DefArg) { break }
             if s, err := t.Strval(); err != nil {
-                diag.errorAt(pos, "stringify '%v' failed: %v", t, err)
+                diag.errorAt(pos, "strval '%v' failed: %v", t, err)
             } else if file := l.project.FindFile(s); file != nil {
                 targets[i] = &Barefile{ Name:target, File:file }
                 file.position = pos
@@ -684,7 +684,7 @@ func (l *loader) determine(position Position, tok token.Token, identifier, value
             return
         }
 
-    case *Bareword, *Barecomp, *Qualiword:
+    case *Bareword, *Barecomp, *Qualiword, *Path:
         var name, err = t.Strval()
         if err != nil {
             diag.errorAt(position, "determine `%v`: %v", t, err)
@@ -735,9 +735,8 @@ func (l *loader) determine(position Position, tok token.Token, identifier, value
             }
         }
     }
-
     if def == nil {
-        diag.errorAt(position, "identifier `%v' is nil", identifier)
+        diag.errorAt(position, "def is nil for '%v' (%T)", identifier, identifier)
         return
     }
 
@@ -801,13 +800,13 @@ func (l *loader) rule(clause *parsedRuleData) (entries []*RuleEntry) {
             return
         }
         var ( name string ; entry *RuleEntry ; err error )
-        if name, err = target.Strval(); err != nil {
-            diag.errorOf(target, "stringify target '%v' failed: %v", target, err).
-                debug(optionDebugErrors)
+        if name, err = fullnameOrStrval(target); err != nil {
+            diag.errorOf(target, "strval target '%v' failed: %v", target, err).
+                debug(optionDebugErrors, 1)
         }
         if true {// it should work too if not checking against files
             switch target.(type) {
-            case *File, *Path, Pattern:
+            case *File, *Path, *PercPattern, *GlobPattern, *RegexpPattern:
             default:
                 var file = l.project.FindFile(name)
                 if file != nil {
@@ -828,7 +827,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []*RuleEntry) {
         if t, okay := entry.target.(*Flag); okay && t != nil {
             var s string
             if s, err = t.name.Strval(); err != nil {
-                diag.errorOf(target, "stringify flag target name '%v' failed: %v", t.name, err)
+                diag.errorOf(target, "strval flag target name '%v' failed: %v", t.name, err)
             } else if l.project.name != "~" {
                 flags, _ := context.flagEntries[s]
                 flags = append(flags, entry)

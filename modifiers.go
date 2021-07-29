@@ -727,7 +727,7 @@ func (g *greptouch) work(pos Position, gc *grepctx) (err error) {
 func (g *grepctx) isTargetFile(file *File) (res bool) {
         if g.target == file {
                 res = true
-        } else if s, _ := file.Strval(); s == g.targetFullName {
+        } else if s, _ := fullnameOrStrval(file); s == g.targetFullName {
                 res = true
         } else if t, ok := g.target.(*File); ok && t.name == file.name {
                 res = true
@@ -793,9 +793,9 @@ func (t *traversal) searchGreppedName0(pos Position, gc *grepctx, sys bool, linu
         } else if file = t.project.FindFile(name); file == nil {
                 return // file not found
                 /*
-        } else if !sys && file.match != nil && len(file.match.Paths) == 1 {
+        } else if !sys && file.filemap != nil && len(file.filemap.Paths) == 1 {
                 // mark system files defined by `files ((foo.xxx) => -)`
-                if f, ok := file.match.Paths[0].(*Flag); ok {
+                if f, ok := file.filemap.Paths[0].(*Flag); ok {
                         sys = isNone(f.name) || isNil(f.name)
                 }*/
         } else if !sys && file.isSysFile() { sys = true }
@@ -843,9 +843,9 @@ func (t *traversal) searchGreppedName(pos Position, gc *grepctx, sys bool, linum
 
         // System files are not treated as missing nor collected
         // for further updating, just discard them immediately.
-        if !sys && file != nil && file.match != nil && len(file.match.Paths) == 1 {
+        if !sys && file != nil && file.filemap != nil && len(file.filemap.Paths) == 1 {
                 // system files defined by `files ((foo.xxx) ⇒ -)`
-                if f, ok := file.match.Paths[0].(*Flag); ok {
+                if f, ok := file.filemap.Paths[0].(*Flag); ok {
                         sys = isNone(f.name) || isNil(f.name)
                 }
         }
@@ -926,7 +926,7 @@ func (t *traversal) savedGrepFileName(pos Position, targetFullName string) (file
                 fmt.Sprintf("%x", nameSum[1:2]),
                 fmt.Sprintf("%x", nameSum[2: ]),
         ))
-        filename, err = savedGrepFile.Strval()
+        filename, err = fullnameOrStrval(savedGrepFile)
         return
 }
 
@@ -1214,7 +1214,7 @@ ForTarget:
                 }
                 if isNone(target) {
                         diag.errorAt(pos, "grep target#%d of %v is none for %v", i, args,
-                                t.def.target.value).debug(optionDebugErrors, 1)
+                                t.def.target.value).debug(optionDebugErrors, 100)
                         return
                 }
 
@@ -1652,20 +1652,15 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
         )
         switch t := target.(type) {
         case *File:
-                if filename, err = t.Strval(); err != nil {
-                        return
-                } else if t.info != nil {
+                if filename = t.fullname(); t.info != nil {
                         filetime = t.info.ModTime()
                 }
         default:
                 if filename, err = target.Strval(); err != nil {
+                        diag.errorAt(pos, "strval '%v' failed: %v", target, err)
                         return
                 } else if file := project.FindFile(filename); file != nil {
-                        if filename, err = file.Strval(); err != nil {
-                                return
-                        } else {
-                                target = file
-                        }
+                        target, filename = file, file.fullname()
                         if file.info != nil {
                                 filetime = file.info.ModTime()
                         }
@@ -1673,20 +1668,15 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
         }
         switch t := source.(type) {
         case *File:
-                if srcname, err = t.Strval(); err != nil {
-                        return
-                } else if t.info != nil {
+                if srcname = t.fullname(); t.info != nil {
                         srctime = t.info.ModTime()
                 }
         default:
                 if srcname, err = source.Strval(); err != nil {
+                        diag.errorAt(pos, "strval '%v' failed: %v", source, err)
                         return
                 } else if file := project.FindFile(srcname); file != nil {
-                        if srcname, err = file.Strval(); err != nil {
-                                return
-                        } else {
-                                source = file
-                        }
+                        source, srcname = file, file.fullname()
                         if file.info != nil { srctime = file.info.ModTime() }
                 }
         }
@@ -1766,7 +1756,7 @@ func modifierWriteFile(pos Position, t *traversal, args... Value) (result Value,
                 filename, str string
                 f *os.File
         )
-        if filename, err = t.def.target.value.Strval(); err != nil {
+        if filename, err = fullnameOrStrval(t.def.target.value); err != nil {
                 return
         } else if f, err = os.Create(filename); err == nil {
                 defer f.Close()
@@ -1794,17 +1784,32 @@ func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, 
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
         if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
 
+        var target Value
         if n := len(args); n > 1 {
                 diag.errorAt(pos, "too many files: %v", args)
                 return
         } else if n == 1 {
-                if filename, err = args[0].Strval(); err != nil { return }
-        } else if filename, err = t.def.target.value.Strval(); err != nil {
+                target = args[0]
+        } else {
+                target = t.def.target.value
+        }
+
+        if isNil(target) {
+                diag.errorAt(pos, "target is <nil>")
+                return
+        } else if isNone(target) {
+                diag.errorAt(pos, "target is <none>")
+                return
+        } else if filename, err = fullnameOrStrval(target); err != nil {
+                diag.errorOf(target, "strval '%v' error: %v", target, err)
+                return
+        } else if filename == "" {
+                diag.errorOf(target, "target filename is empty")
                 return
         }
 
         if opts.debug {
-                fmt.Fprintf(stderr, "%s:debug: read-file: %v\n", pos, filename)
+                diag.infoAt(pos, "read-file: %v\n", filename)
         }
 
         var bytes []byte
@@ -1878,19 +1883,24 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
 
         // Get target filename
         switch p := target.(type) {
-        case *File, *Path:
-                if filename, err = p.Strval(); err != nil { return }
+        case *File: filename = p.fullname()
+        case *Path:
+                if filename, err = p.Strval(); err != nil {
+                        diag.errorAt(pos, "strval path '%v' failed: %v", p, err)
+                        return
+                }
         default:
-                if filename, err = target.Strval(); err != nil { return } else
-                if file := t.project.FindFile(filename); file != nil {
-                        if filename, err = file.Strval(); err != nil { return } else {
-                                target = file
-                        }
+                if filename, err = target.Strval(); err != nil {
+                        diag.errorAt(pos, "strval '%v' failed: %v", p, err)
+                        return
+                } else if file := t.project.FindFile(filename); file != nil {
+                        target, filename = file, file.fullname()
                 }
         }
 
         if opts.debug {
-                fmt.Fprintf(stderr, "%s:debug: update-file: %v (%v) (%v, %v)\n", pos, target, filename, t.project, cloctx)
+                diag.infoAt(pos, "update-file: %v (%v) (%v, %v)",
+                        target, filename, t.project, cloctx).debug(optionDebugErrors, 1)
         }
 
         if opts.path { // Make path (mkdir -p)
@@ -2082,7 +2092,7 @@ type predictOpts struct {
 }
 func predict(pos Position, t *traversal, args... Value) (result bool, breakScope breaksco, message string, err error) {
         var target string
-        if target, err = t.def.target.value.Strval(); err != nil {
+        if target, err = fullnameOrStrval(t.def.target.value); err != nil {
                 diag.errorAt(pos, "stringify predict target failed: %v", err)
                 return
         }
@@ -2153,9 +2163,6 @@ func predict(pos Position, t *traversal, args... Value) (result bool, breakScope
                                         if err != nil { diag.errorOf(a, "predict: %v", err); return }
                                         a = res // replace
                                 }
-                        } else {
-                                diag.errorOf(a, "unknown predictor: %v (%T)", a, a)
-                                return
                         }
 
                         var t bool
@@ -2490,7 +2497,7 @@ func modifierOnce(pos Position, t *traversal, args... Value) (result Value, err 
         if s, err = t.entry.target.Strval(); err != nil { return } else {
                 fmt.Fprintf(h, "%s", s)
         }
-        if s, err = t.def.target.value.Strval(); err != nil { return } else {
+        if s, err = fullnameOrStrval(t.def.target.value); err != nil { return } else {
                 fmt.Fprintf(h, "%s", s)
         }
         for _, a := range args {

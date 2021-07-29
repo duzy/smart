@@ -113,7 +113,7 @@ func do_configuration() {
         }
 
         if val := entry.Execute(entry.position); val != nil {
-            diag.infoAt(entry.position, "%v", val)
+            if false { diag.infoAt(entry.position, "configure %v: %v", entry, val) }
         }
         if s, e := entry.target.Strval(); e != nil {
             diag.errorAt(entry.position, "%v", e)
@@ -160,7 +160,7 @@ func openConfigurationFile(p *Project) (file *os.File, err error) {
 func configurationFileName(p *Project) (s string, err error) {
     var pos Position // TODO: find the position
     if f := p.matchTempFile(pos, "configuration.sm"); f != nil {
-        s, err = f.Strval()
+        s = f.fullname()
     } else {
         fmt.Fprintf(stderr, "%v: no file for configuration.sm\n", p)
     }
@@ -376,9 +376,10 @@ func configureExec(pos Position, t *traversal, opts *modifierConfigureOpts, s st
         if isNil(result) || isNone(result) { res = true } else {
             res, _ = result.True()
         }
-        if n := diag.numErrors(); !res || n > 0 {
+        if n := diag.numErrors(); /*!res || */n > 0 && false {
             t, _ := target.Strval()
-            diag.errorAt(pos, "%v: %v = %v (FIXME: errs = %d)", s, t, result, n)
+            diag.errorAt(pos, "s=%v target=%v result=%v res=%v", s, t, result, res).
+                debug(optionDebugErrors, 1)
         }
         _ = diag.checkErrors(true)
     }
@@ -675,7 +676,7 @@ func walkFileInfos(root string, pats []Value, fn filepath.WalkFunc) (err error) 
         if err != nil { return err }
     ForPats:
         for _, p := range pats {
-            switch pat := p.(type) {
+            /*switch pat := p.(type) {
             case Pattern: //*PercPattern, *GlobPattern, *RegexpPattern, *Path
                 var ( s string ; ss []string )
                 if s, ss, err = pat.match(path); err != nil {
@@ -697,6 +698,15 @@ func walkFileInfos(root string, pats []Value, fn filepath.WalkFunc) (err error) 
                 if s, err = p.Strval(); err != nil { break ForPats }
                 if path == s || filepath.Base(path) == s {
                     if err = fn(path, info, err); err != nil { break ForPats }
+                }
+            }*/
+            var matched bool
+            if matched, _, _ = p.match(path); !matched {
+                matched, _, _ = p.match(filepath.Base(path))
+            }
+            if matched {
+                if err = fn(path, info, err); err != nil {
+                    break ForPats
                 }
             }
         }
@@ -744,47 +754,62 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
         return
     }
 
-    var project *Project
-    var filename string
-    var file *File
+    var (
+        project *Project
+        filename string
+        file *File
+    )
     if file, _ = t.def.target.value.(*File); file == nil {
-        var s string
-        if s, err = t.def.target.value.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+        var ( s string; okay bool )
+        if s, err = t.def.target.value.Strval(); err != nil {
+            diag.errorAt(pos, "strval target '%v' failed: %v", t.def.target.value, err)
+            return
+        }
 
-        var okay bool
         okay, err = t.forClosuredProjects(func(p *Project) (ok bool, err error) {
             if file = p.FindFile(s); file != nil { project, ok = p, true }
             if opts.debug && file != nil { fmt.Fprintf(stderr, "%s: %v: file %v\n", pos, p, file) }
             return
         })
-        if err != nil { return } else if !okay { diag.errorAt(pos, "'%s' is not a file", s); return }
+
+        if err != nil {
+            diag.errorAt(pos, "find file '%s' failed: ", s, err)
+            return
+        } else if !okay {
+            diag.errorAt(pos, "target '%s' is not a file", s)
+            return
+        }
     }
-    if file == nil { diag.errorAt(pos, "no file target"); return }
-    if filename, err = file.Strval(); err != nil { diag.errorAt(pos, "%v", err); return } else
-    if filename == "" { diag.errorAt(pos, "`%v` has empty filename", file); return } else
-    if!filepath.IsAbs(filename) {
+
+    if file == nil {
+        diag.errorAt(pos, "no file target")
+        return
+    } else if filename, _ = fullname(file); filename == "" {
+        diag.errorAt(pos, "`%v` has empty filename", file)
+        return
+    } else if !filepath.IsAbs(filename) {
         // FIXES: match file map to have the full filename.
         t.forClosuredProjects(func(p *Project) (ok bool, err error) {
             if f := p.FindFile(filename); f != nil {
-                var s string
-                ok, file = true, f
-                s, err = f.Strval()
+                ok, file, filename, project = true, f, f.fullname(), p
                 t.def.target.value = file // reset target file
-                project, filename = p, s // using full filename instead
-                if opts.debug { fmt.Fprintf(stderr, "%s: configure-file: %v: %s->%s\n", pos, p, f, s) }
+                if opts.debug {
+                    diag.infoAt(pos, "configure-file: %v: %s->%s\n", p, f, filename)
+                }
             }
             return
         })
-        if err != nil { diag.errorAt(pos, "%v", err); return }
+        if err != nil {
+            diag.errorAt(pos, "locate file '%v' failed: %v", filename, err)
+            return
+        }
     }
-
     if file.info == nil { if f := stat(pos, filename, "", ""); f != nil { file.info = f.info }}
     if project == nil { project = t.project }
     if opts.debug && file != nil {
-        var s, _ = file.Strval()
         var target = t.def.target.value
-        fmt.Fprintf(stderr, "%s: configure-file: %v: %v (%s) (%v, %v) (%v)\n", pos,
-            project, target, s, t.project, t.closure.comment, cloctx)
+        diag.infoAt(pos, "configure-file: %v: %v (%s) (%v, %v) (%v)\n",
+            project, target, file.fullname(), t.project, t.closure.comment, cloctx)
     }
 
     // Check previously configured files, we only configure once unless

@@ -399,22 +399,15 @@ func (t *traversal) exec(prog *Program) (result Value) {
 }
 
 func (t *traversal) prerequisite(pos Position, prerequisite Value) {
-    switch a := prerequisite.(type) {
-    case Pattern:
-        // Double checks for path pattern.
-        if p, ok := prerequisite.(*Path); ok && !p.isPattern() {
-            t.dispatch(prerequisite)
-            break
-        }
-
+    if _, ok := prerequisite.(*Path); !ok && prerequisite.patterned() {
         var pos = prerequisite.Position()
-        var ( s string ; rest []string; err error; okay bool )
-        if s, rest, err = a.stencil(t.stems); err != nil {
-            diag.errorAt(t.program.position, "stencil '%v' with %v failed: %v", a, t.stems, err).
+        var ( s string ; rest []string; okay bool )
+        if s, rest = prerequisite.stencil(t.stems); s == "" {
+            diag.errorAt(pos, "empty prerequisite stencil: %v %v\n", prerequisite, t.stems).
                 debug(optionDebugErrors, 1)
             return
         } else if len(rest) > 0 {
-            diag.errorAt(pos, "unhandled stems: %v, %v, %v, %v\n", prerequisite, s, rest, t.stems).
+            diag.errorAt(pos, "partial prerequisite stencil: %v, %v, %v, %v\n", prerequisite, s, rest, t.stems).
                 debug(optionDebugErrors, 1)
             panic(s)
         }
@@ -433,11 +426,14 @@ func (t *traversal) prerequisite(pos Position, prerequisite Value) {
         }
 
         if !okay && false {
-            diag.warnAt(pos, "missing file %v required by %v",
-                s, t.def.target.value).debug(optionDebugErrors, 1)
+            diag.warnAt(pos, "missing file %v required by %v", s, t.def.target.value).
+                debug(optionDebugErrors, 1)
         }
-
-    default:
+    } else {
+        if false && len(t.stems) > 0 {
+            diag.warnAt(pos, "%v -> %v", t.def.target.value, prerequisite).
+                debug(optionDebugErrors, 1)
+        }
         t.dispatch(prerequisite)
     }
 }

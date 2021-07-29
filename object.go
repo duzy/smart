@@ -526,6 +526,9 @@ func (p *undetermined) cmp(v Value) (res cmpres) {
         }
         return
 }
+func (p *undetermined) patterned() bool { return false }
+func (p *undetermined) match(i interface{}) (full bool, s string, stems []string) { return }
+func (p *undetermined) stencil(stems []string) (s string, rest []string) { return }
 
 type builtinFlag uint32
 const (
@@ -805,6 +808,15 @@ func (entry *RuleEntry) cmp(v Value) (res cmpres) {
         }
         return
 }
+func (entry *RuleEntry) patterned() bool { return entry.target.patterned() }
+func (entry *RuleEntry) match(i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = entry.target.match(i)
+    return
+}
+func (entry *RuleEntry) stencil(stems []string) (s string, rest []string) {
+    s, rest = entry.target.stencil(stems)
+    return
+}
 
 func (entry *RuleEntry) option() (res bool, infos []Value) {
         ForProgram: for _, program := range entry.programs {
@@ -841,7 +853,7 @@ func (entry *RuleEntry) option() (res bool, infos []Value) {
 }
 
 type PatternEntry struct {
-        Pattern Pattern
+        Pattern Value
         *RuleEntry
 }
 func (p *PatternEntry) expand(w expandwhat) (res Value, err error) {
@@ -929,7 +941,7 @@ func (p *stemmed) file(t *traversal, file *File) {
         p.target = file
         file.position = p.position
 
-        if file.info == nil && file.match == nil { // !isAbsOrRel()
+        if file.info == nil && file.filemap == nil { // !isAbsOrRel()
                 if f := t.project.FindFile(file.name); f != nil { *file = *f }
                 if file.info == nil { file.info, _ = os.Stat(file.name) }
         }
