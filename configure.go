@@ -414,7 +414,7 @@ ForArgs:
         }
         for _, elem := range elems {
             switch t := elem.(type) {
-            case *None: continue
+            case *None, *Nil: continue
             case *Pair:
                 params = append(params, t)
                 continue ForArgs
@@ -428,8 +428,8 @@ ForArgs:
                 return
             }
             diag.errorOf(arg, "unsupported parameter of %T: %v", arg, arg)
+            return
         }
-        return
     }
 
     defer func() {
@@ -463,7 +463,6 @@ ForArgs:
             }
         }
         if msg != "" { configPrintf(pos, "%s …", msg) }
-        return
     }
 
     // Process configurations like:
