@@ -1267,7 +1267,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
 	}
 
 	position := p.position()
-	diag.errorAt(position, "'%v' bad unary expression (lit=%s,lhs=%v)\n", p.tok, p.lit, lhs).debug(optionDebugErrors)
+	diag.errorAt(position, "'%v' bad unary expression (lit=%s,lhs=%v)", p.tok, p.lit, lhs).debug(optionDebugErrors)
 	p._next() // go to next token
 	return MakeNil(position)
 }

@@ -1131,7 +1131,7 @@ func (l *loader) declare(keyword token.Token, ident *Bareword, options []Value) 
                 if def == nil && alt != nil { def = alt.(*Def) }
                 def.set(DefDecl, t.Value)
             default:
-                diag.errorAt(pos, "`%v` unknown target from command line (%v)\n", t, l.project)
+                diag.errorAt(pos, "`%v` unknown target from command line (%v)", t, l.project)
                 return
             }
         }

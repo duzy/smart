@@ -1809,7 +1809,7 @@ func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, 
         }
 
         if opts.debug {
-                diag.infoAt(pos, "read-file: %v\n", filename)
+                diag.infoAt(pos, "read-file: %v", filename)
         }
 
         var bytes []byte

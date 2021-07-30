@@ -662,7 +662,7 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
                 if !okay && false {
                     s, _ := file.Strval()
                     e, _ := project.resolveEntry(file.name)
-                    diag.infoAt(file.position, "%s: %v (file=%v, match=%v, cwd=%s, alt.sub=%v, entry=%v, fullname=%s)\n",
+                    diag.infoAt(file.position, "%s: %v (file=%v, match=%v, cwd=%s, alt.sub=%v, entry=%v, fullname=%s)",
                         project, target, file, file.filemap, project.changedWD, alt.sub, e, s).
                         debug(true, 1)
                 }
@@ -2139,7 +2139,7 @@ func (p *Barecomp) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     var ( target string; err error )
     if target, err = p.Strval(); err == nil {
-        if false { diag.warnAt(p.position, "%v (%s)\n", p, target).debug(true, 1) }
+        if false { diag.warnAt(p.position, "%v (%s)", p, target).debug(true, 1) }
         t.target(p.position, target)
     } else {
         diag.errorOf(p, "strval '%v' error: %v", p, err)

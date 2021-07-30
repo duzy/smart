@@ -403,11 +403,11 @@ func (t *traversal) prerequisite(pos Position, prerequisite Value) {
         var pos = prerequisite.Position()
         var ( s string ; rest []string; okay bool )
         if s, rest = prerequisite.stencil(t.stems); s == "" {
-            diag.errorAt(pos, "empty prerequisite stencil: %v %v\n", prerequisite, t.stems).
+            diag.errorAt(pos, "empty prerequisite stencil: %v %v", prerequisite, t.stems).
                 debug(optionDebugErrors, 1)
             return
         } else if len(rest) > 0 {
-            diag.errorAt(pos, "partial prerequisite stencil: %v, %v, %v, %v\n", prerequisite, s, rest, t.stems).
+            diag.errorAt(pos, "partial prerequisite stencil: %v, %v, %v, %v", prerequisite, s, rest, t.stems).
                 debug(optionDebugErrors, 1)
             panic(s)
         }

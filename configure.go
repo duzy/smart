@@ -349,7 +349,7 @@ func configureExec(pos Position, t *traversal, opts *modifierConfigureOpts, s st
                     return
                 }
             } else {
-                diag.errorOf(a, "unsupported parameter of %T: %v", a, a)
+                diag.errorOf(a, "unsupported parameter %v (%T)", a, a)
                 return
             }
         }
@@ -395,7 +395,7 @@ func configureDo(pos Position, t *traversal, opts *modifierConfigureOpts, target
         pipe = t.def.buffer
         strName string
         params []Value
-        info Value
+        infos []Value
     )
     if strName, err = name.Strval(); err != nil {
         diag.errorAt(pos, "stringify '%v' failed: %v", name, err)
@@ -407,31 +407,28 @@ func configureDo(pos Position, t *traversal, opts *modifierConfigureOpts, target
 
 ForArgs:
     for _, arg := range args {
-        var list, ok = arg.(*List)
-        if ok && list != nil {
-            if list.Elems, err = mergeresult(ExpandAll(list.Elems...)); err != nil {
-                diag.errorOf(arg, "merge list elements '%v' failed: %v", arg, err)
-                return
-            }
+        var elems []Value
+        if elems, err = mergeresult(ExpandAll(arg)); err != nil {
+            diag.errorOf(arg, "merge list elements '%v' failed: %v", arg, err)
+            return
         }
-        if ok && list != nil && len(list.Elems) == 1 {
-            switch t := list.Elems[0].(type) {
-            case *None: continue ForArgs
+        for _, elem := range elems {
+            switch t := elem.(type) {
+            case *None: continue
             case *Pair:
                 params = append(params, t)
                 continue ForArgs
-            case *String, *Compound:
+            case *Raw, *String, *Compound:
                 var ap = t.Position()
-                arg = MakePair(ap, MakeBareword(ap, "INFO"), t)
-                params = append(params, arg)
-                info = t
+                params = append(params, MakePair(ap, MakeBareword(ap, "INFO"), t))
+                infos = append(infos, t)
                 continue ForArgs
             default:
-                diag.errorOf(arg, "parameter of %T unsupported: %v", t, t)
+                diag.errorOf(arg, "parameter '%v' of %T is unsupported", t, t)
                 return
             }
+            diag.errorOf(arg, "unsupported parameter of %T: %v", arg, arg)
         }
-        diag.errorOf(arg, "unsupported parameter of %T: %v", arg, arg)
         return
     }
 
@@ -455,12 +452,17 @@ ForArgs:
         }
     } ()
 
-    if isNil(info) {
+    if len(infos) == 0 {
         configPrintf(pos, "%v %v …", target, args)
-    } else if s, e := info.Strval(); e == nil {
-        configPrintf(pos, "%s …", s)
     } else {
-        diag.errorAt(pos, "stringify configure message failed: %v", e)
+        var msg string
+        for _, info := range infos {
+            if s, e := info.Strval(); e == nil { msg += s } else {
+                diag.errorAt(pos, "strval configure message failed: %v", e)
+                return
+            }
+        }
+        if msg != "" { configPrintf(pos, "%s …", msg) }
         return
     }
 
@@ -609,24 +611,24 @@ ForConfig:
         switch arg := a.(type) {
         case *Argumented:
             if flag, okay := arg.value.(*Flag); !okay {
-                diag.errorOf(a, "`%v` is unsupported value (%T)\n", arg.value, arg.value)
+                diag.errorOf(a, "`%v` is unsupported value (%T)", arg.value, arg.value)
                 return
             } else {
                 name, para = flag.name, arg.args
             }
         case *Flag:
             if isNil(arg.name) || isNone(arg.name) {
-                diag.errorOf(a, "`%v` is unsupported flag (%T)\n", arg.name, arg.name)
+                diag.errorOf(a, "`%v` is unsupported flag (%T)", arg.name, arg.name)
                 return
             } else {
                 name = arg.name
             }
         default:
-            diag.errorOf(a, "`%v` is unsupported (%T)\n", a, a)
+            diag.errorOf(a, "`%v` is unsupported (%T)", a, a)
             return
         }
         if name == nil {
-            diag.errorOf(a, "unknown configure `%v` (%T)\n", a, a)
+            diag.errorOf(a, "unknown configure `%v` (%T)", a, a)
             return
         }
 
@@ -794,7 +796,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
                 ok, file, filename, project = true, f, f.fullname(), p
                 t.def.target.value = file // reset target file
                 if opts.debug {
-                    diag.infoAt(pos, "configure-file: %v: %s->%s\n", p, f, filename)
+                    diag.infoAt(pos, "configure-file: %v: %s->%s", p, f, filename)
                 }
             }
             return
@@ -808,7 +810,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
     if project == nil { project = t.project }
     if opts.debug && file != nil {
         var target = t.def.target.value
-        diag.infoAt(pos, "configure-file: %v: %v (%s) (%v, %v) (%v)\n",
+        diag.infoAt(pos, "configure-file: %v: %v (%s) (%v, %v) (%v)",
             project, target, file.fullname(), t.project, t.closure.comment, cloctx)
     }
 
