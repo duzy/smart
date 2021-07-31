@@ -3986,12 +3986,11 @@ func (p *delegate) mod(t *traversal) (res time.Time, err error) {
 }
 func (p *delegate) cmp(v Value) (res cmpres) {
     if a, ok := v.(*delegate); ok {
-        // FIXME: compare the expanded value instead??
-        if p.x.cmp(a.x) == cmpEqual && len(p.a) == len(a.a) {
+        // NOTE: don't compare the expanded value!!
+        if res = p.x.cmp(a.x); res == cmpEqual && len(p.a) == len(a.a) {
             for i, t := range p.a {
-                if t.cmp(a.a[i]) != cmpEqual { return }
+                if res = t.cmp(a.a[i]); res != cmpEqual { return }
             }
-            res = cmpEqual
         }
     } else if d, ok := p.x.(*Def); ok && len(p.a) == 0 {
         res = d.value.cmp(v)
@@ -4212,12 +4211,11 @@ func (p *closure) mod(t *traversal) (res time.Time, err error) {
 }
 func (p *closure) cmp(v Value) (res cmpres) {
     if a, ok := v.(*closure); ok {
-        // FIXME: compare the expanded value instead??
-        if p.x.cmp(a.x) == cmpEqual && len(p.a) == len(a.a) {
+        // NOTE: don't compare the expanded value!!
+        if res = p.x.cmp(a.x); res == cmpEqual && len(p.a) == len(a.a) {
             for i, t := range p.a {
-                if t.cmp(a.a[i]) != cmpEqual { return }
+                if res = t.cmp(a.a[i]); res != cmpEqual { return }
             }
-            res = cmpEqual
         }
     }
     return

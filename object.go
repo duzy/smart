@@ -63,7 +63,8 @@ func (p *objbase) cmp(v Value) (res cmpres) {
 
 type knownobject struct { // generally named objects
         objbase
-        name string
+        name string // single, or group name if containing '(*)' and corresponding members
+        //members [][]string
 }
 func (p *knownobject) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *knownobject) True() (bool, error) { return true, nil }

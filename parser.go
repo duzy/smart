@@ -1336,7 +1336,9 @@ func (p *parser) parseExpr(lhs bool) (x Value) {
 	var pos, tok = p.pos, p.tok
 	if x = p.parseComposedExpr(lhs); x == nil {
 		p.error(pos, "`%v` invalid expression", tok)
-	} else {
+		return
+	}
+	{
 		if lhs && p.tok.IsAssign() { return }
 
 	SwitchCompose:
@@ -1355,10 +1357,10 @@ func (p *parser) parseExpr(lhs bool) (x Value) {
 
 		case token.LPAREN:
 			if p.bits&composingNoArg == 0 {
-				if _, ok := x.(*Argumented); ok {
-					p.error(pos, "nested argumentation")
+				if false { if _, ok := x.(*Argumented); ok { p.error(pos, "nested argumentation") }}
+				if x = p.parseArgumentedExpr(x); !isNil(x) {
+					goto SwitchCompose
 				}
-				x = p.parseArgumentedExpr(x)
 			}
 			return
 
@@ -1371,6 +1373,7 @@ func (p *parser) parseExpr(lhs bool) (x Value) {
 				}
 			}
 			return // FIXES: a%%b/foo/bar -> Path(a%%b foo bar)
+
 		case token.BAR:
 			if _, ok := x.(*Group); ok { return } // in case of: [(var)|...]
 
@@ -1399,7 +1402,7 @@ func (p *parser) parseExpr(lhs bool) (x Value) {
 			goto SwitchCompose
 		}
 	}
-	return x
+	return
 }
 
 // ----------------------------------------------------------------------------
@@ -1826,7 +1829,9 @@ func (p *parser) parseDefineClause(tok token.Token, ident Value) (def *Def) {
 	} else if n > 1 {
 		value = MakeList(p.position(), elems...)
 	}
-	return p.determine(position, tok, ident, value)
+	var defs = p.determine(position, tok, ident, value)
+	if n := len(defs); n > 0 {  def = defs[n-1] }
+	return
 }
 
 func (p *parser) parseDefine(ident Value) (def *Def) {

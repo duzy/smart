@@ -668,9 +668,56 @@ func (l *loader) useProject2(position Position, usee *Project, params []Value, o
     return // :user: rules are deprecated!
 }
 
-func (l *loader) determine(position Position, tok token.Token, identifier, value Value) (def *Def) {
-    var dbg bool
-    var alt Object
+func iterateArgumentedIdentElems(elems, stems []Value, f func(elems, stems []Value)) {
+    for i, elem := range elems {
+        if a, ok := elem.(*Argumented); ok {
+            var prefix, suffix = elems[:i], elems[i+1:]
+            iterateArgumentedIdentifiers(a, func(ident Value, stems2 []Value) {
+                var head   = append(prefix, ident)
+                var stems3 = append(stems , stems2...)
+                iterateArgumentedIdentElems(suffix, stems3, func(elems, stems []Value) {
+                    f(append(head, elems...), stems)
+                })
+            })
+            return
+        }
+    }
+    f(elems, stems)
+}
+
+func iterateArgumentedIdentifiers(identifier Value, f func(ident Value, stem []Value)) {
+    switch t := identifier.(type) {
+    case *Argumented:
+        var args, err = mergeresult(ExpandAll(t.args...))
+        if err != nil { diag.errorOf(t, "merge args failed: %v", err); return }
+        iterateArgumentedIdentifiers(t.value, func(ident Value, stems []Value) {
+            var pos = ident.Position()
+            for _, arg := range args { f(MakeBarecomp(pos, ident, arg), append(stems, arg)) }
+        })
+    case *Barecomp:
+        iterateArgumentedIdentElems(t.Elems, nil, func(elems, stems []Value) {
+            if len(stems) == 0 { f(t, stems) } else {
+                f(MakeBarecomp(t.Position(), elems...), stems)
+            }
+        })
+    default:
+        f(t, nil)
+    }
+}
+
+func (l *loader) determine(position Position, tok token.Token, identifier, value Value) (defs []*Def) {
+    iterateArgumentedIdentifiers(identifier, func(ident Value, stems []Value) {
+        var def = l.determine1(position, tok, ident, value)
+        if /*strings.HasPrefix(ident.String(), "...")*/false {
+            diag.infoOf(ident, "%v -> %v, %v -> %v", identifier, ident, stems, def)
+        }
+        defs = append(defs, def)
+    })
+    return
+}
+
+func (l *loader) determine1(position Position, tok token.Token, identifier, value Value) (def *Def) {
+    var ( alt Object; dbg bool )
     switch t := identifier.(type) {
     case *selection:
         var v, err = t.value()
@@ -734,9 +781,15 @@ func (l *loader) determine(position Position, tok token.Token, identifier, value
                 diag.errorAt(position, "append def '%s' failed: %v", def.name, err)
             }
         }
+
+    case *Argumented:
+        var args, err = mergeresult(ExpandAll(t.args...))
+        if err != nil { diag.errorOf(t, "merge args failed: %v", err); return }
+        diag.errorAt(position, "TODO: multiple defs: %v %v", t.value, args)
+        return
     }
     if def == nil {
-        diag.errorAt(position, "def is nil for '%v' (%T)", identifier, identifier)
+        diag.errorAt(position, "def is nil for '%v' of %T", identifier, identifier)
         return
     }
 
@@ -954,8 +1007,8 @@ ParamsLoop:
             var name string
             if name, err = p.Key.Strval(); err != nil { diag.errorAt(position, "%v", err); return }
             if len(name) > 0 && name[0] == '.' { identifier = MakeBarecomp(position, MakeBareword(position, "project"), p.Key) }
-            var def = l.determine(position, token.ASSIGN, identifier, p.Value)
-            if isNil(def) {/* FIXME: ... */}
+            var defs = l.determine(position, token.ASSIGN, identifier, p.Value)
+            if len(defs) == 0 {/* FIXME: ... */}
             continue ParamsLoop
         }
 
