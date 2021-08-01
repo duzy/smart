@@ -708,7 +708,7 @@ func iterateArgumentedIdentifiers(identifier Value, f func(ident Value, stem []V
 func (l *loader) determine(position Position, tok token.Token, identifier, value Value) (defs []*Def) {
     iterateArgumentedIdentifiers(identifier, func(ident Value, stems []Value) {
         var def = l.determine1(position, tok, ident, value)
-        if /*strings.HasPrefix(ident.String(), "...")*/false {
+        if false && strings.HasPrefix(ident.String(), "libs.") {
             diag.infoOf(ident, "%v -> %v, %v -> %v", identifier, ident, stems, def)
         }
         defs = append(defs, def)
@@ -1374,7 +1374,7 @@ func (l *loader) find(target Value) (obj Object, err error) {
 
 func (l *loader) def(position Position, name string) (def *Def, alt Object) {
     var scope = l.scope
-    if strings.HasPrefix(scope.comment, "file ") && l.mode&Flat != 0 {
+    if  strings.HasPrefix(scope.comment, "file ") && l.mode&Flat != 0 {
         // use project scope if defining in flat file (aka. include)
         // to ensure that the symbol is valid in the project
         scope = l.project.scope

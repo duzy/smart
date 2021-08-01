@@ -1829,6 +1829,12 @@ func (p *parser) parseDefineClause(tok token.Token, ident Value) (def *Def) {
 	} else if n > 1 {
 		value = MakeList(p.position(), elems...)
 	}
+
+	// NOTE: forcely put all explicit defs into project scope. It's important for defs enclosed
+	//       in templates work.
+	defer func(s *Scope) { p.scope = s } (p.scope)
+	p.scope = p.project.scope
+
 	var defs = p.determine(position, tok, ident, value)
 	if n := len(defs); n > 0 {  def = defs[n-1] }
 	return
@@ -2344,7 +2350,7 @@ func (p *parser) expandForeach(t *template, vars map[string]Value, params []Valu
 	p.pos, p.tok, p.lit = t.pos, t.tok, t.lit
 
 	// TODO: deal with params
-	defer p.closeScope(p.openScope("template expand"))
+	defer p.closeScope(p.openScope("template expansion ")) // NOTE: comment here will affect loader.def()
 
 	//t_traverse.tracef("%v %v", t_traverse.elapsed(), vars)
 	for s, v := range vars {

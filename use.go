@@ -34,6 +34,12 @@ func (p *using) closured() bool {
         }
         return false
 }
+func (p *using) delegated() bool {
+        for _, a := range p.params {
+                if a.delegated() { return true }
+        }
+        return false
+}
 func (p *using) expand(w expandwhat) (Value, error) {
         if params, num, err := expandallcount(w, p.params...); err != nil {
                 return nil, err
@@ -123,6 +129,12 @@ func (p *usinglist) refdef(origin Origin) bool { return false }
 func (p *usinglist) closured() bool {
         for _, a := range p.list {
                 if a.closured() { return true }
+        }
+        return false
+}
+func (p *usinglist) delegated() bool {
+        for _, a := range p.list {
+                if a.delegated() { return true }
         }
         return false
 }

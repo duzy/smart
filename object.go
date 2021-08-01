@@ -282,6 +282,7 @@ type Def struct {
 
 func (d *Def) refs(v Value) bool { return d == v || (d.value != nil && d.value.refs(v)) }
 func (d *Def) closured() bool { return d.value.closured() }
+func (d *Def) delegated() bool { return d.value.delegated() }
 func (d *Def) expand(w expandwhat) (res Value, err error) {
         if res = d; d.value != nil {
                 var value Value
@@ -361,17 +362,18 @@ func (d *Def) set(origin Origin, value Value) (err error) {
                 value = MakeNone(d.position)
         }
 
+        var elems []Value
         switch d.origin = origin; d.origin {
         case DefExpand1: // expands delegates
-                if d.value, err = value.expand(expandDelegate); err != nil {
+                if elems, err = expandall(expandDelegate, value); err != nil {
                         diag.errorOf(value, "%v: expand value '%v' failed: %v", d.origin, value, err)
                         return
-                }
+                } else { d.value = MakeListOrScalar(value.Position(), elems) }
         case DefExpand2: // expands delegates and closures
-                if d.value, err = value.expand(expandAll); err != nil {
+                if elems, err = expandall(expandAll, value); err != nil {
                         diag.errorOf(value, "%v: expand value '%v' failed: %v", d.origin, value, err)
                         return
-                }
+                } else { d.value = MakeListOrScalar(value.Position(), elems) }
         case DefExecute:
                 var (
                         cmd string
@@ -487,6 +489,9 @@ func (p *undetermined) refs(v Value) bool {
 }
 func (p *undetermined) closured() bool {
         return p.identifier.closured() || p.value.closured()
+}
+func (p *undetermined) delegated() bool {
+        return p.identifier.delegated() || p.value.delegated()
 }
 func (p *undetermined) refdef(origin Origin) bool { return false }
 func (p *undetermined) expand(w expandwhat) (res Value, err error) {
@@ -727,6 +732,22 @@ func (entry *RuleEntry) closured() bool {
                 }
                 for _, recipe := range prog.recipes {
                         if recipe.closured() { return true }
+                }
+        }
+        return false
+}
+func (entry *RuleEntry) delegated() bool {
+        if entry.target.delegated() { return true }
+
+        // TODO: do more tests for this to see if we need to fallthrough
+        return false // only check delegated agaist target
+
+        for _, prog := range entry.programs {
+                for _, depend := range prog.depends {
+                        if depend.delegated() { return true }
+                }
+                for _, recipe := range prog.recipes {
+                        if recipe.delegated() { return true }
                 }
         }
         return false

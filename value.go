@@ -134,6 +134,7 @@ type Value interface {
     refs(v Value) bool
 
     closured() bool
+    delegated() bool
     refdef(origin Origin) bool
 
     // &(...) -> $(...)
@@ -963,6 +964,7 @@ func elementString(o Object, elem Value, k elemkind) (s string) {
 type valbase struct { position Position }
 func (_ *valbase) refs(_ Value) (res bool) { return }
 func (_ *valbase) closured() (res bool) { return }
+func (_ *valbase) delegated() (res bool) { return }
 func (_ *valbase) refdef(origin Origin) (res bool) { return }
 func (_ *valbase) expand(_ expandwhat) (v Value, err error) { return }
 func (_ *valbase) cmp(_ Value) (res cmpres) { return }
@@ -1034,6 +1036,13 @@ func (p *Argumented) closured() bool {
     if p.value.closured() { return true }
     for _, a := range p.args {
         if a.closured() { return true }
+    }
+    return false
+}
+func (p *Argumented) delegated() bool {
+    if p.value.delegated() { return true }
+    for _, a := range p.args {
+        if a.delegated() { return true }
     }
     return false
 }
@@ -1243,6 +1252,10 @@ func (p *Any) closured() (res bool) {
     if v, ok := p.value.(Value); ok { res = v.closured() }
     return
 }
+func (p *Any) delegated() (res bool) {
+    if v, ok := p.value.(Value); ok { res = v.delegated() }
+    return
+}
 func (p *Any) Position() (res Position) {
     if v, ok := p.value.(Positioner); ok { res = v.Position() }
     return
@@ -1293,6 +1306,7 @@ func (p *Any) traverse(t *traversal) {
 type negative struct { valbase; x Value }
 func (p *negative) refs(o Value) bool { return p.x.refs(o) }
 func (p *negative) closured() bool { return p.x.closured() }
+func (p *negative) delegated() bool { return p.x.delegated() }
 func (p *negative) expand(w expandwhat) (res Value, err error) {
     var v Value
     if v, err = p.x.expand(w); err != nil { return }
@@ -2072,6 +2086,12 @@ func (p *elements) closured() bool {
     }
     return false
 }
+func (p *elements) delegated() bool {
+    for _, elem := range p.Elems {
+        if elem.delegated() { return true }
+    }
+    return false
+}
 func (p *elements) refdef(origin Origin) bool {
     for _, elem := range p.Elems {
         if elem.refdef(origin) { return true }
@@ -2094,6 +2114,7 @@ type Barecomp struct { valbase ; elements }
 func (p *Barecomp) refs(v Value) bool { return p.elements.refs(v) }
 func (p *Barecomp) refdef(origin Origin) bool { return p.elements.refdef(origin) }
 func (p *Barecomp) closured() bool { return p.elements.closured() }
+func (p *Barecomp) delegated() bool { return p.elements.delegated() }
 func (p *Barecomp) Strval() (s string, e error) {
     for _, elem := range p.Elems {
         var v string
@@ -2175,6 +2196,7 @@ type Barefile struct {
 }
 func (p *Barefile) refs(v Value) bool { return p.Name.refs(v) }
 func (p *Barefile) closured() bool { return p.Name.closured() }
+func (p *Barefile) delegated() bool { return p.Name.delegated() }
 func (p *Barefile) expand(w expandwhat) (res Value, err error) {
     var name Value
     if name, err = p.Name.expand(w); err == nil {
@@ -2286,6 +2308,7 @@ func (p *GlobMeta) cmp(v Value) (res cmpres) {
 type GlobRange struct { valbase ; Chars Value }
 func (p *GlobRange) refs(v Value) bool { return p.Chars.refs(v) }
 func (p *GlobRange) closured() bool { return p.Chars.closured() }
+func (p *GlobRange) delegated() bool { return p.Chars.delegated() }
 func (p *GlobRange) expand(w expandwhat) (Value, error) {
     if v, err := p.Chars.expand(w); err != nil {
         return nil, err
@@ -2365,6 +2388,7 @@ func (p *Path) True() (t bool, err error) {
 }
 func (p *Path) refs(v Value) (res bool) { return p.elements.refs(v) }
 func (p *Path) closured() (res bool) { return p.elements.closured() }
+func (p *Path) delegated() (res bool) { return p.elements.delegated() }
 func (p *Path) refdef(origin Origin) bool { return p.refdef(origin) }
 func (p *Path) expand(w expandwhat) (res Value, err error) {
     var (elems []Value; num int)
@@ -3257,6 +3281,7 @@ type FileContent struct {
 type Flag struct { valbase ; name Value }
 func (p *Flag) refs(v Value) bool { return p.name.refs(v) }
 func (p *Flag) closured() bool { return p.name.closured() }
+func (p *Flag) delegated() bool { return p.name.delegated() }
 func (p *Flag) expand(w expandwhat) (res Value, err error) {
     var name Value
     if name, err = p.name.expand(w); err == nil {
@@ -3427,6 +3452,7 @@ func (p *Compound) Integer() (i int64, err error) {
 func (p *Compound) True() (bool, error) { return p.elements.True() }
 func (p *Compound) refs(v Value) bool { return p.elements.refs(v) }
 func (p *Compound) closured() bool { return p.elements.closured() }
+func (p *Compound) delegated() bool { return p.elements.delegated() }
 func (p *Compound) refdef(origin Origin) bool { return p.refdef(origin) }
 func (p *Compound) cmp(v Value) (res cmpres) {
     if a, ok := v.(*Compound); ok {
@@ -3633,6 +3659,7 @@ type Pair struct { // key=value
 }
 func (p *Pair) refs(v Value) bool { return p.Key.refs(v) || p.Value.refs(v) }
 func (p *Pair) closured() bool { return p.Key.closured() || p.Value.closured() }
+func (p *Pair) delegated() bool { return p.Key.delegated() || p.Value.delegated() }
 func (p *Pair) expand(x expandwhat) (res Value, err error) {
     var k, v Value
     res = p // set the original value
@@ -3804,33 +3831,31 @@ func (p *delegate) Float() (f float64, err error) {
     return
 }
 func (p *delegate) expand(w expandwhat) (res Value, err error) {
-    switch {
-    default: res = p
-    case w&expandClosure != 0:
+    if w&expandClosure != 0 {
         if res, err = p.disclose(); err != nil { return }
         if res != nil && w&expandDelegate != 0 {
             res, err = res.expand(expandDelegate)
         } else if res == nil { res = p }
-    case w&expandDelegate != 0:
+    }
+    if w&expandDelegate != 0 {
         if res, err = p.reveal(); err != nil { return }
         if err == nil && res == nil {
             if false && optionPrintStack {
                 s, _ := p.x.Strval()
-                fmt.Fprintf(stderr, "%s: %v (%s) (%s)\n", p.position, p.x, typeof(p.x), s)
-                if false { debug.PrintStack() }
+                diag.errorAt(p.position, "%v (%s) (%s)", p.x, typeof(p.x), s).
+                    debug(optionDebugErrors, 1)
             }
         }
         if res != nil && res == p {
             diag.errorOf(p, "self delegation (%v)", p)
             if optionPrintStack {
-                fmt.Fprintf(stderr, "%s\n", err)
-                debug.PrintStack()
+                diag.errorAt(p.position, "%s", err).debug(optionDebugErrors, 1)
             }
         } else if res != nil && w&expandClosure != 0 {
             res, err = res.expand(expandClosure)
         }
         if err == nil && res == nil {
-            res = &None{valbase{p.position}}
+            res = MakeNone(p.position)
         }
     }
     return
@@ -3960,6 +3985,7 @@ func (p *delegate) closured() bool {
     }
     return false
 }
+func (p *delegate) delegated() bool { return true }
 func (p *delegate) refdef(origin Origin) (res bool) {
   if origin == defany {
     res = true
@@ -4045,13 +4071,13 @@ func (p *closure) Strval() (s string, err error) {
     return
 }
 func (p *closure) expand(w expandwhat) (res Value, err error) {
-    switch {
-    case w&expandClosure != 0:
+    if w&expandClosure != 0 {
         if res, err = p.disclose(); err != nil { return }
         if res != nil && w&expandDelegate != 0 {
             res, err = res.expand(expandDelegate)
         }
-    case w&expandDelegate != 0:
+    }
+    if w&expandDelegate != 0 {
         if res, err = p.reveal(); err != nil { return }
         if res != nil && w&expandClosure != 0 {
             res, err = res.expand(expandClosure)
@@ -4188,6 +4214,13 @@ func (p *closure) refs(v Value) bool {
     return false
 }
 func (p *closure) closured() bool { return true }
+func (p *closure) delegated() bool {
+    if p.x.delegated() { return true }
+    for _, a := range p.a {
+        if a.delegated() { return true }
+    }
+    return false
+}
 func (p *closure) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     if v, e := p.expand(expandClosure); e != nil {
@@ -4338,6 +4371,7 @@ func (p *selection) Float() (float64, error) {
 }
 func (p *selection) refs(v Value) bool { return p.o.refs(v) || p.s.refs(v) }
 func (p *selection) closured() bool { return p.o.closured() || p.s.closured() }
+func (p *selection) delegated() bool { return p.o.delegated() || p.s.delegated() }
 func (p *selection) expand(w expandwhat) (res Value, err error) {
     var o, s Value
     if p.o != nil {
@@ -4573,6 +4607,7 @@ func (p *PercPattern) stencil(stems []string) (s string, rest []string) {
 }
 func (p *PercPattern) refs(v Value) bool { return p.Prefix.refs(v) || p.Suffix.refs(v) }
 func (p *PercPattern) closured() bool { return p.Prefix.closured() || p.Suffix.closured() }
+func (p *PercPattern) delegated() bool { return p.Prefix.delegated() || p.Suffix.delegated() }
 func (p *PercPattern) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)); t.tracef("stems: %v", t.stems) }
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("PercPattern.traverse(%v)", p))) }
@@ -4698,6 +4733,12 @@ func (p *GlobPattern) refs(v Value) (res bool) {
 func (p *GlobPattern) closured() (res bool) {
     for _, comp := range p.Components {
         if res = comp.closured(); res { break }
+    }
+    return
+}
+func (p *GlobPattern) delegated() (res bool) {
+    for _, comp := range p.Components {
+        if res = comp.delegated(); res { break }
     }
     return
 }

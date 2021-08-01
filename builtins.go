@@ -44,6 +44,7 @@ type BuiltinFunc func(pos Position, args... Value) (Value)
 
 var builtins = map[string]BuiltinFunc {
         `typeof`:       builtinTypeOf,
+        `defined`:      builtinDefined,
 
         `position`:     builtinPosition,
         `date`:         builtinDate,
@@ -53,6 +54,7 @@ var builtins = map[string]BuiltinFunc {
 
         `assert-valid`: builtinAssertValid,
 
+        `defor`:        builtinDefor,
         `or`:           builtinOr,
         `and`:          builtinAnd,
         /*
@@ -495,6 +497,17 @@ func builtinTypeOf(pos Position, args... Value) (res Value) {
         return MakeListOrScalar(pos, elems)
 }
 
+func builtinDefined(pos Position, args... Value) (res Value) {
+        var ( elems []Value; err error )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
+        for _, arg := range args {
+                var _, unresolved = arg.(*unresolvedobject)
+                elems = append(elems, MakeBoolean(pos, !unresolved))
+                if false { diag.infoAt(pos, "defined %v -> %v", arg, unresolved) }
+        }
+        return MakeListOrScalar(pos, elems)
+}
+
 func builtinPosition(pos Position, args... Value) (res Value) {
         var err error
         var vals []Value
@@ -600,6 +613,23 @@ func builtinAssertValid(pos Position, args... Value) Value {
                 }
         }
         return nil
+}
+
+// $(defor $(x),$(y),$(z)) is identical to $(if $(defined $(x)),$(x),...)
+func builtinDefor(pos Position, args... Value) (res Value) {
+        var err error
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err)
+                return
+        }
+        for _, a := range args {
+                var _, unresolved = a.(*unresolvedobject)
+                if unresolved { continue } else {
+                        res = a
+                        break
+                }
+        }
+        return
 }
 
 func builtinOr(pos Position, args... Value) (res Value) {
@@ -890,7 +920,10 @@ func builtinValue(pos Position, args... Value) (res Value) {
         var vals []Value
         for _, a := range args {
                 var s string
-                if s, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                if s, err = a.Strval(); err != nil {
+                        diag.errorAt(pos, "strval '%v' failed: %v", a, err)
+                        return
+                }
                 if def := scope.FindDef(s); def != nil {
                         vals = append(vals, def.value)
                 } else {
