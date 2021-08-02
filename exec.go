@@ -7,22 +7,21 @@
 package smart
 
 import (
-  "extbit.io/smart/scanner"
-  "runtime/debug"
-  "path/filepath"
-  "sync/atomic"
-  "os/exec"
-  "strings"
-  "strconv"
-  "regexp"
-  "bytes"
   "bufio"
-  "sync"
-  "time"
+  "bytes"
+  "extbit.io/smart/scanner"
   "fmt"
   "io"
-  "io/fs"
   "os"
+  "os/exec"
+  "path/filepath"
+  "regexp"
+  "runtime/debug"
+  "strconv"
+  "strings"
+  "sync"
+  "sync/atomic"
+  "time"
 )
 
 // Note that it's is also used with Sscanf.
@@ -961,20 +960,5 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   // be fetched immediately. Caller should do a t.wait(...) or
   // exeres.wait() before using the result.
   result = exeres
-  return
-}
-
-func stamp(t *traversal, target Value, start time.Time, verb bool) (err error) {
-  var v Value
-  var files []*File
-  if v, err = target.expand(expandAll); err != nil { return } else
-  if files, err = v.stamp(t); err == nil && verb {
-    for _, file := range files {
-      d := file.info.ModTime().Sub(start);
-      fmt.Printf("smart: Updated %v (%v)\n", file, d)
-    }
-  } else if pe, ok := err.(*fs.PathError); ok {
-    err = fmt.Errorf("stamp %s: %s", trimPromptString(pe.Path), pe.Err.Error())
-  }
   return
 }

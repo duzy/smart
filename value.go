@@ -359,6 +359,11 @@ func (t *traversal) getCurrentTargetValue() (res Value) {
     return
 }
 
+func (t *traversal) exists(v Value) bool {
+    // FIXME: returns true if existenceMatterless ??
+    return v != nil && v.stat(t).exists() == existenceConfirmed
+}
+
 func (t *traversal) depth() (res int) {
     for c := t.caller; c != nil; c = c.caller { res += 1 }
     return
@@ -556,13 +561,12 @@ func (t *traversal) file(file *File) (okay bool) {
         }
         if !okay {
             var alt = project.FindFile(file.name)
-            if !isNil(alt) { okay = alt.sub == "-" || exists(t, alt) }
+            if !isNil(alt) { okay = alt.sub == "-" || t.exists(alt) }
             if !okay && false {
                 s, _ := file.Strval()
                 e, _ := project.resolveEntry(file.name)
-                fmt.Fprintf(stderr, "%s: %s: %v (alt=%v) (entry=%v) (%s %v)\n",
-                    file.position, project, file, alt.sub, e, s, t.stems)
-                if false { debug.PrintStack() }
+                diag.errorAt(file.position, "%s: %v (alt=%v) (entry=%v) (%s %v)\n",
+                    project, file, alt.sub, e, s, t.stems).debug(optionDebugErrors, 1)
             }
         }
     }
@@ -1051,11 +1055,6 @@ func (_ *valbase) _stencil(p Value, stems []string) (s string, rest []string) {
 type returner struct {
     valbase
     Values []Value
-}
-
-func exists(t *traversal, v Value) bool {
-    // FIXME: returns true if existenceMatterless ??
-    return v != nil && v.stat(t).exists() == existenceConfirmed
 }
 
 type Argumented struct {
@@ -2993,13 +2992,13 @@ func (p *File) stamp(t *traversal) (files []*File, err error) {
         return
     }
 
-    var ot time.Time
-    if p.info != nil { ot = p.info.ModTime() }
+    var oldModTime time.Time
+    if p.info != nil { oldModTime = p.info.ModTime() }
     if p.info, err = os.Stat(fullname); err != nil { return }
     if p.info != nil {
-        var nt = p.info.ModTime()
-        context.globe.stamp(fullname, nt)
-        p.updated = nt.After(ot)
+        var newModTime = p.info.ModTime()
+        context.globe.stamp(fullname, newModTime)
+        p.updated = newModTime.After(oldModTime)
         files = append(files, p)
 
         var target = t.def.target.value
@@ -3012,8 +3011,7 @@ func (p *File) stamp(t *traversal) (files []*File, err error) {
             t.appendUpdated(newUpdatedTarget(p))
         }
         if optionTraceTraversal {
-            t.tracef("stamp: %v (%v, %v, %v)", p, nt.Sub(ot),
-                target, cmp)
+            t.tracef("stamp: %v (%v, %v, %v)", p, newModTime.Sub(oldModTime), target, cmp)
         }
     }
     return

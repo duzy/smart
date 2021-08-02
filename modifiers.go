@@ -7,23 +7,23 @@
 package smart
 
 import (
-        //"extbit.io/smart/scanner"
-        "crypto/sha256"
-        "path/filepath"
-        "runtime/debug"
-        "hash/crc64"
-        "io/ioutil"
-        "strings"
-        "regexp"
-        "errors"
         "bufio"
         "bytes"
-        "sync"
-        "time"
+        "crypto/sha256"
+        "errors"
         "fmt"
+        "hash/crc64"
+        "io"
+        "io/fs"
+        "io/ioutil"
         "os"
         "os/exec"
-        "io"
+        "path/filepath"
+        "regexp"
+        "runtime/debug"
+        "strings"
+        "sync"
+        "time"
 )
 
 var launchTime = time.Now()
@@ -1283,19 +1283,18 @@ type modifierTouchOpts struct {
         verbose bool `v,verbose`
 }
 func modifierTouch(pos Position, t *traversal, args... Value) (result Value, err error) {
+        var opts modifierTouchOpts // = modifierTouchOpts{ mode: os.FileMode(0755) }
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 diag.errorAt(pos, "merge touch args failed: %v", err)
                 return
         }
-
-        var opts = modifierTouchOpts{ mode: os.FileMode(0755) }
         if args, err = parseOpts(pos, &opts, args...); err != nil {
                 diag.errorAt(pos, "parse touch opts failed: %v", err)
                 return
-        }
-        if len(args) == 0 {
+        } else if len(args) == 0 {
                 args = append(args, t.def.target.value)
         }
+
         for _, arg := range args {
                 if err = touch(arg, uint32(opts.mode), opts.path); err != nil {
                         diag.errorAt(pos, "touch '%v' failed: %v", arg, err)
@@ -2060,26 +2059,55 @@ func modifierStamp(pos Position, t *traversal, args... Value) (result Value, err
                 }
         }
 
-        var target = t.def.target.value
-        if opts.verbose { diag.prompt("stamp %v", target) }
-        if err = stamp(t, target, t.start, opts.prompt); err != nil {
-                if opts.next {
-                        if opts.verbose { diag.warnAt(pos, "%v", err).debug(optionDebugErrors, 1) }
-                        t._break(pos, breakNext).scope = breakTrave
-                        err = nil // discard the error
-                } else if opts.error {
-                        diag.errorAt(pos, "%v", err).debug(optionDebugErrors, 1)
-                        t._break(pos, breakErro).error = err
-                } else if t.stems != nil {
-                        diag.warnAt(pos, "%v", err).debug(optionDebugErrors /*&& opts.debug*/, 1)
-                        t._break(pos, breakNext).scope = breakTrave
-                        err = nil // discard the error
-                } else if pos.IsValid() {
-                        t.traceCallStack(pos, "failed: %v", err).debug(optionDebugErrors, 1)
-                } else if targetPos := target.Position(); targetPos.IsValid() {
-                        t.traceCallStack(targetPos, "failed: %v", err).debug(optionDebugErrors, 1)
-                } else {
-                        // TODO: dump more diagnostics information here
+        var currentTargetValue = t.getCurrentTargetValue()
+        if isNil(currentTargetValue) {
+                diag.errorAt(pos, "target '%v' is nil", t.def.target)
+                return
+        } else if opts.verbose {
+                diag.prompt("stamp %v\n", currentTargetValue)
+        }
+
+        var files []*File
+        if files, err = currentTargetValue.stamp(t); err == nil {
+                if !opts.prompt { return }
+                for _, file := range files {
+                        var (
+                                mod = file.info.ModTime()
+                                d = time.Now().Sub(t.start)
+                        )
+                        if mod.After(t.start) {
+                                diag.prompt("smart: Updated %v (%v, ModTime=%v)\n", file, d, mod)
+                        } else {
+                                diag.prompt("smart: File %v not changed (%v, ModTime=%v)\n", file, d, mod)
+                                diag.warnAt(pos, "incorrect timestamp: %v (JobTime=%v)", file, t.start)
+                                diag.warnOf(file, "the target path name is: %v", file.fullname())
+                                diag.warnOf(file, "try 'touch' the target %v if the path name and command are correct", file)
+                                diag.infoOf(file, "you may ignore the warnings if all correct")
+                        }
+                }
+                return
+        } else if opts.next {
+                if opts.verbose { diag.warnAt(pos, "%v", err).debug(optionDebugErrors, 1) }
+                t._break(pos, breakNext).scope = breakTrave
+                err = nil // discard the error
+        } else if opts.error {
+                diag.errorAt(pos, "%v", err).debug(optionDebugErrors, 1)
+                t._break(pos, breakErro).error = err
+        } else if t.stems != nil {
+                diag.warnAt(pos, "%v", err).debug(optionDebugErrors, 1)
+                t._break(pos, breakNext).scope = breakTrave
+                err = nil // discard the error
+        } else if pos.IsValid() {
+                t.traceCallStack(pos, "failed: %v", err).debug(optionDebugErrors, 1)
+        } else if targetPos := currentTargetValue.Position(); targetPos.IsValid() {
+                t.traceCallStack(targetPos, "failed: %v", err).debug(optionDebugErrors, 1)
+        } else {
+                // TODO: dump more diagnostics information here
+        }
+
+        if err != nil {
+                if pe, ok := err.(*fs.PathError); ok {
+                        err = fmt.Errorf("stamp %s: %s", trimPromptString(pe.Path), pe.Err.Error())
                 }
         }
         return
@@ -2256,12 +2284,13 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
         var dirty bool
         if dirty = t.hasBreakers(); dirty {
                 reason = fmt.Sprintf("dirty (%v breakers)", len(t.breakers))
-        } else if dirty = !exists(t, currentTargetValue); dirty {
+        } else if dirty = !t.exists(currentTargetValue); dirty {
                 reason = "dirty: target not exists"
         } else if dirty = len(t.updated) > 0; dirty {
                 reason = fmt.Sprintf("dirty (%v updated)", len(t.updated))
         } else if dirty, err = t.isRecipesDirty(); err != nil {
-                diag.errorAt(pos, "%v", err); return
+                diag.errorAt(pos, "isRecipesDirty: %v", err)
+                return
         } else if dirty {
                 reason = "dirty: recipes changed"
         } else if opts.checksum && !(isNil(t.def.depend0.value) || isNone(t.def.depend0.value)) {
@@ -2285,10 +2314,11 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
         }
 
         if opts.debug {
-                var e = exists(t, currentTargetValue)
                 var a = typeof(currentTargetValue)
+                var e = t.exists(currentTargetValue)
                 var s, _ = currentTargetValue.Strval()
-                fmt.Fprintf(stderr, "%s: %s %s (exists=%v, dirty=%v, updated=%v)\n", pos, a, s, e, dirty, t.updated)
+                diag.errorAt(pos, "type=%s target=%s (exists=%v, dirty=%v, updated=%v)\n",
+                        a, s, e, dirty, t.updated).debug(optionDebugErrors, 1)
         }
 
         if opts.verbose {
@@ -2303,13 +2333,15 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                                 } else { s += v.String() }
                         }
                         s += "]"
-                } else if dirty { s = ", "+strings.TrimPrefix(reason, "dirty: ") }
+                } else if dirty {
+                        s = ", "+strings.TrimPrefix(reason, "dirty: ")
+                }
                 fmt.Fprintf(stderr, "smart: Checking dirty %s (%v%s)\n", currentTargetValue, dirty, s)
         }
 
         if optionTraceTraversal {
                 var v = currentTargetValue
-                t_traverse.tracef("dirty: %v (updated=%v, exists=%v, target=%v)", dirty, len(t.updated), exists(t, v), v)
+                t_traverse.tracef("dirty: %v (updated=%v, exists=%v, target=%v)", dirty, len(t.updated), t.exists(v), v)
                 if len(t.updated) > 0 { t_traverse.tracef("dirty: updated=%v", t.updated) }
         }
 
