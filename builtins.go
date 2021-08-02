@@ -3108,27 +3108,54 @@ ForArgs:
 }
 
 func touch(file Value, optMode uint32, optPath bool, ts ...time.Time) (err error) {
-        var name string
-        if name, err = file.Strval(); err != nil || name == "" { return }
-        if dir := filepath.Dir(name); optPath && dir != "." && dir != PathSep {
-                if err = os.MkdirAll(dir, os.FileMode(optMode|0733)); err != nil { diag.errorOf(file, "%v", err); return }
+        var filename, _ = fullname(file)
+        if  filename == "" {
+                diag.errorOf(file, "touch: file fullname of '%v' is empty", file, err).
+                        debug(optionDebugErrors, 1)
+                return
         }
 
-        var mode = os.FileMode(optMode)
-        var m os.FileMode
-        var at, mt time.Time
+        if dir := filepath.Dir(filename); optPath && dir != "." && dir != PathSep {
+                if err = os.MkdirAll(dir, os.FileMode(optMode|0733)); err != nil {
+                        diag.errorOf(file, "touch: %v", err).
+                                debug(optionDebugErrors, 1)
+                        return
+                }
+        }
+
+        var (
+                mode = os.FileMode(optMode)
+                m os.FileMode
+                at, mt time.Time
+        )
         if len(ts) > 0 { at = ts[0] } else { at = time.Now() }
         if len(ts) > 1 { mt = ts[1] } else { mt = time.Now() }
-        if fi, k := file.(*File); k && fi.info != nil { m = fi.info.Mode() } else
-        if fi, e := os.Stat(name); e == nil && fi != nil { m = fi.Mode() } else {
+        if fi, k := file.(*File); k && fi.info != nil {
+                m = fi.info.Mode()
+        } else if fi, e := os.Stat(filename); e == nil && fi != nil {
+                m = fi.Mode()
+        } else {
                 var f *os.File
                 if m = mode; m == 0 { m = os.FileMode(0600); mode = m }
-                f, err = os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_APPEND, m&os.ModePerm)
-                if err == nil { err = f.Close() }
+                if f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, m&os.ModePerm); err != nil {
+                        diag.errorOf(file, "touch: %v", err).
+                                debug(optionDebugErrors, 1)
+                } else if err = f.Close(); err != nil {
+                        diag.errorOf(file, "touch: %v", err).
+                                debug(optionDebugErrors, 1)
+                }
         }
-        if err == nil { err = os.Chtimes(name, at, mt) }
+        if err == nil {
+                if err = os.Chtimes(filename, at, mt); err != nil {
+                        diag.errorOf(file, "touch: %v", err).
+                                debug(optionDebugErrors, 1)
+                }
+        }
         if err == nil && mode != 0 && m != 0 && mode != m {
-                err = os.Chmod(name, mode)
+                if err = os.Chmod(filename, mode); err != nil {
+                        diag.errorOf(file, "touch: %v", err).
+                                debug(optionDebugErrors, 1)
+                }
         }
         return
 }

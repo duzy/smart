@@ -1297,7 +1297,8 @@ func modifierTouch(pos Position, t *traversal, args... Value) (result Value, err
 
         for _, arg := range args {
                 if err = touch(arg, uint32(opts.mode), opts.path); err != nil {
-                        diag.errorAt(pos, "touch '%v' failed: %v", arg, err)
+                        diag.errorAt(pos, "touch '%v' failed: %v", arg, err).
+                                debug(optionDebugErrors, 1)
                         break
                 }
         }
@@ -2107,7 +2108,9 @@ func modifierStamp(pos Position, t *traversal, args... Value) (result Value, err
 
         if err != nil {
                 if pe, ok := err.(*fs.PathError); ok {
-                        err = fmt.Errorf("stamp %s: %s", trimPromptString(pe.Path), pe.Err.Error())
+                        //err = fmt.Errorf("stamp %s: %s", trimPromptString(pe.Path), pe.Err.Error())
+                        diag.errorAt(pos, "stamp %s: %v", trimPromptString(pe.Path), pe.Err)
+                        err = pe.Err
                 }
         }
         return
