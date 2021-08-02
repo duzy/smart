@@ -1009,8 +1009,6 @@ func (_ *valbase) cmp(_ Value) (res cmpres) { return }
 func (_ *valbase) patterned() bool { return false }
 func (_ *valbase) match(i interface{}) (full bool, s string, stems []string) { return }
 func (_ *valbase) stencil(stems []string) (s string, rest []string) { return }
-//func (_ *valbase) mod(t *traversal) (res time.Time, err error) { return }
-//func (_ *valbase) exists() existence { return existenceMatterless }
 func (_ *valbase) stat(t *traversal) (si *statinfo) { return }
 func (_ *valbase) stamp(t *traversal) (file []*File, err error) { return }
 func (t *valbase) Position() (res Position) { return t.position }
@@ -1121,8 +1119,6 @@ func (p *Argumented) stencil(stems []string) (s string, rest []string) {
 }
 
 func (p *Argumented) stamp(t *traversal) ([]*File, error) { return p.value.stamp(t) }
-//func (p *Argumented) mod(t *traversal) (time.Time, error) { return p.value.mod(t) } // FIXME: p.value maybe not the real target (depending on the arguments)
-//func (p *Argumented) exists() existence { return p.value.exists() }
 func (p *Argumented) stat(t *traversal) (si *statinfo) {
     // FIXME: p.value might be not the real target (depending on the arguments)
     return p.value.stat(t)
@@ -1264,14 +1260,6 @@ func (p *Any) stamp(t *traversal) (files []*File, err error) {
     if a, ok := p.value.(Value); ok { files, err = a.stamp(t) }
     return
 }
-// func (p *Any) exists() existence {
-//     if a, ok := p.value.(Value); ok { return a.exists() }
-//     return existenceMatterless
-// }
-// func (p *Any) mod(t *traversal) (res time.Time, err error) {
-//     if a, ok := p.value.(Value); ok { res, err = a.mod(t) }
-//     return
-// }
 func (p *Any) stat(t *traversal) (si *statinfo) {
     if v, ok := p.value.(Value); ok && v != nil { si = v.stat(t) }
     return
@@ -2302,16 +2290,6 @@ func (p *Barefile) stamp(t *traversal) (files []*File, err error) {
     if p.File != nil { files, err = p.File.stamp(t) }
     return
 }
-// func (p *Barefile) exists() (res existence) {
-//     if p.File != nil { res = p.File.exists() } else {
-//         res = existenceNegated
-//     }
-//     return
-// }
-// func (p *Barefile) mod(t *traversal) (res time.Time, err error) {
-//     if p.File != nil { res, err = p.File.mod(t) }
-//     return
-// }
 func (p *Barefile) stat(t *traversal) (si *statinfo) {
     if p.File != nil { si = p.File.stat(t) }
     return
@@ -2481,25 +2459,6 @@ func (p *Path) stamp(t *traversal) (files []*File, err error) {
     }
     return
 }
-// func (p *Path) mod(t *traversal) (res time.Time, err error) {
-//     var pathname string // the addressed file target
-//     if pathname, err = p.pathname(t.stems); err != nil {
-//         // oops
-//     } else if pathname == "" {
-//         diag.errorAt(p.position, "path matches no target: %v", p)
-//     } else if file := stat(p.position, pathname, "", "", nil); file != nil && file.info != nil {
-//         res = file.info.ModTime()
-//     }
-//     return
-// }
-// func (p *Path) exists() existence {
-//     if pathname, err := p.Strval(); err == nil {
-//         if file := stat(p.position,pathname,"","",nil); file != nil {
-//             return file.exists()
-//         }
-//     }
-//     return existenceNegated
-// }
 func (p *Path) stat(t *traversal) (si *statinfo) {
     var (
         pathname string // the addressed file target
@@ -3059,15 +3018,6 @@ func (p *File) stamp(t *traversal) (files []*File, err error) {
     }
     return
 }
-// func (p *File) mod(t *traversal) (res time.Time, err error) {
-//     if p.info == nil { p.info, /*err*/_ = os.Stat(p.fullname()) }
-//     if err != nil { diag.errorOf(p, "%v", err)
-//         if optionPrintStack {
-//             diag.errorAt(p.position, "%v: %v (%v)", t.project, p, p.match).debug(optionDebugErrors, 1)
-//         }
-//     } else if p.info != nil { res = p.info.ModTime() }
-//     return
-// }
 func (p *File) exists() (res bool) {
     if p != nil && p.filebase != nil {
         res = p.filebase.exists()
@@ -3489,29 +3439,6 @@ func (p *List) traverse(t *traversal) {
     return
 }
 
-// func (p *List) mod(t *traversal) (res time.Time, err error) {
-//     var a time.Time
-//     for _, elem := range p.Elems {
-//         if a, err = elem.mod(t); err == nil { break } else
-//         if a.After(res) { res = a }
-//     }
-//     return
-// }
-// func (p *List) exists() (res existence) {
-//     res = existenceMatterless
-// ForElems:
-//     for _, elem := range p.Elems {
-//         switch elem.exists() {
-//         case existenceMatterless:
-//         case existenceConfirmed:
-//             res = existenceConfirmed
-//         case existenceNegated:
-//             res = existenceNegated
-//             break ForElems
-//         }
-//     }
-//     return
-// }
 func (p *List) stat(t *traversal) (si *statinfo) {
     if len(p.Elems) > 0 {
         for _, elem := range p.Elems {
@@ -3581,8 +3508,6 @@ func (p *Group) Strval() (s string, err error) {
     return
 }
 func (p *Group) traverse(t *traversal) { }
-//func (p *Group) mod(t *traversal) (time.Time, error) { return p.valbase.mod(t) }
-//func (p *Group) exists() existence { return p.List.exists() }
 func (p *Group) stat(t *traversal) (si *statinfo) { return }
 func (p *Group) stamp(t *traversal) (files []*File, err error) { return }
 func (p *Group) expand(w expandwhat) (res Value, err error) {
@@ -3973,13 +3898,6 @@ func (p *delegate) traverse(t *traversal) {
         diag.errorOf(p, "%v", err)
     }
 }
-// func (p *delegate) mod(t *traversal) (res time.Time, err error) {
-//     var val Value
-//     if val, err = p.expand(expandAll); err == nil {
-//         res, err = val.mod(t)
-//     }
-//     return
-// }
 func (p *delegate) stat(t *traversal) (si *statinfo) {
     diag.errorAt(p.position, "cant stat delegate %v, must expand it first", p).
         debug(optionDebugErrors, 16)
@@ -4211,17 +4129,6 @@ func (p *closure) traverse(t *traversal) {
         t.dispatch(v)
     }
 }
-// func (p *closure) mod(t *traversal) (res time.Time, err error) {
-//     var val Value
-//     if val, err = p.expand(expandAll); err == nil {
-//         if res, err = val.mod(t); err != nil {
-//             diag.errorOf(val, "mod: %v", err)
-//         }
-//     } else {
-//         diag.errorOf(p, "expand: %v", err)
-//     }
-//     return
-// }
 func (p *closure) stat(t *traversal) (si *statinfo) {
     diag.errorAt(p.position, "cant stat closure %v, must expand it first", p).
         debug(optionDebugErrors, 16)
@@ -4394,17 +4301,6 @@ func (p *selection) traverse(t *traversal) {
         t.dispatch(v)
     }
 }
-// func (p *selection) mod(t *traversal) (res time.Time, err error) {
-//     var v Value
-//     if v, err = p.value(); err == nil {
-//         if v == nil {
-//             diag.errorAt(p.position, "selection is nil")
-//         } else {
-//             res, err = v.mod(t)
-//         }
-//     }
-//     return
-// }
 func (p *selection) stat(t *traversal) (si *statinfo) {
     diag.errorAt(p.position, "cant stat selection %v, must expand it first", p).
         debug(optionDebugErrors, 1)
