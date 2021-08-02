@@ -518,13 +518,14 @@ ForFilemaps:
       var pos = filemap.pattern.Position()
       if file  != nil { s1 = file.fullname() }
       if first != nil { s2 = first.fullname() }
-      fmt.Fprintf(stderr, "%s: %s: %s (file=%v, exists=%v, first=%v, cwd=%s, filemap=%v, patterns=%v, pre=%v)\n",
-        pos, p, name, s1, exists(file), s2, p.changedWD, filemap.pattern, filemap.Patterns(), pre)
+      diag.errorAt(pos, "%s: name=%s (file=%v, exists=%v, first=%v, cwd=%s, filemap=%v, patterns=%v, pre=%v)\n",
+        p, name, s1, file.exists(), s2, p.changedWD, filemap.pattern, filemap.Patterns(), pre).
+        debug(optionDebugErrors, 1)
     }
     if file != nil {
       if file.filemap == nil { file.filemap = filemap }
       if pre != "" { /* FIXME: file.change(...pre) */ }
-      if exists(file) { break ForFilemaps }
+      if file.exists() { break ForFilemaps }
       if first == nil { first = file }
       file = nil // reset for the next match
     }
@@ -538,7 +539,7 @@ ForFilemaps:
       if filemap == fm { break ForFilemaps }
     }
   }
-  if first != file && !exists(file) { file = first }
+  if first != file && !file.exists() { file = first }
   return
 }
 

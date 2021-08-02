@@ -162,21 +162,21 @@ func (g *modifiergroup) closured() bool {
         }
         return false
 }
-func (g *modifiergroup) exists() (res existence) {
-        res = existenceMatterless
-ForElems:
-        for _, elem := range g.modifiers {
-                switch elem.exists() {
-                case existenceMatterless:
-                case existenceConfirmed:
-                        res = existenceConfirmed
-                case existenceNegated:
-                        res = existenceNegated
-                        break ForElems
-                }
-        }
-        return
-}
+// func (g *modifiergroup) exists() (res existence) {
+//         res = existenceMatterless
+// ForElems:
+//         for _, elem := range g.modifiers {
+//                 switch elem.exists() {
+//                 case existenceMatterless:
+//                 case existenceConfirmed:
+//                         res = existenceConfirmed
+//                 case existenceNegated:
+//                         res = existenceNegated
+//                         break ForElems
+//                 }
+//         }
+//         return
+// }
 func (g *modifiergroup) expand(_ expandwhat) (Value, error) { return g, nil }
 func (_ *modifiergroup) cmp(v Value) (res cmpres) { 
         if _, ok := v.(*modifiergroup); ok { res = cmpEqual }
@@ -786,7 +786,7 @@ func (t *traversal) searchGreppedName0(pos Position, gc *grepctx, sys bool, linu
                 file = stat(pos, name, "", "", nil)
         } else if isRel = isRelPath(name); isRel { // relative to target dir
                 file = stat(pos, name, "", gc.targetDir, nil)
-                if !exists(file) {
+                if !file.exists() {
                         var f = t.project.FindFile(name)
                         if f != nil { file = f }
                 }
@@ -804,7 +804,7 @@ func (t *traversal) searchGreppedName0(pos Position, gc *grepctx, sys bool, linu
 
         // System files are not treated as missing nor collected
         // for further updating, just discard them immediately.
-        if sys || isAbs || isRel || exists(file) { return }
+        if sys || isAbs || isRel || file.exists() { return }
 
         // relative to target directory
         var alt = stat(pos, name, "", gc.targetDir)
@@ -833,7 +833,7 @@ func (t *traversal) searchGreppedName0(pos Position, gc *grepctx, sys bool, linu
 
 func (t *traversal) searchGreppedName(pos Position, gc *grepctx, sys bool, linum, colnum int, name string) (file *File) {
         var isAbs, isRel bool
-        if file = t.project.FindFile(name); file != nil && exists(file) {
+        if file = t.project.FindFile(name); file != nil && file.exists() {
                 return // found existed file
         } else if isAbs = filepath.IsAbs(name); isAbs {
                 file = stat(pos, name, "", "", nil)
@@ -849,8 +849,11 @@ func (t *traversal) searchGreppedName(pos Position, gc *grepctx, sys bool, linum
                         sys = isNone(f.name) || isNil(f.name)
                 }
         }
-        if!sys && gc.debug { fmt.Fprintf(stderr, "%v: %v: %v → %v (exists=%v, sys=%v, from %v)\n", pos, t.entry.target, gc.target, name, exists(file), sys, t.project) }
-        if sys || exists(file) { return }
+        if!sys && gc.debug {
+                diag.errorAt(pos, "%v: %v → %v (exists=%v, sys=%v, from %v)\n",
+                        t.entry.target, gc.target, name, file.exists(), sys, t.project)
+        }
+        if sys || file.exists() { return }
 
         // relative to target directory
         var alt = stat(pos, name, "", gc.targetDir)
@@ -885,7 +888,7 @@ func (t *traversal) searchGrepped(pos Position, gc *grepctx, sys bool, linum, co
                 // FIXME: missing-file error
         } else if gc.isTargetFile(file) {
                 return
-        } else if !exists(file) && gc.discard {
+        } else if !file.exists() && gc.discard {
                 return
         } else if gc.files = append(gc.files, file); false && gc.touch {
                 var tt = gc.targetInfo.ModTime()
@@ -908,7 +911,7 @@ func (t *traversal) searchGrepped(pos Position, gc *grepctx, sys bool, linum, co
         if gc.report {
                 if file == nil {
                         fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` not found\n", gc.targetFullName, linum, colnum, t.project.name, name)
-                } else if !exists(file) {
+                } else if !file.exists() {
                         fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` file not existed\n", gc.targetFullName, linum, colnum, t.project.name, name)
                 }
         }
@@ -1417,7 +1420,7 @@ ForPairs:
                         var file *File
                         var project = t.project
                         if str, err = p.Value.Strval(); err != nil { return }
-                        if file := project.FindFile(str); !exists(file) {
+                        if file := project.FindFile(str); !file.exists() {
                                 t._breakf(pos, optBreak, "`%v` no such file or directory", p.Value)
                                 break ForPairs
                         }
@@ -2243,11 +2246,17 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
 
         t.wait(pos) // Wait for prerequisites
 
+        var currentTargetValue = t.getCurrentTargetValue()
+        if isNil(currentTargetValue) {
+                diag.errorAt(pos, "target '%v' is nil", t.def.target)
+                return
+        }
+
         var reason string
         var dirty bool
         if dirty = t.hasBreakers(); dirty {
                 reason = fmt.Sprintf("dirty (%v breakers)", len(t.breakers))
-        } else if dirty = !exists(t.def.target.value); dirty {
+        } else if dirty = !exists(t, currentTargetValue); dirty {
                 reason = "dirty: target not exists"
         } else if dirty = len(t.updated) > 0; dirty {
                 reason = fmt.Sprintf("dirty (%v updated)", len(t.updated))
@@ -2257,7 +2266,7 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                 reason = "dirty: recipes changed"
         } else if opts.checksum && !(isNil(t.def.depend0.value) || isNone(t.def.depend0.value)) {
                 var file1, file2 string
-                if file1, err = t.def.target.value.Strval(); err != nil {
+                if file1, err = currentTargetValue.Strval(); err != nil {
                         diag.errorAt(pos, "%v", err); return
                 }
                 if file2, err = t.def.depend0.value.Strval(); err != nil {
@@ -2276,9 +2285,9 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
         }
 
         if opts.debug {
-                var e = exists(t.def.target.value)
-                var a = typeof(t.def.target.value)
-                var s, _ = t.def.target.value.Strval()
+                var e = exists(t, currentTargetValue)
+                var a = typeof(currentTargetValue)
+                var s, _ = currentTargetValue.Strval()
                 fmt.Fprintf(stderr, "%s: %s %s (exists=%v, dirty=%v, updated=%v)\n", pos, a, s, e, dirty, t.updated)
         }
 
@@ -2295,12 +2304,12 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                         }
                         s += "]"
                 } else if dirty { s = ", "+strings.TrimPrefix(reason, "dirty: ") }
-                fmt.Fprintf(stderr, "smart: Checking dirty %s (%v%s)\n", t.def.target.value, dirty, s)
+                fmt.Fprintf(stderr, "smart: Checking dirty %s (%v%s)\n", currentTargetValue, dirty, s)
         }
 
         if optionTraceTraversal {
-                var v = t.def.target.value
-                t_traverse.tracef("dirty: %v (updated=%v, exists=%v, target=%v)", dirty, len(t.updated), exists(v), v)
+                var v = currentTargetValue
+                t_traverse.tracef("dirty: %v (updated=%v, exists=%v, target=%v)", dirty, len(t.updated), exists(t, v), v)
                 if len(t.updated) > 0 { t_traverse.tracef("dirty: updated=%v", t.updated) }
         }
 

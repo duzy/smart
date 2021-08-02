@@ -552,8 +552,10 @@ func (l *loader) loadPlugin(pos Position) (err error) {
     var build = true
 
     so := stat(pos, /*l.project.name*/"plugin", "", s, nil)
-    if s, err = so.Strval(); err != nil { return }
-    if exists(so) && !optionAlwaysBuildPlugins {
+    if s = so.fullname(); s == "" {
+        diag.errorOf(so, "file '%v' has empty fullname", so)
+        return
+    } else if so.exists() && !optionAlwaysBuildPlugins {
         if so.info.ModTime().After(g.info.ModTime()) {
             build = false // Plugin already updated.
         }
@@ -1246,7 +1248,7 @@ func (l *loader) loadProjectConfiguration(ident *Bareword, declared bool) (resul
 
     if l.project.name != dotConfigure {
         // Looking for project specific .configure module
-        if file := stat(pos, dotConfigure, "", l.project.absPath); exists(file) {
+        if file := stat(pos, dotConfigure, "", l.project.absPath); file.exists() {
             if ident.string == dotConfigure {
                 diag.errorAt(pos, "provided .configure for a .configure project")
             } else if !l.loadDotConfigure(ident, file) {
@@ -1269,7 +1271,7 @@ func (l *loader) loadProjectContainer(ident *Bareword) (result bool) {
         }
 
         // Looking for project specific .container module
-        if file := stat(pos, dotContainer, "", l.project.absPath); exists(file) {
+        if file := stat(pos, dotContainer, "", l.project.absPath); file.exists() {
             if !l.loadDotContainer(ident, file) {
                 //diag.errorAt(pos, "declare %s: %s/.container", name, l.project.absPath)
             }
@@ -1279,7 +1281,7 @@ func (l *loader) loadProjectContainer(ident *Bareword) (result bool) {
         // Looking for .smart/.container
         walkSmartBaseDirs(l.project.absPath, func(s string) bool {
             var file = stat(pos, dotContainer, "", filepath.Join(s, ".smart"))
-            if !exists(file) {
+            if !file.exists() {
                 // no docking enabled
             } else if !l.loadDotContainer(ident, file) {
                 //diag.errorAt(pos, "%v", err)

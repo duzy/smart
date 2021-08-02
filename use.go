@@ -7,7 +7,7 @@
 package smart
 
 import (
-        "time"
+        //"time"
         "fmt"
 )
 
@@ -48,10 +48,25 @@ func (p *using) expand(w expandwhat) (Value, error) {
         }
         return p, nil
 }
-func (p *using) mod(t *traversal) (res time.Time, err error) {
+// func (p *using) exists() (res existence) {
+//         if entry := p.project.DefaultEntry(); entry != nil {
+//                 res = entry.exists()
+//         } else {
+//                 res = existenceMatterless
+//         }
+//         return
+// }
+// func (p *using) mod(t *traversal) (res time.Time, err error) {
+//         if entry := p.project.DefaultEntry(); entry != nil {
+//                 // FIXME: entry maybe not pointing to the real target
+//                 res, err = entry.mod(t)
+//         }
+//         return
+// }
+func (p *using) stat(t *traversal) (si *statinfo) {
         if entry := p.project.DefaultEntry(); entry != nil {
                 // FIXME: entry maybe not pointing to the real target
-                res, err = entry.mod(t)
+                si = entry.stat(t)
         }
         return
 }
@@ -76,14 +91,6 @@ func (p *using) traverse(pc *traversal) {
 func (p *using) stamp(pc *traversal) (files []*File, err error) {
         if entry := p.project.DefaultEntry(); entry != nil {
                 files, err = entry.stamp(pc)
-        }
-        return
-}
-func (p *using) exists() (res existence) {
-        if entry := p.project.DefaultEntry(); entry != nil {
-                res = entry.exists()
-        } else {
-                res = existenceMatterless
         }
         return
 }
@@ -170,37 +177,51 @@ func (p *usinglist) Position() (pos Position) {
         return
 }
 func (p *usinglist) True() (bool, error) { return len(p.list) > 0, nil }
+func (p *usinglist) Name() string { return p.name }
+func (p *usinglist) Integer() (int64, error) { return 0, nil }
+func (p *usinglist) Float() (float64, error) { return 0, nil }
+// func (p *usinglist) exists() (res existence) {
+//         res = existenceMatterless
+// ForElems:
+//         for _, elem := range p.list {
+//                 switch elem.exists() {
+//                 case existenceMatterless:
+//                 case existenceConfirmed:
+//                         res = existenceConfirmed
+//                 case existenceNegated:
+//                         res = existenceNegated
+//                         break ForElems
+//                 }
+//         }
+//         return
+// }
+// func (p *usinglist) mod(t *traversal) (res time.Time, err error) {
+//         var a time.Time
+//         for _, elem := range p.list {
+//                 if a, err = elem.mod(t); err != nil { break } else
+//                 if a.After(res) { res = a }
+//         }
+//         return
+// }
+func (p *usinglist) stat(t *traversal) (si *statinfo) {
+        if len(p.list) > 0 {
+                for _, elem := range p.list {
+                        if ei := elem.stat(t); ei == nil {
+                                // FIXME: insert new statinfo or just discard it ??
+                        } else if si == nil {
+                                si = ei
+                        } else {
+                                si.next = ei
+                        }
+                }
+        }
+        return
+}
 func (p *usinglist) stamp(pc *traversal) (files []*File, err error) {
         for _, elem := range p.list {
                 var a []*File
                 if a, err = elem.stamp(pc); err != nil { break }
                 files = append(files, a...)
-        }
-        return
-}
-func (p *usinglist) exists() (res existence) {
-        res = existenceMatterless
-ForElems:
-        for _, elem := range p.list {
-                switch elem.exists() {
-                case existenceMatterless:
-                case existenceConfirmed:
-                        res = existenceConfirmed
-                case existenceNegated:
-                        res = existenceNegated
-                        break ForElems
-                }
-        }
-        return
-}
-func (p *usinglist) Name() string { return p.name }
-func (p *usinglist) Integer() (int64, error) { return 0, nil }
-func (p *usinglist) Float() (float64, error) { return 0, nil }
-func (p *usinglist) mod(t *traversal) (res time.Time, err error) {
-        var a time.Time
-        for _, elem := range p.list {
-                if a, err = elem.mod(t); err != nil { break } else
-                if a.After(res) { res = a }
         }
         return
 }

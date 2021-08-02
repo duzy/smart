@@ -13,7 +13,7 @@ import (
         "strings"
         "strconv"
         "bytes"
-        "time"
+        //"time"
         "fmt"
         "os"
 )
@@ -179,11 +179,20 @@ func (p *ProjectName) traverse(t *traversal) {
                 entry.traverse(t)
         }
 }
-func (p *ProjectName) mod(t *traversal) (res time.Time, err error) {
+// func (p *ProjectName) mod(t *traversal) (res time.Time, err error) {
+//         if p.project != nil {
+//                 var defent = p.project.DefaultEntry()
+//                 if defent != nil && defent.class != UseRuleEntry {
+//                         res, err = defent.mod(t)
+//                 }
+//         }
+//         return
+// }
+func (p *ProjectName) stat(t *traversal) (si *statinfo) {
         if p.project != nil {
                 var defent = p.project.DefaultEntry()
                 if defent != nil && defent.class != UseRuleEntry {
-                        res, err = defent.mod(t)
+                        si = defent.stat(t)
                 }
         }
         return
@@ -302,7 +311,6 @@ func (d *Def) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-func (d *Def) exists() existence { return d.value.exists() }
 func (d *Def) cmp(v Value) (res cmpres) {
         if a, ok := v.(*Def); ok && d.value != nil {
                 assert(ok, "value is not Def")
@@ -474,8 +482,13 @@ func (d *Def) Get(name string) (Value, error) {
 func (d *Def) traverse(t *traversal) {
         if d.value != nil { d.value.traverse(t) }
 }
-func (d *Def) mod(t *traversal) (res time.Time, err error) {
-        if d.value != nil { res, err = d.value.mod(t) }
+// func (d *Def) exists() existence { return d.value.exists() }
+// func (d *Def) mod(t *traversal) (res time.Time, err error) {
+//         if d.value != nil { res, err = d.value.mod(t) }
+//         return
+// }
+func (d *Def) stat(t *traversal) (si *statinfo) {
+        if d.value != nil { si = d.value.stat(t) }
         return
 }
 
@@ -520,7 +533,8 @@ func (p *undetermined) String() (s string) {
 func (p *undetermined) Strval() (string, error) { return p.value.Strval() }
 func (p *undetermined) Float() (float64, error) { return 0, nil }
 func (p *undetermined) Integer() (int64, error) { return 0, nil }
-func (p *undetermined) mod(t *traversal) (res time.Time, err error) { return }
+//func (p *undetermined) mod(t *traversal) (res time.Time, err error) { return }
+func (p *undetermined) stat(t *traversal) (si *statinfo) { return }
 func (p *undetermined) cmp(v Value) (res cmpres) {
         if a, ok := v.(*undetermined); ok {
                 assert(ok, "value is not undetermined")
@@ -608,7 +622,6 @@ func (entry *RuleEntry) Position() (pos Position) {
         return
 }
 func (entry *RuleEntry) stamp(t *traversal) (files []*File, err error) { return entry.target.stamp(t) }
-func (entry *RuleEntry) exists() existence { return entry.target.exists() }
 func (entry *RuleEntry) True() (bool, error) { return entry.target.True() }
 func (entry *RuleEntry) Float() (float64, error) { return 0, nil }
 func (entry *RuleEntry) Integer() (int64, error) { return 0, nil }
@@ -815,9 +828,14 @@ ForPrograms:
         }
         return
 }
-func (entry *RuleEntry) mod(t *traversal) (time.Time, error) {
+// func (entry *RuleEntry) exists() existence { return entry.target.exists() }
+// func (entry *RuleEntry) mod(t *traversal) (time.Time, error) {
+//         // FIXME: entry.target maybe not the real target
+//         return entry.target.mod(t)
+// }
+func (entry *RuleEntry) stat(t *traversal) (si *statinfo) {
         // FIXME: entry.target maybe not the real target
-        return entry.target.mod(t)
+        return entry.target.stat(t)
 }
 func (entry *RuleEntry) cmp(v Value) (res cmpres) {
         if a, ok := v.(*RuleEntry); ok {

@@ -2936,7 +2936,7 @@ func builtinFile(pos Position, args... Value) (res Value) {
                 var str string
                 if file, ok := a.(*File); ok {
                         list = append(list, file)
-                        if exists(file) { continue }
+                        if file.exists() { continue }
                         if optReportMissing { fmt.Fprintf(stderr, "%s: `%v` no such file\n", pos, a) }
                 } else if str, err = a.Strval(); err != nil {
                         diag.errorAt(pos, "%v", err)
