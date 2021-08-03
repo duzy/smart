@@ -885,7 +885,7 @@ func builtinForEach(pos Position, args... Value) (res Value) {
                         } else if true && len(v.defs("_")) > 0 {
                                 diag.errorOf(a, "'_' in '%v' not expanded: %v", a, v).debug(true, 1)
                         }
-                        if true && a.String() == "include=$_" {
+                        if false && a.String() == "include=$_" {
                                 diag.infoOf(a, "%v; %v; %v => %v", def, val, a, v).debug(true, 1)
                         }
                         if isNil(v) || isUndef(v) || isNone(v) {

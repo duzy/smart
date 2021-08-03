@@ -112,7 +112,13 @@ func do_configuration() {
             project = p
         }
 
-        if val := entry.Execute(entry.position); val != nil {
+        if val, brks := entry.Execute(entry.position); len(brks) > 0 {
+            for _, brk := range brks {
+                if brk.what == breakErro {
+                    diag.errorAt(entry.position, "execute '%v' failed: %v", entry, brk.error)
+                }
+            }
+        } else if val != nil {
             if false { diag.infoAt(entry.position, "configure %v: %v", entry, val) }
         }
         if s, e := entry.target.Strval(); e != nil {

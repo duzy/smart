@@ -114,7 +114,7 @@ func (p *unresolvedobject) Strval() (string, error) {
         return /*p.name.Strval()*/"", nil
 }
 func (p *unresolvedobject) Call(pos Position, a... Value) (result Value) { result = p; return }
-func (p *unresolvedobject) Execute(pos Position, a... Value) (result []Value, err error) { result = []Value{p}; return }
+func (p *unresolvedobject) Execute(pos Position, a... Value) (result []Value, err error) { return []Value{p}, nil }
 func (p *unresolvedobject) redecl(scope *Scope) {
         if p.scope != scope {
                 name, err := p.name.Strval()
@@ -663,10 +663,11 @@ func (entry *RuleEntry) SetExplicitFile(file *File) {
 //         return
 // }
 // RuleEntry.Execute executes the rule program only if the target is outdated.
-func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value) {
+func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, breakers []*breaker) {
         switch entry.class {
         case PercRuleEntry, GlobRuleEntry, RegexpRuleEntry, PathPattRuleEntry:
-                diag.errorAt(pos, "executing pattern entry '%v'", entry.target)
+                diag.errorAt(pos, "executing pattern entry '%v'", entry.target).
+                        debug(optionDebugErrors, 1)
                 return
         }
 

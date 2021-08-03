@@ -249,8 +249,14 @@ func (ctx *Context) run() (result []Value, breakers []*breaker) {
     var args, _ = ctx.args[flag]
     var entries, _ = ctx.flagEntries[s]
     for _, entry := range entries {
-      var res []Value
-      res = entry.Execute(entry.position, args...)
+      var ( res []Value; brks []*breaker )
+      if res, brks = entry.Execute(entry.position, args...); len(brks) > 0 {
+        for _, brk := range brks {
+          if brk.what == breakErro {
+            diag.errorAt(entry.position, "execute '%v' failed: %v", entry, brk.error)
+          }
+        }
+      }
       result = append(result, res...)
       done = true
     }
@@ -301,7 +307,15 @@ func (ctx *Context) run() (result []Value, breakers []*breaker) {
 func updateGoal(goal Value, args []Value) (result []Value) {
   if !isNil(goal) {
     switch g := goal.(type) {
-    case *RuleEntry: result = g.Execute(g.position, args...)
+    case *RuleEntry:
+      var brks []*breaker
+      if result, brks = g.Execute(g.position, args...); len(brks) > 0 {
+        for _, brk := range brks {
+          if brk.what == breakErro {
+            diag.errorAt(g.position, "execute '%v' failed: %v", g, brk.error)
+          }
+        }
+      }
     default: diag.errorOf(goal, "'%v' is not an entry (%T)", goal, goal)
     }
   }

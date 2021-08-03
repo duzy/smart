@@ -3805,8 +3805,7 @@ func (p *delegate) reveal() (res Value, err error) {
         if n, ok := t.o.(*ProjectName); ok {
             defer setclosure(setclosure(cloctx.unshift(n.project.scope)))
             if false && optionPrintStack {
-                fmt.Fprintf(stderr, "%s: %v %v\n", p.position, t, cloctx)
-                debug.PrintStack()
+                diag.infoAt(p.position, "%v %v", t, cloctx).debug(optionDebugErrors, 1)
             }
         }
 
@@ -3820,15 +3819,18 @@ func (p *delegate) reveal() (res Value, err error) {
         }
 
         if false && optionPrintStack {
-            fmt.Fprintf(stderr, "%s: %v ⇒ %v (%s)\n", p.position, p.x, v, typeof(v))
-            if false { debug.PrintStack() }
+            diag.infoAt(p.position, "%v ⇒ %v (%s)", p.x, v, typeof(v)).
+                debug(optionDebugErrors, 1)
         }
 
         selected = true
     }
 
     var args []Value
-    if args, _, err = expandall2(expandClosure, p.a...); err != nil { return }
+    if args, _, err = expandall2(expandClosure, p.a...); err != nil {
+        diag.errorAt(p.position, "expand %v failed: %v", p.a, err)
+        return
+    }
 
     var v Value
     switch x := o.(type) {
@@ -3840,7 +3842,8 @@ func (p *delegate) reveal() (res Value, err error) {
             }
         } else if selected && res != nil {
             if v, err = res.expand(expandClosure); err != nil {
-                diag.errorAt(p.position, "%v", err)
+                diag.errorAt(p.position, "expand '%v' failed: %v", res, err).
+                    debug(optionDebugErrors, 1)
                 return
             } else if v != nil && v != res {
                 res = v
@@ -3848,8 +3851,8 @@ func (p *delegate) reveal() (res Value, err error) {
         }
         if false && optionPrintStack && selected {
             s, _ := o.Strval()
-            fmt.Fprintf(stderr, "%s: %v; %v; %v (%s)\n", p.position, o, s, res, typeof(res))
-            if false { debug.PrintStack() }
+            diag.infoAt(p.position, "%v; %v; %v (%s)", o, s, res, typeof(res)).
+                debug(optionDebugErrors, 1)
         }
     case Executer:
         var brks []*breaker
@@ -3869,16 +3872,15 @@ func (p *delegate) reveal() (res Value, err error) {
     }
 
     if false && selected && res == nil && err == nil {
-        fmt.Fprintf(stderr, "%s: %v ⇒ %v (%s) (%v)\n", p.position, p.x, res, typeof(res), o)
-        debug.PrintStack()
+        diag.infoAt(p.position, "%v ⇒ %v (%s) (%v)", p.x, res, typeof(res), o).
+            debug(optionDebugErrors, 1)
     }
-
     if false && optionPrintStack && selected && (res == nil || res == p) {
-        fmt.Fprintf(stderr, "%s: %v ⇒ %v (%s)\n", p.position, p.x, res, typeof(res))
-        debug.PrintStack()
+        diag.infoAt(p.position, "%v ⇒ %v (%s)", p.x, res, typeof(res)).
+            debug(optionDebugErrors, 1)
     }
 
-    if err == nil && res == nil { res = &None{valbase{p.position}} }
+    if err == nil && res == nil { res = MakeNone(p.position) }
     return
 }
 func (p *delegate) disclose() (res Value, err error) {

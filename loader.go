@@ -905,8 +905,13 @@ func (l *loader) includeFile(pos Position, spec Value) {
 
     // Execute the rule entry to update include source.
     if entry, ok := spec.(*RuleEntry); ok && entry != nil {
-        var result []Value
-        if result = entry.Execute(entry.position); /*len(breakers) > 0*/false {
+        var ( result []Value; brks []*breaker )
+        if result, brks = entry.Execute(entry.position); len(brks) > 0 {
+            for _, brk := range brks {
+                if brk.what == breakErro {
+                    diag.errorAt(entry.position, "execute '%v' failed: %v", entry, brk.error)
+                }
+            }
             diag.errorAt(pos, "include error occurred (entry %v)", entry)
             return
         } else if result != nil && optionVerbose {
