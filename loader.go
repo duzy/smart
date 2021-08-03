@@ -591,7 +591,7 @@ func (l *loader) convertBarefiles(targets []Value) []Value {
                 file.position = pos
             }
         case *Barecomp:
-            if t.closured() || t.refdef(DefArg) { break }
+            if t.closured() || refdef(t, DefArg) { break }
             if s, err := t.Strval(); err != nil {
                 diag.errorAt(pos, "strval '%v' failed: %v", t, err)
             } else if file := l.project.FindFile(s); file != nil {

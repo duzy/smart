@@ -27,7 +27,13 @@ func (p *using) refs(v Value) bool {
         }
         return false
 }
-func (p *using) refdef(origin Origin) bool { return false }
+func (p *using) defs(s string) (res []*Def) {
+    for _, a := range p.params {
+        res = append(res, a.defs(s)...)
+    }
+    return
+}
+//func (p *using) refdef(origin Origin) bool { return false }
 func (p *using) closured() bool {
         for _, a := range p.params {
                 if a.closured() { return true }
@@ -41,7 +47,7 @@ func (p *using) delegated() bool {
         return false
 }
 func (p *using) expand(w expandwhat) (Value, error) {
-        if params, num, err := expandallcount(w, p.params...); err != nil {
+        if params, num, err := expandall2(w, p.params...); err != nil {
                 return nil, err
         } else if num > 0 {
                 return &using{p.valbase,p.project,params,p.opts}, nil
@@ -117,7 +123,13 @@ func (p *usinglist) refs(v Value) bool {
         }
         return false
 }
-func (p *usinglist) refdef(origin Origin) bool { return false }
+func (p *usinglist) defs(s string) (res []*Def) {
+    for _, a := range p.list {
+        res = append(res, a.defs(s)...)
+    }
+    return
+}
+//func (p *usinglist) refdef(origin Origin) bool { return false }
 func (p *usinglist) closured() bool {
         for _, a := range p.list {
                 if a.closured() { return true }

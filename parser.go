@@ -1047,7 +1047,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 					}
 				} else if o := resolveConfig(); !isNil(o) {
 					obj, okay = o, true
-				} else if tok.IsClosure() || name.refdef(defany) || name.closured() {
+				} else if tok.IsClosure() || refdef(name, defany) || name.closured() {
 					obj, okay = unresolved(p.project, name), true // recursive delegation or closure
 				} else {
 					diag.errorOf(name, "resolved '%v' is nil", name)

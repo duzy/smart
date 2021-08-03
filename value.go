@@ -163,12 +163,17 @@ type Value interface {
     // the object (to avoid loop-delegation).
     refs(v Value) bool
 
+    // Returns all defs of name `s` used in this value.
+    defs(s string) []*Def
+
     closured() bool
     delegated() bool
-    refdef(origin Origin) bool
+    //refdef(origin Origin) bool
 
-    // &(...) -> $(...)
-    // $(...) -> ......
+    // &(...)        -> $(...)
+    // $(...)        -> ......
+    // $(...)=$(...) -> ...=$(...), ...=...
+    // foo->bar      -> ...
     expand(what expandwhat) (Value, error)
 
     traverse(t *traversal)
@@ -223,6 +228,15 @@ func (p *updatedtarget) String() string {
 func newUpdatedTarget(target Value, prerequisites ...*updatedtarget) *updatedtarget {
     if def, ok := target.(*Def); ok { target = def.value }
     return &updatedtarget{target, prerequisites}
+}
+
+func refdef(val Value, origin Origin) (res bool) {
+    var defs = val.defs("")
+    for _, def := range defs {
+        if     origin == defany { res = true; break }
+        if def.origin == origin { res = true; break }
+    }
+    return
 }
 
 // traversal prepares prerequisites of targets.
@@ -1007,7 +1021,8 @@ type valbase struct { position Position }
 func (_ *valbase) refs(_ Value) (res bool) { return }
 func (_ *valbase) closured() (res bool) { return }
 func (_ *valbase) delegated() (res bool) { return }
-func (_ *valbase) refdef(origin Origin) (res bool) { return }
+//func (_ *valbase) refdef(origin Origin) (res bool) { return }
+func (_ *valbase) defs(s string) (res []*Def) { return }
 func (_ *valbase) expand(_ expandwhat) (v Value, err error) { return }
 func (_ *valbase) cmp(_ Value) (res cmpres) { return }
 func (_ *valbase) patterned() bool { return false }
@@ -1068,6 +1083,13 @@ func (p *Argumented) refs(v Value) bool {
     }
     return false
 }
+func (p *Argumented) defs(s string) (res []*Def) {
+    res = p.value.defs(s)
+    for _, a := range p.args {
+        res = append(res, a.defs(s)...)
+    }
+    return
+}
 func (p *Argumented) closured() bool {
     if p.value.closured() { return true }
     for _, a := range p.args {
@@ -1082,15 +1104,13 @@ func (p *Argumented) delegated() bool {
     }
     return false
 }
-func (p *Argumented) refdef(origin Origin) bool {
-    return p.value.refdef(origin)
-}
+//func (p *Argumented) refdef(origin Origin) bool { return p.value.refdef(origin) }
 func (p *Argumented) expand(w expandwhat) (res Value, err error) {
     var ( v Value; args []Value )
     if v, err = p.value.expand(w); err == nil {
         if v != p.value {
             var num int
-            args, num, err = expandallcount(w, p.args...)
+            args, num, err = expandall1(w, p.args...)
             if err == nil && (num > 0 || v != p.value) {
                 res = &Argumented{ v, args }
             }
@@ -1199,13 +1219,15 @@ func (p *Nil) cmp(v Value) (res cmpres) {
     return
 }
 
+func isUndef(v Value) (t bool) { _, t = v.(*unresolvedobject); return }
 func isNone(v Value) (t bool) { _, t = v.(*None); return }
 func isNil(v Value) (t bool) {
-    if _, t = v.(*Nil); !t {
-        var vv = reflect.ValueOf(v)
-        if v == nil || (vv.Kind() == reflect.Ptr && vv.IsNil()) {
-            t = true
-        }
+    if v == nil {
+        t = true
+    } else if _, t = v.(*Nil); t {
+        // true
+    } else if vv := reflect.ValueOf(v); vv.Kind() == reflect.Ptr && vv.IsNil() {
+        t = true
     }
     return
 }
@@ -1275,10 +1297,14 @@ func (p *Any) refs(o Value) (res bool) {
     if v, ok := p.value.(Value); ok { res = v.refs(o) }
     return
 }
-func (p *Any) refdef(origin Origin) (res bool) {
-    if v, ok := p.value.(Value); ok { res = v.refdef(origin) }
+func (p *Any) defs(s string) (res []*Def) {
+    if v, ok := p.value.(Value); ok { res = v.defs(s) }
     return
 }
+// func (p *Any) refdef(origin Origin) (res bool) {
+//     if v, ok := p.value.(Value); ok { res = v.refdef(origin) }
+//     return
+// }
 func (p *Any) closured() (res bool) {
     if v, ok := p.value.(Value); ok { res = v.closured() }
     return
@@ -1336,6 +1362,7 @@ func (p *Any) traverse(t *traversal) {
 
 type negative struct { valbase; x Value }
 func (p *negative) refs(o Value) bool { return p.x.refs(o) }
+func (p *negative) defs(s string) []*Def { return p.x.defs(s) }
 func (p *negative) closured() bool { return p.x.closured() }
 func (p *negative) delegated() bool { return p.x.delegated() }
 func (p *negative) expand(w expandwhat) (res Value, err error) {
@@ -1384,7 +1411,6 @@ func (p *negative) traverse(t *traversal) {
 func Negative(val Value) *negative { return &negative{valbase{val.Position()},val} }
 
 type boolean struct { valbase; bool }
-func (p *boolean) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *boolean) True() (bool, error) { return p.bool, nil }
 func (p *boolean) Strval() (string, error) { return p.String(), nil }
 func (p *boolean) String() (s string) {
@@ -1399,6 +1425,7 @@ func (p *boolean) Integer() (v int64, err error) {
     if p.bool { v = 1 }
     return
 }
+func (p *boolean) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *boolean) cmp(v Value) (res cmpres) {
     if a, ok := v.(*option); ok {
         if p.bool == a.bool {
@@ -1437,7 +1464,6 @@ func (p *boolean) stencil(stems []string) (s string, rest []string) {
 }
 
 type answer struct { valbase; bool }
-func (p *answer) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *answer) True() (bool, error) { return p.bool, nil }
 func (p *answer) Strval() (string, error) { return p.String(), nil }
 func (p *answer) String() (s string) {
@@ -1452,6 +1478,7 @@ func (p *answer) Integer() (v int64, err error) {
     if p.bool { v = 1 }
     return
 }
+func (p *answer) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *answer) cmp(v Value) (res cmpres) {
     if a, ok := v.(*option); ok {
         if p.bool == a.bool {
@@ -1490,7 +1517,6 @@ func (p *answer) stencil(stems []string) (s string, rest []string) {
 }
 
 type option struct { valbase; bool }
-func (p *option) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *option) True() (bool, error) { return p.bool, nil }
 func (p *option) Strval() (string, error) { return p.String(), nil }
 func (p *option) String() (s string) {
@@ -1505,6 +1531,7 @@ func (p *option) Integer() (v int64, err error) {
     if p.bool { v = 1 }
     return
 }
+func (p *option) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *option) cmp(v Value) (res cmpres) {
     if a, ok := v.(*option); ok {
         if p.bool == a.bool {
@@ -1569,9 +1596,9 @@ func (p *integer) cmp(v Value) (res cmpres) {
 }
 
 type Bin struct { integer }
-func (p *Bin) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Bin) String() string { return fmt.Sprintf("0b%s", strconv.FormatInt(int64(p.int64),2)) }
 func (p *Bin) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),2), nil }
+func (p *Bin) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Bin) match(i interface{}) (full bool, s string, stems []string) {
     full, s, stems = p._match(p, i)
     return
@@ -1595,9 +1622,9 @@ func (p *Oct) stencil(stems []string) (s string, rest []string) {
 }
 
 type Int struct { integer }
-func (p *Int) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Int) String() string { return strconv.FormatInt(int64(p.int64),10) }
 func (p *Int) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),10), nil }
+func (p *Int) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Int) match(i interface{}) (full bool, s string, stems []string) {
     full, s, stems = p._match(p, i)
     return
@@ -1608,9 +1635,9 @@ func (p *Int) stencil(stems []string) (s string, rest []string) {
 }
 
 type Hex struct { integer }
-func (p *Hex) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Hex) String() string { return fmt.Sprintf("0x%s", strconv.FormatInt(int64(p.int64),16)) }
 func (p *Hex) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),16), nil }
+func (p *Hex) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Hex) match(i interface{}) (full bool, s string, stems []string) {
     full, s, stems = p._match(p, i)
     return
@@ -1625,12 +1652,12 @@ type Float struct {
     valbase
     float64
 } // IEEE-754 64-bit binary floating-point
-func (p *Float) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Float) True() (bool, error) { return math.Abs(p.float64)-0 > FloatEpsilon, nil }
 func (p *Float) String() string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
 func (p *Float) Strval() (string, error) { return strconv.FormatFloat(float64(p.float64),'g', -1, 64), nil }
 func (p *Float) Integer() (int64, error) { return int64(p.float64), nil }
 func (p *Float) Float() (float64, error) { return p.float64, nil }
+func (p *Float) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Float) cmp(v Value) (res cmpres) {
     if _, ok := v.(*Float); ok {
         f, e := v.Float()
@@ -1658,7 +1685,6 @@ type DateTime struct {
     valbase
     t time.Time
 }
-func (p *DateTime) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *DateTime) True() (bool, error) { return !p.t.IsZero(), nil }
 func (p *DateTime) String() string {
     if s, e := p.Strval(); e == nil {
@@ -1670,6 +1696,7 @@ func (p *DateTime) String() string {
 func (p *DateTime) Strval() (string, error) { return time.Time(p.t).Format("2006-01-02T15:04:05.999999999Z07:00"), nil } // time.RFC3339Nano
 func (p *DateTime) Integer() (int64, error) { return p.t.Unix(), nil }
 func (p *DateTime) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+func (p *DateTime) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *DateTime) cmp(v Value) (res cmpres) {
     var vt time.Time
     switch a := v.(type) {
@@ -1764,7 +1791,6 @@ type URL struct {
     Query Value
     Fragment Value
 }
-func (p *URL) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *URL) True() (bool, error) { return p.String() != "", nil }
 func (p *URL) elemstr(o Object, k elemkind) (s string) {
     if s = elementString(o, p.Scheme, k); s == "" { return }
@@ -1871,6 +1897,7 @@ func (p *URL) Integer() (i int64, err error) {
     return
 }
 func (p *URL) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+func (p *URL) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *URL) cmp(v Value) (res cmpres) {
     if a, ok := v.(*URL); ok {
         if p.Scheme == nil || a.Scheme == nil { return }
@@ -1924,12 +1951,12 @@ type Raw struct {
     valbase
     string
 }
-func (p *Raw) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Raw) True() (bool, error) { return p.string != "", nil }
 func (p *Raw) String() string { return p.string }
 func (p *Raw) Strval() (string, error) { return p.string, nil }
 func (p *Raw) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *Raw) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
+func (p *Raw) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Raw) cmp(v Value) (res cmpres) {
     if a, ok := v.(*Raw); ok && p.string == a.string {
         res = cmpEqual
@@ -1949,16 +1976,16 @@ type String struct {
     valbase
     string
 }
-func (p *String) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *String) True() (bool, error) { return p.string != "", nil }
-func (p *String) elemstr(o Object, k elemkind) (s string) {
-    if k&elemNoQuote == 0 { s = `'`+p.string+`'` } else { s = p.string }
-    return
-}
 func (p *String) String() string { return p.elemstr(nil, 0) }
 func (p *String) Strval() (string, error) { return strings.Replace(p.string, "\\\"", "\"", -1), nil }
 func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
+func (p *String) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *String) elemstr(o Object, k elemkind) (s string) {
+    if k&elemNoQuote == 0 { s = `'`+p.string+`'` } else { s = p.string }
+    return
+}
 func (p *String) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     t.target(p.position, p.string)
@@ -1997,12 +2024,12 @@ type Bareword struct {
     valbase
     string
 }
-func (p *Bareword) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Bareword) True() (bool, error) { return isTrueString(p.string), nil }
 func (p *Bareword) String() string { return p.string }
 func (p *Bareword) Strval() (string, error) { return p.string, nil }
 func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *Bareword) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
+func (p *Bareword) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Bareword) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     t.target(p.position, p.string)
@@ -2032,12 +2059,12 @@ type Qualiword struct {
     valbase
     words []string
 }
-func (p *Qualiword) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Qualiword) True() (bool, error) { return len(p.words)!=0, nil }
 func (p *Qualiword) String() string { return strings.Join(p.words,".") }
 func (p *Qualiword) Strval() (string, error) { return p.String(), nil }
 func (p *Qualiword) Integer() (int64, error) { return int64(len(p.words)), nil }
 func (p *Qualiword) Float() (float64, error) { return float64(len(p.words)), nil }
+func (p *Qualiword) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Qualiword) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     t.target(p.position, p.String())
@@ -2111,6 +2138,12 @@ func (p *elements) refs(v Value) bool {
     }
     return false
 }
+func (p *elements) defs(s string) (res []*Def) {
+    for _, elem := range p.Elems {
+        res = append(res, elem.defs(s)...)
+    }
+    return
+}
 func (p *elements) closured() bool {
     for _, elem := range p.Elems {
         if elem.closured() { return true }
@@ -2123,12 +2156,12 @@ func (p *elements) delegated() bool {
     }
     return false
 }
-func (p *elements) refdef(origin Origin) bool {
-    for _, elem := range p.Elems {
-        if elem.refdef(origin) { return true }
-    }
-    return false
-}
+// func (p *elements) refdef(origin Origin) bool {
+//     for _, elem := range p.Elems {
+//         if elem.refdef(origin) { return true }
+//     }
+//     return false
+// }
 func (p *elements) cmpElems(elems []Value) (res cmpres) {
     if len(p.Elems) == len(elems) {
         for i, elem := range p.Elems {
@@ -2143,7 +2176,8 @@ func (p *elements) cmpElems(elems []Value) (res cmpres) {
 
 type Barecomp struct { valbase ; elements }
 func (p *Barecomp) refs(v Value) bool { return p.elements.refs(v) }
-func (p *Barecomp) refdef(origin Origin) bool { return p.elements.refdef(origin) }
+func (p *Barecomp) defs(s string) []*Def { return p.elements.defs(s) }
+//func (p *Barecomp) refdef(origin Origin) bool { return p.elements.refdef(origin) }
 func (p *Barecomp) closured() bool { return p.elements.closured() }
 func (p *Barecomp) delegated() bool { return p.elements.delegated() }
 func (p *Barecomp) Strval() (s string, e error) {
@@ -2178,7 +2212,7 @@ func (p *Barecomp) Integer() (res int64, err error) {
 }
 func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
     var ( elems []Value; num int )
-    if elems, num, err = expandallcount(w, p.Elems...); err == nil {
+    if elems, num, err = expandall1(w, p.Elems...); err == nil {
         if num > 0 {
             res = &Barecomp{p.valbase,elements{elems}}
         } else {
@@ -2226,6 +2260,7 @@ type Barefile struct {
     File *File
 }
 func (p *Barefile) refs(v Value) bool { return p.Name.refs(v) }
+func (p *Barefile) defs(s string) []*Def { return p.Name.defs(s) }
 func (p *Barefile) closured() bool { return p.Name.closured() }
 func (p *Barefile) delegated() bool { return p.Name.delegated() }
 func (p *Barefile) expand(w expandwhat) (res Value, err error) {
@@ -2318,9 +2353,9 @@ type GlobMeta struct {
     valbase
     token.Token
 }
-func (p *GlobMeta) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *GlobMeta) String() string { return p.Token.String() }
 func (p *GlobMeta) Strval() (string, error) { return p.Token.String(), nil }
+func (p *GlobMeta) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *GlobMeta) cmp(v Value) (res cmpres) {
     if a, ok := v.(*GlobMeta); ok && p.Token == a.Token {
         res = cmpEqual
@@ -2332,6 +2367,7 @@ func (p *GlobMeta) cmp(v Value) (res cmpres) {
 // `a-b`, `abc`, `a$(var)c`, `a$(spaces)c`...
 type GlobRange struct { valbase ; Chars Value }
 func (p *GlobRange) refs(v Value) bool { return p.Chars.refs(v) }
+func (p *GlobRange) defs(s string) []*Def { return p.Chars.defs(s) }
 func (p *GlobRange) closured() bool { return p.Chars.closured() }
 func (p *GlobRange) delegated() bool { return p.Chars.delegated() }
 func (p *GlobRange) expand(w expandwhat) (Value, error) {
@@ -2408,12 +2444,13 @@ func (p *Path) True() (t bool, err error) {
     return
 }
 func (p *Path) refs(v Value) (res bool) { return p.elements.refs(v) }
+func (p *Path) defs(s string) (res []*Def) { return p.elements.defs(s) }
 func (p *Path) closured() (res bool) { return p.elements.closured() }
 func (p *Path) delegated() (res bool) { return p.elements.delegated() }
-func (p *Path) refdef(origin Origin) bool { return p.refdef(origin) }
+//func (p *Path) refdef(origin Origin) bool { return p.refdef(origin) }
 func (p *Path) expand(w expandwhat) (res Value, err error) {
     var (elems []Value; num int)
-    if elems, num, err = expandallcount(w, p.Elems...); err != nil { return }
+    if elems, num, err = expandall1(w, p.Elems...); err != nil { return }
     if w&expandPath != 0 {
         var vals []Value
         for _, elem := range elems {
@@ -3185,6 +3222,7 @@ type FileContent struct {
 
 type Flag struct { valbase ; name Value }
 func (p *Flag) refs(v Value) bool { return p.name.refs(v) }
+func (p *Flag) defs(s string) []*Def { return p.name.defs(s) }
 func (p *Flag) closured() bool { return p.name.closured() }
 func (p *Flag) delegated() bool { return p.name.delegated() }
 func (p *Flag) expand(w expandwhat) (res Value, err error) {
@@ -3285,7 +3323,7 @@ const escapedChars = "\"\r\n"
 type Compound struct { valbase ; elements } // "compound string"
 func (p *Compound) expand(w expandwhat) (res Value, err error) {
     var ( elems []Value; num int )
-    if elems, num, err = expandallcount(w, p.Elems...); err == nil {
+    if elems, num, err = expandall2(w, p.Elems...); err == nil {
         if num > 0 {
             res = &Compound{p.valbase,elements{elems}}
         } else {
@@ -3356,9 +3394,10 @@ func (p *Compound) Integer() (i int64, err error) {
 }
 func (p *Compound) True() (bool, error) { return p.elements.True() }
 func (p *Compound) refs(v Value) bool { return p.elements.refs(v) }
+func (p *Compound) defs(s string) []*Def { return p.elements.defs(s) }
 func (p *Compound) closured() bool { return p.elements.closured() }
 func (p *Compound) delegated() bool { return p.elements.delegated() }
-func (p *Compound) refdef(origin Origin) bool { return p.refdef(origin) }
+//func (p *Compound) refdef(origin Origin) bool { return p.refdef(origin) }
 func (p *Compound) cmp(v Value) (res cmpres) {
     if a, ok := v.(*Compound); ok {
         s1, e := p.Strval()
@@ -3418,7 +3457,7 @@ func (p *List) Strval() (s string, err error) {
 
 func (p *List) expand(w expandwhat) (res Value, err error) {
     var ( elems []Value; num int )
-    if elems, num, err = expandallcount(w, p.Elems...); err == nil {
+    if elems, num, err = expandall1(w, p.Elems...); err == nil {
         if num > 0 {
             res = &List{ p.position, elements{ elems } }
         } else {
@@ -3510,7 +3549,7 @@ func (p *Group) stat(t *traversal) (si *statinfo) { return }
 func (p *Group) stamp(t *traversal) (files []*File, err error) { return }
 func (p *Group) expand(w expandwhat) (res Value, err error) {
     var ( elems []Value; num int )
-    if elems, num, err = expandallcount(w, p.Elems...); err == nil {
+    if elems, num, err = expandall1(w, p.Elems...); err == nil {
         if num > 0 {
             res = &Group{p.valbase,List{p.Position(), elements{elems}}}
         } else {
@@ -3551,6 +3590,7 @@ type Pair struct { // key=value
     Value Value
 }
 func (p *Pair) refs(v Value) bool { return p.Key.refs(v) || p.Value.refs(v) }
+func (p *Pair) defs(s string) []*Def { return append(p.Key.defs(s), p.Value.defs(s)...) }
 func (p *Pair) closured() bool { return p.Key.closured() || p.Value.closured() }
 func (p *Pair) delegated() bool { return p.Key.delegated() || p.Value.delegated() }
 func (p *Pair) expand(x expandwhat) (res Value, err error) {
@@ -3567,7 +3607,9 @@ func (p *Pair) expand(x expandwhat) (res Value, err error) {
                     res = &Pair{p.valbase,k,v}
                 }
             }
-        } else if k != nil && k != p.Key {res = &Pair{p.valbase,k,p.Value}}
+        } else if k != nil && k != p.Key {
+            res = &Pair{p.valbase,k,p.Value}
+        }
     }
     return
 }
@@ -3786,7 +3828,7 @@ func (p *delegate) reveal() (res Value, err error) {
     }
 
     var args []Value
-    if args, err = expandall(expandClosure, p.a...); err != nil { return }
+    if args, _, err = expandall2(expandClosure, p.a...); err != nil { return }
 
     var v Value
     switch x := o.(type) {
@@ -3871,6 +3913,17 @@ func (p *delegate) refs(v Value) bool {
     }
     return false
 }
+func (p *delegate) defs(s string) (res []*Def) {
+    if d, ok := p.x.(*Def); ok && (s == "" || d.name == s) {
+        res = append(res, d)
+    } else {
+        res = p.x.defs(s)
+    }
+    for _, a := range p.a {
+        res = append(res, a.defs(s)...)
+    }
+    return
+}
 func (p *delegate) closured() bool {
     if p.x.closured() { return true }
     for _, a := range p.a {
@@ -3879,14 +3932,14 @@ func (p *delegate) closured() bool {
     return false
 }
 func (p *delegate) delegated() bool { return true }
-func (p *delegate) refdef(origin Origin) (res bool) {
-  if origin == defany {
-    res = true
-  } else if d, ok := p.x.(*Def); ok {
-    res = d.origin == origin
-  }
-  return
-}
+// func (p *delegate) refdef(origin Origin) (res bool) {
+//   if origin == defany {
+//     res = true
+//   } else if d, ok := p.x.(*Def); ok {
+//     res = d.origin == origin
+//   }
+//   return
+// }
 func (p *delegate) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     var ( val Value; err error )
@@ -4109,6 +4162,13 @@ func (p *closure) refs(v Value) bool {
     for _, a := range p.a { if a.refs(v) { return true }}
     return false
 }
+func (p *closure) defs(s string) (res []*Def) {
+    res = append(res, p.x.defs(s)...)
+    for _, a := range p.a {
+        res = append(res, a.defs(s)...)
+    }
+    return
+}
 func (p *closure) closured() bool { return true }
 func (p *closure) delegated() bool {
     if p.x.delegated() { return true }
@@ -4265,6 +4325,7 @@ func (p *selection) Float() (float64, error) {
     }
 }
 func (p *selection) refs(v Value) bool { return p.o.refs(v) || p.s.refs(v) }
+func (p *selection) defs(s string) []*Def { return append(p.o.defs(s), p.s.defs(s)...) }
 func (p *selection) closured() bool { return p.o.closured() || p.s.closured() }
 func (p *selection) delegated() bool { return p.o.delegated() || p.s.delegated() }
 func (p *selection) expand(w expandwhat) (res Value, err error) {
@@ -4506,6 +4567,7 @@ func (p *PercPattern) stencil(stems []string) (s string, rest []string) {
     return
 }
 func (p *PercPattern) refs(v Value) bool { return p.Prefix.refs(v) || p.Suffix.refs(v) }
+func (p *PercPattern) defs(s string) []*Def { return append(p.Prefix.defs(s), p.Suffix.defs(s)...) }
 func (p *PercPattern) closured() bool { return p.Prefix.closured() || p.Suffix.closured() }
 func (p *PercPattern) delegated() bool { return p.Prefix.delegated() || p.Suffix.delegated() }
 func (p *PercPattern) traverse(t *traversal) {
@@ -4627,6 +4689,12 @@ func (p *GlobPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry
 func (p *GlobPattern) refs(v Value) (res bool) {
     for _, comp := range p.Components {
         if res = comp.refs(v); res { break }
+    }
+    return
+}
+func (p *GlobPattern) defs(s string) (res []*Def) {
+    for _, comp := range p.Components {
+        res = append(res, comp.defs(s)...)
     }
     return
 }
@@ -4783,6 +4851,12 @@ func mergeresult(res []Value, err error) ([]Value, error) {
     return res, err
 }
 
+// example: mergeresult2(expandall2(...))
+func mergeresult2(res []Value, _ int, err error) ([]Value, error) {
+    if err == nil { res = merge(res...) }
+    return res, err
+}
+
 func trueVal(v Value, i bool) (res bool, err error) {
     if res = i; v != nil { res, err = v.True() }
     return
@@ -4821,7 +4895,7 @@ func permVal(v Value, i uint32) (res os.FileMode, err error) {
 }
 
 var expanddepth int64 = 0
-func expandallcount(w expandwhat, values ...Value) (res []Value, num int, err error) {
+func expandall1(w expandwhat, values ...Value) (res []Value, num int, err error) {
     defer func(i int64) { expanddepth = i } (expanddepth)
     if expanddepth += 1; expanddepth > 128 {
         err = fmt.Errorf("exceeds maximum expand depth")
@@ -4831,7 +4905,7 @@ func expandallcount(w expandwhat, values ...Value) (res []Value, num int, err er
     var v Value
     for _, elem := range values {
         if isNil(elem) {
-            res = append(res, &Nil{})
+            res = append(res, elem)
         } else if v, err = elem.expand(w); err == nil {
             if v != elem { num += 1 }
             res = append(res, v)
@@ -4842,16 +4916,18 @@ func expandallcount(w expandwhat, values ...Value) (res []Value, num int, err er
     return
 }
 
-func expandall(w expandwhat, values ...Value) (res []Value, err error) {
-    if res, _, err = expandallcount(w, values...); err == nil {
-        // second expand to ensure
-        res, _, err = expandallcount(w, res...)
+func expandall2(w expandwhat, values ...Value) (res []Value, num int, err error) {
+    if res, num, err = expandall1(w, values...); err == nil {
+        var n int
+        res, n, err = expandall1(w, res...) // second expand to ensure
+        num += n
     }
     return
 }
 
 func ExpandAll(values ...Value) (res []Value, err error) {
-    return expandall(expandAll, values...)
+    res, _, err = expandall2(expandAll, values...)
+    return
 }
 
 func Refs(a Value, v Value) bool { return a.refs(v) }

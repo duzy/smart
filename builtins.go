@@ -842,49 +842,69 @@ func builtinFor(pos Position, args... Value) (res Value) {
 func builtinForEach(pos Position, args... Value) (res Value) {
         if n := len(args); n < 2 {
                 diag.errorAt(pos, "not enough arguments ($(foreach <list>,<template>)): %v", n)
-        } else {
-                def := context.globe.scope.Lookup("_").(*Def)
-                defer func(v Value) { def.value = v } (def.value)
+                return
+        }
 
-                var err error
-                var values Value
-                if values, err = args[0].expand(expandAll); err != nil { diag.errorAt(pos, "%v", err); return }
+        var ( values []Value; err error )
+        if values, err = mergeresult(ExpandAll(args[0])); err != nil {
+                diag.errorAt(pos, "merge arg0 failed: %v", err)
+                return
+        }
 
-                // FIXME: remove the second expandAll
-                if values, err = values.expand(expandAll); err != nil { diag.errorAt(pos, "%v", err); return }
-
-                var resList []Value
-                for _, val := range merge(values) {
-                        if isNil(val) || isNone(val) {
-                                continue // ignore
-                        } else if s, ok := val.(*String); ok && s.string == "" {
-                                continue // ignore
-                        }
-
-                        def.value = val // set "$_" value
-
-                        var list []Value
-                        for _, a := range args[1:] {
-                                var v Value
-                                if v, err = a.expand(expandAll); err != nil { diag.errorAt(pos, "%v", err); return }
-                                if isNil(v) || isNone(v) {
-                                        // ignore
-                                } else if s, ok := v.(*String); ok && s.string == "" {
-                                        // ignore
-                                } else {
-                                        list = append(list, v)
-                                }
-                        }
-                        if n = len(list); n == 0 {
-                                resList = append(resList, MakeNone(pos))
-                        } else if n == 1 {
-                                resList = append(resList, list[0])
-                        } else {
-                                resList = append(resList, MakeList(list[0].Position(), list...))
+        var def *Def // = context.globe.scope.Lookup("_").(*Def)
+        for _, a := range args[1:] {
+                for _, d := range a.defs("_") {
+                        if def == nil { def = d } else if d != def {
+                                diag.errorAt(d.position  , "'_' resolves to different defs: %v", d)
+                                diag.errorAt(def.position, "'_' resolves to different defs: %v", def)
+                                diag.errorAt(a.Position(), "'_' is used here")
+                                diag.errorAt(pos         , "'_' is used here")
+                                return
                         }
                 }
-                res = MakeListOrScalar(pos, resList)
         }
+
+        if def != nil { defer func(v Value) { def.value = v } (def.value) }
+        if false { diag.infoAt(pos, "%v; %v; %v", def, values, args).debug(true, 1) }
+
+        var resList []Value
+        for _, val := range values {
+                if isNil(val) || isUndef(val) || isNone(val) {
+                        continue // ignore
+                } else if s, ok := val.(*String); ok && s.string == "" {
+                        continue // ignore
+                } else if def != nil { def.value = val } // set "$_" value
+
+                var list []Value
+                for _, a := range args[1:] {
+                        var v Value
+                        if v, err = a.expand(expandAll|expandPairVal); err != nil {
+                                diag.errorOf(a, "expand '%v' failed: %v", a, err).
+                                        debug(optionDebugErrors, 1)
+                                return
+                        } else if true && len(v.defs("_")) > 0 {
+                                diag.errorOf(a, "'_' in '%v' not expanded: %v", a, v).debug(true, 1)
+                        }
+                        if true && a.String() == "include=$_" {
+                                diag.infoOf(a, "%v; %v; %v => %v", def, val, a, v).debug(true, 1)
+                        }
+                        if isNil(v) || isUndef(v) || isNone(v) {
+                                // ignore
+                        } else if s, ok := v.(*String); ok && s.string == "" {
+                                // ignore
+                        } else {
+                                list = append(list, v)
+                        }
+                }
+                if n := len(list); n == 0 {
+                        resList = append(resList, MakeNone(pos))
+                } else if n == 1 {
+                        resList = append(resList, list[0])
+                } else {
+                        resList = append(resList, MakeList(list[0].Position(), list...))
+                }
+        }
+        res = MakeListOrScalar(pos, resList)
         return
 }
 
@@ -1157,7 +1177,7 @@ func builtinUnique(pos Position, args... Value) (res Value) {
                 }
         } else {
                 var x = expandDelegate | expandPath | expandPairVal
-                if args, err = mergeresult(expandall(x, args...)); err != nil {
+                if args, err = mergeresult2(expandall2(x, args...)); err != nil {
                         diag.errorAt(pos, "%v", err); return
                 }
         }

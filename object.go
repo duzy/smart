@@ -364,12 +364,12 @@ func (d *Def) set(origin Origin, value Value) (err error) {
         var elems []Value
         switch d.origin = origin; d.origin {
         case DefExpand1: // expands delegates
-                if elems, err = expandall(expandDelegate, value); err != nil {
+                if elems, _, err = expandall2(expandDelegate, value); err != nil {
                         diag.errorOf(value, "%v: expand value '%v' failed: %v", d.origin, value, err)
                         return
                 } else { d.value = MakeListOrScalar(value.Position(), elems) }
         case DefExpand2: // expands delegates and closures
-                if elems, err = expandall(expandAll, value); err != nil {
+                if elems, _, err = expandall2(expandAll, value); err != nil {
                         diag.errorOf(value, "%v: expand value '%v' failed: %v", d.origin, value, err)
                         return
                 } else { d.value = MakeListOrScalar(value.Position(), elems) }
@@ -486,13 +486,16 @@ type undetermined struct {
 func (p *undetermined) refs(v Value) bool {
         return p.identifier.refs(v) || p.value.refs(v)
 }
+func (p *undetermined) defs(s string) (res []*Def) {
+        return append(p.identifier.defs(s), p.value.defs(s)...)
+}
 func (p *undetermined) closured() bool {
         return p.identifier.closured() || p.value.closured()
 }
 func (p *undetermined) delegated() bool {
         return p.identifier.delegated() || p.value.delegated()
 }
-func (p *undetermined) refdef(origin Origin) bool { return false }
+//func (p *undetermined) refdef(origin Origin) bool { return false }
 func (p *undetermined) expand(w expandwhat) (res Value, err error) {
         var i, v Value
         res = p // set the original value
@@ -715,9 +718,21 @@ func (entry *RuleEntry) refs(v Value) bool {
         }
         return false
 }
-func (entry *RuleEntry) refdef(origin Origin) bool {
-        return entry.target.refdef(origin)
+func (entry *RuleEntry) defs(s string) (res []*Def) {
+        res = entry.target.defs(s)
+        for _, prog := range entry.programs {
+                for _, depend := range prog.depends {
+                        res = append(res, depend.defs(s)...)
+                }
+                for _, recipe := range prog.recipes {
+                        res = append(res, recipe.defs(s)...)
+                }
+        }
+        return
 }
+// func (entry *RuleEntry) refdef(origin Origin) bool {
+//         return entry.target.refdef(origin)
+// }
 func (entry *RuleEntry) closured() bool {
         if entry.target.closured() { return true }
 
