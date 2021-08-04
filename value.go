@@ -507,8 +507,14 @@ func (t *traversal) file(file *File) (okay bool) {
             concreteEntries[entry] = project
         }
     }
+
+    var currentTargetValue = t.getCurrentTargetValue()
+    if isNil(currentTargetValue) {
+        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target)
+        return
+    }
     for _, entry := range concreteList {
-        if entry != nil && t.def.target.value != entry {
+        if entry != nil && currentTargetValue != entry {
             if entry.traverse(t); t.hasBreakers() {
                 okay = t.hasBreakers(breakCase, breakDone)
                 return
@@ -564,7 +570,7 @@ func (t *traversal) file(file *File) (okay bool) {
 
     for _, project := range projects {
         if okay { break } else if file.info != nil {
-            if a := t.def.target.value.stat(t).mod(); a.IsZero() {
+            if a := currentTargetValue.stat(t).mod(); a.IsZero() {
                 /* the target not exists*/
             } else if file.info.ModTime().After(a) {
                 t.appendUpdated(newUpdatedTarget(file))
@@ -591,7 +597,7 @@ func (t *traversal) file(file *File) (okay bool) {
     } else if !okay && t.stems == nil {
         if optionTraceTraversal { t.tracef("%v: file({%s,%s,%s}): not found", t.project, file.dir, file.sub, file.name) }
         if false { fmt.Fprintf(stderr, "%s: %s: %v (not found) (traversal.file)\n", t.project, file.position, file.name) }
-        t.traceCallStack(file.position, "missing file %v required by %v (in %v)", file, t.def.target.value, t.project).
+        t.traceCallStack(file.position, "missing file %v required by %v (in %v)", file, currentTargetValue, t.project).
             debug(optionDebugErrors, 1)
         brk := t._break(file.position, breakErro)
         brk.error = fileNotFoundError{ t.project, file }
@@ -650,19 +656,24 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
             }
             return
         }
+    }
 
+    for _, project := range projects {
         var obj Object
         if obj, err = project.resolveObject(target); err != nil {
-            diag.errorAt(pos, "%v", err); return
-        } else if obj != nil {
-            if optionTraceTraversal { t.tracef("traversal.target: object=%v (project %v)", file, project) }
-            if obj.traverse(t); t.hasBreakers() {
-                if optionTraceTraversal { t.tracef("object.traverse: breakers=%v", t.breakers) }
-                return
-            } else if _, yes := obj.(*ProjectName); yes {
-                if optionTraceTraversal { t.tracef("object.traverse: ProjectName") }
-                return
-            }
+            diag.errorAt(pos, "resolve object '%s' failed: %v", target, err)
+            return
+        }
+
+        if optionTraceTraversal { t.tracef("traversal.target: object=%v (project %v)", file, project) }
+        if isNil(obj) || isUndef(obj) || isNone(obj) {
+            // does nothing here and keep trying FindFile
+        } else if obj.traverse(t); t.hasBreakers() {
+            if optionTraceTraversal { t.tracef("object.traverse: breakers=%v", t.breakers) }
+            return
+        } else if _, ok := obj.(*ProjectName); ok {
+            if optionTraceTraversal { t.tracef("object.traverse: ProjectName") }
+            return
         }
 
         if file = project.FindFile(target); file != nil {
@@ -702,7 +713,6 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
 
             // Check file existance
             if okay { break } else if file.info != nil {
-                if false { fmt.Fprintf(stderr, "%s: %s: %v, %v, %v (okay=%v)\n", project, entry.position, entry, target, currentTargetValue, okay) }
                 if a := currentTargetValue.stat(t).mod(); !a.IsZero() && file.info.ModTime().After(a) {
                     if optionTraceTraversal { t.tracef("updated: file %v", file) }
                     t.appendUpdated(newUpdatedTarget(file))
@@ -785,13 +795,13 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
         if optionTraceTraversal { t.tracef("%v: `target(%s)` not found (file=%v)", t.project, target, file) }
         if file != nil {
             if false { fmt.Fprintf(stderr, "%s: %s: %v (not found, sub=%s, dir=%s, cwd=%s) (traversal.target)\n", t.project, file.position, file.name, file.sub, file.dir, t.project.changedWD) }
-            t.traceCallStack(file.position, "traverse missing target file %v for %v", file, t.project).
+            t.traceCallStack(file.position, "traverse missing target file '%v' for %v", file, t.project).
                 debug(optionDebugErrors)
             brk := t._break(file.position, breakErro)
             brk.error = fileNotFoundError{t.project, file}
             t.breakers = append(t.breakers, brk)
         } else {
-            t.traceCallStack(pos, "traverse missing target %v for %v", target, t.project).
+            t.traceCallStack(pos, "traverse missing target '%v' for %v", target, t.project).
                 debug(optionDebugErrors)
             brk := t._break(pos, breakErro)
             brk.error = targetNotFoundError{t.project, target}
@@ -802,8 +812,13 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
 }
 
 func (t *traversal) appendUpdated(updated *updatedtarget) {
-    if t.def.target.value == updated.target { return }
-    if t.def.target.value.cmp(updated.target) == cmpEqual { return }
+    var currentTargetValue = t.getCurrentTargetValue()
+    if isNil(currentTargetValue) {
+        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target)
+        return
+    }
+    if currentTargetValue == updated.target { return }
+    if currentTargetValue.cmp(updated.target) == cmpEqual { return }
     for _, u := range t.updated { // check if already added
         if u.target == updated.target { return }
         if u.target.cmp(updated.target) == cmpEqual { return }
@@ -811,7 +826,7 @@ func (t *traversal) appendUpdated(updated *updatedtarget) {
     t.updated = append(t.updated, updated)
     for c := t.caller; c != nil; c = c.caller { // clear update loop
         if false {
-            if c.def.target.value == t.def.target.value { return }
+            if c.def.target.value == currentTargetValue { return }
         } else {
             if c.def.target.value == updated.target { return }
         }
@@ -822,21 +837,26 @@ func (t *traversal) appendUpdated(updated *updatedtarget) {
             m = updated.target.stat(t).mod()
             s, _ = updated.target.Strval()
             fmt.Fprintf(stderr, "%s:\t%v %v\n", updated.target.Position(), m, s)
-            m = t.def.target.value.stat(t).mod()
-            s, _ = t.def.target.value.Strval()
-            fmt.Fprintf(stderr, "%s:\t%v %v\n", t.def.target.value.Position(), m, s)
+            m = currentTargetValue.stat(t).mod()
+            s, _ = currentTargetValue.Strval()
+            fmt.Fprintf(stderr, "%s:\t%v %v\n", currentTargetValue.Position(), m, s)
         }
-        c.appendUpdated(newUpdatedTarget(t.def.target.value, updated))
+        c.appendUpdated(newUpdatedTarget(currentTargetValue, updated))
     }
 }
 
 func (t *traversal) removeUpdated(target Value) (removed []*updatedtarget) {
+    var currentTargetValue = t.getCurrentTargetValue()
+    if isNil(currentTargetValue) {
+        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target)
+        return
+    }
     for i, u := range t.updated {
         if u.target == target || u.target.cmp(target) == cmpEqual {
             removed = append(removed, u)
             t.updated = append(t.updated[:i], t.updated[i+1:]...)
             if t.caller != nil && len(t.updated) == 0 {
-                t.caller.removeUpdated(t.def.target.value)
+                t.caller.removeUpdated(currentTargetValue)
             }
         }
     }
@@ -862,12 +882,18 @@ func (t *traversal) hashDir(k []byte) string {
 }
 
 func (t *traversal) cmdHash(values ...Value) (k, v HashBytes, err error) {
+    var currentTargetValue = t.getCurrentTargetValue()
+    if isNil(currentTargetValue) {
+        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target)
+        return
+    }
+
     var (
         key = sha256.New()
         val = sha256.New()
         str string
     )
-    if str, err = fullnameOrStrval(t.def.target.value); err != nil { return }
+    if str, err = fullnameOrStrval(currentTargetValue); err != nil { return }
     fmt.Fprintf(key, "%s", t.program.project.absPath)
     fmt.Fprintf(key, "%v", str)
 
@@ -942,6 +968,13 @@ func (t *traversal) wait(pos Position) {
     var errs = t.calleeErrs
     t.calleeErrs = nil
     t.calleeErrsM.Unlock()
+
+    var currentTargetValue = t.getCurrentTargetValue()
+    if isNil(currentTargetValue) {
+        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target)
+        return
+    }
+
     if n := len(errs); n > 0 /*&& t.stems == nil*/ {
         var (
             targetPos = t.def.target.Position()
@@ -950,12 +983,12 @@ func (t *traversal) wait(pos Position) {
         for _, err := range errs {
             /*if brk, ok := err.(*breaker); ok {
                 if brk.what == breakNext && brk.scope == breakTrave {
-                    diag.warnAt(pos, "%v: trying next with stems %v", t.def.target.value, t.stems).
+                    diag.warnAt(pos, "%v: trying next with stems %v", currentTargetValue, t.stems).
                         debug(optionDebugErrors)
                     continue
                 }
             }*/
-            diag.errorAt(pos, "%v: %v", t.def.target.value, err)
+            diag.errorAt(pos, "%v: %v", currentTargetValue, err)
             numRealErrs += 1
         }
         if numRealErrs == 0 { return } // simply return if no real errors
@@ -963,24 +996,24 @@ func (t *traversal) wait(pos Position) {
             var s string
             if n > 1 { s = "s" }
             diag.errorAt(targetPos, "%d error%s while waiting prerequisites for '%v'",
-                n, s, t.def.target.value)
+                n, s, currentTargetValue)
         }
         var (
-            v = t.def.target.value
+            v = currentTargetValue
             targetValuePos = v.Position()
         )
         if l, ok := v.(*List); ok && l.Len() == 1 { v = l.Elems[0] }
         if targetValuePos.IsValid() && !targetValuePos.Equals(&targetPos) {
             if f, ok := v.(*File); ok && f.filemap != nil {
-                diag.errorAt(targetValuePos, "waiting for '%v'", t.def.target.value)
+                diag.errorAt(targetValuePos, "waiting for '%v'", currentTargetValue)
                 diag.errorOf(f.filemap.pattern, "via pattern '%v' (of %v)", v, f.filemap.project).
-                    debug(optionDebugErrors && t.def.target.value == v && t.closure == nil, 1)
+                    debug(optionDebugErrors && currentTargetValue == v && t.closure == nil, 1)
             } else {
-                diag.errorAt(targetValuePos, "waiting for '%v'", t.def.target.value).
-                    debug(optionDebugErrors && t.def.target.value == v && t.closure == nil, 1)
+                diag.errorAt(targetValuePos, "waiting for '%v'", currentTargetValue).
+                    debug(optionDebugErrors && currentTargetValue == v && t.closure == nil, 1)
             }
         }
-        if def, ok := v.(*Def); ok && t.def.target.value != v && t.def.target.value != def.value {
+        if def, ok := v.(*Def); ok && currentTargetValue != v && currentTargetValue != def.value {
             // trace source Def in diagnostics
             diag.errorOf(def.value, "waiting for def '%v': %v", def.name, def.value).
                 debug(optionDebugErrors && t.closure == nil, 1)
@@ -994,7 +1027,7 @@ func (t *traversal) wait(pos Position) {
         }
     } /*else if n > 0 {
         for _, err := range errs {
-            diag.infoAt(pos, "%v: %v", t.def.target.value, err)
+            diag.infoAt(pos, "%v: %v", currentTargetValue, err)
         }
     }*/
     return
@@ -3025,7 +3058,13 @@ func (p *File) searchInMatchedPaths(proj *Project) (res bool) {
 func (p *File) stamp(t *traversal) (files []*File, err error) {
     var fullname string
     if fullname = p.fullname(); fullname == "" {
-        diag.errorOf(p, "no fullname for `%s`", p)
+        diag.errorOf(p, "file `%s` has no fullname", p)
+        return
+    }
+
+    var currentTargetValue = t.getCurrentTargetValue()
+    if isNil(currentTargetValue) {
+        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target)
         return
     }
 
@@ -3038,7 +3077,7 @@ func (p *File) stamp(t *traversal) (files []*File, err error) {
         p.updated = newModTime.After(oldModTime)
         files = append(files, p)
 
-        var target = t.def.target.value
+        var target = currentTargetValue
         var cmp = target.cmp(p)
         if cmp == cmpEqual && t.caller != nil {
             // Add to caller context
@@ -4471,7 +4510,8 @@ func (p *PercPattern) match(i interface{}) (full bool, result string, stems []st
         if a < b { stems, result, full = append(stems, rep[a:]), rep, true }
     } else if pp, ok := p.Suffix.(*PercPattern); a < b && ok {
         // fooxxbaryybaz -> foo%bar%baz => (foo xx bar yy baz) [xx yy]
-        var suffix = p.Suffix
+        // fooxxx -> foo%% => (foo xxx) [xxx]
+        // fooxxxbar -> foo%%bar => (foo xxx bar) [xxx]
         for ok {
             if isNil(pp.Prefix) || isNone(pp.Prefix) {
                 // does nothing
@@ -4488,10 +4528,15 @@ func (p *PercPattern) match(i interface{}) (full bool, result string, stems []st
                     a += n + len(s)
                 }
             }
-            if pp, ok = suffix.(*PercPattern); ok {
-                suffix = pp.Suffix
-            } else if s, e := suffix.Strval(); e != nil {
-                diag.errorOf(pp.Prefix, "strval '%v' failed: %v", suffix, e)
+            if isNil(pp.Suffix) || isNone(pp.Suffix) {
+                var s = rep[a:] // let %% matches everything else
+                full, stems = true, append(stems, s)
+                result += s
+                break
+            } else if pp, ok = pp.Suffix.(*PercPattern); ok {
+                continue
+            } else if s, e := pp.Suffix.Strval(); e != nil {
+                diag.errorOf(pp.Prefix, "strval '%v' failed: %v", pp.Suffix, e)
                 return
             } else if s != "" && strings.HasSuffix(rep[a:], s) {
                 if b -= len(s); a < b {
@@ -4544,27 +4589,25 @@ func (p *PercPattern) stencil(stems []string) (s string, rest []string) {
         }
     }
 
-    if len(stems) < 1 {
-        return
-    } else {
+    if len(stems) > 0 {
         s += stems[0]
-        stems = stems[1:]
+        rest = stems[1:]
+    } else if s != "" {
+        // return
     }
 
     var v string
     if isNil(p.Suffix) || isNone(p.Suffix) {
-        rest = stems
+        // done
     } else if p.Suffix.patterned() {
-        // FIXME: patterns like '%%...' use only one stem,
+        // FIXME: patterns like '%%...' should use only one stem,
         // FIXME: patterns like '%xxx%...' use multiple stems.
-        v, rest = p.Suffix.stencil(stems)
-        s += v
+        if v, rest = p.Suffix.stencil(rest); v != "" { s += v }
     } else if v, err = p.Suffix.Strval(); err != nil {
         diag.errorOf(p.Suffix, "strval suffix '%v' failed: %v", p.Suffix, err)
         return
-    } else {
+    } else if v != "" {
         s += v
-        rest = stems
     }
     return
 }

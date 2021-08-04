@@ -2077,13 +2077,17 @@ func modifierStamp(pos Position, t *traversal, args... Value) (result Value, err
                                 d = time.Now().Sub(t.start)
                         )
                         if mod.After(t.start) {
-                                diag.prompt("smart: Updated %v (%v, ModTime=%v)\n", file, d, mod)
+                                if false {
+                                        diag.prompt("smart: Updated %v (%v, ModTime=%v)\n", file, d, mod)
+                                } else {
+                                        diag.prompt("smart: Updated %v (%v)\n", file, d)
+                                }
                         } else {
                                 diag.prompt("smart: File %v not changed (%v, ModTime=%v)\n", file, d, mod)
-                                diag.warnAt(pos, "incorrect timestamp: %v (JobTime=%v)", file, t.start)
-                                diag.warnOf(file, "the target path name is: %v", file.fullname())
-                                diag.warnOf(file, "try 'touch' the target %v if the path name and command are correct", file)
-                                diag.infoOf(file, "you may ignore the warnings if all correct")
+                                diag.warnAt(pos, "incorrect timestamp: %v (JobTime=%v, ModTime=%v)", file, t.start, mod)
+                                diag.warnAt(pos, "the target path name is: %v", file.fullname())
+                                diag.warnAt(pos, "try 'touch' the target %v if the path name and command are correct", file)
+                                diag.infoAt(pos, "you may ignore the warnings if all correct")
                         }
                 }
                 return
@@ -2339,7 +2343,7 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                 } else if dirty {
                         s = ", "+strings.TrimPrefix(reason, "dirty: ")
                 }
-                fmt.Fprintf(stderr, "smart: Checking dirty %s (%v%s)\n", currentTargetValue, dirty, s)
+                fmt.Fprintf(stderr, "smart: Checking %s (dirty=%v%s)\n", currentTargetValue, dirty, s)
         }
 
         if optionTraceTraversal {

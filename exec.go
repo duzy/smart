@@ -820,7 +820,8 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     defer func(start time.Time) {
       if err == nil {
         if len(t.program.getModifies("stamp")) == 0 {
-          if _, ok := target.(*File); ok {
+          switch target.(type) {
+          case *Barefile, *File, *Path:
             diag.warnAt(pos, "TODO: stamp %v after shell, stems=%v", target, t.stems).
               debug(optionDebugErrors, 1)
           }

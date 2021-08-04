@@ -718,20 +718,25 @@ func builtinMatch(pos Position, args... Value) (res Value) {
                 diag.errorAt(pos, "wrong number of arguments, try: $(match <regexp-list>,<value-list>)")
                 return
         }
-        var err error
-        var rexList = merge(args[0])
-        var srcList = merge(args[1])
+        var (
+                rexList = merge(args[0])
+                srcList = merge(args[1])
+                err error
+        )
 ForMatchValues:
         for _, rexval := range rexList {
                 var ( r *regexp.Regexp ; s string )
-                if s, err = rexval.Strval()  ; err != nil { diag.errorOf(rexval, "strval: %v", err); return }
+                if s, err = rexval.Strval()  ; err != nil { diag.errorOf(rexval, "strval: %v" , err); return }
                 if r, err = regexp.Compile(s); err != nil { diag.errorOf(rexval, "compile: %v", err); return }
                 for _, srcval := range srcList {
                         var src string
-                        if isNil(srcval) { continue } else
-                        if src, err = srcval.Strval(); err != nil { diag.errorOf(srcval, "strval: %v", err); return } else
-                        if r.MatchString(src) {
-                                res = &boolean{valbase{pos},true}
+                        if isNil(srcval) || isUndef(srcval) || isNone(srcval) {
+                                continue
+                        } else if src, err = srcval.Strval(); err != nil {
+                                diag.errorOf(srcval, "strval: %v", err)
+                                return
+                        } else if r.MatchString(src) {
+                                res = MakeBoolean(pos, true)
                                 break ForMatchValues
                         }
                 }
@@ -1598,7 +1603,7 @@ ForSources:
                 var ( matched bool; stems []string )
                 for _, elem := range srcPats {
                         if matched, _, stems = elem.match(src); matched { break }
-                }
+               }
                 if !matched {
                         // Just return the src if no matching.
                         if !(isNil(src) || isNone(src)) { list = append(list, src) }
@@ -1608,11 +1613,8 @@ ForSources:
                 // Compose the matched results with stem value.
         ForDstPats:
                 for _, dst := range dstPats {
-                        var (
-                                name string
-                                rest []string
-                        )
-                        if name, rest = dst.stencil(stems); name == "" || len(rest) > 0 {
+                        var name, rest = dst.stencil(stems)
+                        if name == "" || len(rest) > 0 {
                                 continue ForDstPats
                         } else {
                                 name = filepath.Clean(name)
@@ -2550,34 +2552,46 @@ func builtinRename(pos Position, args... Value) (res Value) {
         return
 }
 
+type builtinRemoveOpts struct {
+        all bool `a,all`
+        debug bool `d,debug`
+        verbose bool `v,verbose`
+}
 func builtinRemove(pos Position, args... Value) (res Value) {
-        var ( optAll, optDebug, optVerbose bool; err error )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return } else
-        if args, err = parseFlags(args, []string{
-                "a,all",
-                "d,debug",
-                "v,verbose",
-        }, func(ru rune, v Value) {
-                switch ru {
-                case 'a': if optAll     , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
-                case 'd': if optDebug   , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
-                case 'v': if optVerbose , err = trueVal(v, true); err != nil { diag.errorOf(v, "%v", err); return }
-                }
-        }); err != nil { diag.errorAt(pos, "%v", err); return }
+        var ( opts builtinRemoveOpts; err error )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return } else
+        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
 
         var ( names []string; str string )
         for _, a := range args {
-                if str, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                if names, err = filepath.Glob(str); err != nil { diag.errorOf(a, "%v", err); return }
-                for _, s := range names {
-                        if optDebug { fmt.Fprintf(stderr, "%s: remove %s\n", a.Position(), s) }
-                        if optVerbose { fmt.Fprintf(stderr, "remove %s\n", s) }
-                        if optAll {
-                                err = os.RemoveAll(s)
-                        } else {
-                                err = os.Remove(s)
+                if a.patterned() {
+                        if str, err = a.Strval(); err != nil { diag.errorOf(a, "%v", err).debug(true, 1); return }
+                        if names, err = filepath.Glob(str); err != nil { diag.errorOf(a, "%v", err).debug(true, 1); return }
+                        for _, s := range names {
+                                if opts.debug   { diag.infoAt(pos, "remove %s", s).debug(optionDebugErrors, 1) }
+                                if opts.verbose { diag.infoAt(pos, "remove %s", s) }
+                                if opts.all {
+                                        err = os.RemoveAll(s)
+                                } else {
+                                        err = os.Remove(s)
+                                }
+                                if err != nil {
+                                        diag.errorOf(a, "remove failed: %v", err)
+                                        return
+                                }
                         }
-                        if err != nil { diag.errorOf(a, "%v", err); return }
+                } else if str, _ = fullname(a); str != "" {
+                        if opts.debug   { diag.infoAt(pos, "remove %s", str).debug(optionDebugErrors, 1) }
+                        if opts.verbose { diag.infoAt(pos, "remove %s", str) }
+                        if opts.all {
+                                err = os.RemoveAll(str)
+                        } else {
+                                err = os.Remove(str)
+                        }
+                        if err != nil {
+                                diag.errorOf(a, "remove failed: %v", err)
+                                return
+                        }
                 }
         }
         return
