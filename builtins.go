@@ -2793,9 +2793,9 @@ func builtinRemove(pos Position, args... Value) (res Value) {
                                 err = os.Remove(str)
                         }
                         if err != nil {
-                                diag.errorOf(a, "remove failed: %v (%T)", a, a)
-                                diag.errorOf(a, "remove failed: %v", str)
-                                diag.errorAt(pos, "error: %v", err).debug(optionDebugErrors, err)
+                                diag.errorAt(pos, "%v", err)
+                                diag.errorOf(a, "source: %v (%T)", a, a)
+                                diag.errorOf(a, "source: %v", str).debug(optionDebugErrors, 1)
                                 return
                         }
                 }

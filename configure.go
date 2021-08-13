@@ -653,7 +653,7 @@ ForConfig:
             return
         }
 
-        if value == def || value.refs(def) {
+        if value == def || (!isNil(value) && value.refs(def)) {
             // Value is the Def, does nothing!
         } else if opts.accumulate {
             if err = def.append(value); err != nil {
