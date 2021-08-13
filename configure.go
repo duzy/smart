@@ -514,7 +514,7 @@ type modifierConfigureOpts struct {
 //     (configure -symbol(symbol,include='<xxx.h>'))
 //     (configure -compiles(info="..."))
 func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value, err error) {
-    if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", t.entry.target, optionReconfig))) }
+    if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", t.entry.target, options.reconfigure))) }
     if args, err = mergeresult(ExpandAll(args...)); err != nil {
         diag.errorAt(pos, "merge configure args failed: %v", err)
         return
@@ -575,7 +575,7 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
         defer func() { t_config.tracef("%s: %v (%T)", def.name, def.value, def.value) } ()
     }
     if !isNil(def.value) { // Check if it's already configured?
-        if !optionReconfig { return } // return if not reconfigure
+        if !options.reconfigure { return } // return if not reconfigure
         if done, found := configuration.done[def]; done && found { return }
     }
 

@@ -143,20 +143,20 @@ type ErrorHandler func(pos token.Position, msg string)
 //
 type Mode uint
 type scanbits uint
-func (bits scanbits) isCompoundLine() bool { return bits&isCompoundLine != 0 }
-func (bits scanbits) isCompoundString() bool { return bits&isCompoundString != 0 }
-func (bits scanbits) isCompoundCallIdent() bool { return bits&isCompoundCallIdent != 0 }
-func (bits scanbits) isCompoundCallParen() bool { return bits&isCompoundCallParen != 0 }
-func (bits scanbits) isCompoundCallBrace() bool { return bits&isCompoundCallBrace != 0 }
+func (bits scanbits) is(t scanbits)         bool { return bits&t != 0 }
+func (bits scanbits) isCompoundLine()       bool { return bits&isCompoundLine != 0 }
+func (bits scanbits) isCompoundString()     bool { return bits&isCompoundString != 0 }
+func (bits scanbits) isCompoundCallIdent()  bool { return bits&isCompoundCallIdent != 0 }
+func (bits scanbits) isCompoundCallParen()  bool { return bits&isCompoundCallParen != 0 }
+func (bits scanbits) isCompoundCallBrace()  bool { return bits&isCompoundCallBrace != 0 }
 func (bits scanbits) isCompoundCallColonL() bool { return bits&isCompoundCallColonL != 0 }
 func (bits scanbits) isCompoundCallColonR() bool { return bits&isCompoundCallColonR != 0 }
-func (bits scanbits) isCommentsOff() bool { return bits&NoComments != 0 }
-func (bits scanbits) isFirstOfLine() bool { return bits&isFirstOfLine != 0 }
-func (bits scanbits) canBeRecipe()   bool { return bits&canBeRecipes != 0 && bits&canBeRecipeTab != 0 }
-func (bits scanbits) is(t scanbits)  bool { return bits&t != 0 }
+func (bits scanbits) isCommentsOff()        bool { return bits&NoComments != 0 }
+func (bits scanbits) isFirstOfLine()        bool { return bits&isFirstOfLine != 0 }
+func (bits scanbits) canBeRecipe()          bool { return bits&canBeRecipes != 0 && bits&canBeRecipeTab != 0 }
 
 const (
-	isCompoundLine    scanbits = 1 << iota // 1
+	isCompoundLine scanbits = 1 << iota    // 1
 	isCompoundString     // "...."            2
 	isCompoundCallIdent  // $.....            4
 	isCompoundCallParen  // $(...)            8

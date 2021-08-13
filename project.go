@@ -28,7 +28,7 @@ type FileMap struct {
 
 func (filemap *FileMap) String() string { return filemap.pattern.String() }
 func (filemap *FileMap) Patterns() (pats []Value) {
-  if filemap.pattern.closured() {
+  if filemap.pattern.expandible(expandClosure) {
     var err error
     if pats, err = mergeresult(ExpandAll(filemap.pattern)); err != nil {
       diag.errorOf(filemap.pattern, "merge pattern '%v' failed: %v", filemap.pattern, err)
@@ -44,7 +44,7 @@ func (filemap *FileMap) Patterns() (pats []Value) {
 
 // Match split filename into list and match each part with the pattern correspondingly.
 func (filemap *FileMap) Match(filename string) (matched bool, pre string) {
-  /*if filemap.Pattern.closured() {
+  /*if filemap.Pattern.expandible(expandClosure) {
     if pats, err := mergeresult(ExpandAll(filemap.Pattern)); err != nil {
       fmt.Fprintf(stderr, "%v: %v\n", filemap.Pattern.Position(), filemap.Pattern)
     } else {
@@ -64,17 +64,7 @@ func (filemap *FileMap) Match(filename string) (matched bool, pre string) {
 }
 
 func (filemap *FileMap) match(pattern Value, filename string) (matched bool, pre string) {
-  matched, pre = globMatch(pattern, filename)
-  if false { // TODO: support percent (%, %%) and regex matching
-    var ( t string ; e error )
-    if t, e = pattern.Strval(); e != nil { return }
-    if s := filemap.pattern.String(); t == "event.pb.cc" || (s == "$(gen)" && filename == "event.pb.cc") {
-      //s, _ = filemap.pattern.Strval()
-      //fmt.Fprintf(stderr, "%v: %v -> %s (%v, %v, %v)\n", pattern.Position(), filemap.pattern, s, filename, matched, pre)
-      fmt.Fprintf(stderr, "%v: %T %v -> %s (%v, %v, %v, %v)\n", pattern.Position(), pattern, pattern, t, s, filename, matched, pre)
-    }
-  }
-  if matched { return }
+  if matched, pre = globMatch(pattern, filename); matched { return }
   if false {
     var ( s, t string ; e error )
     for _, p := range filemap.Paths {
@@ -405,12 +395,20 @@ func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
   return
 }
 
-func (p *Project) wildcard(pos Position, wo wildcardOpts, patterns ...Value) (files []*File, err error) {
+func (p *Project) wildcard(pos Position, opts wildcardOpts, patterns ...Value) (files []*File, err error) {
   var filemaps = p.filemaps(false)
 ForPats:
   for _, pat := range patterns {
-    var ( patStr string; matched, breakAbsRel bool )
-    if patStr, err = pat.Strval(); err != nil { diag.errorAt(pos, "wildcard: %v", err); break ForPats }
+    var (
+      breakAbsRel bool
+      matched bool
+      patStr string
+    )
+    if patStr, err = pat.Strval(); err != nil {
+      diag.errorAt(pos, "strval '%v' failed: %v", pat, err).
+        debug(optionDebugErrors,1)
+      break ForPats
+    }
     // The 'patStr' could be GlobPattern or just regular file/path names. PercPattern is not supported yet.
   ForFilemaps:
     for _, fm := range filemaps {
@@ -475,7 +473,7 @@ ForPats:
                 assert(file != nil, "`%s` missing (%s)", s, name)
               }
             }
-          } else if ok := pattern.patterned(); !ok && wo.optIncludeMissing {
+          } else if ok := pattern.patterned(); !ok && opts.includeMissing {
             // If the filemap is not a pattern (e.g. foobar.cpp), we include it in the returning files
             var name string
             name, err = pattern.Strval()
@@ -484,13 +482,14 @@ ForPats:
             // Append this non-existed/missing file.
             file := stat(pos, name, sub, prefix, nil)
             files = append(files, file)
-          } else if ok && len(fm.Paths) == 1 {
+          } else if ok && !path.expandible(expandClosure) && len(fm.Paths) == 1 {
             // Just report that the pattern matches no files in the
             // file system (if only one path specified).
-            diag.warnOf(pattern, "%s: %s: '%v' not found in '%v'", p.name, pat, fm, sub)
-            diag.warnOf(    pat, "%s: wildcard: %v (try using flag -m, aka -include-missing)", p.name, pat)
-          } else if optionWildcardMissingError {
-            err = fmt.Errorf("files like '%v' not found", fm)
+            diag.warnOf(pattern, "%s: %v matches no files in '%v'", p.name, fm, sub)
+            diag.warnOf(    pat, "%s: here is %v (try using flag -m, aka -include-missing)", p.name, pat).
+              debug(optionDebugErrors, 1)
+          } else if opts.errorMissing {
+            err = fmt.Errorf("missing files like '%v'", fm)
             break ForPats
           }
         }
@@ -659,6 +658,9 @@ func (p *Project) _resolvePatterns3(i interface{}) (res []*stemmed) {
   return
 }
 
+type entryOpts struct {
+  postExec bool `p,post;pe,post-execute;pe,post-exec`
+}
 func (p *Project) entry(special specialRule, options []Value, target Value, prog *Program) (entry *RuleEntry, err error) {
   defer func() {
     if entry != nil && err == nil {
@@ -672,19 +674,19 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
   }
 
   // The 'use' rule entries.
-  var closured = target.closured()
+  var closured = target.expandible(expandClosure)
   if special == specialRuleUse && !closured {
-    var optPostExecute bool
-    if _, err = parseFlags(options, []string{
-      "p,post",
-    }, func(ru rune, v Value) {
-      switch ru {
-      case 'p': if optPostExecute, err = trueVal(v, false); err != nil { return }
+    var opts entryOpts
+    if len(options) > 0 {
+      var pos = options[0].Position()
+      if _, err = parseOpts(pos, &opts, options...); err != nil {
+        diag.errorAt(pos, "parse opts failed: %v", err)
+        return
       }
-    }); err != nil { return }
+    }
     var userule = &useRuleEntry{
       RuleEntry{ class:UseRuleEntry, target:target },
-      optPostExecute, // post-execute use rule?
+      opts.postExec, // post-execute use rule?
     }
     p.userules = append(p.userules, userule)
     entry = &userule.RuleEntry

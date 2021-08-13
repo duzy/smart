@@ -116,10 +116,10 @@ func (m *modifier) refs(v Value) bool {
         }
         return false
 }
-func (m *modifier) closured() (res bool) {
-        if res = m.name.closured(); !res {
+func (m *modifier) expandible(w expandwhat) (res bool) {
+        if res = m.name.expandible(w); !res {
                 for _, a := range m.args {
-                        if res = a.closured(); res { break }
+                        if res = a.expandible(w); res { break }
                 }
         }
         return
@@ -133,7 +133,8 @@ func (m *modifier) traverse(t *traversal) {
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("modifier.traverse(%s)", m))) }
         if optionTraceTraversal   { defer un(tt(t_traverse, t, m)) }
         if err := t.program.modify(t, m); err != nil {
-                diag.errorAt(m.position, "modifier '%s' failed: %v", m.name, err)
+                diag.errorAt(m.position, "%s failed: %v", m.name, err).
+                        debug(optionDebugErrors,1)
         }
         return
 }
@@ -156,27 +157,12 @@ func (g *modifiergroup) refs(v Value) bool {
         }
         return false
 }
-func (g *modifiergroup) closured() bool {
+func (g *modifiergroup) expandible(w expandwhat) (res bool) {
         for _, m := range g.modifiers {
-                if m.closured() { return true }
+                if res = m.expandible(w); res { break }
         }
-        return false
+        return
 }
-// func (g *modifiergroup) exists() (res existence) {
-//         res = existenceMatterless
-// ForElems:
-//         for _, elem := range g.modifiers {
-//                 switch elem.exists() {
-//                 case existenceMatterless:
-//                 case existenceConfirmed:
-//                         res = existenceConfirmed
-//                 case existenceNegated:
-//                         res = existenceNegated
-//                         break ForElems
-//                 }
-//         }
-//         return
-// }
 func (g *modifiergroup) expand(_ expandwhat) (Value, error) { return g, nil }
 func (_ *modifiergroup) cmp(v Value) (res cmpres) { 
         if _, ok := v.(*modifiergroup); ok { res = cmpEqual }
@@ -1295,12 +1281,22 @@ func modifierTouch(pos Position, t *traversal, args... Value) (result Value, err
                 args = append(args, t.def.target.value)
         }
 
+        var files []*File
         for _, arg := range args {
+                var vf []*File
                 if err = touch(arg, uint32(opts.mode), opts.path); err != nil {
                         diag.errorAt(pos, "touch '%v' failed: %v", arg, err).
                                 debug(optionDebugErrors, 1)
                         break
-                }
+                } else if vf, err = arg.stamp(t); err != nil {
+                        diag.errorAt(pos, "touch '%v' failed: %v", arg, err).
+                                debug(optionDebugErrors, 1)
+                        break
+                } else { files = append(files, vf...) }
+        }
+        if opts.verbose { reportFileUpdates(pos, t.start, files) }
+        if len(t.program.getModifies("stamp")) > 0 {
+                diag.warnAt(pos, "no need to use a (stamp) after (touch)")
         }
         return
 }
@@ -1950,7 +1946,7 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
         f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, opts.mode)
         if err == nil && f != nil {
                 defer func() {
-                        if f.Close(); err != nil {
+                        if err = f.Close(); err != nil {
                                 os.Remove(filename)
                                 return
                         }
@@ -1958,7 +1954,13 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                         if  file == nil {
                                 diag.errorAt(pos, "invalid file '%s'", filename)
                         } else {
-                                file.stamp(t)
+                                var files []*File
+                                if files, err = file.stamp(t); err != nil {
+                                        diag.errorAt(pos, "%v", err).debug(optionDebugErrors,1)
+                                        return
+                                } else if opts.verbose {
+                                        reportFileUpdates(pos, t.start, files)
+                                }
                                 result = file // resulting the updated file
                         }
                 } ()
@@ -1991,120 +1993,119 @@ func modifierWait(pos Position, t *traversal, args... Value) (result Value, err 
                 fmt.Fprintf(stderr, "smart: Wait (%v) …\n", t.def.target.value)
         }
 
-        t.wait(pos) // wait for prerequisites
+        const stampCurrentTarget = true
+        var (
+                execRes *ExecResult
+                waitForExecResult = opts.stdout || opts.stderr || opts.status || opts.execRes
+        )
 
+        // Wait for prerequisites and/or execution
+        _, _, execRes, err = t.wait(pos, opts.verbose, waitForExecResult, stampCurrentTarget)
         if opts.verbose {
                 var s = "Done"
                 if err != nil { s = "Fail" }
                 fmt.Fprintf(stderr, "smart: %s (%v), updated=%v\n", s, t.def.target.value, t.updated)
         }
 
-        if (opts.stdout || opts.stderr || opts.status || opts.execRes) && !isNil(t.def.buffer.value) {
-                if exeres, ok := t.def.buffer.value.(*ExecResult); ok {
-                        exeres.wg.Wait()
-                        var (
-                                a []Value
-                                s string
-                                v Value
-                        )
-                        if opts.stdout {
-                                if b := exeres.Stdout.Buf; b != nil { s = b.String() }
-                                if opts.trim { s = strings.TrimSpace(s) }
-                                switch opts.asType {
-                                case "answer": v = MakeAnswer (pos,(s == "yes"))
-                                case "bool":   v = MakeBoolean(pos,(s == "true"))
-                                default:       v = MakeString (pos,s)
-                                }
-                                a = append(a, v)
+        if execRes != nil {
+                var (
+                        a []Value
+                        s string
+                        v Value
+                )
+                if opts.stdout {
+                        if b := execRes.Stdout.Buf; b != nil { s = b.String() }
+                        if opts.trim { s = strings.TrimSpace(s) }
+                        switch opts.asType {
+                        case "answer": v = MakeAnswer (pos,(s == "yes"))
+                        case "bool":   v = MakeBoolean(pos,(s == "true"))
+                        default:       v = MakeString (pos,s)
                         }
-                        if opts.stderr {
-                                if b := exeres.Stderr.Buf; b != nil { s = b.String() }
-                                if opts.trim { s = strings.TrimSpace(s) }
-                                switch opts.asType {
-                                case "answer": v = MakeAnswer (pos,(s == "yes"))
-                                case "bool":   v = MakeBoolean(pos,(s == "true"))
-                                default:       v = MakeString (pos,s)
-                                }
-                                a = append(a, v)
-                        }
-                        if opts.status {
-                                a = append(a, MakeInt(pos,int64(exeres.Status)))
-                        }
-                        if a != nil {
-                                result = MakeListOrScalar(pos, a)
-                        }
+                        a = append(a, v)
                 }
+                if opts.stderr {
+                        if b := execRes.Stderr.Buf; b != nil { s = b.String() }
+                        if opts.trim { s = strings.TrimSpace(s) }
+                        switch opts.asType {
+                        case "answer": v = MakeAnswer (pos,(s == "yes"))
+                        case "bool":   v = MakeBoolean(pos,(s == "true"))
+                        default:       v = MakeString (pos,s)
+                        }
+                        a = append(a, v)
+                }
+                if opts.status {
+                        a = append(a, MakeInt(pos,int64(execRes.Status)))
+                }
+                if len(a) > 0 { result = MakeListOrScalar(pos, a) }
         }
         return
+}
+
+func reportFileUpdates(pos Position, start time.Time, files []*File) {
+        for _, file := range files {
+                var (
+                        mod = file.info.ModTime()
+                        d = time.Now().Sub(start)
+                )
+                if mod.After(start) {
+                        if false {
+                                diag.prompt("smart: Updated %v (%v, ModTime=%v)\n", file, d, mod)
+                        } else {
+                                diag.prompt("smart: Updated %v (%v)\n", file, d)
+                        }
+                } else {
+                        diag.prompt("smart: File %v not changed (%v, ModTime=%v)\n", file, d, mod)
+                        diag.warnAt(pos, "incorrect timestamp: %v (JobTime=%v, ModTime=%v)", file, start, mod)
+                        diag.warnAt(pos, "the target path name is: %v", file.fullname())
+                        diag.warnAt(pos, "try 'touch' the target %v if the path name and command are correct", file)
+                        diag.infoAt(pos, "you may ignore the warnings if all correct")
+                }
+        }
 }
 
 type modifierStampOpts struct {
         next bool "n,next" // breakNext if failed to stamp
         error bool "e,err;e,error" // breakErro if failed to stamp
-        debug bool "d,debug"
         prompt bool "m,prompt"
         verbose bool "v,verbose"
+        debug int "d,debug"
 }
 func modifierStamp(pos Position, t *traversal, args... Value) (result Value, err error) {
         var opts modifierStampOpts
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
         if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
 
+        // Wait for ExecResult (see also modifier (wait -exec))
+        const waitForExecResult = true
+        const stampCurrentTarget = true
+
         // Wait for prerequisites
-        t.wait(pos)
-
-        // And wait for ExecResult (see also modifier (wait -exec))
-        if v := t.def.buffer.value; v != nil {
-                if exeres, ok := v.(*ExecResult); ok {
-                        exeres.wg.Wait()
-                }
-        }
-
-        var currentTargetValue = t.getCurrentTargetValue()
-        if isNil(currentTargetValue) {
-                diag.errorAt(pos, "target '%v' is nil", t.def.target)
-                return
-        } else if opts.verbose {
-                diag.prompt("stamp %v\n", currentTargetValue)
-        }
-
-        var files []*File
-        if files, err = currentTargetValue.stamp(t); err == nil {
-                if !opts.prompt { return }
-                for _, file := range files {
-                        var (
-                                mod = file.info.ModTime()
-                                d = time.Now().Sub(t.start)
-                        )
-                        if mod.After(t.start) {
-                                if false {
-                                        diag.prompt("smart: Updated %v (%v, ModTime=%v)\n", file, d, mod)
-                                } else {
-                                        diag.prompt("smart: Updated %v (%v)\n", file, d)
-                                }
-                        } else {
-                                diag.prompt("smart: File %v not changed (%v, ModTime=%v)\n", file, d, mod)
-                                diag.warnAt(pos, "incorrect timestamp: %v (JobTime=%v, ModTime=%v)", file, t.start, mod)
-                                diag.warnAt(pos, "the target path name is: %v", file.fullname())
-                                diag.warnAt(pos, "try 'touch' the target %v if the path name and command are correct", file)
-                                diag.infoAt(pos, "you may ignore the warnings if all correct")
-                        }
-                }
+        var target Value
+        if target, _, _, err = t.wait(pos, opts.prompt, waitForExecResult, stampCurrentTarget); err == nil {
                 return
         } else if opts.next {
                 if opts.verbose { diag.warnAt(pos, "%v", err).debug(optionDebugErrors, 1) }
                 t._break(pos, breakNext).scope = breakTrave
                 err = nil // discard the error
         } else if opts.error {
-                diag.errorAt(pos, "%v", err).debug(optionDebugErrors, 1)
+                if opts.debug > 0 {
+                        t.traceCallStack(pos, "%v", err).debug(optionDebugErrors, opts.debug)
+                } else {
+                        diag.errorAt(pos, "%v", err).debug(optionDebugErrors, 1)
+                }
                 t._break(pos, breakErro).error = err
         } else if t.stems != nil {
-                diag.warnAt(pos, "%v", err).debug(optionDebugErrors, 1)
+                if opts.debug > 0 {
+                        diag.warnAt(pos, "%v", err).debug(optionDebugErrors, opts.debug)
+                        t.traceCallStack(pos, "%v", err).debug(optionDebugErrors, opts.debug)
+                } else {
+                        diag.warnAt(pos, "%v", err).debug(optionDebugErrors, 1)
+                }
                 t._break(pos, breakNext).scope = breakTrave
                 err = nil // discard the error
         } else if pos.IsValid() {
                 t.traceCallStack(pos, "failed: %v", err).debug(optionDebugErrors, 1)
-        } else if targetPos := currentTargetValue.Position(); targetPos.IsValid() {
+        } else if targetPos := target.Position(); targetPos.IsValid() {
                 t.traceCallStack(targetPos, "failed: %v", err).debug(optionDebugErrors, 1)
         } else {
                 // TODO: dump more diagnostics information here
@@ -2279,19 +2280,18 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
         if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
         if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
 
-        t.wait(pos) // Wait for prerequisites
-
-        var currentTargetValue = t.getCurrentTargetValue()
-        if isNil(currentTargetValue) {
-                diag.errorAt(pos, "target '%v' is nil", t.def.target)
+        var (
+                target Value
+                reason string
+                dirty bool
+        )
+        // Wait for prerequisites only
+        if target, _, _, err = t.wait(pos); err != nil {
+                diag.errorAt(pos, "wainting traversal failed: %v", err)
                 return
-        }
-
-        var reason string
-        var dirty bool
-        if dirty = t.hasBreakers(); dirty {
+        } else if dirty = t.hasBreakers(); dirty {
                 reason = fmt.Sprintf("dirty (%v breakers)", len(t.breakers))
-        } else if dirty = !t.exists(currentTargetValue); dirty {
+        } else if dirty = !t.exists(target); dirty {
                 reason = "dirty: target not exists"
         } else if dirty = len(t.updated) > 0; dirty {
                 reason = fmt.Sprintf("dirty (%v updated)", len(t.updated))
@@ -2302,7 +2302,7 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                 reason = "dirty: recipes changed"
         } else if opts.checksum && !(isNil(t.def.depend0.value) || isNone(t.def.depend0.value)) {
                 var file1, file2 string
-                if file1, err = currentTargetValue.Strval(); err != nil {
+                if file1, err = target.Strval(); err != nil {
                         diag.errorAt(pos, "%v", err); return
                 }
                 if file2, err = t.def.depend0.value.Strval(); err != nil {
@@ -2321,17 +2321,17 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
         }
 
         if opts.debug {
-                var a = typeof(currentTargetValue)
-                var e = t.exists(currentTargetValue)
-                var s, _ = currentTargetValue.Strval()
+                var a = typeof(target)
+                var e = t.exists(target)
+                var s, _ = target.Strval()
                 diag.errorAt(pos, "type=%s target=%s (exists=%v, dirty=%v, updated=%v)\n",
                         a, s, e, dirty, t.updated).debug(optionDebugErrors, 1)
         }
 
         if opts.verbose {
-                var s string
+                var ( m, s string )
                 if len(t.updated) > 0 { //s = fmt.Sprintf(", %v", t.updated)
-                        s = ", ["
+                        s = " ("
                         for i, v := range t.updated {
                                 if i > 0 { s += " " }
                                 if len(s) > maxPromptStr {
@@ -2339,16 +2339,16 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                                         break
                                 } else { s += v.String() }
                         }
-                        s += "]"
+                        s += ")"
                 } else if dirty {
-                        s = ", "+strings.TrimPrefix(reason, "dirty: ")
+                        s = " (" + strings.TrimPrefix(reason, "dirty: ") + ")"
                 }
-                fmt.Fprintf(stderr, "smart: Checking %s (dirty=%v%s)\n", currentTargetValue, dirty, s)
+                if dirty { m = "Dirty" } else { m = "Good" }
+                fmt.Fprintf(stderr, "smart: Stamp %s …… %s%s\n", target, m, s)
         }
 
         if optionTraceTraversal {
-                var v = currentTargetValue
-                t_traverse.tracef("dirty: %v (updated=%v, exists=%v, target=%v)", dirty, len(t.updated), t.exists(v), v)
+                t_traverse.tracef("dirty: %v (updated=%v, exists=%v, target=%v)", dirty, len(t.updated), t.exists(target), target)
                 if len(t.updated) > 0 { t_traverse.tracef("dirty: updated=%v", t.updated) }
         }
 

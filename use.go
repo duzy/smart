@@ -33,18 +33,11 @@ func (p *using) defs(s string) (res []*Def) {
     }
     return
 }
-//func (p *using) refdef(origin Origin) bool { return false }
-func (p *using) closured() bool {
+func (p *using) expandible(w expandwhat) (res bool) {
         for _, a := range p.params {
-                if a.closured() { return true }
+                if res = a.expandible(w); res { return }
         }
-        return false
-}
-func (p *using) delegated() bool {
-        for _, a := range p.params {
-                if a.delegated() { return true }
-        }
-        return false
+        return
 }
 func (p *using) expand(w expandwhat) (Value, error) {
         if params, num, err := expandall2(w, p.params...); err != nil {
@@ -129,18 +122,11 @@ func (p *usinglist) defs(s string) (res []*Def) {
     }
     return
 }
-//func (p *usinglist) refdef(origin Origin) bool { return false }
-func (p *usinglist) closured() bool {
+func (p *usinglist) expandible(w expandwhat) (res bool) {
         for _, a := range p.list {
-                if a.closured() { return true }
+                if res = a.expandible(w); res { break }
         }
-        return false
-}
-func (p *usinglist) delegated() bool {
-        for _, a := range p.list {
-                if a.delegated() { return true }
-        }
-        return false
+        return
 }
 func (p *usinglist) expand(w expandwhat) (Value, error) {
         var (list []*using; num int)

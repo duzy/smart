@@ -42,7 +42,6 @@ type objbase struct { // generally unnamed objects
         scope *Scope
         owner *Project
 }
-func (p *objbase) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *objbase) Name() string { panic("inquiring name of an unknown object") }
 func (p *objbase) DeclScope() *Scope { return p.scope }
 func (p *objbase) OwnerProject() *Project { return p.owner }
@@ -66,7 +65,6 @@ type knownobject struct { // generally named objects
         name string // single, or group name if containing '(*)' and corresponding members
         //members [][]string
 }
-func (p *knownobject) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *knownobject) True() (bool, error) { return true, nil }
 func (p *knownobject) Name() string { return p.name }
 func (p *knownobject) Strval() (string, error) { return fmt.Sprintf("{object %s}", p.name), nil }
@@ -95,8 +93,6 @@ type unresolvedobject struct { // named callable/executable objects
         objbase
         name Value // name could be closured
 }
-func (p *unresolvedobject) traverse(t *traversal) { }
-func (p *unresolvedobject) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *unresolvedobject) True() (bool, error) { return false, nil }
 func (p *unresolvedobject) Name() string {
         if p.name == nil {
@@ -125,6 +121,7 @@ func (p *unresolvedobject) redecl(scope *Scope) {
                 }
         }
 }
+func (p *unresolvedobject) traverse(t *traversal) { }
 func (p *unresolvedobject) cmp(v Value) (res cmpres) {
         if a, ok := v.(*unresolvedobject); ok {
                 assert(ok, "value is not unresolvedobject")
@@ -143,8 +140,6 @@ type ProjectName struct {
         knownobject
         project *Project
 }
-
-func (p *ProjectName) expand(_ expandwhat) (Value, error) { return p, nil }
 
 // Imported returns the project that was imported.
 // It is distinct from Project(), which is the project
@@ -202,7 +197,6 @@ type ScopeName struct {
         knownobject
         scope *Scope
 }
-func (p *ScopeName) expand(_ expandwhat) (Value, error) { return p, nil }
 // Imported returns the project that was imported.
 // It is distinct from Project(), which is the project
 // containing the import statement.
@@ -279,52 +273,10 @@ type Def struct {
         origin Origin
         value Value
 }
-
-func (d *Def) refs(v Value) bool { return d == v || (d.value != nil && d.value.refs(v)) }
-func (d *Def) closured() bool { return d.value.closured() }
-func (d *Def) delegated() bool { return d.value.delegated() }
-func (d *Def) expand(w expandwhat) (res Value, err error) {
-        if res = d; d.value != nil {
-                var value Value
-                if value, err = d.value.expand(w); err != nil {
-                        res = nil ; return
-                } else if value != d.value {
-                        if w&expandCaller != 0 {
-                                res = value
-                        } else {
-                                res = &Def{ d.knownobject, d.origin, value }
-                        }
-                } else if w&expandCaller != 0 {
-                        res = d.value
-                }
-        } else if w&expandCaller != 0 {
-                res = nil
-        }
-        return
-}
-func (d *Def) cmp(v Value) (res cmpres) {
-        if a, ok := v.(*Def); ok && d.value != nil {
-                assert(ok, "value is not Def")
-                if a.value != nil {
-                        res = d.value.cmp(a.value)
-                }
-        }
-        return
-}
-
 func (d *Def) True() (res bool, err error) {
         if d.value != nil {
                 res, err = d.value.True()
         }
-        return
-}
-func (d *Def) elemstr(o Object, k elemkind) (s string) {
-        if o != nil {
-                if p := d.OwnerProject(); p != o.OwnerProject() {
-                        return fmt.Sprintf("$(%s->%s)", p.name, d.name)
-                }
-        }
-        s = fmt.Sprintf(`$(%s)`, d.name)
         return
 }
 func (d *Def) String() (s string) {
@@ -333,7 +285,7 @@ func (d *Def) String() (s string) {
         case DefExpand1: s += ":="
         case DefExpand2: s += "::="
         case DefExecute: s += "!="
-        default:         s += " = "
+        default:         s += "⇒"
         }
         if d.value != nil {
                 s += elementString(d, d.value, 0)
@@ -346,6 +298,47 @@ func (d *Def) Strval() (s string, e error) {
         if d.value != nil { s, e = d.value.Strval() }
         return
 }
+func (d *Def) refs(v Value) bool { return d == v || (d.value != nil && d.value.refs(v)) }
+func (d *Def) defs(s string) (res []*Def) {
+        if d.name == s { return append(res, d) }
+        return d.value.defs(s)
+}
+func (d *Def) expandible(w expandwhat) (res bool) {
+        if !isNil(d.value) { res = d.value.expandible(w) }
+        return
+}
+func (d *Def) expand(w expandwhat) (res Value, err error) {
+        var value Value
+        if isNil(d.value) || isNone(d.value) {
+                // does nothing
+        } else if value, err = d.value.expand(w); err != nil {
+                diag.errorOf(d.value, "expand '%v' failed: %v", d.value, err).
+                        debug(optionDebugErrors, 1)
+        } else if w&expandDef != 0 {
+                res = value
+        } else if !isNil(value) && value != d.value {
+                res = &Def{ d.knownobject, d.origin, value }
+        }
+        return
+}
+func (d *Def) cmp(v Value) (res cmpres) {
+        if a, ok := v.(*Def); ok && d.value != nil {
+                assert(ok, "value is not Def")
+                if a.value != nil {
+                        res = d.value.cmp(a.value)
+                }
+        }
+        return
+}
+func (d *Def) elemstr(o Object, k elemkind) (s string) {
+        if o != nil {
+                if p := d.OwnerProject(); p != o.OwnerProject() {
+                        return fmt.Sprintf("$(%s->%s)", p.name, d.name)
+                }
+        }
+        s = fmt.Sprintf(`$(%s)`, d.name)
+        return
+}
 func (d *Def) isEmpty() bool { return isNone(d.value) || isNil(d.value) }
 func (d *Def) val(value Value) (err error) { return d.set(d.origin, value) }
 func (d *Def) set(origin Origin, value Value) (err error) {
@@ -354,8 +347,8 @@ func (d *Def) set(origin Origin, value Value) (err error) {
                 if !pos.IsValid() && d.value != nil { pos = d.value.Position() }
                 diag.errorAt(pos, "value refers to assigning Def '%s': %v (%T)", d.name, value, value)
 
-                if optionVerbose { fmt.Fprintf(stderr, "%v\n", err) }
-                if optionPrintStack { debug.PrintStack() }
+                if options.verbose { fmt.Fprintf(stderr, "%v\n", err) }
+                if options.debug { debug.PrintStack() }
                 return
         } else if origin != DefExecute && isNil(value) {
                 value = MakeNone(d.position)
@@ -369,10 +362,11 @@ func (d *Def) set(origin Origin, value Value) (err error) {
                         return
                 } else { d.value = MakeListOrScalar(value.Position(), elems) }
         case DefExpand2: // expands delegates and closures
-                if elems, _, err = expandall2(expandAll, value); err != nil {
+                if elems, _, err = expandall2(expandAll/*|expandArgs*/, value); err != nil {
                         diag.errorOf(value, "%v: expand value '%v' failed: %v", d.origin, value, err)
                         return
                 } else { d.value = MakeListOrScalar(value.Position(), elems) }
+                /*
         case DefExecute:
                 var (
                         cmd string
@@ -399,7 +393,7 @@ func (d *Def) set(origin Origin, value Value) (err error) {
                         stderr.Reset()
                         d.origin = DefExecuted
                         d.value = value
-                }
+                }*/
         default: // DefVoid, DefDefault, DefArg, etc.
                 d.value = value
         }
@@ -410,7 +404,7 @@ func (d *Def) append(va... Value) (err error) {
         for _, value := range va {
                 if !isNil(value) && value.refs(d) {
                         err = fmt.Errorf("%v: append recursive variable '%s'", d.owner, d.name)
-                        diag.infoAt(d.position, "%v", err).debug(optionVerbose && optionDebugInfos)
+                        diag.infoAt(d.position, "%v", err).debug(options.verbose && optionDebugInfos)
                         return
                 }
         }
@@ -426,11 +420,57 @@ func (d *Def) append(va... Value) (err error) {
         return d.val(list)
 }
 
+func (d *Def) execute() (err error) {
+        var (
+                cmd string
+                value = d.value
+        )
+        if d.origin != DefExecute {
+                diag.errorAt(d.position, "%v: non-execute def: %v", d.origin, value).
+                        debug(optionDebugErrors, 1)
+        } else if isNil(value) || isNone(value) {
+                d.value = nil
+        } else if cmd, err = value.Strval(); err != nil {
+                diag.errorAt(d.position, "%v: strval '%v' failed: %v", d.origin, value, err).
+                        debug(optionDebugErrors, 1)
+                d.value = MakeNone(d.position)
+        } else if cmd == "" {
+                diag.warnAt(d.position, "%v: empty command (value=%v)", d.origin, value).
+                        debug(optionDebugErrors, 1)
+                d.value = MakeNone(d.position)
+        } else {
+                // TODO: possibility to run command in the specified container
+                var stdout, stderr bytes.Buffer
+                var sh = exec.Command("sh", "-c", cmd)
+                sh.Stdout, sh.Stderr = &stdout, &stderr
+                if err = sh.Run(); err != nil {
+                        diag.errorAt(d.position, "%v: execute command failed: %v", d.origin, err).
+                                debug(optionDebugErrors, 1)
+                        d.value = MakeNone(d.position)
+                } else {
+                        d.value = MakeString(d.position, strings.TrimSpace(stdout.String()))
+                }
+                stdout.Reset()
+                stderr.Reset()
+                d.origin = DefExecuted
+        }
+        return
+}
+
 func (d *Def) Call(pos Position, a... Value) (res Value) {
-        if isNil(d.value) { return }
         switch d.origin {
         case DefDefault:
-                var ( defs []*Def; vals []Value; err error )
+                var w = expandClosure|expandDelegate
+                if isNil(d.value) || !d.value.expandible(w) {
+                        res = d.value
+                        break
+                }
+
+                var (
+                        defs []*Def
+                        vals []Value
+                        err error
+                )
                 defer func() { for i, d := range defs { d.value = vals[i] }} ()
                 for i := 0; i < len(a) && i < maxNumVarVal; i += 1 {
                         var def = context.globe.scope.Lookup(strconv.Itoa(i)).(*Def)
@@ -438,12 +478,27 @@ func (d *Def) Call(pos Position, a... Value) (res Value) {
                         defs = append(defs, def)
                         def.value = a[i]
                 }
-                res, err = d.value.expand(expandClosure|expandDelegate)
-                if err != nil { diag.errorAt(pos, "expand def value failed: %v", err) }
-        default: // DefArg, DefExpand1, DefExpand2, DefExecute:
+                if res, err = d.value.expand(w); err != nil {
+                        diag.errorAt(pos, "expand def value failed: %v", err).
+                                debug(optionDebugErrors, 1)
+                } else if isNil(res) && !isNil(d.value) {
+                        if d.value.expandible(w) {
+                                diag.warnAt(pos, "expand '%v' incomplete (value=%v (%T))", d.name, d.value, d.value).
+                                        debug(optionDebugErrors, 1)
+                        } else { res = d.value }
+                }
+        case DefExecute:
+                if err := d.execute(); err != nil {
+                        diag.errorAt(pos, "execute '%s' failed: %v", d.name, err).
+                                debug(optionDebugErrors, 1)
+                        return
+                } else {
+                        res = d.value
+                }
+        default: // DefArg, DefExpand1, DefExpand2, DefExecuted, etc.
                 res = d.value
         }
-        if res == nil {
+        if isNil(res) {
                 // ...
         } else if list, ok := res.(*List); ok {
                 if n := len(list.Elems); n == 0 {
@@ -483,34 +538,7 @@ type undetermined struct {
         identifier Value
         value Value
 }
-func (p *undetermined) refs(v Value) bool {
-        return p.identifier.refs(v) || p.value.refs(v)
-}
-func (p *undetermined) defs(s string) (res []*Def) {
-        return append(p.identifier.defs(s), p.value.defs(s)...)
-}
-func (p *undetermined) closured() bool {
-        return p.identifier.closured() || p.value.closured()
-}
-func (p *undetermined) delegated() bool {
-        return p.identifier.delegated() || p.value.delegated()
-}
-//func (p *undetermined) refdef(origin Origin) bool { return false }
-func (p *undetermined) expand(w expandwhat) (res Value, err error) {
-        var i, v Value
-        res = p // set the original value
-        if i, err = p.identifier.expand(w); err == nil {
-                if v, err = p.value.expand(w); err == nil {
-                        if i != p.identifier || v != p.value {
-                                res = &undetermined{ p.tok, i, v }
-                        }
-                }
-        }
-        return
-}
-func (p *undetermined) traverse(t *traversal) { }
 func (p *undetermined) Position() Position { return p.identifier.Position() }
-func (p *undetermined) exists() existence { return existenceMatterless }
 func (p *undetermined) True() (bool, error) { return false, nil }
 func (p *undetermined) String() (s string) {
         s = p.identifier.String()
@@ -521,6 +549,32 @@ func (p *undetermined) String() (s string) {
 func (p *undetermined) Strval() (string, error) { return p.value.Strval() }
 func (p *undetermined) Float() (float64, error) { return 0, nil }
 func (p *undetermined) Integer() (int64, error) { return 0, nil }
+func (p *undetermined) refs(v Value) bool {
+        return p.identifier.refs(v) || p.value.refs(v)
+}
+func (p *undetermined) defs(s string) (res []*Def) {
+        return append(p.identifier.defs(s), p.value.defs(s)...)
+}
+func (p *undetermined) expandible(w expandwhat) bool {
+        return p.identifier.expandible(w) || p.value.expandible(w)
+}
+func (p *undetermined) expand(w expandwhat) (res Value, err error) {
+        var i, v Value
+        if i, err = p.identifier.expand(w); err != nil {
+                diag.errorOf(p.identifier, "expand '%v' failed: %v", p.identifier, err).
+                        debug(optionDebugErrors, 1)
+        } else if v, err = p.value.expand(w); err != nil {
+                diag.errorOf(p.value, "expand '%v' failed: %v", p.value, err).
+                        debug(optionDebugErrors, 1)
+        } else if (!isNil(i) && i != p.identifier) || (!isNil(v) && v != p.value) {
+                if isNil(i) { i = p.identifier }
+                if isNil(v) { v = p.value }
+                res = &undetermined{ p.tok, i, v }
+        }
+        return
+}
+func (p *undetermined) traverse(t *traversal) { }
+func (p *undetermined) exists() existence { return existenceMatterless }
 func (p *undetermined) stat(t *traversal) (si *statinfo) { return }
 func (p *undetermined) stamp(t *traversal) (files []*File, err error) { return }
 func (p *undetermined) cmp(v Value) (res cmpres) {
@@ -552,7 +606,6 @@ type Builtin struct {
         f BuiltinFunc
 }
 func (p *Builtin) True() (bool, error) { return p.f != nil, nil }
-func (p *Builtin) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
 func (p *Builtin) Call(pos Position, a... Value) Value { return p.f(pos, a...) }
 func (p *Builtin) cmp(v Value) (res cmpres) {
@@ -609,7 +662,6 @@ func (entry *RuleEntry) Position() (pos Position) {
         }
         return
 }
-func (entry *RuleEntry) stamp(t *traversal) (files []*File, err error) { return entry.target.stamp(t) }
 func (entry *RuleEntry) True() (bool, error) { return entry.target.True() }
 func (entry *RuleEntry) Float() (float64, error) { return 0, nil }
 func (entry *RuleEntry) Integer() (int64, error) { return 0, nil }
@@ -731,51 +783,35 @@ func (entry *RuleEntry) defs(s string) (res []*Def) {
         }
         return
 }
-// func (entry *RuleEntry) refdef(origin Origin) bool {
-//         return entry.target.refdef(origin)
-// }
-func (entry *RuleEntry) closured() bool {
-        if entry.target.closured() { return true }
+func (entry *RuleEntry) expandible(w expandwhat) (res bool) {
+        if res = entry.target.expandible(w); res { return }
 
-        // TODO: do more tests for this to see if we need to fallthrough
-        return false // only check closured agaist target
+        // // TODO: do more tests for this to see if we need to fallthrough
+        // return // only check closured agaist target
 
         for _, prog := range entry.programs {
                 for _, depend := range prog.depends {
-                        if depend.closured() { return true }
+                        if res = depend.expandible(w); res { return }
                 }
                 for _, recipe := range prog.recipes {
-                        if recipe.closured() { return true }
+                        if res = recipe.expandible(w); res { return }
                 }
         }
-        return false
-}
-func (entry *RuleEntry) delegated() bool {
-        if entry.target.delegated() { return true }
-
-        // TODO: do more tests for this to see if we need to fallthrough
-        return false // only check delegated agaist target
-
-        for _, prog := range entry.programs {
-                for _, depend := range prog.depends {
-                        if depend.delegated() { return true }
-                }
-                for _, recipe := range prog.recipes {
-                        if recipe.delegated() { return true }
-                }
-        }
-        return false
+        return
 }
 func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
         if entry == nil {
                 // happens from some &{xxx} exprs
-                err = fmt.Errorf("entry is nil")
+                err = fmt.Errorf("expand nil entry")
                 return
         }
 
         var target Value
-        if target, err = entry.target.expand(w); err != nil { return }
-        if target != entry.target {
+        if target, err = entry.target.expand(w); err != nil {
+                diag.errorAt(entry.position, "expand '%v' failed: %v", entry.target, err).
+                        debug(optionDebugErrors, 1)
+                return
+        } else if !isNil(target) && target != entry.target {
                 // TODO: test if programs are needed to be disclosed??
                 res = &RuleEntry{
                         entry.class,
@@ -783,11 +819,10 @@ func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
                         entry.programs,
                         entry.position,
                 }
-        } else {
-                res = entry
         }
         return
 }
+func (entry *RuleEntry) stamp(t *traversal) (files []*File, err error) { return entry.target.stamp(t) }
 func (entry *RuleEntry) traverse(t *traversal) {
         if optionTraceTraversal { defer un(tt(t_traverse, t, entry.target)) }
         if optionEnableBenchmarks && false { defer bench(mark("RuleEntry.traverse")) }
@@ -892,12 +927,22 @@ type PatternEntry struct {
         Pattern Value
         *RuleEntry
 }
+func (p *PatternEntry) expandible(w expandwhat) (res bool) {
+        if res = p.Pattern.expandible(w); !res {
+                res = p.RuleEntry.expandible(w)
+        }
+        return
+}
 func (p *PatternEntry) expand(w expandwhat) (res Value, err error) {
-        var v Value
-        if v, err = p.RuleEntry.expand(w); err != nil {
-                return
-        } else if v != p.RuleEntry {
-                res = &PatternEntry{p.Pattern, v.(*RuleEntry)}
+        var pat, ent Value
+        if pat, err = p.Pattern.expand(w); err != nil {
+                diag.errorOf(p.Pattern, "expand '%v' failed: %v", p.Pattern, err).
+                        debug(optionDebugErrors, 1)
+        } else if ent, err = p.RuleEntry.expand(w); err != nil {
+                diag.errorOf(p.RuleEntry, "expand '%v' failed: %v", p.RuleEntry, err).
+                        debug(optionDebugErrors, 1)
+        } else if (!isNil(pat) && pat != p.Pattern) && (!isNil(ent) && ent != p.RuleEntry) {
+                res = &PatternEntry{p.Pattern, ent.(*RuleEntry)}
         }
         return
 }
@@ -916,12 +961,18 @@ type stemmed struct {
         *PatternEntry
         Stems []string // stem string
 }
+func (p *stemmed) String() (s string) {
+        for i, stem := range p.Stems { if i > 0 { s += "," }; s += stem }
+        return fmt.Sprintf("<%s,%s>", p.PatternEntry, s)
+}
 func (p *stemmed) expand(w expandwhat) (res Value, err error) {
         var v Value
         if v, err = p.PatternEntry.expand(w); err != nil {
+                diag.errorOf(p.PatternEntry, "expand '%v' failed: %v", p.PatternEntry, err).
+                        debug(optionDebugErrors, 1)
                 return
-        } else if v != p.PatternEntry {
-                res = &stemmed{v.(*PatternEntry),p.Stems}
+        } else if !isNil(v) && v != p.PatternEntry {
+                res = &stemmed{v.(*PatternEntry), p.Stems}
         }
         return
 }
@@ -935,9 +986,6 @@ func (p *stemmed) cmp(v Value) (res cmpres) {
                 res = p.PatternEntry.cmp(a.PatternEntry)
         }
         return
-}
-func (p *stemmed) String() (s string) {
-        return fmt.Sprintf("<%s,%s>", p.PatternEntry, p.Stems)
 }
 func (p *stemmed) traverse(t *traversal) {
         diag.errorAt(p.position, "cant traverse stemmed entry directly")

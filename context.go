@@ -22,25 +22,28 @@ import (
   "io/ioutil"
 )
 
+type commandLineOpts struct {
+  help bool `h,help` // optionHelp
+  debug bool `d,debug;d,print-stack` // optionPrintStack
+  printConfiguration bool `o,print-options;po,printoptions` // optionPrintConfiguration
+  printFlags bool `f,print-flags` // optionPrintFlags
+  buildPlugins bool `b,buildplugins;bp,build-plugins` // optionAlwaysBuildPlugins
+  benchImport bool `n,benchimport;bi,bench-import` // optionBenchImport
+  benchBuiltins bool `e,benchbuiltins;bb,bench-builtins` // optionBenchBuiltin
+  benchSlow bool `s,benchslow;bs,bench-slow` // optionBenchSlow
+  verbose bool `v,verbose` // optionVerbose
+  verboseImport bool `i,verbose-import` // optionVerboseImport
+  verboseChecks bool `c,verbose-checks` // optionVerboseChecks
+  verboseLoads bool `l,verbose-loading` // optionVerboseLoading
+  verboseParse bool `p,verbose-parsing` // optionVerboseParsing
+  verboseUsing bool `u,verbose-using`   // optionVerboseUsing
+  reconfigure bool `r,reconfigure`      // optionReconfig
+  configure bool `g,configure`          // optionConfigure
+  noExec bool `m,no-exec;ne,no-execute` // optionNoExec
+}
 var (
-  optionHelp = false
+  options commandLineOpts
   optionClean = false
-  optionConfigure = false
-  optionReconfig = false
-  optionAlwaysBuildPlugins = false
-  optionVerbose = false
-  optionVerboseUsing = false
-  optionVerboseParsing = false
-  optionVerboseLoading = false
-  optionVerboseImport = false
-  optionVerboseChecks = false
-  optionBenchImport = false
-  optionBenchSlow = false
-  optionBenchBuiltin = false
-  optionPrintConfiguration = false
-  optionPrintFlags = false
-  optionPrintStack = false
-  optionNoExec = false
 
   optionDebugErrors = true
   optionDebugWarns = false
@@ -56,9 +59,6 @@ var (
   optionTraceEntering = optionTraceTraversal && false
   optionTraceConfig = false
 
-  // Return error if wildcard files not found.
-  optionWildcardMissingError = false
-
   optionSaveGrepSourceName = false
 )
 
@@ -71,7 +71,8 @@ const (
 )
 
 var (
-  goStackLine1 = regexp.MustCompile(`^(.+)\(.*\)$`)
+  //goStackLine1 = regexp.MustCompile(`^(?:extbit\.io/smart\.)?(.+)(\(.*\))$`)
+  goStackLine1 = regexp.MustCompile(`^(?:extbit\.io/)?(.+)(\(.*\))$`)
   goStackLine2 = regexp.MustCompile(`^	(.*?:\d+) \+.*$`)
 )
 type diagnostic struct {
@@ -97,31 +98,44 @@ func (d *diagnostic) debug(enabled bool, args ...interface{}) {
       i, j int
     )
     if skips > 0 && len(v) > skips { i = skips }
-    if len(args) > 0 {
-      if n, ok := args[0].(int); ok { j = n }
+    if len(args) > 0 { if n, ok := args[0].(int); ok { j = n }}
+
+    var s string
+    switch d.dt {
+    case diagPrompt: s = "note:"
+    case diagInfo:   s = "info:"
+    case diagWarn:   s = "warning:"
     }
-    if j == 1 {
+
+    if false {
       var (
         sm1 = goStackLine1.FindAllSubmatch(v[i+0], 1)
         sm2 = goStackLine2.FindAllSubmatch(v[i+1], 1)
       )
-      if sm1 != nil && sm2 != nil {
-        var s string
-        switch d.dt {
-        case diagPrompt: s = "note:"
-        case diagInfo:   s = "info:"
-        case diagWarn:   s = "warning:"
-        }
+      if j == 1 && sm1 != nil && sm2 != nil {
         d.stack = append(sm2[0][1], []byte(":"+s+" ")...)
         d.stack = append(d.stack, sm1[0][1]...)
         d.stack = append(d.stack, []byte("\n")...)
-        return
+      } else if 0 < j && i+j <= len(v) {
+        if j % 2 != 0 { j += 1 }
+        ending := []byte(" (and more frames…)\n") //[]byte("\n…more frames not displayed ……\n")
+        d.stack = append(bytes.Join(v[i:i+j], ln), ending...)
       }
-    }
-    if 0 < j && i+j <= len(v) {
-      if j % 2 != 0 { j += 1 }
-      ending := []byte(" (and more frames…)\n") //[]byte("\n…more frames not displayed ……\n")
-      d.stack = append(bytes.Join(v[i:i+j], ln), ending...)
+    } else if true {
+      for j += j % 2; i+1 < len(v) && 0 < j; i += 2 {
+        var (
+          sm1 = goStackLine1.FindAllSubmatch(v[i+0], 1)
+          sm2 = goStackLine2.FindAllSubmatch(v[i+1], 1)
+        )
+        if sm1 != nil && sm2 != nil {
+          d.stack = append(d.stack, sm2[0][1]...)
+          d.stack = append(d.stack, []byte(":"+s+" ")...)
+          d.stack = append(d.stack, sm1[0][1]...)
+          d.stack = append(d.stack, sm1[0][2]...)
+          d.stack = append(d.stack, []byte("\n")...)
+        }
+        j -= 2
+      }
     } else {
       d.stack = bytes.Join(v[i:], ln)
     }
@@ -416,65 +430,33 @@ func (ctx *Context) loadwork() (err error) {
   }
 
   if _, e := os.Stat(sp); e == nil { ctx.loader.AddSearchPaths(sp) }
-  if optionVerbose || optionBenchImport {
+
+  if text := strings.Join(os.Args[1:], " "); text == "" {
+    // Relax!
+  } else if args = ctx.loader.loadText("@", text); err != nil {
+    // ...
+  } else if args, err = parseOpts(Position{}, &options, args...); err != nil {
+    return
+  }
+
+  if v := options.reconfigure; v { options.configure = v }
+
+  if options.verbose || options.benchImport {
     defer func(t time.Time) {
       var d = time.Now().Sub(t)
       fmt.Fprintf(stderr, "smart: Goals %v (%s)\n", ctx.goals, d)
     } (time.Now())
   }
 
-  if text := strings.Join(os.Args[1:], " "); text == "" {
-    // Relax!
-  } else if args = ctx.loader.loadText("@", text); err != nil {
-    // ...
-  } else if args, err = tryParseFlags(args, []string{
-    /* TODO: using struct and field tags: */
-    /* type struct { */
-    /*   optionHelp string `h,help` */
-    /* } */
-    "h,help",
-    "d,debug",
-    "d,print-stack",
-    "o,print-options",
-    "f,print-flags",
-    "b,build-plugins",
-    "n,bench-import",
-    "e,bench-builtins",
-    "v,verbose",
-    "i,verbose-import",
-    "c,verbose-checks",
-    "l,verbose-loading",
-    "p,verbose-parsing",
-    "u,verbose-using",
-    "r,reconfigure",
-    "g,configure",
-    "m,no-exec", // optionNoExec
-  }, func(ru rune, v Value) {
-    switch ru {
-    case 'h': if optionHelp              , err = trueVal(v, true); err != nil { return }
-    case 'b': if optionAlwaysBuildPlugins, err = trueVal(v, true); err != nil { return }
-    case 'o': if optionPrintConfiguration, err = trueVal(v, true); err != nil { return }
-    case 'f': if optionPrintFlags        , err = trueVal(v, true); err != nil { return }
-    case 'd': if optionPrintStack        , err = trueVal(v, true); err != nil { return }
-    case 'n': if optionBenchImport       , err = trueVal(v, true); err != nil { return }
-    case 'e': if optionBenchBuiltin      , err = trueVal(v, true); err != nil { return }
-    case 'v': if optionVerbose           , err = trueVal(v, true); err != nil { return }
-    case 'i': if optionVerboseImport     , err = trueVal(v, true); err != nil { return }
-    case 'c': if optionVerboseChecks     , err = trueVal(v, true); err != nil { return }
-    case 'p': if optionVerboseParsing    , err = trueVal(v, true); err != nil { return }
-    case 'l': if optionVerboseLoading    , err = trueVal(v, true); err != nil { return }
-    case 'u': if optionVerboseUsing      , err = trueVal(v, true); err != nil { return }
-    case 'g': if optionConfigure         , err = trueVal(v, true); err != nil { return }
-    case 'm': if optionNoExec            , err = trueVal(v, true); err != nil { return }
-    case 'r': if optionReconfig          , err = trueVal(v, true); err != nil { return }
-      optionConfigure = optionReconfig
-    }
-  }); err != nil { return }
-
   ctx.args = make(map[Value][]Value)
+
+  var mode = new(Bareword)
   for _, target := range args {
     switch t := target.(type) {
     case *Flag: ctx.flags = append(ctx.flags, t)
+      if s, err := t.name.Strval(); err == nil && s == "clean" {
+        mode.position, mode.string = t.position, "clean"
+      }
     case *Pair: ctx.pairs = append(ctx.pairs, t)
     case *Argumented:
       ctx.args[t.value] = t.args
@@ -486,14 +468,18 @@ func (ctx *Context) loadwork() (err error) {
     default: ctx.goals.append(t)
     }
   }
-
-  var mode string
-  if optionConfigure { mode = "configure" } else { mode = "goals" }
-  context.mode.value = &Bareword{string:mode}
+  if mode.string == "" {
+    if options.configure {
+      mode.string = "configure"
+    } else {
+      mode.string = "goals"
+    }
+  }
+  context.mode.value = mode
 
   defer func(t time.Time) {
     var d = time.Now().Sub(t)
-    if optionVerboseImport {
+    if options.verboseImport {
       var name string
       if p := ctx.loader.project; p != nil { name = p.name }
       fmt.Fprintf(stderr, "└·%s … (%s)\n", name, d)
@@ -501,7 +487,7 @@ func (ctx *Context) loadwork() (err error) {
       fmt.Fprintf(stderr, "smart: Long load time: %s !\n", d)
     }
   } (time.Now())
-  if optionVerboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
+  if options.verboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
 
   if !ctx.loader.loadPath(base, nil) { return }
   if ctx.loader.globe.main == nil { fmt.Fprintf(stderr, "nothing loaded\n") }
@@ -591,34 +577,25 @@ func CommandLine() {
 
   if err := context.loadwork(); err != nil {
     if diag.checkErrors(true) > 0 { return } //report(err)
-  } else if optionHelp {
+  } else if options.help {
     do_helpscreen()
-  } else if optionPrintFlags {
+  } else if options.printFlags {
     print_flag_trace()
-  } else if optionPrintConfiguration {
+  } else if options.printConfiguration {
     print_configuration()
   } else if numUpdatedPlugins > 0 { // see buildPlugin
     fmt.Fprintf(stderr, "smart: Plugin updated, please relaunch.\n")
-  } else if optionConfigure {
+  } else if options.configure {
     do_configuration()
     if diag.checkErrors(true) > 0 { return }
   } else if result, err := context.run(); err != nil {
-    /*defer printLeavingDirectory()
-
-    var brks, errs = extractBreakers(err)
-    for _, e := range brks {
-      switch e.what {
-    default: report(e)
-  case breakDone, breakCase:
-        // just relax
-      }
-    }*/
-
     printLeavingDirectory()
   } else if result != nil {
     for _, v := range result {
       var ( s string; err error )
-      if s, err = v.Strval(); err != nil {
+      if isNil(v) {
+        // does nothing
+      } else if s, err = v.Strval(); err != nil {
         fmt.Fprintf(stderr, "%s [%s]", v, err)
       } else {
         fmt.Fprintf(stderr, "%s", s)

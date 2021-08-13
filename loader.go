@@ -333,8 +333,8 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
 
             breakUseLoop = (loopBreakers != nil)
             if !breakUseLoop {
-                diag.errorOf(specVal, "loop detected: %s", s)
-            } else if optionVerboseImport || optionVerboseUsing || optionVerboseLoading {
+                diag.errorOf(specVal, "loop detected: %s", s).debug(optionDebugErrors,1)
+            } else if options.verboseImport || options.verboseUsing || options.verboseLoads {
                 fmt.Fprintf(stderr, "%s: loop detected: %v\n", l.project, s)
             }
         }
@@ -364,7 +364,7 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
     // ││└──→    ·     │     │  ├─⇥     ↓
     // │└──→───⇥─┴─⇤────┬──┴──┬──┘  │
     // └──→       ⇠─┘     ↓     └─→ ⇒ …
-    if optionVerboseImport {
+    if options.verboseImport {
         if len(l.loadStack) > 1 {
             defer func(s string) { l.vs = s } (l.vs)
             l.vs += "│"
@@ -477,7 +477,7 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
         useopts.noFiles = true
     }
 
-    if optionVerboseImport {
+    if options.verboseImport {
         defer func(t time.Time) {
             var d = time.Now().Sub(t)//*time.Millisecond // µs, ms, s ┼
             fmt.Fprintf(stderr, "%s├┤ %s:import(%s) (%s)\n", l.vs, l.project, specName, d)
@@ -555,7 +555,7 @@ func (l *loader) loadPlugin(pos Position) (err error) {
     if s = so.fullname(); s == "" {
         diag.errorOf(so, "file '%v' has empty fullname", so)
         return
-    } else if so.exists() && !optionAlwaysBuildPlugins {
+    } else if so.exists() && !options.buildPlugins {
         if so.info.ModTime().After(g.info.ModTime()) {
             build = false // Plugin already updated.
         }
@@ -591,7 +591,7 @@ func (l *loader) convertBarefiles(targets []Value) []Value {
                 file.position = pos
             }
         case *Barecomp:
-            if t.closured() || refdef(t, DefArg) { break }
+            if t.expandible(expandClosure) || refdef(t, DefArg) { break }
             if s, err := t.Strval(); err != nil {
                 diag.errorAt(pos, "strval '%v' failed: %v", t, err)
             } else if file := l.project.FindFile(s); file != nil {
@@ -607,12 +607,12 @@ func (l *loader) convertBarefiles(targets []Value) []Value {
 }
 
 func (l *loader) useProject(position Position, usee *Project, params []Value, opts useoptions) (err error) {
-    if optionVerboseUsing && optionVerboseImport && optionBenchImport {
+    if options.verboseUsing && options.verboseImport && options.benchImport {
         defer func(t time.Time) {
             var d = time.Now().Sub(t)
             fmt.Fprintf(stderr, "%s││ using(%8s) %s ⇒ %v\n", l.vs, d, l.project, l.project.using)
         } (time.Now())
-    } else if optionVerboseUsing {
+    } else if options.verboseUsing {
         defer func(t time.Time) {
             var d = time.Now().Sub(t)
             fmt.Fprintf(stderr, "using(%8s) %s ⇒ %v\n", d, l.project, l.project.using)
@@ -651,12 +651,12 @@ func (l *loader) useProject2(position Position, usee *Project, params []Value, o
     // clocks:🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚🕛🕜🕝🕞🕟🕠🕡🕢🕣🕤🕥🕦🕧
     defer func(t time.Time) {
         var d = time.Now().Sub(t)
-        if optionVerboseImport {
-            if optionBenchImport /*&& d > 1*time.Millisecond*/ {
+        if options.verboseImport {
+            if options.benchImport /*&& d > 1*time.Millisecond*/ {
                 var s = l.usePath()
                 fmt.Fprintf(stderr, "%s││ %s:use(%s) … (%s) (%s)\n", l.vs, l.project.name, usee.name, d, s)
             }
-        } else if optionBenchSlow && d > 500*time.Millisecond { // ⌚ ⌛
+        } else if options.benchSlow && d > 500*time.Millisecond { // ⌚ ⌛
             fmt.Fprintf(stderr, "smart: %s: slow ▶use(%s)◀ … (%s)\n", l.project.name, usee.name, d)
         }
     } (time.Now())
@@ -753,11 +753,11 @@ func (l *loader) determine1(position Position, tok token.Token, identifier, valu
             var ( okay bool; ad *Def )
             if ad, okay = alt.(*Def); !okay {
                 diag.errorAt(position, "`%v` already defined (%T) (%v,%v)", identifier, alt, alt.OwnerProject(), l.project).
-                    debug(optionDebugErrors && optionPrintStack)
+                    debug(optionDebugErrors,1)
                 return
             } else if ad.owner == l.project && ad.origin != DefConfRef {
                 diag.errorAt(position, "`%v` already defined (%T) (%v)", identifier, alt, l.project).
-                    debug(optionDebugErrors && optionPrintStack)
+                    debug(optionDebugErrors,1)
                 return
             } else {
                 def = ad
@@ -914,7 +914,7 @@ func (l *loader) includeFile(pos Position, spec Value) {
             }
             diag.errorAt(pos, "include error occurred (entry %v)", entry)
             return
-        } else if result != nil && optionVerbose {
+        } else if result != nil && options.verbose {
             diag.infoAt(pos, "include %v: %v", entry, result)
         }
         spec = entry.target
@@ -990,22 +990,22 @@ func (l *loader) setArgs(args []Value) (oldArgs []Value) {
 func (l *loader) loadBases(position Position, linfo *loadinfo, params ...Value) (result bool) {
     if optionTraceLaunch { defer un(trace(t_launch, "loader.loadBases")) }
 
-    var isDir bool
-    var absPath, specName string
-
-    absPath = filepath.Join(l.project.absPath, ".base")
-    if fi, e := os.Stat(absPath); e == nil && fi.IsDir() {
-        base := MakePathStr(l.project.position, "./.base")
-        params = append([]Value{base}, params...)
-        absPath = ""
-    }
-
     // For &(foobar) set from loadArgs
     defer setclosure(setclosure(cloctx.unshift(l.project.scope)))
 
+    if file := stat(l.project.position, "./.base", "", l.project.absPath); file != nil && file.info.IsDir() {
+        if s, e := file.Strval(); true { assert(e == nil && s == file.name && s == "./.base", "invalid strval: %v => %v", file, s) }
+        params = append([]Value{file}, params...)
+    }
+
 ParamsLoop:
     for _, elem := range params {
-        var ( args []Value; err error )
+        var (
+            absPath string
+            args []Value
+            isDir bool
+            err error
+        )
         if list, ok := elem.(*List); ok && len(list.Elems) == 1 { elem = list.Elems[0] }
         if a, ok := elem.(*Argumented); ok { elem, args = a.value, a.args }
         if p, ok := elem.(*Pair); ok {
@@ -1019,12 +1019,20 @@ ParamsLoop:
             continue ParamsLoop
         }
 
+        var specName string
         if specName, err = elem.Strval(); err != nil { diag.errorOf(elem, "%v", err); return }
         if specName == "" {
-            diag.errorOf(elem, "%v: empty base name `%v` (%T)", l.project, elem, elem)
+            diag.errorOf(elem, "%v: empty base name `%v` (%T)", l.project, elem, elem).
+                debug(optionDebugErrors,1)
             break ParamsLoop
         }
-        if absPath, isDir, err = l.searchSpecPath(linfo, specName); err != nil {
+
+        if f, ok := elem.(*File); ok && f.info != nil {
+            if absPath = f.fullname(); true { assert(filepath.IsAbs(absPath), "invalid abs path: %v", f) }
+            isDir = f.info.IsDir()
+        } else if absPath, isDir, err = l.searchSpecPath(linfo, specName); err != nil {
+            if false { diag.errorOf(elem, "%v: search '%v' failed: %v", l.project, specName, err).
+                debug(optionDebugErrors,1) }
             break ParamsLoop
         }
 
@@ -1065,7 +1073,7 @@ func (l *loader) loadDotContainer(ident *Bareword, file *File) (result bool) {
         if name == nil {
             diag.errorOf(ident, "%v: %v: `dock` is not a project", l.project.name, file)
         } else {
-            if optionVerboseLoading { fmt.Fprintf(stderr, "smart: %v (%v)\n", name, file.fullname()) }
+            if options.verboseLoads { fmt.Fprintf(stderr, "smart: %v (%v)\n", name, file.fullname()) }
 
             var opts useoptions
             // TODO: parse the useoptions
@@ -1087,7 +1095,7 @@ func (l *loader) loadDotConfigure(ident *Bareword, file *File) (result bool) {
         if name == nil {
            diag.errorAt(position, "%v: %v: `.configure` is not a project", l.project.name, file)
         } else {
-            if optionVerboseLoading { fmt.Fprintf(stderr, "smart: %v (%v)\n", name, file.fullname()) }
+            if options.verboseLoads { fmt.Fprintf(stderr, "smart: %v (%v)\n", name, file.fullname()) }
             if conf := l.project.configure; conf != nil {
                 if conf == loaded { return }
                 diag.errorAt(position, ".configure already specified")
@@ -1235,15 +1243,15 @@ func (l *loader) loadProjectConfiguration(ident *Bareword, declared bool) (resul
     if s, err := configurationFileName(l.project); err != nil {
         diag.errorAt(pos, "%v: failed getting configuration file name: %v", ident, err)
         return
-    } else if declared || optionConfigure {
+    } else if declared || options.configure {
         var exists bool
         for _, v := range configuration.clean { if s == v { exists = true; break }}
         if !exists { configuration.clean = append(configuration.clean, s) }
     } else if file := stat(pos, filepath.Base(s), "", filepath.Dir(s)); file != nil {
-        if optionVerboseImport || optionVerboseLoading {
+        if options.verboseImport || options.verboseLoads {
             full, _ := file.Strval()
             fmt.Fprintf(stderr, "Configuration for %s (%s) ⇒ %s\n", l.project, l.project.spec, full)
-        } else if optionVerbose || true {
+        } else if options.verbose || true {
             fmt.Fprintf(stderr, "Configuration for %s (%s)\n", l.project, l.project.spec)
         }
         l.isIncludingConf = true
@@ -1638,11 +1646,11 @@ ListLoop:
 func (l *loader) ParseDir(pos Position, path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*Project) {
     defer func(t time.Time) {
         var d = time.Now().Sub(t)
-        if optionVerboseParsing /*&& d > 50*time.Millisecond*/ {
+        if options.verboseParse /*&& d > 50*time.Millisecond*/ {
             fmt.Fprintf(stderr, "parse(%15s) %s ⇒ %s\n", d, l.project, path)
-        } else if optionBenchSlow && l.project == nil && d>5000*time.Millisecond {
+        } else if options.benchSlow && l.project == nil && d>5000*time.Millisecond {
             fmt.Fprintf(stderr, "smart: slow ▶parse(%s)◀ … (%s)\n", path, d)
-        } else if optionBenchSlow && l.project != nil && d>2500*time.Millisecond {
+        } else if options.benchSlow && l.project != nil && d>2500*time.Millisecond {
             fmt.Fprintf(stderr, "smart: %s: slow ▶parse(%s)◀ … (%s)\n", l.project, path, d)
         }
     } (time.Now())
@@ -1762,14 +1770,14 @@ func (l *loader) load(specName, absPath string, source interface{}) (result bool
     if optionTraceLaunch { defer un(trace(t_launch, "loader.load")) }
     defer func(t time.Time) {
         var d = time.Now().Sub(t)
-        if optionVerboseLoading /*&& d > 50*time.Millisecond*/ {
+        if options.verboseLoads /*&& d > 50*time.Millisecond*/ {
             loaded, _ := l.loaded[absPath]
             if l.project == nil {
                 fmt.Fprintf(stderr, "load (%15s) ⇒ %s (%s)\n", d, loaded, specName)
             } else {
                 fmt.Fprintf(stderr, "load (%15s) %s ⇒ %s (%s)\n", d, l.project.name, loaded, specName)
             }
-        } else if optionBenchSlow && d > 100*time.Millisecond {
+        } else if options.benchSlow && d > 100*time.Millisecond {
             fmt.Fprintf(stderr, "smart: %s: slow ▶load(%s) … (%s)◀\n", l.project.name, specName, d)
         }
     } (time.Now())
@@ -1811,16 +1819,16 @@ func (l *loader) loadDir(pos Position, specName, absDir string, filter func(os.F
     if optionTraceLaunch { defer un(trace(t_launch, "loader.loadDir")) }
     defer func(t time.Time) {
         var d = time.Now().Sub(t)
-        if optionVerboseLoading /*&& d > 50*time.Millisecond*/ {
+        if options.verboseLoads /*&& d > 50*time.Millisecond*/ {
             loaded, _ := l.loaded[absDir]
             if l.project == nil {
                 fmt.Fprintf(stderr, "load (%15s) ⇒ %s (%s)\n", d, loaded, specName)
             } else {
                 fmt.Fprintf(stderr, "load (%15s) %s ⇒ %s (%s)\n", d, l.project.name, loaded, specName)
             }
-        } else if optionBenchSlow && l.project == nil && d>5000*time.Millisecond {
+        } else if options.benchSlow && l.project == nil && d>5000*time.Millisecond {
             fmt.Fprintf(stderr, "smart: slow ▶load(%s)◀ … (%s)\n", specName, d)
-        } else if optionBenchSlow && l.project != nil && d>2500*time.Millisecond {
+        } else if options.benchSlow && l.project != nil && d>2500*time.Millisecond {
             fmt.Fprintf(stderr, "smart: %s: slow ▶load(%s)◀ … (%s)\n", l.project.name, specName, d)
         }
     } (time.Now())

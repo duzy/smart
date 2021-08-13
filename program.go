@@ -204,8 +204,13 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
             var pos = prog.position
             if !pos.IsValid() { pos = entry.Position() }
             if !pos.IsValid() { pos = entry.position }
-            diag.errorAt(pos, "execution of %v yields %d errors", entry, n).
-                debug(optionDebugErrors, 1)
+            if n == 1 {
+                diag.errorAt(pos, "execution yields an error for %v", entry).
+                    debug(optionDebugErrors, 1)
+            } else {
+                diag.errorAt(pos, "execution yields %d errors for %v", n, entry).
+                    debug(optionDebugErrors, 1)
+            }
             if caller != nil {
                 brk := caller._break(prog.position, breakErro)
                 brk.error = fmt.Errorf("%v: got %d errors", entry, n)
@@ -214,19 +219,30 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         }
     } ()
 
-    var recursion int
-    var pos = prog.position
+    var (
+        pos = prog.position
+        recursion int
+    )
     for c := caller; c != nil; c = c.caller {
         if c.program == prog { recursion += 1 }
     }
     if recursion >= maxRecursion {
-        fmt.Fprintf(stderr, "%v: max recursion: %v\n", pos, entry.target)
+        diag.errorAt(pos, "exceeds max recursion: %v", entry.target).
+            debug(optionDebugErrors,1)
         for c := caller; c != nil; c = c.caller {
-            fmt.Fprintf(stderr, "    %v: %v\n", c.program.position, c.def.target)
+            var n int
+            for next := c.caller; next != nil; next = next.caller {
+                if next.program == c.program { n += 1; c = next } else { break }
+            }
+            if n > 0 {
+                diag.errorAt(c.program.position, "%v (repeats %d times)", c.def.target.value, n)
+            } else {
+                diag.errorAt(c.program.position, "%v", c.def.target.value)
+            }
         }
-        if false { fmt.Fprintf(stderr, "\n") }
         diag.errorAt(pos, "too many recursion (%d) (%v) (from %v)",
-            recursion, entry.target, caller.def.target.value)
+            recursion, entry.target, caller.def.target.value).
+            debug(optionDebugErrors, 1)
         return
     }
 
@@ -337,7 +353,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     }
     if alreadyUpdated {
         if optionTraceTraversal { t.tracef("Program.execute: '%v' already updated (%v)", t.def.target.value, t.targets) }
-        if optionVerbose { fmt.Fprintf(stderr, "smart: '%v' already updated\n", t.def.target.value) }
+        if options.verbose { fmt.Fprintf(stderr, "smart: '%v' already updated\n", t.def.target.value) }
         return
     }
 

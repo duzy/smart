@@ -32,20 +32,18 @@ const (
 	parsingFilesSpec // files ( ... )
 	parsingSpecialRule // e.g. :use ...:
 	//parsingColonName // e.g. $:use:
-	parsingBuiltinCommand // recipe builtin
+	parsingBuiltinCommand // recipe builtin command
 	parsingRecipeText
 
 	// The composingNo* bits control the composing priority!
-
-	// Bits to disable parsing ArgumentedExpr
-	composingNoArg  = composingSELECT_PROP | composingDOT | composingDOTDOT | composingPATH | composingPERC
-	composingNoPair = composingSELECT_PROP | composingDOT | composingPATH | composingPERC
-	composingNoURL  = composingSELECT_PROP | composingURL | composingDOT | composingPATH | composingGLOB | composingPERC | composingREXP /*| parsingColonName*/ | parsingSpecialRule
-	composingNoPath = composingSELECT_PROP | composingURL | composingDOT | composingPATH | composingGLOB | composingPERC | composingREXP
+	composingNoArg    = composingSELECT_PROP | composingDOT | composingDOTDOT | composingPATH | composingPERC
+	composingNoPair   = composingSELECT_PROP | composingDOT | composingPATH | composingPERC
+	composingNoURL    = composingSELECT_PROP | composingDOT | composingPATH | composingURL | composingGLOB | composingPERC | composingREXP /*| parsingColonName*/ | parsingSpecialRule
+	composingNoPath   = composingSELECT_PROP | composingDOT | composingPATH | composingURL | composingGLOB | composingPERC | composingREXP
 	composingNoSelect = composingSELECT_PROP | composingDOT
-	composingNoGlob = composingGLOB | composingPERC | composingREXP
-	composingNoPerc = composingGLOB | composingPERC | composingREXP
-	composingNoRexp = composingGLOB | composingPERC | composingREXP
+	composingNoGlob   = composingGLOB | composingPERC | composingREXP
+	composingNoPerc   = composingGLOB | composingPERC | composingREXP
+	composingNoRexp   = composingGLOB | composingPERC | composingREXP
 )
 
 type specialRule int
@@ -292,6 +290,16 @@ func (p *parser) skipSpaces() {
 		if p.tok == token.SPACE  { p._next() } else
 		if p.tok == token.ESCAPE && p.lit == "\n" {
 			if p._next(); p.tok == token.LINEND { break }
+			if p.bits&parsingBuiltinCommand != 0 {
+				TokFor: for p.tok != token.EOF {
+					switch p.tok {
+					case token.RECIPE:
+						p.scanner.LeaveCompoundLineContext()
+						p._next()
+					default: break TokFor
+					}
+				}
+			}
 		} else {
 			break
 		}
@@ -849,10 +857,6 @@ func makePathSeg(pos Position, tok token.Token) *PathSeg {
     }
 	return MakePathSeg(pos, r)
 }
-func (p *parser) parsePathSeg() (v *PathSeg) {
-	tok := p.tok; p.expect(token.PCON)
-	return makePathSeg(p.position(), tok)
-}
 
 func (p *parser) parsePathExpr(lhs bool, start Value) *Path {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Path")) }
@@ -860,14 +864,15 @@ func (p *parser) parsePathExpr(lhs bool, start Value) *Path {
 	defer p.setbits(p.setbit(composingPATH))
 
 	var (
-		position = p.position()
+		position = start.Position() //p.position()
 		path *Path
+		ok bool
 	)
 	if start == nil {
-		diag.errorAt(position, "bad closure/delegate name").debug(optionDebugErrors)
+		diag.errorAt(position, "bad closure/delegate name").debug(optionDebugErrors,1)
 		p._next()
 		return MakePath(position) // empty path
-	} else if path, _ = start.(*Path); path == nil {
+	} else if path, ok = start.(*Path); !ok {
 		path = MakePath(position, start)
 	}
 
@@ -883,7 +888,7 @@ BuildPath:
 			break BuildPath
 		}
 
-		x := p.parseComposedExpr(false)
+		var x = p.parseComposedExpr(false)
 		path.Elems = append(path.Elems, x)
 		if p.tok == token.SPACE || p.isEndOfLine() {
 			break BuildPath
@@ -956,7 +961,7 @@ func (p *parser) parseURLExpr(lhs bool, scheme Value) (res Value) {
 		}
 	}
 	if p.tok == token.PCON {
-		url.Path = p.parsePathExpr(lhs, p.parsePathSeg())
+		url.Path = p.parsePathExpr(lhs, makePathSeg(p.position(), p.tok))
 	}
 	// scanning '#' as token.HASH instead of token.COMMENT
 	defer p.scanner.SetBits(p.scanner.AddBits(scanner.NoComments))
@@ -1047,10 +1052,15 @@ func (p *parser) parseClosureDelegate() (result Value) {
 					}
 				} else if o := resolveConfig(); !isNil(o) {
 					obj, okay = o, true
-				} else if tok.IsClosure() || refdef(name, defany) || name.closured() {
+				} else if tok.IsClosure() || refdef(name, defany) || name.expandible(expandClosure) {
 					obj, okay = unresolved(p.project, name), true // recursive delegation or closure
+				} else if name.expandible(expandAll) {
+					s, _ := name.Strval()
+					diag.errorOf(name, "resolved '%v' (aka. %s) is nil (project=%v)", name, s, p.project).
+						debug(optionDebugErrors,1)
 				} else {
-					diag.errorOf(name, "resolved '%v' is nil", name)
+					diag.errorOf(name, "resolved '%v' is nil (project=%v)", name, p.project).
+						debug(optionDebugErrors,1)
 				}
 			} else if sel, _ := resolved.(*selection); !isNil(sel) {
 				obj, okay = sel, true
@@ -1063,7 +1073,14 @@ func (p *parser) parseClosureDelegate() (result Value) {
 			if resolved, err = p.find(name); err != nil {
 				p.error(posLp, "finding rule entry '%v' failed: %v", name, err)
 			} else if isNil(resolved) {
-				diag.errorOf(name, "resolved '%v' is nil", name)
+				if name.expandible(expandAll) {
+					s, _ := name.Strval()
+					diag.errorOf(name, "resolved '%v' (aka. %s) is nil (project=%v)", name, s, p.project).
+						debug(optionDebugErrors,1)
+				} else {
+					diag.errorOf(name, "resolved '%v' is nil (project=%v)", name, p.project).
+						debug(optionDebugErrors,1)
+				}
 			} else if exe, _ := resolved.(Executer); exe == nil {
 				p.error(posLp, "resolved '%v' of '%T' is not Executer", name, resolved)
 			} else if obj, okay = exe.(Object); !okay || isNil(obj) {
@@ -1096,14 +1113,16 @@ func (p *parser) parseClosureDelegate() (result Value) {
 
 		p._next() // skips LPAREN, LBRACE, LCOLON
 		if posLp+1 != p.pos {
-			diag.errorAt(p.positionAt(posLp+1), "unexpected spaces").debug(optionDebugErrors)
+			diag.errorAt(p.positionAt(posLp+1), "unexpected spaces").
+				debug(optionDebugErrors, 1)
 			return MakeNil(p.position())
 		}
 
 		if name = p.parseClosureDelegateName(tokLp); isNil(name) {
 			diag.errorAt(p.positionAt(posLp), "parsed name is nil")
-		} else if !name.closured() && !resolveObject() {
-			diag.errorOf(name, "name '%v' is unidentified", name)
+		} else if !name.expandible(expandClosure) && !resolveObject() {
+			diag.errorOf(name, "name '%v' is unidentified (project=%v)", name, p.project).
+				debug(optionDebugErrors, 1)
 		}
 
 		if  (tokLp == token.LPAREN && p.tok != token.RPAREN) ||
@@ -1134,7 +1153,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 			// &'xxxx' or &"xxxx"
 			if name = p.parseExpr(false); isNil(name) {
 				p.error(posLp, "parsed name is nil")
-			} else if !name.closured() && !resolveObject() {
+			} else if !name.expandible(expandClosure) && !resolveObject() {
 				diag.errorOf(name, "name '%v' is unidentified", name)
 			}
 		} else {
@@ -1160,9 +1179,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 }
 
 func (p *parser) parseSpecialClosureDelegate(lhs bool) Value {
-	if t_traverse.enabled {
-		defer un(trace(t_traverse, "SpecialClosureDelegate"))
-	}
+	if t_traverse.enabled { defer un(trace(t_traverse, "SpecialClosureDelegate")) }
 
 	var pos, tok, s = p.pos, p.tok, p.tok.String()[1:]
 	p._next()
@@ -1174,16 +1191,20 @@ func (p *parser) parseSpecialClosureDelegate(lhs bool) Value {
 		obj Object
 	)
 	if err != nil {
-		diag.errorOf(name, "resolve '%v' failed: %v", name, err)
+		diag.errorOf(name, "resolve '%v' failed: %v", name, err).
+			debug(optionDebugErrors, 1)
 		return MakeNil(position)
 	} else if resolved == nil {
-		diag.errorOf(name, "resolved '%v' is nil", name)
+		diag.errorOf(name, "resolved '%v' is nil", name).
+			debug(optionDebugErrors, 1)
 		return MakeNil(position)
 	} else if def, ok := resolved.(Caller); def == nil || !ok {
-		diag.errorOf(resolved, "resolved '%v' is not callable: %T", name, resolved)
+		diag.errorOf(resolved, "resolved '%v' is not callable: %T", name, resolved).
+			debug(optionDebugErrors, 1)
 		return MakeNil(position)
 	} else if obj, ok = def.(Object); obj == nil || !ok {
-		diag.errorOf(resolved, "resolved '%v' is not object: %T", name, def)
+		diag.errorOf(resolved, "resolved '%v' is not object: %T", name, def).
+			debug(optionDebugErrors, 1)
 		return MakeNil(position)
 	}
 
@@ -1237,8 +1258,8 @@ func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
 			return MakeNil(position)
 		}
 
-	case token.PCON:
-		return p.parsePathExpr(lhs, p.parsePathSeg())
+	case token.PCON: // The root of the path
+		return p.parsePathExpr(lhs, makePathSeg(p.position(), p.tok))
 
 	case token.LBRACK:
 		return p.parseModifiersExpr()
@@ -1266,8 +1287,10 @@ func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
 		}
 	}
 
-	position := p.position()
-	diag.errorAt(position, "'%v' bad unary expression (lit=%s,lhs=%v)", p.tok, p.lit, lhs).debug(optionDebugErrors)
+	var position = p.position()
+	diag.errorAt(position, "'%v' bad unary expression (lit=%s,lhs=%v)", p.tok, p.lit, lhs).
+		debug(optionDebugErrors)
+
 	p._next() // go to next token
 	return MakeNil(position)
 }
@@ -1385,20 +1408,33 @@ func (p *parser) parseExpr(lhs bool) (x Value) {
 			return
 		}
 
-		// further composing
-		var (
-			y = p.parseComposedExpr(lhs)
-			comp, ok = x.(*Barecomp)
-		)
-		if !ok || comp == nil {
-			comp = MakeBarecomp(x.Position(), x)
+		var y = p.parseComposedExpr(lhs)
+		if _, ok := y.(*Path); ok {
+			switch x.(type) {
+			case *Flag: // okay: -Ifoo/bar, -Lfoo/bar
+			case *Path: // okay: combine two paths
+			case *String, *Compound, *delegate, *closure:
+			default:
+				diag.warnOf(y, "barecomp a path: %v (%T), %v (%T) (next=%v)", x, x, y, y, p.tok).
+					debug(optionDebugErrors, 1)
+			}
+		}
+
+		// Further composing
+		switch t := x.(type) {
+		case *Barecomp: t.Combine(y)
+		case *Path: t.Combine(y)
+			if false { diag.infoAt(t.position, "%v (%v) (tok=%v)", t, y, p.tok) }
+		default:
+			comp := MakeBarecomp(x.Position(), x)
+			comp.Combine(y)
 			x = comp
 		}
-		comp.Combine(y)
 
-		// checking argumented after composed expression
+		// Keep trying composing as long as possible
 		switch p.tok {
-		case token.SELECT_PROG1, token.SELECT_PROG2, token.LPAREN:
+		case token.SPACE, token.LINEND, token.EOF: break
+		default: //case token.SELECT_PROG1, token.SELECT_PROG2, token.LPAREN:
 			goto SwitchCompose
 		}
 	}
@@ -1479,21 +1515,27 @@ func (p *parser) parseUseSpecProps(props []Value) (opts importspecoptions, param
     return
 }
 
+type useOpts struct {
+	reuse bool `r,reuse;r,reusing`
+	noFiles bool `n,nofiles;nf,no-files`
+}
 func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int) {
 	var props = p.parseDirectiveSpec()
 	p.imports = append(p.imports, &usespec{ props })
 	if generic.dontOperate { return }
 
-	var ( opts importoptions ; err error )
-	if _, err = parseFlags(generic.options, []string{
-		"r,reusing",
-		"n,nofiles",
-	}, func(ru rune, v Value) {
-		switch ru {
-		case 'r': if opts.allowReuse, err = trueVal(v, false); err != nil { diag.errorOf(v, "%v", err); return }
-		case 'p': if opts.noFiles   , err = trueVal(v, false); err != nil { diag.errorOf(v, "%v", err); return }
-		}
-	}); err != nil { return }
+	var (
+		uo useOpts
+		opts importoptions // allowReuse noFiles
+		err error
+	)
+	if _, err = parseOpts(p.position(), &uo, generic.options...); err != nil {
+		diag.errorAt(p.position(), "parse use opts failed: %v", err)
+		return
+	} else {
+		opts.allowReuse = uo.reuse
+		opts.noFiles = uo.noFiles
+	}
 
 	var (
         specOpts importspecoptions
@@ -1619,7 +1661,7 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 	} else {
 		var patsNew []Value
 		for _, pat := range pats {
-			if pat.closured() {
+			if pat.expandible(expandClosure) {
 				patsNew = append(patsNew, pat)
 			} else {
 				if v, err := mergeresult(ExpandAll(pat)); err != nil {
@@ -1647,15 +1689,20 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 		err error
 	)
 	if prop0 := props[0]; isNil(prop0) {
-		diag.errorAt(position, "illegal")
+		diag.errorAt(position, "illegal").
+			debug(optionDebugErrors, 1)
 	} else if position = prop0.Position(); !position.IsValid() {
-		diag.errorAt(position, "command name '%v' has invalid position", prop0)
+		diag.errorAt(position, "command name '%v' has invalid position", prop0).
+			debug(optionDebugErrors, 1)
 	} else if resolved, err = p.resolve(prop0); err != nil {
-		diag.errorAt(position, "resolve '%v' failed: %v", prop0, err)
+		diag.errorAt(position, "resolve '%v' failed: %v", prop0, err).
+			debug(optionDebugErrors, 1)
 	} else if isNil(resolved) {
-		diag.errorAt(position, "resolved '%v' is nil", prop0)
+		diag.errorAt(position, "resolved '%v' is nil", prop0).
+			debug(optionDebugErrors, 1)
 	} else if b, ok := resolved.(*Builtin); ok && (b.flag&builtinCommand) == 0 {
-		diag.errorAt(position, "resolved builtin '%v' is not a command: %T", prop0, resolved)
+		diag.errorAt(position, "resolved builtin '%v' is not a command: %T", prop0, resolved).
+			debug(optionDebugErrors, 1)
 	} else if !generic.dontOperate { //p.evalspec(spec)
         // At the point of `eval` was represented, the closure context
         // might be empty. So we start closure with the current scope.
@@ -1666,11 +1713,14 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
         default:
             var ( name string; err error )
             if name, err = op.Strval(); err != nil {
-                diag.errorAt(position, "strval '%s' failed: %v", op, err)
+                diag.errorAt(position, "strval '%s' failed: %v", op, err).
+					debug(optionDebugErrors, 1)
             } else if _, obj := p.scope.Find(name); obj == nil {
-                diag.errorAt(position, "`%s` undefined", name)
+                diag.errorAt(position, "`%s` undefined", name).
+					debug(optionDebugErrors, 1)
             } else if f, _ := obj.(Caller); f == nil {
-                diag.errorAt(position, "`%T` is not caller (%s)", obj, name)
+                diag.errorAt(position, "`%T` is not caller (%s)", obj, name).
+					debug(optionDebugErrors, 1)
             } else {
                 res = f.Call(position, props[1:]...)
             }
@@ -1869,12 +1919,11 @@ SwitchDialect:
 		p.scanner.LeaveCompoundLineContext()
 		p.next(true) // skip RECIPE or SEMICOLON and parse in list mode
 		if !p.isEndOfLine() {
+			defer p.setbit(p.setbit(parsingBuiltinCommand))
 			var (
 				isVal = p.dialect == "value"
-				bits = p.setbit(parsingBuiltinCommand)
 				x = p.parseExpr(!isVal) // parse first expr of recipe
 			)
-			p.setbits(bits) // restore bits
 			if isNil(x) {
 				diag.errorAt(position, "parsed value is nil")
 			} else if t, ok := x.(*Bareword); ok && !isVal {
@@ -2207,7 +2256,7 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 	} else {
 		var ta []Value
 		for _, t := range targets {
-			if t.closured() {
+			if t.expandible(expandClosure) {
 				if false { diag.infoOf(t, "target: %T %v", t, t) }
 				ta = append(ta, t)
 			} else if a, e := ExpandAll(t); e == nil {
@@ -2564,7 +2613,7 @@ func (p *parser) applyUseeVars(position Position, proj *Project, using Value) {
 }
 
 func (p *parser) parseFile() *parsedFile {
-	if optionTraceLaunch { defer un(trace(t_launch, "parser.parseFile")) }
+	if  optionTraceLaunch { defer un(trace(t_launch, "parser.parseFile")) }
 	if t_traverse.enabled { defer un(trace(t_traverse, "File '"+p.file.Name()+"'")) }
     if false { defer un(tracef(t_traverse, "parseFile(%s)", p.file.Name())) }
 
@@ -2776,6 +2825,9 @@ func (p *parser) parseFile() *parsedFile {
 			}
 			p.isLoadingBases = false
 			p.expect(token.RPAREN)
+		} else if pos := p.position(); !p.loadBases(pos, linfo) { // for special bases, e.g. .base
+			diag.errorAt(pos, "loading bases failed")
+			return nil
 		}
 		p.expectLinend()
 		if keyword != token.PACKAGE {

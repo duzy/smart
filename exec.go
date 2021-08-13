@@ -16,7 +16,6 @@ import (
   "os/exec"
   "path/filepath"
   "regexp"
-  "runtime/debug"
   "strconv"
   "strings"
   "sync"
@@ -365,8 +364,7 @@ func (p *ExecBuffer) runContainerAndRetry(pos Position, t *traversal, container 
 
 func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Project, sh *exec.Cmd, x *executor, num int, m *knownMatch) (status int, err error) {
   if p == nil {
-    diag.errorAt(pos, "nil exec buffer")
-    if optionPrintStack { debug.PrintStack() }
+    diag.errorAt(pos, "nil exec buffer").debug(optionDebugErrors,1)
     return
   }
   var lpos Position = pos
@@ -593,11 +591,13 @@ type executorEvaluateOpts struct {
   buffErr bool "e,stderr"
   stdin bool "i,stdin"
   silent bool "s,silent"
+  stamp bool `st,stamp;sf,stamp-file`
+  report bool `r,report;rs,report-stamp`
   noCD bool "n,nocd"
   path bool "p,path"
   scanStderr bool "a,scan"
   dump string "d,dump"
-  logFileName string "l,log"
+  logFileName *optFullname "l,log"
 }
 func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
   if optionTraceExecutor {
@@ -689,7 +689,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     if containerName  == "" { diag.errorAt(pos, ".container.name undefined") ; return }
     if containerImage, err = strval("image")    ; err != nil { diag.errorAt(pos, "%v", err); return }
     if containerImage == "" { diag.errorAt(pos, ".container.image undefined"); return }
-    if optionVerbose { fmt.Fprintf(stderr, "%v: container=%v, image=%v\n", container, containerName, containerImage) }
+    if options.verbose { fmt.Fprintf(stderr, "%v: container=%v, image=%v\n", container, containerName, containerImage) }
 
     aa = append(aa, "exec", containerName, cmd)
     cmd = "docker"
@@ -713,7 +713,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   }
 
   var targetName string
-  var target = t.def.target.value
+  var target = t.getCurrentTargetValue() //t.def.target.value
   if targetName, err = fullnameOrStrval(target); err != nil {
     diag.errorOf(target, "stringify target '%v' failed: %v", target, err)
     return
@@ -726,6 +726,19 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
         return
       }
     }
+  }
+
+  if t.isConfigureExecution {
+    // does nothing
+  } else if ms := t.program.getModifies("stamp"); len(ms) > 0 {
+    switch target.(type) {
+    case *Barefile, *File, *Path:
+      diag.warnAt(ms[0].position, "use (shell -stamp) instead of stamp modifier (%T %v)", target, target).
+        debug(optionDebugErrors, 1)
+    }
+  } else if !opts.stamp && !opts.silent {
+    diag.warnAt(pos, "add -stamp to (shell)").
+      debug(optionDebugErrors, 1)
   }
 
   var envars []*Pair // disclosed values
@@ -790,58 +803,67 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     envs = append(envs, fmt.Sprintf("%s=%s", k, v))
   }
 
-  var log ExecLog
   var logFile *os.File
-  var exeres = &ExecResult{valbase:valbase{pos},wg:new(sync.WaitGroup)}
+  var log = &ExecLog{ filename: opts.logFileName.string }
+  var exeres = &ExecResult{valbase:valbase{pos}, wg:new(sync.WaitGroup)}
   if opts.buffOut { exeres.Stdout.Buf = new(bytes.Buffer) }
   if opts.buffErr { exeres.Stderr.Buf = new(bytes.Buffer) }
   if opts.verbout { exeres.Stdout.Tie = stdout }
   if opts.verberr { exeres.Stderr.Tie = stderr }
-  if opts.logFileName == "" {
+  if log.filename == "" {
     // no log required
-  } else if err = os.MkdirAll(filepath.Dir(opts.logFileName), os.FileMode(0755)); err != nil {
+  } else if err = os.MkdirAll(filepath.Dir(log.filename), os.FileMode(0755)); err != nil {
     diag.errorAt(t.program.position, "%v", err)
     return
-  } else if logFile, err = os.Create(opts.logFileName); err != nil {
+  } else if logFile, err = os.Create(log.filename); err != nil {
     diag.errorAt(t.program.position, "%v", err)
     return
   } else {
     cmdline := strings.Join(sources, "\n")
     log.createWriter(logFile, dir, cmdline)
-    exeres.Stdout.log = &log
-    exeres.Stderr.log = &log
+    exeres.Stdout.log = log
+    exeres.Stderr.log = log
   }
 
   exeres.Stderr.scanerr = opts.scanStderr
-  log.filename = opts.logFileName
 
   var run = func() {
     var targetStr string
-    defer func(start time.Time) {
-      if err == nil {
-        if len(t.program.getModifies("stamp")) == 0 {
-          switch target.(type) {
-          case *Barefile, *File, *Path:
-            diag.warnAt(pos, "TODO: stamp %v after shell, stems=%v", target, t.stems).
-              debug(optionDebugErrors, 1)
-          }
-        }
-      }
+
+    defer func() {
       if log.writer != nil {
         if false && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
           // Discard empty log buffer.
           logFile.Close()
-          os.Remove(opts.logFileName)
+          os.Remove(log.filename)
         } else {
           log.writer.Flush()
           logFile.Close()
         }
       }
+      if t.caller != nil { t.caller.calleeDone(err) }
+      exeres.wg.Done()
+    } ()
+
+    defer func() {
+      if opts.stamp && !t.isConfigureExecution {
+          var files []*File
+          if files, err = target.stamp(t); err != nil {
+            var p = target.Position()
+            if !p.IsValid() { p = pos }
+            diag.errorAt(pos, "%v", err).debug(optionDebugErrors,1)
+            return
+          } else if opts.report {
+            reportFileUpdates(pos, t.start, files)
+          }
+      }
       if t.isConfigureExecution && err != nil {
         if false { diag.infoAt(pos, "configure exec failed: %v", err) }
         err = nil
+      } else if err != nil {
+        diag.errorAt(pos, "shell: %v", err).debug(optionDebugErrors,1)
+        return
       }
-      if c := t.caller; c != nil { c.calleeDone(err) }
       if opts.prompt {
         if t.caller == nil {
           if err == nil {
@@ -862,8 +884,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
           }
         }
       }
-      exeres.wg.Done()
-    } (time.Now())
+    } ()
 
     if n := diag.checkErrors(true); n > 0 {
       diag.errorAt(pos, "got %d error(s), cancel execution for %s",
@@ -884,7 +905,6 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
         fmt.Fprintf(stderr, "%s%s\n", opts.promStr, targetStr)
       }
     }
-    if opts.debug { fmt.Fprintf(stderr, "%s: %v (%v)\n", pos, cmd, t.def.target.value) }
     for i, src := range sources {
       var pos = positions[i]
       if false { fmt.Fprintf(stderr, "%s: %v\n", pos, src) }
@@ -910,7 +930,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
         src = fmt.Sprintf("%s && %s", envstr, src)
       }
 
-      if optionNoExec { continue }
+      if options.noExec { continue }
 
       if false {
         // Restricts the number of workers.
@@ -955,7 +975,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   if !opts.silent { printEnteringDirectory() }
   if t.caller != nil { t.caller.calleeStart() }
   exeres.wg.Add(1); go run()
-  if t.caller == nil { exeres.wg.Wait() }
+  if t.caller == nil || opts.stamp/*FIXME: it's a temporary solution */ { exeres.wg.Wait() }
 
   // The execution is performed asynchronously, the result can't
   // be fetched immediately. Caller should do a t.wait(...) or
