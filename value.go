@@ -702,10 +702,17 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
     for i, entry := range stemmedList {
         entry._target(t, target)
         if false && (strings.Contains(target, ".pb.cc") || strings.Contains(entry.String(), "%.pb.cc")) {
-            diag.warnAt(pos, "%v %v %T", target, entry, entry.target).debug(true,1)
+            diag.warnAt(pos, "%v %v %T", target, entry, entry.target).
+                debug(true,1)
+        }
+        if false && (
+            strings.Contains(target, "__algorithm/adjacent_find.h") ||
+                strings.Contains(entry.String(), "__algorithm/adjacent_find.h")) {
+            diag.warnAt(pos, "%v %v %T", target, entry, entry.target).
+                debug(true,1)
         }
         if /*entry._target(t, target);*/ !t.hasBreakers() {
-            // continue
+            okay = true; break // continue
         } else if nxts := t.breakersOf(breakNext); len(nxts) > 0 {
             t.breakers = t.breakersNot(breakNext);
             if false {
@@ -733,9 +740,6 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
             t.traceCallStack(entry.position, "unknown breakers for target %v (%v)", target, t.breakers[0].what).
                 debug(optionDebugErrors, 1)
             return
-        }
-        if false && strings.Contains(fmt.Sprintf("%s", entry), ".c.include") {
-            diag.warnOf(entry, "%v %v %v", entry, target, t.isConfigureExecution).debug(true, 1)
         }
     }
 
@@ -820,10 +824,6 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
         if optionTraceTraversal { t.tracef("project.FindFile: file=%v", file) }
     }
 
-    if false && strings.Contains(target, "/include/__availability") {
-        diag.warnAt(pos, "%v %v %v", okay, target, t.stems).debug(true,1)
-    }
-
     if err != nil {
         t.traceCallStack(pos, "%v: target(%v), file=%v: error: %v", t.project, target, file, err).
             debug(optionDebugErrors,1)
@@ -831,12 +831,26 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
         if optionTraceTraversal { t.tracef("%v: `target(%s)` not found (file=%v)", t.project, target, file) }
         if file != nil {
             if false { fmt.Fprintf(stderr, "%s: %s: %v (not found, sub=%s, dir=%s, cwd=%s) (traversal.target)\n", t.project, file.position, file.name, file.sub, file.dir, t.project.changedWD) }
+            if true {
+                diag.errorAt(file.position, "missing file %v", file)
+                diag.errorAt(file.position, "concrete: %v", concreteList)
+                diag.errorAt(file.position, "stemmed: %v", stemmedList)
+                diag.errorAt(file.position, "internal stack:").
+                    debug(optionDebugErrors, 64)
+            }
             t.traceCallStack(file.position, "traverse missing target file '%v' for %v", file, t.project).
                 debug(optionDebugErrors,1)
             brk := t._break(file.position, breakErro)
             brk.error = fileNotFoundError{t.project, file}
             t.breakers = append(t.breakers, brk)
         } else {
+            if true {
+                diag.errorAt(pos, "missing target %v", target)
+                diag.errorAt(pos, "concrete: %v", concreteList)
+                diag.errorAt(pos, "stemmed: %v", stemmedList)
+                diag.errorAt(pos, "internal stack:").
+                    debug(optionDebugErrors, 64)
+            }
             t.traceCallStack(pos, "traverse missing target '%v' for %v", target, t.project).
                 debug(optionDebugErrors,1)
             brk := t._break(pos, breakErro)

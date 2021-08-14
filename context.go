@@ -206,15 +206,20 @@ func (diag *Diagnostic) numErrors() (num int) {
 func (diag *Diagnostic) checkErrors(reset bool) (num int) {
   diag.m.Lock(); defer diag.m.Unlock()
   for _, d := range diag.points {
-    var pos = d.getPosition()
-    switch d.dt {
-    case diagPrompt:fmt.Fprintf(stderr, "%s",                    d.message)
-    case diagInfo:  fmt.Fprintf(stderr, "%v:info: %s\n",    pos, d.message)
-    case diagWarn:  fmt.Fprintf(stderr, "%v:warning: %s\n", pos, d.message)
-    case diagError: fmt.Fprintf(stderr, "%v: %s\n",         pos, d.message)
+    var (
+      msg = strings.TrimSpace(d.message)
+      pos = d.getPosition().String()
+    )
+    switch ; d.dt {
+    case diagPrompt: if msg != "" { fmt.Fprintf(stderr, "%s",    msg) }
+    case diagInfo:  fmt.Fprintf(stderr, "%v:info: %s\n",    pos, msg)
+    case diagWarn:  fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
+    case diagError: fmt.Fprintf(stderr, "%v: %s\n",         pos, msg)
       num += 1
     }
-    if d.stack != nil { fmt.Fprintf(stderr, "%s", d.stack) }
+    if len(d.stack) > 0 {
+      fmt.Fprintf(stderr, "%s", bytes.TrimSpace(d.stack))
+    }
     if num > 22 {
       fmt.Fprintf(stderr, "%v: too many errors (%d)\n", pos, num)
       break

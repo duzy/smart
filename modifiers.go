@@ -1196,10 +1196,17 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
                         debug(optionDebugErrors, 1)
         }
         if gc.verbose {
-                diag.prompt("smart: Grep %v …", t.def.target.value)
-                defer func(t time.Time) {
-                        diag.prompt("… (%d files, %v)\n", len(files), time.Now().Sub(t))
-                } (time.Now())
+                if false {
+                        diag.prompt("smart: Grep %v …", t.def.target.value)
+                        defer func(t time.Time) {
+                                diag.prompt("… (%d files, %v)\n", len(files), time.Now().Sub(t))
+                        } (time.Now())
+                } else {
+                        defer func(ts time.Time) {
+                                diag.prompt("smart: Grep %v …… (%d files, %v)\n",
+                                        t.def.target.value, len(files), time.Now().Sub(ts))
+                        } (time.Now())
+                }
         }
 
         if len(targets) == 0 { targets = append(targets, t.def.target.value) }
