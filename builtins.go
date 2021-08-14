@@ -1663,7 +1663,8 @@ func builtinSubst(pos Position, args... Value) (res Value) {
 
 type builtinPatsubstOpts struct {
         noFileMap bool `n,no-filemap`
-        full bool `full,fullname;ff,fullfile`
+        full bool `full,fullname`
+        fullfiles bool `ff,fullfile;ff,fullfiles`
         files bool `f,file;fs,files`
         filesOnly bool `fo,filesonly`
         cleanPath bool `c,clean;c,cleanpath`
@@ -1735,7 +1736,24 @@ func builtinPatsubst(pos Position, args... Value) (res Value) {
 ForSources:
         for _, src := range sources {
                 var source interface{} = src
-                if opts.full {
+                if opts.files || opts.fullfiles {
+                        var s string
+                        if file, ok := src.(*File); ok {
+                                source = file
+                        } else if s, err = src.Strval(); err != nil {
+                                diag.errorOf(src, "strval '%v' failed: %v", src, err)
+                                diag.errorAt(pos, "called from here", src).debug(optionDebugErrors, 1)
+                                return
+                        } else if file = proj.FindFile(s); file != nil {
+                                if (opts.full || opts.fullfiles) && !filepath.IsAbs(file.name) {
+                                        if !file.change("", "", file.fullname()) {
+                                                diag.warnAt(pos, "changing fullname failed: %v", file).
+                                                        debug(optionDebugErrors, 1)
+                                        }
+                                }
+                                source = file
+                        }
+                } else if opts.full {
                         var ( s string; ok bool )
                         if _, s, ok, err = asOptFullname(proj, src); err != nil {
                                 diag.errorOf(src, "fullname '%v' failed: %v", src, err)
@@ -1751,17 +1769,6 @@ ForSources:
                                 return
                         } else {
                                 source = s
-                        }
-                } else if opts.files {
-                        var s string
-                        if file, ok := src.(*File); ok {
-                                source = file
-                        } else if s, err = src.Strval(); err != nil {
-                                diag.errorOf(src, "strval '%v' failed: %v", src, err)
-                                diag.errorAt(pos, "called from here", src).debug(optionDebugErrors, 1)
-                                return
-                        } else if file = proj.FindFile(s); file != nil {
-                                source = file
                         }
                 }
 

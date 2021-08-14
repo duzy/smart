@@ -605,8 +605,8 @@ func (t *traversal) file(file *File) (okay bool) {
         if optionTraceTraversal { t.tracef("%v: file({%s,%s,%s}): not found", t.project, file.dir, file.sub, file.name) }
         if true {
             diag.errorAt(file.position, "missing file %v", file)
-            diag.errorAt(file.position, "concrete %v", concreteList)
-            diag.errorAt(file.position, "stemmed %v", stemmedList)
+            diag.errorAt(file.position, "concrete: %v", concreteList)
+            diag.errorAt(file.position, "stemmed: %v", stemmedList)
             diag.errorAt(file.position, "internal stack:").
                 debug(optionDebugErrors, 64)
         }
