@@ -1662,12 +1662,11 @@ func builtinSubst(pos Position, args... Value) (res Value) {
 }
 
 type builtinPatsubstOpts struct {
-        noFileMap bool `n,no-filemap`
         full bool `full,fullname`
         fullfiles bool `ff,fullfile;ff,fullfiles`
         files bool `f,file;fs,files`
-        filesOnly bool `fo,filesonly`
         cleanPath bool `c,clean;c,cleanpath`
+        noFileMap bool `n,no-filemap`
 }
 
 // $(patsubst pattern,replacement,text)

@@ -2837,13 +2837,13 @@ SegsLoop:
     return
 }
 func (p *Path) match(i interface{}) (full bool, result string, stems []string) {
-    var ( str string; err error )
     switch t := i.(type) {
-    case  string  : str = t
+    case  string  : return p.match1(t)
     case *filestub:
-        if full, result, stems = p.match1(t.name); !full && (t.dir != "" || t.sub != "") {
-            // NOTE: dont' do this fullname match in order to remain partial match results
-            if false { return p.match1(filepath.Join(t.dir, t.sub, t.name)) }
+        if full, result, stems = p.match1(t.name); full || result != "" {
+            return // NOTE: done if path fully or partially matched
+        } else if t.dir != "" || t.sub != "" {
+            return p.match1(filepath.Join(t.dir, t.sub, t.name))  // NOTE: matching the fullname form
         }
     case *File:
         if false {
@@ -2865,12 +2865,13 @@ func (p *Path) match(i interface{}) (full bool, result string, stems []string) {
                     return
                 }
             }
-        } else if full, result, stems = p.match1(t.name); !full && (t.dir != "" || t.sub != "") {
-            // NOTE: dont' do this fullname match in order to remain partial match results
-            if false { return p.match1(t.fullname()) }
+        } else if full, result, stems = p.match1(t.name); full || result != "" {
+            return // NOTE: done if path fully or partially matched
+        } else if t.dir != "" || t.sub != "" {
+            return p.match1(t.fullname()) // NOTE: matching the fullname form
         }
     case Value :
-        if str, err = t.Strval(); err != nil {
+        if str, err := t.Strval(); err != nil {
             diag.errorOf(t, "strval '%v' failed: %v", t, err).
                 debug(optionDebugErrors, 1)
         } else if str != "" {
@@ -4777,27 +4778,23 @@ func (p *PercPattern) match1(rep string) (full bool, result string, stems []stri
 func (p *PercPattern) match(i interface{}) (full bool, result string, stems []string) {
     if optionEnableBenchspots { defer bench(spot("PercPattern.match")) }
 
-    var ( rep string; err error )
     switch t := i.(type) {
-    case string:    return p.match1(t)
-    case *File:
-        if full, result, stems = p.match1(t.name); false && !full {
-            // NOTE: dont' do this fullname match in order to remain partial match results
-            if t.dir != "" || t.sub != "" {
-                return p.match1(t.fullname())
-            }
-        }
+    case string: return p.match1(t)
     case *filestub:
-        if full, result, stems = p.match1(t.name); false && !full {
-            // NOTE: dont' do this fullname match in order to remain partial match results
-            if t.dir != "" || t.sub != "" {
-                return p.match1(filepath.Join(t.dir, t.sub, t.name))
-            }
+        if full, result, stems = p.match1(t.name); full || result != "" {
+            return // NOTE: done if path fully or partially matched
+        } else if t.dir != "" || t.sub != "" {
+            return p.match1(filepath.Join(t.dir, t.sub, t.name))  // NOTE: matching the fullname form
+        }
+    case *File:
+        if full, result, stems = p.match1(t.name); full || result != "" {
+            return // NOTE: done if path fully or partially matched
+        } else if t.dir != "" || t.sub != "" {
+            return p.match1(t.fullname()) // NOTE: matching the fullname form
         }
     case Value:
-        if rep, err = t.Strval(); err != nil {
+        if rep, err := t.Strval(); err != nil {
             diag.errorOf(t, "strval '%v' failed: %v", t, err)
-            return
         } else { return p.match1(rep) }
     default:
         unreachable(fmt.Sprintf("perc.match: %T %v", i, i))

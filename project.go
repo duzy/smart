@@ -636,8 +636,9 @@ func (p *Project) resolvePatterns(i interface{}) (res []*stemmed) {
 func (p *Project) _resolvePatterns1(i interface{}) (res []*stemmed) {
   if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns1")) }
   for _, pat := range p.patterns {
-    var full, _, stems = pat.Pattern.match(i)
-    if full { res = append(res, &stemmed{pat, stems}) }
+    if full, _, stems := pat.Pattern.match(i); full {
+      res = append(res, &stemmed{pat, stems})
+    }
   }
   return
 }
