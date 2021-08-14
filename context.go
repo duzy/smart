@@ -207,7 +207,7 @@ func (diag *Diagnostic) checkErrors(reset bool) (num int) {
   diag.m.Lock(); defer diag.m.Unlock()
   for _, d := range diag.points {
     var (
-      msg = strings.TrimSpace(d.message)
+      msg = d.message
       pos = d.getPosition().String()
     )
     switch ; d.dt {
