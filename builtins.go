@@ -350,29 +350,29 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
         if l, ok = tag.Lookup("long" ); ok { long  = append(long , l) }
         if len(short) == 0 && len(long) == 0 {
                 var t = opt[:]
-                if i := strings.IndexRune(t, ','); i >= 0 {
-                        for {
-                                if j := strings.IndexAny(t[i+1:], "; "); j == 0 {
-                                        diag.errorAt(pos, "illform option tag: %s", t).
-                                                debug(optionDebugErrors)
-                                        return
-                                } else if j > 0 {
-                                        s, l = t[:i], t[i+1:i+1+j]
-                                        short, long = append(short, s), append(long, l)
-                                        t = t[i+1+j+1:]
-                                } else {
-                                        s, l = t[:i], t[i+1:]
-                                        short, long = append(short, s), append(long, l)
-                                        break
-                                }
+                for i := strings.IndexRune(t, ','); i >= 0; {
+                        if j := strings.IndexAny(t[i+1:], "; "); j == 0 {
+                                diag.errorAt(pos, "illform option tag: %s", t).
+                                        debug(optionDebugErrors)
+                                return
+                        } else if j > 0 {
+                                s, l = t[:i], t[i+1:i+1+j]
+                                short, long = append(short, s), append(long, l)
+                                t = t[i+1+j+1:]
+                                i = strings.IndexRune(t, ',')
+                        } else {
+                                s, l = t[:i], t[i+1:]
+                                short, long = append(short, s), append(long, l)
+                                break
                         }
-                } else {
+                }
+                if len(short) != len(long) || len(short) == 0 || len(long) == 0 {
                         diag.errorAt(pos, "illform option tag: %s", tag).
                                 debug(optionDebugErrors)
                         return
                 }
         }
-        if false { fmt.Fprintf(stderr, "%v -> %v %v\n", tag, short, long) }
+        if false { diag.infoAt(pos, "%v -> %v %v\n", tag, short, long).debug(true,1) }
         if len(short) != len(long) {
                 diag.errorAt(pos, "short and long option names not matching: %v, %v", short, long).
                         debug(/*optionDebugErrors*/true)
@@ -822,32 +822,82 @@ func builtinLess(pos Position, args... Value) (res Value) {
         return
 }
 
+type builtinMatchOpts struct {
+        regexps []*regexp.Regexp `r,reg;rx,regex;re,regexp`
+}
 // $(match rx1 rx2 rx3, a b c d...)
 func builtinMatch(pos Position, args... Value) (res Value) {
-        if n := len(args); n != 2 {
-                diag.errorAt(pos, "wrong number of arguments, try: $(match <regexp-list>,<value-list>)")
-                return
-        }
         var (
-                rexList = merge(args[0])
-                srcList = merge(args[1])
+                patList, valList []Value
+                opts builtinMatchOpts
                 err error
         )
-ForMatchValues:
-        for _, rexval := range rexList {
+        if n := len(args); n < 2 {
+                diag.errorAt(pos, "wrong arguments, try: $(match <regexp-list>,<value-list>,...)").
+                        debug(optionDebugErrors, 1)
+                return
+        } else if patList, err = mergeresult2(expandall2(expandAll, args[0])); err != nil {
+                diag.errorAt(pos, "expand '%v' failed: %v", args[0], err).
+                        debug(optionDebugErrors, 1)
+                return
+        } else if patList, err = parseOpts(pos, &opts, patList...); err != nil {
+                diag.errorAt(pos, "parse opts failed: %v", err).
+                        debug(optionDebugErrors, 1)
+                return
+        } else if valList, err = mergeresult2(expandall2(expandAll, args[1:]...)); err != nil {
+                diag.errorAt(pos, "expand value list failed: %v", err).
+                        debug(optionDebugErrors, 1)
+                return
+        }
+        /*
+ForPatList:
+        for _, pat := range patList {
                 var ( r *regexp.Regexp ; s string )
-                if s, err = rexval.Strval()  ; err != nil { diag.errorOf(rexval, "strval: %v" , err); return }
-                if r, err = regexp.Compile(s); err != nil { diag.errorOf(rexval, "compile: %v", err); return }
-                for _, srcval := range srcList {
-                        var src string
-                        if isNil(srcval) || isUndef(srcval) || isNone(srcval) {
-                                continue
-                        } else if src, err = srcval.Strval(); err != nil {
-                                diag.errorOf(srcval, "strval: %v", err)
+                if s, err = pat.Strval(); err != nil {
+                        diag.errorOf(pat, "strval '%v' failed: %v", pat, err).
+                                debug(optionDebugErrors, 1)
+                        return
+                } else if r, err = regexp.Compile(s); err != nil {
+                        diag.errorOf(pat, "compile regexp '%s' failed: %v", s, err).
+                                debug(optionDebugErrors, 1)
+                        return
+                }
+        ForValList:
+                for _, val := range valList {
+                        var str string
+                        if isNil(val) || isUndef(val) || isNone(val) {
+                                continue ForValList
+                        } else if str, err = val.Strval(); err != nil {
+                                diag.errorOf(val, "strval '%v' failed: %v", val, err).
+                                        debug(optionDebugErrors, 1)
                                 return
-                        } else if r.MatchString(src) {
+                        } else if r.MatchString(str) {
                                 res = MakeBoolean(pos, true)
-                                break ForMatchValues
+                                break ForPatList
+                        }
+                }
+        }*/
+ForValList:
+        for _, val := range valList {
+                if isNil(val) || isUndef(val) || isNone(val) {
+                        continue ForValList
+                }
+                var str string
+                if str, err = val.Strval(); err != nil {
+                        diag.errorOf(val, "strval '%v' failed: %v", val, err).
+                                debug(optionDebugErrors, 1)
+                        return
+                }
+                for _, rx := range opts.regexps {
+                        if rx.MatchString(str) {
+                                res = MakeBoolean(pos, true)
+                                break ForValList
+                        }
+                }
+                for _, pat := range patList {
+                        if matched, _, _ := pat.match(str); matched {
+                                res = MakeBoolean(pos, true)
+                                break ForValList
                         }
                 }
         }
