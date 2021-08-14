@@ -1663,6 +1663,9 @@ func builtinSubst(pos Position, args... Value) (res Value) {
 
 type builtinPatsubstOpts struct {
         noFileMap bool `n,no-filemap`
+        full bool `full,fullname;ff,fullfile`
+        files bool `f,file;fs,files`
+        filesOnly bool `fo,filesonly`
         cleanPath bool `c,clean;c,cleanpath`
 }
 
@@ -1675,12 +1678,29 @@ func builtinPatsubst(pos Position, args... Value) (res Value) {
         if len(args) < 3 { return }
 
         var (
+                proj = current()
                 opts builtinPatsubstOpts
                 arg0 []Value
                 err error
         )
-        if arg0, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return }
-        if arg0, err = parseOpts(pos, &opts, arg0...) ; err != nil { diag.errorAt(pos, "%v", err); return }
+        if proj == nil {
+                diag.errorAt(pos, "unknown current context").
+                        debug(optionDebugErrors,1)
+                return
+        }
+        if arg0, err = mergeresult(ExpandAll(args[0])); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err).
+                        debug(optionDebugErrors,1)
+                return
+        }
+        if arg0, err = parseOpts(pos, &opts, arg0...) ; err != nil {
+                diag.errorAt(pos, "parse opts failed: %v", err).
+                        debug(optionDebugErrors,1)
+                return
+        }
+
+        const infos = false
+        //var infos = proj.name == "headers"
 
         // TODO: support flags -name and -full for name-only and full-name-only matching
         var srcPats, dstPats, sources []Value
@@ -1688,16 +1708,22 @@ func builtinPatsubst(pos Position, args... Value) (res Value) {
                 srcPats = arg0
                 if dstPats, err = mergeresult(ExpandAll(args[1]))    ; err != nil { diag.errorAt(pos, "%v", err); return }
                 if sources, err = mergeresult(ExpandAll(args[2:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
+                if infos {
+                        diag.infoAt(pos, "src: %v", srcPats)
+                        diag.infoAt(pos, "dst: %v", dstPats)
+                        diag.infoAt(pos, "%v", sources).
+                                debug(optionDebugErrors,1)
+                }
         } else {
                 if srcPats, err = mergeresult(ExpandAll(args[1]))    ; err != nil { diag.errorAt(pos, "%v", err); return }
                 if dstPats, err = mergeresult(ExpandAll(args[2]))    ; err != nil { diag.errorAt(pos, "%v", err); return }
                 if sources, err = mergeresult(ExpandAll(args[3:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
-        }
-
-        var proj = current()
-        if proj == nil {
-                diag.errorAt(pos, "unknown most derived context")
-                return
+                if infos {
+                        diag.infoAt(pos, "src: %v", srcPats)
+                        diag.infoAt(pos, "dst: %v", dstPats)
+                        diag.infoAt(pos, "%v", sources).
+                                debug(optionDebugErrors,1)
+                }
         }
 
         // Using the most derived context for correct &(...)
@@ -1708,9 +1734,46 @@ func builtinPatsubst(pos Position, args... Value) (res Value) {
 
 ForSources:
         for _, src := range sources {
-                var ( matched bool; stems []string )
+                var source interface{} = src
+                if opts.full {
+                        var ( s string; ok bool )
+                        if _, s, ok, err = asOptFullname(proj, src); err != nil {
+                                diag.errorOf(src, "fullname '%v' failed: %v", src, err)
+                                diag.errorAt(pos, "called from here", src).debug(optionDebugErrors, 1)
+                                return
+                        } else if s == "" {
+                                diag.errorOf(src, "fullname '%v' is empty", src)
+                                diag.errorAt(pos, "called from here", src).debug(optionDebugErrors, 1)
+                                return
+                        } else if !ok {
+                                diag.errorOf(src, "fullname '%v' failed", src)
+                                diag.errorAt(pos, "called from here", src).debug(optionDebugErrors, 1)
+                                return
+                        } else {
+                                source = s
+                        }
+                } else if opts.files {
+                        var s string
+                        if file, ok := src.(*File); ok {
+                                source = file
+                        } else if s, err = src.Strval(); err != nil {
+                                diag.errorOf(src, "strval '%v' failed: %v", src, err)
+                                diag.errorAt(pos, "called from here", src).debug(optionDebugErrors, 1)
+                                return
+                        } else if file = proj.FindFile(s); file != nil {
+                                source = file
+                        }
+                }
+
+                var ( matched bool; str string; stems []string )
+        ForSrcPats:
                 for _, elem := range srcPats {
-                        if matched, _, stems = elem.match(src); matched { break }
+                        if matched, str, stems = elem.match(source); matched {
+                                break ForSrcPats
+                        } else if infos {
+                                diag.infoAt(pos, "source=%v (%T) elem=%v (%T) str=%s stems=%v",
+                                        source, source, elem, elem, str, stems).debug(true,1)
+                        }
                 }
                 if !matched {
                         // Just return the src if no matching.
@@ -2256,14 +2319,7 @@ func fullnameOrStrval(a Value) (s string, err error) {
 // see optFullname and parseOpt
 func asOptFullname(proj *Project, val Value) (rp *Project, s string, ok bool, e error) {
         if proj == nil { proj = current() }
-        /*var x Value
-        if x, e = val.expand(expandAll); e != nil {
-                diag.errorOf(val, "expand option '%v' failed: %v", v, e).
-                        debug(optionDebugErrors,1)
-        } else if isNil(x) || isNone(x) {
-                diag.errorOf(val, "expecting file value: %T %v", v, v).
-                        debug(optionDebugErrors,1)
-        } else */if s, ok = fullname(val); ok {
+        if s, ok = fullname(val); ok {
                 // done
         } else if proj == nil {
                 diag.errorOf(val, "no current project to find file '%v'", val).

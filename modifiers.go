@@ -1004,7 +1004,7 @@ func (t *traversal) grepTargetFile(pos Position, gc *grepctx) (err error) {
         return
 }
 
-func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
+func (t *traversal) grep(pos Position, gc *grepctx) (err error) {
         var targetName string
         switch v := gc.target.(type) {
         case *File:
@@ -1056,7 +1056,7 @@ func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
                 }
                 if t.grepped = append(t.grepped, files...); gc.recursive {
                         for _, gc.target = range files {
-                                if err = t.grepFiles(pos, gc); err != nil {
+                                if err = t.grep(pos, gc); err != nil {
                                         diag.errorAt(pos, "grep files: %v", err)
                                         break
                                 }
@@ -1075,7 +1075,7 @@ func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
                 if gc.recursive && len(touch.files) > 0 {
                         for _, gc.target = range touch.files {
                                 t.grepped = append(t.grepped, gc.target)
-                                if err = t.grepFiles(pos, gc); err != nil {
+                                if err = t.grep(pos, gc); err != nil {
                                         diag.errorAt(pos, "grep files (deferred): %v", err)
                                         break
                                 }
@@ -1141,15 +1141,15 @@ func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
 var stopgrep = 0
 
 type modifierGrepFilesOpts struct {
-        discard bool `c,discard;c,discard-missing`
         debug bool `d,debug`
-        sys []string `s,sys;s,system`
-        reg []string `x,regex`
-        langs []string `l,lang`
-        touch bool `t,touch;t,touch-outdate;t,touch-outdated`
         verbose bool `v,verbose`
-        recursive bool `r,recursive`
-        noTraverse bool `n,notraverse;n,no-traverse`
+        discard bool `c,cast;dc,discard;dm,discard-missing;im,ignore-missing`
+        sys []string `s,sys;ss,system`
+        reg []string `re,reg;regx,regex;x,rx`
+        langs []string `l,lang;lan,language`
+        touch bool `t,touch;t,touch-outdate;t,touch-outdated`
+        recursive bool `a,all;r,recur;rr,recursive`
+        noTraverse bool `n,notraverse;nt,no-traverse;go,grep-only`
 }
 // grep-files - grep files from target, example usage:
 //
@@ -1159,18 +1159,21 @@ type modifierGrepFilesOpts struct {
 func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value, err error) {
         var gc grepctx
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                diag.errorAt(pos, "merge grep-files args failed: %v", err)
+                diag.errorAt(pos, "merge grep-files args failed: %v", err).
+                        debug(optionDebugErrors, 1)
                 return
         }
         if args, err = parseOpts(pos, &gc.modifierGrepFilesOpts, args...); err != nil {
-                diag.errorAt(pos, "parse grep-files args failed: %v", err)
+                diag.errorAt(pos, "parse grep-files args failed: %v", err).
+                        debug(optionDebugErrors, 1)
                 return
         }
         for _, s := range gc.sys { gc.rxs = append(gc.rxs, &greprex{s, true , nil}) }
         for _, s := range gc.reg { gc.rxs = append(gc.rxs, &greprex{s, false, nil}) }
         for _, s := range gc.langs {
                 if info, ok := langInfos[s]; !ok || info == nil {
-                        diag.errorAt(pos, "lang '%s' is unknown", s)
+                        diag.errorAt(pos, "lang '%s' is unknown", s).
+                                debug(optionDebugErrors, 1)
                         return
                 } else {
                         for _, re := range info.rxs { gc.rxs = append(gc.rxs, &greprex{re, false, nil}) }
@@ -1178,21 +1181,27 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
                 }
         }
         if len(gc.rxs) == 0 {
-                diag.errorAt(pos, "no grep expressions: %v %v %v %v", gc.sys, gc.reg, gc.langs, args)
+                diag.errorAt(pos, "no grep expressions: %v %v %v %v", gc.sys, gc.reg, gc.langs, args).
+                        debug(optionDebugErrors, 1)
                 return
         }
 
-        var files []Value
+        var (
+                files []Value
+                targets = args
+                grepped = t.grepped
+        )
+        if gc.debug {
+                diag.warnAt(pos, "grep-files: %v %v %v\n", t.def.target.value, gc.rxs, args).
+                        debug(optionDebugErrors, 1)
+        }
         if gc.verbose {
-                if gc.debug { fmt.Fprintf(stderr, "%s: grep-files: %v %v %v\n", pos, t.def.target.value, gc.rxs, args) }
-                fmt.Fprintf(stderr, "smart: Grep %v …", t.def.target.value)
+                diag.prompt("smart: Grep %v …", t.def.target.value)
                 defer func(t time.Time) {
-                        d := time.Now().Sub(t)
-                        fmt.Fprintf(stderr, "… (%d files, %v)\n", len(files), d)
+                        diag.prompt("… (%d files, %v)\n", len(files), time.Now().Sub(t))
                 } (time.Now())
         }
 
-        var ( targets = args; grepped = t.grepped )
         if len(targets) == 0 { targets = append(targets, t.def.target.value) }
 ForTarget:
         for i, target := range targets {
@@ -1209,8 +1218,9 @@ ForTarget:
 
                 gc.target = target
                 t.grepped = nil
-                if err = t.grepFiles(pos, &gc); err != nil {
-                        diag.errorAt(pos, "grep files from %v failed: %v", target, err)
+                if err = t.grep(pos, &gc); err != nil {
+                        diag.errorAt(pos, "grep files from %v failed: %v", target, err).
+                                debug(optionDebugErrors, 1)
                         return
                 }
                 if !gc.noTraverse && len(t.grepped) > 0 {
@@ -1227,7 +1237,8 @@ ForTarget:
                                                         }
                                                 }
                                         }
-                                        diag.errorAt(pos, "broken grep traversal '%v'", val)
+                                        diag.errorAt(pos, "broken grep traversal '%v'", val).
+                                                debug(optionDebugErrors, 1)
                                         break ForTarget
                                 }
                         }
@@ -1237,15 +1248,20 @@ ForTarget:
         t.grepped = grepped
 
         if err != nil {
-                diag.errorAt(pos, "grep-files error: %v", err)
+                diag.errorAt(pos, "grep-files: %v", err).
+                        debug(optionDebugErrors, 1)
         } else if !gc.noTraverse {
-                if false && gc.debug { fmt.Fprintf(stderr, "%s: %v\n", pos, t.grepped) }
                 t.def.grepped.value = MakeNone(pos)
                 t.grepped = nil
         } else {
                 result = MakeListOrScalar(pos, t.grepped)
         }
         return
+}
+
+type modifierGrepOpts struct {
+        files bool `f,file;fi,files`
+        string bool `s,str;sv,strings;v,value`
 }
 
 // grep - grep from target file, flags:
@@ -1259,7 +1275,19 @@ ForTarget:
 //      
 // https://github.com/google/re2/wiki/Syntax
 func modifierGrep(pos Position, t *traversal, args... Value) (result Value, err error) {
-        diag.errorAt(pos, "unimplemented grep %v", args)
+        var opts modifierGrepOpts
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "merge grep args failed: %v", err).
+                        debug(optionDebugErrors, 1)
+                return
+        }
+        if args, err = parseOpts(pos, &opts, args...); err != nil {
+                diag.errorAt(pos, "parse grep args failed: %v", err).
+                        debug(optionDebugErrors, 1)
+                return
+        }
+        diag.errorAt(pos, "unimplemented grep %v", args).
+                debug(optionDebugErrors, 1)
         return
 }
 

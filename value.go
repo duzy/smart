@@ -1008,6 +1008,13 @@ func (t *traversal) wait(pos Position, opts ...bool) (target Value, files []*Fil
     var errs = t.calleeErrs
     t.calleeErrs = nil
     t.calleeErrsM.Unlock()
+
+    if target = t.getCurrentTargetValue(); isNil(target) {
+        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target).
+            debug(optionDebugErrors,1)
+        return
+    }
+
     if n := len(errs); n > 0 /*&& t.stems == nil*/ {
         var (
             targetPos = t.def.target.Position()
@@ -1029,7 +1036,7 @@ func (t *traversal) wait(pos Position, opts ...bool) (target Value, files []*Fil
             var s string
             if n > 1 { s = "s" }
             diag.errorAt(targetPos, "%d error%s while waiting prerequisites for '%v'",
-                n, s, target)
+                n, s, target).debug(optionDebugErrors, 1)
         }
         var (
             v = target
@@ -1063,12 +1070,6 @@ func (t *traversal) wait(pos Position, opts ...bool) (target Value, files []*Fil
             diag.infoAt(pos, "%v: %v", target, err)
         }
     }*/
-
-    if target = t.getCurrentTargetValue(); isNil(target) {
-        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target).
-            debug(optionDebugErrors,1)
-        return
-    }
 
     var (
         optReportFileUpdates = len(opts) > 0 && opts[0]
@@ -2839,7 +2840,11 @@ func (p *Path) match(i interface{}) (full bool, result string, stems []string) {
     var ( str string; err error )
     switch t := i.(type) {
     case  string  : str = t
-    case *filestub: str = t.name
+    case *filestub:
+        if full, result, stems = p.match1(t.name); !full && (t.dir != "" || t.sub != "") {
+            // NOTE: dont' do this fullname match in order to remain partial match results
+            if false { return p.match1(filepath.Join(t.dir, t.sub, t.name)) }
+        }
     case *File:
         if false {
             for stub := t.filestub; true; stub = stub.other {
@@ -2860,18 +2865,20 @@ func (p *Path) match(i interface{}) (full bool, result string, stems []string) {
                     return
                 }
             }
-        } else { str = t.name }
-    case Value : if str, err = t.Strval(); err != nil {
-        diag.errorOf(t, "strval '%v' failed: %v", t, err).
-            debug(optionDebugErrors, 1)
-        return }
+        } else if full, result, stems = p.match1(t.name); !full && (t.dir != "" || t.sub != "") {
+            // NOTE: dont' do this fullname match in order to remain partial match results
+            if false { return p.match1(t.fullname()) }
+        }
+    case Value :
+        if str, err = t.Strval(); err != nil {
+            diag.errorOf(t, "strval '%v' failed: %v", t, err).
+                debug(optionDebugErrors, 1)
+        } else if str != "" {
+            return p.match1(str)
+        }
     default:
         diag.errorAt(p.position, "matching unsupport value: %T %v", i, i).
             debug(optionDebugErrors, 8)
-        return
-    }
-    if str != "" {
-        full, result, stems = p.match1(str)
     }
     return
 }
@@ -3396,7 +3403,8 @@ func (p *File) match(i interface{}) (full bool, s string, stems []string) {
         if !(isNil(t) || isNone(t)) {
             var ( v string; e error )
             if v, e = t.Strval(); e != nil {
-                diag.errorOf(t, "strval '%v' failed: %v", t, e)
+                diag.errorOf(t, "strval '%v' failed: %v", t, e).
+                    debug(optionDebugErrors,1)
             } else if name := p.name; name == v {
                 s, full = p.name, true
             } else if name = filepath.Join(p.sub, p.name); name == v {
@@ -4677,25 +4685,10 @@ func (p *PercPattern) elemstr(o Object, k elemkind) (s string) {
     return
 }
 func (p *PercPattern) patterned() bool { return true }
-func (p *PercPattern) match(i interface{}) (full bool, result string, stems []string) {
+func (p *PercPattern) match1(rep string) (full bool, result string, stems []string) {
     if optionEnableBenchspots { defer bench(spot("PercPattern.match")) }
 
-    var err error
-    var rep string // representation
-    switch t := i.(type) {
-    case string:    rep = t
-    case *File:     rep = t.name
-    case *filestub: rep = t.name
-    case Value:
-        if rep, err = t.Strval(); err != nil {
-            diag.errorOf(t, "strval '%v' failed: %v", t, err)
-            return
-        }
-    default:
-        unreachable(fmt.Sprintf("perc.match: %T %v", i, i))
-    }
-
-    var prefix string
+    var ( prefix string; err error )
     if !(isNil(p.Prefix) || isNone(p.Prefix)) {
         // FIXME: the prefix could be Glob, Regexp, etc.
         if prefix, err = p.Prefix.Strval(); err != nil {
@@ -4778,6 +4771,36 @@ func (p *PercPattern) match(i interface{}) (full bool, result string, stems []st
         }
     } else {
         // does nothing
+    }
+    return
+}
+func (p *PercPattern) match(i interface{}) (full bool, result string, stems []string) {
+    if optionEnableBenchspots { defer bench(spot("PercPattern.match")) }
+
+    var ( rep string; err error )
+    switch t := i.(type) {
+    case string:    return p.match1(t)
+    case *File:
+        if full, result, stems = p.match1(t.name); false && !full {
+            // NOTE: dont' do this fullname match in order to remain partial match results
+            if t.dir != "" || t.sub != "" {
+                return p.match1(t.fullname())
+            }
+        }
+    case *filestub:
+        if full, result, stems = p.match1(t.name); false && !full {
+            // NOTE: dont' do this fullname match in order to remain partial match results
+            if t.dir != "" || t.sub != "" {
+                return p.match1(filepath.Join(t.dir, t.sub, t.name))
+            }
+        }
+    case Value:
+        if rep, err = t.Strval(); err != nil {
+            diag.errorOf(t, "strval '%v' failed: %v", t, err)
+            return
+        } else { return p.match1(rep) }
+    default:
+        unreachable(fmt.Sprintf("perc.match: %T %v", i, i))
     }
     return
 }

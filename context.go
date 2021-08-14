@@ -156,14 +156,20 @@ func (diag *Diagnostic) add(point *diagnostic) *diagnostic {
   return point
 }
 func (diag *Diagnostic) infoOf(value Value, f string, args... interface{}) *diagnostic {
-  return diag.add(&diagnostic{ diagInfo, value.Position(), value, fmt.Sprintf(f, args...), nil })
+  var pos Position
+  if value != nil { pos = value.Position() }
+  return diag.add(&diagnostic{ diagInfo, pos, value, fmt.Sprintf(f, args...), nil })
 }
 func (diag *Diagnostic) warnOf(value Value, f string, args... interface{}) *diagnostic {
-  return diag.add(&diagnostic{ diagWarn, value.Position(), value, fmt.Sprintf(f, args...), nil })
+  var pos Position
+  if value != nil { pos = value.Position() }
+  return diag.add(&diagnostic{ diagWarn, pos, value, fmt.Sprintf(f, args...), nil })
 }
 func (diag *Diagnostic) errorOf(value Value, f string, args... interface{}) *diagnostic {
+  var pos Position
   var s = fmt.Sprintf(f, args...)
-  return diag.add(&diagnostic{ diagError, value.Position(), value, s, nil })
+  if value != nil { pos = value.Position() }
+  return diag.add(&diagnostic{ diagError, pos, value, s, nil })
 }
 func (diag *Diagnostic) infoAt(pos Position, f string, args... interface{}) *diagnostic {
   return diag.add(&diagnostic{ diagInfo, pos, nil, fmt.Sprintf(f, args...), nil })

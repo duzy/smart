@@ -745,13 +745,17 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   if def, _ := t.program.scope.Lookup(TheShellEnvarsDef).(*Def); def != nil {
     if l, _ := def.value.(*List); l != nil {
       for _, v := range l.Elems {
-        if v, err = v.expand(expandClosure); err != nil {
+        var t Value
+        if t, err = v.expand(expandClosure); err != nil {
           diag.errorOf(v, "expand value '%v' failed: %v", v, err);
           return
-        } else if p, ok := v.(*Pair); ok {
+        } else if isNil(t) {
+          t = v
+        }
+        if p, ok := t.(*Pair); ok {
           envars = append(envars, p)
         } else {
-          diag.errorOf(v, "env expecting pairs: %T", v);
+          diag.errorOf(t, "env expecting pairs: %T", t);
           return
         }
       }
@@ -847,15 +851,16 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
 
     defer func() {
       if opts.stamp && !t.isConfigureExecution {
-          var files []*File
-          if files, err = target.stamp(t); err != nil {
-            var p = target.Position()
-            if !p.IsValid() { p = pos }
-            diag.errorAt(pos, "%v", err).debug(optionDebugErrors,1)
-            return
-          } else if opts.report {
-            reportFileUpdates(pos, t.start, files)
-          }
+        var files []*File
+        if files, err = target.stamp(t); err != nil {
+          var p = target.Position()
+          if !p.IsValid() { p = pos }
+          diag.errorAt(pos, "%v", err).
+            debug(optionDebugErrors,1)
+          return
+        } else if opts.report {
+          reportFileUpdates(pos, t.start, files)
+        }
       }
       if t.isConfigureExecution && err != nil {
         if false { diag.infoAt(pos, "configure exec failed: %v", err) }
