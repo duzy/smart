@@ -715,14 +715,16 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   var targetName string
   var target = t.getCurrentTargetValue() //t.def.target.value
   if targetName, err = fullnameOrStrval(target); err != nil {
-    diag.errorOf(target, "stringify target '%v' failed: %v", target, err)
+    diag.errorOf(target, "stringify target '%v' failed: %v", target, err).
+      debug(optionDebugErrors, 1)
     return
   }
   if opts.path {
     var s string
     if s = filepath.Dir(targetName); s != "" && s != "." && s != "/" {
       if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
-        diag.errorOf(target, "make path '%s' for target failed: %v", s, err)
+        diag.errorOf(target, "make path '%s' for target failed: %v", s, err).
+          debug(optionDebugErrors, 1)
         return
       }
     }
@@ -747,15 +749,15 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
       for _, v := range l.Elems {
         var t Value
         if t, err = v.expand(expandClosure); err != nil {
-          diag.errorOf(v, "expand value '%v' failed: %v", v, err);
+          diag.errorOf(v, "expand value '%v' failed: %v", v, err).
+            debug(optionDebugErrors, 1)
           return
-        } else if isNil(t) {
-          t = v
-        }
+        } else if isNil(t) { t = v }
         if p, ok := t.(*Pair); ok {
           envars = append(envars, p)
         } else {
-          diag.errorOf(t, "env expecting pairs: %T", t);
+          diag.errorOf(t, "env expecting pairs: %T", t).
+            debug(optionDebugErrors, 1)
           return
         }
       }

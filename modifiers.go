@@ -356,7 +356,11 @@ func modifierEnv(pos Position, t *traversal, args... Value) (result Value, err e
 //     [(set name)]          clear $(name)
 //     [(set -)]             clear $-
 func modifierSet(pos Position, t *traversal, args... Value) (result Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err).
+                        debug(optionDebugErrors,1)
+                return
+        }
         var defs []Value
         var none = MakeNone(pos)
 ForArgs:
@@ -369,25 +373,33 @@ ForArgs:
                         if name, err = a.Key.Strval(); err == nil {
                                 // Note that Pair.Value is not expanded yet!
                                 // We need to expand the value explicitly.
-                                value, err = a.Value.expand(expandAll)
+                                if value, err = a.Value.expand(expandAll); err != nil {
+                                        diag.errorAt(pos, "expand value '%v' failed: %v", a.Value, err).
+                                                debug(optionDebugErrors,1)
+                                        return
+                                } else if isNil(value) { value = a.Value }
                         }
                 case *Flag:
-                        if name, err = a.name.Strval(); err == nil {
-                                if value = none; name == "" { name = "-" }
-                        }
+                        if name, err = a.name.Strval(); err != nil {
+                                diag.errorAt(pos, "strval '%v' failed: %v", a.name, err).
+                                        debug(optionDebugErrors, 1)
+                                return
+                        } else if value = none; name == "" { name = "-" }
                 default:
-                        diag.errorAt(pos, "%T `%s` is unsupported (try: foo=value)", arg, arg)
+                        diag.errorAt(pos, "%T `%s` is unsupported (try: foo=value)", arg, arg).
+                                debug(optionDebugErrors, 1)
+                        return
                 }
                 if def := t.program.scope.FindDef(name); def == nil {
-                        diag.errorAt(pos, "`%s` no such def", name)
+                        diag.errorAt(pos, "`%s` no such def", name).
+                                debug(optionDebugErrors, 1)
                         break ForArgs
+                } else if err = def.set(DefDefault, value); err != nil {
+                        diag.errorAt(pos, "`%s` no such def", name).
+                                debug(optionDebugErrors, 1)
+                        return
                 } else {
-                        def.set(DefDefault, value)
                         defs = append(defs, def)
-                }
-                if err != nil {
-                        diag.errorAt(pos, "%v", err)
-                        break ForArgs
                 }
         }
         if len(defs) > 0 { result = MakeListOrScalar(pos, defs) }

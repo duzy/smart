@@ -8,7 +8,7 @@ package smart
 
 import (
         "extbit.io/smart/token"
-        "runtime/debug"
+        //"runtime/debug"
         "os/exec"
         "strings"
         "strconv"
@@ -315,7 +315,7 @@ func (d *Def) expand(w expandwhat) (res Value, err error) {
                 diag.errorOf(d.value, "expand '%v' failed: %v", d.value, err).
                         debug(optionDebugErrors, 1)
         } else if w&expandDef != 0 {
-                res = value
+                if isNil(value) { res = d.value } else { res = value }
         } else if !isNil(value) && value != d.value {
                 res = &Def{ d.knownobject, d.origin, value }
         }
@@ -347,8 +347,8 @@ func (d *Def) set(origin Origin, value Value) (err error) {
                 if !pos.IsValid() && d.value != nil { pos = d.value.Position() }
                 diag.errorAt(pos, "value refers to assigning Def '%s': %v (%T)", d.name, value, value)
 
-                if options.verbose { fmt.Fprintf(stderr, "%v\n", err) }
-                if options.debug { debug.PrintStack() }
+                if options.verbose { diag.prompt("set %s (%v): %v\n", origin, d.name, value) }
+                if options.debug { diag.infoAt(pos, "from here").debug(optionDebugErrors,1) }
                 return
         } else if origin != DefExecute && isNil(value) {
                 value = MakeNone(d.position)
@@ -368,31 +368,10 @@ func (d *Def) set(origin Origin, value Value) (err error) {
                 } else { d.value = MakeListOrScalar(value.Position(), elems) }
                 /*
         case DefExecute:
-                var (
-                        cmd string
-                        stdout, stderr bytes.Buffer
-                )
-                if isNone(value) || isNil(value) {
-                        d.value = nil
-                } else if cmd, err = value.Strval(); err != nil {
-                        diag.errorOf(value, "%v: stringify value '%v' failed: %v", d.origin, value, err)
-                        d.value = MakeNone(value.Position())
-                } else {
-                        // TODO: possibility to run command in the specified container
-                        sh := exec.Command("sh", "-c", cmd)
-                        sh.Stdout, sh.Stderr = &stdout, &stderr
-
-                        var pos = value.Position()
-                        if err = sh.Run(); err != nil {
-                                diag.errorOf(value, "%v: execute command '%v' failed: %v", d.origin, cmd, err)
-                                value = MakeNone(pos)
-                        } else {
-                                value = MakeString(pos, strings.TrimSpace(stdout.String()))
-                        }
-                        stdout.Reset()
-                        stderr.Reset()
-                        d.origin = DefExecuted
-                        d.value = value
+                if err = d.execute(); err != nil {
+                        diag.errorOf(value, "%v: stringify value '%v' failed: %v", d.origin, value, err).
+                                debug(optionDebugErrors,1)
+                        return
                 }*/
         default: // DefVoid, DefDefault, DefArg, etc.
                 d.value = value
@@ -512,8 +491,11 @@ func (d *Def) Call(pos Position, a... Value) (res Value) {
 
 func (d *Def) DiscloseValue() (res Value, err error) {
         if d.value != nil {
-                if res, err = d.value.expand(expandClosure); err != nil { return }
-                if res == nil { res = d.value }
+                if res, err = d.value.expand(expandClosure); err != nil {
+                        diag.errorAt(d.position, "expand '%v' failed: %v", d.value, err).
+                                debug(optionDebugErrors, 1)
+                        return
+                } else if isNil(res) { res = d.value }
         }
         return
 }

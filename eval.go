@@ -14,6 +14,13 @@ import (
 type evaluer struct { accumulation bool }
 
 func (p *evaluer) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
+        if false && len(t.program.recipes) > 0 {
+                defer func() {
+                        diag.warnAt(pos, "%v", t.program.recipes)
+                        diag.warnAt(pos, "result=%v", result).
+                                debug(true,1)
+                } ()
+        }
         var list []Value
 ForRecipes:
         for _, recipe := range t.program.recipes {
@@ -21,14 +28,17 @@ ForRecipes:
                         var v Value
                         // Expand both closures and delegates to ensure that
                         // the right recipe value is returned.
-                        if v, err = recipe.expand(expandAll|expandPairVal); err != nil { return } else {
-                                list = append(list, v)
-                        }
+                        if v, err = recipe.expand(expandAll|expandPairVal); err != nil {
+                                diag.errorAt(pos, "expand recipe failed: %v", err).
+                                        debug(optionDebugErrors,1)
+                                return
+                        } else if isNil(v) { v = recipe }
+                        list = append(list, v)
                         continue ForRecipes
                 }
 
                 switch stmt := recipe.(type) {
-                case *None:
+                case *Nil, *None, *unresolvedobject:
                 case *List:
                         if stmt.Len() == 0 { continue ForRecipes }
 
@@ -53,12 +63,17 @@ ForRecipes:
                                                 var s string
                                                 if brk.message != "" { s = brk.message }
                                                 if brk.error != nil { s += fmt.Sprintf(" (error: %s)", brk.error) }
-                                                diag.errorAt(brk.pos, "eval '%v' breaked: (%s) %s", stmt, brk.what, s)
+                                                diag.errorAt(brk.pos, "eval '%v' breaked: (%s) %s", stmt, brk.what, s).
+                                                        debug(optionDebugErrors,1)
                                         }
                                 }
 
                         default:
-                                v, err = tv.expand(expandClosure)
+                                if v, err = tv.expand(expandAll); err != nil {
+                                        diag.errorAt(pos, "expand recipe value failed: %v", err).
+                                                debug(optionDebugErrors,1)
+                                        return
+                                } else if isNil(v) { v = tv }
                         }
                         if v != nil {
                                 if ret, okay := v.(*returner); okay {
@@ -68,6 +83,8 @@ ForRecipes:
                         }
 
                         if err != nil {
+                                diag.errorAt(pos, "evaluation failed: %v", err).
+                                        debug(optionDebugErrors,1)
                                 break ForRecipes
                         }
 
@@ -75,9 +92,17 @@ ForRecipes:
                                 list = append(list, v)
                                 if g, _ := v.(*Group); g != nil {
                                         if s, c := g.Get(0), g.Get(1); s != nil && c != nil {
-                                                var (str string; num int64)
-                                                if str, err = s.Strval(); err != nil { return }
-                                                if num, err = c.Integer(); err != nil { return }
+                                                var ( str string; num int64 )
+                                                if str, err = s.Strval(); err != nil {
+                                                        diag.errorAt(pos, "strval '%v' failed: %v", s, err).
+                                                                debug(optionDebugErrors, 1)
+                                                        return
+                                                }
+                                                if num, err = c.Integer(); err != nil {
+                                                        diag.errorAt(pos, "integify '%v' failed: %v", c, err).
+                                                                debug(optionDebugErrors, 1)
+                                                        return
+                                                }
                                                 if str == "shell" && num != 0 {
                                                         //fmt.Fprintf(stderr, "evaluate: %v\n", v)
                                                         break ForRecipes
@@ -87,7 +112,8 @@ ForRecipes:
                         }
 
                 default:
-                        diag.errorOf(recipe, "unsupported recipe: %T", recipe)
+                        diag.errorOf(recipe, "unsupported recipe: %T", recipe).
+                                debug(optionDebugErrors,1)
                         return
                 }
         }

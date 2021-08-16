@@ -1384,7 +1384,10 @@ func (p *Any) stat(t *traversal) (si *statinfo) {
 }
 func (p *Any) expand(w expandwhat) (res Value, err error) {
     if val, ok := p.value.(Value); ok && !isNil(val) {
-        res, err = val.expand(w)
+        if res, err = val.expand(w); err != nil {
+            diag.errorOf(p, "expand '%v' failed: %v", val, err).
+                debug(optionDebugErrors,1)
+        }
     }
     return
 }
@@ -3872,7 +3875,7 @@ func (p *Pair) expand(w expandwhat) (res Value, err error) {
         diag.errorOf(p.Key, "expand '%v' failed: %v", p.Key, err).
             debug(optionDebugErrors, 1)
         return
-    }
+    } else if isNil(k) { k = p.Key }
 
     // Note: donot expand the p.Value! It's used as template
     // in arguments (see copy-file for example).
@@ -3881,7 +3884,6 @@ func (p *Pair) expand(w expandwhat) (res Value, err error) {
             diag.errorOf(p.Value, "expand '%v' failed: %v").
                 debug(optionDebugErrors, 1)
         } else if (!isNil(k) && k != p.Key) || (!isNil(v) && v != p.Value) {
-            if isNil(k) { k = p.Key }
             if isNil(v) { v = p.Value }
             res = &Pair{p.valbase, k, v}
         }
@@ -4065,10 +4067,11 @@ func (p *delegate) elemstr(o Object, k elemkind) (s string) {
         if s = p.string(o, k); !(token.DELEGATE < p.l && p.l <= token.DELEGATE__) {
             s = "$" + s
         }
-    } else if v, e := p.expand(expandDelegate); e == nil {
-        s = elementString(o, v, k)
+    } else if v, e := p.expand(expandDelegate); e != nil {
+        diag.errorAt(p.position, "expand failed: %v", e).
+            debug(optionDebugErrors, 1)
     } else {
-        diag.errorAt(p.position, "expand failed: %v", e)
+        s = elementString(o, v, k)
     }
     return
 }
@@ -4267,7 +4270,12 @@ func (p *closure) elemstr(o Object, k elemkind) (s string) {
         if s = p.string(o, k); !(token.CLOSURE < p.l && p.l <= token.CLOSURE__) {
             s = "&" + s
         }
-    } else if v, e := p.expand(expandDelegate); e == nil {
+    } else if v, e := p.expand(expandDelegate/*|expandClosure*/); e != nil {
+        diag.errorAt(p.position, "expand '%v' failed: %v", p, e).
+            debug(optionDebugErrors, 1)
+        return
+    } else {
+        if isNil(v) { v = p }
         s = elementString(o, v, k)
     }
     return
@@ -4433,8 +4441,9 @@ ClosureTok:
 func (p *closure) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     if v, e := p.expand(expandClosure); e != nil {
-        diag.errorOf(p, "expand: %v", e)
-    } else if v == nil {
+        diag.errorOf(p, "expand '%v' failed: %v", p, e).
+            debug(optionDebugErrors,1)
+    } else if isNil(v) {
         diag.errorOf(p, "invalid closure (%v)", p.x)
     } else {
         t.dispatch(v)
@@ -4591,27 +4600,30 @@ func (p *selection) expandible(w expandwhat) (res bool) {
     return
 }
 func (p *selection) expand(w expandwhat) (res Value, err error) {
-    var o, s Value
     if w&expandSelection != 0 {
         if res, err = p.value(); err != nil {
             diag.errorAt(p.position, "selection '%v' failed: %v", p, err).
                 debug(optionDebugErrors, 1)
         }
     } else if isNil(p.o) {
-        // nil object
+        return // nil object
     } else if isNil(p.s) {
-        // nil prop
-    } else if o, err = p.o.expand(w); err != nil {
+        return // nil prop
+    }
+
+    var o, s Value
+    if o, err = p.o.expand(w); err != nil {
         diag.errorOf(p.o, "expand '%v' failed: %v", p.o, err).
             debug(optionDebugErrors, 1)
-    } else if s, err = p.s.expand(w); err != nil {
+        return
+    } else if isNil(o) { o = p.o }
+    if s, err = p.s.expand(w); err != nil {
         diag.errorOf(p.s, "expand '%v' failed: %v", p.s, err).
             debug(optionDebugErrors, 1)
-    } else if (!isNil(o) && o != p.o) || (!isNil(s) && s != p.s) {
-        if isNil(o) { o = p.o }
-        if isNil(s) { s = p.s }
-        res = &selection{p.valbase,p.t,o,s}
-    }
+        return
+    } else if isNil(s) { s = p.s }
+
+    if o != p.o || s != p.s { res = &selection{p.valbase,p.t,o,s}}
     return
 }
 func (p *selection) traverse(t *traversal) {
@@ -5089,9 +5101,14 @@ func NameScope(name string, scope *Scope) NameScoper {
 // Reveal reveals delegated component and Valuer recursively.
 func Reveal(values ...Value) (res []Value, err error) {
     for _, v := range values {
+        var t Value
         //if v, err = Reveal(v); err != nil { break }
-        if v, err = v.expand(expandDelegate); err != nil { break }
-        if v != nil { res = append(res, v) }
+        if t, err = v.expand(expandDelegate); err != nil {
+            diag.errorOf(v, "expand '%v' failed: %v", v, err).
+                debug(optionDebugErrors, 1)
+            break
+        } else if isNil(t) { t = v }
+        res = append(res, t)
     }
     return
 }
@@ -5099,8 +5116,13 @@ func Reveal(values ...Value) (res []Value, err error) {
 // Disclose expands closures to normal value recursively.
 func Disclose(values ...Value) (res []Value, err error) {
     for _, v := range values {
-        if v, err = v.expand(expandClosure); err != nil { break }
-        if v != nil { res = append(res, v) }
+        var t Value
+        if t, err = v.expand(expandClosure); err != nil {
+            diag.errorOf(v, "expand '%v' failed: %v", v, err).
+                debug(optionDebugErrors, 1)
+            break
+        } else if isNil(t) { t = v }
+        res = append(res, t)
     }
     return
 }

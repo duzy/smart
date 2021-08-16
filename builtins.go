@@ -416,26 +416,18 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                 }
                 case reflect.Ptr: switch val.Type().Elem().String() {
                 case "smart.optFullname":
-                        if x, e := v.expand(expandAll); e != nil {
-                                diag.errorOf(v, "expand option '%v' failed: %v", v, e).
+                        var x Value
+                        if x, err = v.expand(expandAll); err != nil {
+                                diag.errorOf(v, "expand option '%v' failed: %v", v, err).
                                         debug(optionDebugErrors,1)
-                        } else if isNil(x) || isNone(x) {
+                                return
+                        } else if isNil(x) { x = v } else if isNone(x) {
                                 diag.errorOf(v, "expecting file value: %T %v", v, v).
                                         debug(optionDebugErrors,1)
-                        } else /*if s, ok := fullname(x); ok {
-                                val.Set(reflect.ValueOf(&optFullname{ s, x }))
-                        } else if s, e = x.Strval(); e != nil {
-                                diag.errorOf(x, "strval '%v' failed: %v", x, e).
-                                        debug(optionDebugErrors,1)
-                        } else if filepath.IsAbs(s) {
-                                val.Set(reflect.ValueOf(&optFullname{ s, x }))
-                        } else if proj := current(); proj == nil {
-                                diag.errorOf(x, "no current project to find file '%v'", s).
-                                        debug(optionDebugErrors,1)
-                        } else if file := proj.FindFile(s); file != nil {
-                                val.Set(reflect.ValueOf(&optFullname{ file.fullname(), x }))
-                        */if _, s, ok, e = asOptFullname(nil, x); e != nil {
-                                diag.errorOf(x, "fullname '%v' failed: %v", x, e).
+                                return
+                        }
+                        if _, s, ok, err = asOptFullname(nil, x); err != nil {
+                                diag.errorOf(x, "fullname '%v' failed: %v", x, err).
                                         debug(optionDebugErrors,1)
                         } else if ok && s != "" {
                                 val.Set(reflect.ValueOf(&optFullname{ s, x }))
@@ -448,13 +440,17 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                                 diag.warnOf(v, "%v %v %v", current(), v, vi.string).debug(true,1)
                         }
                 case "smart.File":
-                        if x, e := v.expand(expandAll); e != nil {
-                                diag.errorOf(v, "expand option '%v' failed: %v", v, e).
+                        var x Value
+                        if x, err = v.expand(expandAll); err != nil {
+                                diag.errorOf(v, "expand option '%v' failed: %v", v, err).
                                         debug(optionDebugErrors,1)
-                        } else if isNil(x) || isNone(x) {
+                                return
+                        } else if isNil(x) { x = v } else if isNone(x) {
                                 diag.errorOf(v, "expecting file value: %T %v", v, v).
                                         debug(optionDebugErrors,1)
-                        } else if file, ok := x.(*File); ok {
+                                return
+                        }
+                        if file, ok := x.(*File); ok {
                                 val.Set(reflect.ValueOf(file))
                         } else if s, e := x.Strval(); e != nil {
                                 diag.errorOf(x, "strval '%v' failed: %v", x, e).
@@ -470,9 +466,11 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                         }
                 case "regexp.Regexp":
                         if s, e := v.Strval(); e != nil {
-                                diag.errorOf(v, "stringify '%v' failed: %v", v, e).debug(optionDebugErrors,1)
+                                diag.errorOf(v, "stringify '%v' failed: %v", v, e).
+                                        debug(optionDebugErrors,1)
                         } else if rx, e := regexp.Compile(s); e != nil {
-                                diag.errorOf(v, "compile regexp '%v' failed: %v", v, e).debug(optionDebugErrors,1)
+                                diag.errorOf(v, "compile regexp '%v' failed: %v", v, e).
+                                        debug(optionDebugErrors,1)
                         } else {
                                 val.Set(reflect.ValueOf(rx))
                         }
@@ -484,11 +482,12 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                 default: switch val.Type().String() {
                 case "fs.FileMode": // aka. reflect.Uint32
                         if t, e := v.Integer(); e == nil { val.SetUint(uint64(t)) } else {
-                                diag.errorOf(v, "integify '%v' failed: %v", v, e).debug(optionDebugErrors,1)
+                                diag.errorOf(v, "integify '%v' failed: %v", v, e).
+                                        debug(optionDebugErrors,1)
                         }
                 case "regex.Regex": // aka. reflect.Ptr
-                        diag.errorOf(v, "TODO: regexp: %T %v -> %v, %v",
-                                v, v, val.Kind(), val.Type()).debug(optionDebugErrors,1)
+                        diag.errorOf(v, "TODO: regexp: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).
+                                debug(optionDebugErrors,1)
                 default:
                         diag.errorOf(v, "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).
                                 debug(optionDebugErrors,1)
@@ -927,11 +926,28 @@ func builtinBranchIfEq(pos Position, args... Value) (res Value) {
                         s1, s2 string
                         err error
                 )
-                if a, err = args[0].expand(expandAll); err != nil { diag.errorAt(pos, "%v", err); return }
-                if b, err = args[1].expand(expandDelegate); err != nil { diag.errorAt(pos, "%v", err); return }
-                if s1, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                if s2, err = b.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                if s1 == s2 { 
+                if a, err = args[0].expand(expandAll); err != nil {
+                        diag.errorAt(pos, "expand '%v' failed: %v", args[0], err).
+                                debug(optionDebugErrors,1)
+                        return
+                } else if isNil(a) { a = args[0] }
+                if b, err = args[1].expand(expandDelegate); err != nil {
+                        diag.errorAt(pos, "expand '%v' failed: %v", args[1], err).
+                                debug(optionDebugErrors,1)
+                        return
+                } else if isNil(b) { b = args[1] }
+
+                if s1, err = a.Strval(); err != nil {
+                        diag.errorAt(pos, "strval '%v' failed: %v", a, err).
+                                debug(optionDebugErrors,1)
+                        return
+                }
+                if s2, err = b.Strval(); err != nil {
+                        diag.errorAt(pos, "strval '%v' failed: %v", b, err).
+                                debug(optionDebugErrors,1)
+                        return
+                }
+                if s1 == s2 {
                         res = args[2]
                 } else if n > 3 {
                         res = MakeListOrScalar(pos, args[3:])
@@ -947,11 +963,28 @@ func builtinBranchIfNE(pos Position, args... Value) (res Value) {
                         s1, s2 string
                         err error
                 )
-                if a, err = args[0].expand(expandDelegate); err != nil { diag.errorAt(pos, "%v", err); return }
-                if b, err = args[1].expand(expandDelegate); err != nil { diag.errorAt(pos, "%v", err); return }
-                if s1, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                if s2, err = b.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                if s1 != s2 { 
+                if a, err = args[0].expand(expandAll); err != nil {
+                        diag.errorAt(pos, "expand '%v' failed: %v", args[0], err).
+                                debug(optionDebugErrors,1)
+                        return
+                } else if isNil(a) { a = args[0] }
+                if b, err = args[1].expand(expandDelegate); err != nil {
+                        diag.errorAt(pos, "expand '%v' failed: %v", args[1], err).
+                                debug(optionDebugErrors,1)
+                        return
+                } else if isNil(b) { b = args[1] }
+
+                if s1, err = a.Strval(); err != nil {
+                        diag.errorAt(pos, "strval '%v' failed: %v", a, err).
+                                debug(optionDebugErrors,1)
+                        return
+                }
+                if s2, err = b.Strval(); err != nil {
+                        diag.errorAt(pos, "strval '%v' failed: %v", b, err).
+                                debug(optionDebugErrors,1)
+                        return
+                }
+                if s1 != s2 {
                         res = args[2]
                 } else if n > 3 {
                         res = MakeListOrScalar(pos, args[3:])
@@ -1047,11 +1080,10 @@ func builtinForEach(pos Position, args... Value) (res Value) {
                                 diag.errorOf(a, "expand '%v' failed: %v", a, err).
                                         debug(optionDebugErrors, 1)
                                 return
-                        } else if true && len(v.defs("_")) > 0 {
-                                diag.errorOf(a, "'_' in '%v' not expanded: %v", a, v).debug(true, 1)
-                        }
-                        if false && a.String() == "include=$_" {
-                                diag.infoOf(a, "%v; %v; %v => %v", def, val, a, v).debug(true, 1)
+                        } else if isNil(v) { v = a }
+                        if true && len(v.defs("_")) > 0 {
+                                diag.errorOf(a, "'_' in '%v' not expanded: %v", a, v).
+                                        debug(true, 1)
                         }
                         if isNil(v) || isUndef(v) || isNone(v) {
                                 // ignore

@@ -134,7 +134,7 @@ func (p *usinglist) expand(w expandwhat) (Value, error) {
                 if v, err := elem.expand(w); err != nil {
                         return nil, err
                 } else {
-                        if v != elem { num += 1 }
+                        if !isNil(v) { v = elem } else if v != elem { num += 1 }
                         list = append(list, v.(*using))
                 }
         }

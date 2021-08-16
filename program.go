@@ -57,19 +57,32 @@ func (prog *Program) auto(name string, value Value) (auto *Def, err error) {
 func (prog *Program) interpret(pos Position, t *traversal, i interpreter, params []Value) (err error) {
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.interpret(%s)", typeof(i)))) }
 
+    var value Value
     for _, e := range t.breakers {
         if e.what != breakCase { return }
     }
 
-    t.wait(prog.position) // wait for prerequisites
+    // Wait for prerequisites before interpretion
+    t.wait(prog.position)
 
-    var value Value
-    if value, err = i.Evaluate(pos, t, params...); err == nil {
-        if !isNil(value) { t.def.buffer.val(value) }
-        _, _, err = t.updateRecipesHash()
+    if value, err = i.Evaluate(pos, t, params...); err != nil {
+        diag.errorAt(pos, "evaluate failed: %v", err).
+            debug(optionDebugErrors, 1)
+        return
+    } else if !isNil(value) {
+        if err = t.def.buffer.val(value); err != nil {
+            diag.errorAt(pos, "set modify buffer value failed: %v", err).
+                debug(optionDebugErrors, 1)
+            return
+        }
     }
 
-    t.interpreted = append(t.interpreted, i)
+    if _, _, err = t.updateRecipesHash(); err != nil {
+        diag.errorAt(pos, "update recipes hash failed: %v", err).
+            debug(optionDebugErrors, 1)
+    } else {
+        t.interpreted = append(t.interpreted, i)
+    }
     return
 }
 
@@ -95,36 +108,48 @@ func (prog *Program) modify(t *traversal, m *modifier) (err error) {
     //       [ foo.baaaar ]
     var name string
     var v []Value
-    if v, err = mergeresult(ExpandAll(m.name)); err != nil { diag.errorOf(m.name, "%v", err); return } else
-    if name, err = v[0].Strval(); err != nil { diag.errorOf(v[0], "%v", err); return } else {
+    if v, err = mergeresult(ExpandAll(m.name)); err != nil {
+        diag.errorOf(m.name, "expand modifier name '%v' failed: %v", m.name, err).
+            debug(optionDebugErrors,1)
+        return
+    } else if name, err = v[0].Strval(); err != nil {
+        diag.errorOf(v[0], "strval '%v' failed: %v", v[0], err).
+            debug(optionDebugErrors,1)
+        return
+    } else {
         v = append(v[1:], m.args...)
     }
 
     var isConfigure = name == "configure"
     if f, ok := modifiers[name]; ok {
-        // Special modifier processing (implicit interpretation)
-        if isConfigure && t.interpreted == nil {
+        var value Value
+        // Special modifier processing (implicit interpretation) before (configure)
+        if isConfigure && len(t.interpreted) == 0 {
             // Evaluate for configure modifier
             if i, ok := dialects["eval"]; ok && i != nil {
                 if err = prog.interpret(m.Position(), t, i, v); err != nil {
-                    diag.errorAt(m.Position(), "%v", err)
+                    diag.errorAt(m.Position(), "interpret failed: %v", err).
+                        debug(optionDebugErrors,1)
                     return
                 }
             }
         }
-
-        var value Value
         if value, err = f(m.position, t, v...); err == nil && value != nil {
             if value != t.def.buffer && value != t.def.buffer.value {
-                err = t.def.buffer.val(value)
+                if err = t.def.buffer.val(value); err != nil {
+                    diag.errorAt(m.position, "setting modifier buffer value failed: %v", err).
+                        debug(optionDebugErrors, 1)
+                }
             }
         }
     } else if i, _ := dialects[name]; i != nil {
         if err = prog.interpret(m.Position(), t, i, v); err != nil {
-            diag.errorAt(m.Position(), "%v", err)
+            diag.errorAt(m.Position(), "interpret '%s' failed: %v", name, err).
+                debug(optionDebugErrors,1)
         }
     } else {
-        diag.errorAt(m.position, "unknown modifier '%s'", name)
+        diag.errorAt(m.position, "unknown modifier '%s'", name).
+            debug(optionDebugErrors,1)
     }
     return
 }
