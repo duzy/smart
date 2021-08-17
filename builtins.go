@@ -40,6 +40,19 @@ func (pos *Position) SameLine(other *Position) bool {
         return (*token.Position)(pos).SameLine((*token.Position)(other))
 }
 
+func makePosition(filename string, line, column int) (pos Position) {
+        pos.Filename = filename
+        pos.Line     = line
+        pos.Column   = column
+        return
+}
+func convPosition(filename, line, column string) (pos Position) {
+        pos.Filename  = filename
+        pos.Line, _   = strconv.Atoi(line)
+        pos.Column, _ = strconv.Atoi(column)
+        return
+}
+
 type BuiltinFunc func(pos Position, args... Value) (Value)
 
 var builtins = map[string]BuiltinFunc {
@@ -848,34 +861,6 @@ func builtinMatch(pos Position, args... Value) (res Value) {
                         debug(optionDebugErrors, 1)
                 return
         }
-        /*
-ForPatList:
-        for _, pat := range patList {
-                var ( r *regexp.Regexp ; s string )
-                if s, err = pat.Strval(); err != nil {
-                        diag.errorOf(pat, "strval '%v' failed: %v", pat, err).
-                                debug(optionDebugErrors, 1)
-                        return
-                } else if r, err = regexp.Compile(s); err != nil {
-                        diag.errorOf(pat, "compile regexp '%s' failed: %v", s, err).
-                                debug(optionDebugErrors, 1)
-                        return
-                }
-        ForValList:
-                for _, val := range valList {
-                        var str string
-                        if isNil(val) || isUndef(val) || isNone(val) {
-                                continue ForValList
-                        } else if str, err = val.Strval(); err != nil {
-                                diag.errorOf(val, "strval '%v' failed: %v", val, err).
-                                        debug(optionDebugErrors, 1)
-                                return
-                        } else if r.MatchString(str) {
-                                res = MakeBoolean(pos, true)
-                                break ForPatList
-                        }
-                }
-        }*/
 ForValList:
         for _, val := range valList {
                 if isNil(val) || isUndef(val) || isNone(val) {

@@ -112,8 +112,8 @@ ForRecipes:
                         }
 
                 default:
-                        diag.errorOf(recipe, "unsupported recipe: %T", recipe).
-                                debug(optionDebugErrors,1)
+                        diag.errorOf(recipe, "unsupported recipe: %T (target=%v)", recipe, t.def.target.value).
+                                debug(optionDebugErrors,16)
                         return
                 }
         }

@@ -230,10 +230,10 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
             if !pos.IsValid() { pos = entry.Position() }
             if !pos.IsValid() { pos = entry.position }
             if n == 1 {
-                diag.errorAt(pos, "execution yields an error for %v", entry).
+                diag.warnAt(pos, "execution yields an error for %v", entry).
                     debug(optionDebugErrors, 1)
             } else {
-                diag.errorAt(pos, "execution yields %d errors for %v", n, entry).
+                diag.warnAt(pos, "execution yields %d errors for %v", n, entry).
                     debug(optionDebugErrors, 1)
             }
             if caller != nil {
@@ -369,7 +369,11 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     default:
         var name string
         var target = t.entry.target
-        if name, err = target.Strval(); err != nil { diag.errorAt(pos, "%v", err);  return }
+        if name, err = target.Strval(); err != nil {
+            diag.errorAt(pos, "strval '%v' failed: %v", target, err).
+                debug(optionDebugErrors, 1)
+            return
+        }
         if file := prog.project.FindFile(name); file != nil {
             alreadyUpdated = file.info != nil && file.updated
             target = file
@@ -408,21 +412,38 @@ func (t *traversal) exec(prog *Program) (result Value) {
 
     // Update normal prerequisites
     if t.traverseNormalPrerequisites(pos);    t.hasBreakers() { return }
+    if n := diag.checkErrors(true); n > 0 {
+        diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).
+            debug(optionDebugErrors, 1)
+        return
+    }
 
     // Update order-only prerequisites
     if t.traverseOrderOnlyPrerequisites(pos); t.hasBreakers() { return }
+    if n := diag.checkErrors(true); n > 0 {
+        diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).
+            debug(optionDebugErrors, 1)
+        return
+    }
 
     // Update grapped files
     if t.traverseGreppedFiles(pos);           t.hasBreakers() { return }
+    if n := diag.checkErrors(true); n > 0 {
+        diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).
+            debug(optionDebugErrors, 1)
+        return
+    }
 
     if len(t.interpreted) == 0 {
         // Using the default statements interpreter.
         if i, ok := dialects["eval"]; ok && i != nil {
             if err := prog.interpret(pos, t, i, nil); err != nil {
-                diag.errorAt(pos, "%v", err)
+                diag.errorAt(pos, "%v", err).
+                    debug(optionDebugErrors,1)
             }
         } else {
-            diag.errorAt(pos, "no default dialect")
+            diag.errorAt(pos, "no default dialect").
+                    debug(optionDebugErrors,1)
         }
     }
 

@@ -406,7 +406,10 @@ func configureExec(pos Position, t *traversal, opts *modifierConfigureOpts, s st
             diag.errorAt(pos, "s=%v target=%v result=%v res=%v", s, t, result, res).
                 debug(optionDebugErrors, 1)
         }
-        _ = diag.checkErrors(true)
+        if n := diag.checkErrors(true); n > 0 {
+            diag.warnAt(pos, "got %d error(s)", n).
+                debug(optionDebugErrors, 1)
+        }
     }
 
     configured = true

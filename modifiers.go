@@ -1028,7 +1028,8 @@ func (t *traversal) grep(pos Position, gc *grepctx) (err error) {
         default:
                 gc.targetDir = t.project.absPath
                 if targetName, err = v.Strval(); err != nil {
-                        diag.errorAt(pos, "grep %v: %s", v, err)
+                        diag.errorAt(pos, "strval grep target '%v' failed: %s", v, err).
+                                debug(optionDebugErrors, 1)
                         return
                 }
                 if filepath.IsAbs(targetName) {
@@ -1037,39 +1038,41 @@ func (t *traversal) grep(pos Position, gc *grepctx) (err error) {
                         gc.targetFullName = filepath.Join(gc.targetDir, targetName)
                 }
                 if file := stat(pos, gc.targetFullName, "", ""); file == nil {
-                        diag.errorAt(pos, "grep: '%s' not found", gc.targetFullName)
+                        diag.errorAt(pos, "grep: '%s' not found", gc.targetFullName).
+                                debug(optionDebugErrors, 1)
                         return
                 } else {
                         gc.targetInfo = file.info
                 }
         }
         if err != nil {
-                diag.errorAt(pos, "grep target %s: %v", targetName, err)
+                diag.errorAt(pos, "grep target %s: %v", targetName, err).
+                        debug(optionDebugErrors, 1)
                 return
         }
 
         if gc.targetInfo == nil { return }
         if gc.done == nil { gc.done = make(map[string]int) }
         if !filepath.IsAbs(gc.targetFullName) {
-                diag.errorAt(pos, "grep: '%s' is not abs", gc.targetFullName)
+                diag.errorAt(pos, "grep: '%s' is not abs", gc.targetFullName).
+                        debug(optionDebugErrors, 1)
                 return
         } else {
                 gc.done[gc.targetFullName] += 1
         }
         if n, done := gc.done[gc.targetFullName]; done && n > 1 {
-                if gc.debug { fmt.Fprintf(stderr, "%s: %v (done %v)\n", pos, gc.targetFullName, n) }
+                if gc.debug { diag.errorAt(pos, "%v (done %v)", gc.targetFullName, n).debug(true,1) }
                 return
         }
 
         if false { defer un(tt(t_traverse, t, gc.target)) }
         if files, cached := grepcache[gc.targetFullName]; cached {
-                if gc.debug {
-                        fmt.Fprintf(stderr, "%s: grepcache: %v → %v\n", pos, gc.targetFullName, files)
-                }
+                if gc.debug { diag.errorAt(pos, "grepcache: %v → %v", gc.targetFullName, files).debug(true,1) }
                 if t.grepped = append(t.grepped, files...); gc.recursive {
                         for _, gc.target = range files {
                                 if err = t.grep(pos, gc); err != nil {
-                                        diag.errorAt(pos, "grep files: %v", err)
+                                        diag.errorAt(pos, "grep files: %v", err).
+                                                debug(optionDebugErrors, 1)
                                         break
                                 }
                         }
@@ -1080,22 +1083,22 @@ func (t *traversal) grep(pos Position, gc *grepctx) (err error) {
                 var touch = gc.greptouch
                 gc.files = restore
                 grepcache[gc.targetFullName] = touch.files
-                if gc.debug {
-                        fmt.Fprintf(stderr, "%s: grepped: %s → %v (grepped=%v) (saved=%s)\n",
-                                pos, gc.target, touch.files, len(t.grepped), gc.savedGrepFile)
-                }
+                if gc.debug { diag.errorAt(pos, "grepped: %s → %v (grepped=%v) (saved=%s)\n",
+                        gc.target, touch.files, len(t.grepped), gc.savedGrepFile).debug(true,1) }
                 if gc.recursive && len(touch.files) > 0 {
                         for _, gc.target = range touch.files {
                                 t.grepped = append(t.grepped, gc.target)
                                 if err = t.grep(pos, gc); err != nil {
-                                        diag.errorAt(pos, "grep files (deferred): %v", err)
+                                        diag.errorAt(pos, "grep files (deferred): %v", err).
+                                                debug(optionDebugErrors, 1)
                                         break
                                 }
                         }
                 }
                 if err == nil && gc.touch {
                         if err = touch.work(pos, gc); err != nil {
-                                diag.errorAt(pos, "grep touch: %v", err)
+                                diag.errorAt(pos, "grep touch failed: %v", err).
+                                        debug(optionDebugErrors, 1)
                         }
                 }
         } (gc.files)
@@ -1199,38 +1202,45 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
         }
 
         var (
-                files []Value
                 targets = args
                 grepped = t.grepped
         )
+        if len(targets) == 0 { if tv := t.def.target.value; isNil(tv) || isNone(tv) {
+                diag.errorAt(pos, "no grep target").
+                        debug(optionDebugErrors, 1)
+                return
+        } else {
+                targets = append(targets, tv)
+        }}
+
         if gc.debug {
                 diag.warnAt(pos, "grep-files: %v %v %v\n", t.def.target.value, gc.rxs, args).
                         debug(optionDebugErrors, 1)
         }
         if gc.verbose {
-                if false {
-                        diag.prompt("smart: Grep %v …", t.def.target.value)
-                        defer func(t time.Time) {
-                                diag.prompt("… (%d files, %v)\n", len(files), time.Now().Sub(t))
-                        } (time.Now())
-                } else {
-                        defer func(ts time.Time) {
-                                diag.prompt("smart: Grep %v …… (%d files, %v)\n",
-                                        t.def.target.value, len(files), time.Now().Sub(ts))
-                        } (time.Now())
-                }
+                defer func(ts time.Time) {
+                        var s string
+                        if len(targets) == 1 { s = targets[0].String() } else {
+                                for _, v := range targets {
+                                        if s != "" { s += ", " }
+                                        if len(s) > 32 { s += "..."; break } else {
+                                                s += v.String()
+                                        }
+                                }
+                        }
+                        diag.prompt("smart: Grep %v …… (%d files in %v)\n",
+                                s, len(grepped), time.Now().Sub(ts))
+                } (time.Now())
         }
-
-        if len(targets) == 0 { targets = append(targets, t.def.target.value) }
 ForTarget:
-        for i, target := range targets {
+        for _, target := range targets {
                 if isNil(target) {
-                        diag.errorAt(pos, "grep target#%d of %v is nil for %v", i, args,
+                        diag.errorAt(pos, "grep target '%v' is nil for %v", target,
                                 t.def.target.value).debug(optionDebugErrors, 1)
                         return
                 }
                 if isNone(target) {
-                        diag.errorAt(pos, "grep target#%d of %v is none for %v", i, args,
+                        diag.errorAt(pos, "grep target '%v' is none for %v", target,
                                 t.def.target.value).debug(optionDebugErrors, 100)
                         return
                 }
@@ -1241,19 +1251,19 @@ ForTarget:
                         diag.errorAt(pos, "grep files from %v failed: %v", target, err).
                                 debug(optionDebugErrors, 1)
                         return
-                }
-                if !gc.noTraverse && len(t.grepped) > 0 {
-                        if false && gc.debug { fmt.Fprintf(stderr, "%v: %v: %v\n", t.project, pos, t.grepped) }
+                } else if gc.noTraverse {
+                        // does nothing
+                } else if len(t.grepped) > 0 {
                         for _, val := range t.grepped {
                                 if val.traverse(t); t.hasBreakers() {
-                                        if true {
-                                                for _, brk := range t.breakers {
-                                                        switch brk.what {
-                                                        case breakErro:
-                                                                diag.errorAt(brk.pos, "borken grep '%v' with error: %v", val, brk.error)
-                                                        default:
-                                                                diag.errorAt(brk.pos, "borken grep '%v': (%v) %v", val, brk.what, brk.message)
-                                                        }
+                                        for _, brk := range t.breakers {
+                                                switch brk.what {
+                                                case breakErro:
+                                                        diag.errorAt(brk.pos, "borken grep '%v' with error: %v", val, brk.error).
+                                                                debug(optionDebugErrors, 1)
+                                                default:
+                                                        diag.errorAt(brk.pos, "borken grep '%v': (%v) %v", val, brk.what, brk.message).
+                                                                debug(optionDebugErrors, 1)
                                                 }
                                         }
                                         diag.errorAt(pos, "broken grep traversal '%v'", val).
@@ -1267,7 +1277,7 @@ ForTarget:
         t.grepped = grepped
 
         if err != nil {
-                diag.errorAt(pos, "grep-files: %v", err).
+                diag.errorAt(pos, "grep files failed: %v", err).
                         debug(optionDebugErrors, 1)
         } else if !gc.noTraverse {
                 t.def.grepped.value = MakeNone(pos)

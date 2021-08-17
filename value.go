@@ -485,10 +485,6 @@ func (t *traversal) forClosuredProjects(f func(*Project) (bool, error)) (okay bo
 func (t *traversal) file(file *File) (okay bool) {
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.file(%v)", file))) }
     if optionEnableBenchspots { defer bench(spot("traversal.file")) }
-    if strings.HasSuffix(file.name, "%%.py") {
-        diag.warnOf(file, "%v %v %v", file.dir, file.sub, file.name).
-            debug(true,1)
-    }
 
     // Add this file target, no matter it's going to be updated or not.
     t.addTarget(file)
@@ -546,14 +542,12 @@ func (t *traversal) file(file *File) (okay bool) {
         if entry.file(t, file); !t.hasBreakers() {
             if okay = file.exists(); okay { break }
         } else if nxts := t.breakersOf(breakNext); len(nxts) > 0 {
-            t.breakers = t.breakersNot(breakNext)
-            if false {
-                diag.infoAt(entry.position, "trying next for %v, #%d %v %v",
-                    file, i, entry.Pattern, nxts[0].value).debug(optionDebugErrors, 1)
-            }
+            t.breakers  = t.breakersNot(breakNext)
+            if false { diag.infoAt(entry.position, "trying next for %v, #%d %v %v",
+                file, i, entry.Pattern, nxts[0].value).debug(optionDebugErrors, 1) }
             continue
         } else if brks := t.breakersOf(breakFail, breakErro); len(brks) > 0 {
-            t.breakers = t.breakersNot(breakFail, breakErro);
+            t.breakers  = t.breakersNot(breakFail, breakErro)
             for _, brk := range brks {
                 switch brk.what {
                 case breakFail:
