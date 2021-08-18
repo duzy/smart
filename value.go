@@ -539,11 +539,12 @@ func (t *traversal) file(file *File) (okay bool) {
         }
     }
     for _, entry := range stemmedList {
+        var project, _ = stemmedEntries[entry.RuleEntry]
         if entry.file(t, file); !t.hasBreakers() {
             if okay = file.exists(); okay { break }
         } else if nxts := t.breakersOf(breakNext); len(nxts) > 0 {
             if t.breakers = t.breakersNot(breakNext); len(t.breakers) > 0 {
-                diag.errorAt(entry.position, "broken traversal for stemmed entry %v", entry).
+                diag.errorAt(entry.position, "broken traversal for stemmed entry %v in %v", entry, project).
                     debug(optionDebugErrors, 1)
             }
             continue
@@ -551,29 +552,30 @@ func (t *traversal) file(file *File) (okay bool) {
             for _, brk := range brks {
                 switch brk.what {
                 case breakFail:
-                    diag.errorAt(entry.position, "borken traversal for stemmed file entry %v", file)
-                    diag.errorAt(entry.position, "borken traversal for stemmed file entry failed: %v", brk.message).
-                        debug(optionDebugErrors, 1)
+                    diag.errorAt(brk.pos, "borken traversal for stemmed file entry %v failed: %v", file, brk.message)
                 case breakErro:
-                    diag.errorAt(entry.position, "broken traversal for stemmed file entry %v", file)
-                    diag.errorAt(entry.position, "broken traversal for stemmed file entry with error: %v", brk.error).
-                        debug(optionDebugErrors, 1)
+                    diag.errorAt(brk.pos, "broken traversal for stemmed file entry %v with error: %v", file, brk.error)
+                default:
+                    diag.errorAt(brk.pos, "broken traversal for stemmed file entry %v (%v)", file, brk.what)
                 }
             }
             if t.breakers = t.breakersNot(breakFail, breakErro); len(t.breakers) > 0 {
-                diag.errorAt(entry.position, "broken traversal for stemmed file entry %v", entry).
+                diag.errorAt(entry.position, "broken traversal for stemmed file entry %v in %v (more)", entry, project).
+                    debug(optionDebugErrors, 1)
+            } else {
+                diag.errorAt(entry.position, "borken traversal for stemmed file entry %v in %v", file, project).
                     debug(optionDebugErrors, 1)
             }
             return
         } else if brks := t.breakersOf(breakCase, breakDone); len(brks) > 0 {
             if t.breakers = t.breakersNot(breakCase, breakDone); len(t.breakers) > 0 {
-                diag.errorAt(entry.position, "broken traversal for stemmed file entry %v", entry).
+                diag.errorAt(entry.position, "broken traversal for stemmed file entry %v in %v", entry, project).
                     debug(optionDebugErrors, 1)
             } else { okay = true }
             break
         } else if t.hasBreakers() {
             for _, brk := range t.breakers {
-                diag.errorAt(entry.position, "borken traversal for stemmed file entry %v (%v)", file, brk.what)
+                diag.errorAt(brk.pos, "borken traversal for stemmed file entry %v (%v)", file, brk.what)
             }
             diag.errorAt(entry.position, "broken traversal for stemmed file entry %v", entry).
                 debug(optionDebugErrors, 1)
@@ -665,6 +667,16 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
                 // target resolve to itself, does nothing
             } else if entry.traverse(t); t.hasBreakers() {
                 if optionTraceTraversal { t.tracef("entry.traverse: breakers=%v", t.breakers) }
+                for _, brk := range t.breakers {
+                    switch brk.what {
+                    case breakFail:
+                        diag.errorAt(pos, "broken traversal for concrete entry '%v' failed: %v", entry, brk.message)
+                    case breakErro:
+                        diag.errorAt(pos, "broken traversal for concrete entry '%v' with error: %v", entry, brk.error)
+                    default:
+                        diag.errorAt(pos, "broken traversal for concrete entry '%v' in %v (%v)", entry, project, brk.what)
+                    }
+                }
                 diag.errorAt(pos, "broken traversal for concrete entry '%v' in %v", entry, project).
                     debug(optionDebugErrors, 1)
                 return

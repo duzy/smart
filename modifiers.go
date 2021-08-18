@@ -1263,15 +1263,16 @@ ForTarget:
                                 if val.traverse(t); t.hasBreakers() {
                                         for _, brk := range t.breakers {
                                                 switch brk.what {
+                                                case breakFail:
+                                                        diag.errorAt(brk.pos, "broken traversal for grepped %v failed: %v", val, brk.message)
                                                 case breakErro:
-                                                        diag.errorAt(brk.pos, "broken traversal for grepped %v", val)
-                                                        diag.errorAt(brk.pos, "broken traversal with error: %v", brk.error).
-                                                                debug(optionDebugErrors, 1)
+                                                        diag.errorAt(brk.pos, "broken traversal for grepped %v with error: %v", val, brk.error)
                                                 default:
-                                                        diag.errorAt(brk.pos, "broken traversal for grepped %v: (%v) %v", val, brk.what, brk.message).
-                                                                debug(optionDebugErrors, 1)
+                                                        diag.errorAt(brk.pos, "broken traversal for grepped %v: %v (%v)", val, brk.message, brk.what)
                                                 }
                                         }
+                                        diag.errorAt(pos, "broken traversal for grepped %v from %v in %v", val, target, t.project).
+                                                debug(optionDebugErrors, 1)
                                         break ForTarget
                                 }
                         }
