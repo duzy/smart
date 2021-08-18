@@ -801,13 +801,28 @@ func (p *Project) hasBase(proj *Project) (res bool) {
 }
 
 func (p *Project) hasLoaded(proj *Project, breakUseLoop bool) (rp *Project, res, isb bool, err error) {
-  return p.hasLoadedRecur(p, proj, breakUseLoop)
+  return p.hasLoadedRecur(p, proj, 1, breakUseLoop)
 }
 
-func (p *Project) hasLoadedRecur(top, proj *Project, breakUseLoop bool) (rp *Project, res, isb bool, err error) {
+func (p *Project) hasLoadedRecur(top, proj *Project, depth int, breakUseLoop bool) (rp *Project, res, isb bool, err error) {
+  if depth > 48 {
+    err = fmt.Errorf("exceeds maximum base depth (%d) (start=%v, target=%v)", depth, top, proj)
+    diag.errorAt(top.position, "start: %v", top)
+    diag.errorAt(proj.position, "target: %v", proj)
+    diag.errorAt(p.position, "%v: %v", p, err).
+      debug(optionDebugErrors, 200)
+    return
+  } else if depth > 1 && top == p {
+    if false {
+      err = fmt.Errorf("loop '%v' (depth=%d)", p.loopLoadPath(), depth)
+      diag.errorAt(p.position, "%v: %v", p, err).
+        debug(optionDebugErrors, 128)
+      return
+    }
+  }
   for _, base := range p.bases {
     if isb = base == proj; isb { return }
-    if rp, res, isb, err = base.hasLoadedRecur(top, proj, breakUseLoop); err != nil {
+    if rp, res, isb, err = base.hasLoadedRecur(top, proj, depth+1, breakUseLoop); err != nil {
       return
     } else if res || isb { rp = base ; return }
   }
@@ -815,10 +830,14 @@ func (p *Project) hasLoadedRecur(top, proj *Project, breakUseLoop bool) (rp *Pro
     if imp == top && !breakUseLoop {
       s := top.loopLoadPath()
       err = fmt.Errorf("loop `%v`", s)
+      diag.errorAt(top.position, "start: %v", top)
+      diag.errorAt(proj.position, "stop: %v", proj)
+      diag.errorAt(p.position, "%v: %v", p, err).
+        debug(optionDebugErrors, 128)
       return
     }
     if res = imp == proj; res { rp = imp; return }
-    if rp, res, res, err = imp.hasLoadedRecur(top, proj, breakUseLoop); err != nil {
+    if rp, res, res, err = imp.hasLoadedRecur(top, proj, depth+1, breakUseLoop); err != nil {
       return
     } else if res { rp = imp; return }
   }

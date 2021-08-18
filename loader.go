@@ -152,6 +152,7 @@ type loader struct {
     project  *Project // the current project
     scope    *Scope   // the current scope
     vs string // verbose prefix
+    implicit bool // loading current project implicitly, aka. via foo.bar.Baz (implicit foo/bar loaded)
     isLoadingBases bool
 }
 
@@ -387,13 +388,16 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
     if loadedValid && !specOpts.reuse {
         var ( proj *Project ; res, isb bool )
         if proj, res, isb, err = l.project.hasLoaded(loaded, breakUseLoop); err != nil {
-            diag.errorOf(specVal, "`%s`: %s", specName, err)
+            diag.errorOf(specVal, "`%s`: %s", specName, err).
+                debug(optionDebugErrors, 1)
             return
         } else if isb {
-            diag.errorOf(specVal, "`%s` is a base (%s)", specName, proj.name)
+            diag.errorOf(specVal, "`%s` is a base (%s)", specName, proj.name).
+                debug(optionDebugErrors, 1)
             return
         } else if res {
-            diag.errorOf(specVal, "'%s' already imported by '%s'", specName, proj.name)
+            diag.errorOf(specVal, "'%s' already imported by '%s'", specName, proj.name).
+                debug(optionDebugErrors, 1)
             return
         }
     }
@@ -406,7 +410,8 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
             okay = l.load(specName, absPath, nil)
         }
         if !okay {
-            diag.errorOf(specVal, "failed loading `%v` (%v)", specName, absPath)
+            diag.errorOf(specVal, "failed loading `%v` (%v)", specName, absPath).
+                debug(optionDebugErrors, 1)
             return
         }
 
@@ -415,11 +420,13 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
         } else if loaded, loadedValid = l.loaded[absPath]; loadedValid {
             // successfully loaded (first)
         } else {
-            diag.errorOf(specVal, "'%s' not loaded (%s)", specName, absPath)
+            diag.errorOf(specVal, "'%s' not loaded (%s)", specName, absPath).
+                debug(optionDebugErrors, 1)
         }
 
         if loaded == nil {
-            diag.errorOf(specVal, "'%s' not smart project", specName)
+            diag.errorOf(specVal, "'%s' not smart project", specName).
+                debug(optionDebugErrors, 1)
             return
         }
     }
@@ -430,30 +437,37 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
         var ( proj *Project ; res, isb bool )
 
         if loaded == lp {
-            diag.errorOf(specVal, "using `%s` multiple times", specName)
+            diag.errorOf(specVal, "using `%s` multiple times", specName).
+                debug(optionDebugErrors, 1)
             return
         }
 
         if proj, res, isb, err = loaded.hasLoaded(lp, breakUseLoop); err != nil {
-            diag.errorOf(specVal, "load '%s' failed: %s", specName, err)
+            diag.errorOf(specVal, "load '%s' failed: %s", specName, err).
+                debug(optionDebugErrors, 1)
             return
         } else if isb {
             if l.project.hasBase(lp) {
                 // common bases are fine
             } else {
-                diag.errorOf(specVal, "`%s` is already a base", specName)
+                diag.errorOf(specVal, "`%s` is already a base", specName).
+                    debug(optionDebugErrors, 1)
             }
         } else if res && !lp.opts.multiUseAllowed {
-            diag.warnAt(position, "`%s` has already imported `%s` (from %s)", loaded, lp, proj)
+            diag.warnAt(position, "`%s` has already imported `%s` (from %s)", loaded, lp, proj).
+                debug(optionDebugErrors, 1)
         }
 
         if proj, res, isb, err = lp.hasLoaded(loaded, breakUseLoop); err != nil {
-            diag.errorOf(specVal, "load '%s' failed: %s", specName, err)
+            diag.errorOf(specVal, "load '%s' failed: %s", specName, err).
+                debug(optionDebugErrors, 1)
             return
         } else if isb {
-            diag.warnAt(position, "`%s` is already base of `%s` (%s)", loaded, lp, proj)
+            diag.warnAt(position, "`%s` is already base of `%s` (%s)", loaded, lp, proj).
+                debug(optionDebugErrors, 1)
         } else if res && !loaded.opts.multiUseAllowed {
-            diag.warnAt(position, "`%s` has already been imported by `%s` (from %s)", loaded, lp, proj)
+            diag.warnAt(position, "`%s` has already been imported by `%s` (from %s)", loaded, lp, proj).
+                debug(optionDebugErrors, 1)
         }
     }
 
@@ -464,7 +478,8 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
 
     name, _ := l.project.scope.Lookup(loaded.name).(*ProjectName)
     if name == nil {
-        diag.errorOf(specVal, "%v (%v,dir=%v) not in %v", specName, absPath, isDir, l.project.scope.comment)
+        diag.errorOf(specVal, "%v (%v,dir=%v) not in %v", specName, absPath, isDir, l.project.scope.comment).
+                debug(optionDebugErrors, 1)
         return
     }
 
@@ -987,19 +1002,28 @@ func (l *loader) setArgs(args []Value) (oldArgs []Value) {
 }
 
 // project example (base(var=value))
-func (l *loader) loadBases(position Position, linfo *loadinfo, params ...Value) (result bool) {
+func (l *loader) loadBases(position Position, linfo *loadinfo, implicitBase string, params ...Value) (result bool) {
     if optionTraceLaunch { defer un(trace(t_launch, "loader.loadBases")) }
 
     // For &(foobar) set from loadArgs
     defer setclosure(setclosure(cloctx.unshift(l.project.scope)))
 
+    var (
+        implicitIndex int
+        implicitBases []Value
+    )
     if file := stat(l.project.position, "./.base", "", l.project.absPath); file != nil && file.info.IsDir() {
         if s, e := file.Strval(); true { assert(e == nil && s == file.name && s == "./.base", "invalid strval: %v => %v", file, s) }
-        params = append([]Value{file}, params...)
+        implicitBases = append(implicitBases, file)
     }
+    if implicitBase != "" {
+        implicitIndex = len(implicitBases)
+        implicitBases = append(implicitBases, MakePathStr(position, implicitBase))
+    }
+    params = append(implicitBases, params...)
 
 ParamsLoop:
-    for _, elem := range params {
+    for i, elem := range params {
         var (
             absPath string
             args []Value
@@ -1009,22 +1033,39 @@ ParamsLoop:
         if list, ok := elem.(*List); ok && len(list.Elems) == 1 { elem = list.Elems[0] }
         if a, ok := elem.(*Argumented); ok { elem, args = a.value, a.args }
         if p, ok := elem.(*Pair); ok {
-            var identifier = p.Key
-            var position = identifier.Position()
-            var name string
-            if name, err = p.Key.Strval(); err != nil { diag.errorAt(position, "%v", err); return }
-            if len(name) > 0 && name[0] == '.' { identifier = MakeBarecomp(position, MakeBareword(position, "project"), p.Key) }
+            var (
+                identifier = p.Key
+                position = identifier.Position()
+                name string
+            )
+            if name, err = p.Key.Strval(); err != nil {
+                diag.errorAt(position, "strval '%v' failed: %v", p.Key, err).
+                    debug(optionDebugErrors, 1)
+                return
+            } else if len(name) > 0 && name[0] == '.' {
+                identifier = MakeBarecomp(position, MakeBareword(position, "project"), p.Key)
+            }
+
             var defs = l.determine(position, token.ASSIGN, identifier, p.Value)
-            if len(defs) == 0 {/* FIXME: ... */}
+            if len(defs) == 0 {/* TODO: check defs... */}
             continue ParamsLoop
         }
 
-        var specName string
-        if specName, err = elem.Strval(); err != nil { diag.errorOf(elem, "%v", err); return }
-        if specName == "" {
+        var ( specName string; implicit bool )
+        if specName, err = elem.Strval(); err != nil {
+            diag.errorOf(elem, "strval '%v' failed: %v", elem, err).
+                debug(optionDebugErrors, 1)
+            return
+        } else if specName == "" {
             diag.errorOf(elem, "%v: empty base name `%v` (%T)", l.project, elem, elem).
                 debug(optionDebugErrors,1)
             break ParamsLoop
+        } else if implicitBase != "" && specName == implicitBase {
+            if i == implicitIndex { implicit = true } else {
+                diag.errorOf(elem, "%v: base '%v' already loaded implicitly", l.project, elem).
+                    debug(optionDebugErrors,1)
+                if false { break ParamsLoop } else { continue }
+            }
         }
 
         if f, ok := elem.(*File); ok && f.info != nil {
@@ -1043,19 +1084,27 @@ ParamsLoop:
             }
         }
 
-        var okay bool
-        if isDir {
+        var (
+            okay bool
+            implicitSaved = l.implicit
+        )
+        if l.implicit = implicit; isDir {
             okay = l.loadDirWithArgs(position, specName, absPath, args, nil)
         } else {
             okay = l.loadWithArgs(position, specName, absPath, args, nil)
         }
+        l.implicit = implicitSaved // restore implicit flag
+
         if !okay {
-            diag.errorOf(elem, "loadBases: '%s' not loaded (%s)", specName, absPath).
-                debug(optionDebugErrors, 1)
+            diag.errorOf(elem, "%s not loaded (as %s)", specName, absPath).
+                debug(optionDebugErrors, 6)
             break ParamsLoop
         } else if loaded, yes := l.loaded[absPath]; yes && loaded != nil {
             // chain loaded base project, note that err might not be nil
             l.project.Chain(loaded)
+        } else if implicit {
+            diag.warnOf(elem, "implicit base '%s' not defined (as %s)", specName, absPath).
+                debug(optionDebugErrors, 1)
         } else {
             diag.errorOf(elem, "project `%v`(%T: %s) not loaded (%s)", elem, elem, specName, absPath).
                 debug(optionDebugErrors, 1)
@@ -1841,18 +1890,24 @@ func (l *loader) loadDir(pos Position, specName, absDir string, filter func(os.F
         }
     } (time.Now())
 
+    if !pos.IsValid() {
+        pos.Filename = absDir
+        pos.Line = 1
+    }
     if !filepath.IsAbs(absDir) {
-        diag.errorAt(pos, "needs absolute dir `%s' (%s)", absDir, specName)
+        diag.errorAt(pos, "needs absolute dir `%s' (%s)", absDir, specName).
+            debug(optionDebugErrors, 1)
         return
     }
 
-    var loaded *Project
     // Check already loaded project.
-    if loaded, result = l.loaded[absDir]; result {
+    var loaded *Project
+    if  loaded, result = l.loaded[absDir]; result {
         _, a := l.project.scope.ProjectName(l.project, loaded.Name(), loaded)
         if a != nil {
             if v, ok := a.(*ProjectName); !ok || v == nil {
-                diag.errorAt(pos, "name `%s' already taken (%T).", loaded.Name(), a)
+                diag.errorAt(pos, "name `%s' already taken (%T).", loaded.Name(), a).
+                    debug(optionDebugErrors, 1)
             }
         }
         return
@@ -1861,21 +1916,35 @@ func (l *loader) loadDir(pos Position, specName, absDir string, filter func(os.F
     defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, ""))
 
     var mods = l.ParseDir(pos, absDir, filter, parseMode)
-    if diag.checkErrors(true) > 0 { return }
+    if n := diag.checkErrors(true); n > 0 {
+        diag.warnAt(pos, "got %d errors parsing %s", absDir).
+            debug(optionDebugErrors, 1)
+        return
+    }
+
     // FIXME: loading failed if different 'project' found in
     // the same dir, for example:
     //      project Foo # file build.smart
     //      project # file config.smart
     if len(mods) == 0 && filepath.Base(specName) != "@" {
-        diag.errorAt(pos, "parse failed: %s (%s)", specName, absDir)
-    }
-    if loaded, result = l.loaded[absDir]; result && loaded != nil { // Good!
+        //diag.errorAt(pos, "%s not failed (as %s, implicit=%v)", specName, absDir, l.implicit).
+        //    debug(optionDebugErrors, 1)
+        if l.implicit {
+            diag.warnAt(pos, "%s not loaded (as %s, implicit)", specName, absDir).
+                debug(optionDebugErrors, 1)
+            result = true // okay for implicit loading
+        } else {
+            diag.errorAt(pos, "%s not loaded (as %s)", specName, absDir).
+                debug(optionDebugErrors, 1)
+        }
+    } else if loaded, result = l.loaded[absDir]; result && loaded != nil { // Good!
         if false {
             a := l.project.scope.Lookup(loaded.Name())
             fmt.Fprintf(stderr, "%s: %v %s\n", l.project, loaded, a)
         }
     } else if filepath.Base(specName) != "@" {
-        diag.errorAt(pos, "loadDir: '%s' not loaded (%s)", specName, absDir)
+        diag.errorAt(pos, "%s not loaded (as %s, implicit=%v)", specName, absDir, l.implicit).
+            debug(optionDebugErrors, 1)
     }
     return
 }

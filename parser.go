@@ -2629,6 +2629,7 @@ func (p *parser) parseFile() *parsedFile {
 		abs, rel, tmp string
 		ident *Barecomp //Bareword
 		identStr string
+		implicitBase string // aka. foo.bar.Baz implicitly load base 'foo/bar'
 		keyword = p.tok
 		filename = p.file.Name()
 		position = p.position()
@@ -2740,19 +2741,29 @@ func (p *parser) parseFile() *parsedFile {
 			/*if filename == confinitFilename {
                 ident = &ast.Bareword{ ValuePos:pos, Value:"~" }
             } else*/ if ext := filepath.Ext(filename); ext != ".smart" {
-				diag.errorAt(p.position(), "`%v` not a smart file", filepath.Base(filename))
+				diag.errorAt(p.position(), "`%v` not a smart file", filepath.Base(filename)).
+					debug(optionDebugErrors, 1)
 			} else if s := strings.TrimSuffix(filepath.Base(filename), ext); s != "" {
 				ident = MakeBarecomp(position, MakeBareword(position, s))
 			} else {
-				diag.errorAt(p.position(), "`%v` not tilde name", filepath.Base(filename))
+				diag.errorAt(p.position(), "`%v` not tilde name", filepath.Base(filename)).
+					debug(optionDebugErrors, 1)
 			}
 			p.next(true) // skip tilde
 		} else {
+			var implicitBaseSegs []string
 			ident = MakeBarecomp(p.position())
 		ForProjectName:
 			for p.tok != token.EOF && p.tok != token.SPACE {
-				if  ident.Combine(p.parseBarewordConstant(false)); p.tok == token.DOT {
+				if w := p.parseBarewordConstant(false); w == nil {
+					diag.errorAt(ident.Position(), "expecting a bareword").
+						debug(optionDebugErrors, 1)
+				} else if word, ok := w.(*Bareword); !ok {
+					diag.errorAt(ident.Position(), "expecting a bareword: %v (%T)", w, w).
+						debug(optionDebugErrors, 1)
+				} else if ident.Combine(word); p.tok == token.DOT {
 					ident.Combine(MakeBareword(p.position(), "."))
+					implicitBaseSegs = append(implicitBaseSegs, word.string)
 					p._next() // '.'
 				} else { break ForProjectName }
 			}
@@ -2761,6 +2772,8 @@ func (p *parser) parseFile() *parsedFile {
 				diag.errorAt(p.position(), "package name is empty").
 					debug(optionDebugErrors, 1)
 				return nil
+			} else if len(implicitBaseSegs) > 0 {
+				implicitBase = filepath.Join(implicitBaseSegs...)
 			}
 		}
 
@@ -2770,16 +2783,19 @@ func (p *parser) parseFile() *parsedFile {
 				debug(optionDebugErrors, 1)
 			return nil
 		} else if linfo.loadee != nil && identStr != linfo.loadee.name {
-			diag.warnAt(ident.position, "declare multiple project in the same directory")
+			diag.warnAt(ident.position, "declare multiple project in the same directory").
+				debug(optionDebugErrors, 1)
 		} else if identStr == "_" && p.mode&DeclarationErrors != 0 {
-			diag.errorAt(ident.Position(), "package name '_' is preserved")
+			diag.errorAt(ident.Position(), "package name '_' is preserved").
+				debug(optionDebugErrors, 1)
 			return nil
 		}
 
 		// Don't bother parsing the rest if we had errors parsing the package clause.
 		// Likely not a Go source file at all.
 		if n := diag.numErrors(); n > 0 {
-			diag.errorAt(p.position(), "got %d errors parsing file: %s", filename)
+			diag.errorAt(p.position(), "got %d errors parsing file: %s", filename).
+				debug(optionDebugErrors, 1)
 			return nil
 		}
 
@@ -2792,7 +2808,8 @@ func (p *parser) parseFile() *parsedFile {
 				if def := s.FindDef("CTD"); def != nil { def.owner = p.project }
 				if def := s.FindDef("CWD"); def != nil { def.owner = p.project }
 			} else {
-				diag.errorAt(position, "file scope is nil")
+				diag.errorAt(position, "file scope is nil").
+					debug(optionDebugErrors, 1)
 			}
 			if linfo.loadee == nil {
 				// NOTE: build.smart is always the first loaded, so the loadee will be pointed to it
@@ -2811,6 +2828,8 @@ func (p *parser) parseFile() *parsedFile {
 			} (p.project)
 		}
 
+		var basePos Position
+		if implicitBase != "" { basePos = pos } else { basePos = p.position() }
 		if p.tok == token.LPAREN {
 			p.isLoadingBases = true
 			for p.tok != token.EOF {
@@ -2821,17 +2840,17 @@ func (p *parser) parseFile() *parsedFile {
 					//if p.lineComment != nil  { break }
 					//if p.tok == token.LINEND { break }
 					if p.tok == token.EOF {
-						diag.errorAt(p.position(), "unexpected end of file while parsing bases").
+						diag.errorAt(basePos, "unexpected end of file while parsing bases").
 							debug(optionDebugErrors, 1)
 						return nil
 					}
-					if t, e := parseOpts(p.position(), &opts, param); e != nil {
+					if t, e := parseOpts(param.Position(), &opts, param); e != nil {
 						diag.errorOf(param, "parse opt '%v' failed: %v", param, e).
 							debug(optionDebugErrors, 1)
 						return nil
 					} else if keyword == token.PACKAGE || opts.final {
 						// No bases for PACKAGE or final project
-					} else if !p.loadBases(p.position(), linfo, merge(t...)...) {
+					} else if !p.loadBases(basePos, linfo, /*implicitBase*/"", merge(t...)...) {
 						diag.errorOf(param, "loading base '%v' failed", t).
 							debug(optionDebugErrors, 1)
 						return nil
@@ -2841,8 +2860,9 @@ func (p *parser) parseFile() *parsedFile {
 			}
 			p.isLoadingBases = false
 			p.expect(token.RPAREN)
-		} else if pos := p.position(); !p.loadBases(pos, linfo) { // for special bases, e.g. .base
-			diag.errorAt(pos, "loading bases failed")
+		} else if !p.loadBases(basePos, linfo, implicitBase) { // for special bases, e.g. .base
+			diag.errorAt(basePos, "loading bases failed").
+				debug(optionDebugErrors, 1)
 			return nil
 		}
 		p.expectLinend()
