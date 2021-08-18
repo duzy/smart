@@ -1264,11 +1264,11 @@ ForTarget:
                                         for _, brk := range t.breakers {
                                                 switch brk.what {
                                                 case breakErro:
-                                                        diag.errorAt(brk.pos, "broken traversal for grepped '%v'", val)
+                                                        diag.errorAt(brk.pos, "broken traversal for grepped %v", val)
                                                         diag.errorAt(brk.pos, "broken traversal with error: %v", brk.error).
                                                                 debug(optionDebugErrors, 1)
                                                 default:
-                                                        diag.errorAt(brk.pos, "broken traversal for grepped '%v': (%v) %v", val, brk.what, brk.message).
+                                                        diag.errorAt(brk.pos, "broken traversal for grepped %v: (%v) %v", val, brk.what, brk.message).
                                                                 debug(optionDebugErrors, 1)
                                                 }
                                         }
