@@ -498,7 +498,9 @@ func (t *traversal) file(file *File) (okay bool) {
     for _, project := range projects {
         var entry *RuleEntry
         if entry, err = project.resolveEntry(file.name); err != nil {
-            t.traceCallStack(file.position, "resolve entry '%v' failed: %v", file.name, err)
+            diag.errorAt(file.position, "resolve entry '%v' failed: %v", file.name, err).
+                debug(optionDebugErrors, 1)
+            t.traceCallStack(file.position, "%v:", file.name)
             return
         } else if entry == nil {
             continue
@@ -510,7 +512,8 @@ func (t *traversal) file(file *File) (okay bool) {
 
     var currentTargetValue = t.getCurrentTargetValue()
     if isNil(currentTargetValue) {
-        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target)
+        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target).
+            debug(optionDebugErrors, 1)
         return
     }
     for _, entry := range concreteList {
@@ -535,19 +538,16 @@ func (t *traversal) file(file *File) (okay bool) {
             }
         }
     }
-    for i, entry := range stemmedList {
-        if false && strings.Contains(entry.String(), "%%.py") {
-            diag.warnAt(file.position, "%v %v %v", file, entry, t.stems).debug(true,1)
-        }
+    for _, entry := range stemmedList {
         if entry.file(t, file); !t.hasBreakers() {
             if okay = file.exists(); okay { break }
         } else if nxts := t.breakersOf(breakNext); len(nxts) > 0 {
-            t.breakers  = t.breakersNot(breakNext)
-            if false { diag.infoAt(entry.position, "trying next for %v, #%d %v %v",
-                file, i, entry.Pattern, nxts[0].value).debug(optionDebugErrors, 1) }
+            if t.breakers = t.breakersNot(breakNext); len(t.breakers) > 0 {
+                diag.errorAt(entry.position, "broken traversal for stemmed entry '%v'", entry).
+                    debug(optionDebugErrors, 1)
+            }
             continue
         } else if brks := t.breakersOf(breakFail, breakErro); len(brks) > 0 {
-            t.breakers  = t.breakersNot(breakFail, breakErro)
             for _, brk := range brks {
                 switch brk.what {
                 case breakFail:
@@ -558,13 +558,21 @@ func (t *traversal) file(file *File) (okay bool) {
                         debug(optionDebugErrors, 1)
                 }
             }
+            if t.breakers = t.breakersNot(breakFail, breakErro); len(t.breakers) > 0 {
+                diag.errorAt(entry.position, "broken traversal for stemmed entry '%v'", entry).
+                    debug(optionDebugErrors, 1)
+            }
             return
         } else if brks := t.breakersOf(breakCase, breakDone); len(brks) > 0 {
-            t.breakers, okay = nil, true // reset breakers
+            if t.breakers = t.breakersNot(breakCase, breakDone); len(t.breakers) > 0 {
+                diag.errorAt(entry.position, "broken traversal for stemmed entry '%v'", entry).
+                    debug(optionDebugErrors, 1)
+            } else { okay = true }
             break
         } else {
-            t.traceCallStack(entry.position, "unknown breakers for file %v (%v)", file, t.breakers[0].what).
+            diag.errorAt(entry.position, "unknown breakers for file %v (%v)", file, t.breakers[0].what).
                 debug(optionDebugErrors, 1)
+            t.traceCallStack(entry.position, "unknown breakers for file %v (%v)", file, t.breakers[0].what)
             return
         }
     }
@@ -605,9 +613,7 @@ func (t *traversal) file(file *File) (okay bool) {
                 debug(optionDebugErrors, 64)
         }
         t.traceCallStack(file.position, "missing file %v required by %v (in %v)", file, currentTargetValue, t.project)
-        brk := t._break(file.position, breakErro)
-        brk.error = fileNotFoundError{ t.project, file }
-        t.breakers = append(t.breakers, brk)
+        t._break(file.position, breakErro).error = fileNotFoundError{ t.project, file }
     }
     return
 }
@@ -627,6 +633,8 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
     for _, project := range projects {
         var entry *RuleEntry
         if entry, err = project.resolveEntry(target); err != nil {
+            diag.errorAt(pos, "resolve entry '%v' failed: %v", target, err).
+                debug(true, 1)
             t.traceCallStack(pos, "resolve entry '%v' failed: %v", target, err)
             return
         } else if entry == nil {
@@ -639,7 +647,8 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
 
     var currentTargetValue = t.getCurrentTargetValue()
     if isNil(currentTargetValue) {
-        diag.errorAt(pos, "target '%v' is nil", t.def.target)
+        diag.errorAt(pos, "target '%v' is nil", t.def.target).
+            debug(optionDebugErrors, 1)
         return
     }
 
@@ -651,6 +660,8 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
                 // target resolve to itself, does nothing
             } else if entry.traverse(t); t.hasBreakers() {
                 if optionTraceTraversal { t.tracef("entry.traverse: breakers=%v", t.breakers) }
+                diag.errorAt(pos, "broken traversal for concrete entry '%v' in %v", entry, project).
+                    debug(optionDebugErrors, 1)
                 return
             }
             if file, ok := entry.target.(*File); ok && file.info != nil {
@@ -667,12 +678,15 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
     for _, project := range projects {
         var obj Object
         if obj, err = project.resolveObject(target); err != nil {
-            diag.errorAt(pos, "resolve object '%s' failed: %v", target, err)
+            diag.errorAt(pos, "resolve object '%s' failed: %v", target, err).
+                debug(optionDebugErrors, 1)
             return
         } else if isNil(obj) || isUndef(obj) || isNone(obj) {
             // does nothing here and keep trying FindFile
         } else if obj.traverse(t); t.hasBreakers() {
             if optionTraceTraversal { t.tracef("object.traverse: breakers=%v", t.breakers) }
+            diag.errorAt(pos, "broken traversal '%v' (%T) (project=%v)", obj, obj, project).
+                debug(optionDebugErrors, 1)
             return
         } else if _, ok := obj.(*ProjectName); ok {
             if optionTraceTraversal { t.tracef("object.traverse: ProjectName") }
@@ -693,25 +707,19 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
             }
         }
     }
-    for i, entry := range stemmedList {
+    for _, entry := range stemmedList {
         entry._target(t, target)
         if false && (strings.Contains(target, ".pb.cc") || strings.Contains(entry.String(), "%.pb.cc")) {
-            diag.warnAt(pos, "%v %v %T", target, entry, entry.target).
-                debug(true,1)
-        }
-        if false && (
-            strings.Contains(target, "__algorithm/adjacent_find.h") ||
-                strings.Contains(entry.String(), "__algorithm/adjacent_find.h")) {
             diag.warnAt(pos, "%v %v %T", target, entry, entry.target).
                 debug(true,1)
         }
         if /*entry._target(t, target);*/ !t.hasBreakers() {
             okay = true; break // continue
         } else if nxts := t.breakersOf(breakNext); len(nxts) > 0 {
-            t.breakers = t.breakersNot(breakNext);
-            if false {
-                diag.infoAt(entry.position, "trying next for %v, #%d %v %v",
-                    target, i, entry.Pattern, nxts[0].value).debug(optionDebugErrors, 1)
+            if t.breakers = t.breakersNot(breakNext); len(t.breakers) > 0 {
+                diag.errorAt(entry.position, "next with broken traversal for %v (pattern=%v, next=%v)",
+                    target, entry.Pattern, nxts[0].value).
+                    debug(optionDebugErrors, 1)
             }
             continue
         } else if brks := t.breakersOf(breakFail, breakErro); len(brks) > 0 {
@@ -731,8 +739,9 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
             t.breakers, okay = nil, true // reset breakers
             break
         } else {
-            t.traceCallStack(entry.position, "unknown breakers for target %v (%v)", target, t.breakers[0].what).
+            diag.errorAt(entry.position, "unknown breakers for target %v (%v)", target, t.breakers[0].what).
                 debug(optionDebugErrors, 1)
+            t.traceCallStack(entry.position, "unknown breakers for target %v (%v)", target, t.breakers[0].what)
             return
         }
     }
@@ -836,7 +845,6 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
                 debug(optionDebugErrors,1)
             brk := t._break(file.position, breakErro)
             brk.error = fileNotFoundError{t.project, file}
-            t.breakers = append(t.breakers, brk)
         } else {
             if true {
                 diag.errorAt(pos, "missing target %v", target)
@@ -849,7 +857,6 @@ func (t *traversal) target(pos Position, target string) (okay bool) {
                 debug(optionDebugErrors,1)
             brk := t._break(pos, breakErro)
             brk.error = targetNotFoundError{t.project, target}
-            t.breakers = append(t.breakers, brk)
         }
     } else if !okay && len(t.stems) > 0 {
         t._break(pos, breakNext).scope = breakTrave
@@ -3339,7 +3346,8 @@ func (p *File) traverse(t *traversal) {
 
     var currentTargetValue = t.getCurrentTargetValue()
     if isNil(currentTargetValue) {
-        diag.errorAt(p.position, "target '%v' is nil", t.def.target)
+        diag.errorAt(p.position, "target '%v' is nil", t.def.target).
+            debug(optionDebugErrors, 1)
         return
     }
 
@@ -3356,7 +3364,11 @@ func (p *File) traverse(t *traversal) {
         } else {
             var s string
             var err error
-            if s, err = a.Strval(); err != nil { diag.errorOf(a, "%v", err); return }
+            if s, err = a.Strval(); err != nil {
+                diag.errorOf(a, "strval '%v' failed: %v", a, err).
+                    debug(optionDebugErrors, 1)
+                return
+            }
             if file := t.project.FindFile(s); file != nil {
                 currentTargetValue = file
                 t.def.target.value = file
@@ -3365,7 +3377,16 @@ func (p *File) traverse(t *traversal) {
         }
     }
 
-    if t.file(p); t.hasBreakers() /*|| diag.numErrors() > 0*/ { return }
+    if t.file(p); t.hasBreakers() /*|| diag.numErrors() > 0*/ {
+        diag.errorAt(p.position, "broken traversal for file '%v' (at %s)", p, p.fullname()).
+            debug(optionDebugErrors,1)
+        return
+    } else if p.info == nil {
+        t._break(p.position, breakErro).error = fileNotFoundError{ t.project, p }
+        diag.errorAt(p.position, "break: missing file %v (at %s)", p, p.fullname()).
+            debug(optionDebugErrors,1)
+        return
+    }
 
     if optionTraceTraversal {
         var a = currentTargetValue
@@ -3374,8 +3395,6 @@ func (p *File) traverse(t *traversal) {
         t.tracef("%s: %v (%v)", typeof(a), a, t1)
         t.tracef("%s: %v (%v)", typeof(p), p, t2)
     }
-
-    if p.info == nil { return }
 
     // Note that the file maybe not traversed yet at this point. But we
     // still have to check mod-time.

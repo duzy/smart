@@ -12,6 +12,7 @@ import (
   "extbit.io/smart/scanner"
   "fmt"
   "io"
+  "io/fs"
   "os"
   "os/exec"
   "path/filepath"
@@ -937,8 +938,13 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
         if files, err = target.stamp(t); err != nil {
           var p = target.Position()
           if !p.IsValid() { p = pos }
-          diag.errorAt(pos, "%v", err).
-            debug(optionDebugErrors,1)
+          if pe, ok := err.(*fs.PathError); ok {
+            diag.errorAt(pos, "stamp %v: not found", trimPromptString(pe.Path)).
+              debug(optionDebugErrors,1)
+          } else {
+            diag.errorAt(pos, "%v", err).
+              debug(optionDebugErrors,1)
+          }
           return
         } else if opts.report {
           reportFileUpdates(pos, t.start, files)
@@ -1030,7 +1036,10 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
       //if err = lockCD(dir, 25*time.Millisecond); err != nil { diag.errorAt(pos, "%v", err); return }
       //if s, e := os.Getwd(); e == nil { assert(s == dir, "wrong work directory (%s != %s)", s, dir) }
       for {
-        if err = lockCD(dir, 25*time.Millisecond); err != nil { diag.errorAt(pos, "%v", err); return }
+        if err = lockCD(dir, 25*time.Millisecond); err != nil {
+          diag.errorAt(pos, "%v", err).debug(optionDebugErrors,1)
+          return
+        }
         if s, _ := os.Getwd(); s == dir { break }
       }
 

@@ -66,7 +66,7 @@ func (prog *Program) interpret(pos Position, t *traversal, i interpreter, params
     t.wait(prog.position)
 
     if value, err = i.Evaluate(pos, t, params...); err != nil {
-        diag.errorAt(pos, "evaluate failed: %v", err).
+        diag.errorAt(pos, "evaluation failed: %v", err).
             debug(optionDebugErrors, 1)
         return
     } else if !isNil(value) {
@@ -92,7 +92,8 @@ func (prog *Program) getModifies(name string) (ms []*modifier) {
         if !ok { continue }
         for _, m := range g.modifiers {
             if s, e := m.name.Strval(); e != nil {
-                diag.errorOf(m.name, "get modifier name '%v' failed: %v", m.name, e)
+                diag.errorOf(m.name, "get modifier name '%v' failed: %v", m.name, e).
+                    debug(optionDebugErrors, 1)
                 return
             } else if s == name {
                 ms = append(ms, m)
@@ -166,12 +167,14 @@ func (prog *Program) args(args []Value) (params []*Def, restore func(), err erro
         if t, ok := a.(*Pair); ok {
             var s string
             if s, err = t.Key.Strval(); err != nil {
-                diag.errorOf(t.Key, "%v", err)
+                diag.errorOf(t.Key, "strval '%v' failed: %v", t.Key, err).
+                    debug(optionDebugErrors, 1)
                 return
             } else if o := prog.scope.Lookup(s); isNil(o) {
                 rest = append(rest, a)
             } else if def, ok = o.(*Def); !ok {
-                diag.errorOf(o, "object is not a Def: %v", o)
+                diag.errorOf(o, "object is not a Def: %v", o).
+                    debug(optionDebugErrors, 1)
                 return
             } else {
                 values = append(values, def.value)
@@ -192,7 +195,8 @@ func (prog *Program) args(args []Value) (params []*Def, restore func(), err erro
         } else {
             name := strconv.Itoa(argnum+1)
             if def, err = prog.auto(name, a); err != nil {
-                diag.errorOf(a, "arg: %v", err)
+                diag.errorOf(a, "arg: %v", err).
+                    debug(optionDebugErrors, 1)
                 return
             }
             values = append(values, def.value)
@@ -219,27 +223,20 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     if !isConfigureExecution && caller != nil {
         isConfigureExecution =  caller.isConfigureExecution
     }
-    /*if n := diag.checkErrors(true); n > 0 && !isConfigureExecution {
-        diag.errorAt(prog.position, "%v: %d errors, discard execution", entry, n)
-        return
-    }*/
     defer func() {
         if n := diag.checkErrors(true); n > 0 && !isConfigureExecution {
-            // create a new error point for next checking
             var pos = prog.position
             if !pos.IsValid() { pos = entry.Position() }
             if !pos.IsValid() { pos = entry.position }
-            if n == 1 {
-                diag.warnAt(pos, "execution yields an error for %v", entry).
-                    debug(optionDebugErrors, 1)
-            } else {
-                diag.warnAt(pos, "execution yields %d errors for %v", n, entry).
-                    debug(optionDebugErrors, 1)
-            }
             if caller != nil {
-                brk := caller._break(prog.position, breakErro)
-                brk.error = fmt.Errorf("%v: got %d errors", entry, n)
-                caller.breakers = append(caller.breakers, brk)
+                var err error
+                if n == 1 {
+                    err = fmt.Errorf("execution yields an error for %v", entry)
+                } else {
+                    err = fmt.Errorf("execution yields %d errors for %v", n, entry)
+                }
+                caller._break(prog.position, breakErro).error = err
+                if false { diag.warnAt(pos, "break: %v", err).debug(optionDebugErrors, 1) }
             }
         }
     } ()
@@ -427,12 +424,14 @@ func (t *traversal) exec(prog *Program) (result Value) {
     }
 
     // Update grapped files
+    /* modifierGrepFiles already did the traverse()
     if t.traverseGreppedFiles(pos);           t.hasBreakers() { return }
     if n := diag.checkErrors(true); n > 0 {
         diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).
             debug(optionDebugErrors, 1)
         return
     }
+    */
 
     if len(t.interpreted) == 0 {
         // Using the default statements interpreter.

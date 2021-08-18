@@ -604,8 +604,11 @@ func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
       if target.name == s { return rec, nil }
     default:
       var sv string
-      if sv, err = target.Strval(); err != nil { return }
-      if sv == s { return rec, nil }
+      if sv, err = target.Strval(); err != nil {
+        diag.errorAt(target.Position(), "strval '%v' failed: %v", target, err).
+          debug(optionDebugErrors, 1)
+        return
+      } else if sv == s { return rec, nil }
     }
   }
   for _, base := range p.bases {

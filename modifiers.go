@@ -133,8 +133,13 @@ func (m *modifier) traverse(t *traversal) {
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("modifier.traverse(%s)", m))) }
         if optionTraceTraversal   { defer un(tt(t_traverse, t, m)) }
         if err := t.program.modify(t, m); err != nil {
-                diag.errorAt(m.position, "%s failed: %v", m.name, err).
-                        debug(optionDebugErrors,1)
+                if pe, ok := err.(*fs.PathError); ok {
+                        diag.errorAt(m.position, "%s failed: %v not found", m.name, trimPromptString(pe.Path)).
+                                debug(optionDebugErrors,1)
+                } else {
+                        diag.errorAt(m.position, "%s failed: %v", m.name, err).
+                                debug(optionDebugErrors,1)
+                }
         }
         return
 }
@@ -1214,7 +1219,7 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
         }}
 
         if gc.debug {
-                diag.warnAt(pos, "grep-files: %v %v %v\n", t.def.target.value, gc.rxs, args).
+                diag.warnAt(pos, "grep files: %v %v %v\n", t.def.target.value, gc.rxs, args).
                         debug(optionDebugErrors, 1)
         }
         if gc.verbose {
@@ -1235,8 +1240,8 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
 ForTarget:
         for _, target := range targets {
                 if isNil(target) {
-                        diag.errorAt(pos, "grep target '%v' is nil for %v", target,
-                                t.def.target.value).debug(optionDebugErrors, 1)
+                        diag.errorAt(pos, "found nil grep target for %v", t.def.target.value).
+                                debug(optionDebugErrors, 1)
                         return
                 }
                 if isNone(target) {
@@ -1259,15 +1264,14 @@ ForTarget:
                                         for _, brk := range t.breakers {
                                                 switch brk.what {
                                                 case breakErro:
-                                                        diag.errorAt(brk.pos, "borken grep '%v' with error: %v", val, brk.error).
+                                                        diag.errorAt(brk.pos, "broken grepped traversal for '%v'", val)
+                                                        diag.errorAt(brk.pos, "broken grepped traversal with error: %v", brk.error).
                                                                 debug(optionDebugErrors, 1)
                                                 default:
-                                                        diag.errorAt(brk.pos, "borken grep '%v': (%v) %v", val, brk.what, brk.message).
+                                                        diag.errorAt(brk.pos, "broken grepped traversal '%v': (%v) %v", val, brk.what, brk.message).
                                                                 debug(optionDebugErrors, 1)
                                                 }
                                         }
-                                        diag.errorAt(pos, "broken grep traversal '%v'", val).
-                                                debug(optionDebugErrors, 1)
                                         break ForTarget
                                 }
                         }
