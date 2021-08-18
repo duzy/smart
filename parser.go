@@ -68,7 +68,7 @@ type parsedFile struct {
 	// TODO: comments *CommentGroup
 	keyword token.Token // project, package or module
 	position Position // position of the beginning, which has filename information
-	name *Bareword // project/module name
+	name *Barecomp // project/module name
 	scope *Scope
 	using []*usespec // imports
 }
@@ -334,7 +334,8 @@ func (p *parser) expected(pos token.Pos, msg string, a... interface{}) {
 			}
 		}
 	}
-	diag.errorAt(p.positionAt(pos), msg).debug(optionDebugErrors, 1)
+	diag.errorAt(p.positionAt(pos), msg).
+		debug(optionDebugErrors, 16)
 }
 
 func (p *parser) expect(tok token.Token) token.Pos {
@@ -400,16 +401,12 @@ func (p *parser) parseBarewordConstant(lhs bool) (x Value) {
 
 	p._next() // consumes the word
 
-	var position = p.positionAt(pos)
-	if tok.IsConstant() {
-		switch tok {
-		case token.TRUE:  x = MakeBoolean(position, true)
-		case token.FALSE: x = MakeBoolean(position, false)
-		case token.YES:   x = MakeAnswer(position, true)
-		case token.NO:    x = MakeAnswer(position, false)
-		}
-	} else {
-		x = MakeBareword(position, value)
+	switch position := p.positionAt(pos); tok {
+	case token.TRUE:  x = MakeBoolean(position,  true)
+	case token.FALSE: x = MakeBoolean(position,  false)
+	case token.YES:   x = MakeAnswer(position,   true)
+	case token.NO:    x = MakeAnswer(position,   false)
+	default:          x = MakeBareword(position, value)
 	}
 	return
 }
@@ -830,7 +827,7 @@ func (p *parser) parseDotExpr(lhs bool, x Value) (res *Barecomp) {
 	for /*comp.End() == p.pos && */!p.isEndOfDotConcat(lhs) {
 		comp.Combine(p.parseComposedExpr(false))
 		if p.tok == token.DOT /*&& comp.End() == p.pos*/ {
-			var dot = MakeBareword(p.position(), p.tok.String())
+			var dot = MakeBareword(p.position(), ".")
 			comp.Elems = append(comp.Elems, dot)
 			p._next() // '.'
 		}
@@ -2612,6 +2609,13 @@ func (p *parser) applyUseeVars(position Position, proj *Project, using Value) {
 	}
 }
 
+type projectDeclOpts struct {
+	final bool `f,final`
+	noDock bool `n,nod;n,nodock;nd,no-dock`
+    breakUseLoop bool `b,break;l,loop`  // don't recursively use this project
+    multiUseAllowed bool `m,multi`  // this project is used multiple times
+}
+
 func (p *parser) parseFile() *parsedFile {
 	if  optionTraceLaunch { defer un(trace(t_launch, "parser.parseFile")) }
 	if t_traverse.enabled { defer un(trace(t_traverse, "File '"+p.file.Name()+"'")) }
@@ -2623,7 +2627,8 @@ func (p *parser) parseFile() *parsedFile {
 
 	var (
 		abs, rel, tmp string
-		ident *Bareword
+		ident *Barecomp //Bareword
+		identStr string
 		keyword = p.tok
 		filename = p.file.Name()
 		position = p.position()
@@ -2667,7 +2672,9 @@ func (p *parser) parseFile() *parsedFile {
 			diag.errorAt(position, "CWD not in the scope: %v", s.comment)
 		}
 	} else {
-		diag.errorAt(position, "opened invalid scope for %s", filename)
+		diag.errorAt(position, "opened invalid scope for %s", filename).
+			debug(optionDebugErrors, 1)
+		return nil
 	}
 
 	switch keyword {
@@ -2681,7 +2688,7 @@ func (p *parser) parseFile() *parsedFile {
 			}
 
 			basename := filepath.Base(filepath.Dir(filename))
-			ident = MakeBareword(position, basename)
+			ident = MakeBarecomp(position, MakeBareword(position, basename))
 
 		default:
 			p.error(p.pos, "unknown configuration '%v', currently only 'configure .' is supported", p.tok)
@@ -2694,25 +2701,23 @@ func (p *parser) parseFile() *parsedFile {
 		p.next(true)
 
 		// Options are *Flag or *Pair of a Flag.
-		var (
-			optFinal, optNoDock bool // TODO: move these opts into declareOpts
-			options []Value
-		)
+		var ( opts projectDeclOpts; options []Value; pos Position )
 		for p.tok == token.MINUS {
-			var opt = p.parseExpr(false)
-			p.skipSpaces()
-			if t, ok := opt.(*Flag); ok {
-				if s, e := t.name.Strval(); e != nil {
-					diag.errorOf(t.name, "strval flag name '%v' failed: %v", t.name, e)
-					return nil
-				} else {
-					switch s {
-					case "final" : optFinal = true
-					case "nodock": optNoDock = true
-					}
-				}
-			}
+			var opt = p.parseExpr(false);  p.skipSpaces()
 			options = append(options, opt)
+			if !pos.IsValid() { pos = opt.Position() }
+		}
+		if !pos.IsValid() { pos = p.position() }
+		if a, e := parseOpts(pos, &opts, options...); e != nil {
+			diag.errorAt(pos, "parse project decl opts failed: %v", e).
+				debug(optionDebugErrors, 1)
+			return nil
+		} else if len(a) > 0 {
+			for _, v := range a {
+				diag.errorOf(v, "unknown option '%v'", v).
+					debug(optionDebugErrors, 1)
+			}
+			return nil
 		}
 
 		var linfo = p.loads[len(p.loads)-1]
@@ -2726,10 +2731,10 @@ func (p *parser) parseFile() *parsedFile {
 				base = filepath.Base(dir)
 			)
 			if linfo.loadee != nil && linfo.absDir == dir {
-				ident = MakeBareword(position, linfo.loadee.name)
+				ident = MakeBarecomp(position, MakeBareword(position, linfo.loadee.name))
 			} else {
 				// TODO: validate basename as a valid identifier
-				ident = MakeBareword(position, base)
+				ident = MakeBarecomp(position, MakeBareword(position, base))
 			}
 		} else if p.tok == token.TILDE {
 			/*if filename == confinitFilename {
@@ -2737,22 +2742,37 @@ func (p *parser) parseFile() *parsedFile {
             } else*/ if ext := filepath.Ext(filename); ext != ".smart" {
 				diag.errorAt(p.position(), "`%v` not a smart file", filepath.Base(filename))
 			} else if s := strings.TrimSuffix(filepath.Base(filename), ext); s != "" {
-				ident = MakeBareword(position, s)
+				ident = MakeBarecomp(position, MakeBareword(position, s))
 			} else {
 				diag.errorAt(p.position(), "`%v` not tilde name", filepath.Base(filename))
 			}
 			p.next(true) // skip tilde
 		} else {
-			x := p.parseBarewordConstant(false); p.skipSpaces()
-			if ident, _ = x.(*Bareword); isNil(ident) {
-				diag.errorAt(p.position(), "package name '%v' is not a Bareword: %T", x, x)
-			} else if linfo.loadee != nil && ident.string != linfo.loadee.name {
-				diag.warnAt(ident.position, "declare multiple project in the same directory")
+			ident = MakeBarecomp(p.position())
+		ForProjectName:
+			for p.tok != token.EOF && p.tok != token.SPACE {
+				if  ident.Combine(p.parseBarewordConstant(false)); p.tok == token.DOT {
+					ident.Combine(MakeBareword(p.position(), "."))
+					p._next() // '.'
+				} else { break ForProjectName }
+			}
+			p.skipSpaces()
+			if len(ident.Elems) == 0 {
+				diag.errorAt(p.position(), "package name is empty").
+					debug(optionDebugErrors, 1)
+				return nil
 			}
 		}
 
-		if ident.string == "_" && p.mode&DeclarationErrors != 0 {
-			diag.errorAt(p.position(), "package name '_' is preserved")
+		var err error
+		if identStr, err = ident.Strval(); err != nil {
+			diag.errorAt(ident.Position(), "strval '%v' failed: %v", ident, err).
+				debug(optionDebugErrors, 1)
+			return nil
+		} else if linfo.loadee != nil && identStr != linfo.loadee.name {
+			diag.warnAt(ident.position, "declare multiple project in the same directory")
+		} else if identStr == "_" && p.mode&DeclarationErrors != 0 {
+			diag.errorAt(ident.Position(), "package name '_' is preserved")
 			return nil
 		}
 
@@ -2763,8 +2783,8 @@ func (p *parser) parseFile() *parsedFile {
 			return nil
 		}
 
-		var _, declared = linfo.declares[ident.string]
-		if (p.mode&Flat == 0) && p.declare(keyword, ident, options) {
+		var _, declared = linfo.declares[identStr]
+		if (p.mode&Flat == 0) && p.declare(keyword, ident, identStr, options) {
 			// Change the 'default' owners into the new declared project
 			if s := ls.scope; s != nil {
 				if def := s.FindDef("."  ); def != nil { def.owner = p.project }
@@ -2787,7 +2807,7 @@ func (p *parser) parseFile() *parsedFile {
 					if !isNil(using) { p.applyUseeVars(ident.Position(), proj, using) }
 				}
 				p.isLoadingBases = false
-				p.closeCurrent(ident)
+				p.closeCurrent(ident, identStr)
 			} (p.project)
 		}
 
@@ -2801,23 +2821,19 @@ func (p *parser) parseFile() *parsedFile {
 					//if p.lineComment != nil  { break }
 					//if p.tok == token.LINEND { break }
 					if p.tok == token.EOF {
-						diag.errorAt(p.position(), "unexpected end of file while parsing bases")
+						diag.errorAt(p.position(), "unexpected end of file while parsing bases").
+							debug(optionDebugErrors, 1)
 						return nil
 					}
-					if t, ok := param.(*Flag); ok {
-						if s, e := t.name.Strval(); e != nil {
-							diag.errorOf(t.name, "strval flag name '%v' failed: %v", t.name, e)
-							return nil
-						} else {
-							switch s {
-							case "final" : optFinal = true
-							case "nodock": optNoDock = true
-							}
-						}
-					} else if keyword == token.PACKAGE || optFinal {
+					if t, e := parseOpts(p.position(), &opts, param); e != nil {
+						diag.errorOf(param, "parse opt '%v' failed: %v", param, e).
+							debug(optionDebugErrors, 1)
+						return nil
+					} else if keyword == token.PACKAGE || opts.final {
 						// No bases for PACKAGE or final project
-					} else if !p.loadBases(p.position(), linfo, merge(param)...) {
-						diag.errorOf(param, "loading base '%v' failed", param)
+					} else if !p.loadBases(p.position(), linfo, merge(t...)...) {
+						diag.errorOf(param, "loading base '%v' failed", t).
+							debug(optionDebugErrors, 1)
 						return nil
 					}
 				}
@@ -2831,8 +2847,8 @@ func (p *parser) parseFile() *parsedFile {
 		}
 		p.expectLinend()
 		if keyword != token.PACKAGE {
-			p.loadProjectConfiguration(ident, declared)
-			if !optNoDock { p.loadProjectContainer(ident) }
+			p.loadProjectConfiguration(ident, identStr, declared)
+			if !opts.noDock { p.loadProjectContainer(ident, identStr) }
 		}
 	default:
 		if p.mode&Flat == 0 {

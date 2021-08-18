@@ -1050,30 +1050,34 @@ ParamsLoop:
             okay = l.loadWithArgs(position, specName, absPath, args, nil)
         }
         if !okay {
-            diag.errorOf(elem, "loadBases: '%s' not loaded (%s)", specName, absPath)
+            diag.errorOf(elem, "loadBases: '%s' not loaded (%s)", specName, absPath).
+                debug(optionDebugErrors, 1)
             break ParamsLoop
         } else if loaded, yes := l.loaded[absPath]; yes && loaded != nil {
             // chain loaded base project, note that err might not be nil
             l.project.Chain(loaded)
         } else {
-            diag.errorOf(elem, "project `%v`(%T: %s) not loaded (%s)", elem, elem, specName, absPath)
+            diag.errorOf(elem, "project `%v`(%T: %s) not loaded (%s)", elem, elem, specName, absPath).
+                debug(optionDebugErrors, 1)
             break ParamsLoop
         }
     }
     return true
 }
 
-func (l *loader) loadDotContainer(ident *Bareword, file *File) (result bool) {
+func (l *loader) loadDotContainer(ident *Barecomp, identStr string, file *File) (result bool) {
     if optionTraceLaunch { defer un(trace(t_launch, "loader.loadDotContainer")) }
     var position = ident.Position()
     if !l.loadDir(position, dotContainer, file.fullname(), nil) {
-        diag.errorOf(ident, "%s: load '%v' failed (%s)", ident, dotContainer, file.fullname())
+        diag.errorOf(ident, "%s: load '%v' failed (%s)", ident, dotContainer, file.fullname()).
+            debug(optionDebugErrors, 1)
     } else if loaded, yes := l.loaded[file.fullname()]; yes && loaded != nil {
         name, _ := l.project.scope.Lookup(loaded.Name()).(*ProjectName)
         if name == nil {
-            diag.errorOf(ident, "%v: %v: `dock` is not a project", l.project.name, file)
+            diag.errorOf(ident, "%v: %v: `dock` is not a project", l.project.name, file).
+                debug(optionDebugErrors, 1)
         } else {
-            if options.verboseLoads { fmt.Fprintf(stderr, "smart: %v (%v)\n", name, file.fullname()) }
+            if options.verboseLoads { diag.prompt("smart: %v (%v)\n", name, file.fullname()) }
 
             var opts useoptions
             // TODO: parse the useoptions
@@ -1085,20 +1089,23 @@ func (l *loader) loadDotContainer(ident *Bareword, file *File) (result bool) {
     return
 }
 
-func (l *loader) loadDotConfigure(ident *Bareword, file *File) (result bool) {
+func (l *loader) loadDotConfigure(ident *Barecomp, identStr string, file *File) (result bool) {
     if optionTraceLaunch { defer un(trace(t_launch, "loader.loadDotConfigure")) }
     var position = ident.Position()
     if !l.loadDir(position, dotConfigure, file.fullname(), nil) {
-        diag.errorAt(position, "%s: load %v failed  (%s)", ident, dotConfigure, file.fullname())
+        diag.errorAt(position, "%s: load %v failed  (%s)", ident, dotConfigure, file.fullname()).
+            debug(optionDebugErrors, 1)
     } else if loaded, yes := l.loaded[file.fullname()]; yes && loaded != nil {
         name, _ := l.project.scope.Lookup(loaded.Name()).(*ProjectName)
         if name == nil {
-           diag.errorAt(position, "%v: %v: `.configure` is not a project", l.project.name, file)
+           diag.errorAt(position, "%v: %v: `.configure` is not a project", l.project.name, file).
+               debug(optionDebugErrors, 1)
         } else {
-            if options.verboseLoads { fmt.Fprintf(stderr, "smart: %v (%v)\n", name, file.fullname()) }
+            if options.verboseLoads { diag.prompt("smart: %v (%v)\n", name, file.fullname()) }
             if conf := l.project.configure; conf != nil {
                 if conf == loaded { return }
-                diag.errorAt(position, ".configure already specified")
+                diag.errorAt(position, ".configure already specified").
+                    debug(optionDebugErrors, 1)
             }
             l.project.configure = loaded
             result = true
@@ -1107,22 +1114,17 @@ func (l *loader) loadDotConfigure(ident *Bareword, file *File) (result bool) {
     return
 }
 
-type declareOpts struct {
-    breakUseLoop bool `b,break;l,loop`  // don't recursively use this project
-    multiUseAllowed bool `m,multi`  // this project is used multiple times
-}
-
-func (l *loader) declare(keyword token.Token, ident *Bareword, options []Value) (result bool) {
+func (l *loader) declare(keyword token.Token, ident *Barecomp, identStr string, options []Value) (result bool) {
     var pos = ident.Position()
-    if ident.string == "@" {
+    if identStr == "@" {
         var (
             linfo = l.loads[0]
-            dec, ok = linfo.declares[ident.string]
-            at, _ = l.globe.scope.Lookup(ident.string).(*ProjectName)
+            dec, ok = linfo.declares[identStr]
+            at, _ = l.globe.scope.Lookup(identStr).(*ProjectName)
         )
         if !ok {
             dec = &declare{ project: at.NamedProject() }
-            linfo.declares[ident.string] = dec
+            linfo.declares[identStr] = dec
         }
         dec.backproj = l.project
         dec.backscope = l.scope
@@ -1130,15 +1132,15 @@ func (l *loader) declare(keyword token.Token, ident *Bareword, options []Value) 
         l.project = at.NamedProject()
         l.scope = l.project.scope
         return true
-    } else if _, o := l.scope.Find(ident.string); o != nil {
+    } else if _, o := l.scope.Find(identStr); o != nil {
         if _, ok := o.(*Builtin); ok {
-            diag.errorAt(pos, "project name '%s' is a builtin name", ident.string)
+            diag.errorAt(pos, "project name '%s' is a builtin name", identStr)
             return
         }
     }
 
     var (
-        name = ident.string
+        name = identStr
         linfo = l.loads[len(l.loads)-1]
         dec, declared = linfo.declares[name]
     )
@@ -1226,14 +1228,14 @@ func (l *loader) declare(keyword token.Token, ident *Bareword, options []Value) 
     }
 
     if err := l.loadPlugin(pos); err != nil {
-        diag.errorAt(pos, "loadPlugin: %v", err)
+        diag.errorAt(pos, "load plugin failed: %v", err).
+            debug(optionDebugErrors, 1)
         return
     }
-
-   return true
+    return true
 }
 
-func (l *loader) loadProjectConfiguration(ident *Bareword, declared bool) (result bool) {
+func (l *loader) loadProjectConfiguration(ident *Barecomp, identStr string, declared bool) (result bool) {
     // FIXES: set cloctx immediately to ensure the right configuration is matched!
     defer setclosure(setclosure(cloctx.unshift(l.scope)))
     if false { defer un(tracef(t_traverse, "loadProjectConfiguration(%v)", ident)) }
@@ -1262,9 +1264,9 @@ func (l *loader) loadProjectConfiguration(ident *Bareword, declared bool) (resul
     if l.project.name != dotConfigure {
         // Looking for project specific .configure module
         if file := stat(pos, dotConfigure, "", l.project.absPath); file.exists() {
-            if ident.string == dotConfigure {
+            if identStr == dotConfigure {
                 diag.errorAt(pos, "provided .configure for a .configure project")
-            } else if !l.loadDotConfigure(ident, file) {
+            } else if !l.loadDotConfigure(ident, identStr, file) {
                 //diag.errorAt(pos, "declare %s: %s/.configure", name, l.project.absPath)
             }
         }
@@ -1272,7 +1274,7 @@ func (l *loader) loadProjectConfiguration(ident *Bareword, declared bool) (resul
     return true
 }
 
-func (l *loader) loadProjectContainer(ident *Bareword) (result bool) {
+func (l *loader) loadProjectContainer(ident *Barecomp, identStr string) (result bool) {
     // FIXES: set cloctx immediately to ensure the right configuration is matched!
     defer setclosure(setclosure(cloctx.unshift(l.scope)))
 
@@ -1285,7 +1287,7 @@ func (l *loader) loadProjectContainer(ident *Bareword) (result bool) {
 
         // Looking for project specific .container module
         if file := stat(pos, dotContainer, "", l.project.absPath); file.exists() {
-            if !l.loadDotContainer(ident, file) {
+            if !l.loadDotContainer(ident, identStr, file) {
                 //diag.errorAt(pos, "declare %s: %s/.container", name, l.project.absPath)
             }
             return
@@ -1296,7 +1298,7 @@ func (l *loader) loadProjectContainer(ident *Bareword) (result bool) {
             var file = stat(pos, dotContainer, "", filepath.Join(s, ".smart"))
             if !file.exists() {
                 // no docking enabled
-            } else if !l.loadDotContainer(ident, file) {
+            } else if !l.loadDotContainer(ident, identStr, file) {
                 //diag.errorAt(pos, "%v", err)
             }
             return false
@@ -1307,9 +1309,9 @@ func (l *loader) loadProjectContainer(ident *Bareword) (result bool) {
     return
 }
 
-func (l *loader) closeCurrent(ident *Bareword) (err error) {
-    if ident.string == "@" {
-        if dec, ok := l.loads[0].declares[ident.string]; ok {
+func (l *loader) closeCurrent(ident *Barecomp, identStr string) (err error) {
+    if identStr == "@" {
+        if dec, ok := l.loads[0].declares[identStr]; ok {
             l.scope = dec.backscope
             l.project = dec.backproj
             l.useesExecuted = dec.useesExecuted
@@ -1321,14 +1323,14 @@ func (l *loader) closeCurrent(ident *Bareword) (err error) {
     }
 
     var linfo = l.loads[len(l.loads)-1]
-    var dec, ok = linfo.declares[ident.string]
+    var dec, ok = linfo.declares[identStr]
     if dec == nil || !ok {
-        return fmt.Errorf("no loaded project %s", ident.string)
+        return fmt.Errorf("no loaded project %s", identStr)
     }
     if l.project == nil {
         return fmt.Errorf("no current project")
-    } else if s := l.project.Name(); s != ident.string {
-        return fmt.Errorf("current project is %s but %s", s, ident.string)
+    } else if s := l.project.Name(); s != identStr {
+        return fmt.Errorf("current project is %s but %s", s, identStr)
     } else if l.project != dec.project {
         return fmt.Errorf("project conflicts (%s, %s)", l.project.Name(), dec.project.Name())
     }
@@ -1537,10 +1539,12 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *pars
             }
         }
         if panics > 0 {
-            diag.errorAt(pos, "got %d panics", panics).debug(optionDebugErrors)
+            diag.errorAt(pos, "got %d panics parsing %s", panics, filename).
+                debug(optionDebugErrors, 4, 128)
         }
         if err != nil {
-            diag.errorAt(pos, "parse file failed: %v", err).debug(optionDebugErrors)
+            diag.errorAt(pos, "parse file failed: %v", err).
+                debug(optionDebugErrors, 128)
         }
         l.parser.loader = nil
         l.parser = saved
@@ -1563,7 +1567,7 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *pars
         f = &parsedFile{ scope:s.scope }
         f.position.Filename = filename
         // TODO: validate basename as a valid identifier
-        f.name = MakeBareword(f.position, filepath.Base(filepath.Dir(filename)))
+        f.name = MakeBarecomp(f.position, MakeBareword(f.position, filepath.Base(filepath.Dir(filename))))
         l.closeScope(s)
     }
     return
@@ -1730,36 +1734,40 @@ ListLoop:
         if linked != "" { }
 
         if mo.IsRegular() && (filter == nil || filter(d)) {
-            var src, err = l.ParseFile(filename, nil, mode|parsingDir)
-            if diag.checkErrors(true) > 0 { return }
-            if err == nil {
-                var position Position
-                if l.parser != nil && l.parser.file != nil {
-                    position = Position(l.parser.file.Position(l.pos))
-                } else {
-                    position.Filename = filename
-                }
-                if src == nil {
-                    diag.errorAt(position, "'%v' not loaded", filename)
-                    return
-                } else if src.name == nil {
-                    diag.errorAt(position, "module '%v' has no name", filename)
-                    return
-                }
-
-                name := src.name.string
-                mod, found := mods[name]
-                if !found {
-                    mod = &Project{
-                        name:  name,
-                        scope: ls.scope,
-                    }
-                    mods[name] = mod
-                }
-                //mod.Files[filename] = src
+            var position Position = pos
+            if l.parser != nil && l.parser.file != nil {
+                position = Position(l.parser.file.Position(l.pos))
             } else {
-                diag.errorAt(pos, "ParseFile: %v", err)
+                position.Filename = filename
+                position.Line = 1
             }
+
+            var src, err = l.ParseFile(filename, nil, mode|parsingDir)
+            if n := diag.checkErrors(true); n > 0 {
+                diag.warnAt(position, "%d errors parsing %s", n, filename).
+                    debug(optionDebugErrors, 1)
+                return
+            } else if err != nil {
+                diag.errorAt(position, "parse file failed: %v", err).
+                    debug(optionDebugErrors, 1)
+                return
+            } else if src == nil {
+                diag.errorAt(position, "'%v' not loaded", filename)
+                return
+            } else if src.name == nil {
+                diag.errorAt(position, "module '%v' has no name", filename)
+                return
+            }
+
+            var name string
+            if name, err = src.name.Strval(); err != nil {
+                diag.errorAt(src.name.Position(), "strval '%v' failed: %v", src.name, err).
+                    debug(optionDebugErrors, 1)
+            } else if mod, found := mods[name]; !found {
+                mod = &Project{ name: name, scope: ls.scope }
+                mods[name] = mod
+            }
+            //mod.Files[filename] = src
         }
     }
     return

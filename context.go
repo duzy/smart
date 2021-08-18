@@ -98,7 +98,14 @@ func (d *diagnostic) debug(enabled bool, args ...interface{}) {
       i, j int
     )
     if skips > 0 && len(v) > skips { i = skips }
-    if len(args) > 0 { if n, ok := args[0].(int); ok { j = n }}
+    if n := len(args); n == 1 {
+      if t, ok := args[0].(int); ok { j = t }
+    } else if n == 2 {
+      if t, ok := args[0].(int); ok { i += t }
+      if t, ok := args[1].(int); ok { j = t }
+    } else {
+      panic("too many debug args")
+    }
 
     var s string
     switch d.dt {

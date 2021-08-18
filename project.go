@@ -285,7 +285,7 @@ type Project struct {
   plugin *plugin.Plugin
   pluginScope *Scope
 
-  opts declareOpts
+  opts projectDeclOpts
 }
 
 func (p *Project) String() string { return p.name }
