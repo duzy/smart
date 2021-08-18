@@ -543,7 +543,7 @@ func (t *traversal) file(file *File) (okay bool) {
             if okay = file.exists(); okay { break }
         } else if nxts := t.breakersOf(breakNext); len(nxts) > 0 {
             if t.breakers = t.breakersNot(breakNext); len(t.breakers) > 0 {
-                diag.errorAt(entry.position, "broken traversal for stemmed entry '%v'", entry).
+                diag.errorAt(entry.position, "broken traversal for stemmed entry %v", entry).
                     debug(optionDebugErrors, 1)
             }
             continue
@@ -551,28 +551,33 @@ func (t *traversal) file(file *File) (okay bool) {
             for _, brk := range brks {
                 switch brk.what {
                 case breakFail:
-                    diag.errorAt(entry.position, "traverse %v failed: %v", file, brk.message).
+                    diag.errorAt(entry.position, "borken traversal for stemmed file entry %v", file)
+                    diag.errorAt(entry.position, "borken traversal for stemmed file entry failed: %v", brk.message).
                         debug(optionDebugErrors, 1)
                 case breakErro:
-                    diag.errorAt(entry.position, "traverse %v error: %v", file, brk.error).
+                    diag.errorAt(entry.position, "broken traversal for stemmed file entry %v", file)
+                    diag.errorAt(entry.position, "broken traversal for stemmed file entry with error: %v", brk.error).
                         debug(optionDebugErrors, 1)
                 }
             }
             if t.breakers = t.breakersNot(breakFail, breakErro); len(t.breakers) > 0 {
-                diag.errorAt(entry.position, "broken traversal for stemmed entry '%v'", entry).
+                diag.errorAt(entry.position, "broken traversal for stemmed file entry %v", entry).
                     debug(optionDebugErrors, 1)
             }
             return
         } else if brks := t.breakersOf(breakCase, breakDone); len(brks) > 0 {
             if t.breakers = t.breakersNot(breakCase, breakDone); len(t.breakers) > 0 {
-                diag.errorAt(entry.position, "broken traversal for stemmed entry '%v'", entry).
+                diag.errorAt(entry.position, "broken traversal for stemmed file entry %v", entry).
                     debug(optionDebugErrors, 1)
             } else { okay = true }
             break
-        } else {
-            diag.errorAt(entry.position, "unknown breakers for file %v (%v)", file, t.breakers[0].what).
+        } else if t.hasBreakers() {
+            for _, brk := range t.breakers {
+                diag.errorAt(entry.position, "borken traversal for stemmed file entry %v (%v)", file, brk.what)
+            }
+            diag.errorAt(entry.position, "broken traversal for stemmed file entry %v", entry).
                 debug(optionDebugErrors, 1)
-            t.traceCallStack(entry.position, "unknown breakers for file %v (%v)", file, t.breakers[0].what)
+            t.traceCallStack(entry.position, "broken traversal for stemmed file %v:", file)
             return
         }
     }
