@@ -485,9 +485,11 @@ ForPats:
           } else if ok && !path.expandible(expandClosure) && len(fm.Paths) == 1 {
             // Just report that the pattern matches no files in the
             // file system (if only one path specified).
-            diag.warnOf(pattern, "%s: %v matches no files in '%v'", p.name, fm, sub)
-            diag.warnOf(    pat, "%s: here is %v (try using flag -m, aka -include-missing)", p.name, pat).
-              debug(optionDebugErrors, 1)
+            if false {
+              diag.warnOf(pattern, "%s: %v matches no files in '%v'", p.name, fm, sub)
+              diag.warnOf(    pat, "%s: here is %v (try using flag -m, aka -include-missing)", p.name, pat).
+                debug(optionDebugErrors, 1)
+            }
           } else if opts.errorMissing {
             err = fmt.Errorf("missing files like '%v'", fm)
             break ForPats
