@@ -396,9 +396,9 @@ func (t *traversal) calleeDone(err error) {
     }
     t.group.Done()
 }
-
-func (t *traversal) dispatch(i interface{}) {
-    if optionEnableBenchmarks && false {  defer bench(mark(fmt.Sprintf("traversal.dispatch(%s=%v)", typeof(i), i))) }
+/*
+func (t *traversal) any(i interface{}) {
+    if optionEnableBenchmarks && false {  defer bench(mark(fmt.Sprintf("traversal.any(%s=%v)", typeof(i), i))) }
 
     var err error
     var pos = t.def.target.position
@@ -407,10 +407,10 @@ func (t *traversal) dispatch(i interface{}) {
             if optionEnableBenchmarks && false {
                 i := v.Index(n).Interface()
                 a, b := mark(fmt.Sprintf("%v: %s %v", n, typeof(i), i))
-                t.dispatch(i)
+                t.any(i)
                 bench(a, b)
             } else {
-                t.dispatch(v.Index(n).Interface())
+                t.any(v.Index(n).Interface())
             }
         }
     } else if i == nil {
@@ -420,12 +420,12 @@ func (t *traversal) dispatch(i interface{}) {
     } else if isNil(value) { // this could happen
         diag.errorAt(pos, "updating nil prerequisite")
     } else {
-        if false { fmt.Fprintf(stderr, "dispatch: %T %v\n", value, value) }
+        if false { fmt.Fprintf(stderr, "any: %T %v\n", value, value) }
         value.traverse(t)
     }
     return
 }
-
+*/
 func (t *traversal) filestub(p *Project, file *File, stub *filestub) (okay bool) {
     if optionEnableBenchspots { defer bench(spot("traversal.filestub")) }
 
@@ -503,10 +503,18 @@ func (t *traversal) file(file *File) (okay bool) {
             t.traceCallStack(file.position, "%v:", file.name)
             return
         } else if entry == nil {
+            if false && file.name == "llvm/IR/Attributes.inc" {
+                diag.infoAt(file.position, "%v: %v", project, entry).
+                    debug(optionDebugErrors, 1)
+            }
             continue
         } else if _, ok := concreteEntries[entry]; !ok {
             concreteList = append(concreteList, entry)
             concreteEntries[entry] = project
+        }
+        if false && file.name == "llvm/IR/Attributes.inc" {
+            diag.infoAt(file.position, "%v: %v %v", project, file, entry).
+                debug(optionDebugErrors, 1)
         }
     }
 
@@ -552,7 +560,7 @@ func (t *traversal) file(file *File) (okay bool) {
             for _, brk := range brks {
                 switch brk.what {
                 case breakFail:
-                    diag.errorAt(brk.pos, "borken traversal for stemmed file entry %v failed: %v", file, brk.message)
+                    diag.errorAt(brk.pos, "broken traversal for stemmed file entry %v failed: %v", file, brk.message)
                 case breakErro:
                     diag.errorAt(brk.pos, "broken traversal for stemmed file entry %v with error: %v", file, brk.error)
                 default:
@@ -563,7 +571,7 @@ func (t *traversal) file(file *File) (okay bool) {
                 diag.errorAt(entry.position, "broken traversal for stemmed file entry %v in %v (more)", entry, project).
                     debug(optionDebugErrors, 1)
             } else {
-                diag.errorAt(entry.position, "borken traversal for stemmed file entry %v in %v", file, project).
+                diag.errorAt(entry.position, "broken traversal for stemmed file entry %v in %v", file, project).
                     debug(optionDebugErrors, 1)
             }
             return
@@ -575,7 +583,7 @@ func (t *traversal) file(file *File) (okay bool) {
             break
         } else if t.hasBreakers() {
             for _, brk := range t.breakers {
-                diag.errorAt(brk.pos, "borken traversal for stemmed file entry %v (%v)", file, brk.what)
+                diag.errorAt(brk.pos, "broken traversal for stemmed file entry %v (%v)", file, brk.what)
             }
             diag.errorAt(entry.position, "broken traversal for stemmed file entry %v", entry).
                 debug(optionDebugErrors, 1)
@@ -625,7 +633,7 @@ func (t *traversal) file(file *File) (okay bool) {
     return
 }
 
-func (t *traversal) target(pos Position, target string) (okay bool) {
+func (t *traversal) string(pos Position, target string) (okay bool) {
     if optionTraceTraversal   { t.tracef("traversal.target: %s", target) }
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.target(%v)", target))) }
     if optionEnableBenchspots { defer bench(spot("traversal.target")) }
@@ -1121,7 +1129,8 @@ func (t *traversal) wait(pos Position, opts ...bool) (target Value, files []*Fil
     } else if files, err = target.stamp(t); err != nil {
         var p = target.Position()
         if !p.IsValid() { p = pos }
-        diag.errorAt(pos, "%v", err).debug(optionDebugErrors,1)
+        diag.errorAt(pos, "%v", err).
+            debug(optionDebugErrors,1)
         return
     } else if optReportFileUpdates {
         reportFileUpdates(pos, t.start, files)
@@ -2077,7 +2086,7 @@ func (p *String) elemstr(o Object, k elemkind) (s string) {
 }
 func (p *String) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
-    t.target(p.position, p.string)
+    t.string(p.position, p.string)
 }
 func (p *String) cmp(v Value) (res cmpres) {
     if a, ok := v.(*String); ok {
@@ -2120,7 +2129,7 @@ func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.string, 
 func (p *Bareword) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
 func (p *Bareword) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
-    t.target(p.position, p.string)
+    t.string(p.position, p.string)
 }
 func (p *Bareword) cmp(v Value) (res cmpres) {
     if a, ok := v.(*Bareword); ok {
@@ -2154,7 +2163,7 @@ func (p *Qualiword) Integer() (int64, error) { return int64(len(p.words)), nil }
 func (p *Qualiword) Float() (float64, error) { return float64(len(p.words)), nil }
 func (p *Qualiword) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
-    t.target(p.position, p.String())
+    t.string(p.position, p.String())
 }
 func (p *Qualiword) cmp(v Value) (res cmpres) {
     if a, ok := v.(*Qualiword); ok {
@@ -2301,7 +2310,7 @@ func (p *Barecomp) traverse(t *traversal) {
     var ( target string; err error )
     if target, err = p.Strval(); err == nil {
         if false { diag.warnAt(p.position, "%v (%s)", p, target).debug(true, 1) }
-        t.target(p.position, target)
+        t.string(p.position, target)
     } else {
         diag.errorOf(p, "strval '%v' error: %v", p, err)
     }
@@ -2600,7 +2609,7 @@ func (p *Path) traverse(t *traversal) {
     // Stat the file by pathname.
     if file := stat(p.position, pathname, "", ""/*, nil*/); file != nil {
         file.traverse(t)
-    } else if okay := t.target(p.position, pathname); !okay && len(t.stems) > 0 {
+    } else if okay := t.string(p.position, pathname); !okay && len(t.stems) > 0 {
         if false { t._break(p.position, breakNext).scope = breakTrave }
         if false && strings.Contains(pathname, "/include/__availability") {
             diag.warnAt(p.position, "missing: %v %v %v", p, t.stems, pathname).debug(true,1)
@@ -3444,23 +3453,28 @@ func (p *File) cmp(v Value) (res cmpres) {
 }
 
 func (p *File) patterned() bool { return false }
+func (p *File) match1(v string) (full bool, s string, stems []string) {
+    if name := p.name; name == v {
+        s, full = name, true
+    } else if name = filepath.Join(p.sub, p.name); name == v {
+        s, full = name, true
+    }
+    return
+}
 func (p *File) match(i interface{}) (full bool, s string, stems []string) {
     switch t := i.(type) {
-    case string: if p.name == t { s, full = p.name, true }
+    case string: return p.match1(t)
     case Value:
         if !(isNil(t) || isNone(t)) {
             var ( v string; e error )
             if v, e = t.Strval(); e != nil {
                 diag.errorOf(t, "strval '%v' failed: %v", t, e).
                     debug(optionDebugErrors,1)
-            } else if name := p.name; name == v {
-                s, full = p.name, true
-            } else if name = filepath.Join(p.sub, p.name); name == v {
-                s, full = name, true
-            }
+            } else { return p.match1(v) }
         }
     default:
-        diag.errorAt(p.position, "matching file '%v' with unknown input: %v", p, i)
+        diag.errorAt(p.position, "matching file '%v' with unknown input: %v", p, i).
+            debug(optionDebugErrors, 1)
     }
     return
 }
@@ -3586,7 +3600,7 @@ func (p *Flag) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     var ( s string; err error )
     if s, err = p.Strval(); err == nil {
-        t.target(p.position, s)
+        t.string(p.position, s)
     } else {
         diag.errorOf(p, "%v", err)
     }
@@ -3895,6 +3909,11 @@ func (p *Pair) defs(s string) []*Def { return append(p.Key.defs(s), p.Value.defs
 func (p *Pair) elemstr(o Object, k elemkind) string {
     return elementString(o, p.Key, k)+`=`+elementString(o, p.Value, k)
 }
+func (p *Pair) traverse(t *traversal) {
+    diag.errorAt(p.position, "traversing pair '%v' is undefined", p).
+        debug(optionDebugErrors, 16)
+    t.traceCallStack(p.position, "pair is not traversible: %v", p)
+}
 func (p *Pair) expandible(w expandwhat) bool {
     if p.Key.expandible(w) { return true }
     return w&expandPairVal != 0 && p.Value.expandible(w)
@@ -4086,10 +4105,17 @@ func (p *delegate) defs(s string) (res []*Def) {
 func (p *delegate) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     var ( val Value; err error )
-    if val, err = p.expand(expandAll); err == nil {
-        t.dispatch(val)
+    if val, err = p.expand(expandAll); err != nil {
+        diag.errorAt(p.position, "expand '%v' failed: %v", p, err).
+            debug(optionDebugErrors, 1)
+    } else if isNil(val) {
+        diag.warnAt(p.position, "delegate '%v' expands to nil", p).
+            debug(optionDebugErrors, 1)
+    } else if isNone(val) {
+        diag.warnAt(p.position, "delegate '%v' expands to none", p).
+            debug(optionDebugErrors, 1)
     } else {
-        diag.errorOf(p, "%v", err)
+        val.traverse(t)
     }
 }
 func (p *delegate) elemstr(o Object, k elemkind) (s string) {
@@ -4470,13 +4496,18 @@ ClosureTok:
 }
 func (p *closure) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
-    if v, e := p.expand(expandClosure); e != nil {
-        diag.errorOf(p, "expand '%v' failed: %v", p, e).
+    var ( val Value; err error )
+    if val, err = p.expand(expandClosure); err != nil {
+        diag.errorAt(p.position, "expand '%v' failed: %v", p, err).
             debug(optionDebugErrors,1)
-    } else if isNil(v) {
-        diag.errorOf(p, "invalid closure (%v)", p.x)
+    } else if isNil(val) {
+        diag.warnAt(p.position, "closure '%v' expands to nil", p).
+            debug(optionDebugErrors,1)
+    } else if isNone(val) {
+        diag.warnAt(p.position, "closure '%v' expands to none", p).
+            debug(optionDebugErrors,1)
     } else {
-        t.dispatch(v)
+        val.traverse(t)
     }
 }
 func (p *closure) stat(t *traversal) (si *statinfo) {
@@ -4658,13 +4689,18 @@ func (p *selection) expand(w expandwhat) (res Value, err error) {
 }
 func (p *selection) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
-    var ( v Value; err error )
-    if v, err = p.value(); err != nil {
-        diag.errorOf(p, "value: %v", err)
-    } else if v == nil {
-        diag.errorOf(p, "`%v` is nil", p)
+    var ( val Value; err error )
+    if val, err = p.value(); err != nil {
+        diag.errorAt(p.position, "select value '%v' failed: %v", p, err).
+            debug(optionDebugErrors, 1)
+    } else if isNil(val) {
+        diag.warnAt(p.position, "selected value '%v' is nil", p).
+            debug(optionDebugErrors, 1)
+    } else if isNone(val) {
+        diag.warnAt(p.position, "selected value '%v' is none", p).
+            debug(optionDebugErrors, 1)
     } else {
-        t.dispatch(v)
+        val.traverse(t)
     }
 }
 func (p *selection) stat(t *traversal) (si *statinfo) {
@@ -4901,7 +4937,7 @@ func (p *PercPattern) traverse(t *traversal) {
     if target, rest = p.stencil(t.stems); target == "" || len(rest) > 0 {
         // just relax
     } else {
-        t.target(p.position, target)
+        t.string(p.position, target)
     }
     return
 }
@@ -5046,7 +5082,7 @@ func (p *GlobPattern) traverse(t *traversal) {
     if target, rest = p.stencil(t.stems); target == "" || len(rest) > 0 {
         // just relax
     } else {
-        t.target(p.position, target)
+        t.string(p.position, target)
     }
 }
 func (p *GlobPattern) cmp(v Value) (res cmpres) {

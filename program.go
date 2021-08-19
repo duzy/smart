@@ -219,15 +219,16 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.execute(%s)", entry.target))) }
     if optionEnableBenchspots { defer bench(spot("Program.execute")) }
 
+    var pos = prog.position
+    if !pos.IsValid() { pos = entry.Position() }
+    if !pos.IsValid() { pos = entry.position }
+
     var isConfigureExecution bool = prog.configure
     if !isConfigureExecution && caller != nil {
         isConfigureExecution =  caller.isConfigureExecution
     }
     defer func() {
         if n := diag.checkErrors(true); n > 0 && !isConfigureExecution {
-            var pos = prog.position
-            if !pos.IsValid() { pos = entry.Position() }
-            if !pos.IsValid() { pos = entry.position }
             if caller != nil {
                 var err error
                 if n == 1 {
@@ -235,14 +236,13 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 } else {
                     err = fmt.Errorf("execution yields %d errors for %v", n, entry)
                 }
-                caller._break(prog.position, breakErro).error = err
+                caller._break(pos, breakErro).error = err
                 if false { diag.warnAt(pos, "break: %v", err).debug(optionDebugErrors, 1) }
             }
         }
     } ()
 
     var (
-        pos = prog.position
         recursion int
     )
     for c := caller; c != nil; c = c.caller {
@@ -286,12 +286,26 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         print: true,
         isConfigureExecution: isConfigureExecution,
     }
-    defer func() {
-        // Pass breakers to the caller for handling breakNext, breakCase, breakDone, etc.
-        if caller != nil && t.hasBreakers() {
+    if caller != nil {
+        defer func() {
+            // Pass breakers to the caller for handling breakNext, breakCase, breakDone, etc.
             caller.breakers = append(caller.breakers, t.breakers...)
-        }
-    } ()
+            for _, b := range t.breakers {
+                switch b.what {
+                case breakNext, breakCase, breakDone:
+                case breakFail:
+                    diag.errorAt(pos, "broken execution for %v (%v): %v", entry, t.def.target, b.message).
+                        debug(optionDebugErrors, 1)
+                case breakErro:
+                    diag.errorAt(pos, "broken execution for %v (%v): %v", entry, t.def.target, b.error).
+                        debug(optionDebugErrors, 1)
+                default:
+                    diag.errorAt(pos, "broken execution for %v (%v): %v", entry, t.def.target, b.what).
+                        debug(optionDebugErrors, 1)
+                }
+            }
+        } ()
+    }
 
     var ( none = MakeNone(pos) ; stem Value = none; f func() ; err error )
     if t.caller != nil {
@@ -477,7 +491,7 @@ func (t *traversal) prerequisite(pos Position, prerequisite Value) {
             file.position = pos
             okay = t.file(file)
         } else {
-            okay = t.target(pos, s)
+            okay = t.string(pos, s)
         }
 
         if !okay && t.stems != nil {
@@ -495,7 +509,7 @@ func (t *traversal) prerequisite(pos Position, prerequisite Value) {
             diag.warnAt(pos, "%v -> %v", t.def.target.value, prerequisite).
                 debug(optionDebugErrors, 1)
         }
-        t.dispatch(prerequisite)
+        prerequisite.traverse(t)
     }
 }
 

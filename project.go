@@ -603,7 +603,22 @@ func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
   for _, rec := range p.concrete {
     switch target := rec.target.(type) {
     case *File:
-      if target.name == s { return rec, nil }
+      if false && s == "llvm/IR/Attributes.inc" && target.name == "Attributes.inc" {
+        var ok = (!filepath.IsAbs(s) && strings.HasSuffix(target.fullname(), filepath.Clean(s)))
+        var full, res, stems = target.match(s)
+        diag.warnAt(rec.Position(), "%v: %s <-> %v => %v, %v, %v, %v", p, s, target, full, res, stems, ok).
+          debug(optionDebugErrors, 1)
+      }
+      if target.name == s {
+        return rec, nil
+      } else if filepath.IsAbs(s) {
+        // not matching
+      } else if strings.HasSuffix(target.fullname(), PathSep+filepath.Clean(s)) {
+        diag.infoAt(rec.Position(), "%v: %s <-> %v %v", p, s, target, target.fullname()).
+          debug(optionDebugErrors, 16)
+        return rec, nil
+      }
+    //case *Path:
     default:
       var sv string
       if sv, err = target.Strval(); err != nil {
@@ -614,8 +629,7 @@ func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
     }
   }
   for _, base := range p.bases {
-    entry, err = base.resolveEntry(s)
-    if err != nil || entry != nil { break }
+    if entry, err = base.resolveEntry(s); entry != nil || err != nil { break }
   }
   if err == nil && entry == nil {
     if true { /* FAST */ } else { /* SLOW */

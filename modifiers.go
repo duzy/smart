@@ -206,6 +206,8 @@ type ModifierFunc func(pos Position, t *traversal, args... Value) (Value, error)
 var (
         init_modifiers = map[string]ModifierFunc{
                 `print`:        modifierPrint,
+                `debug`:        modifierDebug,
+
                 `select`:       modifierSelect,
 
                 //`args`:       modifierSetArgs, // interpreter args
@@ -305,7 +307,6 @@ type modifierPrintOpts struct {
         stderr bool `e,stderr`
         reset bool `r,reset`
 }
-
 func modifierPrint(pos Position, t *traversal, args... Value) (result Value, err error) {
         var (
                 opts = modifierPrintOpts{ stderr: true }
@@ -317,6 +318,56 @@ func modifierPrint(pos Position, t *traversal, args... Value) (result Value, err
         if opts.stdout { fmt.Fprint(stdout, content) }
         if opts.stderr { fmt.Fprint(stderr, content) }
         if opts.reset { t.def.buffer.value = MakeNone(pos) }
+        return
+}
+
+
+type modifierDebugOpts struct {
+        info []Value `i,info`
+        warn []Value `w,warn`
+        error []Value `e,err;er,error`
+}
+func modifierDebug(pos Position, t *traversal, args... Value) (result Value, err error) {
+        var opts modifierDebugOpts
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err).
+                        debug(optionDebugErrors, 1)
+                return
+        } else if args, err = parseOpts(pos, &opts, args...); err != nil {
+                diag.errorAt(pos, "parse opts failed: %v", err).
+                        debug(optionDebugErrors, 1)
+                return
+        }
+        if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.error) == 0 {
+                diag.warnAt(pos, "debug: %v %v", t.def.target, t.def.depends).
+                        debug(optionDebugErrors, 1)
+                return
+        }
+        var s string
+        for _, info := range opts.info {
+                if s, err = info.Strval(); err != nil {
+                        diag.errorOf(info, "strval '%v' failed: %v", err).
+                                debug(optionDebugErrors, 1)
+                        return
+                }
+                diag.infoOf(info, "%s", s).debug(optionDebugErrors, 1)
+        }
+        for _, warn := range opts.warn {
+                if s, err = warn.Strval(); err != nil {
+                        diag.errorOf(warn, "strval '%v' failed: %v", err).
+                                debug(optionDebugErrors, 1)
+                        return
+                }
+                diag.warnOf(warn, "%s", s).debug(optionDebugErrors, 1)
+        }
+        for _, error := range opts.error {
+                if s, err = error.Strval(); err != nil {
+                        diag.errorOf(error, "strval '%v' failed: %v", err).
+                                debug(optionDebugErrors, 1)
+                        return
+                }
+                diag.errorOf(error, "%s", s).debug(optionDebugErrors, 1)
+        }
         return
 }
 
@@ -1233,8 +1284,7 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
                                         }
                                 }
                         }
-                        diag.prompt("smart: Grep %v …… (%d files in %v)\n",
-                                s, len(grepped), time.Now().Sub(ts))
+                        diag.prompt("smart: Grep %v …… (%d files in %v)\n", s, len(grepped), time.Now().Sub(ts))
                 } (time.Now())
         }
 ForTarget:

@@ -813,7 +813,8 @@ ForPrograms:
         for _, prog := range entry.programs {
                 if brks := t.breakersNot(breakNext); len(brks) > 0 {
                         diag.warnAt(prog.position, "broken traversal %v: %v (stems = %v)",
-                                entry, brks[0].what, t.stems).debug(optionDebugErrors, 6)
+                                entry, brks[0].what, t.stems).
+                                debug(optionDebugErrors, 6)
                         return
                 }
                 if prog.execute(t, entry, t.arguments); false && t.hasBreakers() {
@@ -838,8 +839,8 @@ ForPrograms:
                                 t.breakers = append(t.breakers, brk)
                                 continue ForPrograms
                         default:
-                                diag.warnAt(prog.position, "broken traversal %v: %v",
-                                        entry, brk.what).debug(optionDebugErrors, 2)
+                                diag.warnAt(prog.position, "broken traversal %v: %v", entry, brk.what).
+                                        debug(optionDebugErrors, 6)
                                 break ForPrograms
                         }
                 }
@@ -970,7 +971,8 @@ func (p *stemmed) cmp(v Value) (res cmpres) {
         return
 }
 func (p *stemmed) traverse(t *traversal) {
-        diag.errorAt(p.position, "cant traverse stemmed entry directly")
+        diag.errorAt(p.position, "cant traverse stemmed entry directly: %v", p).
+                debug(optionDebugErrors, 1)
         t.breakers = append(t.breakers, &breaker{
                 pos: p.position, what:breakErro,
                 error: fmt.Errorf("traversing stemmed entry: %v", p),
@@ -978,7 +980,7 @@ func (p *stemmed) traverse(t *traversal) {
         return
 }
 func (p *stemmed) _target(t *traversal, target string) {
-        if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
+        if optionTraceTraversal   { defer un(tt(t_traverse, t, p)) }
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("stemmed.traverse(%v)", p))) }
         if optionEnableBenchspots { defer bench(spot("stemmed.traverse")) }
 

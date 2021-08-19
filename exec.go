@@ -363,14 +363,14 @@ func (p *ExecBuffer) runContainerAndRetry(pos Position, t *traversal, container 
       fmt.Fprintf(sh.Stderr, "\n----\n")
     }
 
-    status, err = p.runAndProcessKnownErrors(pos, t, container, c, x, num+1)
+    status, err = p.runWithErrorsFilter(pos, t, container, c, x, num+1)
     if status != 0 && err == nil { err = &exitstatus{status} }
     if err != nil { fmt.Fprintf(sh.Stderr, "\n---- Retry failed: %s\n", err) }
   }
   return
 }
 
-func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Project, sh *exec.Cmd, x *executor, num int, m *knownMatch) (status int, err error) {
+func (p *ExecBuffer) knownError(pos Position, t *traversal, container *Project, sh *exec.Cmd, x *executor, num int, m *knownMatch) (status int, err error) {
   if p == nil {
     diag.errorAt(pos, "nil exec buffer").
       debug(optionDebugErrors,1)
@@ -506,9 +506,9 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
   return
 }
 
-func (p *ExecBuffer) processKnownErrors(pos Position, t *traversal, container *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
+func (p *ExecBuffer) knownErrors(pos Position, t *traversal, container *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
   for _, m := range p.matches {
-    if status, err = p.processKnownError(pos, t, container, sh, x, num, &m); err != nil {
+    if status, err = p.knownError(pos, t, container, sh, x, num, &m); err != nil {
       diag.errorAt(pos, "%v (status=%d)", err, status).
         debug(optionDebugErrors, 1)
       break
@@ -518,7 +518,7 @@ func (p *ExecBuffer) processKnownErrors(pos Position, t *traversal, container *P
   return
 }
 
-func (p *ExecBuffer) runAndProcessKnownErrors(pos Position, t *traversal, dock *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
+func (p *ExecBuffer) runWithErrorsFilter(pos Position, t *traversal, dock *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
   defer func(m []knownMatch) { p.matches = m } (p.matches)
   p.matches = nil // clear previous matches
   if err = sh.Run(); err == nil { return } else
@@ -531,7 +531,7 @@ func (p *ExecBuffer) runAndProcessKnownErrors(pos Position, t *traversal, dock *
    }
 
     p.retried = nil
-    status, e = p.processKnownErrors(pos, t, dock, sh, x, num)
+    status, e = p.knownErrors(pos, t, dock, sh, x, num)
     if p.retried != nil && len(p.retried) > 0 {
       if e != nil {
         diag.errorAt(pos, "process known errors failed: %v", e).
@@ -1058,7 +1058,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
       if opts.debug { diag.warnAt(pos, "%v", sh).debug(optionDebugErrors, 1) }
 
       exeres.Stderr.report = !opts.silent
-      exeres.Status, err = exeres.Stderr.runAndProcessKnownErrors(pos, t, container, sh, p, 1)
+      exeres.Status, err = exeres.Stderr.runWithErrorsFilter(pos, t, container, sh, p, 1)
       if err != nil {
         if !opts.silent || opts.debug {
           diag.errorAt(pos, "exec error: %v", err).
@@ -1074,8 +1074,12 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
 
   if !opts.silent { printEnteringDirectory() }
   if t.caller != nil { t.caller.calleeStart() }
-  exeres.wg.Add(1); go run()
-  if t.caller == nil || opts.stamp/*FIXME: it's a temporary solution */ { exeres.wg.Wait() }
+  if true {
+    exeres.wg.Add(1); go run()
+    if t.caller == nil || opts.stamp/*FIXME: it's a temporary solution */ { exeres.wg.Wait() }
+  } else {
+    run()
+  }
 
   // The execution is performed asynchronously, the result can't
   // be fetched immediately. Caller should do a t.wait(...) or

@@ -1300,9 +1300,6 @@ func (p *parser) parseComposedExpr(lhs bool) (x Value) {
 			// accepts 'foo=>bar', but 'foo => bar' is different
 			x = p.parseSelect(x); break
 		}
-		if (p.tok == token.SELECT_PROG1 || p.tok == token.SELECT_PROG2) /*&& p.bits&composingNoPair == 0*/ {
-			//x = p.parseKeyValueExpr(x); break
-		}
 
 	case token.LBRACK: // xxx[(foo ...)]
 		if p.bits&composingModifier == 0 {
@@ -1370,8 +1367,8 @@ func (p *parser) parseExpr(lhs bool) (x Value) {
 			return
 
 		case token.SELECT_PROG1, token.SELECT_PROG2:
-			if p.bits&composingNoPair == 0 {
-				x = p.parseKeyValueExpr(x)
+			if p.bits&composingNoSelect == 0 {
+				x = p.parseSelect(x)
 			}
 			return
 
