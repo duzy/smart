@@ -192,7 +192,7 @@ func configureBoolValue(pos Position, t *traversal, def *Def) (result bool, err 
     var value = def.Call(pos)
     if !isNil(value) {
         var res Value
-        if res, err = value.expand(expandAll); err != nil {
+        if res, err = value.expand(expandPlainValue); err != nil {
             diag.errorAt(pos, "expand value failed: %v", err).
                 debug(optionDebugErrors,1)
             return
@@ -247,7 +247,7 @@ func configureOption(pos Position, t *traversal, def *Def, fields map[string]Val
     if result = def.Call(pos); isNil(result) { result = MakeAnswer(pos, false) }
     if result != nil {
         var res Value
-        if res, err = result.expand(expandAll); err != nil {
+        if res, err = result.expand(expandPlainValue); err != nil {
             diag.errorAt(pos, "expand configure option failed: %v", err).
                 debug(optionDebugErrors,1)
         } else if !isNil(res) && res != result {
@@ -689,7 +689,7 @@ ForConfig:
             value = MakeNil(a.Position())
         } else if isNil(v) || isNone(v) || isUndef(v) {
             // noop
-        } else if v, err = value.expand(expandAll); err != nil {
+        } else if v, err = value.expand(expandPlainValue); err != nil {
             diag.errorOf(a, "configured with value error: %v", err).
                 debug(optionDebugErrors,1)
             return

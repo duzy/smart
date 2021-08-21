@@ -50,14 +50,15 @@ const (
 )
 const (
     expandDelegate expandwhat = 1<<iota // $(...)  ->  ......
-    expandClosure   // &(...)       ->  $(...)
+    expandClosure   // &(...)            ->  $(...)
+    expandSelection // foo->bar          -> ...
     expandArgs      // $(foo $(x),$(y))  -> $(foo ...,...)
-    expandSelection // foo->bar     -> ...
-    expandDef    // foo=...      -> ...
-    expandPathStr      // "/path/to"/foo   -> /path/to/foo
-    expandPairVal   // foo=$(bar)   -> foo=...
-    expandArgedArgs // foo($(args)) -> foo(...)
-    expandAll = expandDelegate | expandClosure | expandSelection | expandDef | expandPathStr | expandArgedArgs
+    expandArgedArgs // foo($(args))      -> foo(...)
+    expandDef       // foo=...           -> ...
+    expandFullname  // foobar.c          -> /path/to/foobar.c
+    expandPathStr   // "/path/to"/foo    -> /path/to/foo
+    expandPairVal   // foo=$(bar)        -> foo=...
+    expandPlainValue = expandClosure | expandDelegate | expandSelection | expandDef | expandPathStr | expandArgedArgs
 )
 
 func (v cmpres) String() (s string) {
@@ -1021,6 +1022,8 @@ func (t *traversal) updateRecipesHash() (k, v HashBytes, err error) {
 func (t *traversal) isRecipesDirty() (dirty bool, err error) {
     var k, v HashBytes
     if k, v, err = t.cmdHash(t.program.recipes...); err != nil {
+        diag.errorAt(t.program.position, "compute recipes hash failed: %v", err).
+            debug(optionDebugErrors, 1)
         return
     }
 
@@ -1061,17 +1064,13 @@ func (t *traversal) wait(pos Position, opts ...bool) (target Value, files []*Fil
             numRealErrs = 0
         )
         for _, err := range errs {
-            /*if brk, ok := err.(*breaker); ok {
-                if brk.what == breakNext && brk.scope == breakTrave {
-                    diag.warnAt(pos, "%v: trying next with stems %v", target, t.stems).
-                        debug(optionDebugErrors)
-                    continue
-                }
-            }*/
-            diag.errorAt(pos, "%v: %v", target, err)
+            diag.errorAt(pos, "%v: %v", target, err).
+                debug(optionDebugErrors, 1)
             numRealErrs += 1
         }
-        if numRealErrs == 0 { return } // simply return if no real errors
+        if numRealErrs == 0 {
+            return // simply return if no real errors
+        }
         if !pos.Equals(&targetPos) {
             var s string
             if n > 1 { s = "s" }
@@ -1105,11 +1104,7 @@ func (t *traversal) wait(pos Position, opts ...bool) (target Value, files []*Fil
         if t.isConfigureExecution {
             //diag.errorOf(t., "%v: %v = %v", s, t, result)
         }
-    } /*else if n > 0 {
-        for _, err := range errs {
-            diag.infoAt(pos, "%v: %v", target, err)
-        }
-    }*/
+    }
 
     var (
         optReportFileUpdates = len(opts) > 0 && opts[0]
@@ -1324,8 +1319,7 @@ func (p *Argumented) Strval() (s string, err error) {
 func (p *Argumented) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     //!< IMPORTANT! - Don't merge-expand arguments here!
-    //!< Arguments should be passed to Execute as it's
-    //!< represented.
+    //!< Arguments should be passed to program.execute as it is.
     defer func(a []Value) { t.arguments = a } (t.arguments)
     t.arguments = p.args
     p.value.traverse(t)
@@ -1511,7 +1505,10 @@ func (p *negative) elemstr(o Object, k elemkind) string { return `!`+elementStri
 func (p *negative) String() (s string) { return p.elemstr(nil, 0) }
 func (p *negative) Strval() (s string, err error) {
     var t bool
-    if t, err = p.x.True(); err == nil {
+    if t, err = p.x.True(); err != nil {
+        diag.errorAt(p.position, "truthify '%v' failed: %v", p.x, err).
+            debug(optionDebugErrors, 1)
+    } else {
         s = fmt.Sprintf("%v", !t)
     }
     return
@@ -2047,10 +2044,7 @@ func (p *URL) Validate() (res *url.URL) {
     return
 }
 
-type Raw struct {
-    valbase
-    string
-}
+type Raw struct { valbase; string }
 func (p *Raw) True() (bool, error) { return p.string != "", nil }
 func (p *Raw) String() string { return p.string }
 func (p *Raw) Strval() (string, error) { return p.string, nil }
@@ -2071,10 +2065,7 @@ func (p *Raw) stencil(stems []string) (s string, rest []string) {
     return
 }
 
-type String struct {
-    valbase
-    string
-}
+type String struct { valbase; string }
 func (p *String) True() (bool, error) { return p.string != "", nil }
 func (p *String) String() string { return p.elemstr(nil, 0) }
 func (p *String) Strval() (string, error) { return strings.Replace(p.string, "\\\"", "\"", -1), nil }
@@ -2118,10 +2109,7 @@ func isTrueString(s string) (t bool) {
     return
 }
 
-type Bareword struct {
-    valbase
-    string
-}
+type Bareword struct { valbase; string }
 func (p *Bareword) True() (bool, error) { return isTrueString(p.string), nil }
 func (p *Bareword) String() string { return p.string }
 func (p *Bareword) Strval() (string, error) { return p.string, nil }
@@ -2152,10 +2140,7 @@ func (p *Bareword) stencil(stems []string) (s string, rest []string) {
     return
 }
 
-type Qualiword struct {
-    valbase
-    words []string
-}
+type Qualiword struct { valbase; words []string } // foo.bar.zar, foo.&(bar).zar
 func (p *Qualiword) True() (bool, error) { return len(p.words)!=0, nil }
 func (p *Qualiword) String() string { return strings.Join(p.words,".") }
 func (p *Qualiword) Strval() (string, error) { return p.String(), nil }
@@ -2307,8 +2292,7 @@ func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
 }
 func (p *Barecomp) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
-    var ( target string; err error )
-    if target, err = p.Strval(); err == nil {
+    if target, err := p.Strval(); err == nil {
         if false { diag.warnAt(p.position, "%v (%s)", p, target).debug(true, 1) }
         t.string(p.position, target)
     } else {
@@ -2394,7 +2378,8 @@ func (p *Barefile) traverse(t *traversal) {
     if p.File == nil { // it happens if p.Name refers argument
         var ( target string; err error )
         if target, err = p.Strval(); err != nil {
-            diag.errorOf(p, "strval '%v' failed: %v", p, err)
+            diag.errorOf(p, "strval '%v' failed: %v", p, err).
+                debug(optionDebugErrors, 1)
             return
         }
 
@@ -2404,12 +2389,14 @@ func (p *Barefile) traverse(t *traversal) {
             return p.File != nil, nil
         })
         if !okay || p.File == nil {
-            diag.errorAt(p.position, "barefile '%s' not found", target)
+            diag.errorAt(p.position, "barefile '%s' not found", target).
+                debug(optionDebugErrors, 1)
             return
         }
     }
     if p.File != nil { p.File.traverse(t) } else {
-        diag.errorAt(p.position, "barefile '%s' is nil", p)
+        diag.errorAt(p.position, "barefile '%s' is nil", p).
+            debug(optionDebugErrors, 1)
     }
 }
 func (p *Barefile) stamp(t *traversal) (files []*File, err error) {
@@ -2686,7 +2673,7 @@ func (p *Path) match1(str string) (full bool, result string, stems []string) {
         //diag.errorAt(p.position, "empty: %v", str)
         return
     }
-    if segs, _, err = expandPathElems(p.position, expandAll, p.Elems...); err != nil {
+    if segs, _, err = expandPathElems(p.position, expandPlainValue, p.Elems...); err != nil {
         diag.errorAt(p.position, "failed to expand path '%v': %v", p, segs)
         return
     }
@@ -3291,19 +3278,25 @@ func (p *File) searchInMatchedPaths(proj *Project) (res bool) {
 func (p *File) stamp(t *traversal) (files []*File, err error) {
     var fullname string
     if fullname = p.fullname(); fullname == "" {
-        diag.errorOf(p, "file `%s` has no fullname", p)
+        diag.errorOf(p, "file `%s` has no fullname", p).
+            debug(optionDebugErrors, 1)
         return
     }
 
     var currentTargetValue = t.getCurrentTargetValue()
     if isNil(currentTargetValue) {
-        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target)
+        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target).
+            debug(optionDebugErrors, 1)
         return
     }
 
     var oldModTime time.Time
     if p.info != nil { oldModTime = p.info.ModTime() }
-    if p.info, err = os.Stat(fullname); err != nil { return }
+    if p.info, err = os.Stat(fullname); err != nil {
+        diag.errorAt(p.position, "%v", err).
+            debug(optionDebugErrors, 1)
+        return
+    }
     if p.info != nil {
         var newModTime = p.info.ModTime()
         context.globe.stamp(fullname, newModTime)
@@ -3598,11 +3591,11 @@ func (p *Flag) cmp(v Value) (res cmpres) {
 }
 func (p *Flag) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
-    var ( s string; err error )
-    if s, err = p.Strval(); err == nil {
-        t.string(p.position, s)
+    if s, err := p.Strval(); err != nil {
+        diag.errorOf(p, "strval '%v' failed: %v", p, err).
+            debug(optionDebugErrors, 1)
     } else {
-        diag.errorOf(p, "%v", err)
+        t.string(p.position, s)
     }
 }
 
@@ -3841,7 +3834,10 @@ func (p *Group) expand(w expandwhat) (res Value, err error) {
     }
     return
 }
-func (p *Group) traverse(t *traversal) { }
+func (p *Group) traverse(t *traversal) {
+    diag.warnAt(p.position, "traversing group: %v", p).
+        debug(optionDebugErrors, 1)
+}
 func (p *Group) cmp(v Value) (res cmpres) {
     if a, ok := v.(*Group); ok { res = p.cmpElems(a.Elems) }
     return
@@ -3961,7 +3957,7 @@ type delegate struct {
 }
 func (p *delegate) True() (t bool, err error) {
     var v Value
-    if v, err = p.expand(expandAll); err != nil {
+    if v, err = p.expand(expandPlainValue); err != nil {
         diag.errorAt(p.position, "expand '%v' failed: %v", p, err).
             debug(optionDebugErrors, 1)
     } else if isNil(v) {
@@ -4104,8 +4100,7 @@ func (p *delegate) defs(s string) (res []*Def) {
 }
 func (p *delegate) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
-    var ( val Value; err error )
-    if val, err = p.expand(expandAll); err != nil {
+    if val, err := p.expand(expandPlainValue); err != nil {
         diag.errorAt(p.position, "expand '%v' failed: %v", p, err).
             debug(optionDebugErrors, 1)
     } else if isNil(val) {
@@ -4285,7 +4280,7 @@ func (p *delegate) cmp(v Value) (res cmpres) {
 type closure struct { delegate }
 func (p *closure) True() (t bool, err error) {
     var v Value
-    if v, err = p.expand(expandAll); err != nil {
+    if v, err = p.expand(expandPlainValue); err != nil {
         diag.errorAt(p.position, "expand '%v' failed: %v", p, err).
             debug(optionDebugErrors, 1)
     } else if isNil(v) {
@@ -4496,8 +4491,7 @@ ClosureTok:
 }
 func (p *closure) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
-    var ( val Value; err error )
-    if val, err = p.expand(expandClosure); err != nil {
+    if val, err := p.expand(expandClosure); err != nil {
         diag.errorAt(p.position, "expand '%v' failed: %v", p, err).
             debug(optionDebugErrors,1)
     } else if isNil(val) {
@@ -4689,8 +4683,7 @@ func (p *selection) expand(w expandwhat) (res Value, err error) {
 }
 func (p *selection) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
-    var ( val Value; err error )
-    if val, err = p.value(); err != nil {
+    if val, err := p.value(); err != nil {
         diag.errorAt(p.position, "select value '%v' failed: %v", p, err).
             debug(optionDebugErrors, 1)
     } else if isNil(val) {
@@ -4933,8 +4926,7 @@ func (p *PercPattern) traverse(t *traversal) {
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("PercPattern.traverse(%v)", p))) }
     if optionEnableBenchspots { defer bench(spot("PercPattern.traverse")) }
     if t.stems == nil { diag.errorAt(p.position, "no stems"); return }
-    var ( rest []string; target string )
-    if target, rest = p.stencil(t.stems); target == "" || len(rest) > 0 {
+    if target, rest := p.stencil(t.stems); target == "" || len(rest) > 0 {
         // just relax
     } else {
         t.string(p.position, target)
@@ -5074,12 +5066,7 @@ func (p *GlobPattern) stencil(stems []string) (s string, rest []string) {
 func (p *GlobPattern) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     if t.stems == nil { return }
-
-    var (
-        target string
-        rest []string
-    )
-    if target, rest = p.stencil(t.stems); target == "" || len(rest) > 0 {
+    if target, rest := p.stencil(t.stems); target == "" || len(rest) > 0 {
         // just relax
     } else {
         t.string(p.position, target)
@@ -5304,7 +5291,7 @@ func expandall2(w expandwhat, values ...Value) (res []Value, num int, err error)
 }
 
 func ExpandAll(values ...Value) (res []Value, err error) {
-    res, _, err = expandall2(expandAll, values...)
+    res, _, err = expandall2(expandPlainValue, values...)
     return
 }
 

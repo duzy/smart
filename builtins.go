@@ -430,7 +430,7 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                 case reflect.Ptr: switch val.Type().Elem().String() {
                 case "smart.optFullname":
                         var x Value
-                        if x, err = v.expand(expandAll); err != nil {
+                        if x, err = v.expand(expandPlainValue); err != nil {
                                 diag.errorOf(v, "expand option '%v' failed: %v", v, err).
                                         debug(optionDebugErrors,1)
                                 return
@@ -454,7 +454,7 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                         }
                 case "smart.File":
                         var x Value
-                        if x, err = v.expand(expandAll); err != nil {
+                        if x, err = v.expand(expandPlainValue); err != nil {
                                 diag.errorOf(v, "expand option '%v' failed: %v", v, err).
                                         debug(optionDebugErrors,1)
                                 return
@@ -848,7 +848,7 @@ func builtinMatch(pos Position, args... Value) (res Value) {
                 diag.errorAt(pos, "wrong arguments, try: $(match <regexp-list>,<value-list>,...)").
                         debug(optionDebugErrors, 1)
                 return
-        } else if patList, err = mergeresult2(expandall2(expandAll, args[0])); err != nil {
+        } else if patList, err = mergeresult2(expandall2(expandPlainValue, args[0])); err != nil {
                 diag.errorAt(pos, "expand '%v' failed: %v", args[0], err).
                         debug(optionDebugErrors, 1)
                 return
@@ -856,7 +856,7 @@ func builtinMatch(pos Position, args... Value) (res Value) {
                 diag.errorAt(pos, "parse opts failed: %v", err).
                         debug(optionDebugErrors, 1)
                 return
-        } else if valList, err = mergeresult2(expandall2(expandAll, args[1:]...)); err != nil {
+        } else if valList, err = mergeresult2(expandall2(expandPlainValue, args[1:]...)); err != nil {
                 diag.errorAt(pos, "expand value list failed: %v", err).
                         debug(optionDebugErrors, 1)
                 return
@@ -911,7 +911,7 @@ func builtinBranchIfEq(pos Position, args... Value) (res Value) {
                         s1, s2 string
                         err error
                 )
-                if a, err = args[0].expand(expandAll); err != nil {
+                if a, err = args[0].expand(expandPlainValue); err != nil {
                         diag.errorAt(pos, "expand '%v' failed: %v", args[0], err).
                                 debug(optionDebugErrors,1)
                         return
@@ -948,7 +948,7 @@ func builtinBranchIfNE(pos Position, args... Value) (res Value) {
                         s1, s2 string
                         err error
                 )
-                if a, err = args[0].expand(expandAll); err != nil {
+                if a, err = args[0].expand(expandPlainValue); err != nil {
                         diag.errorAt(pos, "expand '%v' failed: %v", args[0], err).
                                 debug(optionDebugErrors,1)
                         return
@@ -1061,7 +1061,7 @@ func builtinForEach(pos Position, args... Value) (res Value) {
                 var list []Value
                 for _, a := range args[1:] {
                         var v Value
-                        if v, err = a.expand(expandAll|expandPairVal); err != nil {
+                        if v, err = a.expand(expandPlainValue|expandPairVal); err != nil {
                                 diag.errorOf(a, "expand '%v' failed: %v", a, err).
                                         debug(optionDebugErrors, 1)
                                 return

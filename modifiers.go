@@ -326,6 +326,7 @@ type modifierDebugOpts struct {
         info []Value `i,info`
         warn []Value `w,warn`
         error []Value `e,err;er,error`
+        checkDirty bool `d,dirty;cd,checkdirty;cd,check-dirty`
 }
 func modifierDebug(pos Position, t *traversal, args... Value) (result Value, err error) {
         var opts modifierDebugOpts
@@ -335,11 +336,6 @@ func modifierDebug(pos Position, t *traversal, args... Value) (result Value, err
                 return
         } else if args, err = parseOpts(pos, &opts, args...); err != nil {
                 diag.errorAt(pos, "parse opts failed: %v", err).
-                        debug(optionDebugErrors, 1)
-                return
-        }
-        if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.error) == 0 {
-                diag.warnAt(pos, "debug: %v %v", t.def.target, t.def.depends).
                         debug(optionDebugErrors, 1)
                 return
         }
@@ -368,17 +364,49 @@ func modifierDebug(pos Position, t *traversal, args... Value) (result Value, err
                 }
                 diag.errorOf(error, "%s", s).debug(optionDebugErrors, 1)
         }
+        if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.error) == 0 {
+                diag.warnAt(pos, "debug: %v %v", t.def.target, t.def.depends).
+                        debug(optionDebugErrors, 1)
+        }
+        if opts.checkDirty {
+                var (
+                        tar = t.def.target.value
+                        tt = tar.stat(t).mod()
+                )
+                if tt.IsZero() {
+                        diag.infoAt(pos, "target not exists: %v", tar).
+                                debug(optionDebugErrors, 1)
+                        return
+                }
+                for _, dep := range merge(t.def.depends.value) {
+                        if dt := dep.stat(t).mod(); dt.After(tt) {
+                                diag.infoAt(pos, "%v: outdated by %v (%v)", tar, dep, dt.Sub(tt)).
+                                        debug(optionDebugErrors, 1)
+                        }
+                }
+                for _, dep := range merge(t.def.grepped.value) {
+                        if dt := dep.stat(t).mod(); dt.After(tt) {
+                                diag.infoAt(pos, "%v: outdated by %v (%v)", tar, dep, dt.Sub(tt)).
+                                        debug(optionDebugErrors, 1)
+                        }
+                }
+        }
         return
 }
 
 // select element by index from group result: (select 0)
 func modifierSelect(pos Position, t *traversal, args... Value) (result Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-
         var value Value = t.def.buffer.value
-        if g, ok := value.(*Group); ok && len(args) > 0 {
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err).
+                        debug(optionDebugErrors, 1)
+                return
+        } else if g, ok := value.(*Group); ok && len(args) > 0 {
                 var num int64
-                if num, err = args[0].Integer(); err == nil {
+                if num, err = args[0].Integer(); err != nil {
+                        diag.errorAt(pos, "integify '%v' failed: %v", args[0], err).
+                                debug(optionDebugErrors, 1)
+                } else {
                         result = g.Get(int(num))
                 }
         }
@@ -429,7 +457,7 @@ ForArgs:
                         if name, err = a.Key.Strval(); err == nil {
                                 // Note that Pair.Value is not expanded yet!
                                 // We need to expand the value explicitly.
-                                if value, err = a.Value.expand(expandAll); err != nil {
+                                if value, err = a.Value.expand(expandPlainValue); err != nil {
                                         diag.errorAt(pos, "expand value '%v' failed: %v", a.Value, err).
                                                 debug(optionDebugErrors,1)
                                         return
@@ -2382,15 +2410,23 @@ func modifierCase(pos Position, t *traversal, args... Value) (result Value, err 
 }
 
 type modifierDirtyOpts struct {
-        checksum bool "c,checksum"
+        checksum bool "c,checksum;c,crc"
         debug bool "d,debug"
         verbose bool "v,verbose"
         silent bool "s,silent"
 }
 func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err error) {
         var opts modifierDirtyOpts
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
-        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err).
+                        debug(optionDebugErrors, 1)
+                return
+        }
+        if args, err = parseOpts(pos, &opts, args...); err != nil {
+                diag.errorAt(pos, "parse opts failed: %v", err).
+                        debug(optionDebugErrors, 1)
+                return
+        }
 
         var (
                 target Value
@@ -2399,7 +2435,8 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
         )
         // Wait for prerequisites only
         if target, _, _, err = t.wait(pos); err != nil {
-                diag.errorAt(pos, "wainting traversal failed: %v", err)
+                diag.errorAt(pos, "wainting traversal failed: %v", err).
+                        debug(optionDebugErrors, 1)
                 return
         } else if dirty = t.hasBreakers(); dirty {
                 reason = fmt.Sprintf("dirty (%v breakers)", len(t.breakers))
@@ -2408,20 +2445,27 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
         } else if dirty = len(t.updated) > 0; dirty {
                 reason = fmt.Sprintf("dirty (%v updated)", len(t.updated))
         } else if dirty, err = t.isRecipesDirty(); err != nil {
-                diag.errorAt(pos, "isRecipesDirty: %v", err)
+                diag.errorAt(pos, "isRecipesDirty: %v", err).
+                        debug(optionDebugErrors, 1)
                 return
         } else if dirty {
                 reason = "dirty: recipes changed"
         } else if opts.checksum && !(isNil(t.def.depend0.value) || isNone(t.def.depend0.value)) {
                 var file1, file2 string
                 if file1, err = target.Strval(); err != nil {
-                        diag.errorAt(pos, "%v", err); return
+                        diag.errorAt(pos, "%v", err).
+                                debug(optionDebugErrors, 1)
+                        return
                 }
                 if file2, err = t.def.depend0.value.Strval(); err != nil {
-                        diag.errorAt(pos, "%v", err); return
+                        diag.errorAt(pos, "%v", err).
+                                debug(optionDebugErrors, 1)
+                        return
                 }
                 if same, e := crc64CompareFileChecksum(file1, file2); e != nil {
-                        diag.errorAt(pos, "%v", e); return
+                        diag.errorAt(pos, "%v", e).
+                                debug(optionDebugErrors, 1)
+                        return
                 } else if same {
                         reason = "Good"
                 } else {
@@ -2436,10 +2480,9 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                 var a = typeof(target)
                 var e = t.exists(target)
                 var s, _ = target.Strval()
-                diag.errorAt(pos, "type=%s target=%s (exists=%v, dirty=%v, updated=%v)\n",
-                        a, s, e, dirty, t.updated).debug(optionDebugErrors, 1)
+                diag.errorAt(pos, "type=%s target=%s (exists=%v, dirty=%v, updated=%v)", a, s, e, dirty, t.updated).
+                        debug(optionDebugErrors, 1)
         }
-
         if opts.verbose {
                 var ( m, s string )
                 if len(t.updated) > 0 { //s = fmt.Sprintf(", %v", t.updated)

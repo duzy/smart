@@ -169,15 +169,17 @@ func (p *ProjectName) Call(pos Position, a... Value) (value Value) {
 }
 func (p *ProjectName) traverse(t *traversal) {
         if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
-        var entry = p.project.DefaultEntry()
-        if entry != nil && entry.class != UseRuleEntry {
+        if entry := p.project.DefaultEntry(); entry == nil {
+                // does nothing
+        } else if entry.class != UseRuleEntry {
                 entry.traverse(t)
         }
 }
 func (p *ProjectName) stat(t *traversal) (si *statinfo) {
         if p.project != nil {
-                var defent = p.project.DefaultEntry()
-                if defent != nil && defent.class != UseRuleEntry {
+                if defent := p.project.DefaultEntry(); defent == nil {
+                        // does nothing
+                } else if defent.class != UseRuleEntry {
                         si = defent.stat(t)
                 }
         }
@@ -362,7 +364,7 @@ func (d *Def) set(origin Origin, value Value) (err error) {
                         return
                 } else { d.value = MakeListOrScalar(value.Position(), elems) }
         case DefExpand2: // expands delegates and closures
-                if elems, _, err = expandall2(expandAll/*|expandArgs*/, value); err != nil {
+                if elems, _, err = expandall2(expandPlainValue/*|expandArgs*/, value); err != nil {
                         diag.errorOf(value, "%v: expand value '%v' failed: %v", d.origin, value, err)
                         return
                 } else { d.value = MakeListOrScalar(value.Position(), elems) }
@@ -500,12 +502,16 @@ func (d *Def) DiscloseValue() (res Value, err error) {
         return
 }
 
-func (d *Def) Get(name string) (Value, error) {
+func (d *Def) Get(name string) (res Value, err error) {
         switch name {
-        case "name": return MakeString(d.Position(), d.name), nil
-        case "value": return d.value, nil
+        case "name" : res = MakeString(d.Position(), d.name)
+        case "value": res = d.value
+        default:
+                err = fmt.Errorf("no such property `%s' (Def)", name)
+                diag.errorAt(d.position, "%v", err).
+                        debug(optionDebugErrors, 1)
         }
-        return nil, fmt.Errorf("no such property `%s' (Def)", name)
+        return
 }
 func (d *Def) traverse(t *traversal) {
         if d.value != nil { d.value.traverse(t) }

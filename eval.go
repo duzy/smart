@@ -28,7 +28,7 @@ ForRecipes:
                         var v Value
                         // Expand both closures and delegates to ensure that
                         // the right recipe value is returned.
-                        if v, err = recipe.expand(expandAll|expandPairVal); err != nil {
+                        if v, err = recipe.expand(expandPlainValue|expandPairVal); err != nil {
                                 diag.errorAt(pos, "expand recipe failed: %v", err).
                                         debug(optionDebugErrors,1)
                                 return
@@ -69,7 +69,7 @@ ForRecipes:
                                 }
 
                         default:
-                                if v, err = tv.expand(expandAll); err != nil {
+                                if v, err = tv.expand(expandPlainValue); err != nil {
                                         diag.errorAt(pos, "expand recipe value failed: %v", err).
                                                 debug(optionDebugErrors,1)
                                         return

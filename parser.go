@@ -389,7 +389,7 @@ func (p *parser) parseBarewordConstant(lhs bool) (x Value) {
 	switch tok {
 	case token.BAREWORD:
 		value = p.lit
-	case token.AT, token.DOT, token.DOTDOT:
+	case token.AT, token.DOT, token.DOTDOT: // TODO: parse token.DOT into Qualiword
 		value = tok.String() // Special bareword.
 	default:
 		if tok.IsKeyword() {
@@ -427,7 +427,8 @@ func (p *parser) parseSelect(lhs Value) (res Value) {
 	position := p.positionAt(pos)
 	switch t := lhs.(type) {
 	case *selection:
-		diag.errorAt(position, "TODO: multiple selection: %v", lhs)
+		diag.errorAt(position, "TODO: multiple selection: %v", lhs).
+			debug(optionDebugErrors, 1)
 	case *Bareword:
         switch t.string {
         case "goals": lhs = context.goals
@@ -437,13 +438,15 @@ func (p *parser) parseSelect(lhs Value) (res Value) {
         case "self":  lhs = p.project.self
         default:
             if o, err := p.resolve(lhs); err != nil {
-				diag.errorOf(lhs, "resolve selection object '%v' error: %v", lhs, err)
+				diag.errorOf(lhs, "resolve selection object '%v' error: %v", lhs, err).
+					debug(optionDebugErrors, 1)
                 return
             } else if o == nil {
                 if tok == token.SELECT_PROG2 {
 					res = MakeNil(position) // ignore
                 } else {
-					diag.errorOf(lhs, "'%v' is undefined", lhs)
+					diag.errorOf(lhs, "'%v' is undefined", lhs).
+						debug(optionDebugErrors, 1)
                 }
                 return
             } else {
@@ -452,13 +455,15 @@ func (p *parser) parseSelect(lhs Value) (res Value) {
         }
     case *Barecomp: // for cases like '.foo'
         if o, err := p.resolve(t); err != nil {
-			diag.errorOf(lhs, "resolve selection object '%v' error: %v", lhs, err)
+			diag.errorOf(lhs, "resolve selection object '%v' error: %v", lhs, err).
+					debug(optionDebugErrors, 1)
 			return
         } else if isNil(o) {
 			if tok == token.SELECT_PROG2 {
 				res = MakeNil(position) // ignore
 			} else {
-				diag.errorOf(lhs, "'%v' is undefined", lhs)
+				diag.errorOf(lhs, "'%v' is undefined", lhs).
+					debug(optionDebugErrors, 1)
 			}
 			return
 		} else {
@@ -518,7 +523,8 @@ func (p *parser) parseDependList() (list []Value) {
 	for p.tok != token.SEMICOLON && p.tok != token.BAR && !p.isEndOfLine() {
 		if p.tok == token.COLON { // FIXME: this check is not working!
 			// FIXME: detects unexpected colon ':'
-			p.error(p.pos, "unexpected colon")
+			diag.errorAt(p.position(), "unexpected colon").
+				debug(optionDebugErrors, 1)
 			p.next(true) // just ignore this colon
 		} else {
 			p.skipSpaces()
@@ -827,7 +833,7 @@ func (p *parser) parseDotExpr(lhs bool, x Value) (res *Barecomp) {
 	for /*comp.End() == p.pos && */!p.isEndOfDotConcat(lhs) {
 		comp.Combine(p.parseComposedExpr(false))
 		if p.tok == token.DOT /*&& comp.End() == p.pos*/ {
-			var dot = MakeBareword(p.position(), ".")
+			var dot = MakeBareword(p.position(), ".") // TODO: parse to Qualiword instead
 			comp.Elems = append(comp.Elems, dot)
 			p._next() // '.'
 		}
@@ -1051,7 +1057,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 					obj, okay = o, true
 				} else if tok.IsClosure() || refdef(name, defany) || name.expandible(expandClosure) {
 					obj, okay = unresolved(p.project, name), true // recursive delegation or closure
-				} else if name.expandible(expandAll) {
+				} else if name.expandible(expandPlainValue) {
 					s, _ := name.Strval()
 					diag.errorOf(name, "resolved '%v' (aka. %s) is nil (project=%v)", name, s, p.project).
 						debug(optionDebugErrors,1)
@@ -1070,7 +1076,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 			if resolved, err = p.find(name); err != nil {
 				p.error(posLp, "finding rule entry '%v' failed: %v", name, err)
 			} else if isNil(resolved) {
-				if name.expandible(expandAll) {
+				if name.expandible(expandPlainValue) {
 					s, _ := name.Strval()
 					diag.errorOf(name, "resolved '%v' (aka. %s) is nil (project=%v)", name, s, p.project).
 						debug(optionDebugErrors,1)
@@ -1242,9 +1248,8 @@ func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
 			return MakeBareword(position, str)
 		} else if p.tok == token.PCON { // check /
 			return p.parsePathExpr(lhs, makePathSeg(position, tok))
-		} else if tok == token.DOT {
-			x = MakeBareword(p.positionAt(pos), str)
-			if p.bits&composingDOT == 0 {
+		} else if tok == token.DOT { // TODO: parse to Qualiword instead
+			if x = MakeBareword(p.positionAt(pos), str); p.bits&composingDOT == 0 {
 				x = p.parseDotExpr(lhs, x)
 			}
 			return
@@ -1318,7 +1323,7 @@ func (p *parser) parseComposedExpr(lhs bool) (x Value) {
 		}
 	case token.DOT: // foo.bar.baz.o
 		// FIXME: push bits when parsing $(...)
-		if p.bits&composingDOT == 0 {
+		if p.bits&composingDOT == 0 { // TODO: parse to Qualiword
 			x = p.parseDotExpr(lhs, x)
 		}
 	case token.PCON: // ie. subdir/in/somewhere
@@ -2060,7 +2065,7 @@ func (p *parser) parseModifiersExpr() *modifiergroup {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Modifiers")) }
 
 	var (
-		posLp = p.expect(token.LBRACK)
+		posLp = p.positionAt(p.expect(token.LBRACK))
 		elems []*modifier
 	)
 
@@ -2078,7 +2083,8 @@ ForModifiersExpr:
 			err error
 		)
 		if g, ok := x.(*Group); !ok {
-			diag.errorOf(x, "modifier not represented by group: %T", x)
+			diag.errorAt(g.position, "modifier not represented by group: %T", x).
+				debug(optionDebugErrors, 1)
 			continue ForModifiersExpr
 		} else {
 			group = g
@@ -2103,17 +2109,21 @@ ForModifiersExpr:
 		case *delegate, *closure, *Barecomp, *String:
 			var v []Value
 			if v, err = mergeresult(ExpandAll(n)); err != nil {
-				diag.errorOf(n, "%v", err)
+				diag.errorOf(n, "merge '%v' failed: %v", v, err).
+					debug(optionDebugErrors, 1)
 			} else if name, err = v[0].Strval(); err != nil {
-				diag.errorOf(n, "%v", err)
+				diag.errorOf(n, "strval '%v' failed: %v", v[0], err).
+					debug(optionDebugErrors, 1)
 				continue ForModifiersExpr
 			} else if name == "" {
-				diag.errorOf(n, "name '%v' is empty", n)
+				diag.errorOf(n, "name '%v' is empty", n).
+					debug(optionDebugErrors, 1)
 				continue ForModifiersExpr
 			}
 			goto checkNameAndAdd
 		default:
-			diag.errorOf(n, "unsupported dialect or modifier (%T): %v", group.Elems[0], group.Elems[0])
+			diag.errorOf(n, "unsupported dialect or modifier (%T): %v", group.Elems[0], group.Elems[0]).
+				debug(optionDebugErrors, 1)
 			continue ForModifiersExpr
 		}
 
@@ -2122,17 +2132,20 @@ ForModifiersExpr:
 	checkNameAndAdd:
 		if _, ok := dialects[name]; ok {
 			if p.dialect == "" { p.dialect = name } else {
-				diag.errorOf(x, "multi-dialects unsupported, already defined '%s'", p.dialect)
+				diag.errorOf(x, "multi-dialects unsupported, already defined '%s'", p.dialect).
+					debug(optionDebugErrors, 1)
 				continue ForModifiersExpr
 			}
 		} else if _, ok = modifiers[name]; !ok {
-			diag.errorOf(x, "`%s` no such dialect or modifier", name)
+			diag.errorOf(x, "`%s` no such dialect or modifier", name).
+				debug(optionDebugErrors, 1)
 			continue ForModifiersExpr
 		}
 
 	addModifier:
 		if len(group.Elems) == 0 {
-			diag.errorOf(x, "empty modifier: %v", x)
+			diag.errorOf(x, "empty modifier: %v", x).
+				debug(optionDebugErrors, 1)
 		} else {
 			var m = &modifier{
                 valbase: valbase{group.Position()},
@@ -2146,12 +2159,15 @@ ForModifiersExpr:
 	}
 	p.skipSpaces()
 	/*rpos := */p.expect(token.RBRACK)
-	if len(elems) == 0 { p.error(posLp, "empty modifier group") }
-	if p.tok == token.COLON { p.error(p.pos, "unexpected colon after modifer") }
-    return &modifiergroup{
-        valbase: valbase{p.positionAt(posLp)},
-        modifiers: elems,
-    }
+	if len(elems) == 0 {
+		diag.errorAt(posLp, "empty modifier group").
+			debug(optionDebugErrors, 1)
+	}
+	if p.tok == token.COLON {
+		diag.errorAt(posLp, "unexpected colon after modifer").
+			debug(optionDebugErrors, 1)
+	}
+    return &modifiergroup{ valbase: valbase{posLp}, modifiers: elems }
 }
 
 // 
@@ -2171,11 +2187,11 @@ ForModifiersExpr:
 // Similar to makefile automatic variables, see
 //   * https://www.gnu.org/software/make/manual/html_node/Automatic-Variables.html#Automatic-Variables
 var automatics = []string{
-	"@",  "%",  "<",  "?",  "^",  "+",  "|",  "*",  //
+	"@" , "%" , "<" , "?" , "^" , "+" , "|" , "*" ,  //
 	"@D", "%D", "<D", "?D", "^D", "+D", "|D", "*D", //
 	"@F", "%F", "<F", "?F", "^F", "+F", "|F", "*F", //
 	"@'", "%'", "<'", "?'", "^'", "+'", "|'", "*'", //
-	"-",  "~",
+	"-" , "~" ,
 }
 
 func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (result Value) {
@@ -2759,7 +2775,7 @@ func (p *parser) parseFile() *parsedFile {
 					diag.errorAt(ident.Position(), "expecting a bareword: %v (%T)", w, w).
 						debug(optionDebugErrors, 1)
 				} else if ident.Combine(word); p.tok == token.DOT {
-					ident.Combine(MakeBareword(p.position(), "."))
+					ident.Combine(MakeBareword(p.position(), ".")) // TODO: parse to Qualiword
 					implicitBaseSegs = append(implicitBaseSegs, word.string)
 					p._next() // '.'
 				} else { break ForProjectName }
