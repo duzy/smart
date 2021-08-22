@@ -384,6 +384,12 @@ func modifierDebug(pos Position, t *traversal, args... Value) (result Value, err
                                         debug(optionDebugErrors, 1)
                         }
                 }
+                for _, dep := range merge(t.def.ordered.value) {
+                        if dt := dep.stat(t).mod(); dt.After(tt) {
+                                diag.infoAt(pos, "%v: outdated by %v (%v)", tar, dep, dt.Sub(tt)).
+                                        debug(optionDebugErrors, 1)
+                        }
+                }
                 for _, dep := range merge(t.def.grepped.value) {
                         if dt := dep.stat(t).mod(); dt.After(tt) {
                                 diag.infoAt(pos, "%v: outdated by %v (%v)", tar, dep, dt.Sub(tt)).
@@ -1920,12 +1926,21 @@ type modifierReadFileOpts struct {
 }
 func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, err error) {
         var ( opts modifierReadFileOpts; filename string )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
-        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err).
+                        debug(optionDebugErrors, 1)
+                return
+        }
+        if args, err = parseOpts(pos, &opts, args...); err != nil {
+                diag.errorAt(pos, "parse opts failed: %v", err).
+                        debug(optionDebugErrors, 1)
+                return
+        }
 
         var target Value
         if n := len(args); n > 1 {
-                diag.errorAt(pos, "too many files: %v", args)
+                diag.errorAt(pos, "too many files: %v", args).
+                        debug(optionDebugErrors, 1)
                 return
         } else if n == 1 {
                 target = args[0]
@@ -1934,16 +1949,20 @@ func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, 
         }
 
         if isNil(target) {
-                diag.errorAt(pos, "target is <nil>")
+                diag.errorAt(pos, "target is <nil>").
+                        debug(optionDebugErrors, 1)
                 return
         } else if isNone(target) {
-                diag.errorAt(pos, "target is <none>")
+                diag.errorAt(pos, "target is <none>").
+                        debug(optionDebugErrors, 1)
                 return
         } else if filename, err = fullnameOrStrval(target); err != nil {
-                diag.errorOf(target, "strval '%v' error: %v", target, err)
+                diag.errorOf(target, "strval '%v' error: %v", target, err).
+                        debug(optionDebugErrors, 1)
                 return
         } else if filename == "" {
-                diag.errorOf(target, "target filename is empty")
+                diag.errorOf(target, "target filename is empty").
+                        debug(optionDebugErrors, 1)
                 return
         }
 
@@ -1956,16 +1975,20 @@ func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, 
                 var s, v string
                 if opts.head != nil {
                         if v, err = opts.head.Strval(); err == nil { s = v } else {
-                                diag.errorAt(pos, "%v", err); return
+                                diag.errorAt(pos, "%v", err).
+                                        debug(optionDebugErrors, 1)
+                                return
                         }
                 }
                 s += string(bytes)
                 if opts.foot != nil {
                         if v, err = opts.foot.Strval(); err == nil { s += v } else {
-                                diag.errorAt(pos, "%v", err); return
+                                diag.errorAt(pos, "%v", err).
+                                        debug(optionDebugErrors, 1)
+                                return
                         }
                 }
-                t.def.buffer.value = &String{valbase{pos},s}
+                t.def.buffer.value = MakeString(pos, s)
         } else {
                 t._break(pos, breakErro).error = err
         }

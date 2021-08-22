@@ -242,9 +242,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         }
     } ()
 
-    var (
-        recursion int
-    )
+    var recursion int
     for c := caller; c != nil; c = c.caller {
         if c.program == prog { recursion += 1 }
     }
@@ -325,11 +323,14 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     }
 
     // Note: must enter work directory (cd) before setting cloctx
-    var alreadyUpdated bool
-    var enterBack *enterec
+    var (
+        alreadyUpdated bool
+        enterBack *enterec
+    )
     if len(cd.stack) > 0 { enterBack = cd.stack[0] }
     if err = enter(prog, prog.project.absPath); err != nil {
-        diag.errorAt(pos, "%v", err)
+        diag.errorAt(pos, "enter project '%v' failed: %v", prog.project, err).
+            debug(optionDebugErrors, 1)
         return
     }
     defer func(scc closurecontext, swd string) {
@@ -338,7 +339,8 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         if e := leave(prog, enterBack); e != nil {
             // NOTE: err could be breakCase, breakDone, etc.
             if err == nil { err = e } else {
-                fmt.Fprintf(stderr, "%s: leaving: %s\n", t.entry.Position, e)
+                diag.errorAt(pos, "leave project '%v' failed: %v", prog.project, err).
+                    debug(optionDebugErrors, 1)
             }
         }
         prog.project.changedWD = swd
@@ -360,12 +362,10 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         }
         prog.setDefaultValue(nil)
 
-        if !(isNil(target) || isNone(target)) && t.caller != nil {
-            t.caller.addTarget(target)
-        }
+        /*if !(isNil(target) || isNone(target)) && t.caller != nil {
+            t.caller.add(target)
+        }*/
     } (setclosure(cloctx.unshift(prog.scope)), prog.project.changedWD)
-
-    if t.project.name == "-" { optionTraceTraversal = true }
 
     // Select the right target value before setting parameters,
     // because the target could be overrided by parameters.
@@ -473,53 +473,13 @@ func (t *traversal) exec(prog *Program) (result Value) {
     return
 }
 
-func (t *traversal) prerequisite(pos Position, prerequisite Value) {
-    if _, ok := prerequisite.(*Path); !ok && prerequisite.patterned() {
-        var pos = prerequisite.Position()
-        var ( s string ; rest []string; okay bool )
-        if s, rest = prerequisite.stencil(t.stems); s == "" {
-            diag.errorAt(pos, "empty prerequisite stencil: %v %v", prerequisite, t.stems).
-                debug(optionDebugErrors, 1)
-            return
-        } else if len(rest) > 0 {
-            diag.errorAt(pos, "partial prerequisite stencil: %v, %v, %v, %v", prerequisite, s, rest, t.stems).
-                debug(optionDebugErrors, 1)
-            panic(s)
-        }
-
-        if file := t.project.FindFile(s); file != nil {
-            file.position = pos
-            okay = t.file(file)
-        } else {
-            okay = t.string(pos, s)
-        }
-
-        if !okay && t.stems != nil {
-            b := t._break(pos, breakNext)
-            b.scope = breakTrave
-            b.value = prerequisite
-        }
-
-        if !okay && false {
-            diag.warnAt(pos, "missing file %v required by %v", s, t.def.target.value).
-                debug(optionDebugErrors, 1)
-        }
-    } else {
-        if false && len(t.stems) > 0 {
-            diag.warnAt(pos, "%v -> %v", t.def.target.value, prerequisite).
-                debug(optionDebugErrors, 1)
-        }
-        prerequisite.traverse(t)
-    }
-}
-
 func (t *traversal) prerequisites(pos Position, prerequisites []Value) {
     // IMPORTANT: don't expand the args here. The prerequisites like
     // '$(or &@,...)' have to be expanded when it's used (e.g. compare).
     for _, prerequisite := range prerequisites {
-        if t.prerequisite(pos, prerequisite); t.hasBreakers() {
+        if prerequisite.traverse(t); t.hasBreakers() {
             var brks = t.breakersNot(breakNext, breakCase, breakDone)
-            if len(brks) > 0 && t.stems != nil && false {
+            if len(brks) > 0 && len(t.stems) > 0 && false {
                 diag.warnAt(pos, "broken traversal: %v (target = %v, stems = %v)", brks[0].what,
                     t.def.target.value, t.stems).debug(optionDebugErrors)
             }

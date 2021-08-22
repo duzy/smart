@@ -350,14 +350,12 @@ func (t *traversal) _breakf(pos Position, what breakind, s string, a... interfac
     return brk
 }
 
-func (t *traversal) addTarget(target Value) {
+func (t *traversal) add(target Value) {
     if isNil(target) || isNone(target) || t.targets == nil { return }
     if t.targets.value == target { return }
     if t.targets.value.cmp(target) == cmpEqual { return }
-    if targets, ok := t.targets.value.(*List); ok {
-        for _, t := range targets.Elems {
-            if t == target || t.cmp(target) == cmpEqual { return }
-        }
+    for _, t := range merge(t.targets.value) {
+        if t == target || t.cmp(target) == cmpEqual { return }
     }
     if t.targets.append(target); t.target0 != nil && t.target0.isEmpty() {
         t.target0.value = target
@@ -484,18 +482,37 @@ func (t *traversal) forClosuredProjects(f func(*Project) (bool, error)) (okay bo
 }
 
 func (t *traversal) file(file *File) (okay bool) {
+    if optionTraceTraversal   { t.tracef("traversal.file: %s", file) }
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.file(%v)", file))) }
     if optionEnableBenchspots { defer bench(spot("traversal.file")) }
 
-    // Add this file target, no matter it's going to be updated or not.
-    t.addTarget(file)
-
     var (
         projects = t.closuredProjects()
+        currentTargetValue = t.getCurrentTargetValue()
         concreteEntries = make(map[*RuleEntry]*Project)
         concreteList []*RuleEntry
         err error
     )
+    if isNil(currentTargetValue) {
+        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target).
+            debug(optionDebugErrors, 1)
+        return
+    }
+    defer func() {
+        // Note that the file maybe not traversed yet at this point. But we
+        // still have to check mod-time.
+        var (
+            a = currentTargetValue.stat(t).mod()
+            b = file.stat(t).mod()
+        )
+        if !a.IsZero() && b.After(a) { // a.IsZero() indicates the target not exists
+            t.appendUpdated(newUpdatedTarget(file))
+        }
+
+        // Add to the $^ or $| list
+        t.add(file)
+    } ()
+
     for _, project := range projects {
         var entry *RuleEntry
         if entry, err = project.resolveEntry(file.name); err != nil {
@@ -504,27 +521,13 @@ func (t *traversal) file(file *File) (okay bool) {
             t.traceCallStack(file.position, "%v:", file.name)
             return
         } else if entry == nil {
-            if false && file.name == "llvm/IR/Attributes.inc" {
-                diag.infoAt(file.position, "%v: %v", project, entry).
-                    debug(optionDebugErrors, 1)
-            }
             continue
         } else if _, ok := concreteEntries[entry]; !ok {
             concreteList = append(concreteList, entry)
             concreteEntries[entry] = project
         }
-        if false && file.name == "llvm/IR/Attributes.inc" {
-            diag.infoAt(file.position, "%v: %v %v", project, file, entry).
-                debug(optionDebugErrors, 1)
-        }
     }
 
-    var currentTargetValue = t.getCurrentTargetValue()
-    if isNil(currentTargetValue) {
-        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target).
-            debug(optionDebugErrors, 1)
-        return
-    }
     for _, entry := range concreteList {
         if entry != nil && currentTargetValue != entry {
             if entry.traverse(t); t.hasBreakers() {
@@ -594,25 +597,9 @@ func (t *traversal) file(file *File) (okay bool) {
     }
 
     for _, project := range projects {
-        if okay { break } else if file.info != nil {
-            if a := currentTargetValue.stat(t).mod(); a.IsZero() {
-                // the target does not exist
-            } else if file.info.ModTime().After(a) {
-                t.appendUpdated(newUpdatedTarget(file))
-            }
-            okay = true // it's good
-        } else if file != nil {
+        if okay { break } else if file != nil {
+            if okay = file.info != nil; okay { break }
             okay = file.searchInMatchedPaths(project)
-        }
-        if false && !okay && file != nil {
-            var alt = project.FindFile(file.name)
-            if !isNil(alt) { okay = alt.sub == "-" || t.exists(alt) }
-            if !okay && false {
-                s, _ := file.Strval()
-                e, _ := project.resolveEntry(file.name)
-                diag.errorAt(file.position, "%s: %v (alt=%v) (entry=%v) (%s %v)\n",
-                    project, file, alt.sub, e, s, t.stems).debug(optionDebugErrors, 1)
-            }
         }
     }
 
@@ -620,32 +607,58 @@ func (t *traversal) file(file *File) (okay bool) {
         t.traceCallStack(file.position, "%v: file(%v): error: %v", t.project, file, err).
             debug(optionDebugErrors, 1)
     } else if !okay && len(t.stems) == 0 {
-        if optionTraceTraversal { t.tracef("%v: file({%s,%s,%s}): not found", t.project, file.dir, file.sub, file.name) }
-        if true {
-            diag.errorAt(file.position, "missing file %v", file)
-            diag.errorAt(file.position, "concrete: %v", concreteList)
-            diag.errorAt(file.position, "stemmed: %v", stemmedList)
-            diag.errorAt(file.position, "internal stack:").
-                debug(optionDebugErrors, 64)
-        }
+        diag.errorAt(file.position, "missing file %v", file)
+        diag.errorAt(file.position, "concrete: %v", concreteList)
+        diag.errorAt(file.position, "stemmed: %v", stemmedList)
+        diag.errorAt(file.position, "internal stack:").
+            debug(optionDebugErrors, 64)
         t.traceCallStack(file.position, "missing file %v required by %v (in %v)", file, currentTargetValue, t.project)
         t._break(file.position, breakErro).error = fileNotFoundError{ t.project, file }
     }
     return
 }
 
-func (t *traversal) string(pos Position, target string) (okay bool) {
+func (t *traversal) string(pos Position, targetVal Value, target string) (okay bool) {
     if optionTraceTraversal   { t.tracef("traversal.target: %s", target) }
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.target(%v)", target))) }
     if optionEnableBenchspots { defer bench(spot("traversal.target")) }
 
     var (
         projects = t.closuredProjects()
+        currentTargetValue = t.getCurrentTargetValue()
         concreteEntries = make(map[*RuleEntry]*Project)
         concreteList []*RuleEntry
         file *File // if target is file
         err error
     )
+    if isNil(currentTargetValue) {
+        diag.errorAt(pos, "target '%v' is nil", t.def.target).
+            debug(optionDebugErrors, 1)
+        return
+    }
+    defer func() {
+        // Note that the file maybe not traversed yet at this point. But we
+        // still have to check mod-time.
+        if file != nil {
+            var (
+                a = currentTargetValue.stat(t).mod()
+                b = file.stat(t).mod()
+            )
+            if !a.IsZero() && b.After(a) { // a.IsZero() indicates the target not exists
+                t.appendUpdated(newUpdatedTarget(file))
+            }
+            if !file.position.IsValid() {
+                file.position = pos
+            }
+
+            // Add to the $^ or $| list
+            t.add(file)
+        } else if true {
+            if targetVal == nil { targetVal = MakeString(pos, target) }
+            t.add(targetVal)
+        }
+    } ()
+
     for _, project := range projects {
         var entry *RuleEntry
         if entry, err = project.resolveEntry(target); err != nil {
@@ -661,23 +674,16 @@ func (t *traversal) string(pos Position, target string) (okay bool) {
         }
     }
 
-    var currentTargetValue = t.getCurrentTargetValue()
-    if isNil(currentTargetValue) {
-        diag.errorAt(pos, "target '%v' is nil", t.def.target).
-            debug(optionDebugErrors, 1)
-        return
-    }
-
+ForConcreteList:
     for _, entry := range concreteList {
-        var project, _ = concreteEntries[entry]
-        if entry != nil && currentTargetValue != entry {
-            if optionTraceTraversal { t.tracef("traversal.target: entry=%v (project %v)", entry, project) }
+        if project, _ := concreteEntries[entry]; entry != nil && currentTargetValue != entry {
             if w, ok := currentTargetValue.(*Bareword); ok && w.string == target {
                 // target resolve to itself, does nothing
             } else if entry.traverse(t); t.hasBreakers() {
-                if optionTraceTraversal { t.tracef("entry.traverse: breakers=%v", t.breakers) }
                 for _, brk := range t.breakers {
                     switch brk.what {
+                    case breakNext:
+                        continue ForConcreteList
                     case breakFail:
                         diag.errorAt(pos, "broken traversal for concrete entry '%v' failed: %v", entry, brk.message)
                     case breakErro:
@@ -689,15 +695,11 @@ func (t *traversal) string(pos Position, target string) (okay bool) {
                 diag.errorAt(pos, "broken traversal for concrete entry '%v' in %v", entry, project).
                     debug(optionDebugErrors, 1)
                 return
+            } else {
+                file, _ = entry.target.(*File)
+                okay = true
+                return
             }
-            if file, ok := entry.target.(*File); ok && file.info != nil {
-                var a = currentTargetValue.stat(t).mod()
-                if !a.IsZero() && file.info.ModTime().After(a) {
-                    if optionTraceTraversal { t.tracef("updated: %v", file) }
-                    t.appendUpdated(newUpdatedTarget(file))
-                }
-            }
-            return
         }
     }
 
@@ -710,12 +712,10 @@ func (t *traversal) string(pos Position, target string) (okay bool) {
         } else if isNil(obj) || isUndef(obj) || isNone(obj) {
             // does nothing here and keep trying FindFile
         } else if obj.traverse(t); t.hasBreakers() {
-            if optionTraceTraversal { t.tracef("object.traverse: breakers=%v", t.breakers) }
             diag.errorAt(pos, "broken traversal '%v' (%T) (project=%v)", obj, obj, project).
                 debug(optionDebugErrors, 1)
             return
         } else if _, ok := obj.(*ProjectName); ok {
-            if optionTraceTraversal { t.tracef("object.traverse: ProjectName") }
             return
         }
     }
@@ -734,12 +734,8 @@ func (t *traversal) string(pos Position, target string) (okay bool) {
         }
     }
     for _, entry := range stemmedList {
-        entry._target(t, target)
-        if false && (strings.Contains(target, ".pb.cc") || strings.Contains(entry.String(), "%.pb.cc")) {
-            diag.warnAt(pos, "%v %v %T", target, entry, entry.target).
-                debug(true,1)
-        }
-        if /*entry._target(t, target);*/ !t.hasBreakers() {
+        var project, _ = stemmedEntries[entry.RuleEntry]
+        if entry._target(t, target); !t.hasBreakers() {
             okay = true; break // continue
         } else if nxts := t.breakersOf(breakNext); len(nxts) > 0 {
             if t.breakers = t.breakersNot(breakNext); len(t.breakers) > 0 {
@@ -753,13 +749,13 @@ func (t *traversal) string(pos Position, target string) (okay bool) {
             for _, brk := range brks {
                 switch brk.what {
                 case breakFail:
-                    diag.errorAt(entry.position, "traverse %v failed: %v", file, brk.message).
-                        debug(optionDebugErrors, 1)
+                    diag.errorAt(entry.position, "traverse %v failed: %v", file, brk.message)
                 case breakErro:
-                    diag.errorAt(entry.position, "traverse %v error: %v", file, brk.error).
-                        debug(optionDebugErrors, 1)
+                    diag.errorAt(entry.position, "traverse %v error: %v", file, brk.error)
                 }
             }
+            diag.errorAt(pos, "broken traversal for stemmed entry '%v' in %v", entry, project).
+                debug(optionDebugErrors, 1)
             return
         } else if brks := t.breakersOf(breakCase, breakDone); len(brks) > 0 {
             t.breakers, okay = nil, true // reset breakers
@@ -774,28 +770,12 @@ func (t *traversal) string(pos Position, target string) (okay bool) {
 
     for _, project := range projects {
         if file = project.FindFile(target); file != nil {
-            if false && strings.Contains(file.String(), ".pb.cc") {
-                if fm := file.filemap; fm != nil && len(fm.Paths) > 0 {
-                    for _, p := range fm.Paths {
-                        s, _ := p.Strval()
-                        diag.warnAt(file.position, "%v: %v, %v -> %v => %v",
-                            project, fm.project, fm.pattern, p, s)
-                    }
-                }
-                diag.warnAt(file.position, "%v -> %s", file, file.fullname()).
-                    debug(true,1)
-            }
-
-            if optionTraceTraversal { t.tracef("traversal.target: file=%v (project %v)", file, project) }
             file.position = pos // Change the position for tracing
-            t.addTarget(file) // Add this file target
-
             if false {
                 var names = make(map[string]bool)
                 for stub := file.filestub; true; stub = stub.other {
                     names[stub.name] = true // mark to avoid trying many times
                     if okay = t.filestub(project, file, stub); t.hasBreakers() {
-                        if optionTraceTraversal { t.tracef("object.traverse: breakers=%v", t.breakers) }
                         return
                     }
                     if okay { file.filestub = stub; return }
@@ -819,70 +799,45 @@ func (t *traversal) string(pos Position, target string) (okay bool) {
                     if okay { file.filestub = stub; break }
                 }
             } else if okay = t.file(file); t.hasBreakers() {
-                if optionTraceTraversal { t.tracef("object.traverse: breakers=%v", t.breakers) }
                 return
             }
 
-            if optionTraceTraversal { t.tracef("target: file %v (exists=%v, okay=%v)", file, file.exists(), okay) }
-
             // Check file existance
             if okay { break } else if file.info != nil {
-                if a := currentTargetValue.stat(t).mod(); !a.IsZero() && file.info.ModTime().After(a) {
-                    if optionTraceTraversal { t.tracef("updated: file %v", file) }
-                    t.appendUpdated(newUpdatedTarget(file))
-                }
                 okay = true // it's good
             } else if file != nil {
                 okay = file.searchInMatchedPaths(project)
-                if optionTraceTraversal { t.tracef("search: file %v (okay=%v)", file, okay) }
             }
-            if false { fmt.Fprintf(stderr, "%s: %s: %v (found=%v)\n", project, file.position, file.name, okay) }
             if !okay && file.name != target {
                 var alt = file //project.FindFile(file.name)
                 if alt != nil { okay = alt.sub == "-" || alt.exists() }
-                if !okay && false {
-                    s := file.fullname()
-                    e, _ := project.resolveEntry(file.name)
-                    diag.infoAt(file.position, "%s: %v (file=%v, match=%v, cwd=%s, alt.sub=%v, entry=%v, fullname=%s)",
-                        project, target, file, file.filemap, project.changedWD, alt.sub, e, s).
-                        debug(true, 1)
-                }
             }
             if okay { return } // Done!
         }
-        if optionTraceTraversal { t.tracef("project.FindFile: file=%v", file) }
     }
 
     if err != nil {
         t.traceCallStack(pos, "%v: target(%v), file=%v: error: %v", t.project, target, file, err).
             debug(optionDebugErrors,1)
     } else if !okay && !t.isConfigureExecution && len(t.stems) == 0 {
-        if optionTraceTraversal { t.tracef("%v: `target(%s)` not found (file=%v)", t.project, target, file) }
         if file != nil {
-            if false { fmt.Fprintf(stderr, "%s: %s: %v (not found, sub=%s, dir=%s, cwd=%s) (traversal.target)\n", t.project, file.position, file.name, file.sub, file.dir, t.project.changedWD) }
-            if true {
-                diag.errorAt(file.position, "missing file %v", file)
-                diag.errorAt(file.position, "concrete: %v", concreteList)
-                diag.errorAt(file.position, "stemmed: %v", stemmedList)
-                diag.errorAt(file.position, "internal stack:").
-                    debug(optionDebugErrors, 64)
-            }
+            diag.errorAt(file.position, "missing file %v", file)
+            diag.errorAt(file.position, "concrete: %v", concreteList)
+            diag.errorAt(file.position, "stemmed: %v", stemmedList)
+            diag.errorAt(file.position, "internal stack:").
+                debug(optionDebugErrors, 64)
             t.traceCallStack(file.position, "traverse missing target file '%v' for %v", file, t.project).
                 debug(optionDebugErrors,1)
-            brk := t._break(file.position, breakErro)
-            brk.error = fileNotFoundError{t.project, file}
+            t._break(file.position, breakErro).error = fileNotFoundError{t.project, file}
         } else {
-            if true {
-                diag.errorAt(pos, "missing target %v", target)
-                diag.errorAt(pos, "concrete: %v", concreteList)
-                diag.errorAt(pos, "stemmed: %v", stemmedList)
-                diag.errorAt(pos, "internal stack:").
-                    debug(optionDebugErrors, 64)
-            }
+            diag.errorAt(pos, "missing target %v", target)
+            diag.errorAt(pos, "concrete: %v", concreteList)
+            diag.errorAt(pos, "stemmed: %v", stemmedList)
+            diag.errorAt(pos, "internal stack:").
+                debug(optionDebugErrors, 64)
             t.traceCallStack(pos, "traverse missing target '%v' for %v", target, t.project).
                 debug(optionDebugErrors,1)
-            brk := t._break(pos, breakErro)
-            brk.error = targetNotFoundError{t.project, target}
+            t._break(pos, breakErro).error = targetNotFoundError{t.project, target}
         }
     } else if !okay && len(t.stems) > 0 {
         t._break(pos, breakNext).scope = breakTrave
@@ -890,10 +845,40 @@ func (t *traversal) string(pos Position, target string) (okay bool) {
     return
 }
 
+func (t *traversal) pattern(pat Value) {
+    var (
+        pos = pat.Position()
+        s string
+        rest []string
+        okay bool
+    )
+    if s, rest = pat.stencil(t.stems); s == "" {
+        diag.errorAt(pos, "empty stencil: %v %v", pat, t.stems).
+            debug(optionDebugErrors, 1)
+        return
+    } else if len(rest) > 0 {
+        diag.errorAt(pos, "partial stencil: %v, %v, %v, %v", pat, s, rest, t.stems).
+            debug(optionDebugErrors, 1)
+        panic(s)
+    } else if file := t.project.FindFile(s); file != nil {
+        file.position = pos
+        okay = t.file(file)
+    } else {
+        okay = t.string(pos, pat, s)
+    }
+
+    if !okay && t.stems != nil {
+        b := t._break(pos, breakNext)
+        b.scope = breakTrave
+        b.value = pat
+    }
+}
+
 func (t *traversal) appendUpdated(updated *updatedtarget) {
     var currentTargetValue = t.getCurrentTargetValue()
     if isNil(currentTargetValue) {
-        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target)
+        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target).
+            debug(optionDebugErrors, 1)
         return
     }
     if currentTargetValue == updated.target { return }
@@ -911,15 +896,6 @@ func (t *traversal) appendUpdated(updated *updatedtarget) {
         }
     }
     if c := t.caller; c != nil {
-        if false && updated.target.String() == "..." {
-            var (s string; m time.Time)
-            m = updated.target.stat(t).mod()
-            s, _ = updated.target.Strval()
-            fmt.Fprintf(stderr, "%s:\t%v %v\n", updated.target.Position(), m, s)
-            m = currentTargetValue.stat(t).mod()
-            s, _ = currentTargetValue.Strval()
-            fmt.Fprintf(stderr, "%s:\t%v %v\n", currentTargetValue.Position(), m, s)
-        }
         c.appendUpdated(newUpdatedTarget(currentTargetValue, updated))
     }
 }
@@ -944,13 +920,11 @@ func (t *traversal) removeUpdated(target Value) (removed []*updatedtarget) {
 
 func (t *traversal) removeCallerUpdated(target Value) {
     if t.caller != nil {
-        // if strings.HasSuffix(target.String(), "...") { fmt.Fprintf(stderr, "%v: %v %v %v\n", target.Position(), target, t.updated, t.caller.updated) }
         for _, u := range t.caller.removeUpdated(target) {
             for _, uu := range u.prerequisites {
                 t.removeUpdated(uu.target)
             }
         }
-        // if strings.HasSuffix(target.String(), "...") { fmt.Fprintf(stderr, "%v: %v %v %v\n", target.Position(), target, t.updated, t.caller.updated) }
     }
 }
 
@@ -992,6 +966,8 @@ func (t *traversal) cmdHash(values ...Value) (k, v HashBytes, err error) {
 
 func (t *traversal) updateRecipesHash() (k, v HashBytes, err error) {
     if k, v, err = t.cmdHash(t.program.recipes...); err != nil {
+        diag.errorAt(t.program.position, "hashing recipes failed: %v", err).
+            debug(optionDebugErrors, 1)
         return
     }
 
@@ -2077,7 +2053,7 @@ func (p *String) elemstr(o Object, k elemkind) (s string) {
 }
 func (p *String) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
-    t.string(p.position, p.string)
+    t.string(p.position, p, p.string)
 }
 func (p *String) cmp(v Value) (res cmpres) {
     if a, ok := v.(*String); ok {
@@ -2117,7 +2093,7 @@ func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.string, 
 func (p *Bareword) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
 func (p *Bareword) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
-    t.string(p.position, p.string)
+    t.string(p.position, p, p.string)
 }
 func (p *Bareword) cmp(v Value) (res cmpres) {
     if a, ok := v.(*Bareword); ok {
@@ -2148,7 +2124,7 @@ func (p *Qualiword) Integer() (int64, error) { return int64(len(p.words)), nil }
 func (p *Qualiword) Float() (float64, error) { return float64(len(p.words)), nil }
 func (p *Qualiword) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
-    t.string(p.position, p.String())
+    t.string(p.position, p, p.String())
 }
 func (p *Qualiword) cmp(v Value) (res cmpres) {
     if a, ok := v.(*Qualiword); ok {
@@ -2294,7 +2270,7 @@ func (p *Barecomp) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     if target, err := p.Strval(); err == nil {
         if false { diag.warnAt(p.position, "%v (%s)", p, target).debug(true, 1) }
-        t.string(p.position, target)
+        t.string(p.position, p, target)
     } else {
         diag.errorOf(p, "strval '%v' error: %v", p, err)
     }
@@ -2588,19 +2564,11 @@ func (p *Path) traverse(t *traversal) {
         return
     }
 
-    if strings.Contains(pathname, /*"%%.py"*/"%") {
-        diag.warnOf(p, "%v %v %v %v", p, p.patterned(), t.stems, pathname).
-            debug(true,1)
-    }
-
     // Stat the file by pathname.
     if file := stat(p.position, pathname, "", ""/*, nil*/); file != nil {
         file.traverse(t)
-    } else if okay := t.string(p.position, pathname); !okay && len(t.stems) > 0 {
+    } else if okay := t.string(p.position, p, pathname); !okay && len(t.stems) > 0 {
         if false { t._break(p.position, breakNext).scope = breakTrave }
-        if false && strings.Contains(pathname, "/include/__availability") {
-            diag.warnAt(p.position, "missing: %v %v %v", p, t.stems, pathname).debug(true,1)
-        }
     }
 }
 func (p *Path) patterned() (result bool) {
@@ -3293,11 +3261,9 @@ func (p *File) stamp(t *traversal) (files []*File, err error) {
     var oldModTime time.Time
     if p.info != nil { oldModTime = p.info.ModTime() }
     if p.info, err = os.Stat(fullname); err != nil {
-        diag.errorAt(p.position, "%v", err).
-            debug(optionDebugErrors, 1)
-        return
-    }
-    if p.info != nil {
+        if false { diag.errorAt(p.position, "%v", err).
+            debug(optionDebugErrors, 1) }
+    } else if p.info != nil {
         var newModTime = p.info.ModTime()
         context.globe.stamp(fullname, newModTime)
         p.updated = newModTime.After(oldModTime)
@@ -3311,9 +3277,6 @@ func (p *File) stamp(t *traversal) (files []*File, err error) {
             target = t.caller.def.target.value
         } else {
             t.appendUpdated(newUpdatedTarget(p))
-        }
-        if optionTraceTraversal {
-            t.tracef("stamp: %v (%v, %v, %v)", p, newModTime.Sub(oldModTime), target, cmp)
         }
     }
     return
@@ -3396,7 +3359,7 @@ func (p *File) traverse(t *traversal) {
         }
     }
 
-    if t.file(p); t.hasBreakers() /*|| diag.numErrors() > 0*/ {
+    if t.file(p); t.hasBreakers() {
         diag.errorAt(p.position, "broken traversal for file '%v' (at %s)", p, p.fullname()).
             debug(optionDebugErrors,1)
         return
@@ -3405,22 +3368,6 @@ func (p *File) traverse(t *traversal) {
         diag.errorAt(p.position, "break: missing file %v (at %s)", p, p.fullname()).
             debug(optionDebugErrors,1)
         return
-    }
-
-    if optionTraceTraversal {
-        var a = currentTargetValue
-        var t1 = a.stat(t).mod()
-        var t2 = p.stat(t).mod()
-        t.tracef("%s: %v (%v)", typeof(a), a, t1)
-        t.tracef("%s: %v (%v)", typeof(p), p, t2)
-    }
-
-    // Note that the file maybe not traversed yet at this point. But we
-    // still have to check mod-time.
-    var a = currentTargetValue.stat(t).mod()
-    if !a.IsZero() && p.info.ModTime().After(a) { // a.IsZero() indicates the target not exists
-        if optionTraceTraversal { t.tracef("updated: %v", p) }
-        t.appendUpdated(newUpdatedTarget(p))
     }
 }
 
@@ -3595,7 +3542,7 @@ func (p *Flag) traverse(t *traversal) {
         diag.errorOf(p, "strval '%v' failed: %v", p, err).
             debug(optionDebugErrors, 1)
     } else {
-        t.string(p.position, s)
+        t.string(p.position, p, s)
     }
 }
 
@@ -4894,7 +4841,8 @@ func (p *PercPattern) stencil(stems []string) (s string, rest []string) {
     if !(isNil(p.Prefix) || isNone(p.Prefix)) {
         // FIXME: the prefix could be Glob, Regexp, etc.
         if s, err = p.Prefix.Strval(); err != nil {
-            diag.errorOf(p.Suffix, "strval prefix '%v' failed: %v", p.Prefix, err)
+            diag.errorOf(p.Suffix, "strval prefix '%v' failed: %v", p.Prefix, err).
+                debug(optionDebugErrors, 1)
             return
         }
     }
@@ -4914,25 +4862,15 @@ func (p *PercPattern) stencil(stems []string) (s string, rest []string) {
         // FIXME: patterns like '%xxx%...' use multiple stems.
         if v, rest = p.Suffix.stencil(rest); v != "" { s += v }
     } else if v, err = p.Suffix.Strval(); err != nil {
-        diag.errorOf(p.Suffix, "strval suffix '%v' failed: %v", p.Suffix, err)
+        diag.errorOf(p.Suffix, "strval suffix '%v' failed: %v", p.Suffix, err).
+            debug(optionDebugErrors, 1)
         return
     } else if v != "" {
         s += v
     }
     return
 }
-func (p *PercPattern) traverse(t *traversal) {
-    if optionTraceTraversal { defer un(tt(t_traverse, t, p)); t.tracef("stems: %v", t.stems) }
-    if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("PercPattern.traverse(%v)", p))) }
-    if optionEnableBenchspots { defer bench(spot("PercPattern.traverse")) }
-    if t.stems == nil { diag.errorAt(p.position, "no stems"); return }
-    if target, rest := p.stencil(t.stems); target == "" || len(rest) > 0 {
-        // just relax
-    } else {
-        t.string(p.position, target)
-    }
-    return
-}
+func (p *PercPattern) traverse(t *traversal) { t.pattern(p) }
 func (p *PercPattern) cmp(v Value) (res cmpres) {
     if a, ok := v.(*PercPattern); ok {
         if p.Prefix.cmp(a.Prefix) == cmpEqual {
@@ -5063,15 +5001,7 @@ func (p *GlobPattern) stencil(stems []string) (s string, rest []string) {
     unreachable(fmt.Sprintf("Unimplemented GlobPattern stencil %v (stems=%v)", p, stems))
     return
 }
-func (p *GlobPattern) traverse(t *traversal) {
-    if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
-    if t.stems == nil { return }
-    if target, rest := p.stencil(t.stems); target == "" || len(rest) > 0 {
-        // just relax
-    } else {
-        t.string(p.position, target)
-    }
-}
+func (p *GlobPattern) traverse(t *traversal) { t.pattern(p) }
 func (p *GlobPattern) cmp(v Value) (res cmpres) {
     if a, ok := v.(*GlobPattern); ok {
         if len(p.Components) == len(a.Components) {
@@ -5100,6 +5030,7 @@ func (p *RegexpPattern) stencil(stems []string) (s string, rest []string) {
     unreachable("regexp.stencil: %v", stems)
     return
 }
+func (p *RegexpPattern) traverse(t *traversal) { t.pattern(p) }
 func (p *RegexpPattern) cmp(v Value) (res cmpres) {
     if a, ok := v.(*RegexpPattern); ok {
         if a != nil { /* FIXME: ... */ }
@@ -5107,8 +5038,8 @@ func (p *RegexpPattern) cmp(v Value) (res cmpres) {
     return
 }
 
-func NewRegexpPattern() Value {
-    return &RegexpPattern{} // TODO: RegexpPattern implementation
+func NewRegexpPattern(pos Position) Value {
+    return &RegexpPattern{valbase{pos}} // TODO: RegexpPattern implementation
 }
 
 type Valuer interface {
