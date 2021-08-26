@@ -117,8 +117,9 @@ func (prog *Program) modify(t *traversal, m *modifier) (err error) {
     }
 
     if f, ok := modifiers[name]; ok {
+        var value = t.def.buffer.value
         // Special modifier processing (implicit interpretation) before (configure)
-        if name == "configure" && len(t.interpreted) == 0 {
+        if name == "configure" && len(t.interpreted) == 0 && len(prog.recipes) > 0 /*&& (isNil(value) || isNone(value))*/ {
             // Evaluate for configure modifier
             if i, ok := dialects["eval"]; ok && i != nil {
                 if err = prog.interpret(m.position, t, i, args); err != nil {
@@ -128,7 +129,6 @@ func (prog *Program) modify(t *traversal, m *modifier) (err error) {
                 }
             }
         }
-        var value Value
         if value, err = f(m.position, t, args...); err != nil {
             diag.errorAt(m.position, "%s: %v", name, err).
                 debug(optionDebugErrors, 1)
