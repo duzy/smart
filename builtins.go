@@ -758,7 +758,8 @@ func builtinOr(pos Position, args... Value) (res Value) {
         var ( t bool; e error )
         for _, a := range args {
                 if t, e = a.True(); e != nil {
-                        diag.errorOf(a, "or: error: %v", e)
+                        diag.errorOf(a, "or: error: %v", e).
+                                debug(optionDebugErrors, 1)
                         break
                 } else if t {
                         res = a
@@ -1651,7 +1652,7 @@ func filterValues(pats []Value, neg bool, values... Value) (result []Value, err 
         return
 }
 
-func builtinFilterValues(pos Position, neg bool, args... Value) (res Value) {
+func filterValues1(pos Position, neg bool, args... Value) (res Value) {
         var err error
         if len(args) > 1 {
                 var ( pats []Value; vals []Value )
@@ -2286,13 +2287,13 @@ func builtinContains(pos Position, args... Value) (res Value) {
 
 func builtinFilter(pos Position, args... Value) (res Value) {
         // $(filter pattern…,text)
-        res = builtinFilterValues(pos, false, args...)
+        res = filterValues1(pos, false, args...)
         return
 }
 
 func builtinFilterOut(pos Position, args... Value) (res Value) {
         // $(filter-out pattern…,text)
-        res = builtinFilterValues(pos, true, args...)
+        res = filterValues1(pos, true, args...)
         return
 }
 
@@ -2959,10 +2960,12 @@ func builtinRemoveAll(pos Position, args... Value) (res Value) {
                                 if err = os.RemoveAll(s); err != nil { diag.errorOf(a, "%v", err); return }
                         }
                 } else if proj, str, ok, err = asOptFullname(proj, a); err != nil {
-                        diag.errorOf(a, "remove failed: %v", err)
+                        diag.errorOf(a, "remove failed: %v", err).
+                                debug(optionDebugErrors, 1)
                         return
                 } else if !ok || str == "" {
-                        diag.errorOf(a, "'%v' is not a file", a)
+                        diag.errorOf(a, "%v is not a file", a).
+                                debug(optionDebugErrors, 1)
                         break
                 } else {
                         if opts.verbose { diag.infoAt(pos, "remove %s", str) }
@@ -3165,29 +3168,28 @@ ForArgs:
                 if opts.verbose {
                         var d = filepath.Base(newname)
                         var s = filepath.Base(oldname)
-                        fmt.Fprintf(stderr, "smart: Symlink %s -> %s …", d, s)
+                        diag.prompt("Symlink %s -> %s …", d, s)
                 }
                 if opts.relative {
                         var dir = filepath.Dir(newname)
                         oldname, err = filepath.Rel(dir, oldname)
                         if err != nil {
-                                if opts.verbose {
-                                        fmt.Fprintf(stderr, "symlink: %s\n", err)
-                                }
-                                diag.errorAt(pos, "%v", err)
+                                if opts.verbose { diag.prompt("symlink: %s\n", err) }
+                                diag.errorAt(pos, "%v", err).debug(optionDebugErrors, 1)
                                 return
                         }
                 }
                 if dir := filepath.Dir(newname); opts.path && dir != "." && dir != PathSep {
-                        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
+                                diag.errorAt(pos, "%v", err).debug(optionDebugErrors, 1)
+                                return
+                        }
                 }
                 if err = os.Symlink(oldname, newname); err != nil {
-                        if opts.verbose {
-                                fmt.Fprintf(stderr, "… %s\n", err)
-                        }
+                        if opts.verbose { diag.prompt("… %s\n", err) }
                         break
                 } else if opts.verbose {
-                        fmt.Fprintf(stderr, "… ok\n")
+                        diag.prompt("… ok\n")
                 }
         }
         return
@@ -3296,15 +3298,24 @@ type builtinFileOpts struct {
         report bool `r,report;r,reportmissing;rm,report-missing;e,error`
 }
 func builtinFile(pos Position, args... Value) (res Value) {
-        var ( opts builtinFileOpts; err error )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
-        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "%v", err); return }
+        var ( opts builtinFileOpts; err error; aa = args )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "expand args failed: %v", err).
+                        debug(optionDebugErrors, 1)
+                return
+        }
+        if args, err = parseOpts(pos, &opts, args...); err != nil {
+                diag.errorAt(pos, "parse opts failed: %v", err).
+                        debug(optionDebugErrors, 1)
+                return
+        }
 
         var proj *Project
         if opts.caller {
                 proj = cloctx[0].project
         } else if proj = current(); proj == nil {
-                diag.errorAt(pos, "unknown current cntext")
+                diag.errorAt(pos, "unknown current cntext").
+                        debug(optionDebugErrors, 1)
                 return
         } else if false {
                 // Ensure that we're in the right closure context
@@ -3317,15 +3328,17 @@ func builtinFile(pos Position, args... Value) (res Value) {
                 if file, ok := a.(*File); ok {
                         list = append(list, file)
                         if file.exists() { continue }
-                        if opts.report { fmt.Fprintf(stderr, "%s: `%v` no such file\n", pos, a) }
+                        if opts.report { diag.infoAt(pos, "%v is no such file", a).debug(optionDebugErrors,1) }
                 } else if str, err = a.Strval(); err != nil {
-                        diag.errorAt(pos, "%v", err)
+                        diag.errorAt(pos, "strval '%v' failed: %v", err).
+                                debug(optionDebugErrors, 1)
                         return
                 } else if file = proj.FindFile(str); file != nil {
                         list = append(list, file)
-                        if opts.report { fmt.Fprintf(stderr, "%s: `%v` no such file\n", pos, a) }
+                        if opts.report { diag.infoAt(pos, "%v is no such file", a).debug(optionDebugErrors,1) }
                 } else {
-                        diag.errorAt(pos, "`%v` is not a file", a)
+                        diag.errorAt(pos, "%v is not a file in %v (%v -> %v)", a, proj, aa, args).
+                                debug(optionDebugErrors, 1)
                 }
         }
 
@@ -3415,13 +3428,16 @@ func builtinReadFile(pos Position, args... Value) (res Value) {
                 )
                 if !apos.IsValid() { apos = pos }
                 if proj, str, ok, err = asOptFullname(proj, a); err != nil {
-                        diag.errorAt(pos, "fullname '%v' failed: %v", a, err)
+                        diag.errorAt(pos, "fullname '%v' failed: %v", a, err).
+                                debug(optionDebugErrors, 1)
                         break
                 } else if !ok || str == "" {
-                        diag.errorAt(apos, "'%v' is not a file", a)
+                        diag.errorAt(apos, "%v is not a file", a).
+                                debug(optionDebugErrors, 1)
                         break
                 } else if s, err = ioutil.ReadFile(str); err != nil {
-                        diag.errorAt(apos, "read file failed: %v", err)
+                        diag.errorAt(apos, "read file failed: %v", err).
+                                debug(optionDebugErrors, 1)
                         break
                 } else {
                         if opts.trim { s = bytes.TrimFunc(s, unicode.IsSpace) } else

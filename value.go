@@ -153,10 +153,6 @@ type Value interface {
     // Stencil this value with stems.
     stencil(stems []string) (s string, rest []string)
 
-    //mod(t *traversal) (time.Time, error) // Returns the modification time.
-    //exists() existence // Returns value existence (e.g. file exists)
-    // mod: stat(t).fi.ModTime()
-    // exists: stat(t).fi != nil
     stat(t *traversal) (*statinfo)
 
     // Stamp the value if it's a file (aka. update FileInfo).
@@ -363,7 +359,9 @@ func (t *traversal) add(target Value) {
 }
 
 func (t *traversal) getCurrentTargetValue() (res Value) {
-    if target := t.def.target.value; isNil(target) {
+    if t.def.target == nil {
+        // top level, aka. via RuleEntry.Execute()
+    } else if target := t.def.target.value; isNil(target) {
         if false { diag.errorOf(target, "target '%v' is nil", t.def.target) }
     } else if vals, err := ExpandAll(target); err != nil {
         diag.errorOf(target, "expand target '%v' failed: %v", target, err)
@@ -395,7 +393,8 @@ func (t *traversal) calleeDone(err error) {
     }
     t.group.Done()
 }
-/*
+
+// DEPRECATED
 func (t *traversal) any(i interface{}) {
     if optionEnableBenchmarks && false {  defer bench(mark(fmt.Sprintf("traversal.any(%s=%v)", typeof(i), i))) }
 
@@ -419,12 +418,12 @@ func (t *traversal) any(i interface{}) {
     } else if isNil(value) { // this could happen
         diag.errorAt(pos, "updating nil prerequisite")
     } else {
-        if false { fmt.Fprintf(stderr, "any: %T %v\n", value, value) }
         value.traverse(t)
     }
     return
 }
-*/
+
+// DEPRECATED
 func (t *traversal) filestub(p *Project, file *File, stub *filestub) (okay bool) {
     if optionEnableBenchspots { defer bench(spot("traversal.filestub")) }
 
@@ -438,15 +437,8 @@ func (t *traversal) filestub(p *Project, file *File, stub *filestub) (okay bool)
         return
     }
 
-    if strings.HasSuffix(stub.name, "%%.py") {
-        diag.warnOf(file, "%v %v %v", stub.dir, stub.sub, stub.name).
-            debug(true,1)
-    }
-
     /// Searching patterns from the most derived project.
-    var entries []*stemmed = p.resolvePatterns(stub)
-
-    for _, entry := range entries {
+    for _, entry := range p.resolvePatterns(stub) {
         entry.file(t, file)
         okay = !t.hasBreakers()
         break
@@ -486,10 +478,15 @@ func (t *traversal) file(file *File) (okay bool) {
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.file(%v)", file))) }
     if optionEnableBenchspots { defer bench(spot("traversal.file")) }
 
+    if strings.Contains(file.name, "ABIBreak.s") {
+        diag.infoAt(file.position, "%v", file).
+            debug(true, 1)
+    }
+
     var (
         projects = t.closuredProjects()
         currentTargetValue = t.getCurrentTargetValue()
-        concreteEntries = make(map[*RuleEntry]*Project)
+        concreteEntries = make(map[*RuleEntry]bool)
         concreteList []*RuleEntry
         err error
     )
@@ -524,10 +521,9 @@ func (t *traversal) file(file *File) (okay bool) {
             continue
         } else if _, ok := concreteEntries[entry]; !ok {
             concreteList = append(concreteList, entry)
-            concreteEntries[entry] = project
+            concreteEntries[entry] = true
         }
     }
-
     for _, entry := range concreteList {
         if entry != nil && currentTargetValue != entry {
             if entry.traverse(t); t.hasBreakers() {
@@ -538,28 +534,20 @@ func (t *traversal) file(file *File) (okay bool) {
     }
 
     var (
-        stemmedEntries = make(map[*RuleEntry]*Project)
+        stemmedEntries = make(map[*RuleEntry]bool)
         stemmedList []*stemmed
     )
     for _, project := range projects {
-        var ents []*stemmed = project.resolvePatterns(file.name)
-        for _, ent := range ents {
+        for _, ent := range project.resolvePatterns(file.name) {
             if _, ok := stemmedEntries[ent.RuleEntry]; !ok {
                 stemmedList = append(stemmedList, ent)
-                stemmedEntries[ent.RuleEntry] = project
+                stemmedEntries[ent.RuleEntry] = true
             }
         }
     }
     for _, entry := range stemmedList {
-        var project, _ = stemmedEntries[entry.RuleEntry]
         if entry.file(t, file); !t.hasBreakers() {
             if okay = file.exists(); okay { break }
-        } else if nxts := t.breakersOf(breakNext); len(nxts) > 0 {
-            if t.breakers = t.breakersNot(breakNext); len(t.breakers) > 0 {
-                diag.errorAt(entry.position, "broken traversal for stemmed entry %v in %v", entry, project).
-                    debug(optionDebugErrors, 1)
-            }
-            continue
         } else if brks := t.breakersOf(breakFail, breakErro); len(brks) > 0 {
             for _, brk := range brks {
                 switch brk.what {
@@ -572,19 +560,29 @@ func (t *traversal) file(file *File) (okay bool) {
                 }
             }
             if t.breakers = t.breakersNot(breakFail, breakErro); len(t.breakers) > 0 {
-                diag.errorAt(entry.position, "broken traversal for stemmed file entry %v in %v (more)", entry, project).
-                    debug(optionDebugErrors, 1)
+                diag.errorAt(entry.position, "broken traversal for stemmed file entry %v in %v (more)",
+                    entry, entry.OwnerProject()).debug(optionDebugErrors, 1)
             } else {
-                diag.errorAt(entry.position, "broken traversal for stemmed file entry %v in %v", file, project).
+                diag.errorAt(entry.position, "broken traversal for stemmed file entry %v in %v", file, entry.OwnerProject()).
                     debug(optionDebugErrors, 1)
             }
             return
         } else if brks := t.breakersOf(breakCase, breakDone); len(brks) > 0 {
             if t.breakers = t.breakersNot(breakCase, breakDone); len(t.breakers) > 0 {
-                diag.errorAt(entry.position, "broken traversal for stemmed file entry %v in %v", entry, project).
+                diag.errorAt(entry.position, "broken traversal for stemmed file entry %v in %v", entry, entry.OwnerProject()).
                     debug(optionDebugErrors, 1)
             } else { okay = true }
             break
+        } else if nxts := t.breakersOf(breakNext); len(nxts) > 0 {
+            if t.breakers = t.breakersNot(breakNext); len(t.breakers) > 0 {
+                for _, b := range t.breakers {
+                    diag.errorAt(entry.position, "broken traversal for stemmed entry %v in %v: %v",
+                        entry, entry.OwnerProject(), b.what)
+                }
+                diag.errorAt(entry.position, "broken traversal for stemmed entry %v in %v",
+                    entry, entry.OwnerProject()).debug(optionDebugErrors, 1)
+                return
+            } else { continue }
         } else if t.hasBreakers() {
             for _, brk := range t.breakers {
                 diag.errorAt(brk.pos, "broken traversal for stemmed file entry %v (%v)", file, brk.what)
@@ -614,6 +612,8 @@ func (t *traversal) file(file *File) (okay bool) {
             debug(optionDebugErrors, 64)
         t.traceCallStack(file.position, "missing file %v required by %v (in %v)", file, currentTargetValue, t.project)
         t._break(file.position, breakErro).error = fileNotFoundError{ t.project, file }
+    } else if !okay && len(t.stems) > 0 {
+        if false { t._break(file.position, breakNext).scope = breakTrave }
     }
     return
 }
@@ -626,7 +626,7 @@ func (t *traversal) string(pos Position, targetVal Value, target string) (okay b
     var (
         projects = t.closuredProjects()
         currentTargetValue = t.getCurrentTargetValue()
-        concreteEntries = make(map[*RuleEntry]*Project)
+        concreteEntries = make(map[*RuleEntry]bool)
         concreteList []*RuleEntry
         file *File // if target is file
         err error
@@ -663,17 +663,16 @@ func (t *traversal) string(pos Position, targetVal Value, target string) (okay b
         var entry *RuleEntry
         if entry, err = project.resolveEntry(target); err != nil {
             diag.errorAt(pos, "resolve entry '%v' failed: %v", target, err).
-                debug(true, 1)
+                debug(optionDebugErrors, 1)
             t.traceCallStack(pos, "resolve entry '%v' failed: %v", target, err)
             return
         } else if entry == nil {
             continue
         } else if _, ok := concreteEntries[entry]; !ok {
             concreteList = append(concreteList, entry)
-            concreteEntries[entry] = project
+            concreteEntries[entry] = true
         }
     }
-
 ForConcreteList:
     for _, entry := range concreteList {
         if project, _ := concreteEntries[entry]; entry != nil && currentTargetValue != entry {
@@ -716,27 +715,48 @@ ForConcreteList:
                 debug(optionDebugErrors, 1)
             return
         } else if _, ok := obj.(*ProjectName); ok {
+            // solved, no need to check against patterns
             return
         }
     }
 
     var (
-        stemmedEntries = make(map[*RuleEntry]*Project)
+        stemmedEntries = make(map[*RuleEntry]bool)
         stemmedList []*stemmed
     )
     for _, project := range projects {
-        var ents []*stemmed = project.resolvePatterns(target)
-        for _, ent := range ents {
+        for _, ent := range project.resolvePatterns(target) {
             if _, ok := stemmedEntries[ent.RuleEntry]; !ok {
                 stemmedList = append(stemmedList, ent)
-                stemmedEntries[ent.RuleEntry] = project
+                stemmedEntries[ent.RuleEntry] = true
             }
         }
     }
-    for _, entry := range stemmedList {
-        var project, _ = stemmedEntries[entry.RuleEntry]
-        if entry._target(t, target); !t.hasBreakers() {
+    for x, entry := range stemmedList {
+        entry.string(t, targetVal, target)
+        if strings.Contains(target, "ABIBreak") {
+            for _, b := range t.breakers { diag.infoAt(pos, "%v %v", targetVal, b.what) }
+            diag.infoAt(pos, "%v %v %v %v %v %v", targetVal, entry, x, len(stemmedList), len(t.breakers), entry.programs[0].depends).
+                debug(true, 1)
+        }
+        if ; !t.hasBreakers() {
             okay = true; break // continue
+        } else if brks := t.breakersOf(breakFail, breakErro); len(brks) > 0 {
+            t.breakers = t.breakersNot(breakFail, breakErro);
+            for _, brk := range brks {
+                switch brk.what {
+                case breakFail: diag.errorAt(entry.position, "traverse %v failed: %v", file, brk.message).
+                    debug(optionDebugErrors, 1)
+                case breakErro: diag.errorAt(entry.position, "traverse %v error: %v", file, brk.error).
+                    debug(optionDebugErrors, 1)
+                }
+            }
+            diag.errorAt(pos, "broken traversal for stemmed entry '%v' in %v", entry, entry.OwnerProject()).
+                debug(optionDebugErrors, 1)
+            return
+        } else if brks := t.breakersOf(breakCase, breakDone); len(brks) > 0 {
+            t.breakers, okay = t.breakersNot(breakCase, breakDone), true // reset breakers
+            break
         } else if nxts := t.breakersOf(breakNext); len(nxts) > 0 {
             if t.breakers = t.breakersNot(breakNext); len(t.breakers) > 0 {
                 diag.errorAt(entry.position, "next with broken traversal for %v (pattern=%v, next=%v)",
@@ -744,22 +764,6 @@ ForConcreteList:
                     debug(optionDebugErrors, 1)
             }
             continue
-        } else if brks := t.breakersOf(breakFail, breakErro); len(brks) > 0 {
-            t.breakers = t.breakersNot(breakFail, breakErro);
-            for _, brk := range brks {
-                switch brk.what {
-                case breakFail:
-                    diag.errorAt(entry.position, "traverse %v failed: %v", file, brk.message)
-                case breakErro:
-                    diag.errorAt(entry.position, "traverse %v error: %v", file, brk.error)
-                }
-            }
-            diag.errorAt(pos, "broken traversal for stemmed entry '%v' in %v", entry, project).
-                debug(optionDebugErrors, 1)
-            return
-        } else if brks := t.breakersOf(breakCase, breakDone); len(brks) > 0 {
-            t.breakers, okay = nil, true // reset breakers
-            break
         } else {
             diag.errorAt(entry.position, "unknown breakers for target %v (%v)", target, t.breakers[0].what).
                 debug(optionDebugErrors, 1)
@@ -848,9 +852,9 @@ ForConcreteList:
 func (t *traversal) pattern(pat Value) {
     var (
         pos = pat.Position()
-        s string
         rest []string
         okay bool
+        s string
     )
     if s, rest = pat.stencil(t.stems); s == "" {
         diag.errorAt(pos, "empty stencil: %v %v", pat, t.stems).
@@ -867,7 +871,7 @@ func (t *traversal) pattern(pat Value) {
         okay = t.string(pos, pat, s)
     }
 
-    if !okay && t.stems != nil {
+    if !okay && len(t.stems) > 0 {
         b := t._break(pos, breakNext)
         b.scope = breakTrave
         b.value = pat
@@ -875,25 +879,21 @@ func (t *traversal) pattern(pat Value) {
 }
 
 func (t *traversal) appendUpdated(updated *updatedtarget) {
-    var currentTargetValue = t.getCurrentTargetValue()
+    var currentTargetValue Value = t.getCurrentTargetValue()
     if isNil(currentTargetValue) {
-        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target).
-            debug(optionDebugErrors, 1)
-        return
+        if false { diag.warnAt(t.def.target.position, "target '%v' is nil", t.def.target).
+            debug(optionDebugErrors, 1) }
+    } else {
+        if currentTargetValue == updated.target { return }
+        if currentTargetValue.cmp(updated.target) == cmpEqual { return }
     }
-    if currentTargetValue == updated.target { return }
-    if currentTargetValue.cmp(updated.target) == cmpEqual { return }
     for _, u := range t.updated { // check if already added
         if u.target == updated.target { return }
         if u.target.cmp(updated.target) == cmpEqual { return }
     }
     t.updated = append(t.updated, updated)
     for c := t.caller; c != nil; c = c.caller { // clear update loop
-        if false {
-            if c.def.target.value == currentTargetValue { return }
-        } else {
-            if c.def.target.value == updated.target { return }
-        }
+        if c.def.target != nil && c.def.target.value == updated.target { return }
     }
     if c := t.caller; c != nil {
         c.appendUpdated(newUpdatedTarget(currentTargetValue, updated))
@@ -3015,7 +3015,7 @@ type filestub struct {
 type filebase struct {
     stub filestub    // cycled-list of file stubs of different projects
     info os.FileInfo // file info if exists
-    updated bool // true if this file has been updated by a program
+    //updated bool // true if this file has been updated by a program
 }
 
 var filecache = make(map[string]*filebase) // File.fullname() -> File
@@ -3162,7 +3162,7 @@ func stat(pos Position, name, sub, dir string, infos ...os.FileInfo) (file *File
             }
         }
 
-        base = &filebase{ filestub{ dir, sub, name, nil, nil }, info, false }
+        base = &filebase{ filestub{ dir, sub, name, nil, nil }, info/*, false*/ }
         base.stub.other = &base.stub
         stub = &base.stub
         filecache[fullname] = base
@@ -3258,15 +3258,15 @@ func (p *File) stamp(t *traversal) (files []*File, err error) {
         return
     }
 
-    var oldModTime time.Time
-    if p.info != nil { oldModTime = p.info.ModTime() }
+    //var oldModTime time.Time
+    //if p.info != nil { oldModTime = p.info.ModTime() }
     if p.info, err = os.Stat(fullname); err != nil {
         if false { diag.errorAt(p.position, "%v", err).
             debug(optionDebugErrors, 1) }
     } else if p.info != nil {
         var newModTime = p.info.ModTime()
         context.globe.stamp(fullname, newModTime)
-        p.updated = newModTime.After(oldModTime)
+        // p.updated = newModTime.After(oldModTime)
         files = append(files, p)
 
         var target = currentTargetValue
@@ -3365,7 +3365,8 @@ func (p *File) traverse(t *traversal) {
         return
     } else if p.info == nil {
         t._break(p.position, breakErro).error = fileNotFoundError{ t.project, p }
-        diag.errorAt(p.position, "break: missing file %v (at %s)", p, p.fullname()).
+        diag.errorAt(p.position, "break: missing file %v (at %s)", p, p.fullname())
+        diag.errorAt(t.project.position, "from project %v (for %v)", t.project, p).
             debug(optionDebugErrors,1)
         return
     }
@@ -3783,7 +3784,7 @@ func (p *Group) expand(w expandwhat) (res Value, err error) {
 }
 func (p *Group) traverse(t *traversal) {
     diag.warnAt(p.position, "traversing group: %v", p).
-        debug(optionDebugErrors, 1)
+        debug(optionDebugErrors, 32)
 }
 func (p *Group) cmp(v Value) (res cmpres) {
     if a, ok := v.(*Group); ok { res = p.cmpElems(a.Elems) }
@@ -3794,20 +3795,25 @@ func (p *Group) match(i interface{}) (full bool, s string, stems []string) { ret
 func (p *Group) stencil(stems []string) (s string, rest []string) { return }
 
 func parseGroupValue(g *Group) (result Value) {
-    if len(g.Elems) == 0 { return g }
-    var word *Bareword
-    switch kind := g.Elems[0].(type) {
-    case *Bareword: word = kind
-    case *Group: if len(kind.Elems) > 0 {
-        word, _ = kind.Elems[0].(*Bareword)
-    }}
-    if word != nil {
-        switch word.string {
-        case "plain", "json", "yaml", "xml":
+    if len(g.Elems) == 0 { return g } else {
+        var word *Bareword
+        switch kind := g.Elems[0].(type) {
+        case *Bareword: word = kind
+        case *Group: if len(kind.Elems) > 0 {
+            var ( name = kind.Elems[0]; ok bool )
+            if word, ok = name.(*Bareword); !ok {
+                diag.errorOf(name, "unsupported name type: %T %v", name, name).
+                    debug(optionDebugErrors, 1)
+            }
+        }}
+        if word != nil {
+            switch word.string {
+            case "plain", "json", "yaml", "xml":
                 result = MakeList(g.Elems[1].Position(), g.Elems[1:]...)
+            }
         }
+        if isNil(result) { result = g }
     }
-    if result == nil { result = g }
     return
 }
 
@@ -5134,6 +5140,7 @@ func merge(args... Value) (elems []Value) {
     return
 }
 
+// example: mergeresult(expandall(...))
 func mergeresult(res []Value, err error) ([]Value, error) {
     if err == nil { res = merge(res...) }
     return res, err

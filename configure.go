@@ -76,11 +76,13 @@ func do_configuration() {
     // Remove all existing configuration.sm files
     for _, s := range configuration.clean {
         if _, e := os.Stat(s); e != nil {
-            // ...
+            if false { diag.prompt("%v\n", e).
+                debug(optionDebugErrors, 1) }
         } else if e = os.Remove(s); e == nil {
-            fmt.Fprintf(stderr, "Remove %s\n", s)
+            diag.prompt("Remove %s\n", s)
         } else if true {
-            fmt.Fprintf(stderr, "Remove: %s\n", e)
+            diag.prompt("Remove: %s\n", e).
+                debug(optionDebugErrors, 1)
         }
     }
 
@@ -89,17 +91,22 @@ func do_configuration() {
         if p := entry.OwnerProject(); p != project && p != nil {
           defs = make(map[string]*Def) // reset defs for p
             var f, e = openConfigurationFile(p)
-            if e != nil { diag.errorAt(entry.position, "%v", e); return } else
-            if f != nil {
+            if e != nil {
+                diag.errorAt(entry.position, "%v", e).
+                    debug(optionDebugErrors, 1)
+                return
+            } else if f != nil {
                 if writer != nil {
                     if e = writer.Flush(); e != nil {
-                        diag.errorAt(entry.position, "%v", e)
+                        diag.errorAt(entry.position, "%v", e).
+                            debug(optionDebugErrors, 1)
                         return
                     }
                 }
                 if file != nil {
                     if e = file.Close(); e != nil {
-                        diag.errorAt(entry.position, "%v", e)
+                        diag.errorAt(entry.position, "%v", e).
+                            debug(optionDebugErrors, 1)
                         return
                     }
                 }
@@ -108,21 +115,24 @@ func do_configuration() {
             file, writer = f, bufio.NewWriter(f)
             fmt.Fprintf(writer, "# %s (%s) configuration\n", p.spec, p.relPath)
 
-            fmt.Fprintf(stderr, "Project %s …… (%s)\n", p.spec, p.relPath)
+            diag.prompt("Project %s …… (%s)\n", p.spec, p.relPath)
             project = p
         }
 
         if val, brks := entry.Execute(entry.position); len(brks) > 0 {
             for _, brk := range brks {
                 if brk.what == breakErro {
-                    diag.errorAt(entry.position, "execute '%v' failed: %v", entry, brk.error)
+                    diag.errorAt(entry.position, "execute '%v' failed: %v", entry, brk.error).
+                            debug(optionDebugErrors, 1)
                 }
             }
-        } else if val != nil {
-            if false { diag.infoAt(entry.position, "configure %v: %v", entry, val) }
+        } else if entry.String() == "-check-file" {
+            diag.warnAt(entry.position, "configure %v: %v", entry, val).
+                debug(true, 1)
         }
         if s, e := entry.target.Strval(); e != nil {
-            diag.errorAt(entry.position, "%v", e)
+            diag.errorAt(entry.position, "strval '%v' fail: %v", entry, e).
+                debug(optionDebugErrors, 1)
         } else if def := project.scope.FindDef(s); def != nil {
             if d, ok := defs[s]; ok && d != nil {
                 /*if d.value.cmp(def.value) != cmpEqual {
@@ -140,10 +150,15 @@ func do_configuration() {
                 fmt.Fprintf(writer, "%v = %v\n", def.name, vs)
             }
         } else {
-            diag.errorAt(entry.position, "`%s` unconfigured", s)
+            diag.errorAt(entry.position, "`%s` unconfigured", s).
+                debug(optionDebugErrors, 1)
         }
     }
-    if err != nil { return }
+    if err != nil {
+        diag.prompt("configure: %v\n", err).
+            debug(optionDebugErrors, 1)
+        return
+    }
 
     printLeavingDirectory()
     return
@@ -168,13 +183,13 @@ func configurationFileName(p *Project) (s string, err error) {
     if f := p.matchTempFile(pos, "configuration.sm"); f != nil {
         s = f.fullname()
     } else {
-        fmt.Fprintf(stderr, "%v: no file for configuration.sm\n", p)
+        diag.prompt("%v: no file for configuration.sm\n", p)
     }
     return
 }
 
 func configPrintf(pos Position, str string, args... interface{}) {
-    diag.prompt(str, args...) //fmt.Fprintf(stderr, str, args...)
+    diag.prompt(str, args...) //diag.prompt( str, args...)
 }
 
 func configMessageDone(pos Position, str string, args... interface{}) {
@@ -277,7 +292,7 @@ func configurePackage(pos Position, t *traversal, def *Def, fields map[string]Va
                     return
                 }
             default:
-                fmt.Fprintf(stderr, "%v: package: `%v` unknown option", key)
+                diag.prompt("%v: package: `%v` unknown option", key)
             }
         default:
             var name string
@@ -294,7 +309,7 @@ func configurePackage(pos Position, t *traversal, def *Def, fields map[string]Va
             // case packageConfig:
             //     if info, err = loadPackageConfigInfo(pos, name); err != nil { return }
             case packageUnknown:
-                fmt.Fprintf(stderr, "%v: package `%v`: unknown type\n", name)
+                diag.prompt("%v: package `%v`: unknown type\n", name)
             }
             if info != nil {
                 configuration.packages[name] = info
@@ -387,22 +402,32 @@ func configureExec(pos Position, t *traversal, opts *modifierConfigureOpts, s st
     defer func(v bool) { t.isConfigureExecution = false } (t.isConfigureExecution)
     t.isConfigureExecution = true
 
-    if result = prog.execute(t, entry, params); t.hasBreakers() {
-        for i, brk := range t.breakers {
-            if brk.what == breakErro {
-                fmt.Fprintf(stderr, "%s: %d: %v\n", pos, i, brk.error)
-            } else {
-                fmt.Fprintf(stderr, "%s: %d: %v\n", pos, i, brk.what)
+    result = prog.execute(t, entry, params)
+    if false && (isNil(result) || isNone(result)) { diag.infoAt(pos, "%v: %v = %v, %v, params = %v",
+        entry, target, result, t.def.target, params).debug(true,1) }
+    if brks := t.breakersNot(breakDone); len(brks) > 0 {
+        for i, brk := range brks {
+            switch brk.what {
+            case breakUnkn: diag.errorAt(pos, "broken configuration %v for unknown reason", entry).
+                debug(optionDebugErrors, 16)
+            case breakErro: diag.errorAt(pos, "%d: %v", i, brk.error).
+                debug(optionDebugErrors, 1)
+            case breakFail: diag.errorAt(pos, "%d: %v", i, brk.message).
+                debug(optionDebugErrors, 1)
+            default: diag.errorAt(pos, "%d: %v", i, brk.what).
+                debug(optionDebugErrors, 16)
             }
         }
     } else if optVerbose {
-        if false { diag.infoAt(pos, "%v: %v = %v, params = %v", entry, target, result, params) }
         var res bool
         if isNil(result) || isNone(result) { res = true } else {
-            res, _ = result.True()
+            if res, err = result.True(); err != nil {
+                diag.errorAt(pos, "truthify '%v' failed: %v", result, err).
+                    debug(optionDebugErrors, 1)
+            }
         }
         if n := diag.numErrors(); /*!res || */n > 0 && false {
-            t, _ := target.Strval()
+            var t, _ = target.Strval()
             diag.errorAt(pos, "s=%v target=%v result=%v res=%v", s, t, result, res).
                 debug(optionDebugErrors, 1)
         }
@@ -475,7 +500,8 @@ ForArgs:
             configMessageDone(pos, "… <none>")
         } else if  s, e := result.Strval(); e != nil {
             configMessageDone(pos, "… (%v)", e)
-            diag.errorAt(pos, "stringify configure result '%v' failed: %v", result, e)
+            diag.errorAt(pos, "stringify configure result '%v' failed: %v", result, e).
+                debug(optionDebugErrors, 1)
         } else {
             if s == "" { s = fmt.Sprintf("? (%s)", result) }
             configMessageDone(pos, "… %v", s)
@@ -798,7 +824,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
 
         okay, err = t.forClosuredProjects(func(p *Project) (ok bool, err error) {
             if file = p.FindFile(s); file != nil { project, ok = p, true }
-            if opts.debug && file != nil { fmt.Fprintf(stderr, "%s: %v: file %v\n", pos, p, file) }
+            if opts.debug && file != nil { diag.prompt("%s: %v: file %v\n", pos, p, file) }
             return
         })
 
@@ -864,10 +890,10 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
     }
     if data.Len() == 0 { diag.errorAt(pos, "no input data"); return }
 
-    if opts.verbose { fmt.Fprintf(stderr, "smart: Checking %v …", file) }
+    if opts.verbose { diag.prompt("Checking %v …", file) }
     if file.info != nil {
         if same, e := crc64CheckFileModeContent(filename, data.Bytes(), opts.mode); e != nil {
-            if opts.verbose { fmt.Fprintf(stderr, "… (error: %s)\n", e) }
+            if opts.verbose { diag.prompt("… (error: %s)\n", e) }
             diag.errorAt(pos, "%v", e); return
         } else if same {
             var tt = file.info.ModTime()
@@ -876,7 +902,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
                 if dt := f.info.ModTime(); dt.After(tt) { tt = dt }
             }
             if tt.After(file.info.ModTime()) { err = touch(file, 0, false, tt) }
-            if opts.verbose { fmt.Fprintf(stderr, "… Good\n") }
+            if opts.verbose { diag.prompt("… Good\n") }
             result = file
             return
         }
@@ -886,15 +912,15 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
             return
         }
     }
-    if opts.verbose { fmt.Fprintf(stderr, "… Outdated (%s)\n", filename) }
+    if opts.verbose { diag.prompt("… Outdated (%s)\n", filename) }
 
     var status string
     if opts.verbose {
-        fmt.Fprintf(stderr, "smart: Updating %v …", file)
+        diag.prompt("Updating %v …", file)
         defer func() {
             if err != nil { status = "error!" } else
             if status == "" { status = "done." }
-            fmt.Fprintf(stderr, "… %s\n", status)
+            diag.prompt("… %s\n", status)
         } ()
     }
 
@@ -999,7 +1025,8 @@ func modifierExtractConfiguration(pos Position, pc *traversal, args ...Value) (r
             name := filepath.Base(s)
             file := stat(pos, name, "", dir)
             if file == nil {
-                diag.errorAt(pos, "extract-configuration: `%s` file not found", name)
+                diag.errorAt(pos, "extract-configuration: `%s` file not found", name).
+                    debug(optionDebugErrors, 1)
                 return
             } else if file.info.IsDir() {
                 err = walkFiles(pos, s, pats, func(file *File, err error) error {
@@ -1024,7 +1051,7 @@ ForSources:
             }
         }
         if f, err = os.Open(s); err != nil {
-            fmt.Fprintf(stderr, "%v: (configure) %v: %v\n", pos, source, err)
+            diag.prompt("%v: (configure) %v: %v\n", pos, source, err)
             continue ForSources
         }
         scanner := bufio.NewScanner(f)

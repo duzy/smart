@@ -65,15 +65,6 @@ func (filemap *FileMap) Match(filename string) (matched bool, pre string) {
 
 func (filemap *FileMap) match(pattern Value, filename string) (matched bool, pre string) {
   if matched, pre = globMatch(pattern, filename); matched { return }
-  if false {
-    var ( s, t string ; e error )
-    for _, p := range filemap.Paths {
-      if s, e = p.Strval(); e != nil { return }
-      if filename == filepath.Join(s, t) {
-        matched = true
-      }
-    }
-  }
   return
 }
 
@@ -93,7 +84,11 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
     }
 
     var ( dir, sub string ; err error )
-    if sub, err = path.Strval(); err != nil { return } else {
+    if sub, err = path.Strval(); err != nil {
+      diag.errorAt(pos, "strval '%v' failed: %v", path, err).
+        debug(optionDebugErrors, 1)
+      return
+    } else {
       // Clean the search path.
       sub = filepath.Clean(sub)
     }
@@ -614,8 +609,8 @@ func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
       } else if filepath.IsAbs(s) {
         // not matching
       } else if strings.HasSuffix(target.fullname(), PathSep+filepath.Clean(s)) {
-        diag.infoAt(rec.Position(), "%v: %s <-> %v %v", p, s, target, target.fullname()).
-          debug(optionDebugErrors, 16)
+        if true { diag.warnAt(rec.Position(), "TODO: %v: %s <-> %v %v", p, s, target, target.fullname()).
+          debug(optionDebugErrors, 8) }
         return rec, nil
       }
     //case *Path:
@@ -645,7 +640,7 @@ func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
 func (p *Project) resolvePatterns(i interface{}) (res []*stemmed) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.resolvePatterns")) }
   if optionEnableBenchspots { defer bench(spot("Project.resolvePatterns")) }
-  res = p._resolvePatterns1(i)
+  res   = p._resolvePatterns1(i)
   if v := p._resolvePatterns2(i); len(v) > 0 { res = append(res, v...) }
   if true { /* FAST */ } else /* SLOW */
   if v := p._resolvePatterns3(i); len(v) > 0 { res = append(res, v...) }
@@ -955,7 +950,7 @@ func leave(prog *Program, stop *enterec) (err error) {
     if enter == stop {
       if enter.print && false {
         enter.print = false
-        fmt.Fprintf(stderr, "smart:  Leaving directory '%s'\n", enter.dir)
+        diag.prompt("smart:  Leaving directory '%s'\n", enter.dir)
       }
       err = lockCD(enter.wd, 0)
       break

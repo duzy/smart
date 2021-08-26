@@ -12,10 +12,11 @@ import (
         "os/exec"
         "strings"
         "strconv"
+        "sync"
         "bytes"
-        //"time"
+        "time"
         "fmt"
-        "os"
+        //"os"
 )
 
 // Object is a value defined in a scope.
@@ -711,12 +712,48 @@ func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, break
                 return
         }
 
-        var t *traversal // TODO: initial traversal context for break context
-
+        var t = &traversal{
+                start: time.Now(),
+                visited: make(map[Value]int),
+                group: new(sync.WaitGroup),
+        }
         for _, program := range entry.programs {
                 result = append(result, program.execute(t, entry, a))
-                // FIXME: handle breakers for failures, errors, etc.
+                if brks := t.breakersOf(breakFail, breakErro); len(brks) > 0 {
+                        t.breakers = t.breakersNot(breakFail, breakErro)
+                        for _, brk := range brks {
+                                switch brk.what {
+                                case breakFail: diag.errorAt(program.position, "execution failed: %v", brk.message).
+                                        debug(optionDebugErrors, 1)
+                                case breakErro: diag.errorAt(program.position, "execution error: %v", brk.error).
+                                        debug(optionDebugErrors, 1)
+                                default: diag.errorAt(program.position, "breaker: %v", brk.what).
+                                        debug(optionDebugErrors, 1)
+                                }
+                        }
+                } else if brks = t.breakersOf(breakCase, breakDone); len(brks) > 0 {
+                        t.breakers = t.breakersNot(breakCase, breakDone)
+                        for _, brk := range t.breakers {
+                                diag.errorAt(program.position, "breaker: %v", brk.what).
+                                        debug(optionDebugErrors, 1)
+                        }
+                        break
+                } else if brks = t.breakersOf(breakNext); len(brks) > 0 {
+                        t.breakers = t.breakersNot(breakNext)
+                        for _, brk := range t.breakers {
+                                diag.errorAt(program.position, "breaker: %v", brk.what).
+                                        debug(optionDebugErrors, 1)
+                        }
+                        continue
+                } else if len(t.breakers) > 0 {
+                        for _, brk := range t.breakers {
+                                diag.errorAt(program.position, "unknown breaker: %v", brk.what).
+                                        debug(optionDebugErrors, 1)
+                        }
+                        break
+                }
         }
+        breakers = t.breakers
         return
 }
 func (entry *RuleEntry) Get(name string) (Value, error) {
@@ -802,8 +839,7 @@ func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
         } else if !isNil(target) && target != entry.target {
                 // TODO: test if programs are needed to be disclosed??
                 res = &RuleEntry{
-                        entry.class,
-                        target,
+                        entry.class, target,
                         entry.programs,
                         entry.position,
                 }
@@ -912,10 +948,7 @@ func (entry *RuleEntry) option() (res bool, infos []Value) {
         return
 }
 
-type PatternEntry struct {
-        Pattern Value
-        *RuleEntry
-}
+type PatternEntry struct { Pattern Value; *RuleEntry }
 func (p *PatternEntry) expandible(w expandwhat) (res bool) {
         if res = p.Pattern.expandible(w); !res {
                 res = p.RuleEntry.expandible(w)
@@ -946,10 +979,7 @@ func (p *PatternEntry) cmp(v Value) (res cmpres) {
         return
 }
 
-type stemmed struct {
-        *PatternEntry
-        Stems []string // stem string
-}
+type stemmed struct { *PatternEntry; Stems []string }
 func (p *stemmed) String() (s string) {
         for i, stem := range p.Stems { if i > 0 { s += "," }; s += stem }
         return fmt.Sprintf("<%s,%s>", p.PatternEntry, s)
@@ -985,21 +1015,19 @@ func (p *stemmed) traverse(t *traversal) {
         })
         return
 }
-func (p *stemmed) _target(t *traversal, target string) {
+func (p *stemmed) string(t *traversal, targetVal Value, target string) {
         if optionTraceTraversal   { defer un(tt(t_traverse, t, p)) }
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("stemmed.traverse(%v)", p))) }
         if optionEnableBenchspots { defer bench(spot("stemmed.traverse")) }
 
-        defer func(a Value) { p.target = a } (p.target)
-        defer func(stems []string) { t.stems = stems } (t.stems)
+        defer func(a Value, s []string) { p.target, t.stems = a, s } (p.target, t.stems)
         t.stems = p.Stems // set stems for the traversal
 
-        if _, ok := p.Pattern.(*Path); ok {
-                p.target = MakePathStr(p.position, target)
-        } else if file := t.project.FindFile(target); file != nil {
+        if file := t.project.FindFile(target); file != nil {
+                file.position = p.position
                 p.target = file
         } else {
-                p.target = MakeString(p.position,  target)
+                p.target = targetVal
         }
 
         p.RuleEntry.traverse(t)
@@ -1009,16 +1037,14 @@ func (p *stemmed) file(t *traversal, file *File) {
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("stemmed.file(%v)", p))) }
         if optionEnableBenchspots { defer bench(spot("stemmed.file")) }
 
-        defer func(a Value) { p.target = a } (p.target)
-        defer func(stems []string) { t.stems = stems } (t.stems)
+        defer func(a Value, s []string) { p.target, t.stems = a, s } (p.target, t.stems)
         t.stems = p.Stems // set stems for the traversal
-        p.target = file
-        file.position = p.position
 
         if file.info == nil && file.filemap == nil { // !isAbsOrRel()
                 if f := t.project.FindFile(file.name); f != nil { *file = *f }
-                if file.info == nil { file.info, _ = os.Stat(file.name) }
+                //if file.info == nil { file.info, _ = os.Stat(file.name) }
         }
-
+        file.position = p.position
+        p.target = file
         p.RuleEntry.traverse(t)
 }

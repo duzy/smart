@@ -462,7 +462,7 @@ func (ctx *Context) loadwork() (err error) {
   if options.verbose || options.benchImport {
     defer func(t time.Time) {
       var d = time.Now().Sub(t)
-      fmt.Fprintf(stderr, "smart: Goals %v (%s)\n", ctx.goals, d)
+      diag.prompt("Goals %v (%s)\n", ctx.goals, d)
     } (time.Now())
   }
 
@@ -502,7 +502,7 @@ func (ctx *Context) loadwork() (err error) {
       if p := ctx.loader.project; p != nil { name = p.name }
       fmt.Fprintf(stderr, "└·%s … (%s)\n", name, d)
     } else if d > 5000*time.Millisecond {
-      fmt.Fprintf(stderr, "smart: Long load time: %s !\n", d)
+      diag.prompt("Warning: long load time: %s !\n", d)
     }
   } (time.Now())
   if options.verboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }

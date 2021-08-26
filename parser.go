@@ -1357,7 +1357,8 @@ func (p *parser) parseExpr(lhs bool) (x Value) {
 
 	var pos, tok = p.pos, p.tok
 	if x = p.parseComposedExpr(lhs); x == nil {
-		p.error(pos, "`%v` invalid expression", tok)
+		diag.errorAt(p.positionAt(pos), "`%v` invalid expression", tok).
+			debug(optionDebugErrors, 1)
 		return
 	}
 	{
@@ -1371,9 +1372,10 @@ func (p *parser) parseExpr(lhs bool) (x Value) {
 			}
 			return
 
-		case token.SELECT_PROG1, token.SELECT_PROG2:
+		case token.SELECT_PROP, token.SELECT_PROG1, token.SELECT_PROG2:
 			if p.bits&composingNoSelect == 0 {
 				x = p.parseSelect(x)
+				goto SwitchCompose // For example: foobar⇒run(-gen)
 			}
 			return
 
@@ -1401,8 +1403,7 @@ func (p *parser) parseExpr(lhs bool) (x Value) {
 
 		case token.COMPOSED, token.COMMA, token.COLON, token.SEMICOLON,
              token.RPAREN, token.RBRACK, token.RBRACE, token.RCOLON,
-             token.RAW, token.SELECT_PROP, /*token.SELECT_PROG,*/
-             token.SPACE, token.LINEND, token.EOF:
+			 token.RAW, token.SPACE, token.LINEND, token.EOF:
 			// Compose nothing at this point!
 			return
 		}

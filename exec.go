@@ -738,7 +738,8 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     }
 
     if container == nil {
-      diag.errorAt(pos, "container unavailable (in %s)", t.program.Project().Name())
+      diag.errorAt(pos, "container unavailable (in %s)", t.program.Project().Name()).
+        debug(optionDebugErrors, 1)
       return
     }
 
@@ -755,9 +756,9 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
           if v, err = def.DiscloseValue(); err == nil && v != nil {
             if str, err = v.Strval(); str == "-" {
               /*if v, err = def.DiscloseValue(container); err == nil && v != nil {
-                                                        if str, err = v.Strval(); str == "" { str = "-" }
-                                                        fmt.Fprintf(stderr, "%v: %v (%v)\n", name, str, def)
-                                                        }*/
+                if str, err = v.Strval(); str == "" { str = "-" }
+                fmt.Fprintf(stderr, "%v: %v (%v)\n", name, str, def)
+              }*/
             }
           }
         }
@@ -852,8 +853,9 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     positions []Position
     rp Position
   )
-  if recipes, err = mergeresult(ExpandAll(t.program.recipes...)); err != nil {
-    diag.errorAt(pos, "%v", err)
+  if recipes, err = mergeresult2(expandall2(expandPlainValue, t.program.recipes...)); err != nil {
+    diag.errorAt(pos, "merge recipes failed: %v", err).
+      debug(optionDebugErrors, 1)
     return
   }
   for _, recipe := range recipes {

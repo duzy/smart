@@ -13,12 +13,11 @@ import (
     "fmt"
 )
 
-type dependPatternUnfit struct {
-}
-
+type dependPatternUnfit struct {}
 func (*dependPatternUnfit) Error() string { return "pattern unfit" }
 
 type Program struct {
+    position Position
     project *Project
     scope   *Scope
     params  []*Def
@@ -26,7 +25,6 @@ type Program struct {
     ordered []Value // order-only
     recipes []Value
     defaultVal Value
-    position Position
     language string
     changedWD string
     configure bool
@@ -35,8 +33,6 @@ type Program struct {
 func (prog *Program) Position() Position { return prog.position }
 func (prog *Program) Project() *Project { return prog.project }
 func (prog *Program) Scope() *Scope { return prog.scope }
-
-func (prog *Program) setDefaultValue(val Value) { prog.defaultVal = val }
 
 func (prog *Program) auto(name string, value Value) (auto *Def, err error) {
     var alt Object
@@ -107,50 +103,49 @@ func (prog *Program) modify(t *traversal, m *modifier) (err error) {
     // TODO: using rules in a different project to implement modifiers, e.g.
     //       [ foo.check-preprequisites ]
     //       [ foo.baaaar ]
-    var name string
-    var v []Value
-    if v, err = mergeresult(ExpandAll(m.name)); err != nil {
+    var ( name string; args []Value )
+    if args, err = mergeresult2(expandall2(expandPlainValue, m.name)); err != nil {
         diag.errorOf(m.name, "expand modifier name '%v' failed: %v", m.name, err).
             debug(optionDebugErrors,1)
         return
-    } else if name, err = v[0].Strval(); err != nil {
-        diag.errorOf(v[0], "strval '%v' failed: %v", v[0], err).
+    } else if name, err = args[0].Strval(); err != nil {
+        diag.errorOf(args[0], "strval '%v' failed: %v", args[0], err).
             debug(optionDebugErrors,1)
         return
     } else {
-        v = append(v[1:], m.args...)
+        args = append(args[1:], m.args...)
     }
 
-    var isConfigure = name == "configure"
     if f, ok := modifiers[name]; ok {
-        var value Value
         // Special modifier processing (implicit interpretation) before (configure)
-        if isConfigure && len(t.interpreted) == 0 {
+        if name == "configure" && len(t.interpreted) == 0 {
             // Evaluate for configure modifier
             if i, ok := dialects["eval"]; ok && i != nil {
-                if err = prog.interpret(m.Position(), t, i, v); err != nil {
-                    diag.errorAt(m.Position(), "interpret failed: %v", err).
+                if err = prog.interpret(m.position, t, i, args); err != nil {
+                    diag.errorAt(m.position, "interpret failed: %v", err).
                         debug(optionDebugErrors,1)
                     return
                 }
             }
         }
-        if value, err = f(m.position, t, v...); err == nil && value != nil {
-            if value != t.def.buffer && value != t.def.buffer.value {
-                if err = t.def.buffer.val(value); err != nil {
-                    diag.errorAt(m.position, "setting modifier buffer value failed: %v", err).
-                        debug(optionDebugErrors, 1)
-                }
-            }
+        var value Value
+        if value, err = f(m.position, t, args...); err != nil {
+            diag.errorAt(m.position, "%s: %v", name, err).
+                debug(optionDebugErrors, 1)
+        } else if isNil(value) || (value == t.def.buffer && value != t.def.buffer.value) {
+            // does nothing
+        } else if err = t.def.buffer.val(value); err != nil {
+            diag.errorAt(m.position, "setting modifier buffer value failed: %v", err).
+                debug(optionDebugErrors, 1)
         }
     } else if i, _ := dialects[name]; i != nil {
-        if err = prog.interpret(m.Position(), t, i, v); err != nil {
-            diag.errorAt(m.Position(), "interpret '%s' failed: %v", name, err).
-                debug(optionDebugErrors,1)
+        if err = prog.interpret(m.position, t, i, args); err != nil {
+            diag.errorAt(m.position, "interpret '%s' failed: %v", name, err).
+                debug(optionDebugErrors, 1)
         }
     } else {
         diag.errorAt(m.position, "unknown modifier '%s'", name).
-            debug(optionDebugErrors,1)
+            debug(optionDebugErrors, 1)
     }
     return
 }
@@ -272,6 +267,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     }}
 
     var t = &traversal{
+        isConfigureExecution: isConfigureExecution,
         start: time.Now(),
         program: prog,
         project: prog.project,
@@ -282,7 +278,6 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         args: args,
         caller: caller,
         print: true,
-        isConfigureExecution: isConfigureExecution,
     }
     if caller != nil {
         defer func() {
@@ -299,7 +294,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                         debug(optionDebugErrors, 1)
                 default:
                     diag.errorAt(pos, "broken execution for %v (%v): %v", entry, t.def.target, b.what).
-                        debug(optionDebugErrors, 1)
+                        debug(optionDebugErrors, 16)
                 }
             }
         } ()
@@ -345,26 +340,26 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         }
         prog.project.changedWD = swd
 
-        if err != nil { return }
-
-        var target = t.def.target.value
-        if file, okay := target.(*File); okay && file.info != nil && !file.updated {
-            file.updated = true
+        if err != nil {
+            diag.errorAt(pos, "execution failed: %v", err).
+                debug(optionDebugErrors, 6)
+            return
         }
 
-        if !isNil(t.def.buffer.value) && !isNone(t.def.buffer.value) {
+        var defaultVal = prog.defaultVal
+        prog.defaultVal = nil
+
+        if !isNil(result) && !isNone(result) {
+            // good!
+        } else if !isNil(t.def.buffer.value) {
             result = t.def.buffer.Call(prog.position)
-        } else if !isNil(prog.defaultVal) {
-            result = prog.defaultVal
+        } else if !isNil(defaultVal) {
+            result = defaultVal
         }
-        if caller != nil && !isNil(result) {
-            caller.program.setDefaultValue(result)
-        }
-        prog.setDefaultValue(nil)
 
-        /*if !(isNil(target) || isNone(target)) && t.caller != nil {
-            t.caller.add(target)
-        }*/
+        if caller != nil && caller.program != nil && !isNil(result) {
+            caller.program.defaultVal = result
+        }
     } (setclosure(cloctx.unshift(prog.scope)), prog.project.changedWD)
 
     // Select the right target value before setting parameters,
@@ -375,7 +370,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         // Flag target (-foo) turns off printing automatically
         t.print = false
     case *File:
-        alreadyUpdated = a.info != nil && a.updated
+        //alreadyUpdated = a.info != nil && a.updated
         t.def.target.val(a)
     default:
         var name string
@@ -386,15 +381,16 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
             return
         }
         if file := prog.project.FindFile(name); file != nil {
-            alreadyUpdated = file.info != nil && file.updated
+            //alreadyUpdated = file.info != nil && file.updated
             target = file
         }
         t.def.target.val(target)
     }
     if alreadyUpdated {
         if optionTraceTraversal { t.tracef("Program.execute: '%v' already updated (%v)", t.def.target.value, t.targets) }
-        if options.verbose { fmt.Fprintf(stderr, "smart: '%v' already updated\n", t.def.target.value) }
-        return
+        if options.verbose { diag.infoAt(pos, "'%v' already updated", t.def.target.value) }
+        if false { diag.warnAt(pos, "'%v' already updated", t.def.target.value).debug(true, 1) }
+        if false { return }
     }
 
     if t.print && t.entry.class == UseRuleEntry { t.print = false }
@@ -414,23 +410,24 @@ func (t *traversal) exec(prog *Program) (result Value) {
     }
 
     t.visited[t.def.target.value] += 1
-    if t.visited[t.def.target.value] > 1 {
+    if false { if t.visited[t.def.target.value] > 1 {
         if optionTraceExec { t_exec.trace(fmt.Sprintf("visited: %v", t.def.target.value)) }
-        if false { return }
-    }
+        return
+    }}
 
     var pos = prog.position
 
     // Update normal prerequisites
-    if t.traverseNormalPrerequisites(pos);    t.hasBreakers() { return }
+    if t.normalPrerequisites(pos); t.hasBreakers() { return }
     if n := diag.checkErrors(true); n > 0 {
         diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).
             debug(optionDebugErrors, 1)
+        t.traceCallStack(pos, "call stack for %v:", t.def.target.value)
         return
     }
 
     // Update order-only prerequisites
-    if t.traverseOrderOnlyPrerequisites(pos); t.hasBreakers() { return }
+    if t.orderOnlyPrerequisites(pos); t.hasBreakers() { return }
     if n := diag.checkErrors(true); n > 0 {
         diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).
             debug(optionDebugErrors, 1)
@@ -439,7 +436,7 @@ func (t *traversal) exec(prog *Program) (result Value) {
 
     // Update grapped files
     /* modifierGrepFiles already did the traverse()
-    if t.traverseGreppedFiles(pos);           t.hasBreakers() { return }
+    if t.greppedFiles(pos);           t.hasBreakers() { return }
     if n := diag.checkErrors(true); n > 0 {
         diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).
             debug(optionDebugErrors, 1)
@@ -447,7 +444,8 @@ func (t *traversal) exec(prog *Program) (result Value) {
     }
     */
 
-    if len(t.interpreted) == 0 {
+    var value = t.def.buffer.value
+    if len(t.interpreted) == 0 && len(prog.recipes) > 0 && (isNil(value) || isNone(value)) {
         // Using the default statements interpreter.
         if i, ok := dialects["eval"]; ok && i != nil {
             if err := prog.interpret(pos, t, i, nil); err != nil {
@@ -488,9 +486,9 @@ func (t *traversal) prerequisites(pos Position, prerequisites []Value) {
     }
 }
 
-func (t *traversal) traverseNormalPrerequisites(pos Position) {
+func (t *traversal) normalPrerequisites(pos Position) {
     if optionTraceExec        { defer un(trace(t_exec, t.def.depends.name)) }
-    if optionEnableBenchmarks { defer bench(mark("traversal.traverseNormalPrerequisites")) }
+    if optionEnableBenchmarks { defer bench(mark("traversal.normalPrerequisites")) }
     defer func(t0, ta *Def) {
         if t.target0, t.targets = t0, ta; len(t.updated) > 0 {
             t.def.updated.value = t.updated[0].target // $?
@@ -504,9 +502,9 @@ func (t *traversal) traverseNormalPrerequisites(pos Position) {
     t.prerequisites(pos, t.program.depends)
 }
 
-func (t *traversal) traverseOrderOnlyPrerequisites(pos Position) {
+func (t *traversal) orderOnlyPrerequisites(pos Position) {
     if optionTraceExec        { defer un(trace(t_exec, t.def.ordered.name)) }
-    if optionEnableBenchmarks { defer bench(mark("traversal.traverseOrderOnlyPrerequisites")) }
+    if optionEnableBenchmarks { defer bench(mark("traversal.orderOnlyPrerequisites")) }
     defer func(t0, ta *Def) {
         t.target0, t.targets = t0, ta
     } (t.target0, t.targets)
@@ -515,9 +513,9 @@ func (t *traversal) traverseOrderOnlyPrerequisites(pos Position) {
     t.prerequisites(pos, t.program.ordered)
 }
 
-func (t *traversal) traverseGreppedFiles(pos Position) {
+func (t *traversal) greppedFiles(pos Position) {
     if optionTraceExec        { defer un(trace(t_exec, t.def.grepped.name)) }
-    if optionEnableBenchmarks { defer bench(mark("traversal.traverseGreppedFiles")) }
+    if optionEnableBenchmarks { defer bench(mark("traversal.greppedFiles")) }
     defer func(t0, ta *Def) {
         t.target0, t.targets = t0, ta
     } (t.target0, t.targets)
