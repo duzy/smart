@@ -300,7 +300,7 @@ func (ctx *Context) run() (result []Value, breakers []*breaker) {
     switch t := goal.(type) {
     case *None: // just ignore
     case *Bareword:
-      if entry, err := main.resolveEntry(t.string); err != nil {
+      if entry, err := main.resolveEntry(t.string, false); err != nil {
         fmt.Fprintf(stderr, "%s\n", err)
       } else if entry == nil {
         fmt.Fprintf(stderr, "no such entry `%s`\n", t)
@@ -310,7 +310,7 @@ func (ctx *Context) run() (result []Value, breakers []*breaker) {
     case *delegate:
       if s, err := t.Strval(); err != nil {
         fmt.Fprintf(stderr, "%s\n", err)
-      } else if entry, err := main.resolveEntry(s); err != nil {
+      } else if entry, err := main.resolveEntry(s, false); err != nil {
         fmt.Fprintf(stderr, "%s\n", err)
       } else if entry == nil {
         fmt.Fprintf(stderr, "no such entry `%s` (via `%v`)\n", s, t)

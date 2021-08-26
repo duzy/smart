@@ -592,7 +592,7 @@ func (p *Project) resolveObject(s string) (obj Object, err error) {
   return
 }
 
-func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
+func (p *Project) resolveEntry(s string, matchFullSuffix bool) (entry *RuleEntry, err error) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.resolveEntry")) }
   if optionEnableBenchspots { defer bench(spot("Project.resolveEntry")) }
   for _, rec := range p.concrete {
@@ -608,8 +608,10 @@ func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
         return rec, nil
       } else if filepath.IsAbs(s) {
         // not matching
+      } else if !matchFullSuffix {
+        // not matching
       } else if strings.HasSuffix(target.fullname(), PathSep+filepath.Clean(s)) {
-        if true { diag.warnAt(rec.Position(), "TODO: %v: %s <-> %v %v", p, s, target, target.fullname()).
+        if false { diag.warnAt(rec.Position(), "TODO: %v: %s <-> %v %v", p, s, target, target.fullname()).
           debug(optionDebugErrors, 8) }
         return rec, nil
       }
@@ -624,12 +626,12 @@ func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
     }
   }
   for _, base := range p.bases {
-    if entry, err = base.resolveEntry(s); entry != nil || err != nil { break }
+    if entry, err = base.resolveEntry(s, matchFullSuffix); entry != nil || err != nil { break }
   }
   if err == nil && entry == nil {
     if true { /* FAST */ } else { /* SLOW */
       for _, using := range p.using.list {
-        entry, err = using.project.resolveEntry(s)
+        entry, err = using.project.resolveEntry(s, matchFullSuffix)
         if err != nil || entry != nil { break }
       }
     }

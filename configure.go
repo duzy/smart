@@ -345,7 +345,7 @@ func configureExec(pos Position, t *traversal, opts *modifierConfigureOpts, s st
     }
 
     var entry *RuleEntry
-    if entry, err = projectConfigure.resolveEntry("-"+s); err != nil {
+    if entry, err = projectConfigure.resolveEntry("-"+s, false); err != nil {
         diag.errorAt(pos, "resolve '%v' failed: %v", s, err).
             debug(optionDebugErrors, 1)
         return

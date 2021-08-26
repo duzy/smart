@@ -1656,9 +1656,19 @@ func filterValues1(pos Position, neg bool, args... Value) (res Value) {
         var err error
         if len(args) > 1 {
                 var ( pats []Value; vals []Value )
-                if pats, err = mergeresult(ExpandAll(args[0]))    ; err != nil { diag.errorAt(pos, "%v", err); return }
-                if vals, err = mergeresult(ExpandAll(args[1:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
-                if vals, err = filterValues(pats, neg, vals...); err == nil { res = MakeListOrScalar(pos, vals) }
+                if pats, err = mergeresult2(expandall2(expandPlainValue, args[0])); err != nil {
+                        diag.errorAt(pos, "merge patterns '%v' failed: %v", args[0], err).
+                                debug(optionDebugErrors, 1)
+                        return
+                }
+                if vals, err = mergeresult2(expandall2(expandPlainValue, args[1:]...)); err != nil {
+                        diag.errorAt(pos, "merge values failed: %v", err).
+                                debug(optionDebugErrors, 1)
+                        return
+                }
+                if vals, err = filterValues(pats, neg, vals...); err == nil {
+                        res = MakeListOrScalar(pos, vals)
+                }
         }
         if res == nil && err == nil { res = MakeNone(pos) }
         return
@@ -1666,8 +1676,9 @@ func filterValues1(pos Position, neg bool, args... Value) (res Value) {
 
 func builtinSubstring(pos Position, args... Value) (res Value) {
         var err error
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                diag.errorAt(pos, "%v", err)
+        if args, err = mergeresult2(expandall2(expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err).
+                        debug(optionDebugErrors, 1)
                 return
         }
 
@@ -1675,7 +1686,8 @@ func builtinSubstring(pos Position, args... Value) (res Value) {
         if n := len(args); n > 1 {
                 var ( i1, i2 int )
                 if i1, err = intVal(args[0], -1); err != nil {
-                        diag.errorAt(pos, "%v", err)
+                        diag.errorAt(pos, "%v", err).
+                                debug(optionDebugErrors, 1)
                         return
                 } else {
                         args = args[1:]
@@ -1684,13 +1696,15 @@ func builtinSubstring(pos Position, args... Value) (res Value) {
                         if _, ok := err.(*strconv.NumError); ok {
                                 err = nil // ignore
                         } else {
-                                diag.errorOf(args[0], "%v", err)
+                                diag.errorOf(args[0], "%v", err).
+                                        debug(optionDebugErrors, 1)
                                 return
                         }
                 } else { args = args[1:] }
 
                 if i1 < -1 && i2 < -1 {
-                        diag.errorAt(pos, "wrong indices (%d, %d)", i1, i2)
+                        diag.errorAt(pos, "wrong indices (%d, %d)", i1, i2).
+                                debug(optionDebugErrors, 1)
                         return
                 } else if i1 > i2 { t := i1; i1 = i2; i2 = t } // swap the wrong order
                 
@@ -1700,7 +1714,11 @@ func builtinSubstring(pos Position, args... Value) (res Value) {
 
                 for _, arg := range args {
                         var s string
-                        if s, err = arg.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if s, err = arg.Strval(); err != nil {
+                                diag.errorAt(pos, "strval '%v' failed: %v", arg, err).
+                                        debug(optionDebugErrors, 1)
+                                return
+                        }
                         if i := len(s); i <= a { s = "" } else
                         if b == -1 || i <= b { s = s[a:b] } else { s = s[a:] }
                         list = append(list, MakeString(pos, s))

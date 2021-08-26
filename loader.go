@@ -1430,7 +1430,7 @@ func (l *loader) find(target Value) (obj Object, err error) {
     if name, err = target.Strval(); err != nil { return }
 
     var entry *RuleEntry
-    if entry, err = l.project.resolveEntry(name); err != nil {
+    if entry, err = l.project.resolveEntry(name, false); err != nil {
         return
     } else if entry != nil {
         obj = entry

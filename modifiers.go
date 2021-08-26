@@ -923,7 +923,17 @@ func (t *traversal) searchGreppedName(pos, gp Position, gc *grepctx, sys bool, n
                         assert(ok2, "unchanged: %s %s", dir, alt.name)
                 }
         } else if file == nil {
-                file = stat(pos, name, "", "", nil)
+                for _, inc := range gc.incs {
+                        if s, e := inc.Strval(); e != nil {
+                                diag.errorOf(inc, "strval '%v' failed: %v", inc, e).
+                                        debug(optionDebugErrors, 1)
+                        } else if file = stat(pos, name, "", s); file != nil {
+                                if false { diag.infoAt(pos, "%v in %v", file, inc).
+                                        debug(optionDebugErrors, 1) }
+                                return
+                        }
+                }
+                if file == nil { file = stat(pos, name, "", "", nil) }
                 diag.warnAt(gp, "'%s' not found in %v", name, t.project)
                 diag.warnAt(pos, "grepped '%s' has no target dir in %v", name, t.project)
                 diag.warnAt(t.project.position, "from project %v (for %v)", t.project, name).
@@ -1349,6 +1359,9 @@ func modifierGrep(pos Position, t *traversal, args... Value) (result Value, err 
                         diag.prompt("Grep %v …… (%d files in %v)\n", s, len(grepped), time.Now().Sub(ts))
                 } (time.Now())
         }
+
+        defer func(v bool) { t.grepping = v } (t.grepping)
+        t.grepping = true
 ForTarget:
         for _, target := range targets {
                 if isNil(target) {
@@ -1382,7 +1395,6 @@ ForTarget:
                                                 diag.errorAt(brk.pos, "broken traversal for grepped %v: %v (%v)", val, brk.message, brk.what)
                                         }
                                 }
-                                diag.errorAt(pos, "%v", gc.incs)
                                 diag.errorAt(pos, "broken traversal for grepped %v from %v", val, target)
                                 diag.errorAt(t.project.position, "from project %v (for %v)", t.project, val).
                                         debug(optionDebugErrors, 1)

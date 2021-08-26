@@ -307,20 +307,30 @@ func (d *Def) defs(s string) (res []*Def) {
         return d.value.defs(s)
 }
 func (d *Def) expandible(w expandwhat) (res bool) {
+        //if w&expandDef != 0 { return true }
         if !isNil(d.value) { res = d.value.expandible(w) }
         return
 }
 func (d *Def) expand(w expandwhat) (res Value, err error) {
-        var value Value
+        var value, value2 Value
         if isNil(d.value) || isNone(d.value) {
                 // does nothing
         } else if value, err = d.value.expand(w); err != nil {
                 diag.errorOf(d.value, "expand '%v' failed: %v", d.value, err).
                         debug(optionDebugErrors, 1)
-        } else if w&expandDef != 0 {
-                if isNil(value) { res = d.value } else { res = value }
-        } else if !isNil(value) && value != d.value {
+        } else if !isNil(value) && value != d.value && w&expandDef == 0 {
                 res = &Def{ d.knownobject, d.origin, value }
+        } else if w&expandDef == 0 {
+                // does nothing
+        } else if isNil(value) {
+                res = d.value
+        } else if value2, err = value.expand(w); err != nil {
+                diag.errorOf(d.value, "expand '%v' failed: %v", value, err).
+                        debug(optionDebugErrors, 1)
+        } else if !isNil(value2) && value2 != value {
+                res = value2
+        } else {
+                res = value
         }
         return
 }

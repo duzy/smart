@@ -598,7 +598,7 @@ type executor struct {
 }
 
 func (p *executor) runContainer(t *traversal, container *Project) {
-  if run, _ := container.resolveEntry("run"); run != nil && len(run.programs) > 0 {
+  if run, _ := container.resolveEntry("run", false); run != nil && len(run.programs) > 0 {
     defer setclosure(setclosure(cloctx.unshift(container.scope)))
     if run.programs[0].execute(t, run, nil); t.hasBreakers() {
       diag.errorAt(t.program.position, "%v", t.breakers)

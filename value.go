@@ -270,6 +270,7 @@ type traversal struct {
     target0 *Def
     targets *Def
     grepped []Value
+    grepping bool
 
     updated []*updatedtarget // prerequisites newer than the target (from comparer) ($?)
     stems   []string // set by StemmedEntry
@@ -291,8 +292,8 @@ func (t *traversal) tracef(s string, a ...interface{}) { printIndentDots(t.trace
 func (t *traversal) traceCallStack(pos Position, s string, a ...interface{}) (point *diagnostic) {
     point = diag.errorAt(pos, s, a...)
     point = diag.errorAt(t.program.position, "from here for %v", t.entry)
-    for c, last := t, t.program.position; c != nil; c = c.caller {
-        if pos := c.entry.Position(); !pos.SameLine(&last) {
+    for c, last := t, t.program.position; c != nil && c.program != nil; c = c.caller {
+        if pos := c.program.position; !pos.SameLine(&last) {
             point = diag.errorAt(pos, "and here for %v", c.entry) //.debug(optionDebugErrors && c == nil)
             last = pos
         }
@@ -429,7 +430,7 @@ func (t *traversal) filestub(p *Project, file *File, stub *filestub) (okay bool)
 
     /// Searching entries from the most derived project.
     var ( entry *RuleEntry; err error )
-    if entry, err = p.resolveEntry(stub.name); err != nil {
+    if entry, err = p.resolveEntry(stub.name, t.grepping); err != nil {
         diag.errorOf(stub.filemap.pattern, "resolve entry failed: %v", err)
         return
     } else if entry != nil {
@@ -512,7 +513,7 @@ func (t *traversal) file(file *File) (okay bool) {
 
     for _, project := range projects {
         var entry *RuleEntry
-        if entry, err = project.resolveEntry(file.name); err != nil {
+        if entry, err = project.resolveEntry(file.name, t.grepping); err != nil {
             diag.errorAt(file.position, "resolve entry '%v' failed: %v", file.name, err).
                 debug(optionDebugErrors, 1)
             t.traceCallStack(file.position, "%v:", file.name)
@@ -661,7 +662,7 @@ func (t *traversal) string(pos Position, targetVal Value, target string) (okay b
 
     for _, project := range projects {
         var entry *RuleEntry
-        if entry, err = project.resolveEntry(target); err != nil {
+        if entry, err = project.resolveEntry(target, t.grepping); err != nil {
             diag.errorAt(pos, "resolve entry '%v' failed: %v", target, err).
                 debug(optionDebugErrors, 1)
             t.traceCallStack(pos, "resolve entry '%v' failed: %v", target, err)
@@ -3467,6 +3468,31 @@ func (p *Flag) Strval() (s string, e error) {
 func (p *Flag) refs(v Value) bool { return p.name.refs(v) }
 func (p *Flag) defs(s string) []*Def { return p.name.defs(s) }
 func (p *Flag) elemstr(o Object, k elemkind) (s string) { return "-" + elementString(o, p.name, k) }
+func (p *Flag) match(i interface{}) (full bool, s string, stems []string) {
+    switch t := i.(type) {
+    case *None, *Nil, *unresolvedobject:
+    case *Flag:
+        full, s, stems = p.name.match(t.name)
+        s = "-" + s
+    case Value:
+        if v, e := t.Strval(); e != nil {
+            diag.errorOf(t, "strval '%v' failed: %v", t, e).
+                debug(optionDebugErrors, 1)
+        } else if strings.HasPrefix(v, "-") {
+            full, s, stems = p.name.match(v[1:])
+            s = "-" + s
+        }
+    case string:
+        if strings.HasPrefix(t, "-") {
+            full, s, stems = p.name.match(t[1:])
+            s = "-" + s
+        }
+    default:
+        diag.warnAt(p.position, "-%v <-> %T %v", p.name, i, i).
+            debug(true, 16)
+    }
+    return
+}
 func (p *Flag) expandible(w expandwhat) bool { return p.name.expandible(w) }
 func (p *Flag) expand(w expandwhat) (res Value, err error) {
     var name Value
@@ -4126,24 +4152,25 @@ func (p *delegate) expand(w expandwhat) (res Value, err error) {
         } else if isNil(x) { x = p.x }
 
         var ( args []Value; num int )
-        if args, num, err = p.args(w); err != nil { return }
+        if args, num, err = p.args(w); err != nil {
+            diag.errorAt(p.position, "expand args failed: %v", err).
+                debug(optionDebugErrors, 1)
+            return
+        }
 
         if (!isNil(x) && x != p.x) || num > 0 {
             if num == 0 { args = p.a }
             res = &delegate{p.valbase, p.l, x, args}
-            if false { diag.warnOf(p, "%v %T %v %T %v %v", p.x, p.x, x, x, p.a, args).debug(true,1) }
         }
     } else if res, err = p.reveal(w); err != nil {
         diag.errorOf(p, "reveal '%v' failed: %v", p, err).
             debug(optionDebugErrors, 1)
     } else if isNil(res) {
-        if false { diag.warnOf(p, "%v (%T %v) -> %T %v (w=%016b)", p, p.x, p.x, res, res, w).debug(true,16) }
         res = MakeNone(p.position)
     } else if v, err = res.expand(w); err != nil {
         diag.errorOf(p, "expand '%v' failed: %v", res, err).
             debug(optionDebugErrors, 1)
     } else if !isNil(v) && v != res {
-        if false { diag.warnOf(p, "%v -> %T %v -> %T %v (w=%016b)", p, res, res, v, v, w).debug(true,16) }
         res = v
     }
     return
@@ -4385,7 +4412,7 @@ ClosureTok:
             var entry *RuleEntry
             if scope.project == nil {
                 // continue
-            } else if entry, err = scope.project.resolveEntry(name); err != nil {
+            } else if entry, err = scope.project.resolveEntry(name, false); err != nil {
                 diag.errorAt(p.position, "resolve entry '%s' in '%s' failed: %v", name, scope.project, err).
                     debug(optionDebugErrors, 1)
                 return
@@ -4581,7 +4608,7 @@ func (p *selection) value() (v Value, err error) {
         if s, err = p.s.Strval(); err == nil {
             if pn, ok := o.(*ProjectName); ok && (p.t == token.SELECT_PROG1 || p.t == token.SELECT_PROG2) {
                 var entry *RuleEntry
-                if entry, err = pn.project.resolveEntry(s); err != nil {
+                if entry, err = pn.project.resolveEntry(s, false); err != nil {
                     return
                 } else if entry == nil {
                     diag.errorAt(p.position, "selection.value: no entry `%s` (%+v)", s, p.String())
