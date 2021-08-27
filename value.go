@@ -3362,14 +3362,12 @@ func (p *File) traverse(t *traversal) {
 
     if t.file(p); t.hasBreakers() {
         diag.errorAt(p.position, "broken traversal for file '%v' (at %s)", p, p.fullname()).
-            debug(optionDebugErrors,1)
-        return
+            debug(optionDebugErrors, 1)
     } else if p.info == nil {
         t._break(p.position, breakErro).error = fileNotFoundError{ t.project, p }
         diag.errorAt(p.position, "break: missing file %v (at %s)", p, p.fullname())
         diag.errorAt(t.project.position, "from project %v (for %v)", t.project, p).
-            debug(optionDebugErrors,1)
-        return
+            debug(optionDebugErrors, 1)
     }
 }
 

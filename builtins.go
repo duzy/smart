@@ -513,7 +513,9 @@ ForArgs:
                         flag *Flag
                         value Value
                 )
-                if flag, okay = arg.(*Flag); okay {
+                if arg.patterned() {
+                        // don't parse patterns, e.g. -I%
+                } else if flag, okay = arg.(*Flag); okay {
                         value = MakeBoolean(flag.position, true)
                 } else if pair, ok := arg.(*Pair); ok {
                         if flag, okay = pair.Key.(*Flag); okay { value = pair.Value }
@@ -1626,28 +1628,36 @@ func builtinString(pos Position, args... Value) (result Value) {
         return
 }
 
-func filterValues(pats []Value, neg bool, values... Value) (result []Value, err error) {
+type builtinFilterOpts struct {
+        stem bool `s,stem;us,use-stem`
+}
+func filterValues(pats []Value, opts builtinFilterOpts, neg bool, values... Value) (result []Value, err error) {
         const info = false
-        var f = func(v Value) bool {
+        var filter = func(v Value) Value {
                 for _, pat := range pats {
                         if info { if full, s, stems := pat.match(v); full || s != "" {
                                 diag.warnOf(pat, "pat=%v (%T) value=%v (%T) => full=%v result=%v stems=%v",
-                                        pat, pat, v, v, full, s, stems).
-                                        debug(true, 1)
+                                        pat, pat, v, v, full, s, stems).debug(true, 1)
                         }}
-                        if ok, _, _ := pat.match(v); ok { return true }
+                        if full, s, stems := pat.match(v); full {
+                                if neg { v = nil } else if opts.stem {
+                                        if len(stems) > 0 { s = stems[0] }
+                                        v = MakeString(v.Position(), s)
+                                }
+                                return v
+                        }
                 }
-                return false
+                if neg { return v } else { return nil }
         }
         if values, err = mergeresult(Reveal(values...)); err != nil {
-                diag.errorOf(values[0], "%v", err)
+                diag.errorOf(values[0], "%v", err).
+                        debug(optionDebugErrors, 1)
                 return
         }
         for _, v := range values {
-                var okay = f(v)
-                if err != nil { break }
-                if neg { okay = !okay }
-                if okay { result = append(result, v) }
+                if t := filter(v); err != nil { break } else if t != nil {
+                        result = append(result, t)
+                }
         }
         return
 }
@@ -1655,9 +1665,17 @@ func filterValues(pats []Value, neg bool, values... Value) (result []Value, err 
 func filterValues1(pos Position, neg bool, args... Value) (res Value) {
         var err error
         if len(args) > 1 {
-                var ( pats []Value; vals []Value )
+                var (
+                        opts builtinFilterOpts
+                        pats []Value
+                        vals []Value
+                )
                 if pats, err = mergeresult2(expandall2(expandPlainValue, args[0])); err != nil {
                         diag.errorAt(pos, "merge patterns '%v' failed: %v", args[0], err).
+                                debug(optionDebugErrors, 1)
+                        return
+                } else if pats, err = parseOpts(pos, &opts, pats...); err != nil {
+                        diag.errorAt(pos, "parse opts failed: %v", err).
                                 debug(optionDebugErrors, 1)
                         return
                 }
@@ -1666,11 +1684,23 @@ func filterValues1(pos Position, neg bool, args... Value) (res Value) {
                                 debug(optionDebugErrors, 1)
                         return
                 }
-                if vals, err = filterValues(pats, neg, vals...); err == nil {
+                if vals, err = filterValues(pats, opts, neg, vals...); err == nil {
                         res = MakeListOrScalar(pos, vals)
                 }
         }
         if res == nil && err == nil { res = MakeNone(pos) }
+        return
+}
+
+func builtinFilter(pos Position, args... Value) (res Value) {
+        // $(filter pattern…,text)
+        res = filterValues1(pos, false, args...)
+        return
+}
+
+func builtinFilterOut(pos Position, args... Value) (res Value) {
+        // $(filter-out pattern…,text)
+        res = filterValues1(pos, true, args...)
         return
 }
 
@@ -2300,18 +2330,6 @@ func builtinContains(pos Position, args... Value) (res Value) {
                 diag.infoAt(pos, "%v contains %v: %v (%v, %v)\n", list, vals, (n==x), n, x)
         }
         res = &boolean{valbase{pos},(n == x)}
-        return
-}
-
-func builtinFilter(pos Position, args... Value) (res Value) {
-        // $(filter pattern…,text)
-        res = filterValues1(pos, false, args...)
-        return
-}
-
-func builtinFilterOut(pos Position, args... Value) (res Value) {
-        // $(filter-out pattern…,text)
-        res = filterValues1(pos, true, args...)
         return
 }
 

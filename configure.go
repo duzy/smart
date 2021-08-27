@@ -949,21 +949,22 @@ type modifierExtractConfigurationOpts struct {
 //      config.h.in:[(extract-configuration)]: $(wildcard *.cpp)
 //
 func modifierExtractConfiguration(pos Position, pc *traversal, args ...Value) (result Value, err error) {
+    var opts = modifierExtractConfigurationOpts{ mode:os.FileMode(0640) } // sys default 0666
     if args, err = mergeresult(ExpandAll(args...)); err != nil {
-        diag.errorAt(pos, "merge args failed: %v", err)
+        diag.errorAt(pos, "merge args failed: %v", err).
+            debug(optionDebugErrors, 1)
+        return
+    } else if args, err = parseOpts(pos, &opts, args...); err != nil {
+        diag.errorAt(pos, "parse opts failed: %v", err).
+            debug(optionDebugErrors, 1)
         return
     }
-
-    var opts = modifierExtractConfigurationOpts{ mode:os.FileMode(0640) } // sys default 0666
-    if args, err = parseOpts(pos, &opts, args...); err != nil { return }
 
     var pats []Value
     for _, arg := range args {
         switch a := arg.(type) {
-        default:
-            pats = append(pats, a)
-        case *Group:
-            pats = append(pats, a.Elems...)
+        case *Group: pats = append(pats, a.Elems...)
+        default:     pats = append(pats, a)
         }
     }
     if len(pats) == 0 {
@@ -997,12 +998,13 @@ func modifierExtractConfiguration(pos Position, pc *traversal, args ...Value) (r
     var depends []Value
     if depends, err = mergeresult(ExpandAll(pc.def.depends.value)); err != nil { return }
 
+    var filterOpts builtinFilterOpts
     var sources []Value
     for _, depend := range depends {
         var a []Value
         switch d := depend.(type) {
         case *File:
-            if a, err = filterValues(pats, false, d); err == nil {
+            if a, err = filterValues(pats, filterOpts, false, d); err == nil {
                 sources = append(sources, a...)
             }
         case *Path:
@@ -1033,7 +1035,7 @@ func modifierExtractConfiguration(pos Position, pc *traversal, args ...Value) (r
                     if err == nil { sources = append(sources, file) }
                     return err
                 })
-            } else if a, err = filterValues(pats, false, d); err == nil {
+            } else if a, err = filterValues(pats, filterOpts, false, d); err == nil {
                 sources = append(sources, a...)
             }
         }
