@@ -606,8 +606,8 @@ func (p *Project) resolveEntry(s string, matchFullSuffix bool) (entry *RuleEntry
       }
       if target.name == s {
         return rec, nil
-      } else if filepath.IsAbs(s) {
-        // not matching
+      } else if filepath.IsAbs(s) && s == target.fullname() {
+        return rec, nil // fullname matched
       } else if !matchFullSuffix {
         // not matching
       } else if strings.HasSuffix(target.fullname(), PathSep+filepath.Clean(s)) {
