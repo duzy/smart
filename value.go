@@ -55,7 +55,7 @@ const (
     expandArgs      // $(foo $(x),$(y))  -> $(foo ...,...)
     expandArgedArgs // foo($(args))      -> foo(...)
     expandDef       // foo=...           -> ...
-    expandFullname  // foobar.c          -> /path/to/foobar.c
+    expandFullname  // foobar.c          -> /path/to/foobar.c    TODO
     expandPathStr   // "/path/to"/foo    -> /path/to/foo
     expandPairVal   // foo=$(bar)        -> foo=...
     expandPlainValue = expandClosure | expandDelegate | expandSelection | expandDef | expandPathStr | expandArgedArgs
@@ -431,7 +431,8 @@ func (t *traversal) filestub(p *Project, file *File, stub *filestub) (okay bool)
     /// Searching entries from the most derived project.
     var ( entry *RuleEntry; err error )
     if entry, err = p.resolveEntry(stub.name, t.grepping); err != nil {
-        diag.errorOf(stub.filemap.pattern, "resolve entry failed: %v", err)
+        diag.errorOf(stub.filemap.pattern, "resolve entry failed: %v", err).
+            debug(optionDebugErrors, 1)
         return
     } else if entry != nil {
         entry.traverse(t)
@@ -478,11 +479,6 @@ func (t *traversal) file(file *File) (okay bool) {
     if optionTraceTraversal   { t.tracef("traversal.file: %s", file) }
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.file(%v)", file))) }
     if optionEnableBenchspots { defer bench(spot("traversal.file")) }
-
-    if strings.Contains(file.name, "ABIBreak.s") {
-        diag.infoAt(file.position, "%v", file).
-            debug(true, 1)
-    }
 
     var (
         projects = t.closuredProjects()
@@ -676,7 +672,7 @@ func (t *traversal) string(pos Position, targetVal Value, target string) (okay b
     }
 ForConcreteList:
     for _, entry := range concreteList {
-        if project, _ := concreteEntries[entry]; entry != nil && currentTargetValue != entry {
+        if project := entry.OwnerProject(); entry != nil && currentTargetValue != entry {
             if w, ok := currentTargetValue.(*Bareword); ok && w.string == target {
                 // target resolve to itself, does nothing
             } else if entry.traverse(t); t.hasBreakers() {
@@ -733,14 +729,8 @@ ForConcreteList:
             }
         }
     }
-    for x, entry := range stemmedList {
-        entry.string(t, targetVal, target)
-        if strings.Contains(target, "ABIBreak") {
-            for _, b := range t.breakers { diag.infoAt(pos, "%v %v", targetVal, b.what) }
-            diag.infoAt(pos, "%v %v %v %v %v %v", targetVal, entry, x, len(stemmedList), len(t.breakers), entry.programs[0].depends).
-                debug(true, 1)
-        }
-        if ; !t.hasBreakers() {
+    for _, entry := range stemmedList {
+        if entry.string(t, targetVal, target); !t.hasBreakers() {
             okay = true; break // continue
         } else if brks := t.breakersOf(breakFail, breakErro); len(brks) > 0 {
             t.breakers = t.breakersNot(breakFail, breakErro);
@@ -3141,7 +3131,7 @@ func stat(pos Position, name, sub, dir string, infos ...os.FileInfo) (file *File
         if enable_assertions {
             for stub = head; stub != nil ; stub = stub.other {
                 s := filepath.Join(stub.dir, stub.sub, stub.name)
-                assert(fullname == s, "(%s %s %s) fullname conflicted: %s (%s %s %s)",
+                assert(fullname == s, "(%s, %s, %s) fullname conflicted: %s (%s, %s, %s)",
                     stub.dir, stub.sub, stub.name, fullname, dir, sub, name)
                 if stub.other == head { break }
             }
@@ -3366,8 +3356,8 @@ func (p *File) traverse(t *traversal) {
     } else if p.info == nil {
         t._break(p.position, breakErro).error = fileNotFoundError{ t.project, p }
         diag.errorAt(p.position, "break: missing file %v (at %s)", p, p.fullname())
-        diag.errorAt(t.project.position, "from project %v (for %v)", t.project, p).
-            debug(optionDebugErrors, 1)
+        diag.errorAt(t.project.position, "for project %v (for '%v')", t.project, p).
+            debug(optionDebugErrors, 6)
     }
 }
 

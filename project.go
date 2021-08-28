@@ -496,7 +496,7 @@ ForPats:
   return
 }
 
-func (p *Project) FindFile(name string) (file *File) {
+func (p *Project) matchFile(name string) (file *File) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.FindFile")) }
   if optionEnableBenchspots { defer bench(spot("Project.FindFile")) }
 
@@ -540,18 +540,35 @@ ForFilemaps:
 }
 
 func (p *Project) matchTempFile(pos Position, name string) (file *File) {
-  if file = p.FindFile(name); file != nil {
+  if file = p.matchFile(name); file != nil {
     // good
   } else if ctd := p.scope.FindDef("CTD"); ctd == nil {
-    unreachable()
-  } else if s, err := ctd.Strval(); err == nil {
-    // stat temp file (maybe not existed)
-    file = stat(pos, filepath.Join(s, name), "", "", nil)
-  } else {
-    diag.errorAt(pos, "%v: stringify temp directory failed: %v", p, err)
+    diag.errorAt(pos, "%v: CTD is not defined for temp file: %v", p, name).
+      debug(optionDebugErrors, 1)
+  } else if s, err := ctd.Strval(); err != nil {
+    diag.errorAt(pos, "%v: stringify temp directory failed: %v", p, err).
+      debug(optionDebugErrors, 1)
+  } else if file = stat(pos, filepath.Join(s, name), "", "", nil); file == nil {
+    diag.errorAt(pos, "%v: nil stat %v %v", p, s, name).
+      debug(optionDebugErrors, 1)
+  } else if false {
+    if !pos.IsValid() { pos = p.position }
+    diag.warnAt(pos, "using default temp file: %v/%v", s, name)
+    diag.warnAt(p.position, "suggesting define files rule for '%s' in %v", name, p).
+      debug(optionDebugErrors, 12)
   }
-  return
+  return // NOTE: temp file may not exists
 }
+
+func (p *Project) configurationFile() (file *File) {
+    if file = p.matchTempFile(p.position, "configuration.sm"); file == nil {
+        diag.errorAt(p.position, "%v: no file configuration.sm", p).
+            debug(optionDebugErrors, 1)
+    }
+    return
+}
+
+func (p *Project) FindFile(name string) (file *File) { return p.matchFile(name) }
 
 func (p *Project) isFileName(s string) (res bool) {
   if len(s) > 0 {

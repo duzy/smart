@@ -166,24 +166,18 @@ func do_configuration() {
 
 func openConfigurationFile(p *Project) (file *os.File, err error) {
     defer setclosure(setclosure(cloctx.unshift(p.scope)))
-    if s, e := configurationFileName(p); e != nil {
-        err = e
-    } else if e = os.MkdirAll(filepath.Dir(s), os.FileMode(0755)); e != nil {
-        err = e
-    } else if f, e := os.OpenFile(s, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600)); e == nil {
-        file = f
-    } else {
-        err = e
-    }
-    return
-}
-
-func configurationFileName(p *Project) (s string, err error) {
-    var pos Position // TODO: find the position
-    if f := p.matchTempFile(pos, "configuration.sm"); f != nil {
-        s = f.fullname()
-    } else {
-        diag.prompt("%v: no file for configuration.sm\n", p)
+    if f := p.configurationFile(); f == nil {
+        diag.errorAt(p.position, "nil configuration file for %v", p).
+            debug(optionDebugErrors, 1)
+    } else if s := f.fullname(); s == "" {
+        diag.errorAt(p.position, "empty configuration file name: %v", f).
+            debug(optionDebugErrors, 1)
+    } else if err = os.MkdirAll(filepath.Dir(s), os.FileMode(0755)); err != nil {
+        diag.errorAt(p.position, "make path %s failed: %v", filepath.Dir(s), err).
+            debug(optionDebugErrors, 1)
+    } else if file, err = os.OpenFile(s, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600)); err != nil {
+        diag.errorAt(p.position, "open configuration %s failed: %v", s, err).
+            debug(optionDebugErrors, 1)
     }
     return
 }

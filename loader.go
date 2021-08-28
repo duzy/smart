@@ -1291,19 +1291,20 @@ func (l *loader) loadProjectConfiguration(ident *Barecomp, identStr string, decl
 
     var pos = ident.Position()
     // Get configuration file name for the project and include it in flat mode.
-    if s, err := configurationFileName(l.project); err != nil {
-        diag.errorAt(pos, "%v: failed getting configuration file name: %v", ident, err)
+    if file := l.project.configurationFile(); file == nil {
+        diag.errorAt(pos, "%v: nil configuration file", ident).
+            debug(optionDebugErrors, 1)
         return
     } else if declared || options.configure {
-        var exists bool
+        var ( s string = file.fullname(); exists bool )
         for _, v := range configuration.clean { if s == v { exists = true; break }}
         if !exists { configuration.clean = append(configuration.clean, s) }
-    } else if file := stat(pos, filepath.Base(s), "", filepath.Dir(s)); file != nil {
-        if options.verboseImport || options.verboseLoads {
-            full, _ := file.Strval()
-            fmt.Fprintf(stderr, "Configuration for %s (%s) ⇒ %s\n", l.project, l.project.spec, full)
+    } else if file.exists() {
+        if options.verboseImport || options.verboseLoads || true {
+            var cp Position; cp.Filename, cp.Line = file.fullname(), 1
+            diag.infoAt(cp, "%s (%s)", l.project, l.project.spec)
         } else if options.verbose || true {
-            fmt.Fprintf(stderr, "Configuration for %s (%s)\n", l.project, l.project.spec)
+            diag.prompt("Configuration for %s (%s)\n", l.project, l.project.spec)
         }
         l.isIncludingConf = true
         l.includeFile(pos, file)
