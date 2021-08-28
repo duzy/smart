@@ -317,7 +317,7 @@ func (d *Def) expand(w expandwhat) (res Value, err error) {
                 // does nothing
         } else if value, err = d.value.expand(w); err != nil {
                 diag.errorOf(d.value, "expand '%v' failed: %v", d.value, err).
-                        debug(optionDebugErrors, 1)
+                        debug(options.debugErrors, 1)
         } else if !isNil(value) && value != d.value && w&expandDef == 0 {
                 res = &Def{ d.knownobject, d.origin, value }
         } else if w&expandDef == 0 {
@@ -326,7 +326,7 @@ func (d *Def) expand(w expandwhat) (res Value, err error) {
                 res = d.value
         } else if value2, err = value.expand(w); err != nil {
                 diag.errorOf(d.value, "expand '%v' failed: %v", value, err).
-                        debug(optionDebugErrors, 1)
+                        debug(options.debugErrors, 1)
         } else if !isNil(value2) && value2 != value {
                 res = value2
         } else {
@@ -361,7 +361,7 @@ func (d *Def) set(origin Origin, value Value) (err error) {
                 diag.errorAt(pos, "value refers to assigning Def '%s': %v (%T)", d.name, value, value)
 
                 if options.verbose { diag.prompt("set %s (%v): %v\n", origin, d.name, value) }
-                if options.debug { diag.infoAt(pos, "from here").debug(optionDebugErrors,1) }
+                if options.debug { diag.infoAt(pos, "from here").debug(options.debugErrors,1) }
                 return
         } else if origin != DefExecute && isNil(value) {
                 value = MakeNone(d.position)
@@ -383,7 +383,7 @@ func (d *Def) set(origin Origin, value Value) (err error) {
         case DefExecute:
                 if err = d.execute(); err != nil {
                         diag.errorOf(value, "%v: stringify value '%v' failed: %v", d.origin, value, err).
-                                debug(optionDebugErrors,1)
+                                debug(options.debugErrors,1)
                         return
                 }*/
         default: // DefVoid, DefDefault, DefArg, etc.
@@ -396,7 +396,8 @@ func (d *Def) append(va... Value) (err error) {
         for _, value := range va {
                 if !isNil(value) && value.refs(d) {
                         err = fmt.Errorf("%v: append recursive variable '%s'", d.owner, d.name)
-                        diag.infoAt(d.position, "%v", err).debug(options.verbose && optionDebugInfos)
+                        diag.infoAt(d.position, "%v", err).
+                                debug(options.debugInfos)
                         return
                 }
         }
@@ -419,16 +420,16 @@ func (d *Def) execute() (err error) {
         )
         if d.origin != DefExecute {
                 diag.errorAt(d.position, "%v: non-execute def: %v", d.origin, value).
-                        debug(optionDebugErrors, 1)
+                        debug(options.debugErrors, 1)
         } else if isNil(value) || isNone(value) {
                 d.value = nil
         } else if cmd, err = value.Strval(); err != nil {
                 diag.errorAt(d.position, "%v: strval '%v' failed: %v", d.origin, value, err).
-                        debug(optionDebugErrors, 1)
+                        debug(options.debugErrors, 1)
                 d.value = MakeNone(d.position)
         } else if cmd == "" {
                 diag.warnAt(d.position, "%v: empty command (value=%v)", d.origin, value).
-                        debug(optionDebugErrors, 1)
+                        debug(options.debugErrors, 1)
                 d.value = MakeNone(d.position)
         } else {
                 // TODO: possibility to run command in the specified container
@@ -437,7 +438,7 @@ func (d *Def) execute() (err error) {
                 sh.Stdout, sh.Stderr = &stdout, &stderr
                 if err = sh.Run(); err != nil {
                         diag.errorAt(d.position, "%v: execute command failed: %v", d.origin, err).
-                                debug(optionDebugErrors, 1)
+                                debug(options.debugErrors, 1)
                         d.value = MakeNone(d.position)
                 } else {
                         d.value = MakeString(d.position, strings.TrimSpace(stdout.String()))
@@ -472,17 +473,17 @@ func (d *Def) Call(pos Position, a... Value) (res Value) {
                 }
                 if res, err = d.value.expand(w); err != nil {
                         diag.errorAt(pos, "expand def value failed: %v", err).
-                                debug(optionDebugErrors, 1)
+                                debug(options.debugErrors, 1)
                 } else if isNil(res) && !isNil(d.value) {
                         if d.value.expandible(w) {
                                 diag.warnAt(pos, "expand '%v' incomplete (value=%v (%T))", d.name, d.value, d.value).
-                                        debug(optionDebugErrors, 1)
+                                        debug(options.debugErrors, 1)
                         } else { res = d.value }
                 }
         case DefExecute:
                 if err := d.execute(); err != nil {
                         diag.errorAt(pos, "execute '%s' failed: %v", d.name, err).
-                                debug(optionDebugErrors, 1)
+                                debug(options.debugErrors, 1)
                         return
                 } else {
                         res = d.value
@@ -506,7 +507,7 @@ func (d *Def) DiscloseValue() (res Value, err error) {
         if d.value != nil {
                 if res, err = d.value.expand(expandClosure); err != nil {
                         diag.errorAt(d.position, "expand '%v' failed: %v", d.value, err).
-                                debug(optionDebugErrors, 1)
+                                debug(options.debugErrors, 1)
                         return
                 } else if isNil(res) { res = d.value }
         }
@@ -520,7 +521,7 @@ func (d *Def) Get(name string) (res Value, err error) {
         default:
                 err = fmt.Errorf("no such property `%s' (Def)", name)
                 diag.errorAt(d.position, "%v", err).
-                        debug(optionDebugErrors, 1)
+                        debug(options.debugErrors, 1)
         }
         return
 }
@@ -561,10 +562,10 @@ func (p *undetermined) expand(w expandwhat) (res Value, err error) {
         var i, v Value
         if i, err = p.identifier.expand(w); err != nil {
                 diag.errorOf(p.identifier, "expand '%v' failed: %v", p.identifier, err).
-                        debug(optionDebugErrors, 1)
+                        debug(options.debugErrors, 1)
         } else if v, err = p.value.expand(w); err != nil {
                 diag.errorOf(p.value, "expand '%v' failed: %v", p.value, err).
-                        debug(optionDebugErrors, 1)
+                        debug(options.debugErrors, 1)
         } else if (!isNil(i) && i != p.identifier) || (!isNil(v) && v != p.value) {
                 if isNil(i) { i = p.identifier }
                 if isNil(v) { v = p.value }
@@ -718,7 +719,7 @@ func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, break
         switch entry.class {
         case PercRuleEntry, GlobRuleEntry, RegexpRuleEntry, PathPattRuleEntry:
                 diag.errorAt(pos, "executing pattern entry '%v'", entry.target).
-                        debug(optionDebugErrors, 1)
+                        debug(options.debugErrors, 1)
                 return
         }
 
@@ -734,31 +735,31 @@ func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, break
                         for _, brk := range brks {
                                 switch brk.what {
                                 case breakFail: diag.errorAt(program.position, "execution failed: %v", brk.message).
-                                        debug(optionDebugErrors, 1)
+                                        debug(options.debugErrors, 1)
                                 case breakErro: diag.errorAt(program.position, "execution error: %v", brk.error).
-                                        debug(optionDebugErrors, 1)
+                                        debug(options.debugErrors, 1)
                                 default: diag.errorAt(program.position, "breaker: %v", brk.what).
-                                        debug(optionDebugErrors, 1)
+                                        debug(options.debugErrors, 1)
                                 }
                         }
                 } else if brks = t.breakersOf(breakCase, breakDone); len(brks) > 0 {
                         t.breakers = t.breakersNot(breakCase, breakDone)
                         for _, brk := range t.breakers {
                                 diag.errorAt(program.position, "breaker: %v", brk.what).
-                                        debug(optionDebugErrors, 1)
+                                        debug(options.debugErrors, 1)
                         }
                         break
                 } else if brks = t.breakersOf(breakNext); len(brks) > 0 {
                         t.breakers = t.breakersNot(breakNext)
                         for _, brk := range t.breakers {
                                 diag.errorAt(program.position, "breaker: %v", brk.what).
-                                        debug(optionDebugErrors, 1)
+                                        debug(options.debugErrors, 1)
                         }
                         continue
                 } else if len(t.breakers) > 0 {
                         for _, brk := range t.breakers {
                                 diag.errorAt(program.position, "unknown breaker: %v", brk.what).
-                                        debug(optionDebugErrors, 1)
+                                        debug(options.debugErrors, 1)
                         }
                         break
                 }
@@ -844,7 +845,7 @@ func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
         var target Value
         if target, err = entry.target.expand(w); err != nil {
                 diag.errorAt(entry.position, "expand '%v' failed: %v", entry.target, err).
-                        debug(optionDebugErrors, 1)
+                        debug(options.debugErrors, 1)
                 return
         } else if !isNil(target) && target != entry.target {
                 // TODO: test if programs are needed to be disclosed??
@@ -866,13 +867,13 @@ ForPrograms:
                 if brks := t.breakersNot(breakNext); len(brks) > 0 {
                         diag.warnAt(prog.position, "broken traversal %v: %v (stems = %v)",
                                 entry, brks[0].what, t.stems).
-                                debug(optionDebugErrors, 6)
+                                debug(options.debugErrors, 6)
                         return
                 }
                 if prog.execute(t, entry, t.arguments); false && t.hasBreakers() {
                         diag.warnAt(prog.position, "entry: %v %d, %v, %v, %v",
                                 entry, len(entry.programs), t.stems, t.def.target.value, t.breakers[0].what).
-                                debug(optionDebugErrors && len(t.breakersNot(breakNext, breakDone)) > 0, 6)
+                                debug(options.debugErrors && len(t.breakersNot(breakNext, breakDone)) > 0, 6)
                 }
 
                 // Update traversal breakers
@@ -892,7 +893,7 @@ ForPrograms:
                                 continue ForPrograms
                         default:
                                 diag.warnAt(prog.position, "broken traversal %v: %v", entry, brk.what).
-                                        debug(optionDebugErrors, 6)
+                                        debug(options.debugErrors, 6)
                                 break ForPrograms
                         }
                 }
@@ -969,10 +970,10 @@ func (p *PatternEntry) expand(w expandwhat) (res Value, err error) {
         var pat, ent Value
         if pat, err = p.Pattern.expand(w); err != nil {
                 diag.errorOf(p.Pattern, "expand '%v' failed: %v", p.Pattern, err).
-                        debug(optionDebugErrors, 1)
+                        debug(options.debugErrors, 1)
         } else if ent, err = p.RuleEntry.expand(w); err != nil {
                 diag.errorOf(p.RuleEntry, "expand '%v' failed: %v", p.RuleEntry, err).
-                        debug(optionDebugErrors, 1)
+                        debug(options.debugErrors, 1)
         } else if (!isNil(pat) && pat != p.Pattern) && (!isNil(ent) && ent != p.RuleEntry) {
                 res = &PatternEntry{p.Pattern, ent.(*RuleEntry)}
         }
@@ -998,7 +999,7 @@ func (p *stemmed) expand(w expandwhat) (res Value, err error) {
         var v Value
         if v, err = p.PatternEntry.expand(w); err != nil {
                 diag.errorOf(p.PatternEntry, "expand '%v' failed: %v", p.PatternEntry, err).
-                        debug(optionDebugErrors, 1)
+                        debug(options.debugErrors, 1)
                 return
         } else if !isNil(v) && v != p.PatternEntry {
                 res = &stemmed{v.(*PatternEntry), p.Stems}
@@ -1018,7 +1019,7 @@ func (p *stemmed) cmp(v Value) (res cmpres) {
 }
 func (p *stemmed) traverse(t *traversal) {
         diag.errorAt(p.position, "cant traverse stemmed entry directly: %v", p).
-                debug(optionDebugErrors, 1)
+                debug(options.debugErrors, 1)
         t.breakers = append(t.breakers, &breaker{
                 pos: p.position, what:breakErro,
                 error: fmt.Errorf("traversing stemmed entry: %v", p),

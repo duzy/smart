@@ -77,12 +77,12 @@ func do_configuration() {
     for _, s := range configuration.clean {
         if _, e := os.Stat(s); e != nil {
             if false { diag.prompt("%v\n", e).
-                debug(optionDebugErrors, 1) }
+                debug(options.debugErrors, 1) }
         } else if e = os.Remove(s); e == nil {
             diag.prompt("Remove %s\n", s)
         } else if true {
             diag.prompt("Remove: %s\n", e).
-                debug(optionDebugErrors, 1)
+                debug(options.debugErrors, 1)
         }
     }
 
@@ -93,20 +93,20 @@ func do_configuration() {
             var f, e = openConfigurationFile(p)
             if e != nil {
                 diag.errorAt(entry.position, "%v", e).
-                    debug(optionDebugErrors, 1)
+                    debug(options.debugErrors, 1)
                 return
             } else if f != nil {
                 if writer != nil {
                     if e = writer.Flush(); e != nil {
                         diag.errorAt(entry.position, "%v", e).
-                            debug(optionDebugErrors, 1)
+                            debug(options.debugErrors, 1)
                         return
                     }
                 }
                 if file != nil {
                     if e = file.Close(); e != nil {
                         diag.errorAt(entry.position, "%v", e).
-                            debug(optionDebugErrors, 1)
+                            debug(options.debugErrors, 1)
                         return
                     }
                 }
@@ -123,7 +123,7 @@ func do_configuration() {
             for _, brk := range brks {
                 if brk.what == breakErro {
                     diag.errorAt(entry.position, "execute '%v' failed: %v", entry, brk.error).
-                            debug(optionDebugErrors, 1)
+                            debug(options.debugErrors, 1)
                 }
             }
         } else if entry.String() == "-check-file" {
@@ -132,7 +132,7 @@ func do_configuration() {
         }
         if s, e := entry.target.Strval(); e != nil {
             diag.errorAt(entry.position, "strval '%v' fail: %v", entry, e).
-                debug(optionDebugErrors, 1)
+                debug(options.debugErrors, 1)
         } else if def := project.scope.FindDef(s); def != nil {
             if d, ok := defs[s]; ok && d != nil {
                 /*if d.value.cmp(def.value) != cmpEqual {
@@ -151,12 +151,12 @@ func do_configuration() {
             }
         } else {
             diag.errorAt(entry.position, "`%s` unconfigured", s).
-                debug(optionDebugErrors, 1)
+                debug(options.debugErrors, 1)
         }
     }
     if err != nil {
         diag.prompt("configure: %v\n", err).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
         return
     }
 
@@ -168,16 +168,16 @@ func openConfigurationFile(p *Project) (file *os.File, err error) {
     defer setclosure(setclosure(cloctx.unshift(p.scope)))
     if f := p.configurationFile(); f == nil {
         diag.errorAt(p.position, "nil configuration file for %v", p).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
     } else if s := f.fullname(); s == "" {
         diag.errorAt(p.position, "empty configuration file name: %v", f).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
     } else if err = os.MkdirAll(filepath.Dir(s), os.FileMode(0755)); err != nil {
         diag.errorAt(p.position, "make path %s failed: %v", filepath.Dir(s), err).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
     } else if file, err = os.OpenFile(s, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600)); err != nil {
         diag.errorAt(p.position, "open configuration %s failed: %v", s, err).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
     }
     return
 }
@@ -203,7 +203,7 @@ func configureBoolValue(pos Position, t *traversal, def *Def) (result bool, err 
         var res Value
         if res, err = value.expand(expandPlainValue); err != nil {
             diag.errorAt(pos, "expand value failed: %v", err).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
             return
         } else if !isNil(res) && res != value {
             value = res
@@ -230,7 +230,7 @@ func configureBool(pos Position, t *traversal, def *Def, fields map[string]Value
     var val bool
     if val, err = configureBoolValue(pos, t, def); err != nil {
         diag.errorAt(pos, "configure bool value failed: %v", err).
-            debug(optionDebugErrors,1)
+            debug(options.debugErrors,1)
     } else {
         result = MakeBoolean(pos, val)
     }
@@ -243,7 +243,7 @@ func configureAnswer(pos Position, t *traversal, def *Def, fields map[string]Val
     var val bool
     if val, err = configureBoolValue(pos, t, def); err != nil {
         diag.errorAt(pos, "configure bool value failed: %v", err).
-            debug(optionDebugErrors,1)
+            debug(options.debugErrors,1)
     } else {
         result = MakeAnswer(pos, val)
     }
@@ -258,7 +258,7 @@ func configureOption(pos Position, t *traversal, def *Def, fields map[string]Val
         var res Value
         if res, err = result.expand(expandPlainValue); err != nil {
             diag.errorAt(pos, "expand configure option failed: %v", err).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
         } else if !isNil(res) && res != result {
             result = res
         }
@@ -334,18 +334,18 @@ func configureExec(pos Position, t *traversal, opts *modifierConfigureOpts, s st
     var projectConfigure = t.program.project.configure
     if  projectConfigure == nil {
         diag.errorAt(pos, "no .configure provided").
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
         return
     }
 
     var entry *RuleEntry
     if entry, err = projectConfigure.resolveEntry("-"+s, false); err != nil {
         diag.errorAt(pos, "resolve '%v' failed: %v", s, err).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
         return
     } else if entry == nil {
         diag.errorAt(pos, "unknown configuration action `%v`, no such entry", s).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
         return
     }
 
@@ -369,7 +369,7 @@ func configureExec(pos Position, t *traversal, opts *modifierConfigureOpts, s st
                 s, e := ap.Key.Strval()
                 if e != nil {
                     diag.errorOf(ap.Key, "stringify key '%v' failed: %v", ap.Key, e).
-                        debug(optionDebugErrors, 1)
+                        debug(options.debugErrors, 1)
                     return
                 }
                 if par.name == s {
@@ -378,12 +378,12 @@ func configureExec(pos Position, t *traversal, opts *modifierConfigureOpts, s st
                        params = append(params, MakePair(pos, MakeBareword(pos, par.name), ap.Value))
                 } else if false {
                     diag.warnOf(a, "unknown parameter: %v", a).
-                        debug(optionDebugErrors, 1)
+                        debug(options.debugErrors, 1)
                     return
                 }
             } else {
                 diag.errorOf(a, "unsupported parameter %v (%T)", a, a).
-                    debug(optionDebugErrors, 1)
+                    debug(options.debugErrors, 1)
                 return
             }
         }
@@ -403,13 +403,13 @@ func configureExec(pos Position, t *traversal, opts *modifierConfigureOpts, s st
         for i, brk := range brks {
             switch brk.what {
             case breakUnkn: diag.errorAt(pos, "broken configuration %v for unknown reason", entry).
-                debug(optionDebugErrors, 16)
+                debug(options.debugErrors, 16)
             case breakErro: diag.errorAt(pos, "%d: %v", i, brk.error).
-                debug(optionDebugErrors, 1)
+                debug(options.debugErrors, 1)
             case breakFail: diag.errorAt(pos, "%d: %v", i, brk.message).
-                debug(optionDebugErrors, 1)
+                debug(options.debugErrors, 1)
             default: diag.errorAt(pos, "%d: %v", i, brk.what).
-                debug(optionDebugErrors, 16)
+                debug(options.debugErrors, 16)
             }
         }
     } else if optVerbose {
@@ -417,17 +417,17 @@ func configureExec(pos Position, t *traversal, opts *modifierConfigureOpts, s st
         if isNil(result) || isNone(result) { res = true } else {
             if res, err = result.True(); err != nil {
                 diag.errorAt(pos, "truthify '%v' failed: %v", result, err).
-                    debug(optionDebugErrors, 1)
+                    debug(options.debugErrors, 1)
             }
         }
         if n := diag.numErrors(); /*!res || */n > 0 && false {
             var t, _ = target.Strval()
             diag.errorAt(pos, "s=%v target=%v result=%v res=%v", s, t, result, res).
-                debug(optionDebugErrors, 1)
+                debug(options.debugErrors, 1)
         }
         if n := diag.checkErrors(true); n > 0 {
             diag.warnAt(pos, "got %d error(s)", n).
-                debug(optionDebugErrors, 1)
+                debug(options.debugErrors, 1)
         }
     }
 
@@ -446,11 +446,11 @@ func configureDo(pos Position, t *traversal, opts *modifierConfigureOpts, target
     )
     if strName, err = name.Strval(); err != nil {
         diag.errorAt(pos, "stringify '%v' failed: %v", name, err).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
         return
     } else if strName == "" {
         diag.errorAt(pos, "empty configure name: %v (%T)", name, name).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
         return
     }
 
@@ -459,7 +459,7 @@ ForArgs:
         var elems []Value
         if elems, err = mergeresult(ExpandAll(arg)); err != nil {
             diag.errorOf(arg, "merge list elements '%v' failed: %v", arg, err).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
             return
         }
         for _, elem := range elems {
@@ -475,7 +475,7 @@ ForArgs:
                 continue ForArgs
             default:
                 diag.errorOf(arg, "parameter '%v' of %T is unsupported", t, t).
-                    debug(optionDebugErrors,1)
+                    debug(options.debugErrors,1)
                 return
             }
         }
@@ -495,7 +495,7 @@ ForArgs:
         } else if  s, e := result.Strval(); e != nil {
             configMessageDone(pos, "… (%v)", e)
             diag.errorAt(pos, "stringify configure result '%v' failed: %v", result, e).
-                debug(optionDebugErrors, 1)
+                debug(options.debugErrors, 1)
         } else {
             if s == "" { s = fmt.Sprintf("? (%s)", result) }
             configMessageDone(pos, "… %v", s)
@@ -509,7 +509,7 @@ ForArgs:
         for _, info := range infos {
             if s, e := info.Strval(); e == nil { msg += s } else {
                 diag.errorAt(pos, "strval configure message failed: %v", e).
-                    debug(optionDebugErrors,1)
+                    debug(options.debugErrors,1)
                 return
             }
         }
@@ -525,7 +525,7 @@ ForArgs:
         params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
         if result, err = config(pos, t, pipe, nil, params...); err != nil {
             diag.errorAt(pos, "configure '%s' failed: %v", strName, err).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
         } else {
             if optionTraceConfig {
                 t_config.tracef("configured: %v, result = %v (%s)", configured, result, typeof(result))
@@ -534,7 +534,7 @@ ForArgs:
         }
     } else if configured, result, err = configureExec(name.Position(), t, opts, strName, target, params...); err != nil {
         diag.errorAt(pos, "configure exec '%v' failed: %v", name, err).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
     }
     if configured && optionTraceConfig {
         t_config.tracef("configured: %v, result = %v (%s)", configured, result, typeof(result))
@@ -560,14 +560,14 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
     if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", t.entry.target, options.reconfigure))) }
     if args, err = mergeresult(ExpandAll(args...)); err != nil {
         diag.errorAt(pos, "merge configure args failed: %v", err).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
         return
     }
 
     var opts modifierConfigureOpts
     if args, err = parseOpts(pos, &opts, args...); err != nil {
         diag.errorAt(pos, "parse configure opts failed: %v", err).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
         return
     }
 
@@ -579,12 +579,12 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
                         diag.errorAt(pos, "truthify '%v' failed: %v", d.value, err)
                         diag.errorOf(d.value, "value '%v' from here", d.value)
                         diag.errorOf(d, "define for '%s' here", d.name).
-                            debug(optionDebugErrors,1)
+                            debug(options.debugErrors,1)
                     } else if val {
                         t.program.project.configure = t.program.project
                         if opts.verbose {
                             diag.infoAt(pos, "self-configure project enabled: %v", t.project).
-                                debug(optionDebugErrors,1)
+                                debug(options.debugErrors,1)
                         }
                     }
                 }
@@ -592,7 +592,7 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
         }
         if t.program.project.configure == nil {
             diag.errorAt(pos, "%v: .configure not provided", t.program.project).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
             return
         }
     }
@@ -600,26 +600,26 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
     var target = t.def.target.value
     if isNil(target) || isNone(target) {
         diag.errorAt(pos, "target is nil for entry '%s'", t.entry.target).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
         return
     }
 
     var name string
     if name, err = target.Strval(); err != nil {
         diag.errorOf(target, "stringify target '%v' failed: %v", target, err).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
         return
     }
     if len(t.program.project.bases) == 0 {
         diag.warnOf(target, "%v: %v %v", name, t.program.project.bases, cloctx).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
     }
 
     var def, alt = t.program.project.scope.define(t.program.project, name, nil)
     if alt != nil { def, _ = alt.(*Def) }
     if def != nil { result = def } else {
         diag.errorAt(pos, "cannot define configuration `%s`", name).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
         return
     }
     if optionTraceConfig {
@@ -635,7 +635,7 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
     if len(args) == 0 { // Empty configuration: (configure)
         if value = t.def.buffer.Call(pos); value == nil {
             diag.errorAt(pos, "`%v` not configured (%v)", target, value).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
             return
         } else if value == def || value.refs(def) {
             return
@@ -653,12 +653,12 @@ func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value,
         }
         if err != nil {
             diag.errorOf(def, "set config '%s' value failed: %v", def.name, err).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
         }
         return
     } else if err = def.set(DefConfig, nil); err != nil {
         diag.errorOf(def, "set config '%s' value failed: %v", def.name, err).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
         return
     }
 
@@ -672,7 +672,7 @@ ForConfig:
         case *Argumented:
             if flag, okay := arg.value.(*Flag); !okay {
                 diag.errorOf(a, "`%v` is unsupported value (%T)", arg.value, arg.value).
-                    debug(optionDebugErrors,1)
+                    debug(options.debugErrors,1)
                 return
             } else {
                 name, para = flag.name, arg.args
@@ -680,30 +680,30 @@ ForConfig:
         case *Flag:
             if isNil(arg.name) || isNone(arg.name) {
                 diag.errorOf(a, "`%v` is unsupported flag (%T)", arg.name, arg.name).
-                    debug(optionDebugErrors,1)
+                    debug(options.debugErrors,1)
                 return
             } else {
                 name = arg.name
             }
         default:
             diag.errorOf(a, "`%v` is unsupported (%T)", a, a).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
             return
         }
         if name == nil {
             diag.errorOf(a, "unknown configure `%v` (%T)", a, a).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
             return
         }
 
         configured, value, err = configureDo(pos, t, &opts, target, def, name, para)
         if err != nil {
             diag.errorAt(pos, "configure error: %v", err).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
             return
         } else if !configured {
             diag.errorAt(pos, "%s not configured for %s", name, target).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
             return
         } else if v := value; v == nil {
             value = MakeNil(a.Position())
@@ -711,7 +711,7 @@ ForConfig:
             // noop
         } else if v, err = value.expand(expandPlainValue); err != nil {
             diag.errorOf(a, "configured with value error: %v", err).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
             return
         } else if !isNil(v) && v != value {
             value = v
@@ -722,12 +722,12 @@ ForConfig:
         } else if opts.accumulate {
             if err = def.append(value); err != nil {
                 diag.errorOf(a, "value accumulate error: %v", err).
-                    debug(optionDebugErrors,1)
+                    debug(options.debugErrors,1)
                 return
             }
         } else if err = def.set(DefConfig, value); err != nil {
             diag.errorOf(a, "set config value error: %v", err).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
             return
         }
 
@@ -738,7 +738,7 @@ ForConfig:
     }
     if !configured && err == nil {
         diag.errorAt(pos, "`%v` not configured", target).
-                debug(optionDebugErrors,1)
+                debug(options.debugErrors,1)
     }
     return
 }
@@ -946,11 +946,11 @@ func modifierExtractConfiguration(pos Position, pc *traversal, args ...Value) (r
     var opts = modifierExtractConfigurationOpts{ mode:os.FileMode(0640) } // sys default 0666
     if args, err = mergeresult(ExpandAll(args...)); err != nil {
         diag.errorAt(pos, "merge args failed: %v", err).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
         return
     } else if args, err = parseOpts(pos, &opts, args...); err != nil {
         diag.errorAt(pos, "parse opts failed: %v", err).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
         return
     }
 
@@ -1022,7 +1022,7 @@ func modifierExtractConfiguration(pos Position, pc *traversal, args ...Value) (r
             file := stat(pos, name, "", dir)
             if file == nil {
                 diag.errorAt(pos, "extract-configuration: `%s` file not found", name).
-                    debug(optionDebugErrors, 1)
+                    debug(options.debugErrors, 1)
                 return
             } else if file.info.IsDir() {
                 err = walkFiles(pos, s, pats, func(file *File, err error) error {

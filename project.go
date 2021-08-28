@@ -86,7 +86,7 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
     var ( dir, sub string ; err error )
     if sub, err = path.Strval(); err != nil {
       diag.errorAt(pos, "strval '%v' failed: %v", path, err).
-        debug(optionDebugErrors, 1)
+        debug(options.debugErrors, 1)
       return
     } else {
       // Clean the search path.
@@ -401,7 +401,7 @@ ForPats:
     )
     if patStr, err = pat.Strval(); err != nil {
       diag.errorAt(pos, "strval '%v' failed: %v", pat, err).
-        debug(optionDebugErrors,1)
+        debug(options.debugErrors,1)
       break ForPats
     }
     // The 'patStr' could be GlobPattern or just regular file/path names. PercPattern is not supported yet.
@@ -483,7 +483,7 @@ ForPats:
             if false {
               diag.warnOf(pattern, "%s: %v matches no files in '%v'", p.name, fm, sub)
               diag.warnOf(    pat, "%s: here is %v (try using flag -m, aka -include-missing)", p.name, pat).
-                debug(optionDebugErrors, 1)
+                debug(options.debugErrors, 1)
             }
           } else if opts.errorMissing {
             err = fmt.Errorf("missing files like '%v'", fm)
@@ -516,7 +516,7 @@ ForFilemaps:
       if first != nil { s2 = first.fullname() }
       diag.errorAt(pos, "%s: name=%s (file=%v, exists=%v, first=%v, cwd=%s, filemap=%v, patterns=%v, pre=%v)\n",
         p, name, s1, file.exists(), s2, p.changedWD, filemap.pattern, filemap.Patterns(), pre).
-        debug(optionDebugErrors, 1)
+        debug(options.debugErrors, 1)
     }
     if file != nil {
       if file.filemap == nil { file.filemap = filemap }
@@ -544,18 +544,18 @@ func (p *Project) matchTempFile(pos Position, name string) (file *File) {
     // good
   } else if ctd := p.scope.FindDef("CTD"); ctd == nil {
     diag.errorAt(pos, "%v: CTD is not defined for temp file: %v", p, name).
-      debug(optionDebugErrors, 1)
+      debug(options.debugErrors, 1)
   } else if s, err := ctd.Strval(); err != nil {
     diag.errorAt(pos, "%v: stringify temp directory failed: %v", p, err).
-      debug(optionDebugErrors, 1)
+      debug(options.debugErrors, 1)
   } else if file = stat(pos, filepath.Join(s, name), "", "", nil); file == nil {
     diag.errorAt(pos, "%v: nil stat %v %v", p, s, name).
-      debug(optionDebugErrors, 1)
+      debug(options.debugErrors, 1)
   } else if false {
     if !pos.IsValid() { pos = p.position }
     diag.warnAt(pos, "using default temp file: %v/%v", s, name)
     diag.warnAt(p.position, "suggesting define files rule for '%s' in %v", name, p).
-      debug(optionDebugErrors, 12)
+      debug(options.debugErrors, 12)
   }
   return // NOTE: temp file may not exists
 }
@@ -563,7 +563,7 @@ func (p *Project) matchTempFile(pos Position, name string) (file *File) {
 func (p *Project) configurationFile() (file *File) {
     if file = p.matchTempFile(p.position, "configuration.sm"); file == nil {
         diag.errorAt(p.position, "%v: no file configuration.sm", p).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
     }
     return
 }
@@ -619,7 +619,7 @@ func (p *Project) resolveEntry(s string, matchFullSuffix bool) (entry *RuleEntry
         var ok = (!filepath.IsAbs(s) && strings.HasSuffix(target.fullname(), filepath.Clean(s)))
         var full, res, stems = target.match(s)
         diag.warnAt(rec.Position(), "%v: %s <-> %v => %v, %v, %v, %v", p, s, target, full, res, stems, ok).
-          debug(optionDebugErrors, 1)
+          debug(options.debugErrors, 1)
       }
       if target.name == s {
         return rec, nil
@@ -629,7 +629,7 @@ func (p *Project) resolveEntry(s string, matchFullSuffix bool) (entry *RuleEntry
         // not matching
       } else if strings.HasSuffix(target.fullname(), PathSep+filepath.Clean(s)) {
         if false { diag.warnAt(rec.Position(), "TODO: %v: %s <-> %v %v", p, s, target, target.fullname()).
-          debug(optionDebugErrors, 8) }
+          debug(options.debugErrors, 8) }
         return rec, nil
       }
     //case *Path:
@@ -637,7 +637,7 @@ func (p *Project) resolveEntry(s string, matchFullSuffix bool) (entry *RuleEntry
       var sv string
       if sv, err = target.Strval(); err != nil {
         diag.errorAt(target.Position(), "strval '%v' failed: %v", target, err).
-          debug(optionDebugErrors, 1)
+          debug(options.debugErrors, 1)
         return
       } else if sv == s { return rec, nil }
     }
@@ -838,13 +838,13 @@ func (p *Project) hasLoadedRecur(top, proj *Project, depth int, breakUseLoop boo
     diag.errorAt(top.position, "start: %v", top)
     diag.errorAt(proj.position, "target: %v", proj)
     diag.errorAt(p.position, "%v: %v", p, err).
-      debug(optionDebugErrors, 200)
+      debug(options.debugErrors, 200)
     return
   } else if depth > 1 && top == p {
     if false {
       err = fmt.Errorf("loop '%v' (depth=%d)", p.loopLoadPath(), depth)
       diag.errorAt(p.position, "%v: %v", p, err).
-        debug(optionDebugErrors, 128)
+        debug(options.debugErrors, 128)
       return
     }
   }
@@ -861,7 +861,7 @@ func (p *Project) hasLoadedRecur(top, proj *Project, depth int, breakUseLoop boo
       diag.errorAt(top.position, "start: %v", top)
       diag.errorAt(proj.position, "stop: %v", proj)
       diag.errorAt(p.position, "%v: %v", p, err).
-        debug(optionDebugErrors, 128)
+        debug(options.debugErrors, 128)
       return
     }
     if res = imp == proj; res { rp = imp; return }

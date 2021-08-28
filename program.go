@@ -63,19 +63,19 @@ func (prog *Program) interpret(pos Position, t *traversal, i interpreter, params
 
     if value, err = i.Evaluate(pos, t, params...); err != nil {
         diag.errorAt(pos, "evaluation failed: %v", err).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
         return
     } else if !isNil(value) {
         if err = t.def.buffer.val(value); err != nil {
             diag.errorAt(pos, "set modify buffer value failed: %v", err).
-                debug(optionDebugErrors, 1)
+                debug(options.debugErrors, 1)
             return
         }
     }
 
     if _, _, err = t.updateRecipesHash(); err != nil {
         diag.errorAt(pos, "update recipes hash failed: %v", err).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
     } else {
         t.interpreted = append(t.interpreted, i)
     }
@@ -89,7 +89,7 @@ func (prog *Program) getModifies(name string) (ms []*modifier) {
         for _, m := range g.modifiers {
             if s, e := m.name.Strval(); e != nil {
                 diag.errorOf(m.name, "get modifier name '%v' failed: %v", m.name, e).
-                    debug(optionDebugErrors, 1)
+                    debug(options.debugErrors, 1)
                 return
             } else if s == name {
                 ms = append(ms, m)
@@ -106,11 +106,11 @@ func (prog *Program) modify(t *traversal, m *modifier) (err error) {
     var ( name string; args []Value )
     if args, err = mergeresult2(expandall2(expandPlainValue, m.name)); err != nil {
         diag.errorOf(m.name, "expand modifier name '%v' failed: %v", m.name, err).
-            debug(optionDebugErrors,1)
+            debug(options.debugErrors,1)
         return
     } else if name, err = args[0].Strval(); err != nil {
         diag.errorOf(args[0], "strval '%v' failed: %v", args[0], err).
-            debug(optionDebugErrors,1)
+            debug(options.debugErrors,1)
         return
     } else {
         args = append(args[1:], m.args...)
@@ -124,28 +124,28 @@ func (prog *Program) modify(t *traversal, m *modifier) (err error) {
             if i, ok := dialects["eval"]; ok && i != nil {
                 if err = prog.interpret(m.position, t, i, args); err != nil {
                     diag.errorAt(m.position, "interpret failed: %v", err).
-                        debug(optionDebugErrors,1)
+                        debug(options.debugErrors,1)
                     return
                 }
             }
         }
         if value, err = f(m.position, t, args...); err != nil {
             diag.errorAt(m.position, "%s: %v", name, err).
-                debug(optionDebugErrors, 1)
+                debug(options.debugErrors, 1)
         } else if isNil(value) || (value == t.def.buffer && value != t.def.buffer.value) {
             // does nothing
         } else if err = t.def.buffer.val(value); err != nil {
             diag.errorAt(m.position, "setting modifier buffer value failed: %v", err).
-                debug(optionDebugErrors, 1)
+                debug(options.debugErrors, 1)
         }
     } else if i, _ := dialects[name]; i != nil {
         if err = prog.interpret(m.position, t, i, args); err != nil {
             diag.errorAt(m.position, "interpret '%s' failed: %v", name, err).
-                debug(optionDebugErrors, 1)
+                debug(options.debugErrors, 1)
         }
     } else {
         diag.errorAt(m.position, "unknown modifier '%s'", name).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
     }
     return
 }
@@ -163,13 +163,13 @@ func (prog *Program) args(args []Value) (params []*Def, restore func(), err erro
             var s string
             if s, err = t.Key.Strval(); err != nil {
                 diag.errorOf(t.Key, "strval '%v' failed: %v", t.Key, err).
-                    debug(optionDebugErrors, 1)
+                    debug(options.debugErrors, 1)
                 return
             } else if o := prog.scope.Lookup(s); isNil(o) {
                 rest = append(rest, a)
             } else if def, ok = o.(*Def); !ok {
                 diag.errorOf(o, "object is not a Def: %v", o).
-                    debug(optionDebugErrors, 1)
+                    debug(options.debugErrors, 1)
                 return
             } else {
                 values = append(values, def.value)
@@ -191,7 +191,7 @@ func (prog *Program) args(args []Value) (params []*Def, restore func(), err erro
             name := strconv.Itoa(argnum+1)
             if def, err = prog.auto(name, a); err != nil {
                 diag.errorOf(a, "arg: %v", err).
-                    debug(optionDebugErrors, 1)
+                    debug(options.debugErrors, 1)
                 return
             }
             values = append(values, def.value)
@@ -232,7 +232,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                     err = fmt.Errorf("execution yields %d errors for %v", n, entry)
                 }
                 caller._break(pos, breakErro).error = err
-                if false { diag.warnAt(pos, "break: %v", err).debug(optionDebugErrors, 1) }
+                if false { diag.warnAt(pos, "break: %v", err).debug(options.debugErrors, 1) }
             }
         }
     } ()
@@ -243,7 +243,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     }
     if recursion >= maxRecursion {
         diag.errorAt(pos, "exceeds max recursion: %v", entry.target).
-            debug(optionDebugErrors,1)
+            debug(options.debugErrors,1)
         for c := caller; c != nil; c = c.caller {
             var n int
             for next := c.caller; next != nil; next = next.caller {
@@ -257,7 +257,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         }
         diag.errorAt(pos, "too many recursion (%d) (%v) (from %v)",
             recursion, entry.target, caller.def.target.value).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
         return
     }
 
@@ -288,13 +288,13 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 case breakNext, breakCase, breakDone:
                 case breakFail:
                     diag.errorAt(pos, "broken execution for %v (%v): %v", entry, t.def.target, b.message).
-                        debug(optionDebugErrors, 1)
+                        debug(options.debugErrors, 1)
                 case breakErro:
                     diag.errorAt(pos, "broken execution for %v (%v): %v", entry, t.def.target, b.error).
-                        debug(optionDebugErrors, 1)
+                        debug(options.debugErrors, 1)
                 default:
                     diag.errorAt(pos, "broken execution for %v (%v): %v", entry, t.def.target, b.what).
-                        debug(optionDebugErrors, 16)
+                        debug(options.debugErrors, 16)
                 }
             }
         } ()
@@ -325,7 +325,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     if len(cd.stack) > 0 { enterBack = cd.stack[0] }
     if err = enter(prog, prog.project.absPath); err != nil {
         diag.errorAt(pos, "enter project '%v' failed: %v", prog.project, err).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
         return
     }
     defer func(scc closurecontext, swd string) {
@@ -335,14 +335,14 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
             // NOTE: err could be breakCase, breakDone, etc.
             if err == nil { err = e } else {
                 diag.errorAt(pos, "leave project '%v' failed: %v", prog.project, err).
-                    debug(optionDebugErrors, 1)
+                    debug(options.debugErrors, 1)
             }
         }
         prog.project.changedWD = swd
 
         if err != nil {
             diag.errorAt(pos, "execution failed: %v", err).
-                debug(optionDebugErrors, 6)
+                debug(options.debugErrors, 6)
             return
         }
 
@@ -377,7 +377,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         var target = t.entry.target
         if name, err = target.Strval(); err != nil {
             diag.errorAt(pos, "strval '%v' failed: %v", target, err).
-                debug(optionDebugErrors, 1)
+                debug(options.debugErrors, 1)
             return
         }
         if file := prog.project.FindFile(name); file != nil {
@@ -421,7 +421,7 @@ func (t *traversal) exec(prog *Program) (result Value) {
     if t.normalPrerequisites(pos); t.hasBreakers() { return }
     if n := diag.checkErrors(true); n > 0 {
         diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
         t.traceCallStack(pos, "call stack for %v:", t.def.target.value)
         return
     }
@@ -430,7 +430,7 @@ func (t *traversal) exec(prog *Program) (result Value) {
     if t.orderOnlyPrerequisites(pos); t.hasBreakers() { return }
     if n := diag.checkErrors(true); n > 0 {
         diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
         return
     }
 
@@ -439,7 +439,7 @@ func (t *traversal) exec(prog *Program) (result Value) {
     if t.greppedFiles(pos);           t.hasBreakers() { return }
     if n := diag.checkErrors(true); n > 0 {
         diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).
-            debug(optionDebugErrors, 1)
+            debug(options.debugErrors, 1)
         return
     }
     */
@@ -450,11 +450,11 @@ func (t *traversal) exec(prog *Program) (result Value) {
         if i, ok := dialects["eval"]; ok && i != nil {
             if err := prog.interpret(pos, t, i, nil); err != nil {
                 diag.errorAt(pos, "%v", err).
-                    debug(optionDebugErrors,1)
+                    debug(options.debugErrors,1)
             }
         } else {
             diag.errorAt(pos, "no default dialect").
-                    debug(optionDebugErrors,1)
+                    debug(options.debugErrors,1)
         }
     }
 
@@ -479,7 +479,7 @@ func (t *traversal) prerequisites(pos Position, prerequisites []Value) {
             var brks = t.breakersNot(breakNext, breakCase, breakDone)
             if len(brks) > 0 && len(t.stems) > 0 && false {
                 diag.warnAt(pos, "broken traversal: %v (target = %v, stems = %v)", brks[0].what,
-                    t.def.target.value, t.stems).debug(optionDebugErrors)
+                    t.def.target.value, t.stems).debug(options.debugErrors)
             }
             break
         }

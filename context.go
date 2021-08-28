@@ -23,31 +23,36 @@ import (
 )
 
 type commandLineOpts struct {
-  help bool `h,help` // optionHelp
-  debug bool `d,debug;d,print-stack` // optionPrintStack
-  printConfiguration bool `o,print-options;po,printoptions` // optionPrintConfiguration
-  printFlags bool `f,print-flags` // optionPrintFlags
-  buildPlugins bool `b,buildplugins;bp,build-plugins` // optionAlwaysBuildPlugins
-  benchImport bool `n,benchimport;bi,bench-import` // optionBenchImport
-  benchBuiltins bool `e,benchbuiltins;bb,bench-builtins` // optionBenchBuiltin
-  benchSlow bool `s,benchslow;bs,bench-slow` // optionBenchSlow
-  verbose bool `v,verbose` // optionVerbose
-  verboseImport bool `i,verbose-import` // optionVerboseImport
-  verboseChecks bool `c,verbose-checks` // optionVerboseChecks
-  verboseLoads bool `l,verbose-loading` // optionVerboseLoading
-  verboseParse bool `p,verbose-parsing` // optionVerboseParsing
-  verboseUsing bool `u,verbose-using`   // optionVerboseUsing
-  reconfigure bool `r,reconfigure`      // optionReconfig
-  configure bool `g,configure`          // optionConfigure
-  noExec bool `m,no-exec;ne,no-execute` // optionNoExec
+  help        bool `h,help`
+  debug       bool `d,debug;ps,print-stack`
+  debugErrors bool `de,debug-errors` // optionDebugErrors
+  debugWarns  bool `dw,debug-warns`  // optionDebugWarns
+  debugInfos  bool `di,debug-infos`  // optionDebugInfos
+  debugPrompt bool `dp,debug-prompt` // optionDebugInfos
+  printConfig   bool `po,print-options;po,printoptions`  // optionPrintConfiguration
+  printFlags    bool `pf,print-flags`                    // optionPrintFlags
+  buildPlugins  bool `bp,build-plugins;bp,buildplugins`  // optionAlwaysBuildPlugins
+  benchImport   bool `bi,bench-import;bi,benchimport`    // optionBenchImport
+  benchBuiltins bool `bb,bench-builtins`                 // optionBenchBuiltin
+  benchSlow     bool `bs,bench-slow;bs,benchslow`        // optionBenchSlow
+  verbose       bool `v,verbose`          // optionVerbose
+  verboseImport bool `vi,verbose-import`  // optionVerboseImport
+  verboseChecks bool `vc,verbose-checks`  // optionVerboseChecks
+  verboseLoads  bool `vl,verbose-loading` // optionVerboseLoading
+  verboseParse  bool `vp,verbose-parsing` // optionVerboseParsing
+  verboseUsing  bool `vu,verbose-using`   // optionVerboseUsing
+  configure   bool `g,configure`          // optionConfigure
+  reconfigure bool `r,reconfigure`        // optionReconfig
+  noExec bool `ne,no-exec;ne,no-execute`  // optionNoExec
+  saveGrepSource bool `sgs,save-grep-source`
 }
 var (
-  options commandLineOpts
-  optionClean = false
-
-  optionDebugErrors = true
-  optionDebugWarns = false
-  optionDebugInfos = false
+  options = commandLineOpts{
+    debugPrompt: false,
+    debugErrors: true,
+    debugWarns : true,
+    debugInfos : true,
+  }
 
   // Tracking options
   optionTraceLaunch = false
@@ -58,8 +63,6 @@ var (
   optionTraceExec = false
   optionTraceEntering = optionTraceTraversal && false
   optionTraceConfig = false
-
-  optionSaveGrepSourceName = false
 )
 
 type diagType int
@@ -599,7 +602,7 @@ func CommandLine() {
     do_helpscreen()
   } else if options.printFlags {
     print_flag_trace()
-  } else if options.printConfiguration {
+  } else if options.printConfig {
     print_configuration()
   } else if numUpdatedPlugins > 0 { // see buildPlugin
     fmt.Fprintf(stderr, "smart: Plugin updated, please relaunch.\n")

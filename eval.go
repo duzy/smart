@@ -30,7 +30,7 @@ ForRecipes:
                         // the right recipe value is returned.
                         if v, err = recipe.expand(expandPlainValue|expandPairVal); err != nil {
                                 diag.errorAt(pos, "expand recipe failed: %v", err).
-                                        debug(optionDebugErrors,1)
+                                        debug(options.debugErrors,1)
                                 return
                         } else if isNil(v) { v = recipe }
                         list = append(list, v)
@@ -64,14 +64,14 @@ ForRecipes:
                                                 if brk.message != "" { s = brk.message }
                                                 if brk.error != nil { s += fmt.Sprintf(" (error: %s)", brk.error) }
                                                 diag.errorAt(brk.pos, "eval '%v' breaked: (%s) %s", stmt, brk.what, s).
-                                                        debug(optionDebugErrors,1)
+                                                        debug(options.debugErrors,1)
                                         }
                                 }
 
                         default:
                                 if v, err = tv.expand(expandPlainValue); err != nil {
                                         diag.errorAt(pos, "expand recipe value failed: %v", err).
-                                                debug(optionDebugErrors,1)
+                                                debug(options.debugErrors,1)
                                         return
                                 } else if isNil(v) { v = tv }
                         }
@@ -84,7 +84,7 @@ ForRecipes:
 
                         if err != nil {
                                 diag.errorAt(pos, "evaluation failed: %v", err).
-                                        debug(optionDebugErrors,1)
+                                        debug(options.debugErrors,1)
                                 break ForRecipes
                         }
 
@@ -95,12 +95,12 @@ ForRecipes:
                                                 var ( str string; num int64 )
                                                 if str, err = s.Strval(); err != nil {
                                                         diag.errorAt(pos, "strval '%v' failed: %v", s, err).
-                                                                debug(optionDebugErrors, 1)
+                                                                debug(options.debugErrors, 1)
                                                         return
                                                 }
                                                 if num, err = c.Integer(); err != nil {
                                                         diag.errorAt(pos, "integify '%v' failed: %v", c, err).
-                                                                debug(optionDebugErrors, 1)
+                                                                debug(options.debugErrors, 1)
                                                         return
                                                 }
                                                 if str == "shell" && num != 0 {
@@ -113,7 +113,7 @@ ForRecipes:
 
                 default:
                         diag.errorOf(recipe, "unsupported recipe: %T (target=%v)", recipe, t.def.target.value).
-                                debug(optionDebugErrors,16)
+                                debug(options.debugErrors, 16)
                         return
                 }
         }
