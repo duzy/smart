@@ -3130,9 +3130,13 @@ func stat(pos Position, name, sub, dir string, infos ...os.FileInfo) (file *File
         var head = &base.stub
         if enable_assertions {
             for stub = head; stub != nil ; stub = stub.other {
-                s := filepath.Join(stub.dir, stub.sub, stub.name)
-                assert(fullname == s, "(%s, %s, %s) fullname conflicted: %s (%s, %s, %s)",
-                    stub.dir, stub.sub, stub.name, fullname, dir, sub, name)
+                s1, s2 := filepath.Join(stub.dir, stub.sub, stub.name), filepath.Join(fullname)
+                assert(s1 == s2, "fullname '%s' conflicted:\n" +
+                    "panic: (%s, %s, %s) %s\n" +
+                    "panic: (%s, %s, %s) %s\n",
+                    fullname,
+                    stub.dir, stub.sub, stub.name, s1,
+                    dir, sub, name, s2)
                 if stub.other == head { break }
             }
         }
