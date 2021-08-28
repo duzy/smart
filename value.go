@@ -3119,8 +3119,9 @@ func stat(pos Position, name, sub, dir string, infos ...os.FileInfo) (file *File
         unreachable("too many input file infos")
     }
 
-    var okay bool
-    if base, okay = filecache[fullname]; okay {
+    var okay bool // NOTE: filepath.Join can have the same efffect as filepath.Clean
+    var cleanFullname = filepath.Clean(fullname) // clean paths like /path/to/foo/../bar -> /path/to/bar
+    if base, okay = filecache[cleanFullname]; okay {
         if base.info == nil {
             if info == nil { info, _ = os.Stat(fullname) }
             if info == nil && !addNotExisted { return nil } // file not exists
@@ -3160,7 +3161,7 @@ func stat(pos Position, name, sub, dir string, infos ...os.FileInfo) (file *File
         base = &filebase{ filestub{ dir, sub, name, nil, nil }, info/*, false*/ }
         base.stub.other = &base.stub
         stub = &base.stub
-        filecache[fullname] = base
+        filecache[cleanFullname] = base
     }
 GotFile:
     file = &File{valbase{pos},base,stub} // FIXME: needs position information
