@@ -3331,8 +3331,7 @@ func (p *File) traverse(t *traversal) {
     // FIXES: checks none-File file target
     switch a := currentTargetValue.(type) {
     case *Barecomp: // convert barecomp path into a real Path
-        var v = a.Elems[0]
-        if p, ok := v.(*Path); ok {
+        if p, ok := a.Elems[0].(*Path); ok {
             a.Elems = append(p.Elems[len(p.Elems)-1:], a.Elems[1:]...)
             p.Elems[len(p.Elems)-1] = a
             currentTargetValue = p

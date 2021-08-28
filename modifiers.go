@@ -1457,52 +1457,69 @@ ForTarget:
         return
 }
 
-func (t *traversal) parseDeps(pos Position, deps string) (files []Value) {
+func (t *traversal) parseDeps(pos Position, savedDepsFileName, deps string) (files []Value) {
         var ( targetFullName string; err error )
         if targetFullName, err = fullnameOrStrval(t.def.target.value); err != nil {
                 diag.errorAt(pos, "fullname '%v' failed: %v", t.def.target.value, err).
                         debug(optionDebugErrors, 1)
                 return
         }
+        var findDepFile = func(name string) (file *File) {
+                if filepath.IsAbs(name) {
+                        file = stat(pos, name, "", "", nil)
+                } else if file = t.project.FindFile(name); file != nil && file.exists() {
+                        // good!
+                } else {
+                        diag.warnAt(pos, "unknown dep '%v' for %s", name, trimPromptString(savedDepsFileName)).
+                                debug(optionDebugErrors, 1)
+                }
+                return
+        }
+        var dp Position; dp.Filename = savedDepsFileName
         var ignored = func(fullname string) (res bool) {
                 if fullname == targetFullName { return true }
                 return
         }
-        for _, line := range strings.Split(deps, "\n") {
-                if i := strings.Index(line, ":"); i > 0 { line = strings.TrimSpace(line[i+1:]) }
-                if line = strings.TrimSpace(strings.TrimRight(line, "\\\r\t ")); line == "" {
+ForLines:
+        for l, line := range strings.Split(deps, "\n") {
+                var words = line
+                if i := strings.Index(words, ":"); i > 0 { words = strings.TrimSpace(words[i+1:]) }
+                if words = strings.TrimSpace(strings.TrimRight(words, "\\\r\t ")); words == "" {
                         continue // empty line
-                } else if i := strings.Index(line, " "); i > 0 {
-                        diag.warnAt(pos, "ignore dep with spaces: %v", line).
-                                debug(optionDebugErrors, 1)
-                        continue
-                } else if strings.HasSuffix(line, ":") {
-                        continue // rule heading line
-                } else if file := stat(pos, line, "", "", nil); file == nil {
-                        diag.errorAt(pos, "stat %s failed", line).
-                                debug(optionDebugErrors, 1)
-                } else if ignored(file.fullname()) {
-                        continue // dep is the target itself
-                } else if file.traverse(t); t.hasBreakers() {
-                        for _, brk := range t.breakers {
-                                switch brk.what {
-                                case breakFail: diag.errorAt(brk.pos, "broken traversal for dep %v failed: %v", file, brk.message)
-                                case breakErro: diag.errorAt(brk.pos, "broken traversal for dep %v with error: %v", file, brk.error)
-                                default: diag.errorAt(brk.pos, "broken traversal for dep %v: %v (%v)", file, brk.message, brk.what)
+                }
+                for _, word := range strings.Fields(words) {
+                        if i := strings.Index(word, " "); i > 0 {
+                                diag.warnAt(pos, "ignore dep with spaces: %v", word).
+                                        debug(optionDebugErrors, 1)
+                                continue
+                        } else if file := findDepFile(word); file == nil {
+                                diag.errorAt(pos, "find dep '%s' failed", word).
+                                        debug(optionDebugErrors, 1)
+                        } else if ignored(file.fullname()) {
+                                continue // dep is the target itself
+                        } else if file.traverse(t); t.hasBreakers() {
+                                for _, brk := range t.breakers {
+                                        switch brk.what {
+                                        case breakFail: diag.errorAt(brk.pos, "broken traversal for dep '%v' failed: %v", file, brk.message)
+                                        case breakErro: diag.errorAt(brk.pos, "broken traversal for dep '%v' with error: %v", file, brk.error)
+                                        default: diag.errorAt(brk.pos, "broken traversal for dep '%v': %v (%v)", file, brk.message, brk.what)
+                                        }
                                 }
+                                dp.Line, dp.Column = l + 1, strings.Index(line, word) + 1
+                                diag.errorAt(dp, "missing dep '%v' for %v", file, t.def.target.value)
+                                diag.errorAt(pos, "broken traversal for dep '%v' from %v", file, t.def.target.value)
+                                diag.errorAt(t.project.position, "from project %v (for %v)", t.project, file).
+                                        debug(optionDebugErrors, 6)
+                                break ForLines
+                        } else {
+                                files = append(files, file)
                         }
-                        diag.errorAt(pos, "broken traversal for dep %v from %v", file, t.def.target.value)
-                        diag.errorAt(t.project.position, "from project %v (for %v)", t.project, file).
-                                debug(optionDebugErrors, 6)
-                        break
-                } else {
-                        files = append(files, file)
                 }
         }
         return
 }
 
-func (t *traversal) loadSavedDepsFileAndCheckOutdated(pos Position) (savedDepsFileName string, files []Value, err error) {
+func (t *traversal) loadSavedDepsAndCheckOutdated(pos Position) (savedDepsFileName string, files []Value, err error) {
         var (
                 currentTargetValue = t.getCurrentTargetValue()
                 currentTarget string
@@ -1528,7 +1545,7 @@ func (t *traversal) loadSavedDepsFileAndCheckOutdated(pos Position) (savedDepsFi
         } else if savedDeps, err = ioutil.ReadFile(savedDepsFileName); err != nil {
                 diag.errorAt(pos, "can't open saved deps file: %v", savedDepsFileName, err).
                         debug(optionDebugErrors, 1)
-        } else if files = t.parseDeps(pos, string(savedDeps)); len(files) > 0 {
+        } else if files = t.parseDeps(pos, savedDepsFileName, string(savedDeps)); len(files) > 0 {
                 if false { diag.infoAt(pos, "loaded deps %s (%d files)", savedDepsFileName, len(files)).debug(true, 1) }
                 var savedDepsFileModTime = savedDepsFile.info.ModTime()
                 for _, val := range files { if file, ok := val.(*File); !ok {
@@ -1561,6 +1578,16 @@ func modifierDeps(pos Position, t *traversal, args... Value) (result Value, err 
                         debug(optionDebugErrors, 1)
                 return
         }
+
+        var files []Value
+        if opts.verbose {
+                defer func(ts time.Time) {
+                        var s string = t.def.target.value.String()
+                        diag.prompt("Deps %v …… (%d files in %v)\n", s, len(files), time.Now().Sub(ts)).
+                                debug(opts.debug && optionDebugErrors, 6)
+                } (time.Now())
+        }
+
 CorrectCC:
         switch opts.cc {
         case "cl": opts.cc = "clang"; goto CorrectCC
@@ -1625,8 +1652,8 @@ CorrectCC:
                 }
         }
 
-        var ( savedDepsFileName string; files []Value )
-        if savedDepsFileName, files, err = t.loadSavedDepsFileAndCheckOutdated(pos); err != nil {
+        var savedDepsFileName string
+        if savedDepsFileName, files, err = t.loadSavedDepsAndCheckOutdated(pos); err != nil {
                 diag.errorAt(pos, "load saved deps file failed: %v", err).
                         debug(optionDebugErrors, 1)
         } else if len(files) == 0 {
@@ -1659,7 +1686,7 @@ CorrectCC:
                                 debug(true, 1)
                 }
 
-                files = t.parseDeps(pos, stdout.String())
+                files = t.parseDeps(pos, savedDepsFileName, stdout.String())
                 stdout.Reset() // release buffers (optional)
         }
         if len(files) > 0 { t.grepped = append(t.grepped, files...) }
