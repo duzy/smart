@@ -135,10 +135,10 @@ func (m *modifier) traverse(t *traversal) {
         if err := t.program.modify(t, m); err != nil {
                 if pe, ok := err.(*fs.PathError); ok {
                         diag.errorAt(m.position, "%s failed: %v not found", m.name, trimPromptString(pe.Path)).
-                                debug(options.debugErrors,1)
+                                debug(1)
                 } else {
                         diag.errorAt(m.position, "%s failed: %v", m.name, err).
-                                debug(options.debugErrors,1)
+                                debug(1)
                 }
         }
         return
@@ -332,18 +332,18 @@ func modifierDebug(pos Position, t *traversal, args... Value) (result Value, err
         var opts modifierDebugOpts
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 diag.errorAt(pos, "merge args failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if args, err = parseOpts(pos, &opts, args...); err != nil {
                 diag.errorAt(pos, "parse opts failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
         var s string
         for _, info := range opts.info {
                 if s, err = info.Strval(); err != nil {
                         diag.errorOf(info, "strval '%v' failed: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
                 diag.infoOf(info, "%s", s).debug(1)
@@ -351,7 +351,7 @@ func modifierDebug(pos Position, t *traversal, args... Value) (result Value, err
         for _, warn := range opts.warn {
                 if s, err = warn.Strval(); err != nil {
                         diag.errorOf(warn, "strval '%v' failed: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
                 diag.warnOf(warn, "%s", s).debug(1)
@@ -359,14 +359,14 @@ func modifierDebug(pos Position, t *traversal, args... Value) (result Value, err
         for _, error := range opts.error {
                 if s, err = error.Strval(); err != nil {
                         diag.errorOf(error, "strval '%v' failed: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
                 diag.errorOf(error, "%s", s).debug(1)
         }
         if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.error) == 0 {
                 diag.warnAt(pos, "debug: %v %v", t.def.target, t.def.depends).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         }
         if opts.checkDirty {
                 var (
@@ -375,7 +375,7 @@ func modifierDebug(pos Position, t *traversal, args... Value) (result Value, err
                 )
                 if tt.IsZero() {
                         diag.infoAt(pos, "target not exists: %v", tar).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
                 for _, dep := range merge(t.def.depends.value, t.def.ordered.value, t.def.grepped.value) {
@@ -386,7 +386,7 @@ func modifierDebug(pos Position, t *traversal, args... Value) (result Value, err
                         }}
                         if dt.After(tt) {
                                 diag.infoAt(pos, "%v: outdated by %v (%v)", tar, dep, dt.Sub(tt)).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                         }
                 }
         }
@@ -398,13 +398,13 @@ func modifierSelect(pos Position, t *traversal, args... Value) (result Value, er
         var value Value = t.def.buffer.value
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 diag.errorAt(pos, "merge args failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if g, ok := value.(*Group); ok && len(args) > 0 {
                 var num int64
                 if num, err = args[0].Integer(); err != nil {
                         diag.errorAt(pos, "integify '%v' failed: %v", args[0], err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 } else {
                         result = g.Get(int(num))
                 }
@@ -441,7 +441,7 @@ func modifierEnv(pos Position, t *traversal, args... Value) (result Value, err e
 func modifierSet(pos Position, t *traversal, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 diag.errorAt(pos, "merge args failed: %v", err).
-                        debug(options.debugErrors,1)
+                        debug(1)
                 return
         }
         var defs []Value
@@ -458,28 +458,28 @@ ForArgs:
                                 // We need to expand the value explicitly.
                                 if value, err = a.Value.expand(expandPlainValue); err != nil {
                                         diag.errorAt(pos, "expand value '%v' failed: %v", a.Value, err).
-                                                debug(options.debugErrors,1)
+                                                debug(1)
                                         return
                                 } else if isNil(value) { value = a.Value }
                         }
                 case *Flag:
                         if name, err = a.name.Strval(); err != nil {
                                 diag.errorAt(pos, "strval '%v' failed: %v", a.name, err).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                                 return
                         } else if value = none; name == "" { name = "-" }
                 default:
                         diag.errorAt(pos, "%T `%s` is unsupported (try: foo=value)", arg, arg).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
                 if def := t.program.scope.FindDef(name); def == nil {
                         diag.errorAt(pos, "`%s` no such def", name).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         break ForArgs
                 } else if err = def.set(DefDefault, value); err != nil {
                         diag.errorAt(pos, "`%s` no such def", name).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 } else {
                         defs = append(defs, def)
@@ -511,17 +511,17 @@ func modifierClosure(pos Position, t *traversal, args... Value) (result Value, e
         var opts modifierClosureOpts
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 diag.errorAt(pos, "merge args failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if args, err = parseOpts(pos, &opts, args...); err != nil {
                 diag.errorAt(pos, "parse closure opts failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
 
         if opts.verbose {
                 diag.infoAt(pos, "%v", cloctx).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         }
         if opts.dump {
                 t.traceCallStack(pos, "call trace:")
@@ -530,19 +530,19 @@ func modifierClosure(pos Position, t *traversal, args... Value) (result Value, e
         var dir string // closure work directory
         if len(cloctx) == 0 {
                 diag.errorAt(pos, "empty closure context").
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if def := cloctx[0].FindDef("/"); def == nil {
                 diag.errorAt(cloctx[0].position, "&/ is undefined").
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if dir, err = def.value.Strval(); err != nil {
                 diag.errorOf(def.value, "%v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if dir == "" {
                 diag.errorAt(cloctx[0].position, "&/ is empty").
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if !filepath.IsAbs(dir) {
                 diag.errorAt(cloctx[0].position, "&/ is relative").
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if err = enter(t.program, dir); err == nil {
                 t.program.project.changedWD = dir
                 t.program.changedWD = dir
@@ -604,22 +604,22 @@ func modifierMkdir(pos Position, t *traversal, args... Value) (result Value, err
         var opts = modifierMkdirOpts{ mode: os.FileMode(0755) }
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 diag.errorAt(pos, "merge mkdir args failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
         if args, err = parseOpts(pos, &opts, args...); err != nil {
                 diag.errorAt(pos, "parse mkdir opts failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
         if len(args) == 0 {
                 var s string
                 if s, err = t.def.target.value.Strval(); err != nil {
                         diag.errorAt(pos, "stringify target '%v' failed: %v", t.def.target.value, err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 } else if err = os.MkdirAll(filepath.Dir(s), opts.mode); err != nil {
                         diag.errorAt(pos, "make path '%s' failed: %v", s, err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 }
                 return
         }
@@ -627,12 +627,12 @@ func modifierMkdir(pos Position, t *traversal, args... Value) (result Value, err
                 var s string
                 if s, err = a.Strval(); err != nil {
                         diag.errorAt(pos, "stringify '%v' failed: %v", a, err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         break
                 }
                 if err = os.MkdirAll(s, opts.mode); err != nil {
                         diag.errorAt(pos, "make path '%s' failed: %v", s, err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         break
                 }
         }
@@ -794,7 +794,7 @@ func (g *greprex) String() string { return g.string }
 func (g *greptouch) work(pos Position, gc *grepctx) (err error) {
         if g.targetInfo == nil {
                 diag.errorAt(g.target.Position(), "'%v' not exists", g.target).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
         var tt time.Time = g.targetInfo.ModTime()
@@ -802,7 +802,7 @@ func (g *greptouch) work(pos Position, gc *grepctx) (err error) {
                 var file, ok = val.(*File)
                 if !ok { 
                         diag.errorAt(pos, "'%v' is not file (%T)\n", file, file).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
                 if file.info == nil && !file.isSysFile() {
@@ -820,7 +820,7 @@ func (g *greptouch) work(pos Position, gc *grepctx) (err error) {
         if tt.After(g.targetInfo.ModTime()) {
                 if err = os.Chtimes(g.targetFullName, tt, tt); err != nil {
                         diag.errorAt(pos, "%v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 }
         }
         return
@@ -885,12 +885,12 @@ func saveGrepCache() {
 
 func (t *traversal) searchGreppedName(pos, gp Position, gc *grepctx, sys bool, name string) (file *File) {
         var isAbs, isRel bool
-        if file = t.project.FindFile(name); file != nil && file.exists() {
-                return // found existed file
-        } else if isAbs = filepath.IsAbs(name); isAbs {
+        if isAbs = filepath.IsAbs(name); isAbs {
                 file = stat(pos, name, "", "", nil)
         } else if isRel = isRelPath(name); isRel { // relative to targetDir
                 file = stat(pos, name, "", gc.targetDir, nil)
+        } else if file = t.project.FindFile(name); file != nil && file.exists() {
+                return // found existed file
         }
 
         // System files are not treated as missing nor collected
@@ -904,7 +904,7 @@ func (t *traversal) searchGreppedName(pos, gp Position, gc *grepctx, sys bool, n
         if!sys && gc.debug {
                 diag.errorAt(pos, "%v: %v → %v (exists=%v, sys=%v, from %v)\n",
                         t.entry.target, gc.target, name, file.exists(), sys, t.project).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         }
         if sys || file.exists() { return }
 
@@ -933,10 +933,10 @@ func (t *traversal) searchGreppedName(pos, gp Position, gc *grepctx, sys bool, n
                 for _, inc := range gc.incs {
                         if s, e := inc.Strval(); e != nil {
                                 diag.errorOf(inc, "strval '%v' failed: %v", inc, e).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                         } else if file = stat(pos, name, "", s); file != nil {
                                 if false { diag.infoAt(pos, "%v in %v", file, inc).
-                                        debug(options.debugErrors, 1) }
+                                        debug(1) }
                                 return
                         }
                 }
@@ -944,7 +944,7 @@ func (t *traversal) searchGreppedName(pos, gp Position, gc *grepctx, sys bool, n
                 diag.warnAt(gp, "'%s' not found in %v", name, t.project)
                 diag.warnAt(pos, "grepped '%s' has no target dir in %v", name, t.project)
                 diag.warnAt(t.project.position, "from project %v (for %v)", t.project, name).
-                        debug(options.debugErrors, 8)
+                        debug(8)
         }
         return
 }
@@ -964,29 +964,29 @@ func (t *traversal) searchGrepped(pos, gp Position, gc *grepctx, sys bool, name 
                         var s string
                         if s, err = file.Strval(); err != nil {
                                 diag.errorAt(pos, "strval '%v' failed: %v", file, err).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                                 return
                         }
                         if file.info, err = os.Stat(s); err != nil {
                                 diag.errorAt(pos, "%v", err).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                                 return
                         }
                         if false || gc.debug {
                                 diag.warnAt(pos, "'%v' info is nil (%s)", file, file.fullname()).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                         }
                 }
                 if file.info == nil {/* ... */} else
                 if t := file.info.ModTime(); t.After(tt) {
                         if true || gc.debug {
                                 diag.warnAt(pos, "touch %v → %v (%v)", gc.target, file, t).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                         }
                         t = launchTime //time.Now() // ...
                         if err, tt = os.Chtimes(gc.targetFullName, t, t), t; err != nil {
                                 diag.errorAt(pos, "chtimes failed: %v", err).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                                 return
                         }
                 }
@@ -1007,13 +1007,13 @@ func (t *traversal) tempFile(pos Position, prefix, hashee0 string, hasheeN... in
         var nameHash = sha256.New() // HashByte -> [sha256.Size]byte
         if _, err = fmt.Fprint(nameHash, prefix, hashee0); err != nil {
                 diag.errorAt(pos, "hashing failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if _, err = fmt.Fprint(nameHash, hasheeN...); err != nil {
                 diag.errorAt(pos, "hashing failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if nameSum := nameHash.Sum(nil); len(nameSum) != sha256.Size {
                 diag.errorAt(pos, "hash sum invalid: %v", len(nameSum)).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else {
                 // Make names like .deps/00/da/bef0cc203d80fa25e0e2d3760518ee1b16bd641f99b9059468cfbbe8f096
                 file = t.project.matchTempFile(pos, filepath.Join(prefix, // e.g. ".deps", ".grep"
@@ -1029,10 +1029,10 @@ func (t *traversal) savedDepsFileName(pos Position, targetFullName string) (file
         var file *File
         if file, err = t.tempFile(pos, ".deps", targetFullName); err != nil {
                 diag.errorAt(pos, "get .deps temp file failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if filename, err = fullnameOrStrval(file); err != nil {
                 diag.errorAt(pos, "get .deps temp filename failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         }
         return
 }
@@ -1041,10 +1041,10 @@ func (t *traversal) savedGrepFileName(pos Position, targetFullName string) (file
         var file *File
         if file, err = t.tempFile(pos, ".grep", targetFullName); err != nil {
                 diag.errorAt(pos, "get .grep temp file failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if filename, err = fullnameOrStrval(file); err != nil {
                 diag.errorAt(pos, "get .grep temp filename failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         }
         return
 }
@@ -1052,7 +1052,7 @@ func (t *traversal) savedGrepFileName(pos Position, targetFullName string) (file
 func (t *traversal) loadSavedGrepFile(pos Position, gc *grepctx) (okay bool, err error) {
         if gc.savedGrepFileName, err = t.savedGrepFileName(pos, gc.targetFullName); err != nil {
                 diag.errorAt(pos, "get saved grep filename failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if gc.savedGrepFile = stat(pos, gc.savedGrepFileName, "", ""); gc.savedGrepFile == nil {
                 return // No saved grepfile yet!
@@ -1073,7 +1073,7 @@ func (t *traversal) loadSavedGrepFile(pos Position, gc *grepctx) (okay bool, err
         var savedGrepOSFile *os.File
         if savedGrepOSFile, err = os.Open(gc.savedGrepFileName); err != nil {
                 diag.errorAt(pos, "open saved grep filename failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
         defer savedGrepOSFile.Close()
@@ -1091,7 +1091,7 @@ func (t *traversal) loadSavedGrepFile(pos Position, gc *grepctx) (okay bool, err
                         var file *File
                         if file, err = t.searchGrepped(pos, gp, gc, sys == 1, name); err != nil {
                                 diag.errorAt(pos, "search grepped filename failed: %v", err).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                                 break
                         } else if file != nil {
                                 file.position = gp
@@ -1100,13 +1100,13 @@ func (t *traversal) loadSavedGrepFile(pos Position, gc *grepctx) (okay bool, err
                                 diag.warnAt(gp, "%s is nil file", name)
                                 diag.warnAt(pos, "grepped %s is nil", name)
                                 diag.warnAt(t.project.position, "from project %v", t.project).
-                                        debug(options.debugErrors, 6)
+                                        debug(6)
                         }
                 }
         }
         if gc.savedGrepFile.info, err = savedGrepOSFile.Stat(); err != nil {
                 diag.errorAt(pos, "stat saved grep filename error: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else { okay = true }
         return
 }
@@ -1115,7 +1115,7 @@ func (t *traversal) grepTargetFile(pos Position, gc *grepctx) (err error) {
         var file *os.File
         if file, err = os.Open(gc.targetFullName); err != nil {
                 diag.errorAt(pos, "%v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else { defer func() { err = file.Close() } () }
 
@@ -1124,7 +1124,7 @@ func (t *traversal) grepTargetFile(pos Position, gc *grepctx) (err error) {
                         continue
                 } else if x.Regexp, err = regexp.Compile(x.string); err != nil {
                         diag.errorAt(pos, "%v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
         }
@@ -1146,7 +1146,7 @@ ForScan:
                                 }
                                 if file, err = t.searchGrepped(pos, gp, gc, sys, name); err != nil {
                                         diag.errorAt(pos, "search grepped '%s' failed: %v", name, err).
-                                                debug(options.debugErrors, 1)
+                                                debug(1)
                                         return
                                 } else if file != nil {
                                         if file.position = gp; gc.isTargetFile(file) { continue }
@@ -1154,7 +1154,7 @@ ForScan:
                                         diag.warnAt(gp, "%s is nil file", name)
                                         diag.warnAt(pos, "grepped %s is nil", name)
                                         diag.warnAt(t.project.position, "from project %v", t.project).
-                                                debug(options.debugErrors, 6)
+                                                debug(6)
                                 }
                                 continue ForScan // found one
                         }
@@ -1176,7 +1176,7 @@ func (t *traversal) grep(pos Position, gc *grepctx) (err error) {
                 gc.targetDir = t.project.absPath
                 if targetName, err = v.Strval(); err != nil {
                         diag.errorAt(pos, "strval grep target '%v' failed: %s", v, err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
                 if filepath.IsAbs(targetName) {
@@ -1186,7 +1186,7 @@ func (t *traversal) grep(pos Position, gc *grepctx) (err error) {
                 }
                 if file := stat(pos, gc.targetFullName, "", ""); file == nil {
                         diag.errorAt(pos, "grep: '%s' not found", gc.targetFullName).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 } else {
                         gc.targetInfo = file.info
@@ -1194,7 +1194,7 @@ func (t *traversal) grep(pos Position, gc *grepctx) (err error) {
         }
         if err != nil {
                 diag.errorAt(pos, "grep target %s: %v", targetName, err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
 
@@ -1202,14 +1202,14 @@ func (t *traversal) grep(pos Position, gc *grepctx) (err error) {
         if gc.done == nil { gc.done = make(map[string]int) }
         if !filepath.IsAbs(gc.targetFullName) {
                 diag.errorAt(pos, "grep: '%s' is not abs", gc.targetFullName).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else {
                 gc.done[gc.targetFullName] += 1
         }
         if n, done := gc.done[gc.targetFullName]; done && n > 1 {
                 if gc.debug { diag.errorAt(pos, "%v (done %v)", gc.targetFullName, n).
-                        debug(options.debugErrors, 1) }
+                        debug(1) }
                 return
         }
 
@@ -1227,25 +1227,25 @@ func (t *traversal) grep(pos Position, gc *grepctx) (err error) {
                         gp.Filename, gp.Line = gc.targetFullName, 1
                         diag.warnAt(gp, "grebbed zero files")
                         diag.warnAt(pos, "grebbed zero files: %v", gc.targetFullName).
-                                debug(options.debugErrors, 6)
+                                debug(6)
                 }
                 gc.files = restore
                 if gc.debug { diag.errorAt(pos, "grepped: %s → %v (grepped=%v) (saved=%s)\n",
                         gc.target, touch.files, len(t.grepped), gc.savedGrepFile).
-                        debug(options.debugErrors, 1) }
+                        debug(1) }
                 for _, gc.target = range touch.files {
                         if t.grepped = append(t.grepped, gc.target); !gc.recursive {
                                 continue
                         } else if err = t.grep(pos, gc); err != nil {
                                 diag.errorAt(pos, "grep files (deferred): %v", err).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                                 break
                         }
                 }
                 if err == nil && gc.touch {
                         if err = touch.work(pos, gc); err != nil {
                                 diag.errorAt(pos, "grep touch failed: %v", err).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                         }
                 }
         } (gc.files)
@@ -1259,27 +1259,27 @@ func (t *traversal) grep(pos Position, gc *grepctx) (err error) {
         )
         if gc.files, cached = grepcache[gc.targetFullName]; cached && len(gc.files) > 0 {
                 if gc.debug { diag.errorAt(pos, "grepcache: %v → %v", gc.targetFullName, gc.files).
-                        debug(options.debugErrors, 1) }
+                        debug(1) }
                 return
         } else if infos {
                 diag.infoAt(pos, "grepcache: %s files=%d", gc.targetFullName, len(gc.files)).
-                        debug(options.debugInfos, 1)
+                        debug(1)
         }
 
         if savedGrepFileLoaded, err = t.loadSavedGrepFile(pos, gc); err != nil {
                 diag.errorAt(pos, "load saved grepfile failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if savedGrepFileLoaded && len(gc.files) > 0 {
                 if infos { diag.infoAt(pos, "loadSavedGrepFile: %v files=%d grepped=%d",
                         gc.targetFullName, len(gc.files), len(t.grepped)).
-                        debug(options.debugInfos,1) }
+                        debug(1) }
                 return
         }
         if dir := filepath.Dir(gc.savedGrepFileName); dir != "." && dir != ".." {
                 if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
                         diag.errorAt(pos, "make grep dir failed: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
         }
@@ -1291,16 +1291,16 @@ func (t *traversal) grep(pos Position, gc *grepctx) (err error) {
                 )
                 if err = ioutil.WriteFile(name, data, perm); err != nil {
                         diag.errorAt(pos, "grep write file: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 } else if false {
                         diag.infoAt(pos, "saved grep %s", name).
-                                debug(options.debugInfos, 1)
+                                debug(1)
                 }
         }
         if savedGrepFile, err = os.Create(gc.savedGrepFileName); err != nil {
                 diag.errorAt(pos, "grep create %s: %v", gc.savedGrepFileName, err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
 
@@ -1312,7 +1312,7 @@ func (t *traversal) grep(pos Position, gc *grepctx) (err error) {
 
         if err = t.grepTargetFile(pos, gc); err != nil && !gc.discard {
                 diag.errorAt(pos, "grep target file: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else {
                 err = nil // discard any errors
         }
@@ -1343,16 +1343,16 @@ func modifierGrep(pos Position, t *traversal, args... Value) (result Value, err 
         var gc grepctx ; gc.fileinc = true // grep files by default
         if args, err = mergeresult2(expandall2(expandPlainValue, args...)); err != nil {
                 diag.errorAt(pos, "merge grep args failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
         if args, err = parseOpts(pos, &gc.modifierGrepOpts, args...); err != nil {
                 diag.errorAt(pos, "parse grep args failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if gc.incs, err = mergeresult2(expandall2(expandPlainValue, gc.incs...)); err != nil {
                 diag.errorAt(pos, "expand grep incs failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
         for _, s := range gc.sys { gc.rxs = append(gc.rxs, &greprex{s, true , nil}) }
@@ -1363,13 +1363,13 @@ func modifierGrep(pos Position, t *traversal, args... Value) (result Value, err 
                         for _, re := range info.sys { gc.rxs = append(gc.rxs, &greprex{re, true , nil}) }
                 } else {
                         diag.errorAt(pos, "lang '%s' is unknown", s).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
         }
         if len(gc.rxs) == 0 {
                 diag.errorAt(pos, "no grep expressions: %v %v %v %v", gc.sys, gc.reg, gc.langs, args).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
 
@@ -1379,7 +1379,7 @@ func modifierGrep(pos Position, t *traversal, args... Value) (result Value, err 
         )
         if len(targets) == 0 { if tv := t.def.target.value; isNil(tv) || isNone(tv) {
                 diag.errorAt(pos, "no grep target").
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else {
                 targets = append(targets, tv)
@@ -1387,7 +1387,7 @@ func modifierGrep(pos Position, t *traversal, args... Value) (result Value, err 
 
         if gc.debug {
                 diag.warnAt(pos, "grep files: %v %v %v\n", t.def.target.value, gc.rxs, args).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         }
         if gc.verbose {
                 defer func(ts time.Time) {
@@ -1410,19 +1410,19 @@ ForTarget:
         for _, target := range targets {
                 if isNil(target) {
                         diag.errorAt(pos, "found nil grep target for %v", t.def.target.value).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
                 if isNone(target) {
                         diag.errorAt(pos, "grep target '%v' is none for %v", target, t.def.target.value).
-                                debug(options.debugErrors, 32)
+                                debug(32)
                         return
                 }
 
                 gc.target, t.grepped = target, nil
                 if err = t.grep(pos, &gc); err != nil {
                         diag.errorAt(pos, "grep files from %v failed: %v", target, err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 } else if gc.noTraverse {
                         // does nothing
@@ -1441,7 +1441,7 @@ ForTarget:
                                 }
                                 diag.errorAt(pos, "broken traversal for grepped %v from %v", val, target)
                                 diag.errorAt(t.project.position, "from project %v (for %v)", t.project, val).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                                 break ForTarget
                         }
                 }
@@ -1451,7 +1451,7 @@ ForTarget:
 
         if err != nil {
                 diag.errorAt(pos, "grep files failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if !gc.noTraverse {
                 t.def.grepped.value, t.grepped = MakeNone(pos), nil
         } else {
@@ -1464,7 +1464,7 @@ func (t *traversal) parseDeps(pos Position, savedDepsFileName, deps string) (fil
         var ( targetFullName string; err error )
         if targetFullName, err = fullnameOrStrval(t.def.target.value); err != nil {
                 diag.errorAt(pos, "fullname '%v' failed: %v", t.def.target.value, err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
         var findDepFile = func(name string) (file *File) {
@@ -1474,7 +1474,7 @@ func (t *traversal) parseDeps(pos Position, savedDepsFileName, deps string) (fil
                         // good!
                 } else {
                         diag.warnAt(pos, "unknown dep '%v' for %s", name, trimPromptString(savedDepsFileName)).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 }
                 return
         }
@@ -1493,11 +1493,11 @@ ForLines:
                 for _, word := range strings.Fields(words) {
                         if i := strings.Index(word, " "); i > 0 {
                                 diag.warnAt(pos, "ignore dep with spaces: %v", word).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                                 continue
                         } else if file := findDepFile(word); file == nil {
                                 diag.errorAt(pos, "find dep '%s' failed", word).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                         } else if ignored(file.fullname()) {
                                 continue // dep is the target itself
                         } else if file.traverse(t); t.hasBreakers() {
@@ -1512,7 +1512,7 @@ ForLines:
                                 diag.errorAt(dp, "missing dep '%v' for %v", file, t.def.target.value)
                                 diag.errorAt(pos, "broken traversal for dep '%v' from %v", file, t.def.target.value)
                                 diag.errorAt(t.project.position, "from project %v (for %v)", t.project, file).
-                                        debug(options.debugErrors, 6)
+                                        debug(6)
                                 break ForLines
                         } else {
                                 files = append(files, file)
@@ -1530,24 +1530,24 @@ func (t *traversal) loadSavedDepsAndCheckOutdated(pos Position) (savedDepsFileNa
         )
         if isNil(currentTargetValue) {
                 diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if currentTarget, err = fullnameOrStrval(currentTargetValue); err != nil {
                 diag.errorOf(currentTargetValue, "strval '%v' failed: %v", currentTargetValue, err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if currentTarget == "" {
                 diag.errorAt(pos, "target '%v' is empty", t.def.target.value).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if savedDepsFileName, err = t.savedDepsFileName(pos, currentTarget); err != nil {
                 diag.errorAt(pos, "get saved deps filename failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if savedDepsFileName == "" {
                 diag.errorAt(pos, "empty saved deps filename", savedDepsFileName).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if savedDepsFile := stat(pos, savedDepsFileName, "", ""); savedDepsFile == nil {
                 // no saved deps file
         } else if savedDeps, err = ioutil.ReadFile(savedDepsFileName); err != nil {
                 diag.errorAt(pos, "can't open saved deps file: %v", savedDepsFileName, err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if files = t.parseDeps(pos, savedDepsFileName, string(savedDeps)); len(files) > 0 {
                 if false { diag.infoAt(pos, "loaded deps %s (%d files)", savedDepsFileName, len(files)).debug(true, 1) }
                 var savedDepsFileModTime = savedDepsFile.info.ModTime()
@@ -1576,11 +1576,11 @@ func modifierDeps(pos Position, t *traversal, args... Value) (result Value, err 
         var opts modifierDepsOpts
         if args, err = parseOpts(pos, &opts, args...); err != nil {
                 diag.errorAt(pos, "parse deps args failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if args, err = mergeresult2(expandall2(expandPlainValue, args...)); err != nil {
                 diag.errorAt(pos, "merge deps args failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
 
@@ -1605,7 +1605,7 @@ CorrectCC:
         default:
                 if base := filepath.Base(opts.cc); base == "" {
                         diag.errorAt(pos, "unsupported cc: %v", opts.cc).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 } else if strings.HasPrefix(base, "clang") { opts.useClang = true
                 } else if strings.HasPrefix(base, "gcc")   { opts.useGcc = true }
@@ -1614,7 +1614,7 @@ CorrectCC:
         var flags []Value
         if flags, err = mergeresult2(expandall2(expandPlainValue, opts.flags...)); err != nil {
                 diag.errorAt(pos, "merge flags failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
 
@@ -1626,7 +1626,7 @@ CorrectCC:
                 var s string
                 if s, err = f.Strval(); err != nil {
                         diag.errorAt(pos, "strval '%v' failed: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 } else { s = strings.TrimSpace(s) }
                 switch s {
@@ -1646,7 +1646,7 @@ CorrectCC:
                 var s string
                 if s, err = fullnameOrStrval(a); err != nil {
                         diag.errorAt(pos, "strval '%v' failed: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 } else { s = strings.TrimSpace(s) }
                 switch s {
@@ -1660,7 +1660,7 @@ CorrectCC:
         var savedDepsFileName string
         if savedDepsFileName, files, err = t.loadSavedDepsAndCheckOutdated(pos); err != nil {
                 diag.errorAt(pos, "load saved deps file failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if len(files) == 0 {
                 var (
                         cc = exec.Command(opts.cc, ca...)
@@ -1672,20 +1672,20 @@ CorrectCC:
                         if true { diag.prompt("%s \\\n  %s\n%s\n----------\n%s.\n",
                                 cc.Path, strings.Join(ca, " \\\n  "), &stdout, &stderr) }
                         diag.errorAt(pos, "deps with %s: %v", filepath.Base(opts.cc), err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
                 stderr.Reset() // release buffers (optional)
 
                 if savedDepsFileName == "" {
                         diag.errorAt(pos, "empty saved deps file name: %v", savedDepsFileName).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 } else if err = os.MkdirAll(filepath.Dir(savedDepsFileName), os.FileMode(0755)); err != nil {
                         diag.errorAt(pos, "make path '%s' failed: %v", filepath.Dir(savedDepsFileName), err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 } else if err = ioutil.WriteFile(savedDepsFileName, stdout.Bytes(), os.FileMode(0666)); err != nil {
                         diag.errorAt(pos, "save deps file failed: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 } else if false {
                         diag.infoAt(pos, "saved deps %s", savedDepsFileName).
                                 debug(true, 1)
@@ -1708,11 +1708,11 @@ func modifierTouch(pos Position, t *traversal, args... Value) (result Value, err
         var opts modifierTouchOpts // = modifierTouchOpts{ mode: os.FileMode(0755) }
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 diag.errorAt(pos, "merge touch args failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if args, err = parseOpts(pos, &opts, args...); err != nil {
                 diag.errorAt(pos, "parse touch opts failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if len(args) == 0 {
                 args = append(args, t.def.target.value)
@@ -1723,18 +1723,18 @@ func modifierTouch(pos Position, t *traversal, args... Value) (result Value, err
                 var vf []*File
                 if err = touch(arg, uint32(opts.mode), opts.path); err != nil {
                         diag.errorAt(pos, "touch '%v' failed: %v", arg, err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         break
                 } else if vf, err = arg.stamp(t); err != nil {
                         diag.errorAt(pos, "touch '%v' failed: %v", arg, err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         break
                 } else { files = append(files, vf...) }
         }
         if opts.verbose { reportFileUpdates(pos, t.start, files) }
         if len(t.program.getModifies("stamp")) > 0 {
                 diag.warnAt(pos, "no need to use a (stamp) after (touch)").
-                        debug(options.debugErrors, 1)
+                        debug(1)
         }
         return
 }
@@ -1765,12 +1765,12 @@ func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err
         )
         if args, err = mergeresult2(expandall2(expandPlainValue, args...)); err != nil {
                 diag.errorAt(pos, "merge check args failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
         if args, err = parseOpts(pos, &opts, args...); err != nil {
                 diag.errorAt(pos, "parse check args failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
         if opts.good    { optBreak   = breakDone }
@@ -1783,14 +1783,14 @@ func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err
                 default:
                         if res, err = arg.True(); err != nil {
                                 diag.errorAt(pos, "unknown check '%v' (%T)", arg, arg).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                         } else if makeResult != nil {
                                 values = append(values, makeResult(pos, res))
                         } else {
                                 t._breakf(pos, optBreak, "value '%v' is false", arg)
                                 if opts.verbose {
                                         diag.warnAt(pos, "value '%v' is false", arg).
-                                                debug(options.debugErrors, 1)
+                                                debug(1)
                                 }
                         }
                 }
@@ -1800,11 +1800,11 @@ func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err
                 if f, res = opts.file.(*File); res {
                         if res = f.exists(); !res && opts.verbose {
                                 diag.warnOf(opts.file, "file '%v' does not exists", opts.file).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                         }
                 } else if s, err = opts.file.Strval(); err != nil {
                         diag.errorAt(pos, "strval '%v' failed: %v", opts.file, err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 } else if filepath.IsAbs(s) {
                         if f = stat(opts.file.Position(), s, "", ""); f != nil {
@@ -1816,7 +1816,7 @@ func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err
                 if res { res = !f.info.Mode().IsDir() } // .IsRegular()
                 if opts.verbose {
                         diag.warnOf(opts.file, "'%v' is file: %v", opts.file, res).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 }
                 if makeResult != nil {
                         values = append(values, makeResult(pos, res))
@@ -1830,11 +1830,11 @@ func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err
                 if f, res = opts.dir.(*File); res {
                         if res = f.exists(); !res && opts.verbose {
                                 diag.warnOf(opts.dir, "file '%v' does not exists", opts.dir).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                         }
                 } else if s, err = opts.dir.Strval(); err != nil {
                         diag.errorAt(pos, "strval '%v' failed: %v", opts.dir, err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 } else if filepath.IsAbs(s) {
                         if f = stat(opts.dir.Position(), s, "", ""); f != nil {
@@ -1846,7 +1846,7 @@ func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err
                 if res { res = f.info.Mode().IsDir() }
                 if opts.verbose {
                         diag.warnOf(opts.dir, "'%v' is file: %v", opts.dir, res).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 }
                 if makeResult != nil {
                         values = append(values, makeResult(pos, res))
@@ -1861,7 +1861,7 @@ ForPairs:
                 var key, str string
                 if key, err = p.Key.Strval(); err != nil {
                         diag.errorOf(p.Key, "strval '%v' failed: %v", p.Key, err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
                 switch key {
@@ -1870,14 +1870,14 @@ ForPairs:
                         if exeres == nil {
                                 t._breakf(pos, optBreak, "value '%v' is not exec result", value)
                                 diag.errorOf(value, "value '%v' (%T) is not exec result", value, value).
-                                        debug(options.debugErrors, 6)
+                                        debug(6)
                                 return
                         } else { exeres.wg.Wait() }
 
                         var num int64
                         if num, err = p.Value.Integer(); err != nil {
                                 diag.errorAt(p.Value.Position(), "%v", err).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                                 return
                         }
                         if opts.verbose {
@@ -1906,7 +1906,7 @@ ForPairs:
                         if exeres == nil {
                                 t._breakf(pos, optBreak, "not an exec result (%T)", value)
                                 diag.errorOf(value, "value '%v' (%T) is not exec result", value, value).
-                                        debug(options.debugErrors, 6)
+                                        debug(6)
                                 return
                         } else { exeres.wg.Wait() }
 
@@ -1926,7 +1926,7 @@ ForPairs:
                                 break ForPairs
                         } else if str, err = p.Value.Strval(); err != nil {
                                 diag.errorOf(p.Value, "strval '%v' failed: %v", p.Value, err).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                                 return
                         } else if res := v.String() == str; makeResult != nil {
                                 values = append(values, makeResult(pos, res))
@@ -1940,7 +1940,7 @@ ForPairs:
                                 // ok
                         } else if str, err = p.Value.Strval(); err != nil {
                                 diag.errorAt(pos, "strval '%v' failed: %v", p.Value, err).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                                 return
                         } else if filepath.IsAbs(str) {
                                 if file = stat(p.Value.Position(), str, "", ""); file != nil {
@@ -1994,7 +1994,7 @@ ForPairs:
                         }
                 default:
                         diag.errorAt(pos, "unknown check for %v -> %v", p.Key, p.Value).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         break ForPairs
                 }
         }
@@ -2249,21 +2249,21 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
         var file *File
         if file = stat(pos,srcname,"","",nil); file == nil || file.info == nil {
                 diag.errorAt(pos, "'%s' source file not found", srcname).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         } else if !file.info.IsDir() {
                 if opts.mode == 0 { opts.mode = file.info.Mode() }
                 if err = copyFile(pos, file.info, srcname, filename, copts); err != nil {
                         diag.errorAt(pos, "%v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 }
         } else if opts.recursive {
                 if err = copyDir(pos, srcname, filename, copts); err != nil {
                         diag.errorAt(pos, "%v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 }
         } else {
                 diag.errorAt(pos, "`%v` is a directory (use -r to solve it)", source).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         }
 
         if opts.verbose {
@@ -2314,19 +2314,19 @@ func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, 
         var ( opts modifierReadFileOpts; filename string )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 diag.errorAt(pos, "merge args failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
         if args, err = parseOpts(pos, &opts, args...); err != nil {
                 diag.errorAt(pos, "parse opts failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
 
         var target Value
         if n := len(args); n > 1 {
                 diag.errorAt(pos, "too many files: %v", args).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if n == 1 {
                 target = args[0]
@@ -2336,19 +2336,19 @@ func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, 
 
         if isNil(target) {
                 diag.errorAt(pos, "target is <nil>").
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if isNone(target) {
                 diag.errorAt(pos, "target is <none>").
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if filename, err = fullnameOrStrval(target); err != nil {
                 diag.errorOf(target, "strval '%v' error: %v", target, err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if filename == "" {
                 diag.errorOf(target, "target filename is empty").
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
 
@@ -2362,7 +2362,7 @@ func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, 
                 if opts.head != nil {
                         if v, err = opts.head.Strval(); err == nil { s = v } else {
                                 diag.errorAt(pos, "%v", err).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                                 return
                         }
                 }
@@ -2370,7 +2370,7 @@ func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, 
                 if opts.foot != nil {
                         if v, err = opts.foot.Strval(); err == nil { s += v } else {
                                 diag.errorAt(pos, "%v", err).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                                 return
                         }
                 }
@@ -2475,7 +2475,6 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
 
         var same bool
         if opts.verbose {
-                printEnteringDirectory()
                 defer func(st time.Time) {
                         var s string
                         if err != nil { s = err.Error() } else if same {
@@ -2483,6 +2482,7 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                         } else {
                                 s = fmt.Sprintf("outdated (%s)", filename)
                         }
+                        printEnteringDirectory()
                         diag.prompt("Update %v …… %s (in %v)\n", trimPromptString(target.String()), s, time.Now().Sub(st)).
                                 debug(opts.debug, 6)
                 } (time.Now())
@@ -2842,12 +2842,12 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
         var opts modifierDirtyOpts
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 diag.errorAt(pos, "merge args failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
         if args, err = parseOpts(pos, &opts, args...); err != nil {
                 diag.errorAt(pos, "parse opts failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
 
@@ -2859,7 +2859,7 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
         // Wait for prerequisites only
         if target, _, _, err = t.wait(pos); err != nil {
                 diag.errorAt(pos, "wainting traversal failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if dirty = t.hasBreakers(); dirty {
                 reason = fmt.Sprintf("dirty (%v breakers)", len(t.breakers))
@@ -2869,7 +2869,7 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                 reason = fmt.Sprintf("dirty (%v updated)", len(t.updated))
         } else if dirty, err = t.isRecipesDirty(); err != nil {
                 diag.errorAt(pos, "isRecipesDirty: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if dirty {
                 reason = "dirty: recipes changed"
@@ -2877,17 +2877,17 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                 var file1, file2 string
                 if file1, err = target.Strval(); err != nil {
                         diag.errorAt(pos, "%v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
                 if file2, err = t.def.depend0.value.Strval(); err != nil {
                         diag.errorAt(pos, "%v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
                 if same, e := crc64CompareFileChecksum(file1, file2); e != nil {
                         diag.errorAt(pos, "%v", e).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 } else if same {
                         reason = "Good"
@@ -2904,7 +2904,7 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                 var e = t.exists(target)
                 var s, _ = target.Strval()
                 diag.errorAt(pos, "type=%s target=%s (exists=%v, dirty=%v, updated=%v)", a, s, e, dirty, t.updated).
-                        debug(options.debugErrors, 1)
+                        debug(1)
         }
         if opts.verbose {
                 var ( m, s string )
@@ -3002,16 +3002,15 @@ func modifierTargetMaxVisit(pos Position, t *traversal, args... Value) (result V
         var nth int64
         for _, a := range args {
                 if nth, err = a.Integer(); err != nil {
-                        diag.errorAt(pos, "%v", err)
+                        diag.errorAt(pos, "%v", err).debug(1)
                         return
                 } else if nth <= 0 {
-                        diag.errorAt(pos, "needs positive number (%v, %s)", a, typeof(a))
+                        diag.errorAt(pos, "needs positive number (%v, %s)", a, typeof(a)).debug(1)
                         return
                 }
         }
 
-        var num int64
-        var head bool = true
+        var ( num int64; head bool = true )
         for caller := t.caller; caller != nil; caller= caller.caller {
                 if false {
                         if opts.closure && caller.closure == t.closure { continue }
@@ -3057,7 +3056,7 @@ func modifierGitModified(pos Position, t *traversal, args... Value) (result Valu
         git.Stdout, git.Stderr = out, os.Stderr
         if err = git.Run(); err != nil {
                 diag.errorAt(pos, "git failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
  
@@ -3075,7 +3074,7 @@ func modifierGitModified(pos Position, t *traversal, args... Value) (result Valu
                         var s string
                         if s, err = a.Strval(); err != nil {
                                 diag.errorAt(pos, "strval '%v' failed: %v", err).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                                 return
                         }
                         for _, v := range sm {
@@ -3126,26 +3125,16 @@ func onceSHA256(pos Position, t *traversal, opts *modifierOnceOpts, args... Valu
         )
         fmt.Fprintf(h, "%p %p", t.entry, t.program) // both entry and program are unique
 
-        /*if s, err = fullnameOrStrval(t.entry.target); err != nil {
-                diag.errorAt(pos, "strval '%v' failed: %v", t.entry.target, err).
-                        debug(options.debugErrors, 1)
-                return
-        } else {
-                if true { diag.infoAt(pos, "%v", s).debug(true, 1) }
-                fmt.Fprintf(h, "%s", s)
-        }*/
         if s, err = fullnameOrStrval(t.def.target.value); err != nil {
                 diag.errorAt(pos, "fullname '%v' failed: %v", t.def.target.value, err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
-        } else {
-                if false { diag.infoAt(pos, "%v", s).debug(true, 1) }
+        } else if s != "" {
                 fmt.Fprintf(h, "%s", s)
         }
         for _, a := range args {
                 if s, err = fullnameOrStrval(a); err != nil {
-                        diag.errorAt(pos, "strval '%v' failed: %v", a, err).
-                                debug(options.debugErrors, 1)
+                        diag.errorAt(pos, "strval '%v' failed: %v", a, err).debug(1)
                         return
                 } else {
                         if false { diag.infoAt(pos, "%v", s).debug(true, 1) }
@@ -3184,13 +3173,11 @@ type modifierOnceOpts struct {
 func modifierOnce(pos Position, t *traversal, args... Value) (result Value, err error) {
         var opts modifierOnceOpts
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                diag.errorAt(pos, "merge args failed: %v", err).
-                        debug(options.debugErrors, 1)
+                diag.errorAt(pos, "merge args failed: %v", err).debug(1)
                 return
         }
         if args, err = parseOpts(pos, &opts, args...); err != nil {
-                diag.errorAt(pos, "parse opts failed: %v", err).
-                        debug(options.debugErrors, 1)
+                diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
                 return
         }
 
@@ -3205,8 +3192,7 @@ func modifierOnce(pos Position, t *traversal, args... Value) (result Value, err 
                         t._break(pos, breakDone).message = fmt.Sprintf(`executed %d times`, n)
                 }
                 if opts.debug {
-                        diag.warnAt(pos, "%T %v %p %v %v", tv, tv, tv, n, ok).
-                                debug(options.debugErrors, 16)
+                        diag.warnAt(pos, "%T %v %p %v %v", tv, tv, tv, n, ok).debug(16)
                         t.traceCallStack(pos, "%p %v %v", tv, tv, n)
                 }
         }

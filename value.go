@@ -738,10 +738,8 @@ ForConcreteList:
             t.breakers = t.breakersNot(breakFail, breakErro);
             for _, brk := range brks {
                 switch brk.what {
-                case breakFail: diag.errorAt(entry.position, "traverse %v failed: %v", file, brk.message).
-                    debug(1)
-                case breakErro: diag.errorAt(entry.position, "traverse %v error: %v", file, brk.error).
-                    debug(1)
+                case breakFail: diag.errorAt(entry.position, "traverse %v failed: %v", file, brk.message).debug(1)
+                case breakErro: diag.errorAt(entry.position, "traverse %v error: %v", file, brk.error).debug(1)
                 }
             }
             diag.errorAt(pos, "broken traversal for stemmed entry '%v' in %v", entry, entry.OwnerProject()).

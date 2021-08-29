@@ -896,13 +896,13 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
 
     var ( status string; same bool )
     if opts.verbose {
-        printEnteringDirectory()
         defer func(st time.Time) {
             if err != nil { status = err.Error() } else if same {
                 if true { return } else { status = "unchanged" }
             } else if status == "" {
                 status = fmt.Sprintf("outdated (%s)", filename)
             }
+            printEnteringDirectory()
             diag.prompt("Update %v …… %s (in %v)\n", trimPromptString(filename), status, time.Now().Sub(st)).
                 debug(opts.debug, 6)
         } (time.Now())
