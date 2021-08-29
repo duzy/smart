@@ -2478,7 +2478,9 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                 printEnteringDirectory()
                 defer func(st time.Time) {
                         var s string
-                        if err != nil { s = err.Error() } else if same { s = "unchanged" } else {
+                        if err != nil { s = err.Error() } else if same {
+                                if true { return } else { s = "unchanged" }
+                        } else {
                                 s = fmt.Sprintf("outdated (%s)", filename)
                         }
                         diag.prompt("Update %v …… %s (in %v)\n", trimPromptString(target.String()), s, time.Now().Sub(st)).
