@@ -2370,7 +2370,8 @@ func builtinEncodeBase64(pos Position, args... Value) (res Value) {
                 for _, a := range args {
                         var ( s string; err error )
                         if s, err = a.Strval(); err != nil {
-                                diag.errorAt(pos, "%v", err); return
+                                diag.errorAt(pos, "strval '%v' failed: %v", a, err).debug(1)
+                                return
                         }
                         enc.Write([]byte(s))
                 }
@@ -2390,13 +2391,13 @@ func builtinDecodeBase64(pos Position, args... Value) (res Value) {
                                 err error
                         )
                         if s, err = a.Strval(); err != nil {
-                                diag.errorAt(pos, "%v", err); return
-                        }
-                        dat, err = base64.StdEncoding.DecodeString(s)
-                        if err == nil {
-                                list = append(list, MakeString(a.Position(), string(dat)))
+                                diag.errorAt(pos, "strval '%v' failed: %v", a, err).debug(1)
+                                return
+                        } else if dat, err = base64.StdEncoding.DecodeString(s); err != nil {
+                                diag.errorAt(pos, "decode '%s' failed: %v", s, err).debug(1)
+                                return
                         } else {
-                                diag.errorAt(pos, "%v", err); return
+                                list = append(list, MakeString(a.Position(), string(dat)))
                         }
                 }
                 res = MakeListOrScalar(pos, list)
@@ -2432,11 +2433,9 @@ func asOptFullname(proj *Project, val Value) (rp *Project, s string, ok bool, e 
         if s, ok = fullname(val); ok {
                 // done
         } else if proj == nil {
-                diag.errorOf(val, "no current project to find file '%v'", val).
-                        debug(1)
+                diag.errorOf(val, "no current project to find file '%v'", val).debug(1)
         } else if s, e = val.Strval(); e != nil {
-                diag.errorOf(val, "no current project to find file '%v'", val).
-                        debug(1)
+                diag.errorOf(val, "strval '%v' failed: %v", val, e).debug(1)
         } else if filepath.IsAbs(s) {
                 ok = true
         } else if file := proj.FindFile(s); file != nil {
@@ -2459,25 +2458,23 @@ func builtinFullname(pos Position, args... Value) (res Value) {
                 ok bool
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                diag.errorAt(pos, "merge args failed: %v", err)
+                diag.errorAt(pos, "merge args failed: %v", err).debug(1)
                 return
         } else if args, err = parseOpts(pos, &opts, args...) ; err != nil {
-                diag.errorAt(pos, "parse opts failed: %v", err)
+                diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
                 return
         }
 
         for _, a := range args {
                 if opts.debug > 0 {
                         if f, ok := a.(*File); ok {
-                                diag.warnAt(pos, "dir=%v sub=%v name=%v", f.dir, f.sub, f.name).
-                                        debug(opts.debug)
+                                diag.warnAt(pos, "dir=%v sub=%v name=%v", f.dir, f.sub, f.name).debug(opts.debug)
                         } else {
-                                diag.warnAt(pos, "%T %v", a, a).
-                                        debug(opts.debug)
+                                diag.warnAt(pos, "%T %v", a, a).debug(opts.debug,1)
                         }
                 }
                 if proj, s, ok, err = asOptFullname(proj, a); err != nil {
-                        diag.errorAt(pos, "fullname '%v' failed: %v", a, err)
+                        diag.errorAt(pos, "fullname '%v' failed: %v", a, err).debug(1)
                         break
                 } else if ok || s != "" {
                         l = append(l, MakeString(a.Position(), s))
@@ -3307,18 +3304,24 @@ func builtinFileExists(pos Position, args... Value) (res Value) {
 
 func builtinFileSource(pos Position, args... Value) (res Value) {
         var err error
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
+        if args, err = mergeresult2(expandall2(expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "expand args failed: %v", err).debug(1)
+                return
+        }
 
         var proj = current()
         if proj == nil {
-                diag.errorAt(pos, "unknown current context")
+                diag.errorAt(pos, "unknown current context").debug(1)
                 return
         }
 
         var l []Value
         for _, a := range args {
                 var str string
-                if str, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                if str, err = a.Strval(); err != nil {
+                        diag.errorAt(pos, "strval '%v' failed: %v", err).debug(1)
+                        return
+                }
                 if file := proj./*searchFile*/FindFile(str); file != nil {
                         l = append(l, MakeString(a.Position(), file.sub))
                 }
@@ -3335,14 +3338,11 @@ type builtinFileOpts struct {
 }
 func builtinFile(pos Position, args... Value) (res Value) {
         var ( opts builtinFileOpts; err error; aa = args )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                diag.errorAt(pos, "expand args failed: %v", err).
-                        debug(1)
+        if args, err = mergeresult2(expandall2(expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "expand args failed: %v", err).debug(1)
                 return
-        }
-        if args, err = parseOpts(pos, &opts, args...); err != nil {
-                diag.errorAt(pos, "parse opts failed: %v", err).
-                        debug(1)
+        } else if args, err = parseOpts(pos, &opts, args...); err != nil {
+                diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
                 return
         }
 
@@ -3350,8 +3350,7 @@ func builtinFile(pos Position, args... Value) (res Value) {
         if opts.caller {
                 proj = cloctx[0].project
         } else if proj = current(); proj == nil {
-                diag.errorAt(pos, "unknown current cntext").
-                        debug(1)
+                diag.errorAt(pos, "unknown current cntext").debug(1)
                 return
         } else if false {
                 // Ensure that we're in the right closure context
@@ -3366,8 +3365,7 @@ func builtinFile(pos Position, args... Value) (res Value) {
                         if file.exists() { continue }
                         if opts.report { diag.infoAt(pos, "%v is no such file", a).debug(1) }
                 } else if str, err = a.Strval(); err != nil {
-                        diag.errorAt(pos, "strval '%v' failed: %v", err).
-                                debug(1)
+                        diag.errorAt(pos, "strval '%v' failed: %v", err).debug(1)
                         return
                 } else if file = proj.FindFile(str); file != nil {
                         list = append(list, file)
