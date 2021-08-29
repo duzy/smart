@@ -873,7 +873,7 @@ func (p *parser) parsePathExpr(lhs bool, start Value) *Path {
 		ok bool
 	)
 	if start == nil {
-		diag.errorAt(position, "bad closure/delegate name").debug(options.debugErrors,1)
+		diag.errorAt(position, "bad closure/delegate name").debug(1)
 		p._next()
 		return MakePath(position) // empty path
 	} else if path, ok = start.(*Path); !ok {
@@ -928,13 +928,13 @@ func (p *parser) parseURLExpr(lhs bool, scheme Value) (res Value) {
 			p.expect(token.PCON) // the second '/'
 		} else {
 			diag.errorAt(p.position(), "TODO: URL path: %v (%T) (next: %s (%s))",
-				scheme, scheme,  p.tok, p.lit).debug(options.debugErrors)
+				scheme, scheme,  p.tok, p.lit).debug(1)
 			res = MakeNil(p.position())
 			return
 		}
 	} else if !p.isEndOfURL(lhs) {
 		diag.errorAt(p.positionAt(colon1), "TODO: URL: %v (%T) (next: %s (%s))",
-			scheme, scheme,  p.tok, p.lit).debug(options.debugErrors)
+			scheme, scheme,  p.tok, p.lit).debug(1)
 		res = MakeNil(p.position())
 		return
 	}
@@ -989,7 +989,7 @@ func (p *parser) parseClosureDelegateName(tok token.Token) (name Value) {
 
 	var pos = p.position()
 	if name = p.parseExpr(false); isNil(name) {
-		diag.errorAt(pos, "bad closure/delegate name").debug(options.debugErrors)
+		diag.errorAt(pos, "bad closure/delegate name").debug(1)
 		name = MakeNil(pos)
 	}
 	return
@@ -1149,7 +1149,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 	default:
 		if position := p.position(); tok != token.CLOSURE { // $(...), disabled $name.
 			// &(...), &{...}, &'...', &"..."
-			diag.errorAt(position, "expects `%v` or `%v` or quotes", token.LPAREN, token.LBRACE).debug(options.debugErrors)
+			diag.errorAt(position, "expects `%v` or `%v` or quotes", token.LPAREN, token.LBRACE).debug(1)
 			return MakeNil(position)
 		} else if p.tok == token.STRING || p.tok == token.COMPOUND {
 			posLp, tokLp = p.pos, p.tok
@@ -1162,7 +1162,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 			}
 		} else {
 			// &(...), &{...}, &'...', &"..."
-			diag.errorAt(position, "expects `%v`, `%v` or quotes", token.LPAREN, token.LBRACE).debug(options.debugErrors)
+			diag.errorAt(position, "expects `%v`, `%v` or quotes", token.LPAREN, token.LBRACE).debug(1)
 			return MakeNil(position)
 		}
 	}
@@ -1257,7 +1257,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
 		} else if tok == token.TILDE { // TODO: ~user
 			return makePathSeg(p.positionAt(pos), tok)
 		} else {
-			diag.errorAt(position, "unexpected path segment").debug(options.debugErrors)
+			diag.errorAt(position, "unexpected path segment").debug(1)
 			return MakeNil(position)
 		}
 
@@ -1292,7 +1292,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
 
 	var position = p.position()
 	diag.errorAt(position, "'%v' bad unary expression (lit=%s,lhs=%v)", p.tok, p.lit, lhs).
-		debug(options.debugErrors)
+		debug(1)
 
 	p._next() // go to next token
 	return MakeNil(position)
@@ -1359,7 +1359,7 @@ func (p *parser) parseExpr(lhs bool) (x Value) {
 	var pos, tok = p.pos, p.tok
 	if x = p.parseComposedExpr(lhs); x == nil {
 		diag.errorAt(p.positionAt(pos), "`%v` invalid expression", tok).
-			debug(options.debugErrors, 1)
+			debug(1)
 		return
 	}
 	{
@@ -1417,7 +1417,7 @@ func (p *parser) parseExpr(lhs bool) (x Value) {
 			case *String, *Compound, *delegate, *closure:
 			default:
 				diag.warnOf(y, "barecomp a path: %v (%T), %v (%T) (next=%v)", x, x, y, y, p.tok).
-					debug(options.debugErrors, 1)
+					debug(1)
 			}
 		}
 
@@ -1691,19 +1691,19 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 	)
 	if prop0 := props[0]; isNil(prop0) {
 		diag.errorAt(position, "illegal").
-			debug(options.debugErrors, 1)
+			debug(1)
 	} else if position = prop0.Position(); !position.IsValid() {
 		diag.errorAt(position, "command name '%v' has invalid position", prop0).
-			debug(options.debugErrors, 1)
+			debug(1)
 	} else if resolved, err = p.resolve(prop0); err != nil {
 		diag.errorAt(position, "resolve '%v' failed: %v", prop0, err).
-			debug(options.debugErrors, 1)
+			debug(1)
 	} else if isNil(resolved) {
 		diag.errorAt(position, "resolved '%v' is nil", prop0).
-			debug(options.debugErrors, 1)
+			debug(1)
 	} else if b, ok := resolved.(*Builtin); ok && (b.flag&builtinCommand) == 0 {
 		diag.errorAt(position, "resolved builtin '%v' is not a command: %T", prop0, resolved).
-			debug(options.debugErrors, 1)
+			debug(1)
 	} else if !generic.dontOperate { //p.evalspec(spec)
         // At the point of `eval` was represented, the closure context
         // might be empty. So we start closure with the current scope.
@@ -1715,13 +1715,13 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
             var ( name string; err error )
             if name, err = op.Strval(); err != nil {
                 diag.errorAt(position, "strval '%s' failed: %v", op, err).
-					debug(options.debugErrors, 1)
+					debug(1)
             } else if _, obj := p.scope.Find(name); obj == nil {
                 diag.errorAt(position, "`%s` undefined", name).
-					debug(options.debugErrors, 1)
+					debug(1)
             } else if f, _ := obj.(Caller); f == nil {
                 diag.errorAt(position, "`%T` is not caller (%s)", obj, name).
-					debug(options.debugErrors, 1)
+					debug(1)
             } else {
                 res = f.Call(position, props[1:]...)
             }
@@ -2086,7 +2086,7 @@ ForModifiersExpr:
 		)
 		if g, ok := x.(*Group); !ok {
 			diag.errorAt(g.position, "modifier not represented by group: %T", x).
-				debug(options.debugErrors, 1)
+				debug(1)
 			continue ForModifiersExpr
 		} else {
 			group = g
@@ -2112,20 +2112,20 @@ ForModifiersExpr:
 			var v []Value
 			if v, err = mergeresult(ExpandAll(n)); err != nil {
 				diag.errorOf(n, "merge '%v' failed: %v", v, err).
-					debug(options.debugErrors, 1)
+					debug(1)
 			} else if name, err = v[0].Strval(); err != nil {
 				diag.errorOf(n, "strval '%v' failed: %v", v[0], err).
-					debug(options.debugErrors, 1)
+					debug(1)
 				continue ForModifiersExpr
 			} else if name == "" {
 				diag.errorOf(n, "name '%v' is empty", n).
-					debug(options.debugErrors, 1)
+					debug(1)
 				continue ForModifiersExpr
 			}
 			goto checkNameAndAdd
 		default:
 			diag.errorOf(n, "unsupported dialect or modifier (%T): %v", group.Elems[0], group.Elems[0]).
-				debug(options.debugErrors, 1)
+				debug(1)
 			continue ForModifiersExpr
 		}
 
@@ -2135,19 +2135,19 @@ ForModifiersExpr:
 		if _, ok := dialects[name]; ok {
 			if p.dialect == "" { p.dialect = name } else {
 				diag.errorOf(x, "multi-dialects unsupported, already defined '%s'", p.dialect).
-					debug(options.debugErrors, 1)
+					debug(1)
 				continue ForModifiersExpr
 			}
 		} else if _, ok = modifiers[name]; !ok {
 			diag.errorOf(x, "`%s` no such dialect or modifier", name).
-				debug(options.debugErrors, 1)
+				debug(1)
 			continue ForModifiersExpr
 		}
 
 	addModifier:
 		if len(group.Elems) == 0 {
 			diag.errorOf(x, "empty modifier: %v", x).
-				debug(options.debugErrors, 1)
+				debug(1)
 		} else {
 			var m = &modifier{
                 valbase: valbase{group.Position()},
@@ -2163,11 +2163,11 @@ ForModifiersExpr:
 	/*rpos := */p.expect(token.RBRACK)
 	if len(elems) == 0 {
 		diag.errorAt(posLp, "empty modifier group").
-			debug(options.debugErrors, 1)
+			debug(1)
 	}
 	if p.tok == token.COLON {
 		diag.errorAt(posLp, "unexpected colon after modifer").
-			debug(options.debugErrors, 1)
+			debug(1)
 	}
     return &modifiergroup{ valbase: valbase{posLp}, modifiers: elems }
 }
@@ -2529,7 +2529,7 @@ func (p *parser) parseClause(endPos token.Pos) {
 	var position = p.position()
 	switch p.tok {
 	case token.USE:
-		diag.errorAt(position, "`%v` unexpected here", p.tok).debug(options.debugErrors)
+		diag.errorAt(position, "`%v` unexpected here", p.tok).debug(1)
 		return
 	case token.INCLUDE:
 		p.parseGenericClause(token.INCLUDE, p.expect(token.INCLUDE), p.parseIncludeSpec)
@@ -2566,7 +2566,7 @@ func (p *parser) parseClause(endPos token.Pos) {
 	}
 
 	diag.errorAt(p.position(), "bad clause: %v (%s) after %v", p.tok, p.lit, list).
-		debug(options.debugErrors, 6)
+		debug(6)
 }
 
 func parseUsingNameProps(nameprops string) (name string, parts []string, optUnique, optReverse bool) {
@@ -2689,7 +2689,7 @@ func (p *parser) parseFile() *parsedFile {
 		}
 	} else {
 		diag.errorAt(position, "opened invalid scope for %s", filename).
-			debug(options.debugErrors, 1)
+			debug(1)
 		return nil
 	}
 
@@ -2726,12 +2726,12 @@ func (p *parser) parseFile() *parsedFile {
 		if !pos.IsValid() { pos = p.position() }
 		if a, e := parseOpts(pos, &opts, optVals...); e != nil {
 			diag.errorAt(pos, "parse project decl opts failed: %v", e).
-				debug(options.debugErrors, 1)
+				debug(1)
 			return nil
 		} else if len(a) > 0 {
 			for _, v := range a {
 				diag.errorOf(v, "unknown option '%v'", v).
-					debug(options.debugErrors, 1)
+					debug(1)
 			}
 			return nil
 		}
@@ -2757,12 +2757,12 @@ func (p *parser) parseFile() *parsedFile {
                 ident = &ast.Bareword{ ValuePos:pos, Value:"~" }
             } else*/ if ext := filepath.Ext(filename); ext != ".smart" {
 				diag.errorAt(p.position(), "`%v` not a smart file", filepath.Base(filename)).
-					debug(options.debugErrors, 1)
+					debug(1)
 			} else if s := strings.TrimSuffix(filepath.Base(filename), ext); s != "" {
 				ident = MakeBarecomp(position, MakeBareword(position, s))
 			} else {
 				diag.errorAt(p.position(), "`%v` not tilde name", filepath.Base(filename)).
-					debug(options.debugErrors, 1)
+					debug(1)
 			}
 			p.next(true) // skip tilde
 		} else {
@@ -2772,10 +2772,10 @@ func (p *parser) parseFile() *parsedFile {
 			for p.tok != token.EOF && p.tok != token.SPACE {
 				if w := p.parseBarewordConstant(false); w == nil {
 					diag.errorAt(ident.Position(), "expecting a bareword").
-						debug(options.debugErrors, 1)
+						debug(1)
 				} else if word, ok := w.(*Bareword); !ok {
 					diag.errorAt(ident.Position(), "expecting a bareword: %v (%T)", w, w).
-						debug(options.debugErrors, 1)
+						debug(1)
 				} else if ident.Combine(word); p.tok == token.DOT {
 					ident.Combine(MakeBareword(p.position(), ".")) // TODO: parse to Qualiword
 					implicitBaseSegs = append(implicitBaseSegs, word.string)
@@ -2785,7 +2785,7 @@ func (p *parser) parseFile() *parsedFile {
 			p.skipSpaces()
 			if len(ident.Elems) == 0 {
 				diag.errorAt(p.position(), "package name is empty").
-					debug(options.debugErrors, 1)
+					debug(1)
 				return nil
 			} else if len(implicitBaseSegs) > 0 {
 				implicitBase = filepath.Join(implicitBaseSegs...)
@@ -2795,14 +2795,14 @@ func (p *parser) parseFile() *parsedFile {
 		var err error
 		if identStr, err = ident.Strval(); err != nil {
 			diag.errorAt(ident.Position(), "strval '%v' failed: %v", ident, err).
-				debug(options.debugErrors, 1)
+				debug(1)
 			return nil
 		} else if linfo.loadee != nil && identStr != linfo.loadee.name {
 			diag.warnAt(ident.position, "declare multiple project in the same directory").
-				debug(options.debugErrors, 1)
+				debug(1)
 		} else if identStr == "_" && p.mode&DeclarationErrors != 0 {
 			diag.errorAt(ident.Position(), "package name '_' is preserved").
-				debug(options.debugErrors, 1)
+				debug(1)
 			return nil
 		}
 
@@ -2810,7 +2810,7 @@ func (p *parser) parseFile() *parsedFile {
 		// Likely not a Go source file at all.
 		if n := diag.numErrors(); n > 0 {
 			diag.errorAt(p.position(), "got %d errors parsing file: %s", filename).
-				debug(options.debugErrors, 1)
+				debug(1)
 			return nil
 		}
 
@@ -2824,7 +2824,7 @@ func (p *parser) parseFile() *parsedFile {
 				if def := s.FindDef("CWD"); def != nil { def.owner = p.project }
 			} else {
 				diag.errorAt(position, "file scope is nil").
-					debug(options.debugErrors, 1)
+					debug(1)
 			}
 			if linfo.loadee == nil {
 				// NOTE: build.smart is always the first loaded, so the loadee will be pointed to it
@@ -2856,18 +2856,18 @@ func (p *parser) parseFile() *parsedFile {
 					//if p.tok == token.LINEND { break }
 					if p.tok == token.EOF {
 						diag.errorAt(basePos, "unexpected end of file while parsing bases").
-							debug(options.debugErrors, 1)
+							debug(1)
 						return nil
 					}
 					if t, e := parseOpts(param.Position(), &opts, param); e != nil {
 						diag.errorOf(param, "parse opt '%v' failed: %v", param, e).
-							debug(options.debugErrors, 1)
+							debug(1)
 						return nil
 					} else if keyword == token.PACKAGE || opts.final {
 						// No bases for PACKAGE or final project
 					} else if !p.loadBases(basePos, linfo, /*implicitBase*/"", merge(t...)...) {
 						diag.errorOf(param, "loading base '%v' failed", t).
-							debug(options.debugErrors, 1)
+							debug(1)
 						return nil
 					}
 				}
@@ -2877,7 +2877,7 @@ func (p *parser) parseFile() *parsedFile {
 			p.expect(token.RPAREN)
 		} else if !p.loadBases(basePos, linfo, implicitBase) { // for special bases, e.g. .base
 			diag.errorAt(basePos, "loading bases failed").
-				debug(options.debugErrors, 1)
+				debug(1)
 			return nil
 		}
 		p.expectLinend()

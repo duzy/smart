@@ -397,23 +397,23 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                 switch val.Kind() {
                 case reflect.Bool:
                         if t, e := v.True(); e == nil { val.SetBool(t) } else {
-                                diag.errorOf(v, "truthify '%v' failed: %v", v, e).debug(options.debugErrors,1)
+                                diag.errorOf(v, "truthify '%v' failed: %v", v, e).debug(1)
                         }
                 case reflect.Float32, reflect.Float64:
                         if t, e := v.Float(); e == nil { val.SetFloat(t) } else {
-                                diag.errorOf(v, "floatify '%v' failed: %v", v, e).debug(options.debugErrors,1)
+                                diag.errorOf(v, "floatify '%v' failed: %v", v, e).debug(1)
                         }
                 case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
                         if t, e := v.Integer(); e == nil { val.SetInt(t) } else {
-                                diag.errorOf(v, "integify '%v' failed: %v", v, e).debug(options.debugErrors,1)
+                                diag.errorOf(v, "integify '%v' failed: %v", v, e).debug(1)
                         }
                 case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
                         if t, e := v.Integer(); e == nil { val.SetUint(uint64(t)) } else {
-                                diag.errorOf(v, "integify '%v' failed: %v", v, e).debug(options.debugErrors,1)
+                                diag.errorOf(v, "integify '%v' failed: %v", v, e).debug(1)
                         }
                  case reflect.String:
                         if t, e := v.Strval(); e == nil { val.SetString(t) } else {
-                                diag.errorOf(v, "stringify '%v' failed: %v", v, e).debug(options.debugErrors,1)
+                                diag.errorOf(v, "stringify '%v' failed: %v", v, e).debug(1)
                         }
                 case reflect.Slice:
                         if tp := reflect.New(val.Type().Elem()); tp.Kind() == reflect.Ptr {
@@ -425,28 +425,28 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                 case "smart.Value": val.Set(reflect.ValueOf(v))
                 default:
                         diag.errorOf(v, "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).
-                                debug(options.debugErrors,1)
+                                debug(1)
                 }
                 case reflect.Ptr: switch val.Type().Elem().String() {
                 case "smart.optFullname":
                         var x Value
                         if x, err = v.expand(expandPlainValue); err != nil {
                                 diag.errorOf(v, "expand option '%v' failed: %v", v, err).
-                                        debug(options.debugErrors,1)
+                                        debug(1)
                                 return
                         } else if isNil(x) { x = v } else if isNone(x) {
                                 diag.errorOf(v, "expecting file value: %T %v", v, v).
-                                        debug(options.debugErrors,1)
+                                        debug(1)
                                 return
                         }
                         if _, s, ok, err = asOptFullname(nil, x); err != nil {
                                 diag.errorOf(x, "fullname '%v' failed: %v", x, err).
-                                        debug(options.debugErrors,1)
+                                        debug(1)
                         } else if ok && s != "" {
                                 val.Set(reflect.ValueOf(&optFullname{ s, x }))
                         } else {
                                 diag.errorOf(v, "'%s' is not a file: %v", s, x).
-                                        debug(options.debugErrors,1)
+                                        debug(1)
                         }
                         if false {
                                 vi := val.Interface().(*optFullname)
@@ -456,54 +456,54 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                         var x Value
                         if x, err = v.expand(expandPlainValue); err != nil {
                                 diag.errorOf(v, "expand option '%v' failed: %v", v, err).
-                                        debug(options.debugErrors,1)
+                                        debug(1)
                                 return
                         } else if isNil(x) { x = v } else if isNone(x) {
                                 diag.errorOf(v, "expecting file value: %T %v", v, v).
-                                        debug(options.debugErrors,1)
+                                        debug(1)
                                 return
                         }
                         if file, ok := x.(*File); ok {
                                 val.Set(reflect.ValueOf(file))
                         } else if s, e := x.Strval(); e != nil {
                                 diag.errorOf(x, "strval '%v' failed: %v", x, e).
-                                        debug(options.debugErrors,1)
+                                        debug(1)
                         } else if proj := current(); proj == nil {
                                 diag.errorOf(x, "no current project to find file '%v'", s).
-                                        debug(options.debugErrors,1)
+                                        debug(1)
                         } else if file = proj.FindFile(s); file != nil {
                                 val.Set(reflect.ValueOf(file))
                         } else {
                                 diag.errorOf(v, "'%s' is not a file", s).
-                                        debug(options.debugErrors,1)
+                                        debug(1)
                         }
                 case "regexp.Regexp":
                         if s, e := v.Strval(); e != nil {
                                 diag.errorOf(v, "stringify '%v' failed: %v", v, e).
-                                        debug(options.debugErrors,1)
+                                        debug(1)
                         } else if rx, e := regexp.Compile(s); e != nil {
                                 diag.errorOf(v, "compile regexp '%v' failed: %v", v, e).
-                                        debug(options.debugErrors,1)
+                                        debug(1)
                         } else {
                                 val.Set(reflect.ValueOf(rx))
                         }
                 default:
                         diag.errorOf(v, "option type unsupported: %T %v -> %v, %v", v, v,
                                 val.Elem().Kind(), val.Type().Elem()).
-                                debug(options.debugErrors,1)
+                                debug(1)
                 }
                 default: switch val.Type().String() {
                 case "fs.FileMode": // aka. reflect.Uint32
                         if t, e := v.Integer(); e == nil { val.SetUint(uint64(t)) } else {
                                 diag.errorOf(v, "integify '%v' failed: %v", v, e).
-                                        debug(options.debugErrors,1)
+                                        debug(1)
                         }
                 case "regex.Regex": // aka. reflect.Ptr
                         diag.errorOf(v, "TODO: regexp: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).
-                                debug(options.debugErrors,1)
+                                debug(1)
                 default:
                         diag.errorOf(v, "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).
-                                debug(options.debugErrors,1)
+                                debug(1)
                 }}
         }
 ForArgs:
@@ -730,10 +730,10 @@ func builtinAssert(pos Position, args... Value) Value {
         for _, a := range vals {
                 if v, e := a.True(); e != nil {
                         diag.errorOf(a, "assert: error: %v", e).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 } else if !v {
                         diag.errorOf(a, "assertion failed: %v", a).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 }
         }
         return nil
@@ -761,7 +761,7 @@ func builtinOr(pos Position, args... Value) (res Value) {
         for _, a := range args {
                 if t, e = a.True(); e != nil {
                         diag.errorOf(a, "or: error: %v", e).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         break
                 } else if t {
                         res = a
@@ -849,19 +849,19 @@ func builtinMatch(pos Position, args... Value) (res Value) {
         )
         if n := len(args); n < 2 {
                 diag.errorAt(pos, "wrong arguments, try: $(match <regexp-list>,<value-list>,...)").
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if patList, err = mergeresult2(expandall2(expandPlainValue, args[0])); err != nil {
                 diag.errorAt(pos, "expand '%v' failed: %v", args[0], err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if patList, err = parseOpts(pos, &opts, patList...); err != nil {
                 diag.errorAt(pos, "parse opts failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if valList, err = mergeresult2(expandall2(expandPlainValue, args[1:]...)); err != nil {
                 diag.errorAt(pos, "expand value list failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
 ForValList:
@@ -872,7 +872,7 @@ ForValList:
                 var str string
                 if str, err = val.Strval(); err != nil {
                         diag.errorOf(val, "strval '%v' failed: %v", val, err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
                 for _, rx := range opts.regexps {
@@ -916,23 +916,23 @@ func builtinBranchIfEq(pos Position, args... Value) (res Value) {
                 )
                 if a, err = args[0].expand(expandPlainValue); err != nil {
                         diag.errorAt(pos, "expand '%v' failed: %v", args[0], err).
-                                debug(options.debugErrors,1)
+                                debug(1)
                         return
                 } else if isNil(a) { a = args[0] }
                 if b, err = args[1].expand(expandDelegate); err != nil {
                         diag.errorAt(pos, "expand '%v' failed: %v", args[1], err).
-                                debug(options.debugErrors,1)
+                                debug(1)
                         return
                 } else if isNil(b) { b = args[1] }
 
                 if s1, err = a.Strval(); err != nil {
                         diag.errorAt(pos, "strval '%v' failed: %v", a, err).
-                                debug(options.debugErrors,1)
+                                debug(1)
                         return
                 }
                 if s2, err = b.Strval(); err != nil {
                         diag.errorAt(pos, "strval '%v' failed: %v", b, err).
-                                debug(options.debugErrors,1)
+                                debug(1)
                         return
                 }
                 if s1 == s2 {
@@ -953,23 +953,23 @@ func builtinBranchIfNE(pos Position, args... Value) (res Value) {
                 )
                 if a, err = args[0].expand(expandPlainValue); err != nil {
                         diag.errorAt(pos, "expand '%v' failed: %v", args[0], err).
-                                debug(options.debugErrors,1)
+                                debug(1)
                         return
                 } else if isNil(a) { a = args[0] }
                 if b, err = args[1].expand(expandDelegate); err != nil {
                         diag.errorAt(pos, "expand '%v' failed: %v", args[1], err).
-                                debug(options.debugErrors,1)
+                                debug(1)
                         return
                 } else if isNil(b) { b = args[1] }
 
                 if s1, err = a.Strval(); err != nil {
                         diag.errorAt(pos, "strval '%v' failed: %v", a, err).
-                                debug(options.debugErrors,1)
+                                debug(1)
                         return
                 }
                 if s2, err = b.Strval(); err != nil {
                         diag.errorAt(pos, "strval '%v' failed: %v", b, err).
-                                debug(options.debugErrors,1)
+                                debug(1)
                         return
                 }
                 if s1 != s2 {
@@ -1066,7 +1066,7 @@ func builtinForEach(pos Position, args... Value) (res Value) {
                         var v Value
                         if v, err = a.expand(expandPlainValue|expandPairVal); err != nil {
                                 diag.errorOf(a, "expand '%v' failed: %v", a, err).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                                 return
                         } else if isNil(v) { v = a }
                         if true && len(v.defs("_")) > 0 {
@@ -1651,7 +1651,7 @@ func filterValues(pats []Value, opts builtinFilterOpts, neg bool, values... Valu
         }
         if values, err = mergeresult(Reveal(values...)); err != nil {
                 diag.errorOf(values[0], "%v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
         for _, v := range values {
@@ -1672,16 +1672,16 @@ func filterValues1(pos Position, neg bool, args... Value) (res Value) {
                 )
                 if pats, err = mergeresult2(expandall2(expandPlainValue, args[0])); err != nil {
                         diag.errorAt(pos, "merge patterns '%v' failed: %v", args[0], err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 } else if pats, err = parseOpts(pos, &opts, pats...); err != nil {
                         diag.errorAt(pos, "parse opts failed: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
                 if vals, err = mergeresult2(expandall2(expandPlainValue, args[1:]...)); err != nil {
                         diag.errorAt(pos, "merge values failed: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
                 if vals, err = filterValues(pats, opts, neg, vals...); err == nil {
@@ -1708,7 +1708,7 @@ func builtinSubstring(pos Position, args... Value) (res Value) {
         var err error
         if args, err = mergeresult2(expandall2(expandPlainValue, args...)); err != nil {
                 diag.errorAt(pos, "merge args failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
 
@@ -1717,7 +1717,7 @@ func builtinSubstring(pos Position, args... Value) (res Value) {
                 var ( i1, i2 int )
                 if i1, err = intVal(args[0], -1); err != nil {
                         diag.errorAt(pos, "%v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 } else {
                         args = args[1:]
@@ -1727,14 +1727,14 @@ func builtinSubstring(pos Position, args... Value) (res Value) {
                                 err = nil // ignore
                         } else {
                                 diag.errorOf(args[0], "%v", err).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                                 return
                         }
                 } else { args = args[1:] }
 
                 if i1 < -1 && i2 < -1 {
                         diag.errorAt(pos, "wrong indices (%d, %d)", i1, i2).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 } else if i1 > i2 { t := i1; i1 = i2; i2 = t } // swap the wrong order
                 
@@ -1746,7 +1746,7 @@ func builtinSubstring(pos Position, args... Value) (res Value) {
                         var s string
                         if s, err = arg.Strval(); err != nil {
                                 diag.errorAt(pos, "strval '%v' failed: %v", arg, err).
-                                        debug(options.debugErrors, 1)
+                                        debug(1)
                                 return
                         }
                         if i := len(s); i <= a { s = "" } else
@@ -1801,17 +1801,17 @@ func builtinPatsubst(pos Position, args... Value) (res Value) {
         )
         if proj == nil {
                 diag.errorAt(pos, "unknown current context").
-                        debug(options.debugErrors,1)
+                        debug(1)
                 return
         }
         if arg0, err = mergeresult(ExpandAll(args[0])); err != nil {
                 diag.errorAt(pos, "merge args failed: %v", err).
-                        debug(options.debugErrors,1)
+                        debug(1)
                 return
         }
         if arg0, err = parseOpts(pos, &opts, arg0...) ; err != nil {
                 diag.errorAt(pos, "parse opts failed: %v", err).
-                        debug(options.debugErrors,1)
+                        debug(1)
                 return
         }
 
@@ -1828,7 +1828,7 @@ func builtinPatsubst(pos Position, args... Value) (res Value) {
                         diag.infoAt(pos, "src: %v", srcPats)
                         diag.infoAt(pos, "dst: %v", dstPats)
                         diag.infoAt(pos, "%v", sources).
-                                debug(options.debugErrors,1)
+                                debug(1)
                 }
         } else {
                 if srcPats, err = mergeresult(ExpandAll(args[1]))    ; err != nil { diag.errorAt(pos, "%v", err); return }
@@ -1838,7 +1838,7 @@ func builtinPatsubst(pos Position, args... Value) (res Value) {
                         diag.infoAt(pos, "src: %v", srcPats)
                         diag.infoAt(pos, "dst: %v", dstPats)
                         diag.infoAt(pos, "%v", sources).
-                                debug(options.debugErrors,1)
+                                debug(1)
                 }
         }
 
@@ -1857,13 +1857,13 @@ ForSources:
                                 source = file
                         } else if s, err = src.Strval(); err != nil {
                                 diag.errorOf(src, "strval '%v' failed: %v", src, err)
-                                diag.errorAt(pos, "called from here", src).debug(options.debugErrors, 1)
+                                diag.errorAt(pos, "called from here", src).debug(1)
                                 return
                         } else if file = proj.FindFile(s); file != nil {
                                 if (opts.full || opts.fullfiles) && !filepath.IsAbs(file.name) {
                                         if !file.change("", "", file.fullname()) {
                                                 diag.warnAt(pos, "changing fullname failed: %v", file).
-                                                        debug(options.debugErrors, 1)
+                                                        debug(1)
                                         }
                                 }
                                 source = file
@@ -1872,15 +1872,15 @@ ForSources:
                         var ( s string; ok bool )
                         if _, s, ok, err = asOptFullname(proj, src); err != nil {
                                 diag.errorOf(src, "fullname '%v' failed: %v", src, err)
-                                diag.errorAt(pos, "called from here", src).debug(options.debugErrors, 1)
+                                diag.errorAt(pos, "called from here", src).debug(1)
                                 return
                         } else if s == "" {
                                 diag.errorOf(src, "fullname '%v' is empty", src)
-                                diag.errorAt(pos, "called from here", src).debug(options.debugErrors, 1)
+                                diag.errorAt(pos, "called from here", src).debug(1)
                                 return
                         } else if !ok {
                                 diag.errorOf(src, "fullname '%v' failed", src)
-                                diag.errorAt(pos, "called from here", src).debug(options.debugErrors, 1)
+                                diag.errorAt(pos, "called from here", src).debug(1)
                                 return
                         } else {
                                 source = s
@@ -2433,10 +2433,10 @@ func asOptFullname(proj *Project, val Value) (rp *Project, s string, ok bool, e 
                 // done
         } else if proj == nil {
                 diag.errorOf(val, "no current project to find file '%v'", val).
-                        debug(options.debugErrors,1)
+                        debug(1)
         } else if s, e = val.Strval(); e != nil {
                 diag.errorOf(val, "no current project to find file '%v'", val).
-                        debug(options.debugErrors,1)
+                        debug(1)
         } else if filepath.IsAbs(s) {
                 ok = true
         } else if file := proj.FindFile(s); file != nil {
@@ -2470,10 +2470,10 @@ func builtinFullname(pos Position, args... Value) (res Value) {
                 if opts.debug > 0 {
                         if f, ok := a.(*File); ok {
                                 diag.warnAt(pos, "dir=%v sub=%v name=%v", f.dir, f.sub, f.name).
-                                        debug(options.debugErrors, opts.debug)
+                                        debug(opts.debug)
                         } else {
                                 diag.warnAt(pos, "%T %v", a, a).
-                                        debug(options.debugErrors, opts.debug)
+                                        debug(opts.debug)
                         }
                 }
                 if proj, s, ok, err = asOptFullname(proj, a); err != nil {
@@ -2928,7 +2928,7 @@ func builtinRemove(pos Position, args... Value) (res Value) {
                         if names, err = filepath.Glob(str); err != nil { diag.errorOf(a, "%v", err).debug(true, 1); return }
                         for _, s := range names {
                                 if opts.verbose { diag.prompt("remove %s\n", s) }
-                                if opts.debug   { diag.infoAt(pos, "remove %s", s).debug(options.debugErrors, 1) }
+                                if opts.debug   { diag.infoAt(pos, "remove %s", s).debug(1) }
                                 if opts.all {
                                         err = os.RemoveAll(s)
                                 } else {
@@ -2942,17 +2942,17 @@ func builtinRemove(pos Position, args... Value) (res Value) {
                 } else if proj, str, ok, err = asOptFullname(proj, a); err != nil {
                         diag.errorOf(a, "fullname '%v' failed: %v", a, err)
                         diag.errorAt(pos, "internal stack:").
-                                debug(options.debugErrors, 16)
+                                debug(16)
                         return
                 } else if !ok || str == "" {
                         diag.errorOf(a, "remove failed: %v (%T)", a, a)
                         diag.errorOf(a, "remove failed: %v", str)
                         diag.errorAt(pos, "internal stack:").
-                                debug(options.debugErrors, 16)
+                                debug(16)
                         break
                 } else {
                         if opts.verbose { diag.prompt("remove %s\n", str) }
-                        if opts.debug   { diag.infoAt(pos, "remove %s", str).debug(options.debugErrors, 1) }
+                        if opts.debug   { diag.infoAt(pos, "remove %s", str).debug(1) }
                         if opts.all {
                                 err = os.RemoveAll(str)
                         } else {
@@ -2961,7 +2961,7 @@ func builtinRemove(pos Position, args... Value) (res Value) {
                         if err != nil {
                                 diag.errorAt(pos, "%v", err)
                                 diag.errorOf(a, "source: %v (%T)", a, a)
-                                diag.errorOf(a, "source: %v", str).debug(options.debugErrors, 1)
+                                diag.errorOf(a, "source: %v", str).debug(1)
                                 return
                         }
                 }
@@ -2997,15 +2997,15 @@ func builtinRemoveAll(pos Position, args... Value) (res Value) {
                         }
                 } else if proj, str, ok, err = asOptFullname(proj, a); err != nil {
                         diag.errorOf(a, "remove failed: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 } else if !ok || str == "" {
                         diag.errorOf(a, "%v is not a file", a).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         break
                 } else {
                         if opts.verbose { diag.infoAt(pos, "remove %s", str) }
-                        if opts.debug   { diag.infoAt(pos, "remove %s", str).debug(options.debugErrors, 1) }
+                        if opts.debug   { diag.infoAt(pos, "remove %s", str).debug(1) }
                         if err = os.RemoveAll(str); err != nil {
                                 diag.errorOf(a, "remove failed: %v", err)
                                 return
@@ -3211,13 +3211,13 @@ ForArgs:
                         oldname, err = filepath.Rel(dir, oldname)
                         if err != nil {
                                 if opts.verbose { diag.prompt("symlink: %s\n", err) }
-                                diag.errorAt(pos, "%v", err).debug(options.debugErrors, 1)
+                                diag.errorAt(pos, "%v", err).debug(1)
                                 return
                         }
                 }
                 if dir := filepath.Dir(newname); opts.path && dir != "." && dir != PathSep {
                         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
-                                diag.errorAt(pos, "%v", err).debug(options.debugErrors, 1)
+                                diag.errorAt(pos, "%v", err).debug(1)
                                 return
                         }
                 }
@@ -3337,12 +3337,12 @@ func builtinFile(pos Position, args... Value) (res Value) {
         var ( opts builtinFileOpts; err error; aa = args )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 diag.errorAt(pos, "expand args failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
         if args, err = parseOpts(pos, &opts, args...); err != nil {
                 diag.errorAt(pos, "parse opts failed: %v", err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
 
@@ -3351,7 +3351,7 @@ func builtinFile(pos Position, args... Value) (res Value) {
                 proj = cloctx[0].project
         } else if proj = current(); proj == nil {
                 diag.errorAt(pos, "unknown current cntext").
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         } else if false {
                 // Ensure that we're in the right closure context
@@ -3364,17 +3364,17 @@ func builtinFile(pos Position, args... Value) (res Value) {
                 if file, ok := a.(*File); ok {
                         list = append(list, file)
                         if file.exists() { continue }
-                        if opts.report { diag.infoAt(pos, "%v is no such file", a).debug(options.debugErrors,1) }
+                        if opts.report { diag.infoAt(pos, "%v is no such file", a).debug(1) }
                 } else if str, err = a.Strval(); err != nil {
                         diag.errorAt(pos, "strval '%v' failed: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 } else if file = proj.FindFile(str); file != nil {
                         list = append(list, file)
-                        if opts.report { diag.infoAt(pos, "%v is no such file", a).debug(options.debugErrors,1) }
+                        if opts.report { diag.infoAt(pos, "%v is no such file", a).debug(1) }
                 } else {
                         diag.errorAt(pos, "%v is not a file in %v (%v -> %v)", a, proj, aa, args).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 }
         }
 
@@ -3390,7 +3390,7 @@ type wildcardOpts struct {
 func builtinWildcard(pos Position, args... Value) (res Value) {
         var proj = current()
         if proj == nil {
-                diag.errorAt(pos, "unknown most derived context").debug(options.debugErrors,1)
+                diag.errorAt(pos, "unknown most derived context").debug(1)
                 return
         }
 
@@ -3400,17 +3400,17 @@ func builtinWildcard(pos Position, args... Value) (res Value) {
                 err error
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                diag.errorAt(pos, "merge args failed: %v", err).debug(options.debugErrors,1)
+                diag.errorAt(pos, "merge args failed: %v", err).debug(1)
                 return
         } else if args, err = parseOpts(pos, &opts, args...); err != nil {
-                diag.errorAt(pos, "parse opts failed: %v", err).debug(options.debugErrors,1)
+                diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
                 return
         } else if files, err = proj.wildcard(pos, opts, args...); err == nil {
                 var list []Value
                 for _, f := range files { list = append(list, f) }
                 res = MakeListOrScalar(pos, list)
         } else {
-                diag.errorAt(pos, "wildcard failed: %v", err).debug(options.debugErrors,1)
+                diag.errorAt(pos, "wildcard failed: %v", err).debug(1)
         }
         return
 }
@@ -3465,15 +3465,15 @@ func builtinReadFile(pos Position, args... Value) (res Value) {
                 if !apos.IsValid() { apos = pos }
                 if proj, str, ok, err = asOptFullname(proj, a); err != nil {
                         diag.errorAt(pos, "fullname '%v' failed: %v", a, err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         break
                 } else if !ok || str == "" {
                         diag.errorAt(apos, "%v is not a file", a).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         break
                 } else if s, err = ioutil.ReadFile(str); err != nil {
                         diag.errorAt(apos, "read file failed: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         break
                 } else {
                         if opts.trim { s = bytes.TrimFunc(s, unicode.IsSpace) } else
@@ -3560,14 +3560,14 @@ func touch(file Value, optMode uint32, optPath bool, ts ...time.Time) (err error
         var filename, _ = fullname(file)
         if  filename == "" {
                 diag.errorOf(file, "touch: file fullname of '%v' is empty", file, err).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 return
         }
 
         if dir := filepath.Dir(filename); optPath && dir != "." && dir != PathSep {
                 if err = os.MkdirAll(dir, os.FileMode(optMode|0733)); err != nil {
                         diag.errorOf(file, "touch: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                         return
                 }
         }
@@ -3588,22 +3588,22 @@ func touch(file Value, optMode uint32, optPath bool, ts ...time.Time) (err error
                 if m = mode; m == 0 { m = os.FileMode(0600); mode = m }
                 if f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, m&os.ModePerm); err != nil {
                         diag.errorOf(file, "touch: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 } else if err = f.Close(); err != nil {
                         diag.errorOf(file, "touch: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 }
         }
         if err == nil {
                 if err = os.Chtimes(filename, at, mt); err != nil {
                         diag.errorOf(file, "touch: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 }
         }
         if err == nil && mode != 0 && m != 0 && mode != m {
                 if err = os.Chmod(filename, mode); err != nil {
                         diag.errorOf(file, "touch: %v", err).
-                                debug(options.debugErrors, 1)
+                                debug(1)
                 }
         }
         return

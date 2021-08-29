@@ -86,69 +86,78 @@ type diagnostic struct {
   stack []byte // see debug.Stack()
 }
 func (d *diagnostic) getPosition() Position {
-  if isNil(d.value) {
-    return d.position
-  } else {
-    return d.value.Position()
-  }
+  if d.value == nil { return d.position }
+  return d.value.Position()
 }
-func (d *diagnostic) debug(enabled bool, args ...interface{}) {
+func (d *diagnostic) debug(args ...interface{}) {
   const skips = 5 // skips the standard stack lines, which is not very useful
-  if enabled {
+  switch d.dt {
+  case diagPrompt: if !options.debugPrompt { return }
+  case diagInfo:   if !options.debugInfos  { return }
+  case diagWarn:   if !options.debugWarns  { return }
+  case diagError:  if !options.debugErrors { return }
+  }
+  if n := len(args); n  > 1 {
+    if enabled, ok := args[0].(bool); ok {
+      if enabled { args = args[1:] }  else { return }
+    }
+  }
+
+  var (
+    ln = []byte{ '\n' }
+    v = bytes.Split(debug.Stack(), ln)
+    i, j int
+  )
+  if skips > 0 && len(v) > skips { i = skips }
+  if n := len(args); n == 1 {
+    if t, ok := args[0].(int); ok { j = t }
+  } else if n == 2 {
+    if t, ok := args[0].(int); ok { i += t }
+    if t, ok := args[1].(int); ok { j = t }
+  } else if n > 2 {
+    panic("too many debug args")
+  } else {
+    panic("needs debug args")
+  }
+
+  var s string
+  switch d.dt {
+  case diagPrompt: s = "note:"
+  case diagInfo:   s = "info:"
+  case diagWarn:   s = "warning:"
+  }
+
+  if false {
     var (
-      ln = []byte{ '\n' }
-      v = bytes.Split(debug.Stack(), ln)
-      i, j int
+      sm1 = goStackLine1.FindAllSubmatch(v[i+0], 1)
+      sm2 = goStackLine2.FindAllSubmatch(v[i+1], 1)
     )
-    if skips > 0 && len(v) > skips { i = skips }
-    if n := len(args); n == 1 {
-      if t, ok := args[0].(int); ok { j = t }
-    } else if n == 2 {
-      if t, ok := args[0].(int); ok { i += t }
-      if t, ok := args[1].(int); ok { j = t }
-    } else {
-      panic("too many debug args")
+    if j == 1 && sm1 != nil && sm2 != nil {
+      d.stack = append(sm2[0][1], []byte(":"+s+" ")...)
+      d.stack = append(d.stack, sm1[0][1]...)
+      d.stack = append(d.stack, []byte("\n")...)
+    } else if 0 < j && i+j <= len(v) {
+      if j % 2 != 0 { j += 1 }
+      ending := []byte(" (and more frames…)\n") //[]byte("\n…more frames not displayed ……\n")
+      d.stack = append(bytes.Join(v[i:i+j], ln), ending...)
     }
-
-    var s string
-    switch d.dt {
-    case diagPrompt: s = "note:"
-    case diagInfo:   s = "info:"
-    case diagWarn:   s = "warning:"
-    }
-
-    if false {
+  } else if true {
+    for j += j % 2; i+1 < len(v) && 0 < j; i += 2 {
       var (
         sm1 = goStackLine1.FindAllSubmatch(v[i+0], 1)
         sm2 = goStackLine2.FindAllSubmatch(v[i+1], 1)
       )
-      if j == 1 && sm1 != nil && sm2 != nil {
-        d.stack = append(sm2[0][1], []byte(":"+s+" ")...)
+      if sm1 != nil && sm2 != nil {
+        d.stack = append(d.stack, sm2[0][1]...)
+        d.stack = append(d.stack, []byte(":"+s+" ")...)
         d.stack = append(d.stack, sm1[0][1]...)
+        d.stack = append(d.stack, sm1[0][2]...)
         d.stack = append(d.stack, []byte("\n")...)
-      } else if 0 < j && i+j <= len(v) {
-        if j % 2 != 0 { j += 1 }
-        ending := []byte(" (and more frames…)\n") //[]byte("\n…more frames not displayed ……\n")
-        d.stack = append(bytes.Join(v[i:i+j], ln), ending...)
       }
-    } else if true {
-      for j += j % 2; i+1 < len(v) && 0 < j; i += 2 {
-        var (
-          sm1 = goStackLine1.FindAllSubmatch(v[i+0], 1)
-          sm2 = goStackLine2.FindAllSubmatch(v[i+1], 1)
-        )
-        if sm1 != nil && sm2 != nil {
-          d.stack = append(d.stack, sm2[0][1]...)
-          d.stack = append(d.stack, []byte(":"+s+" ")...)
-          d.stack = append(d.stack, sm1[0][1]...)
-          d.stack = append(d.stack, sm1[0][2]...)
-          d.stack = append(d.stack, []byte("\n")...)
-        }
-        j -= 2
-      }
-    } else {
-      d.stack = bytes.Join(v[i:], ln)
+      j -= 2
     }
+  } else {
+    d.stack = bytes.Join(v[i:], ln)
   }
 }
 

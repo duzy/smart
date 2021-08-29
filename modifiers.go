@@ -346,7 +346,7 @@ func modifierDebug(pos Position, t *traversal, args... Value) (result Value, err
                                 debug(options.debugErrors, 1)
                         return
                 }
-                diag.infoOf(info, "%s", s).debug(options.debugErrors, 1)
+                diag.infoOf(info, "%s", s).debug(1)
         }
         for _, warn := range opts.warn {
                 if s, err = warn.Strval(); err != nil {
@@ -354,7 +354,7 @@ func modifierDebug(pos Position, t *traversal, args... Value) (result Value, err
                                 debug(options.debugErrors, 1)
                         return
                 }
-                diag.warnOf(warn, "%s", s).debug(options.debugErrors, 1)
+                diag.warnOf(warn, "%s", s).debug(1)
         }
         for _, error := range opts.error {
                 if s, err = error.Strval(); err != nil {
@@ -362,7 +362,7 @@ func modifierDebug(pos Position, t *traversal, args... Value) (result Value, err
                                 debug(options.debugErrors, 1)
                         return
                 }
-                diag.errorOf(error, "%s", s).debug(options.debugErrors, 1)
+                diag.errorOf(error, "%s", s).debug(1)
         }
         if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.error) == 0 {
                 diag.warnAt(pos, "debug: %v %v", t.def.target, t.def.depends).
@@ -2222,7 +2222,7 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
             if opts.verbose { diag.prompt("Override %v …", target) }
           } else {
             if opts.verbose { diag.prompt("Copy %v …… already existed!\n", target) }
-            if !opts.silent { diag.errorAt(pos, "file already existed (%s)", target).debug(options.debugErrors, 1) }
+            if !opts.silent { diag.errorAt(pos, "file already existed (%s)", target).debug(1) }
             return
           }
         } else if opts.verbose {
@@ -2448,7 +2448,7 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
 
         if opts.debug {
                 diag.infoAt(pos, "update-file: %v (%v) (%v, %v)",
-                        target, filename, t.project, cloctx).debug(options.debugErrors, 1)
+                        target, filename, t.project, cloctx).debug(1)
         }
 
         if opts.path { // Make path (mkdir -p)
@@ -2505,7 +2505,7 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                         } else {
                                 var files []*File
                                 if files, err = file.stamp(t); err != nil {
-                                        diag.errorAt(pos, "%v", err).debug(options.debugErrors,1)
+                                        diag.errorAt(pos, "%v", err).debug(1)
                                         return
                                 } else if opts.verbose {
                                         reportFileUpdates(pos, t.start, files)
@@ -2635,29 +2635,29 @@ func modifierStamp(pos Position, t *traversal, args... Value) (result Value, err
         if target, _, _, err = t.wait(pos, opts.prompt, waitForExecResult, stampCurrentTarget); err == nil {
                 return
         } else if opts.next {
-                if opts.verbose { diag.warnAt(pos, "%v", err).debug(options.debugErrors, 1) }
+                if opts.verbose { diag.warnAt(pos, "%v", err).debug(1) }
                 t._break(pos, breakNext).scope = breakTrave
                 err = nil // discard the error
         } else if opts.error {
                 if opts.debug > 0 {
-                        t.traceCallStack(pos, "%v", err).debug(options.debugErrors, opts.debug)
+                        t.traceCallStack(pos, "%v", err).debug(opts.debug)
                 } else {
-                        diag.errorAt(pos, "%v", err).debug(options.debugErrors, 1)
+                        diag.errorAt(pos, "%v", err).debug(1)
                 }
                 t._break(pos, breakErro).error = err
         } else if t.stems != nil {
                 if opts.debug > 0 {
-                        diag.warnAt(pos, "%v", err).debug(options.debugErrors, opts.debug)
-                        t.traceCallStack(pos, "%v", err).debug(options.debugErrors, opts.debug)
+                        diag.warnAt(pos, "%v", err).debug(opts.debug)
+                        t.traceCallStack(pos, "%v", err).debug(opts.debug)
                 } else {
-                        diag.warnAt(pos, "%v", err).debug(options.debugErrors, 1)
+                        diag.warnAt(pos, "%v", err).debug(1)
                 }
                 t._break(pos, breakNext).scope = breakTrave
                 err = nil // discard the error
         } else if pos.IsValid() {
-                t.traceCallStack(pos, "failed: %v", err).debug(options.debugErrors, 1)
+                t.traceCallStack(pos, "failed: %v", err).debug(1)
         } else if targetPos := target.Position(); targetPos.IsValid() {
-                t.traceCallStack(targetPos, "failed: %v", err).debug(options.debugErrors, 1)
+                t.traceCallStack(targetPos, "failed: %v", err).debug(1)
         } else {
                 // TODO: dump more diagnostics information here
         }

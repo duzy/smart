@@ -232,7 +232,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                     err = fmt.Errorf("execution yields %d errors for %v", n, entry)
                 }
                 caller._break(pos, breakErro).error = err
-                if false { diag.warnAt(pos, "break: %v", err).debug(options.debugErrors, 1) }
+                if false { diag.warnAt(pos, "break: %v", err).debug(1) }
             }
         }
     } ()
@@ -243,7 +243,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     }
     if recursion >= maxRecursion {
         diag.errorAt(pos, "exceeds max recursion: %v", entry.target).
-            debug(options.debugErrors,1)
+            debug(1)
         for c := caller; c != nil; c = c.caller {
             var n int
             for next := c.caller; next != nil; next = next.caller {
@@ -257,7 +257,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         }
         diag.errorAt(pos, "too many recursion (%d) (%v) (from %v)",
             recursion, entry.target, caller.def.target.value).
-            debug(options.debugErrors, 1)
+            debug(1)
         return
     }
 
@@ -288,13 +288,13 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 case breakNext, breakCase, breakDone:
                 case breakFail:
                     diag.errorAt(pos, "broken execution for %v (%v): %v", entry, t.def.target, b.message).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 case breakErro:
                     diag.errorAt(pos, "broken execution for %v (%v): %v", entry, t.def.target, b.error).
-                        debug(options.debugErrors, 1)
+                        debug(1)
                 default:
                     diag.errorAt(pos, "broken execution for %v (%v): %v", entry, t.def.target, b.what).
-                        debug(options.debugErrors, 16)
+                        debug(16)
                 }
             }
         } ()
@@ -325,7 +325,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     if len(cd.stack) > 0 { enterBack = cd.stack[0] }
     if err = enter(prog, prog.project.absPath); err != nil {
         diag.errorAt(pos, "enter project '%v' failed: %v", prog.project, err).
-            debug(options.debugErrors, 1)
+            debug(1)
         return
     }
     defer func(scc closurecontext, swd string) {
@@ -335,14 +335,14 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
             // NOTE: err could be breakCase, breakDone, etc.
             if err == nil { err = e } else {
                 diag.errorAt(pos, "leave project '%v' failed: %v", prog.project, err).
-                    debug(options.debugErrors, 1)
+                    debug(1)
             }
         }
         prog.project.changedWD = swd
 
         if err != nil {
             diag.errorAt(pos, "execution failed: %v", err).
-                debug(options.debugErrors, 6)
+                debug(6)
             return
         }
 
@@ -377,7 +377,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         var target = t.entry.target
         if name, err = target.Strval(); err != nil {
             diag.errorAt(pos, "strval '%v' failed: %v", target, err).
-                debug(options.debugErrors, 1)
+                debug(1)
             return
         }
         if file := prog.project.FindFile(name); file != nil {
@@ -421,7 +421,7 @@ func (t *traversal) exec(prog *Program) (result Value) {
     if t.normalPrerequisites(pos); t.hasBreakers() { return }
     if n := diag.checkErrors(true); n > 0 {
         diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).
-            debug(options.debugErrors, 1)
+            debug(1)
         t.traceCallStack(pos, "call stack for %v:", t.def.target.value)
         return
     }
@@ -430,7 +430,7 @@ func (t *traversal) exec(prog *Program) (result Value) {
     if t.orderOnlyPrerequisites(pos); t.hasBreakers() { return }
     if n := diag.checkErrors(true); n > 0 {
         diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).
-            debug(options.debugErrors, 1)
+            debug(1)
         return
     }
 
@@ -439,7 +439,7 @@ func (t *traversal) exec(prog *Program) (result Value) {
     if t.greppedFiles(pos);           t.hasBreakers() { return }
     if n := diag.checkErrors(true); n > 0 {
         diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).
-            debug(options.debugErrors, 1)
+            debug(1)
         return
     }
     */
@@ -450,11 +450,11 @@ func (t *traversal) exec(prog *Program) (result Value) {
         if i, ok := dialects["eval"]; ok && i != nil {
             if err := prog.interpret(pos, t, i, nil); err != nil {
                 diag.errorAt(pos, "%v", err).
-                    debug(options.debugErrors,1)
+                    debug(1)
             }
         } else {
             diag.errorAt(pos, "no default dialect").
-                    debug(options.debugErrors,1)
+                    debug(1)
         }
     }
 
@@ -479,7 +479,7 @@ func (t *traversal) prerequisites(pos Position, prerequisites []Value) {
             var brks = t.breakersNot(breakNext, breakCase, breakDone)
             if len(brks) > 0 && len(t.stems) > 0 && false {
                 diag.warnAt(pos, "broken traversal: %v (target = %v, stems = %v)", brks[0].what,
-                    t.def.target.value, t.stems).debug(options.debugErrors)
+                    t.def.target.value, t.stems).debug(1)
             }
             break
         }
