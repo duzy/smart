@@ -1401,7 +1401,7 @@ func modifierGrep(pos Position, t *traversal, args... Value) (result Value, err 
                                 }
                         }
                         diag.prompt("Grep %v …… (%d files in %v)\n", s, len(grepped), time.Now().Sub(ts)).
-                                debug(gc.debug && options.debugErrors, 6)
+                                debug(gc.debug, 6)
                 } (time.Now())
         }
 
@@ -2422,24 +2422,32 @@ type modifierUpdateFileOpts struct {
 }
 func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value, err error) {
         var ( opts = modifierUpdateFileOpts{ mode: os.FileMode(0640) }; filename string )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
-        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err).debug(1)
+                return
+        } else if args, err = parseOpts(pos, &opts, args...) ; err != nil {
+                diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
+                return
+        }
 
         var target Value
         if len(args) > 0 { target = args[0] } else { target = t.def.target.value }
-        if len(args) > 1 { if opts.mode, err = permVal(args[1], 0600); err != nil { return }}
+        if len(args) > 1 { if opts.mode, err = permVal(args[1], 0600); err != nil {
+                diag.errorOf(args[1], "perm value '%v' failed: %v", args[1], err).debug(1)
+                return
+        }}
 
         // Get target filename
         switch p := target.(type) {
         case *File: filename = p.fullname()
         case *Path:
                 if filename, err = p.Strval(); err != nil {
-                        diag.errorAt(pos, "strval path '%v' failed: %v", p, err)
+                        diag.errorAt(pos, "strval path '%v' failed: %v", p, err).debug(1)
                         return
                 }
         default:
                 if filename, err = target.Strval(); err != nil {
-                        diag.errorAt(pos, "strval '%v' failed: %v", p, err)
+                        diag.errorAt(pos, "strval '%v' failed: %v", p, err).debug(1)
                         return
                 } else if file := t.project.FindFile(filename); file != nil {
                         target, filename = file, file.fullname()
@@ -2461,39 +2469,42 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
         // Check existed file content checksum
         var content string
         if content, err = t.def.buffer.value.Strval(); err != nil { return }
-        if content == "" && (opts.verbose || opts.debug) { diag.prompt("%s: empty content\n", pos) }
-        if opts.verbose { diag.prompt("Checking %v …", trimPromptString(target.String())) }
-        if same, e := crc64CheckFileModeContent(filename, []byte(content), opts.mode); e != nil {
-                if false { // discard error (e.g.: no such file or directory)
-                        diag.prompt("… (error: %s)\n", e)
-                        diag.errorAt(pos, "%v", e)
+        if content == "" && (opts.verbose || opts.debug) {
+                diag.prompt("%s: empty content\n", pos).debug(opts.debug, 1)
+        }
+
+        var same bool
+        if opts.verbose {
+                printEnteringDirectory()
+                defer func(st time.Time) {
+                        var s string
+                        if err != nil { s = err.Error() } else if same { s = "unchanged" } else {
+                                s = fmt.Sprintf("outdated (%s)", filename)
+                        }
+                        diag.prompt("Update %v …… %s (in %v)\n", trimPromptString(target.String()), s, time.Now().Sub(st)).
+                                debug(opts.debug, 6)
+                } (time.Now())
+        }
+        if same, err = crc64CheckFileModeContent(filename, []byte(content), opts.mode); err != nil {
+                if _, ok := err.(*os.PathError); ok {
+                        err = nil // discard path error (e.g. no such file or directory)
+                } else {
+                        diag.errorAt(pos, "crc64 checksum failed: %v", err).debug(1)
                         return
                 }
         } else if same {
-                if opts.verbose { diag.prompt("… Good\n") }
                 t.removeCallerUpdated(target) // remove timestamp updated
                 result = stat(pos, filename, "", "")
                 return
-        } else if opts.verbose {
-                diag.prompt("… Outdated (%s)\n", filename)
-        }
-
-        if opts.verbose {
-                printEnteringDirectory()
-                if false {
-                        diag.prompt("Update %v …", filename)
-                } else {
-                        s := target.String()
-                        if len(s) > maxPromptStr { s = "…"+s[len(s)-maxPromptStr:] }
-                        diag.prompt("Update %v …", s)
-                }
         }
 
         // Create or update the file with new content
 
         var f *os.File
-        f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, opts.mode)
-        if err == nil && f != nil {
+        if f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, opts.mode); err != nil {
+                t._break(pos, breakFail).message = fmt.Sprintf("update file %s failed", t.def.target.value)
+                diag.errorAt(pos, "open file failed: %v", err).debug(1)
+        } else if f != nil {
                 defer func() {
                         if err = f.Close(); err != nil {
                                 os.Remove(filename)
@@ -2501,7 +2512,7 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                         }
                         var file = stat(pos, filename, "", "")
                         if  file == nil {
-                                diag.errorAt(pos, "invalid file '%s'", filename)
+                                diag.errorAt(pos, "invalid file '%s'", filename).debug(1)
                         } else {
                                 var files []*File
                                 if files, err = file.stamp(t); err != nil {
@@ -2513,13 +2524,10 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                                 result = file // resulting the updated file
                         }
                 } ()
-                if _, err = f.WriteString(content); err == nil {
-                        if opts.verbose { diag.prompt("… (ok)\n") }
-                } else {
-                        if opts.verbose { diag.prompt("… (%s)\n", err) }
+                if _, err = f.WriteString(content); err != nil {
+                        diag.errorAt(pos, "write content failed: %v", err).debug(1)
                 }
         } else {
-                if opts.verbose { diag.prompt("… (%s)\n", err) }
                 t._break(pos, breakFail).message = fmt.Sprintf("file %s not updated", t.def.target.value)
         }
         return
