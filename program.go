@@ -305,15 +305,16 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         if optionTraceTraversalNestIndent { t.traceLevel = t.caller.traceLevel }
         if t.stems = t.caller.stems; t.stems != nil { stem = MakeString(pos, t.stems[0]) }
     }
-    if t.def.stem,    err = prog.auto("*", stem); err != nil { diag.errorAt(pos, "%v", err); return }
-    if t.def.target,  err = prog.auto("@", none); err != nil { diag.errorAt(pos, "%v", err); return }
-    if t.def.depend0, err = prog.auto("<", none); err != nil { diag.errorAt(pos, "%v", err); return }
-    if t.def.depends, err = prog.auto("^", none); err != nil { diag.errorAt(pos, "%v", err); return }
-    if t.def.ordered, err = prog.auto("|", none); err != nil { diag.errorAt(pos, "%v", err); return }
-    if t.def.grepped, err = prog.auto("~", none); err != nil { diag.errorAt(pos, "%v", err); return }
-    if t.def.updated, err = prog.auto("?", none); err != nil { diag.errorAt(pos, "%v", err); return }
-    if t.def.buffer,  err = prog.auto("-", none); err != nil { diag.errorAt(pos, "%v", err); return }
-    if t.def.params,f,err = prog.args(args)     ; err != nil { diag.errorAt(pos, "%v", err); return } else {
+    if t.def.stem,    err = prog.auto("*", stem); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
+    if t.def.target,  err = prog.auto("@", none); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
+    if t.def.depend0, err = prog.auto("<", none); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
+    if t.def.dependx, err = prog.auto(">", none); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
+    if t.def.depends, err = prog.auto("^", none); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
+    if t.def.ordered, err = prog.auto("|", none); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
+    if t.def.grepped, err = prog.auto("~", none); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
+    if t.def.updated, err = prog.auto("?", none); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
+    if t.def.buffer,  err = prog.auto("-", none); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
+    if t.def.params,f,err = prog.args(args)     ; err != nil { diag.errorAt(pos, "%v", err).debug(1); return } else {
         defer f()
     }
 
@@ -489,37 +490,34 @@ func (t *traversal) prerequisites(pos Position, prerequisites []Value) {
 func (t *traversal) normalPrerequisites(pos Position) {
     if optionTraceExec        { defer un(trace(t_exec, t.def.depends.name)) }
     if optionEnableBenchmarks { defer bench(mark("traversal.normalPrerequisites")) }
-    defer func(t0, ta *Def) {
-        if t.target0, t.targets = t0, ta; len(t.updated) > 0 {
+    defer func(t0, tx, ta *Def) {
+        if t.target0, t.targetx, t.targets = t0, tx, ta; len(t.updated) > 0 {
             t.def.updated.value = t.updated[0].target // $?
             for _, u := range t.updated[1:] {
                 t.def.updated.append(u.target)
             }
         }
-    } (t.target0, t.targets)
-    t.target0 = t.def.depend0
-    t.targets = t.def.depends
+    } (t.target0, t.targetx, t.targets)
+    t.targets, t.target0, t.targetx = t.def.depends, t.def.depend0, t.def.dependx
     t.prerequisites(pos, t.program.depends)
 }
 
 func (t *traversal) orderOnlyPrerequisites(pos Position) {
     if optionTraceExec        { defer un(trace(t_exec, t.def.ordered.name)) }
     if optionEnableBenchmarks { defer bench(mark("traversal.orderOnlyPrerequisites")) }
-    defer func(t0, ta *Def) {
-        t.target0, t.targets = t0, ta
-    } (t.target0, t.targets)
-    t.target0 = nil
-    t.targets = t.def.ordered
+    defer func(t0, tx, ta *Def) {
+        t.target0, t.targetx, t.targets = t0, tx, ta
+    } (t.target0, t.targetx, t.targets)
+    t.targets, t.target0, t.targetx = t.def.ordered, nil, nil
     t.prerequisites(pos, t.program.ordered)
 }
 
 func (t *traversal) greppedFiles(pos Position) {
     if optionTraceExec        { defer un(trace(t_exec, t.def.grepped.name)) }
     if optionEnableBenchmarks { defer bench(mark("traversal.greppedFiles")) }
-    defer func(t0, ta *Def) {
-        t.target0, t.targets = t0, ta
-    } (t.target0, t.targets)
-    t.target0 = nil
-    t.targets = t.def.grepped
+    defer func(t0, tx, ta *Def) {
+        t.target0, t.targetx, t.targets = t0, tx, ta
+    } (t.target0, t.targetx, t.targets)
+    t.targets, t.target0, t.targetx = t.def.grepped, nil, nil
     t.prerequisites(pos, t.grepped)
 }

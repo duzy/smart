@@ -250,6 +250,7 @@ type traversal struct {
         target   *Def // $@
         depends  *Def // $^
         depend0  *Def // $<
+        dependx  *Def // $>
         ordered  *Def // $|
         grepped  *Def // $~
         updated  *Def // $?
@@ -267,8 +268,9 @@ type traversal struct {
     entry *RuleEntry // caller entry (target)
     args, arguments []Value // target and argumented prerequisite args
 
-    target0 *Def
-    targets *Def
+    target0 *Def // the first target def
+    targetx *Def // the last target def
+    targets *Def // all targets def
     grepped []Value
     grepping bool
 
@@ -354,9 +356,9 @@ func (t *traversal) add(target Value) {
     for _, t := range merge(t.targets.value) {
         if t == target || t.cmp(target) == cmpEqual { return }
     }
-    if t.targets.append(target); t.target0 != nil && t.target0.isEmpty() {
-        t.target0.value = target
-    }
+    if t.target0 != nil && t.target0.isEmpty() { t.target0.value = target }
+    if t.targetx != nil { t.targetx.value = target }
+    t.targets.append(target)
 }
 
 func (t *traversal) getCurrentTargetValue() (res Value) {

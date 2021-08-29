@@ -958,11 +958,12 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 		isDelegate := ch == '$'
 		tok, ch = token.CLOSURE, rune(s.src[s.readOffset-1])
 		switch {
-		case ch == '/': tok = token.CLOSURE_R
+		case ch == '/': tok = token.CLOSURE_r
 		case ch == '.': tok = token.CLOSURE_D
 		case ch == '@': tok = token.CLOSURE_A
 		case ch == '|': tok = token.CLOSURE_B
 		case ch == '<': tok = token.CLOSURE_L
+		case ch == '>': tok = token.CLOSURE_R
 		case ch == '^': tok = token.CLOSURE_U
 		case ch == '*': tok = token.CLOSURE_S
 		case ch == '-': tok = token.CLOSURE_M

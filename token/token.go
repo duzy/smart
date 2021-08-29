@@ -79,11 +79,12 @@ const (
 	// relys upon their order.
 	closure_beg
 	CLOSURE      // &
-	CLOSURE_R    // &/
+	CLOSURE_r    // &/
 	CLOSURE_D    // &.
 	CLOSURE_A    // &@
 	CLOSURE_B    // &|
 	CLOSURE_L    // &<
+	CLOSURE_R    // &>
 	CLOSURE_U    // &^
 	CLOSURE_S    // &*
 	CLOSURE_M    // &-
@@ -102,11 +103,12 @@ const (
 	closure_end
 	delegate_beg
 	DELEGATE      // $
-	DELEGATE_R    // $/
+	DELEGATE_r    // $/
 	DELEGATE_D    // $.
 	DELEGATE_A    // $@
 	DELEGATE_B    // $|
 	DELEGATE_L    // $<
+	DELEGATE_R    // $>
 	DELEGATE_U    // $^
 	DELEGATE_S    // $*
 	DELEGATE_M    // $-
@@ -222,11 +224,12 @@ var tokens = [...]string{
 	STAR:      "*",
 
 	CLOSURE:      "&",
-	CLOSURE_R:    "&/",
+	CLOSURE_r:    "&/",
 	CLOSURE_D:    "&.",
 	CLOSURE_A:    "&@",
 	CLOSURE_B:    "&|",
 	CLOSURE_L:    "&<",
+	CLOSURE_R:    "&>",
 	CLOSURE_U:    "&^",
 	CLOSURE_S:    "&*",
 	CLOSURE_M:    "&-",
@@ -244,11 +247,12 @@ var tokens = [...]string{
 	CLOSURE__:    "&_",
 
 	DELEGATE:      "$",
-	DELEGATE_R:    "$/",
+	DELEGATE_r:    "$/",
 	DELEGATE_D:    "$.",
 	DELEGATE_A:    "$@",
 	DELEGATE_B:    "$|",
 	DELEGATE_L:    "$<",
+	DELEGATE_R:    "$>",
 	DELEGATE_U:    "$^",
 	DELEGATE_S:    "$*",
 	DELEGATE_M:    "$-",

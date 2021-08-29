@@ -2189,10 +2189,10 @@ ForModifiersExpr:
 // Similar to makefile automatic variables, see
 //   * https://www.gnu.org/software/make/manual/html_node/Automatic-Variables.html#Automatic-Variables
 var automatics = []string{
-	"@" , "%" , "<" , "?" , "^" , "+" , "|" , "*" ,  //
-	"@D", "%D", "<D", "?D", "^D", "+D", "|D", "*D", //
-	"@F", "%F", "<F", "?F", "^F", "+F", "|F", "*F", //
-	"@'", "%'", "<'", "?'", "^'", "+'", "|'", "*'", //
+	"@" , "%" , "<" , ">" , "?" , "^" , "+" , "|" , "*" ,  //
+	"@D", "%D", "<D", ">D", "?D", "^D", "+D", "|D", "*D", //
+	"@F", "%F", "<F", ">F", "?F", "^F", "+F", "|F", "*F", //
+	"@'", "%'", "<'", ">'", "?'", "^'", "+'", "|'", "*'", //
 	"-" , "~" ,
 }
 
