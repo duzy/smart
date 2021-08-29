@@ -16,6 +16,7 @@ import (
     "bufio"
     "bytes"
     "sort"
+    "time"
     "fmt"
     "os"
 )
@@ -793,14 +794,12 @@ type modifierConfigureFileOpts struct {
 //     config.h: config.h.in [(configure-file)]
 //     
 func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Value, err error) {
-    if args, err = mergeresult(ExpandAll(args...)); err != nil {
-        diag.errorAt(pos, "merge configure-file args failed: %v", err)
-        return
-    }
-
     var opts = modifierConfigureFileOpts{ mode: os.FileMode(0600) }
-    if args, err = parseOpts(pos, &opts, args...); err != nil {
-        diag.errorAt(pos, "parse configure-file opts failed: %v", err)
+    if args, err = mergeresult(ExpandAll(args...)); err != nil {
+        diag.errorAt(pos, "merge configure-file args failed: %v", err).debug(1)
+        return
+    } else if args, err = parseOpts(pos, &opts, args...); err != nil {
+        diag.errorAt(pos, "parse configure-file opts failed: %v", err).debug(1)
         return
     }
 
@@ -812,30 +811,32 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
     if file, _ = t.def.target.value.(*File); file == nil {
         var ( s string; okay bool )
         if s, err = t.def.target.value.Strval(); err != nil {
-            diag.errorAt(pos, "strval target '%v' failed: %v", t.def.target.value, err)
+            diag.errorAt(pos, "strval target '%v' failed: %v", t.def.target.value, err).debug(1)
             return
         }
 
         okay, err = t.forClosuredProjects(func(p *Project) (ok bool, err error) {
             if file = p.FindFile(s); file != nil { project, ok = p, true }
-            if opts.debug && file != nil { diag.prompt("%s: %v: file %v\n", pos, p, file) }
+            if opts.verbose && opts.debug && file != nil {
+                diag.infoAt(pos, "%v: file %v\n", p, file).debug(opts.debug,1)
+            }
             return
         })
 
         if err != nil {
-            diag.errorAt(pos, "find file '%s' failed: ", s, err)
+            diag.errorAt(pos, "find file '%s' failed: ", s, err).debug(1)
             return
         } else if !okay {
-            diag.errorAt(pos, "target '%s' is not a file", s)
+            diag.errorAt(pos, "target '%s' is not a file", s).debug(1)
             return
         }
     }
 
     if file == nil {
-        diag.errorAt(pos, "no file target")
+        diag.errorAt(pos, "no file target").debug(1)
         return
     } else if filename, _ = fullname(file); filename == "" {
-        diag.errorAt(pos, "`%v` has empty filename", file)
+        diag.errorAt(pos, "`%v` has empty filename", file).debug(1)
         return
     } else if !filepath.IsAbs(filename) {
         // FIXES: match file map to have the full filename.
@@ -844,13 +845,13 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
                 ok, file, filename, project = true, f, f.fullname(), p
                 t.def.target.value = file // reset target file
                 if opts.debug {
-                    diag.infoAt(pos, "configure-file: %v: %s->%s", p, f, filename)
+                    diag.infoAt(pos, "configure-file: %v: %s->%s", p, f, filename).debug(1)
                 }
             }
             return
         })
         if err != nil {
-            diag.errorAt(pos, "locate file '%v' failed: %v", filename, err)
+            diag.errorAt(pos, "locate file '%v' failed: %v", filename, err).debug(1)
             return
         }
     }
@@ -878,17 +879,38 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
     var data bytes.Buffer
     for _, arg := range append(args, t.def.buffer.value) {
         var str string
-        if str, err = arg.Strval(); err != nil { return }
+        if str, err = arg.Strval(); err != nil {
+            diag.errorAt(pos, "%v", err).debug(1)
+            return
+        }
         if str == "" { continue }
-        if err = configure(pos, &data, closure.project, str); err != nil { return }
+        if err = configure(pos, &data, closure.project, str); err != nil {
+            diag.errorAt(pos, "%v", err).debug(1)
+            return
+        }
     }
-    if data.Len() == 0 { diag.errorAt(pos, "no input data"); return }
+    if data.Len() == 0 {
+        diag.errorAt(pos, "no input data").debug(1)
+        return
+    }
 
-    if opts.verbose { diag.prompt("Checking %v …", file) }
+    var ( status string; same bool )
+    if opts.verbose {
+        printEnteringDirectory()
+        defer func(st time.Time) {
+            if err != nil { status = err.Error() } else if same {
+                if true { return } else { status = "unchanged" }
+            } else if status == "" {
+                status = fmt.Sprintf("outdated (%s)", filename)
+            }
+            diag.prompt("Update %v …… %s (in %v)\n", trimPromptString(filename), status, time.Now().Sub(st)).
+                debug(opts.debug, 6)
+        } (time.Now())
+    }
     if file.info != nil {
-        if same, e := crc64CheckFileModeContent(filename, data.Bytes(), opts.mode); e != nil {
-            if opts.verbose { diag.prompt("… (error: %s)\n", e) }
-            diag.errorAt(pos, "%v", e); return
+        if same, err = crc64CheckFileModeContent(filename, data.Bytes(), opts.mode); err != nil {
+            diag.errorAt(pos, "crc64 checksum failed: %v", err).debug(1)
+            return
         } else if same {
             var tt = file.info.ModTime()
             for _, d := range merge(t.targets.value) {
@@ -896,39 +918,26 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
                 if dt := f.info.ModTime(); dt.After(tt) { tt = dt }
             }
             if tt.After(file.info.ModTime()) { err = touch(file, 0, false, tt) }
-            if opts.verbose { diag.prompt("… Good\n") }
             result = file
             return
         }
     } else if dir := filepath.Dir(filename); opts.makePath && dir != "." && dir != PathSep {
         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
-            diag.errorAt(pos, "%v", err)
+            diag.errorAt(pos, "%v", err).debug(1)
             return
         }
     }
-    if opts.verbose { diag.prompt("… Outdated (%s)\n", filename) }
-
-    var status string
-    if opts.verbose {
-        diag.prompt("Updating %v …", file)
-        defer func() {
-            if err != nil { status = "error!" } else
-            if status == "" { status = "done." }
-            diag.prompt("… %s\n", status)
-        } ()
-    }
 
     if err = ioutil.WriteFile(filename, data.Bytes(), opts.mode); err != nil {
-        diag.errorAt(pos, "%v", err)
+        diag.errorAt(pos, "%v", err).debug(1)
         return
-    }
-    if file.info != nil { result = file } else {
+    } else if file.info != nil { result = file } else {
         if file.info, err = os.Stat(filename); err == nil {
             context.globe.stamp(filename, file.info.ModTime())
             result = file
         }
     }
-    status = fmt.Sprintf("Updated (%s, %d bytes)", filename, data.Len())
+    status = fmt.Sprintf("wrote (%s, %d bytes)", filename, data.Len())
     return
 }
 
