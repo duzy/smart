@@ -2426,7 +2426,7 @@ type modifierUpdateFileOpts struct {
         debug bool "d,debug"
         verbose bool "v,verbose"
         path bool "p,path"
-        noZero bool `nz,no-zero;ne,no-empty`
+        zero bool `z,zero;e,empty;az,allow-zero;ae,allow-empty`
         mode os.FileMode "m,mode"
 }
 func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value, err error) {
@@ -2484,7 +2484,7 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                 return
         }
         if content == "" {
-                if opts.noZero {
+                if !opts.zero {
                         if file := stat(target.Position(), filename, "", ""); file != nil && file.info != nil && file.info.Size() == 0 {
                                 file.info = nil
                                 if err = os.Remove(filename); err != nil {
