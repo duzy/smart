@@ -513,8 +513,8 @@ func (ctx *Context) loadwork() (err error) {
       var name string
       if p := ctx.loader.project; p != nil { name = p.name }
       fmt.Fprintf(stderr, "└·%s … (%s)\n", name, d)
-    } else if d > 5000*time.Millisecond {
-      diag.prompt("Warning: long load time: %s !\n", d)
+    } else if d > 4999*time.Millisecond {
+      diag.prompt("warning: long load time: %s !\n", d).debug(options.debug, 1)
     }
   } (time.Now())
   if options.verboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }

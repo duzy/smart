@@ -421,17 +421,18 @@ func (t *traversal) exec(prog *Program) (result Value) {
     // Update normal prerequisites
     if t.normalPrerequisites(pos); t.hasBreakers() { return }
     if n := diag.checkErrors(true); n > 0 {
-        diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).
-            debug(1)
+        diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).debug(1)
         t.traceCallStack(pos, "call stack for %v:", t.def.target.value)
+        t._break(pos, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", n)
         return
     }
 
     // Update order-only prerequisites
     if t.orderOnlyPrerequisites(pos); t.hasBreakers() { return }
     if n := diag.checkErrors(true); n > 0 {
-        diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).
-            debug(1)
+        diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).debug(1)
+        t.traceCallStack(pos, "call stack for %v:", t.def.target.value)
+        t._break(pos, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", n)
         return
     }
 
@@ -450,12 +451,10 @@ func (t *traversal) exec(prog *Program) (result Value) {
         // Using the default statements interpreter.
         if i, ok := dialects["eval"]; ok && i != nil {
             if err := prog.interpret(pos, t, i, nil); err != nil {
-                diag.errorAt(pos, "%v", err).
-                    debug(1)
+                diag.errorAt(pos, "%v", err).debug(1)
             }
         } else {
-            diag.errorAt(pos, "no default dialect").
-                    debug(1)
+            diag.errorAt(pos, "no default dialect").debug(1)
         }
     }
 

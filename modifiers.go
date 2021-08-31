@@ -2491,7 +2491,7 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                                         diag.errorAt(pos, "remove file failed: %v", err).debug(1)
                                 }
                         }
-                        diag.errorAt(pos, "empty content for '%v' (at %s)", target, trimPromptString(filename)).debug(1)
+                        diag.errorAt(pos, "empty content for '%v' (at %s)", target, filename).debug(1)
                         return
                 } else if opts.verbose || opts.debug {
                         diag.warnAt(pos, "empty content for '%v'", target).debug(1)
@@ -2574,19 +2574,22 @@ type modifierWaitOpts struct {
 }
 func modifierWait(pos Position, t *traversal, args... Value) (result Value, err error) {
         var opts modifierWaitOpts
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
-        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
+        if args, err = mergeresult2(expandall2(expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err).debug(1)
+                return
+        } else if args, err = parseOpts(pos, &opts, args...) ; err != nil {
+                diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
+                return
+        }
 
         var (
                 execRes *ExecResult
                 waitForExecResult = opts.stdout || opts.stderr || opts.status || opts.execRes
                 stampCurrentTarget = !opts.noTarget
         )
-
         if opts.verbose {
                 defer func (st time.Time) {
-                        var s string
-                        if err != nil { s = "fail" } else { s = "done" }
+                        var s string; if err != nil { s = "fail" } else { s = "done" }
                         diag.prompt("Wait %v …… %s, result=%v, updated=%v\n",
                                 t.def.target.value, s, execRes, t.updated).debug(opts.debug, 1)
                         if opts.debug { diag.infoAt(pos, "%v", execRes).debug(6) }

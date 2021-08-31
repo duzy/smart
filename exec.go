@@ -558,28 +558,41 @@ func (p *ExecBuffer) runAndFilterErrors(pos Position, t *traversal, dock *Projec
   return
 }
 
+const waitExecResult = false
 type ExecResult struct {
   valbase
-  wg *sync.WaitGroup
+  wg sync.WaitGroup
   Stdout ExecBuffer
   Stderr ExecBuffer
-  Status int
+  Status int // aka. exit code
 }
-func (p *ExecResult) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *ExecResult) expand(_ expandwhat) (res Value, err error) {
+  if waitExecResult { p.wg.Wait() }
+  return
+}
 func (p *ExecResult) cmp(v Value) (res cmpres) {
   if a, ok := v.(*ExecResult); ok {
     assert(ok, "value is not ExecResult")
+    if waitExecResult { p.wg.Wait() }
     if p.Status == a.Status { res = cmpEqual }
   }
   return
 }
 func (p *ExecResult) True() (res bool, err error) {
+  if waitExecResult { p.wg.Wait() }
   res = p.Status == 0 && p.Stderr.Buf != nil && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */
   return
 }
-func (p *ExecResult) Integer() (int64, error) { return int64(p.Status), nil }
-func (p *ExecResult) Float() (float64, error) { return float64(p.Status), nil }
+func (p *ExecResult) Integer() (int64, error) {
+  if waitExecResult { p.wg.Wait() }
+  return int64(p.Status), nil
+}
+func (p *ExecResult) Float() (float64, error) {
+  if waitExecResult { p.wg.Wait() }
+  return float64(p.Status), nil
+}
 func (p *ExecResult) Strval() (s string, err error) {
+  if waitExecResult { p.wg.Wait() }
   if p.Stdout.Buf != nil { s = p.Stdout.Buf.String() }
   return
 }
@@ -666,14 +679,14 @@ type executorEvaluateOpts struct {
   debug bool "d,debug"
   prompt bool
   promStr string "c,cmd;m,prompt"
-  verbout bool "v,verbout"
-  verberr bool "w,verberr"
-  buffOut bool "o,stdout"
-  buffErr bool "e,stderr"
+  verbout bool "v,verbout;vo,verbose-stdout" // tied with log
+  verberr bool "w,verberr;ve,verbose-stderr" // tied with log
+  buffout bool "o,stdout;bo,buffer-stdout;so,save-stdout"
+  bufferr bool "e,stderr;be,buffer-stderr;se,save-stderr"
   stdin bool "i,stdin"
   silent bool "s,silent"
   stamp bool `st,stamp;sf,stamp-file`
-  report bool `r,report;rs,report-stamp`
+  report bool `r,report;rs,report-stamp;vs,verbose-stamp`
   fullname bool `fn,fullname;f,full` // expand fullname
   noCD bool "n,nocd"
   path bool "p,path"
@@ -689,15 +702,18 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
 
   var cmd = p.cmd
   var opts = executorEvaluateOpts{ scanStderr: true }
-  if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
-  if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
+  if args, err = mergeresult2(expandall2(expandPlainValue, args...)); err != nil {
+    diag.errorAt(pos, "merge args failed: %v", err).debug(1)
+    return
+  } else if args, err = parseOpts(pos, &opts, args...) ; err != nil {
+    diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
+    return
+  }
   if opts.promStr != "" { opts.prompt = true }
   switch opts.dump {
   case "stdout": opts.verbout = true
   case "stderr": opts.verberr = true
-  case "all":
-    opts.verbout = true
-    opts.verberr = true
+  case "all": opts.verbout, opts.verberr = true, true
   }
 
   var aa []string
@@ -845,12 +861,12 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   }
 
   var (
-    w = expandPlainValue
     recipes []Value
     source, str string
     sources []string
     positions []Position
     rp Position
+    w = expandPlainValue
   )
   if opts.fullname { w |= expandFullName }
   if recipes, err = mergeresult2(expandall2(w, t.program.recipes...)); err != nil {
@@ -906,9 +922,9 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   if opts.logFileName != nil { log = &ExecLog{ filename: opts.logFileName.string } }
 
   var logFile *os.File
-  var exeres = &ExecResult{valbase:valbase{pos}, wg:new(sync.WaitGroup)}
-  if opts.buffOut { exeres.Stdout.Buf = new(bytes.Buffer) }
-  if opts.buffErr { exeres.Stderr.Buf = new(bytes.Buffer) }
+  var exeres = &ExecResult{valbase:valbase{pos}}
+  if opts.buffout { exeres.Stdout.Buf = new(bytes.Buffer) }
+  if opts.bufferr { exeres.Stderr.Buf = new(bytes.Buffer) }
   if opts.verbout { exeres.Stdout.Tie = stdout }
   if opts.verberr { exeres.Stderr.Tie = stderr }
   if log == nil || log.filename == "" {
@@ -932,15 +948,12 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     var targetStr string
 
     defer func() {
-      if log.writer != nil {
-        if false && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
-          // Discard empty log buffer.
-          logFile.Close()
-          os.Remove(log.filename)
-        } else {
-          log.writer.Flush()
-          logFile.Close()
-        }
+      if false && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
+        if logFile != nil { logFile.Close() } // Discard empty log buffer.
+        if log.filename != "" { os.Remove(log.filename) }
+      } else {
+        if log.writer != nil { log.writer.Flush() }
+        if logFile    != nil { logFile.Close() }
       }
       if t.caller != nil { t.caller.calleeDone(err) }
       exeres.wg.Done()
@@ -960,14 +973,15 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
           reportFileUpdates(pos, t.start, files)
         }
       }
+
       if t.isConfigureExecution && err != nil {
         if false { diag.infoAt(pos, "configure exec failed: %v", err) }
         err = nil
       } else if err != nil {
-        diag.errorAt(pos, "shell: %v", err).
-          debug(1)
+        diag.errorAt(pos, "shell: %v", err).debug(1)
         return
       }
+
       if opts.prompt {
         if t.caller == nil {
           if err == nil {
@@ -1009,9 +1023,9 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
         fmt.Fprintf(stderr, "%s%s\n", opts.promStr, targetStr)
       }
     }
+
     for i, src := range sources {
       var pos = positions[i]
-      if false { fmt.Fprintf(stderr, "%s: %v\n", pos, src) }
       if strings.HasPrefix(src, "@") {
         src = src[1:]
       } else if !opts.prompt {

@@ -1010,60 +1010,51 @@ func (t *traversal) wait(pos Position, opts ...bool) (target Value, files []*Fil
     if optionEnableBenchmarks && false { defer bench(mark("traversal.wait")) }
 
     // Waiting for prerequisites
+    var calleeErrs []error
     t.group.Wait()
     t.calleeErrsM.Lock()
-    var errs = t.calleeErrs
-    t.calleeErrs = nil
+    calleeErrs = t.calleeErrs; t.calleeErrs = nil
     t.calleeErrsM.Unlock()
 
     if target = t.getCurrentTargetValue(); isNil(target) {
-        diag.errorAt(t.def.target.position, "target '%v' is nil", t.def.target).
-            debug(1)
+        diag.errorAt(pos, "target '%v' is <nil>", t.def.target).debug(1)
         return
-    }
-
-    if n := len(errs); n > 0 /*&& t.stems == nil*/ {
+    } else if isNone(target) {
+        diag.errorAt(pos, "target '%v' is <none>", t.def.target).debug(1)
+        return
+    } else if n := len(calleeErrs); n > 0 /*&& t.stems == nil*/ {
         var (
-            targetPos = t.def.target.Position()
+            targetPos = t.def.target.position
             numRealErrs = 0
         )
-        for _, err := range errs {
-            diag.errorAt(pos, "%v: %v", target, err).
-                debug(1)
+        for _, err := range calleeErrs {
+            diag.errorAt(pos, "%v: %v", target, err).debug(1)
             numRealErrs += 1
         }
-        if numRealErrs == 0 {
-            return // simply return if no real errors
-        }
+        if numRealErrs == 0 { return } // simply return if no real errors
         if !pos.Equals(&targetPos) {
-            var s string
-            if n > 1 { s = "s" }
-            diag.errorAt(targetPos, "%d error%s while waiting prerequisites for '%v'",
-                n, s, target).debug(1)
+            var s string; if n > 1 { s = "s" }
+            diag.errorAt(targetPos, "%d error%s while waiting prerequisites for '%v'", n, s, target).debug(1)
         }
+
         var (
+            targetValuePos = target.Position()
             v = target
-            targetValuePos = v.Position()
         )
         if l, ok := v.(*List); ok && l.Len() == 1 { v = l.Elems[0] }
         if targetValuePos.IsValid() && !targetValuePos.Equals(&targetPos) {
             if f, ok := v.(*File); ok && f.filemap != nil {
                 diag.errorAt(targetValuePos, "waiting for '%v'", target)
-                diag.errorOf(f.filemap.pattern, "via pattern '%v' (of %v)", v, f.filemap.project).
-                    debug(1)
+                diag.errorOf(f.filemap.pattern, "via pattern '%v' (of %v)", v, f.filemap.project).debug(1)
             } else {
-                diag.errorAt(targetValuePos, "waiting for '%v'", target).
-                    debug(1)
+                diag.errorAt(targetValuePos, "waiting for '%v'", target).debug(1)
             }
         }
-        if def, ok := v.(*Def); ok && target != v && target != def.value {
-            // trace source Def in diagnostics
-            diag.errorOf(def.value, "waiting for def '%v': %v", def.name, def.value).
-                debug(1)
+        if def, ok := v.(*Def); ok && target != v && target != def.value { // trace source Def in diagnostics
+            diag.errorOf(def.value, "waiting for def '%v': %v", def.name, def.value).debug(1)
         }
         if c := t.closure; c != nil {
-            diag.errorAt(c.position, "waiting closured from %v", c.comment).
-                debug(1)
+            diag.errorAt(c.position, "waiting closured from %v", c.comment).debug(1)
         }
         if t.isConfigureExecution {
             //diag.errorOf(t., "%v: %v = %v", s, t, result)
@@ -1071,23 +1062,25 @@ func (t *traversal) wait(pos Position, opts ...bool) (target Value, files []*Fil
     }
 
     var (
-        optReportFileUpdates = len(opts) > 0 && opts[0]
-        waitForExecResult    = len(opts) > 1 && opts[1]
-        stampCurrentTarget   = len(opts) > 2 && opts[2]
+        optReportFileUpdates  = len(opts) > 0 && opts[0]
+        optWaitForExecResult  = len(opts) > 1 && opts[1]
+        optStampCurrentTarget = len(opts) > 2 && opts[2]
     )
-    if waitForExecResult {
+    if optWaitForExecResult {
         // Waiting for command (shell/python/etc.) exec result
-        if v, ok := t.def.buffer.value, false; v != nil {
-            if execRes, ok = v.(*ExecResult); ok {
+        if bv, ok := t.def.buffer.value, false; !isNil(bv) && !isNone(bv) {
+            if execRes, ok = bv.(*ExecResult); ok {
                 execRes.wg.Wait()
+            }
+            if target.String() == "tensorflow/core/framework/registration/options.h" {
+                diag.infoAt(pos, "%v %v", target, ok).debug(1)
             }
         }
     }
-    if !stampCurrentTarget {
+    if !optStampCurrentTarget {
         // done!
     } else if files, err = target.stamp(t); err != nil {
-        var p = target.Position()
-        if !p.IsValid() { p = pos }
+        if p := target.Position(); p.IsValid() { diag.errorAt(p, "%v", err) }
         diag.errorAt(pos, "%v", err).debug(1)
         return
     } else if optReportFileUpdates {
