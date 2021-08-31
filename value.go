@@ -55,7 +55,7 @@ const (
     expandArgs      // $(foo $(x),$(y))  -> $(foo ...,...)
     expandArgedArgs // foo($(args))      -> foo(...)
     expandDef       // foo=...           -> ...
-    expandFullname  // foobar.c          -> /path/to/foobar.c    TODO
+    expandFullName  // foobar.c          -> /path/to/foobar.c    TODO
     expandPathStr   // "/path/to"/foo    -> /path/to/foo
     expandPairVal   // foo=$(bar)        -> foo=...
     expandPlainValue = expandClosure | expandDelegate | expandSelection | expandDef | expandPathStr | expandArgedArgs
@@ -550,12 +550,9 @@ func (t *traversal) file(file *File) (okay bool) {
         } else if brks := t.breakersOf(breakFail, breakErro); len(brks) > 0 {
             for _, brk := range brks {
                 switch brk.what {
-                case breakFail:
-                    diag.errorAt(brk.pos, "broken traversal for stemmed file entry %v failed: %v", file, brk.message)
-                case breakErro:
-                    diag.errorAt(brk.pos, "broken traversal for stemmed file entry %v with error: %v", file, brk.error)
-                default:
-                    diag.errorAt(brk.pos, "broken traversal for stemmed file entry %v (%v)", file, brk.what)
+                case breakFail: diag.errorAt(brk.pos, "broken traversal for stemmed file entry %v failed: %v", file, brk.message)
+                case breakErro: diag.errorAt(brk.pos, "broken traversal for stemmed file entry %v with error: %v", file, brk.error)
+                default: diag.errorAt(brk.pos, "broken traversal for stemmed file entry %v (%v)", file, brk.what)
                 }
             }
             if t.breakers = t.breakersNot(breakFail, breakErro); len(t.breakers) > 0 {
@@ -1091,8 +1088,7 @@ func (t *traversal) wait(pos Position, opts ...bool) (target Value, files []*Fil
     } else if files, err = target.stamp(t); err != nil {
         var p = target.Position()
         if !p.IsValid() { p = pos }
-        diag.errorAt(pos, "%v", err).
-            debug(1)
+        diag.errorAt(pos, "%v", err).debug(1)
         return
     } else if optReportFileUpdates {
         reportFileUpdates(pos, t.start, files)
@@ -2327,10 +2323,21 @@ func (p *Barefile) defs(s string) []*Def { return p.Name.defs(s) }
 func (p *Barefile) elemstr(o Object, k elemkind) (s string) { return elementString(o, p.Name, k) }
 func (p *Barefile) expandible(w expandwhat) bool { return p.Name.expandible(w) }
 func (p *Barefile) expand(w expandwhat) (res Value, err error) {
+    if w&expandFullName != 0 {
+        var file Value
+        if p.File == nil {
+            return
+        } else if file, err = p.File.expand(w); err != nil {
+            diag.errorOf(p.File, "expand '%v' failed: %v", p.File, err).debug(1)
+            return
+        } else if !isNil(file) && file != p.File {
+            return file, nil
+        }
+    }
+
     var name Value
     if name, err = p.Name.expand(w); err != nil {
-        diag.errorOf(p.Name, "expand '%v' failed: %v", p.Name, err).
-            debug(1)
+        diag.errorOf(p.Name, "expand '%v' failed: %v", p.Name, err).debug(1)
     } else if !isNil(name) && name != p.Name {
         res = &Barefile{p.valbase, name, p.File}
     }
@@ -2485,8 +2492,7 @@ func (p *Path) expandible(w expandwhat) bool { return p.elements.expandible(w) }
 func (p *Path) expand(w expandwhat) (res Value, err error) {
     var ( elems []Value; num int )
     if elems, num, err = expandPathElems(p.position, w, p.Elems...); err != nil {
-        diag.errorAt(p.position, "expand path elems failed: %v", err).
-            debug(1)
+        diag.errorAt(p.position, "expand path elems failed: %v", err).debug(1)
     } else if num > 0 {
         res = &Path{p.valbase, elements{elems}}
     }
@@ -2496,7 +2502,7 @@ func (p *Path) pathname(stems []string) (pathname string, err error) {// the add
     var rest []string // unmatched path segmants
     if len(stems) == 0 {
         if pathname, err = p.Strval(); err != nil {
-            //diag.errorAt(p.position, "strval '%v' failed: %v", p, e)
+            diag.errorAt(p.position, "strval '%v' failed: %v", p, err).debug(1)
         }
     } else if pathname, rest = p.stencil(stems); len(rest) > 0 {
         //err = errorf(p.position, "partial match: %v", rest)
@@ -2572,16 +2578,14 @@ func (p *Path) cmp(v Value) (res cmpres) {
 func expandPathElems(pos Position, w expandwhat, elems ...Value) (res []Value, num int, err error) {
     var xelems []Value
     if xelems, num, err = expandall1(w, elems...); err != nil {
-        diag.errorAt(pos, "expand path elems failed: %v", err).
-            debug(1)
+        diag.errorAt(pos, "expand path elems failed: %v", err).debug(1)
         return
     }
     for _, elem := range xelems {
         if p, ok := elem.(*Path); ok {
             var ( ev []Value; n int )
             if ev, n, err = expandPathElems(pos, w, p.Elems...); err != nil {
-                diag.errorOf(elem, "expand sub path '%v' failed: %v", elem, err).
-                    debug(1)
+                diag.errorOf(elem, "expand sub path '%v' failed: %v", elem, err).debug(1)
                 return
             }
             res = append(res, ev...)
@@ -2602,8 +2606,7 @@ func expandPathElems(pos Position, w expandwhat, elems ...Value) (res []Value, n
                 num += 1
             case *Compound:
                 if s, err = v.Strval(); err != nil {
-                    diag.errorAt(v.position, "strval '%v' failed: %v", v, err).
-                        debug(1)
+                    diag.errorAt(v.position, "strval '%v' failed: %v", v, err).debug(1)
                     return
                 } else if s != "" {
                     vals = append(vals, splitPathStr(v.position, s)...)
@@ -2629,7 +2632,7 @@ func (p *Path) match1(str string) (full bool, result string, stems []string) {
         return
     }
     if segs, _, err = expandPathElems(p.position, expandPlainValue, p.Elems...); err != nil {
-        diag.errorAt(p.position, "failed to expand path '%v': %v", p, segs)
+        diag.errorAt(p.position, "failed to expand path '%v': %v", p, segs).debug(1)
         return
     }
 
@@ -3273,6 +3276,28 @@ func (p *File) stamp(t *traversal) (files []*File, err error) {
     }
     return
 }
+func (p *File) expandible(w expandwhat) (res bool) {
+    return w&expandFullName != 0 && !filepath.IsAbs(p.name)
+}
+func (p *File) expand(w expandwhat) (res Value, err error) {
+    if w&expandFullName != 0 && !filepath.IsAbs(p.name) {
+        var fullname = p.fullname()
+        if false && !filepath.IsAbs(fullname) { return }
+
+        var stub, fullStub *filestub
+        for stub = p.filestub; stub != nil; stub = stub.other {
+            if stub.name == fullname /*&& stub.dir == "" && stub.sub == ""*/ {
+                fullStub = stub; break
+            } else if stub.other == p.filestub { break }
+        }
+        if fullStub == nil {
+            fullStub = &filestub{ name:fullname, other:stub.other }
+            stub.other = fullStub
+        }
+        res = &File{p.valbase, p.filebase, fullStub}
+    }
+    return
+}
 func (p *File) exists() (res bool) {
     if p != nil && p.filebase != nil {
         res = p.filebase.exists()
@@ -3350,14 +3375,25 @@ func (p *File) traverse(t *traversal) {
         }
     }
 
-    if t.file(p); t.hasBreakers() {
-        diag.errorAt(p.position, "broken traversal for file '%v' (at %s)", p, p.fullname()).
-            debug(1)
-    } else if p.info == nil {
+    if t.file(p); p.info == nil {
         t._break(p.position, breakErro).error = fileNotFoundError{ t.project, p }
         diag.errorAt(p.position, "break: missing file %v (at %s)", p, p.fullname())
         diag.errorAt(t.project.position, "for project %v (for '%v')", t.project, p).
             debug(6)
+    } else if brks := t.breakersNot(breakNext, breakCase, breakDone); len(brks) > 0 {
+        for _, brk := range brks {
+            switch brk.what {
+            case breakFail: diag.errorAt(brk.pos, "broken traversal for file %v: %v", p, brk.message)
+            case breakErro: diag.errorAt(brk.pos, "broken traversal for file %v with error: %v", p, brk.error)
+            default: diag.errorAt(brk.pos, "broken traversal for file %v (%v)", p, brk.what)
+            }
+        }
+        diag.errorAt(p.position, "broken traversal for file '%v' (at %s)", p, p.fullname())
+        diag.errorAt(t.project.position, "broken traversal for file '%v' from %v", p, t.project).
+            debug(1)
+    } else if false && t.hasBreakers() {
+        diag.errorAt(p.position, "broken traversal for file '%v' (at %s)", p, p.fullname()).
+            debug(1)
     }
 }
 
@@ -3414,8 +3450,7 @@ func (p *File) stencil(stems []string) (s string, rest []string) {
 }
 
 func (p *File) change(dir, sub, name string) (okay bool) {
-    var fullname = filepath.Join(dir, sub, name)
-    if p.fullname() == fullname {
+    if fullname := filepath.Join(dir, sub, name); p.fullname() == fullname {
         var head = &p.filebase.stub
         for stub := p.filestub; stub != nil; stub = stub.other {
             if stub.dir == dir && stub.sub == sub && stub.name == name {
@@ -3429,7 +3464,7 @@ func (p *File) change(dir, sub, name string) (okay bool) {
         head.other, okay = p.filestub, true
 
         if enable_assertions {
-            assert(p.fullname() == fullname, "Changed invalid File")
+            assert(p.fullname() == fullname, "changed invalid File")
         }
     }
     return
@@ -4068,14 +4103,14 @@ func (p *delegate) defs(s string) (res []*Def) {
 func (p *delegate) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
     if val, err := p.expand(expandPlainValue); err != nil {
-        diag.errorAt(p.position, "expand '%v' failed: %v", p, err).
-            debug(1)
+        diag.errorAt(p.position, "expand '%v' failed: %v", p, err).debug(16)
+        if true { t.traceCallStack(p.position, "expand '%v' failed", p) }
     } else if isNil(val) {
-        diag.warnAt(p.position, "delegate '%v' expands to nil", p).
-            debug(1)
+        diag.warnAt(p.position, "delegate '%v' expands to nil", p).debug(16)
+        if true { t.traceCallStack(p.position, "delegate '%v' expands to <nil>", p) }
     } else if isNone(val) {
-        diag.warnAt(p.position, "delegate '%v' expands to none", p).
-            debug(1)
+        diag.warnAt(p.position, "delegate '%v' expands to none", p).debug(16)
+        if true { t.traceCallStack(p.position, "delegate '%v' expands to <none>", p) }
     } else {
         val.traverse(t)
     }

@@ -2198,7 +2198,7 @@ var automatics = []string{
 
 func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (result Value) {
 	if p.project.keyword == token.PACKAGE {
-		p.error(p.pos, "rules forbidden: %v", targets)
+		diag.errorAt(p.position(), "rules forbidden: %v", targets).debug(1)
 		return nil
 	} else if t_traverse.enabled {
 		defer un(trace(t_traverse, "Rule"))

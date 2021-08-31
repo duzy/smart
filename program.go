@@ -82,7 +82,7 @@ func (prog *Program) interpret(pos Position, t *traversal, i interpreter, params
     return
 }
 
-func (prog *Program) getModifies(name string) (ms []*modifier) {
+func (prog *Program) getModifiers(name string) (ms []*modifier) {
     for _, d := range prog.depends {
         var g, ok = d.(*modifiergroup)
         if !ok { continue }

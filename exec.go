@@ -22,6 +22,7 @@ import (
   "sync"
   "sync/atomic"
   "time"
+  "unicode"
 )
 
 // Note that it's is also used with Sscanf.
@@ -363,7 +364,7 @@ func (p *ExecBuffer) runContainerAndRetry(pos Position, t *traversal, container 
       fmt.Fprintf(sh.Stderr, "\n----\n")
     }
 
-    status, err = p.runWithErrorsFilter(pos, t, container, c, x, num+1)
+    status, err = p.runAndFilterErrors(pos, t, container, c, x, num+1)
     if status != 0 && err == nil { err = &exitstatus{status} }
     if err != nil { fmt.Fprintf(sh.Stderr, "\n---- Retry failed: %s\n", err) }
   }
@@ -518,42 +519,41 @@ func (p *ExecBuffer) knownErrors(pos Position, t *traversal, container *Project,
   return
 }
 
-func (p *ExecBuffer) runWithErrorsFilter(pos Position, t *traversal, dock *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
+func (p *ExecBuffer) runAndFilterErrors(pos Position, t *traversal, dock *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
   defer func(m []knownMatch) { p.matches = m } (p.matches)
   p.matches = nil // clear previous matches
-  if err = sh.Run(); err == nil { return } else
-  if n, e := fmt.Sscanf(err.Error(), exitstatusFmt, &status); n == 1 && e == nil {
-    es := &exitstatus{ status } // convert to exitstatus
+  if err = sh.Run(); err == nil {
+    return
+  } else if ee, ok := err.(*exec.ExitError); !ok {
+    diag.errorAt(pos, "exec failed: %v", err).debug(1)
+    return
+  } else if status = ee.ExitCode(); status == 0 {
+    return // success!
+  } else { // if n, e := fmt.Sscanf(err.Error(), exitstatusFmt, &status); n == 1 && e == nil {
+    var es = &exitstatus{ status } // convert to exitstatus
     err = es
 
     if p.log != nil && p.log.writer != nil {
       fmt.Fprintf(p.log, "\n%s\n", err)
-   }
+    }
 
     p.retried = nil
-    status, e = p.knownErrors(pos, t, dock, sh, x, num)
+    status, err = p.knownErrors(pos, t, dock, sh, x, num)
     if p.retried != nil && len(p.retried) > 0 {
-      if e != nil {
-        diag.errorAt(pos, "process known errors failed: %v", e).
-          debug(1)
+      if err != nil {
+        diag.errorAt(pos, "process known errors failed: %v", err).debug(1)
       } else if status == 0 {
         err = nil
-      } else {
+      } else if es.code == 0 {
         es.code = status
       }
-    } else { status = es.code }
+    }
 
     if p.report {
       var pos Position
-      pos.Filename = p.log.filename
-      pos.Line = p.log.lines
-      pos.Column = 0
-      pos.Offset = 0 // FIXME: what should be the offset?
-      diag.errorAt(pos, "%v", es)
+      pos.Filename, pos.Line, pos.Column = p.log.filename, p.log.lines, 0
+      diag.errorAt(pos, "%v", es).debug(1)
     }
-  } else {
-    if status == 0 { status = -1 }
-    if e != nil { err = e }
   }
   return
 }
@@ -674,6 +674,7 @@ type executorEvaluateOpts struct {
   silent bool "s,silent"
   stamp bool `st,stamp;sf,stamp-file`
   report bool `r,report;rs,report-stamp`
+  fullname bool `fn,fullname;f,full` // expand fullname
   noCD bool "n,nocd"
   path bool "p,path"
   scanStderr bool "a,scan"
@@ -814,15 +815,14 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
 
   if t.isConfigureExecution {
     // does nothing
-  } else if ms := t.program.getModifies("stamp"); len(ms) > 0 {
+  } else if ms := t.program.getModifiers("stamp"); len(ms) > 0 {
     switch target.(type) {
     case *Barefile, *File, *Path:
       diag.warnAt(ms[0].position, "use (shell -stamp) instead of stamp modifier (%T %v)", target, target).
         debug(1)
     }
   } else if !opts.stamp && !opts.silent {
-    diag.warnAt(pos, "add -stamp to (shell)").
-      debug(1)
+    diag.warnAt(pos, "add -stamp to (shell)").debug(1)
   }
 
   var envars []*Pair // disclosed values
@@ -831,15 +831,13 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
       for _, v := range l.Elems {
         var t Value
         if t, err = v.expand(expandClosure); err != nil {
-          diag.errorOf(v, "expand value '%v' failed: %v", v, err).
-            debug(1)
+          diag.errorOf(v, "expand value '%v' failed: %v", v, err).debug(1)
           return
         } else if isNil(t) { t = v }
         if p, ok := t.(*Pair); ok {
           envars = append(envars, p)
         } else {
-          diag.errorOf(t, "env expecting pairs: %T", t).
-            debug(1)
+          diag.errorOf(t, "env expecting pairs: %T", t).debug(1)
           return
         }
       }
@@ -847,21 +845,27 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   }
 
   var (
+    w = expandPlainValue
     recipes []Value
     source, str string
     sources []string
     positions []Position
     rp Position
   )
-  if recipes, err = mergeresult2(expandall2(expandPlainValue, t.program.recipes...)); err != nil {
-    diag.errorAt(pos, "merge recipes failed: %v", err).
-      debug(1)
+  if opts.fullname { w |= expandFullName }
+  if recipes, err = mergeresult2(expandall2(w, t.program.recipes...)); err != nil {
+    diag.errorAt(pos, "merge recipes failed: %v", err).debug(1)
     return
   }
   for _, recipe := range recipes {
     if !rp.IsValid() { rp = recipe.Position() }
-    if str, err = recipe.Strval(); err != nil { diag.errorOf(recipe, "%v", err); return }
-    if source += str; strings.HasSuffix(source, "\\") {
+    if str, err = recipe.Strval(); err != nil {
+      diag.errorOf(recipe, "strval recipe failed: %v", err).debug(1)
+      return
+    } else if source = strings.TrimRightFunc(source, unicode.IsSpace); source == "" {
+      source += "\n" // an empty line
+      continue
+    } else if source += str; strings.HasSuffix(source, "\\") {
       source += "\n" // append the line feed
       continue
     }
@@ -885,27 +889,35 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   var envs []string = os.Environ()
   for i, p := range envars {
     var k, v string
-    if k, err = p.Key.Strval()  ; err != nil { diag.errorOf(p.Key  , "%v", err); return }
-    if v, err = p.Value.Strval(); err != nil { diag.errorOf(p.Value, "%v", err); return }
+    if k, err = p.Key.Strval()  ; err != nil {
+      diag.errorOf(p.Key, "strval '%v' failed: %v", p.Key, err).debug(1)
+      return
+    }
+    if v, err = p.Value.Strval(); err != nil {
+      diag.errorOf(p.Value, "strval '%v' failed: %v", p.Value, err).debug(1)
+      return
+    }
     if i > 0 { envstr += " && " }
     envstr += fmt.Sprintf(`%s=%s`, k, strconv.Quote(v))
     envs = append(envs, fmt.Sprintf("%s=%s", k, v))
   }
 
+  var log *ExecLog
+  if opts.logFileName != nil { log = &ExecLog{ filename: opts.logFileName.string } }
+
   var logFile *os.File
-  var log = &ExecLog{ filename: opts.logFileName.string }
   var exeres = &ExecResult{valbase:valbase{pos}, wg:new(sync.WaitGroup)}
   if opts.buffOut { exeres.Stdout.Buf = new(bytes.Buffer) }
   if opts.buffErr { exeres.Stderr.Buf = new(bytes.Buffer) }
   if opts.verbout { exeres.Stdout.Tie = stdout }
   if opts.verberr { exeres.Stderr.Tie = stderr }
-  if log.filename == "" {
+  if log == nil || log.filename == "" {
     // no log required
   } else if err = os.MkdirAll(filepath.Dir(log.filename), os.FileMode(0755)); err != nil {
-    diag.errorAt(t.program.position, "%v", err)
+    diag.errorAt(t.program.position, "%v", err).debug(1)
     return
   } else if logFile, err = os.Create(log.filename); err != nil {
-    diag.errorAt(t.program.position, "%v", err)
+    diag.errorAt(t.program.position, "%v", err).debug(1)
     return
   } else {
     cmdline := strings.Join(sources, "\n")
@@ -938,14 +950,10 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
       if opts.stamp && !t.isConfigureExecution {
         var files []*File
         if files, err = target.stamp(t); err != nil {
-          var p = target.Position()
-          if !p.IsValid() { p = pos }
           if pe, ok := err.(*fs.PathError); ok {
-            diag.errorAt(pos, "stamp %v: not found", trimPromptString(pe.Path)).
-              debug(1)
+            diag.errorAt(pos, "stamp %v: not found", trimPromptString(pe.Path)).debug(1)
           } else {
-            diag.errorAt(pos, "%v", err).
-              debug(1)
+            diag.errorAt(pos, "%v", err).debug(1)
           }
           return
         } else if opts.report {
@@ -1041,9 +1049,9 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
         if err = lockCD(dir, 25*time.Millisecond); err != nil {
           diag.errorAt(pos, "%v", err).debug(1)
           return
-        }
-        if s, _ := os.Getwd(); s == dir { break }
+        } else if s, _ := os.Getwd(); s == dir { break }
       }
+      if !opts.silent { printEnteringDirectory() }
 
       var sh = exec.Command(cmd, aa...)
       sh.Dir = dir // always set command work directory
@@ -1060,28 +1068,21 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
       if opts.debug { diag.warnAt(pos, "%v", sh).debug(1) }
 
       exeres.Stderr.report = !opts.silent
-      exeres.Status, err = exeres.Stderr.runWithErrorsFilter(pos, t, container, sh, p, 1)
+      exeres.Status, err = exeres.Stderr.runAndFilterErrors(pos, t, container, sh, p, 1)
       if err != nil {
         if !opts.silent || opts.debug {
-          diag.errorAt(pos, "exec error: %v", err).
-            debug(1)
+          diag.errorAt(pos, "exec error: %v", err).debug(1)
         }
         if opts.silent { err = nil }
       } else if exeres.Status != 0 && (!opts.silent || opts.debug) {
-        diag.errorAt(pos, "abnormal exec exit status %d", exeres.Status).
-          debug(1)
+        diag.errorAt(pos, "abnormal exec exit status %d", exeres.Status).debug(1)
       }
     }
   }
 
-  if !opts.silent { printEnteringDirectory() }
   if t.caller != nil { t.caller.calleeStart() }
-  if true {
-    exeres.wg.Add(1); go run()
-    if t.caller == nil || opts.stamp/*FIXME: it's a temporary solution */ { exeres.wg.Wait() }
-  } else {
-    run()
-  }
+  if true { exeres.wg.Add(1); go run() }
+  if t.caller == nil || opts.stamp/*FIXME: it's a temporary solution */ { exeres.wg.Wait() }
 
   // The execution is performed asynchronously, the result can't
   // be fetched immediately. Caller should do a t.wait(...) or

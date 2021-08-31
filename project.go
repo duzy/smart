@@ -79,7 +79,7 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
   pre  = filepath.Clean(pre)
   for _, path := range filemap.Paths {
     if path == nil {
-      diag.errorAt(pos, "mapping nil path (base=%s, pre=%s, name=%s)", base, pre, name)
+      diag.errorAt(pos, "mapping nil path (base=%s, pre=%s, name=%s)", base, pre, name).debug(32)
       panic("internal error")
     }
 
@@ -833,20 +833,17 @@ func (p *Project) hasLoaded(proj *Project, breakUseLoop bool) (rp *Project, res,
 }
 
 func (p *Project) hasLoadedRecur(top, proj *Project, depth int, breakUseLoop bool) (rp *Project, res, isb bool, err error) {
-  if depth > 48 {
-    err = fmt.Errorf("exceeds maximum base depth (%d) (start=%v, target=%v)", depth, top, proj)
-    diag.errorAt(top.position, "start: %v", top)
-    diag.errorAt(proj.position, "target: %v", proj)
-    diag.errorAt(p.position, "%v: %v", p, err).
-      debug(options.debugErrors, 200)
+  if depth > 1 && top == p && true {
+    err = fmt.Errorf("loop '%v' (depth=%d)", p.loopLoadPath(), depth)
+    diag.errorAt(p.position, "%v: %v", p, err).debug(128)
     return
-  } else if depth > 1 && top == p {
-    if false {
-      err = fmt.Errorf("loop '%v' (depth=%d)", p.loopLoadPath(), depth)
-      diag.errorAt(p.position, "%v: %v", p, err).
-        debug(options.debugErrors, 128)
-      return
-    }
+  } else if depth > 128 {
+    err = fmt.Errorf("exceeds maximum base depth (%d) (start=%v, target=%v)", depth, top, proj)
+    diag.errorAt(p.position, "%v: %v", p, err)
+    diag.errorAt(top.position, "start: %v", top)
+    diag.errorAt(proj.position, "target: %v", proj).
+      debug(200)
+    return
   }
   for _, base := range p.bases {
     if isb = base == proj; isb { return }
