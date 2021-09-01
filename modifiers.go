@@ -2926,8 +2926,9 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
         if opts.verbose {
                 var ( m, s string )
                 if dirty { m = "dirty" } else { m = "noop" }
+                s = time.Now().Sub(t.start).String()
                 if len(t.updated) > 0 { //s = fmt.Sprintf(", %v", t.updated)
-                        s = " ("
+                        s = "; "
                         for i, v := range t.updated {
                                 if i > 0 { s += " " }
                                 if len(s) > maxPromptStr {
@@ -2936,11 +2937,9 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                                 } else { s += v.String() }
                         }
                 } else if reason != "" {
-                        s = " (" + strings.TrimSpace(strings.TrimPrefix(reason, "dirty:"))
+                        s = "; " + strings.TrimSpace(strings.TrimPrefix(reason, "dirty:"))
                 }
-                if s == "" { s = " (" } else { s += "; " }
-                s += fmt.Sprintf("%v)", time.Now().Sub(t.start))
-                diag.prompt("Stamp %s …… %s%s\n", target, m, s).debug(opts.debug, 1)
+                diag.prompt("Stamp %s …… %s (%s)\n", target, m, s).debug(opts.debug, 1)
         }
 
         if optionTraceTraversal {

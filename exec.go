@@ -1022,7 +1022,8 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
             st += err.Error()
           }
         }
-        diag.prompt("%s%s (%v, stdout=%d bytes)\n", ps, st, time.Now().Sub(start), exeres.Stdout.wrote)
+        diag.prompt("%s%s (%v, stdout=%d bytes, stderr=%d bytes)\n", ps, st, time.Now().Sub(start),
+          exeres.Stdout.wrote, exeres.Stderr.wrote)
       }
     } ()
 
