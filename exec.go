@@ -660,7 +660,7 @@ type executorEvaluateOpts struct {
   bufStderr bool "e,stderr;be,buffer-stderr;se,save-stderr"
   stdin bool "i,stdin;in,input"
   stamp bool `st,stamp;sf,stamp-file`
-  wait bool `w,wait` // wait for execution finished
+  wait bool `w,wait;wr,wait-result` // wait for execution finished
   report bool `r,report;rs,report-stamp;vs,verbose-stamp`
   fullname bool `f,full;fn,fullname` // expand fullname
   scanStdout bool `so,scan-stdout;so,scan-out`
@@ -838,6 +838,8 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
 
   if t.isConfigureExecution {
     // does nothing
+  } else if opts.wait {
+    // good to work without (stamp) or (wait) with the -wait flag
   } else if ms := t.program.getModifiers("stamp"); len(ms) > 0 {
     switch target.(type) {
     case *Barefile, *File, *Path:
@@ -888,7 +890,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     if str, err = recipe.Strval(); err != nil {
       diag.errorOf(recipe, "strval recipe failed: %v", err).debug(1)
       return
-    } else if source = strings.TrimRightFunc(source, unicode.IsSpace); source == "" {
+    } else if str = strings.TrimRightFunc(str, unicode.IsSpace); str == "" {
       source += "\n" // an empty line
       continue
     } else if source += str; strings.HasSuffix(source, "\\") {
@@ -908,6 +910,10 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     positions = append(positions, recipePos); recipePos = Position{}
     sources = append(sources, source)
     source = ""
+  }
+  if len(recipes) > 0 && len(sources) == 0 {
+    diag.errorAt(pos, "empty recipes: %v", recipes).debug(1)
+    return;
   }
 
   var envstr string
@@ -955,6 +961,13 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   exeres.Stderr.res = exeres
 
   var run = func(start time.Time) {
+    if false {
+      defer func() {
+        diag.infoAt(pos, "%v, status=%v", target, exeres.Status)
+        diag.infoAt(pos, "%v: %v", target, recipes)
+        diag.infoAt(pos, "%v: %v", target, sources).debug(6)
+      } ()
+    }
     defer func() {
       if log.writer != nil { log.writer.Flush() }
       if logFile != nil { logFile.Close() }

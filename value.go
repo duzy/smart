@@ -5232,10 +5232,10 @@ func permVal(v Value, i uint32) (res os.FileMode, err error) {
     return
 }
 
-var expanddepth int64 = 0
+var expandDepth int64 = 0
 func expandall1(w expandwhat, values ...Value) (elems []Value, num int, err error) {
-    defer func(i int64) { expanddepth = i } (expanddepth)
-    if expanddepth += 1; expanddepth > 128 {
+    defer func(i int64) { expandDepth = i } (expandDepth)
+    if expandDepth += 1; expandDepth > 128 {
         err = fmt.Errorf("exceeds maximum expand depth")
         return
     }
@@ -5244,8 +5244,7 @@ func expandall1(w expandwhat, values ...Value) (elems []Value, num int, err erro
         if isNil(elem) {
             // TODO: report nil expand ??
         } else if val, err = elem.expand(w); err != nil {
-            diag.errorOf(elem, "expand '%v' failed: %v", elem, err).
-                debug(1)
+            diag.errorOf(elem, "expand '%v' failed: %v", elem, err).debug(1)
             break
         }
         if isNil(val) || val == elem {
