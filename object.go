@@ -718,53 +718,49 @@ func (entry *RuleEntry) SetExplicitFile(file *File) {
 func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, breakers []*breaker) {
         switch entry.class {
         case PercRuleEntry, GlobRuleEntry, RegexpRuleEntry, PathPattRuleEntry:
-                diag.errorAt(pos, "executing pattern entry '%v'", entry.target).
-                        debug(1)
+                diag.errorAt(pos, "executing pattern entry '%v'", entry.target).debug(1)
                 return
         }
-
         var t = &traversal{
                 start: time.Now(),
                 visited: make(map[Value]int),
                 group: new(sync.WaitGroup),
         }
+        result = entry.execute(pos, t, a...)
+        breakers = t.breakers
+        return
+}
+func (entry *RuleEntry) execute(pos Position, t *traversal, a... Value) (result []Value) {
         for _, program := range entry.programs {
                 result = append(result, program.execute(t, entry, a))
                 if brks := t.breakersOf(breakFail, breakErro); len(brks) > 0 {
                         t.breakers = t.breakersNot(breakFail, breakErro)
                         for _, brk := range brks {
                                 switch brk.what {
-                                case breakFail: diag.errorAt(program.position, "execution failed: %v", brk.message).
-                                        debug(1)
-                                case breakErro: diag.errorAt(program.position, "execution error: %v", brk.error).
-                                        debug(1)
-                                default: diag.errorAt(program.position, "breaker: %v", brk.what).
-                                        debug(1)
+                                case breakFail: diag.errorAt(program.position, "execution failed: %v", brk.message).debug(1)
+                                case breakErro: diag.errorAt(program.position, "execution error: %v", brk.error).debug(1)
+                                default: diag.errorAt(program.position, "breaker: %v", brk.what).debug(1)
                                 }
                         }
                 } else if brks = t.breakersOf(breakCase, breakDone); len(brks) > 0 {
                         t.breakers = t.breakersNot(breakCase, breakDone)
                         for _, brk := range t.breakers {
-                                diag.errorAt(program.position, "breaker: %v", brk.what).
-                                        debug(1)
+                                diag.errorAt(program.position, "breaker: %v", brk.what).debug(1)
                         }
                         break
                 } else if brks = t.breakersOf(breakNext); len(brks) > 0 {
                         t.breakers = t.breakersNot(breakNext)
                         for _, brk := range t.breakers {
-                                diag.errorAt(program.position, "breaker: %v", brk.what).
-                                        debug(1)
+                                diag.errorAt(program.position, "breaker: %v", brk.what).debug(1)
                         }
                         continue
                 } else if len(t.breakers) > 0 {
                         for _, brk := range t.breakers {
-                                diag.errorAt(program.position, "unknown breaker: %v", brk.what).
-                                        debug(1)
+                                diag.errorAt(program.position, "unknown breaker: %v", brk.what).debug(1)
                         }
                         break
                 }
         }
-        breakers = t.breakers
         return
 }
 func (entry *RuleEntry) Get(name string) (Value, error) {

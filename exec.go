@@ -241,16 +241,16 @@ type knownMatch struct {
 }
 
 type ExecBuffer struct {
-  Tie io.Writer
-  Buf *bytes.Buffer
+  res *ExecResult
   log *ExecLog
-  scanerr bool
+  Buf *bytes.Buffer
+  Tie  io.Writer
   line bytes.Buffer
-  matches []knownMatch
   filters []string
   wrote uint64
-  retried map[string]bool
   report bool
+  scanKnownErrors bool
+  errs []error
 }
 
 func (p *ExecBuffer) filter(s string) { p.filters = append(p.filters, s) }
@@ -262,14 +262,14 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
   }
 
   var l int
-  if p.log != nil {
-    l = p.log.lines // get lines before writing new bytes
-    if _, err = p.log.Write(b); err != nil {
+  if p.Buf != nil {
+    if n, err = p.Buf.Write(b); err != nil {
       return
     }
   }
-  if p.Buf != nil {
-    if n, err = p.Buf.Write(b); err != nil {
+  if p.log != nil {
+    l = p.log.lines // get lines before writing new bytes
+    if _, err = p.log.Write(b); err != nil {
       return
     }
   }
@@ -286,7 +286,7 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
 
   p.wrote += uint64(n)
 
-  if !p.scanerr { return }
+  if !p.scanKnownErrors { return }
 
   for slice := b[:]; len(slice) > 0; {
     var i = bytes.Index(slice, []byte("\n"))
@@ -312,7 +312,9 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
             }
             a = append(a, v)
           }
-          p.matches = append(p.matches, knownMatch{ i, l, a })
+          if _, e := p.knownError(p.res.position, &knownMatch{ i, l, a }); e != nil {
+            p.errs = append(p.errs, e)
+          }
         }
       }
 
@@ -322,15 +324,8 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
   return
 }
 
-func (p *ExecBuffer) skips(tag string) bool {
-  if p.retried == nil { p.retried = make(map[string]bool) }
-  var a, b = p.retried[tag]
-  return a && b
-}
-
 func (p *ExecBuffer) startDockerDaemon(pos Position, t *traversal, container *Project, sock string) (err error) {
-  var c = exec.Command("dockerd")
-  //c.Stdout, c.Stderr = stdout, stderr
+  var c = exec.Command("dockerd") //c.Stdout, c.Stderr = stdout, stderr
   if err = c.Run(); err != nil {
     if p.report { diag.errorAt(pos, "dokcer daemon not running (at %s)", sock).debug(1) }
   } else {
@@ -339,45 +334,16 @@ func (p *ExecBuffer) startDockerDaemon(pos Position, t *traversal, container *Pr
   return
 }
 
-func (p *ExecBuffer) runContainerAndRetry(pos Position, t *traversal, container *Project, name string, sh *exec.Cmd, x *executor, num int) (status int, err error) {
-  if container != nil && num <= maxRetries {
-    fmt.Fprintf(sh.Stderr, "\n---- Run the container: %s\n", name)
-    if x.runContainer(t, container); t.hasBreakers() {
-      if p.report { diag.errorAt(pos, "container not running: %v", name).debug(1) }
-      return
-    }
-
-    fmt.Fprintf(sh.Stderr, "\n---- Retry the command in %s:", name)
-    if false {
-      fmt.Fprintf(sh.Stderr, "\n%s:\n    %v", sh.Path, strings.Join(sh.Args, "\n    "))
-      fmt.Fprintf(sh.Stderr, "\n\naka:\n    %s", sh)
-      fmt.Fprintf(sh.Stderr, "\n----\n")
-    } else {
-      fmt.Fprintf(sh.Stderr, "\n")
-    }
-
-    c := exec.Command(sh.Path, sh.Args[1:]...) // must ignore Args[0]
-    c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-    if false {
-      fmt.Fprintf(sh.Stderr, "\n  %s", sh)
-      fmt.Fprintf(sh.Stderr, "\n  %s", c)
-      fmt.Fprintf(sh.Stderr, "\n----\n")
-    }
-
-    status, err = p.runAndFilterErrors(pos, t, container, c, x, num+1)
-    if status != 0 && err == nil { err = &exitstatus{status} }
-    if err != nil { fmt.Fprintf(sh.Stderr, "\n---- Retry failed: %s\n", err) }
-  }
-  return
-}
-
-func (p *ExecBuffer) knownError(pos Position, t *traversal, container *Project, sh *exec.Cmd, x *executor, num int, m *knownMatch) (status int, err error) {
+func (p *ExecBuffer) knownError(pos Position, m *knownMatch) (status int, err error) {
   if p == nil {
-    diag.errorAt(pos, "nil exec buffer").
-      debug(1)
+    diag.errorAt(pos, "nil exec buffer").debug(1)
     return
   }
-  var lpos Position = pos
+  var (
+    container *Project = p.res.container
+    t *traversal = p.res.t
+    lpos Position = pos
+  )
   if p.log != nil { lpos.Filename = p.log.filename }
   if     m != nil { lpos.Line, lpos.Column = m.l, 0 }
   for _, v := range m.v { // captures
@@ -385,58 +351,49 @@ func (p *ExecBuffer) knownError(pos Position, t *traversal, container *Project, 
     switch m.i {
     case rxNotTTYDevice_i:
       if p.report {
-        diag.errorAt(lpos, "Needs TTY (input device)").
-          debug(1)
+        diag.errorAt(lpos, "Needs TTY (input device)").debug(1)
       }
     case rxDockerDaemonNotRunning_i:
       err = p.startDockerDaemon(lpos, t, container, v[1].string)
       if err != nil {
-        diag.errorAt(pos, "start container failed: %v", err).
-          debug(1)
+        diag.errorAt(pos, "start container failed: %v", err).debug(1)
       }
     case rxNoContainer_i:
-      if name := v[1].string; p.skips(name) {
+      if name := v[1].string; p.res.skips(name) {
         if p.report {
-          diag.errorAt(lpos, "container not running: %v", name).
-            debug(1)
+          diag.errorAt(lpos, "container not running: %v", name).debug(1)
         }
-      } else if status, err = p.runContainerAndRetry(lpos, t, container, name, sh, x, num); err == nil {
-        p.retried[name] = true // save it to skip next time
-        break // discard the rest errors
+      } else {
+        p.res.containerToRun = name
       }
     case rxContainerNotRunning_i:
       if p.report {
-        diag.errorAt(lpos, "Container not running (%v)", v[1].string).
-          debug(1)
+        diag.errorAt(lpos, "Container not running (%v)", v[1].string).debug(1)
       }
     case rxNoNetwork_i:
       if p.report {
-        diag.errorAt(lpos, "Network not found (%v)", v[1].string).
-          debug(1)
+        diag.errorAt(lpos, "Network not found (%v)", v[1].string).debug(1)
       }
     case rxCompilation_i:
       if p.report {
         var pos Position = convPosition(v[1].string, v[2].string, v[3].string)
         lpos.Column = v[4].col
         diag.errorAt(pos, "%s", v[4].string)
-        diag.errorAt(lpos, "…from here").
-          debug(1)
+        diag.errorAt(lpos, "…from here").debug(1)
       }
     case rxIncludedFrom_i:
       if p.report {
         var pos Position = convPosition(v[1].string, v[2].string, v[3].string)
         lpos.Column = v[3].col + 1
         diag.errorAt(pos, "included error")
-        diag.errorAt(lpos, "…from here").
-          debug(1)
+        diag.errorAt(lpos, "…from here").debug(1)
       }
     case rxFileNotFound_i:
       if p.report {
         var pos Position = convPosition(v[1].string, v[2].string, v[3].string)
         lpos.Column = v[4].col
         diag.errorAt(pos, "'%s' file not found", v[4].string)
-        diag.errorAt(lpos, "…from here").
-          debug(1)
+        diag.errorAt(lpos, "…from here").debug(1)
       }
     case rxArNoSuchFile_i:
       if p.report {
@@ -445,115 +402,54 @@ func (p *ExecBuffer) knownError(pos Position, t *traversal, container *Project, 
       }
     case rxBashNoSuchFile_i:
       if p.report {
-        diag.errorAt(lpos, "%v: no such command", v[1].string).
-          debug(1)
+        diag.errorAt(lpos, "%v: no such command", v[1].string).debug(1)
       }
     case rxClangNoSuchFile_i:
       if p.report {
         lpos.Column = v[2].col
-        diag.errorAt(lpos, "clang-%s: no such source file: %s", v[1].string, v[2].string).
-          debug(1)
+        diag.errorAt(lpos, "clang-%s: no such source file: %s", v[1].string, v[2].string).debug(1)
       }
     case rxClangError_i:
       if p.report {
         lpos.Column = v[2].col
-        diag.errorAt(lpos, "clang-%s: %s", v[1].string, v[2].string).
-          debug(1)
+        diag.errorAt(lpos, "clang-%s: %s", v[1].string, v[2].string).debug(1)
       }
     case rxLLDError_i:
       if p.report {
         lpos.Column = v[2].col
-        diag.errorAt(lpos, "%s", v[2].string).
-          debug(1)
+        diag.errorAt(lpos, "%s", v[2].string).debug(1)
       }
     case rxLLDWarning_i:
       if p.report {
         lpos.Column = v[2].col
         diag.warnAt(pos, "%s", v[2].string)
-        diag.warnAt(lpos, "…from here").
-          debug(1)
+        diag.warnAt(lpos, "…from here").debug(1)
       }
     case rxCouldnotParseObj_i:
       if p.report {
         lpos.Column = v[3].col
-        diag.errorAt(lpos, "%s", v[3].string).
-          debug(1)
+        diag.errorAt(lpos, "%s", v[3].string).debug(1)
       }
     case rxTooManyPosArgs_i:
       if p.report {
-        diag.errorAt(lpos, "%s: too many positional arguments", v[1].string).
-          debug(1)
+        diag.errorAt(lpos, "%s: too many positional arguments", v[1].string).debug(1)
       }
     case rxUndefinedReference_i:
       if p.report {
-        diag.errorAt(lpos, "Undefined reference '%s'", v[1].string).
-          debug(1)
+        diag.errorAt(lpos, "Undefined reference '%s'", v[1].string).debug(1)
       }
     case rxShellCmdNotFound_i:
       if p.report {
         lpos.Column = v[2].col
-        diag.errorAt(lpos, "%s: command not found", v[2].string).
-          debug(1)
+        diag.errorAt(lpos, "%s: command not found", v[2].string).debug(1)
       }
     case rxExitStatus_i:
       if s := v[1].string; s != "0" /*&& p.report*/ {
         // FIXME: the 'exit status' report is not working
-        diag.errorAt(lpos, "abnormal exist status %s", s).
-          debug(1)
+        diag.errorAt(lpos, "abnormal exist status %s", s).debug(1)
       }
     }
     if err != nil { break }
-  }
-  return
-}
-
-func (p *ExecBuffer) knownErrors(pos Position, t *traversal, container *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
-  for _, m := range p.matches {
-    if status, err = p.knownError(pos, t, container, sh, x, num, &m); err != nil {
-      diag.errorAt(pos, "%v (status=%d)", err, status).
-        debug(1)
-      break
-    }
-  }
-  if err == nil && status != 0 { err = &exitstatus{ status }}
-  return
-}
-
-func (p *ExecBuffer) runAndFilterErrors(pos Position, t *traversal, dock *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
-  defer func(m []knownMatch) { p.matches = m } (p.matches)
-  p.matches = nil // clear previous matches
-  if err = sh.Run(); err == nil {
-    return
-  } else if ee, ok := err.(*exec.ExitError); !ok {
-    diag.errorAt(pos, "exec failed: %v", err).debug(1)
-    return
-  } else if status = ee.ExitCode(); status == 0 {
-    return // success!
-  } else { // if n, e := fmt.Sscanf(err.Error(), exitstatusFmt, &status); n == 1 && e == nil {
-    var es = &exitstatus{ status } // convert to exitstatus
-    err = es
-
-    if p.log != nil && p.log.writer != nil {
-      fmt.Fprintf(p.log, "\n%s\n", err)
-    }
-
-    p.retried = nil
-    status, err = p.knownErrors(pos, t, dock, sh, x, num)
-    if p.retried != nil && len(p.retried) > 0 {
-      if err != nil {
-        diag.errorAt(pos, "process known errors failed: %v", err).debug(1)
-      } else if status == 0 {
-        err = nil
-      } else if es.code == 0 {
-        es.code = status
-      }
-    }
-
-    if p.report {
-      var pos Position
-      pos.Filename, pos.Line, pos.Column = p.log.filename, p.log.lines, 0
-      diag.errorAt(pos, "%v", es).debug(1)
-    }
   }
   return
 }
@@ -565,6 +461,15 @@ type ExecResult struct {
   Stdout ExecBuffer
   Stderr ExecBuffer
   Status int // aka. exit code
+
+  retried map[string]bool // work with containerToRun
+  containerToRun string   // work with retried
+
+  num int
+  t *traversal
+  x *executor
+  sh *exec.Cmd
+  container *Project
 }
 func (p *ExecResult) expand(_ expandwhat) (res Value, err error) {
   if waitExecResult { p.wg.Wait() }
@@ -605,24 +510,54 @@ func (p *ExecResult) String() string {
   return s.String()
 }
 
-type executor struct {
-  cmd, opt string
-  contained bool
-}
+func (p *ExecResult) runContainerAndRetry() (status int, err error) {
+  if p.container == nil {
+    diag.errorAt(p.position, "no container").debug(1)
+    return
+  } else if maxRetries < p.num {
+    fmt.Fprintf(p.sh.Stderr, "\n---- Retried %d times\n", p.num)
+    return
+  }
 
-func (p *executor) runContainer(t *traversal, container *Project) {
-  if run, _ := container.resolveEntry("run", false); run != nil && len(run.programs) > 0 {
-    defer setclosure(setclosure(cloctx.unshift(container.scope)))
-    if run.programs[0].execute(t, run, nil); t.hasBreakers() {
-      diag.errorAt(t.program.position, "%v", t.breakers)
-    } else { t.group.Wait() }
+  var (
+    name = p.containerToRun
+    pos = p.position
+    sh = p.sh
+  )
+
+  fmt.Fprintf(sh.Stderr, "\n---- Run container '%s'\n", name)
+  if run, _ := p.container.resolveEntry("run", false); run != nil {
+    if run.execute(p.position, p.t); p.t.hasBreakers() {
+      diag.errorAt(p.position, "%d breakers", len(p.t.breakers)).debug(1)
+      return
+    } else { p.t.group.Wait() }
   } else {
-    diag.errorAt(t.program.position, "%s⇒run undefined", container)
+    diag.errorAt(p.t.program.position, "%s⇒run undefined", p.container).debug(1)
+    return
+  }
+
+  fmt.Fprintf(sh.Stderr, "\n---- Retry the command in %s:", name)
+  if false {
+    fmt.Fprintf(sh.Stderr, "\n%s:\n    %v", sh.Path, strings.Join(sh.Args, "\n    "))
+    fmt.Fprintf(sh.Stderr, "\n\naka:\n    %s", sh)
+    fmt.Fprintf(sh.Stderr, "\n----\n")
+  } else {
+    fmt.Fprintf(sh.Stderr, "\n")
+  }
+
+  p.sh = exec.Command(sh.Path, sh.Args[1:]...) // must ignore Args[0]
+  p.sh.Stdout, p.sh.Stderr, p.sh.Stdin = sh.Stdout, sh.Stderr, sh.Stdin
+  p.sh.Dir, p.sh.Env = sh.Dir, sh.Env
+  if status, err = p.run(pos); status != 0 && err == nil {
+    err = &exitstatus{status}
+  } else if err != nil {
+    fmt.Fprintf(sh.Stderr, "\n---- Retry failed: %s\n", err)
   }
   return
 }
 
-func (p *executor) ensureContainerRunning(t *traversal, container *Project, containerName string) (err error) {
+// DEPRECATED
+func (p *ExecResult) ensureContainerRunning(t *traversal, containerName string) (err error) {
   var (
     stdoutR, stdoutW = io.Pipe()
     stderrR, stderrW = io.Pipe()
@@ -652,7 +587,7 @@ func (p *executor) ensureContainerRunning(t *traversal, container *Project, cont
         }
       }
     }
-  }(stdoutR)
+  } (stdoutR)
 
   go func(r io.Reader) {
     var buf = bufio.NewReader(r)
@@ -666,32 +601,72 @@ func (p *executor) ensureContainerRunning(t *traversal, container *Project, cont
   } (stderrR)
 
   if err = cmd.Run(); err == nil && foundID == "" {
-    if p.runContainer(t, container); t.hasBreakers() {
-      time.Sleep(time.Second)
+    if run, _ := p.container.resolveEntry("run", false); run != nil {
+      if run.execute(p.position, p.t); p.t.hasBreakers() {
+        diag.errorAt(p.position, "%d breakers", len(p.t.breakers)).debug(1)
+        return
+      } else { p.t.group.Wait() }
+    } else {
+      diag.errorAt(p.t.program.position, "%s⇒run undefined", p.container).debug(1)
+      return
     }
   } else if err != nil {
-    diag.errorAt(container.position, "%v", err)
+    diag.errorAt(p.container.position, "%v", err).debug(1)
   }
   return
 }
 
+func (p *ExecResult) skips(tag string) bool {
+  if p.retried == nil { p.retried = make(map[string]bool) }
+  var a, b = p.retried[tag]
+  return a && b
+}
+
+func (p *ExecResult) run(pos Position) (status int, err error) {
+  p.num += 1
+  if err = p.sh.Run(); err == nil {
+    return
+  } else if ee, ok := err.(*exec.ExitError); !ok {
+    diag.errorAt(pos, "exec failed: %v", err).debug(1)
+    return
+  } else if status = ee.ExitCode(); status == 0 {
+    return // success!
+  } else if p.containerToRun != "" {
+    p.retried[p.containerToRun] = true // mark it to skip next time
+    status, err = p.runContainerAndRetry()
+    p.containerToRun = ""
+  } else {
+    err = &exitstatus{ status } // convert to exitstatus
+  }
+  return
+}
+
+type executor struct {
+  cmd, opt string
+  contained bool
+}
+
 type executorEvaluateOpts struct {
+  deprecated bool `v,vo;w,ve;a,a;d,dump`
   debug bool "d,debug"
-  prompt bool
-  promStr string "c,cmd;m,prompt"
-  verbout bool "v,verbout;vo,verbose-stdout" // tied with log
-  verberr bool "w,verberr;ve,verbose-stderr" // tied with log
-  buffout bool "o,stdout;bo,buffer-stdout;so,save-stdout"
-  bufferr bool "e,stderr;be,buffer-stderr;se,save-stderr"
-  stdin bool "i,stdin"
+  prompt bool `pm,prompt;m,msg`
+  promStr string "c,cmd;m,msg"
   silent bool "s,silent"
+  verboseSrc bool `vs,verbose-source`
+  tieStdout bool "to,tie-out;to,tie-stdout" // tied with log
+  tieStderr bool "te,tie-err;te,tie-stderr" // tied with log
+  tie string `t,tie` // all, both, stdout, stderr, out, err
+  bufStdout bool "o,stdout;bo,buffer-stdout;so,save-stdout"
+  bufStderr bool "e,stderr;be,buffer-stderr;se,save-stderr"
+  stdin bool "i,stdin;in,input"
   stamp bool `st,stamp;sf,stamp-file`
+  wait bool `w,wait` // wait for execution finished
   report bool `r,report;rs,report-stamp;vs,verbose-stamp`
-  fullname bool `fn,fullname;f,full` // expand fullname
+  fullname bool `f,full;fn,fullname` // expand fullname
+  scanStdout bool `so,scan-stdout;so,scan-out`
+  scanStderr bool `se,scan-stderr;se,scan-err`
   noCD bool "n,nocd"
   path bool "p,path"
-  scanStderr bool "a,scan"
-  dump string "d,dump"
   logFileName *optFullname "l,log"
 }
 func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
@@ -705,27 +680,37 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   if args, err = mergeresult2(expandall2(expandPlainValue, args...)); err != nil {
     diag.errorAt(pos, "merge args failed: %v", err).debug(1)
     return
-  } else if args, err = parseOpts(pos, &opts, args...) ; err != nil {
+  } else if args, err = parseOpts(pos, &opts, args...); err != nil {
     diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
     return
+  } else if opts.deprecated {
+    diag.errorAt(pos, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug(1)
+    return
+  } else if !opts.prompt {
+    opts.prompt = opts.promStr != ""
   }
-  if opts.promStr != "" { opts.prompt = true }
-  switch opts.dump {
-  case "stdout": opts.verbout = true
-  case "stderr": opts.verberr = true
-  case "all": opts.verbout, opts.verberr = true, true
+  switch opts.tie {
+  case "stdout", "out" : opts.tieStdout = true
+  case "stderr", "err" : opts.tieStderr = true
+  case "all"   , "both": opts.tieStdout, opts.tieStderr = true, true
   }
 
   var aa []string
   for i, v := range args {
     var s string
     if p.contained && i == 0 {
-      if s, err = v.Strval(); err != nil { diag.errorOf(v, "%v", err); return }
-      if s == "shell" { cmd = defaultShell }
-      continue
+      if s, err = v.Strval(); err != nil {
+        diag.errorOf(v, "strval '%v' failed: %v", v, err).debug(1)
+        return
+      } else if s == "shell" {
+        cmd = defaultShell
+      }
+    } else if s, err = v.Strval(); err != nil {
+      diag.errorOf(v, "strval '%v' failed: %v", v, err).debug(1)
+      return
+    } else if s = strings.TrimSpace(s); s != "" {
+      aa = append(aa, s)
     }
-    if s, err = v.Strval(); err != nil { diag.errorOf(v, "%v", err); return } else
-    if s = strings.TrimSpace(s); s != "" { aa = append(aa, s) }
   }
 
   var container *Project
@@ -783,20 +768,45 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
       return
     }
 
-    var containerName, containerImage string
-    if containerName , err = strval("container"); err != nil { diag.errorAt(pos, "%v", err); return }
-    if containerName  == "" { diag.errorAt(pos, ".container.name undefined") ; return }
-    if containerImage, err = strval("image")    ; err != nil { diag.errorAt(pos, "%v", err); return }
-    if containerImage == "" { diag.errorAt(pos, ".container.image undefined"); return }
-    if options.verbose { fmt.Fprintf(stderr, "%v: container=%v, image=%v\n", container, containerName, containerImage) }
+    var containerName string
+    if containerName , err = strval("container"); err != nil {
+      diag.errorAt(pos, "strval .container.container failed: %v", err).debug(1)
+      return
+    } else if containerName == "" {
+      diag.errorAt(pos, ".container.name undefined").debug(1)
+      return
+    }
+
+    var containerImage string
+    if containerImage, err = strval("image"); err != nil {
+      diag.errorAt(pos, "strval .container.image failed: %v", err).debug(1)
+      return
+    } else if containerImage == "" {
+      diag.errorAt(pos, ".container.image undefined").debug(1)
+      return
+    }
+
+    if options.verbose {
+      diag.prompt("%v: container=%v, image=%v\n", container, containerName, containerImage)
+    }
 
     aa = append(aa, "exec", containerName, cmd)
     cmd = "docker"
   }
 
   var cwd string
-  if v := t.program.scope.Lookup("CWD").(*Def).Call(t.program.position); v != nil { if cwd, err = v.Strval(); err != nil { return }} else
-  if v := t.program.scope.Lookup("/"  ).(*Def).Call(t.program.position); v != nil { if cwd, err = v.Strval(); err != nil { return }}
+  {
+    var v Value
+    if v = t.program.scope.Lookup("CWD").(*Def).Call(t.program.position); isNil(v) {
+      v = t.program.scope.Lookup("/").(*Def).Call(t.program.position)
+    }
+    if !isNil(v) && !isNone(v) {
+      if cwd, err = v.Strval(); err != nil {
+        diag.errorAt(pos, "strval '%v' failed: %v", v, err).debug(1)
+        return
+      }
+    }
+  }
 
   // Fixes work directory conflicts. It happens
   // sometimes even the 'sh.Dir' is set to cwd.
@@ -811,19 +821,16 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     }
   }
 
-  var targetName string
-  var target = t.getCurrentTargetValue() //t.def.target.value
+  var ( target = t.getCurrentTargetValue(); targetName string )
   if targetName, err = fullnameOrStrval(target); err != nil {
-    diag.errorOf(target, "stringify target '%v' failed: %v", target, err).
-      debug(1)
+    diag.errorOf(target, "stringify target '%v' failed: %v", target, err).debug(1)
     return
   }
   if opts.path {
     var s string
     if s = filepath.Dir(targetName); s != "" && s != "." && s != "/" {
       if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
-        diag.errorOf(target, "make path '%s' for target failed: %v", s, err).
-          debug(1)
+        diag.errorOf(target, "make path '%s' for target failed: %v", s, err).debug(1)
         return
       }
     }
@@ -837,6 +844,8 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
       diag.warnAt(ms[0].position, "use (shell -stamp) instead of stamp modifier (%T %v)", target, target).
         debug(1)
     }
+  } else if ms := t.program.getModifiers("wait"); len(ms) > 0 {
+    // should be good to work
   } else if !opts.stamp && !opts.silent {
     diag.warnAt(pos, "add -stamp to (shell)").debug(1)
   }
@@ -861,11 +870,11 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   }
 
   var (
+    recipePos Position
     recipes []Value
-    source, str string
     sources []string
+    source string
     positions []Position
-    rp Position
     w = expandPlainValue
   )
   if opts.fullname { w |= expandFullName }
@@ -874,7 +883,8 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     return
   }
   for _, recipe := range recipes {
-    if !rp.IsValid() { rp = recipe.Position() }
+    var str string
+    if !recipePos.IsValid() { recipePos = recipe.Position() }
     if str, err = recipe.Strval(); err != nil {
       diag.errorOf(recipe, "strval recipe failed: %v", err).debug(1)
       return
@@ -892,20 +902,19 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     // Remove tabs in line breakings.
     source = strings.Replace(source, "\\\n\t", "\\\n", -1)
 
-    // Duplicates all %
+    // Duplicate all %
     //source = strings.Replace(source, "%", "%%", -1)
 
-    positions = append(positions, rp)
+    positions = append(positions, recipePos); recipePos = Position{}
     sources = append(sources, source)
     source = ""
-    rp = Position{}
   }
 
   var envstr string
   var envs []string = os.Environ()
   for i, p := range envars {
     var k, v string
-    if k, err = p.Key.Strval()  ; err != nil {
+    if k, err = p.Key.Strval(); err != nil {
       diag.errorOf(p.Key, "strval '%v' failed: %v", p.Key, err).debug(1)
       return
     }
@@ -919,14 +928,13 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   }
 
   var log *ExecLog
-  if opts.logFileName != nil { log = &ExecLog{ filename: opts.logFileName.string } }
-
   var logFile *os.File
-  var exeres = &ExecResult{valbase:valbase{pos}}
-  if opts.buffout { exeres.Stdout.Buf = new(bytes.Buffer) }
-  if opts.bufferr { exeres.Stderr.Buf = new(bytes.Buffer) }
-  if opts.verbout { exeres.Stdout.Tie = stdout }
-  if opts.verberr { exeres.Stderr.Tie = stderr }
+  var exeres = &ExecResult{valbase:valbase{pos}, x:p, t:t}
+  if opts.logFileName != nil { log = &ExecLog{ filename: opts.logFileName.string } }
+  if opts.bufStdout { exeres.Stdout.Buf = new(bytes.Buffer) }
+  if opts.bufStderr { exeres.Stderr.Buf = new(bytes.Buffer) }
+  if opts.tieStdout { exeres.Stdout.Tie = stdout }
+  if opts.tieStderr { exeres.Stderr.Tie = stderr }
   if log == nil || log.filename == "" {
     // no log required
   } else if err = os.MkdirAll(filepath.Dir(log.filename), os.FileMode(0755)); err != nil {
@@ -941,22 +949,26 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     exeres.Stdout.log = log
     exeres.Stderr.log = log
   }
+  exeres.Stdout.scanKnownErrors = opts.scanStdout
+  exeres.Stderr.scanKnownErrors = opts.scanStderr
+  exeres.Stdout.res = exeres
+  exeres.Stderr.res = exeres
 
-  exeres.Stderr.scanerr = opts.scanStderr
-
-  var run = func() {
-    var targetStr string
-
+  var run = func(start time.Time) {
     defer func() {
-      if false && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
-        if logFile != nil { logFile.Close() } // Discard empty log buffer.
-        if log.filename != "" { os.Remove(log.filename) }
-      } else {
-        if log.writer != nil { log.writer.Flush() }
-        if logFile    != nil { logFile.Close() }
+      if log.writer != nil { log.writer.Flush() }
+      if logFile != nil { logFile.Close() }
+      if false && log.filename != "" && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
+        os.Remove(log.filename)
       }
       if t.caller != nil { t.caller.calleeDone(err) }
       exeres.wg.Done()
+      exeres.Stdout.res = nil
+      exeres.Stderr.res = nil
+      exeres.container = nil
+      exeres.sh = nil
+      exeres.x = nil
+      exeres.t = nil
     } ()
 
     defer func() {
@@ -975,7 +987,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
       }
 
       if t.isConfigureExecution && err != nil {
-        if false { diag.infoAt(pos, "configure exec failed: %v", err) }
+        if false { diag.infoAt(pos, "configure failed: %v", err).debug(1) }
         err = nil
       } else if err != nil {
         diag.errorAt(pos, "shell: %v", err).debug(1)
@@ -983,58 +995,40 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
       }
 
       if opts.prompt {
+        var (
+          ps = opts.promStr
+          st = trimPromptString(targetName)
+        )
+        if ps == "" { ps = "exec: " }
         if t.caller == nil {
-          if err == nil {
-            fmt.Fprintf(stderr, "… ok\n")
+          if st += " …… "; err == nil {
+            st += "ok"
           } else if _, ok := err.(*scanner.Error); ok {
-            fmt.Fprintf(stderr, " error:\n%v\n", err)
+            st += "scan error" // fmt.Fprintf(stderr, "%v\n", err)
           } else {
-            fmt.Fprintf(stderr, " error: %v\n", err)
-          }
-        } else if false {
-          if !strings.HasSuffix(opts.promStr, ":") { opts.promStr += ": " }
-          if err == nil {
-            if false { fmt.Fprintf(stderr, "%s%s, okay.\n", opts.promStr, targetStr) }
-          } else if _, ok := err.(*scanner.Error); ok {
-            fmt.Fprintf(stderr, "%s%s, error:\n%v\n", opts.promStr, targetStr, err)
-          } else {
-            fmt.Fprintf(stderr, "%s%s, error: %v\n", opts.promStr, targetStr, err)
+            st += err.Error()
           }
         }
+        diag.prompt("%s%s (%v, stdout=%d bytes)\n", ps, st, time.Now().Sub(start), exeres.Stdout.wrote)
       }
     } ()
 
     if n := diag.checkErrors(true); n > 0 {
-      diag.warnAt(pos, "got %d error(s), cancel execution for %s",
-        n, trimPromptString(targetName)).debug(1)
+      diag.warnAt(pos, "got %d error(s), cancel execution for %s", n, trimPromptString(targetName)).debug(1)
       return
-    }
-
-    if opts.prompt {
-      targetStr = trimPromptString(targetName)
-      if opts.promStr == "" {
-        opts.promStr = "smart: gen "
-      } else {
-        opts.promStr += ": "
-      }
-      if t.caller == nil {
-        fmt.Fprintf(stderr, "%s%s …\n", opts.promStr, targetStr)
-      } else { // ……
-        fmt.Fprintf(stderr, "%s%s\n", opts.promStr, targetStr)
-      }
     }
 
     for i, src := range sources {
       var pos = positions[i]
       if strings.HasPrefix(src, "@") {
         src = src[1:]
-      } else if !opts.prompt {
-        var s string
-        s = strings.Replace(src, "\n", "\\n", -1)
+      } else if opts.verboseSrc && !opts.prompt {
+        var s string = src
+        s = strings.Replace(s, "\n", "\\n", -1)
         s = strings.Replace(s, "\\\\n", "\\\n", -1)
-        fmt.Fprintf(stderr, "%s\n", s)
+        diag.prompt("%s\n", s)//.debug(1)
       }
-      if src = strings.TrimSpace(src); src == "" { continue } else
+      if src = strings.TrimSpace(src); src == "" { continue }
       if dir != "" && !opts.noCD /*&& t.program.changedWD == ""*/ {
         if strings.HasPrefix(src, "#") {
           src = fmt.Sprintf("cd '%s' %s", dir, src)
@@ -1065,28 +1059,28 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
           return
         } else if s, _ := os.Getwd(); s == dir { break }
       }
-      if !opts.silent { printEnteringDirectory() }
-
-      var sh = exec.Command(cmd, aa...)
-      sh.Dir = dir // always set command work directory
-      sh.Env = envs
-      sh.Stdout = &exeres.Stdout
-      sh.Stderr = &exeres.Stderr
-      if opts.stdin {
-        sh.Stdin = os.Stdin
-        sh.Args = append(sh.Args, "-ti")
+      if !opts.silent || opts.prompt || opts.verboseSrc {
+        printEnteringDirectory()
       }
-      if p.opt != "" { sh.Args = append(sh.Args, p.opt) }
-      if src   != "" { sh.Args = append(sh.Args, src) }
 
-      if opts.debug { diag.warnAt(pos, "%v", sh).debug(1) }
+      exeres.container = container
+      exeres.sh = exec.Command(cmd, aa...)
+      exeres.sh.Dir = dir
+      exeres.sh.Env = envs // always set command work directory
+      exeres.sh.Stdout = &exeres.Stdout
+      exeres.sh.Stderr = &exeres.Stderr
+      if opts.stdin {
+        exeres.sh.Stdin = os.Stdin
+        exeres.sh.Args = append(exeres.sh.Args, "-ti")
+      }
+      if p.opt != "" { exeres.sh.Args = append(exeres.sh.Args, p.opt) }
+      if src   != "" { exeres.sh.Args = append(exeres.sh.Args, src) }
+      if opts.debug { diag.warnAt(pos, "%v", exeres.sh).debug(1) }
 
+      exeres.Stdout.report = !opts.silent && false
       exeres.Stderr.report = !opts.silent
-      exeres.Status, err = exeres.Stderr.runAndFilterErrors(pos, t, container, sh, p, 1)
-      if err != nil {
-        if !opts.silent || opts.debug {
-          diag.errorAt(pos, "exec error: %v", err).debug(1)
-        }
+      if exeres.Status, err = exeres.run(pos); err != nil {
+        if !opts.silent || opts.debug { diag.errorAt(pos, "exec error: %v", err).debug(1) }
         if opts.silent { err = nil }
       } else if exeres.Status != 0 && (!opts.silent || opts.debug) {
         diag.errorAt(pos, "abnormal exec exit status %d", exeres.Status).debug(1)
@@ -1095,8 +1089,10 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   }
 
   if t.caller != nil { t.caller.calleeStart() }
-  if true { exeres.wg.Add(1); go run() }
-  if t.caller == nil || opts.stamp/*FIXME: it's a temporary solution */ { exeres.wg.Wait() }
+  if true { exeres.wg.Add(1); go run(time.Now()) }
+  if t.caller == nil || opts.wait || opts.stamp/*FIXME: it's a temporary solution */ {
+    exeres.wg.Wait()
+  }
 
   // The execution is performed asynchronously, the result can't
   // be fetched immediately. Caller should do a t.wait(...) or
