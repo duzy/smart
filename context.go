@@ -177,37 +177,37 @@ func (diag *Diagnostic) add(point *diagnostic) *diagnostic {
 func (diag *Diagnostic) infoOf(value Value, f string, args... interface{}) *diagnostic {
   var pos Position
   if value != nil { pos = value.Position() }
-  return diag.add(&diagnostic{ diagInfo, pos, value, fmt.Sprintf(f, args...), nil })
+  return diag.add(&diagnostic{ diagInfo, pos, value, fmt.Sprintf(strings.TrimSpace(f), args...), nil })
 }
 func (diag *Diagnostic) warnOf(value Value, f string, args... interface{}) *diagnostic {
   var pos Position
   if value != nil { pos = value.Position() }
-  return diag.add(&diagnostic{ diagWarn, pos, value, fmt.Sprintf(f, args...), nil })
+  return diag.add(&diagnostic{ diagWarn, pos, value, fmt.Sprintf(strings.TrimSpace(f), args...), nil })
 }
 func (diag *Diagnostic) errorOf(value Value, f string, args... interface{}) *diagnostic {
   var pos Position
-  var s = fmt.Sprintf(f, args...)
+  var s = fmt.Sprintf(strings.TrimSpace(f), args...)
   if value != nil { pos = value.Position() }
   return diag.add(&diagnostic{ diagError, pos, value, s, nil })
 }
 func (diag *Diagnostic) infoAt(pos Position, f string, args... interface{}) *diagnostic {
-  return diag.add(&diagnostic{ diagInfo, pos, nil, fmt.Sprintf(f, args...), nil })
+  return diag.add(&diagnostic{ diagInfo, pos, nil, fmt.Sprintf(strings.TrimSpace(f), args...), nil })
 }
 func (diag *Diagnostic) warnAt(pos Position, f string, args... interface{}) *diagnostic {
-  return diag.add(&diagnostic{ diagWarn, pos, nil, fmt.Sprintf(f, args...), nil })
+  return diag.add(&diagnostic{ diagWarn, pos, nil, fmt.Sprintf(strings.TrimSpace(f), args...), nil })
 }
 func (diag *Diagnostic) errorAt(pos Position, f string, args... interface{}) *diagnostic {
-  var s = fmt.Sprintf(f, args...)
+  var s = fmt.Sprintf(strings.TrimSpace(f), args...)
   return diag.add(&diagnostic{ diagError, pos, nil, s, nil })
 }
 func (diag *Diagnostic) info(f string, args... interface{}) *diagnostic {
-  return diag.add(&diagnostic{ diagInfo, Position{}, nil, fmt.Sprintf(f, args...), nil })
+  return diag.add(&diagnostic{ diagInfo, Position{}, nil, fmt.Sprintf(strings.TrimSpace(f), args...), nil })
 }
 func (diag *Diagnostic) warn(f string, args... interface{}) *diagnostic {
-  return diag.add(&diagnostic{ diagWarn, Position{}, nil, fmt.Sprintf(f, args...), nil })
+  return diag.add(&diagnostic{ diagWarn, Position{}, nil, fmt.Sprintf(strings.TrimSpace(f), args...), nil })
 }
 func (diag *Diagnostic) error(f string, args... interface{}) *diagnostic {
-  var s = fmt.Sprintf(f, args...)
+  var s = fmt.Sprintf(strings.TrimSpace(f), args...)
   return diag.add(&diagnostic{ diagError, Position{}, nil, s, nil })
 }
 func (diag *Diagnostic) prompt(f string, args... interface{}) *diagnostic {

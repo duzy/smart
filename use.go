@@ -39,13 +39,15 @@ func (p *using) expandible(w expandwhat) (res bool) {
         }
         return
 }
-func (p *using) expand(w expandwhat) (Value, error) {
-        if params, num, err := expandall2(w, p.params...); err != nil {
-                return nil, err
+func (p *using) expand(w expandwhat) (res Value, err error) {
+        var ( params []Value; num int )
+        if params, num, err = expandall2(w, p.params...); err != nil {
+                diag.errorAt(p.position, "%v", err).debug(1)
+                return
         } else if num > 0 {
                 return &using{p.valbase,p.project,params,p.opts}, nil
         }
-        return p, nil
+        return
 }
 func (p *using) stat(t *traversal) (si *statinfo) {
         if entry := p.project.DefaultEntry(); entry != nil {
@@ -55,6 +57,9 @@ func (p *using) stat(t *traversal) (si *statinfo) {
         return
 }
 func (p *using) traverse(pc *traversal) {
+        diag.errorAt(p.position, "cant traverse 'using' %v", p.project).debug(1)
+}
+func (p *using) _traverse(pc *traversal) {
         if optionTraceTraversal { defer un(tt(t_traverse, pc, p)) }
         if _, done := usingPrepared[p.project]; done {
                 usingPrepared[p.project] += 1
@@ -128,11 +133,13 @@ func (p *usinglist) expandible(w expandwhat) (res bool) {
         }
         return
 }
-func (p *usinglist) expand(w expandwhat) (Value, error) {
-        var (list []*using; num int)
+func (p *usinglist) expand(w expandwhat) (res Value, err error) {
+        var ( list []*using; num int )
         for _, elem := range p.list {
-                if v, err := elem.expand(w); err != nil {
-                        return nil, err
+                var v Value
+                if v, err = elem.expand(w); err != nil {
+                        diag.errorAt(elem.position, "%v", err).debug(1)
+                        return
                 } else {
                         if !isNil(v) { v = elem } else if v != elem { num += 1 }
                         list = append(list, v.(*using))
@@ -141,9 +148,12 @@ func (p *usinglist) expand(w expandwhat) (Value, error) {
         if num > 0 {
                 return &usinglist{ p.name, p.scope, p.owner, list }, nil
         }
-        return p, nil
+        return
 }
 func (p *usinglist) traverse(pc *traversal) {
+        diag.errorAt(p.list[0].position, "cant traverse 'usinglist'").debug(1)
+}
+func (p *usinglist) _traverse(pc *traversal) {
         if optionTraceTraversal { defer un(tt(t_traverse, pc, p)) }
         for _, elem := range p.list {
                 if elem.traverse(pc); pc.hasBreakers() { break }
@@ -246,14 +256,17 @@ func (p *usinglist) Get(name string) (result Value, err error) {
 }
 
 func (p *usinglist) Call(pos Position, a... Value) (res Value) {
-        if false {
-                list := new(List)
-                for _, elem := range p.list {
-                        list.Elems = append(list.Elems, elem)
+        var list = new(List)
+        for _, u := range p.list {
+                if entry := u.project.DefaultEntry(); entry != nil {
+                        if u.project.opts.breakUseLoop {
+                                // FIXME: break use loop
+                        } else {
+                                usingPrepared[u.project] += 1
+                        }
+                        list.Elems = append(list.Elems, entry)
                 }
-                res = list
-        } else {
-                res = p
         }
+        res = list
         return
 }

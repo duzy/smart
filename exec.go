@@ -397,8 +397,7 @@ func (p *ExecBuffer) knownError(pos Position, m *knownMatch) (status int, err er
       }
     case rxArNoSuchFile_i:
       if p.report {
-        diag.errorAt(lpos, "'%v' file not found (as '%s')", filepath.Base(v[1].string), v[1]).
-          debug(1)
+        diag.errorAt(lpos, "'%v' file not found (as '%s')", filepath.Base(v[1].string), v[1]).debug(1)
       }
     case rxBashNoSuchFile_i:
       if p.report {
@@ -635,8 +634,6 @@ func (p *ExecResult) run(pos Position) (status int, err error) {
     p.retried[p.containerToRun] = true // mark it to skip next time
     status, err = p.runContainerAndRetry()
     p.containerToRun = ""
-  } else {
-    err = &exitstatus{ status } // convert to exitstatus
   }
   return
 }
@@ -651,7 +648,7 @@ type executorEvaluateOpts struct {
   debug bool "d,debug"
   prompt bool `pm,prompt;m,msg`
   promStr string "c,cmd;m,msg"
-  silent bool "s,silent"
+  silent bool "s,silent" // silent errors
   verboseSrc bool `vs,verbose-source`
   tieStdout bool "to,tie-out;to,tie-stdout" // tied with log
   tieStderr bool "te,tie-err;te,tie-stderr" // tied with log
@@ -740,8 +737,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
     }
 
     if container == nil {
-      diag.errorAt(pos, "container unavailable (in %s)", t.program.Project().Name()).
-        debug(1)
+      diag.errorAt(pos, "container unavailable (in %s)", t.program.Project().Name()).debug(1)
       return
     }
 
@@ -843,8 +839,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   } else if ms := t.program.getModifiers("stamp"); len(ms) > 0 {
     switch target.(type) {
     case *Barefile, *File, *Path:
-      diag.warnAt(ms[0].position, "use (shell -stamp) instead of stamp modifier (%T %v)", target, target).
-        debug(1)
+      diag.warnAt(ms[0].position, "use (shell -stamp) instead of stamp modifier (%T %v)", target, target).debug(1)
     }
   } else if ms := t.program.getModifiers("wait"); len(ms) > 0 {
     // should be good to work
@@ -1091,13 +1086,14 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
       if src   != "" { exeres.sh.Args = append(exeres.sh.Args, src) }
       if opts.debug { diag.warnAt(pos, "%v", exeres.sh).debug(1) }
 
-      exeres.Stdout.report = !opts.silent && false
+      exeres.Stdout.report = !opts.silent
       exeres.Stderr.report = !opts.silent
       if exeres.Status, err = exeres.run(pos); err != nil {
-        if !opts.silent || opts.debug { diag.errorAt(pos, "exec error: %v", err).debug(1) }
+        if !opts.silent || opts.debug { diag.errorAt(pos, "exec: %v", err).debug(1) }
         if opts.silent { err = nil }
       } else if exeres.Status != 0 && (!opts.silent || opts.debug) {
         diag.errorAt(pos, "abnormal exec exit status %d", exeres.Status).debug(1)
+        err = &exitstatus{ exeres.Status } // convert to exitstatus
       }
     }
   }

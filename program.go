@@ -62,20 +62,17 @@ func (prog *Program) interpret(pos Position, t *traversal, i interpreter, params
     t.wait(prog.position)
 
     if value, err = i.Evaluate(pos, t, params...); err != nil {
-        diag.errorAt(pos, "evaluation failed: %v", err).
-            debug(options.debugErrors, 1)
+        diag.errorAt(pos, "evaluation failed: %v", err).debug(1)
         return
     } else if !isNil(value) {
         if err = t.def.buffer.val(value); err != nil {
-            diag.errorAt(pos, "set modify buffer value failed: %v", err).
-                debug(options.debugErrors, 1)
+            diag.errorAt(pos, "set modify buffer value failed: %v", err).debug(1)
             return
         }
     }
 
     if _, _, err = t.updateRecipesHash(); err != nil {
-        diag.errorAt(pos, "update recipes hash failed: %v", err).
-            debug(options.debugErrors, 1)
+        diag.errorAt(pos, "update recipes hash failed: %v", err).debug(1)
     } else {
         t.interpreted = append(t.interpreted, i)
     }
@@ -88,8 +85,7 @@ func (prog *Program) getModifiers(name string) (ms []*modifier) {
         if !ok { continue }
         for _, m := range g.modifiers {
             if s, e := m.name.Strval(); e != nil {
-                diag.errorOf(m.name, "get modifier name '%v' failed: %v", m.name, e).
-                    debug(options.debugErrors, 1)
+                diag.errorOf(m.name, "get modifier name '%v' failed: %v", m.name, e).debug(1)
                 return
             } else if s == name {
                 ms = append(ms, m)
@@ -105,12 +101,13 @@ func (prog *Program) modify(t *traversal, m *modifier) (err error) {
     //       [ foo.baaaar ]
     var ( name string; args []Value )
     if args, err = mergeresult2(expandall2(expandPlainValue, m.name)); err != nil {
-        diag.errorOf(m.name, "expand modifier name '%v' failed: %v", m.name, err).
-            debug(options.debugErrors,1)
+        diag.errorOf(m.name, "expand modifier name '%v' failed: %v", m.name, err).debug(1)
+        return
+    } else if n := len(args); n == 0 {
+        diag.errorOf(m.name, "modifier name '%v' is empty", m.name).debug(1)
         return
     } else if name, err = args[0].Strval(); err != nil {
-        diag.errorOf(args[0], "strval '%v' failed: %v", args[0], err).
-            debug(options.debugErrors,1)
+        diag.errorOf(args[0], "strval '%v' failed: %v", args[0], err).debug(1)
         return
     } else {
         args = append(args[1:], m.args...)
@@ -123,29 +120,24 @@ func (prog *Program) modify(t *traversal, m *modifier) (err error) {
             // Evaluate for configure modifier
             if i, ok := dialects["eval"]; ok && i != nil {
                 if err = prog.interpret(m.position, t, i, args); err != nil {
-                    diag.errorAt(m.position, "interpret failed: %v", err).
-                        debug(options.debugErrors,1)
+                    diag.errorAt(m.position, "interpret failed: %v", err).debug(1)
                     return
                 }
             }
         }
         if value, err = f(m.position, t, args...); err != nil {
-            diag.errorAt(m.position, "%s: %v", name, err).
-                debug(options.debugErrors, 1)
+            diag.errorAt(m.position, "%s: %v", name, err).debug(1)
         } else if isNil(value) || (value == t.def.buffer && value != t.def.buffer.value) {
             // does nothing
         } else if err = t.def.buffer.val(value); err != nil {
-            diag.errorAt(m.position, "setting modifier buffer value failed: %v", err).
-                debug(options.debugErrors, 1)
+            diag.errorAt(m.position, "setting modifier buffer value failed: %v", err).debug(1)
         }
     } else if i, _ := dialects[name]; i != nil {
         if err = prog.interpret(m.position, t, i, args); err != nil {
-            diag.errorAt(m.position, "interpret '%s' failed: %v", name, err).
-                debug(options.debugErrors, 1)
+            diag.errorAt(m.position, "interpret '%s' failed: %v", name, err).debug(1)
         }
     } else {
-        diag.errorAt(m.position, "unknown modifier '%s'", name).
-            debug(options.debugErrors, 1)
+        diag.errorAt(m.position, "unknown modifier '%s'", name).debug(1)
     }
     return
 }
@@ -162,14 +154,12 @@ func (prog *Program) args(args []Value) (params []*Def, restore func(), err erro
         if t, ok := a.(*Pair); ok {
             var s string
             if s, err = t.Key.Strval(); err != nil {
-                diag.errorOf(t.Key, "strval '%v' failed: %v", t.Key, err).
-                    debug(options.debugErrors, 1)
+                diag.errorOf(t.Key, "strval '%v' failed: %v", t.Key, err).debug(1)
                 return
             } else if o := prog.scope.Lookup(s); isNil(o) {
                 rest = append(rest, a)
             } else if def, ok = o.(*Def); !ok {
-                diag.errorOf(o, "object is not a Def: %v", o).
-                    debug(options.debugErrors, 1)
+                diag.errorOf(o, "object is not a Def: %v", o).debug(1)
                 return
             } else {
                 values = append(values, def.value)
@@ -190,8 +180,7 @@ func (prog *Program) args(args []Value) (params []*Def, restore func(), err erro
         } else {
             name := strconv.Itoa(argnum+1)
             if def, err = prog.auto(name, a); err != nil {
-                diag.errorOf(a, "arg: %v", err).
-                    debug(options.debugErrors, 1)
+                diag.errorOf(a, "arg: %v", err).debug(1)
                 return
             }
             values = append(values, def.value)
@@ -242,8 +231,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         if c.program == prog { recursion += 1 }
     }
     if recursion >= maxRecursion {
-        diag.errorAt(pos, "exceeds max recursion: %v", entry.target).
-            debug(1)
+        diag.errorAt(pos, "exceeds max recursion: %v", entry.target).debug(1)
         for c := caller; c != nil; c = c.caller {
             var n int
             for next := c.caller; next != nil; next = next.caller {
@@ -256,8 +244,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
             }
         }
         diag.errorAt(pos, "too many recursion (%d) (%v) (from %v)",
-            recursion, entry.target, caller.def.target.value).
-            debug(1)
+            recursion, entry.target, caller.def.target.value).debug(1)
         return
     }
 
@@ -286,15 +273,9 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
             for _, b := range t.breakers {
                 switch b.what {
                 case breakNext, breakCase, breakDone:
-                case breakFail:
-                    diag.errorAt(pos, "broken execution for %v (%v): %v", entry, t.def.target, b.message).
-                        debug(1)
-                case breakErro:
-                    diag.errorAt(pos, "broken execution for %v (%v): %v", entry, t.def.target, b.error).
-                        debug(1)
-                default:
-                    diag.errorAt(pos, "broken execution for %v (%v): %v", entry, t.def.target, b.what).
-                        debug(16)
+                case breakFail: diag.errorAt(pos, "broken execution for %v (%v): %v", entry, t.def.target, b.message).debug(1)
+                case breakErro: diag.errorAt(pos, "broken execution for %v (%v): %v", entry, t.def.target, b.error).debug(1)
+                default: diag.errorAt(pos, "broken execution for %v (%v): %v", entry, t.def.target, b.what).debug(16)
                 }
             }
         } ()
@@ -325,8 +306,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     )
     if len(cd.stack) > 0 { enterBack = cd.stack[0] }
     if err = enter(prog, prog.project.absPath); err != nil {
-        diag.errorAt(pos, "enter project '%v' failed: %v", prog.project, err).
-            debug(1)
+        diag.errorAt(pos, "enter project '%v' failed: %v", prog.project, err).debug(1)
         return
     }
     defer func(scc closurecontext, swd string) {
@@ -335,15 +315,13 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         if e := leave(prog, enterBack); e != nil {
             // NOTE: err could be breakCase, breakDone, etc.
             if err == nil { err = e } else {
-                diag.errorAt(pos, "leave project '%v' failed: %v", prog.project, err).
-                    debug(1)
+                diag.errorAt(pos, "leave project '%v' failed: %v", prog.project, err).debug(1)
             }
         }
         prog.project.changedWD = swd
 
         if err != nil {
-            diag.errorAt(pos, "execution failed: %v", err).
-                debug(6)
+            diag.errorAt(pos, "execution failed: %v", err).debug(6)
             return
         }
 
@@ -377,8 +355,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         var name string
         var target = t.entry.target
         if name, err = target.Strval(); err != nil {
-            diag.errorAt(pos, "strval '%v' failed: %v", target, err).
-                debug(1)
+            diag.errorAt(pos, "strval '%v' failed: %v", target, err).debug(1)
             return
         }
         if file := prog.project.FindFile(name); file != nil {
@@ -440,8 +417,7 @@ func (t *traversal) exec(prog *Program) (result Value) {
     /* modifierGrepFiles already did the traverse()
     if t.greppedFiles(pos);           t.hasBreakers() { return }
     if n := diag.checkErrors(true); n > 0 {
-        diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).
-            debug(1)
+        diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).debug(1)
         return
     }
     */
