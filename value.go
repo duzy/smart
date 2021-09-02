@@ -3997,16 +3997,16 @@ func (p *delegate) defs(s string) (res []*Def) {
 }
 func (p *delegate) traverse(t *traversal) {
     if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
-    if val, err := p.expand(expandPlainValue); err != nil {
+    if val, err := p.expand(expandPlainValue); err != nil { if true {
         diag.errorAt(p.position, "expand '%v' failed: %v", p, err).debug(16)
         if true { t.traceCallStack(p.position, "expand '%v' failed", p) }
-    } else if isNil(val) {
+    }} else if isNil(val) { if true {
         diag.warnAt(p.position, "delegate '%v' expands to nil", p).debug(16)
         if true { t.traceCallStack(p.position, "delegate '%v' expands to <nil>", p) }
-    } else if isNone(val) {
+    }} else if isNone(val) { if false {
         diag.warnAt(p.position, "delegate '%v' expands to none", p).debug(16)
         if true { t.traceCallStack(p.position, "delegate '%v' expands to <none>", p) }
-    } else {
+    }} else {
         val.traverse(t)
     }
 }

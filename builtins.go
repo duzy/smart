@@ -315,7 +315,7 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                 var t = opt[:]
                 for i := strings.IndexRune(t, ','); i >= 0; {
                         if j := strings.IndexAny(t[i+1:], "; "); j == 0 {
-                                diag.errorAt(pos, "illform option tag: %s", t).debug(options.debugErrors)
+                                diag.errorAt(pos, "illform option tag: %s", t).debug(1)
                                 return
                         } else if j > 0 {
                                 s, l = t[:i], t[i+1:i+1+j]
@@ -329,7 +329,7 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                         }
                 }
                 if len(short) != len(long) || len(short) == 0 || len(long) == 0 {
-                        diag.errorAt(pos, "illform option tag: %s", tag).debug(options.debugErrors)
+                        diag.errorAt(pos, "illform option tag: %s", tag).debug(1)
                         return
                 }
         }
@@ -462,7 +462,6 @@ ForArgs:
                         }
                 }
                 rest = append(rest, arg)
-                continue ForArgs
         }
         if false && len(args) > 0 {
                 diag.infoAt(pos, "%v,%v: %v %v %v", short, long, field.Kind(), field, rest)
@@ -473,7 +472,7 @@ ForArgs:
 func parseOpts(pos Position, iOpts interface{}, args... Value) (rest []Value, err error) {
         rest = args // NOTE: set the returning args first of all!
         if opts := reflect.ValueOf(iOpts); opts.Kind() != reflect.Ptr {
-                diag.errorAt(pos, "opts must be ptr: %v", opts.Kind()).debug(options.debugErrors)
+                diag.errorAt(pos, "opts must be ptr: %v", opts.Kind()).debug(1)
         } else if opts = opts.Elem(); opts.Kind() == reflect.Struct {
                 var otyp = opts.Type()
                 if false { diag.infoAt(pos, "opts: %v, %v", opts.Kind(), otyp) }
@@ -483,7 +482,7 @@ func parseOpts(pos Position, iOpts interface{}, args... Value) (rest []Value, er
                         rest, err = parseOpt(pos, ft.Tag, fv, rest...)
                 }
         } else {
-                diag.errorAt(pos, "opts is not ptr of struct: %v", opts.Kind()).debug(options.debugErrors)
+                diag.errorAt(pos, "opts is not ptr of struct: %v", opts.Kind()).debug(1)
         }
         return
 }

@@ -547,9 +547,7 @@ func (p *ExecResult) runContainerAndRetry() (status int, err error) {
   p.sh = exec.Command(sh.Path, sh.Args[1:]...) // must ignore Args[0]
   p.sh.Stdout, p.sh.Stderr, p.sh.Stdin = sh.Stdout, sh.Stderr, sh.Stdin
   p.sh.Dir, p.sh.Env = sh.Dir, sh.Env
-  if status, err = p.run(pos); status != 0 && err == nil {
-    err = &exitstatus{status}
-  } else if err != nil {
+  if status, err = p.run(pos); err != nil {
     fmt.Fprintf(sh.Stderr, "\n---- Retry failed: %s\n", err)
   }
   return
@@ -638,12 +636,7 @@ func (p *ExecResult) run(pos Position) (status int, err error) {
   return
 }
 
-type executor struct {
-  cmd, opt string
-  contained bool
-}
-
-type executorEvaluateOpts struct {
+type executorOpts struct {
   deprecated bool `v,vo;w,ve;a,a;d,dump`
   debug bool "d,debug"
   prompt bool `pm,prompt;m,msg`
@@ -666,6 +659,10 @@ type executorEvaluateOpts struct {
   path bool "p,path"
   logFileName *optFullname "l,log"
 }
+type executor struct {
+  cmd, opt string
+  contained bool
+}
 func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
   if optionTraceExecutor {
     var t = t.def.target.value
@@ -673,7 +670,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
   }
 
   var cmd = p.cmd
-  var opts = executorEvaluateOpts{ scanStderr: true }
+  var opts = executorOpts{ scanStderr: true }
   if args, err = mergeresult2(expandall2(expandPlainValue, args...)); err != nil {
     diag.errorAt(pos, "merge args failed: %v", err).debug(1)
     return

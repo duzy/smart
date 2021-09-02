@@ -245,28 +245,30 @@ func (p *usinglist) Get(name string) (result Value, err error) {
         /*if list == nil && err == nil {
                 err = fmt.Errorf("no such property `%s` (%v)", name, p)
         }*/
-        if err == nil {
-                if list != nil {
-                        result = MakeListOrScalar(p.Position(), list)
-                } else {
-                        result = &None{valbase{p.Position()}}
-                }
+        if err != nil {
+                // failed
+        } else if len(list) > 0 {
+                result = MakeListOrScalar(p.Position(), list)
+        } else {
+                result = MakeNone(p.Position())
         }
         return
 }
 
-func (p *usinglist) Call(pos Position, a... Value) (res Value) {
-        var list = new(List)
-        for _, u := range p.list {
-                if entry := u.project.DefaultEntry(); entry != nil {
-                        if u.project.opts.breakUseLoop {
+func (p *usinglist) Call(pos Position, a... Value) (result Value) {
+        var targets []Value
+        for _, usee := range p.list {
+                if entry := usee.project.DefaultEntry(); entry != nil {
+                        if usee.project.opts.breakUseLoop {
                                 // FIXME: break use loop
-                        } else {
-                                usingPrepared[u.project] += 1
+                        } else if false {
+                                usingPrepared[usee.project] += 1
                         }
-                        list.Elems = append(list.Elems, entry)
+                        targets = append(targets, entry)
                 }
         }
-        res = list
+        if len(targets) > 0 {
+                result = MakeListOrScalar(p.Position(), targets)
+        }
         return
 }
