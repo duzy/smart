@@ -50,7 +50,10 @@ func (s *Scope) Comment() string { return s.comment }
 //func (s *Scope) Outer() *Scope { return s.outer }
 
 // Len() returns the number of scope elements.
-func (s *Scope) Len() int { return len(s.elems) }
+func (s *Scope) Len() int {
+	s.mutex.Lock(); defer s.mutex.Unlock()
+	return len(s.elems)
+}
 
 // Names returns the scope's element names in sorted order.
 func (s *Scope) Names() []string {
@@ -70,10 +73,10 @@ func (s *Scope) Names() []string {
 
 // Lookup returns the object in scope s with the given name if such an
 // object exists; otherwise the result is nil.
+func (s *Scope) lookup(name string) (obj Object) { return s.elems[name] }
 func (s *Scope) Lookup(name string) (obj Object) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	obj, _ = s.elems[name]; return
+	s.mutex.Lock(); defer s.mutex.Unlock()
+	return s.lookup(name)
 }
 
 // findouter follows the outer chain of scopes starting with s until
@@ -103,7 +106,8 @@ func (s *Scope) findouter(name string) (*Scope, Object) {
 }
 
 func (s *Scope) Find(name string) (*Scope, Object) {
-	if obj := s.Lookup(name); obj == nil {
+	s.mutex.Lock(); defer s.mutex.Unlock()
+	if obj := s.lookup(name); obj == nil {
 		return s.findouter(name)
 	} else {
 		return s, obj
@@ -120,22 +124,19 @@ func (s *Scope) Resolve(name string) (obj Object) {
 // the same name, Insert leaves s unchanged and returns alt.
 // Otherwise it inserts obj, sets the object's outer scope
 // if not already set, and returns nil.
-func (s *Scope) Insert(obj Object) Object {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	name := obj.Name()
+func (s *Scope) Insert(ctx Context, obj Object) Object {
+	s.mutex.Lock(); defer s.mutex.Unlock()
+	var name = obj.Name()
 	if alt := s.elems[name]; alt != nil {
 		return alt
 	}
-	s.replace(name, obj)
+	s.replace(ctx, name, obj)
 	return nil
 }
 
-func (s *Scope) replace(name string, obj Object) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+func (s *Scope) replace(ctx Context, name string, obj Object) {
 	if s.elems[name] = obj; obj.DeclScope() == nil {
-		obj.redecl(s)
+		obj.redecl(ctx, s)
 	}
 }
 
@@ -144,8 +145,7 @@ func (s *Scope) replace(name string, obj Object) {
 // The level of indentation is controlled by n >= 0, with
 // n == 0 for no indentation.
 func (s *Scope) WriteTo(w io.Writer, n int) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	s.mutex.Lock(); defer s.mutex.Unlock()
 
 	const ind = ".  "
 	indn := strings.Repeat(ind, n)
@@ -179,7 +179,8 @@ func (s *Scope) FindDef(name string) (def *Def) {
 	return
 }
 
-func (scope *Scope) ProjectName(owner *Project, name string, project *Project) (pn *ProjectName, alt Object) {
+func (scope *Scope) ProjectName(ctx Context, owner *Project, name string, project *Project) (pn *ProjectName, alt Object) {
+	scope.mutex.Lock(); defer scope.mutex.Unlock()
 	if alt = scope.elems[name]; alt == nil {
 		pn = &ProjectName{
 			knownobject{
@@ -190,12 +191,13 @@ func (scope *Scope) ProjectName(owner *Project, name string, project *Project) (
 			},
 			project,
 		}
-		scope.replace(name, pn)
+		scope.replace(ctx, name, pn)
 	}
 	return
 }
 
-func (scope *Scope) ScopeName(owner *Project, name string, s *Scope) (sn *ScopeName, alt Object) {
+func (scope *Scope) ScopeName(ctx Context, owner *Project, name string, s *Scope) (sn *ScopeName, alt Object) {
+	scope.mutex.Lock(); defer scope.mutex.Unlock()
 	if alt = scope.elems[name]; alt == nil {
 		sn = &ScopeName{
 			knownobject{
@@ -206,33 +208,13 @@ func (scope *Scope) ScopeName(owner *Project, name string, s *Scope) (sn *ScopeN
 			},
 			s,
 		}
-		scope.replace(name, sn)
+		scope.replace(ctx, name, sn)
 	}
 	return
 }
 
-func (scope *Scope) define(owner *Project, name string, value Value) (def *Def, alt Object) {
-	var okay bool
-	if alt, okay = scope.elems[name]; okay && alt == nil {
-		delete(scope.elems, name)
-		okay = false
-	}
-	if !okay {
-		def = &Def{
-			knownobject{
-				objbase{
-					scope: scope,
-					owner: owner,
-				}, name,
-			},
-			Origin(0), value,
-		}
-		scope.replace(name, def)
-	}
-	return
-}
-
-func (scope *Scope) Builtin(name string, f BuiltinFunc) (bui *Builtin, alt Object) {
+func (scope *Scope) Builtin(ctx Context, name string, f BuiltinFunc) (bui *Builtin, alt Object) {
+	scope.mutex.Lock(); defer scope.mutex.Unlock()
 	if alt = scope.elems[name]; alt == nil {
 		bui = &Builtin{
 			knownobject{
@@ -243,7 +225,29 @@ func (scope *Scope) Builtin(name string, f BuiltinFunc) (bui *Builtin, alt Objec
 			},
 			builtinFlag(0), f,
 		}
-		scope.replace(name, bui)
+		scope.replace(ctx, name, bui)
+	}
+	return
+}
+
+func (scope *Scope) define(ctx Context, owner *Project, name string, value Value) (def *Def, alt Object) {
+	var okay bool
+	scope.mutex.Lock(); defer scope.mutex.Unlock()
+	if alt, okay = scope.elems[name]; okay && alt == nil {
+		delete(scope.elems, name)
+		okay = false
+	}
+	if !okay {
+		def = &Def{
+			knownobject: knownobject{
+				objbase{
+					scope: scope,
+					owner: owner,
+				}, name,
+			},
+			origin: Origin(0), value: value,
+		}
+		scope.replace(ctx, name, def)
 	}
 	return
 }

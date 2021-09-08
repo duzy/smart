@@ -12,8 +12,8 @@ import (
         "os/exec"
         "strings"
         "strconv"
-        "sync"
         "bytes"
+        "sync"
         "time"
         "fmt"
         //"os"
@@ -27,15 +27,14 @@ type Object interface {
         Value
 
         Name() string
-
         DeclScope() *Scope
         OwnerProject() *Project
 
         // Get object's named property.
-        Get(name string) (Value, error)
+        Get(ctx Context, name string) (Value, error)
 
         // redecl the object.
-        redecl(*Scope)
+        redecl(ctx Context, scope *Scope)
 }
 
 type objbase struct { // generally unnamed objects
@@ -43,15 +42,15 @@ type objbase struct { // generally unnamed objects
         scope *Scope
         owner *Project
 }
-func (p *objbase) Name() string { panic("inquiring name of an unknown object") }
 func (p *objbase) DeclScope() *Scope { return p.scope }
 func (p *objbase) OwnerProject() *Project { return p.owner }
-func (p *objbase) Strval() (string, error) { return fmt.Sprintf("{unknown %p}", p), nil }
 func (p *objbase) String() string { return fmt.Sprintf("{unknown %p}", p) }
-func (p *objbase) Get(name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
-func (p *objbase) redecl(scope *Scope) { panic("redeclaring unknown object") }
+func (p *objbase) Strval(ctx Context) (string, error) { return fmt.Sprintf("{unknown %p}", p), nil }
+func (p *objbase) Name() string { panic("inquiring name of an unknown object") }
+func (p *objbase) Get(_ Context, name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
+func (p *objbase) redecl(_ Context, scope *Scope) { panic("redeclaring unknown object") }
 func (p *objbase) exists() existence { return existenceMatterless }
-func (p *objbase) cmp(v Value) (res cmpres) {
+func (p *objbase) cmp(_ Context, v Value) (res cmpres) {
         if a, ok := v.(*objbase); ok {
                 assert(ok, "value is not objbase")
                 if p.owner == a.owner && p.scope == a.scope {
@@ -66,11 +65,11 @@ type knownobject struct { // generally named objects
         name string // single, or group name if containing '(*)' and corresponding members
         //members [][]string
 }
-func (p *knownobject) True() (bool, error) { return true, nil }
-func (p *knownobject) Name() string { return p.name }
-func (p *knownobject) Strval() (string, error) { return fmt.Sprintf("{object %s}", p.name), nil }
 func (p *knownobject) String() string { return fmt.Sprintf("{object %s}", p.name) }
-func (p *knownobject) redecl(scope *Scope) {
+func (p *knownobject) Strval(_ Context) (string, error) { return fmt.Sprintf("{object %s}", p.name), nil }
+func (p *knownobject) True(_ Context) (bool, error) { return true, nil }
+func (p *knownobject) Name() string { return p.name }
+func (p *knownobject) redecl(_ Context, scope *Scope) {
         if p.scope != scope {
                 if p.scope != nil {
                         delete(p.scope.elems, p.name)
@@ -80,7 +79,7 @@ func (p *knownobject) redecl(scope *Scope) {
                 }
         }
 }
-func (p *knownobject) cmp(v Value) (res cmpres) {
+func (p *knownobject) cmp(_ Context, v Value) (res cmpres) {
         if a, ok := v.(*knownobject); ok {
                 assert(ok, "value is not knownobject")
                 if p.owner == a.owner && p.scope == a.scope && p.name == a.name {
@@ -94,27 +93,22 @@ type unresolvedobject struct { // named callable/executable objects
         objbase
         name Value // name could be closured
 }
-func (p *unresolvedobject) True() (bool, error) { return false, nil }
 func (p *unresolvedobject) Name() string {
-        if p.name == nil {
-                panic("unresolved object name is nil")
-        } else if s, err := p.name.Strval(); err != nil {
-                panic(fmt.Sprintf("unresolved object name: %v: %v", p.name, err))
-        } else {
-                return s
-        }
+        if p.name == nil { panic("unresolved object name is nil") }
+        return p.name.String()
 }
 func (p *unresolvedobject) String() string { return p.name.String() }
-func (p *unresolvedobject) Strval() (string, error) {
+func (p *unresolvedobject) Strval(_ Context) (string, error) {
         // The string value of a unresolved object is "", so that a
         // unresolved &(var) is stringed to ""
         return /*p.name.Strval()*/"", nil
 }
-func (p *unresolvedobject) Call(pos Position, a... Value) (result Value) { result = p; return }
-func (p *unresolvedobject) Execute(pos Position, a... Value) (result []Value, err error) { return []Value{p}, nil }
-func (p *unresolvedobject) redecl(scope *Scope) {
+func (p *unresolvedobject) True(_ Context) (bool, error) { return false, nil }
+func (p *unresolvedobject) Call(ctx Context, a... Value) (result Value) { result = p; return }
+func (p *unresolvedobject) Execute(ctx Context, a... Value) (result []Value, err error) { return []Value{p}, nil }
+func (p *unresolvedobject) redecl(ctx Context, scope *Scope) {
         if p.scope != scope {
-                name, err := p.name.Strval()
+                var name, err = p.name.Strval(ctx)
                 if err != nil { panic(fmt.Sprintf("unresolved name error: %v", p.name, err)) }
                 if p.scope != nil { delete(p.scope.elems, name) }
                 if p.scope = scope; p.scope != nil {
@@ -122,16 +116,16 @@ func (p *unresolvedobject) redecl(scope *Scope) {
                 }
         }
 }
-func (p *unresolvedobject) traverse(t *traversal) { }
-func (p *unresolvedobject) cmp(v Value) (res cmpres) {
+func (p *unresolvedobject) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*unresolvedobject); ok {
                 assert(ok, "value is not unresolvedobject")
                 if p.owner == a.owner && p.scope == a.scope {
-                        res = p.name.cmp(a.name)
+                        res = p.name.cmp(ctx, a.name)
                 }
         }
         return
 }
+func (p *unresolvedobject) traverse(t *traversal) (brks breakers) { return }
 
 func unresolved(p *Project, v Value) *unresolvedobject {
         return &unresolvedobject{objbase{ scope: p.scope, owner: p }, v}
@@ -145,36 +139,30 @@ type ProjectName struct {
 // Imported returns the project that was imported.
 // It is distinct from Project(), which is the project
 // containing the import statement.
-func (p *ProjectName) True() (bool, error) { return p.project != nil, nil }
 func (p *ProjectName) NamedProject() *Project { return p.project }
-func (p *ProjectName) Strval() (string, error) { return p.name, nil }
-func (p *ProjectName) String() string {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("{ProjectName '%s' !(%+v)}", s, e)
-        }
-}
-
-func (p *ProjectName) Get(name string) (value Value, err error) {
-        if p.project != nil { value, err = p.project.resolveObject(name) }
+func (p *ProjectName) String() string { return p.name }
+func (p *ProjectName) Strval(_ Context) (string, error) { return p.name, nil }
+func (p *ProjectName) True(_ Context) (bool, error) { return p.project != nil, nil }
+func (p *ProjectName) Get(ctx Context, name string) (value Value, err error) {
+        if p.project != nil { value, err = p.project.resolveObject(ctx, name) }
         return
 }
 
 // Call a ProjectName returns the project name.
-func (p *ProjectName) Call(pos Position, a... Value) (value Value) {
+func (p *ProjectName) Call(ctx Context, a... Value) (value Value) {
         if p.project != nil {
-                value = MakeString(pos, p.project.name)
+                value = MakeString(ctx.Position(), p.project.name)
         }
         return
 }
-func (p *ProjectName) traverse(t *traversal) {
+func (p *ProjectName) traverse(t *traversal) (brks breakers) {
         if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
         if entry := p.project.DefaultEntry(); entry == nil {
                 // does nothing
         } else if entry.class != UseRuleEntry {
-                entry.traverse(t)
+                brks = entry.traverse(t)
         }
+        return
 }
 func (p *ProjectName) stat(t *traversal) (si *statinfo) {
         if p.project != nil {
@@ -186,7 +174,7 @@ func (p *ProjectName) stat(t *traversal) (si *statinfo) {
         }
         return
 }
-func (p *ProjectName) cmp(v Value) (res cmpres) {
+func (p *ProjectName) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*ProjectName); ok {
                 assert(ok, "value is not ProjectName")
                 if p.name == a.name && p.project == a.project {
@@ -203,18 +191,18 @@ type ScopeName struct {
 // Imported returns the project that was imported.
 // It is distinct from Project(), which is the project
 // containing the import statement.
-func (n *ScopeName) True() (bool, error) { return n.scope != nil, nil }
 func (n *ScopeName) NamedScope() *Scope { return n.scope }
 func (n *ScopeName) String() string  { return fmt.Sprintf("{scope %s}", n.name) }
-func (n *ScopeName) Strval() (string, error) { return fmt.Sprintf("scope %s", n.name), nil }
-func (n *ScopeName) Get(name string) (Value, error) {
+func (n *ScopeName) Strval(ctx Context) (string, error) { return fmt.Sprintf("scope %s", n.name), nil }
+func (n *ScopeName) True(ctx Context) (bool, error) { return n.scope != nil, nil }
+func (n *ScopeName) Get(_ Context, name string) (Value, error) {
         if sym := n.scope.Resolve(name); sym != nil {
                 value, _ := sym.(Value)
                 return value, nil
         }
         return nil, fmt.Errorf("Undefined `%s' in scope `%s'.", name, n.Name())
 }
-func (p *ScopeName) cmp(v Value) (res cmpres) {
+func (p *ScopeName) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*ScopeName); ok {
                 assert(ok, "value is not ScopeName")
                 if p.name == a.name && p.scope == a.scope {
@@ -273,77 +261,86 @@ func (o Origin) String() (s string) {
 // A Def represents a definition, it's a Caller but mustn't be a Valuer.
 type Def struct {
         knownobject
+        mutex sync.Mutex
         origin Origin
         value Value
 }
-func (d *Def) True() (res bool, err error) {
-        if d.value != nil {
-                res, err = d.value.True()
-        }
-        return
-}
 func (d *Def) String() (s string) {
         switch s = d.name; d.origin {
-        case DefDefault: s += "="
-        case DefExpand1: s += ":="
+        case DefDefault: s +=   "="
+        case DefExpand1: s +=  ":="
         case DefExpand2: s += "::="
-        case DefExecute: s += "!="
-        default:         s += "⇒"
+        case DefExecute: s +=  "!="
+        default:         s +=   "⇒"
         }
         if d.value != nil {
-                s += elementString(d, d.value, 0)
+                s += elementString(nil, d, d.value, 0)
         } else {
                 s += "<nil>"
         }
         return
 }
-func (d *Def) Strval() (s string, e error) {
-        if d.value != nil { s, e = d.value.Strval() }
+func (d *Def) Strval(ctx Context) (s string, e error) {
+        if d.value != nil { s, e = d.value.Strval(ctx) }
         return
 }
-func (d *Def) refs(v Value) bool { return d == v || (d.value != nil && d.value.refs(v)) }
-func (d *Def) defs(s string) (res []*Def) {
+func (d *Def) True(ctx Context) (res bool, err error) {
+        if d.value != nil { res, err = d.value.True(ctx) }
+        return
+}
+func (d *Def) critical() func() { d.mutex.Lock(); return d.mutex.Unlock }
+func (d *Def) refs(ctx Context, v Value) bool { return d == v || (d.value != nil && d.value.refs(ctx, v)) }
+func (d *Def) defs(ctx Context, s string) (res []*Def) {
         if d.name == s { return append(res, d) }
-        return d.value.defs(s)
+        return d.value.defs(ctx, s)
 }
-func (d *Def) expandible(w expandwhat) (res bool) {
-        //if w&expandDef != 0 { return true }
-        if !isNil(d.value) { res = d.value.expandible(w) }
-        return
-}
-func (d *Def) expand(w expandwhat) (res Value, err error) {
-        var value, value2 Value
-        if isNil(d.value) || isNone(d.value) {
-                // does nothing
-        } else if value, err = d.value.expand(w); err != nil {
-                diag.errorOf(d.value, "expand '%v' failed: %v", d.value, err).
-                        debug(options.debugErrors, 1)
-        } else if !isNil(value) && value != d.value && w&expandDef == 0 {
-                res = &Def{ d.knownobject, d.origin, value }
-        } else if w&expandDef == 0 {
-                // does nothing
-        } else if isNil(value) {
-                res = d.value
-        } else if value2, err = value.expand(w); err != nil {
-                diag.errorOf(d.value, "expand '%v' failed: %v", value, err).
-                        debug(options.debugErrors, 1)
-        } else if !isNil(value2) && value2 != value {
-                res = value2
+func (d *Def) expandible(ctx Context, w expandwhat) (res bool) {
+        if isNil(d.value) {
+                res = d.origin == DefAuto
         } else {
-                res = value
+                res = d.value.expandible(ctx, w)
         }
         return
 }
-func (d *Def) cmp(v Value) (res cmpres) {
+func (d *Def) expand(ctx Context, w expandwhat) (res Value, err error) {
+        var value1, value2 Value
+        defer d.critical()()
+        if isNil(d.value) {
+                if d.origin == DefAuto && len(cloctx) > 0 {
+                        var scope = cloctx[0] // TODO: use traversal.closure or auto ctx
+                        if def := scope.Lookup(d.name); def != nil {
+                                res, err = def.expand(ctx, w)
+                        }
+                }
+        } else if isNone(d.value) {
+                // does nothing
+        } else if value1, err = d.value.expand(ctx, w); err != nil {
+                diag.errorOf(d.value, "expand '%v' failed: %v", d.value, err).debug(1)
+        } else if !isNil(value1) && value1 != d.value && w&expandDef == 0 {
+                res = &Def{ knownobject: d.knownobject, origin: d.origin, value: value1 }
+        } else if w&expandDef == 0 {
+                // done!
+        } else if isNil(value1) {
+                res = d.value
+        } else if value2, err = value1.expand(ctx, w); err != nil {
+                diag.errorOf(d.value, "expand '%v' failed: %v", value1, err).debug(1)
+        } else if isNil(value2) {
+                res = value1
+        } else {
+                res = value2
+        }
+        return
+}
+func (d *Def) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*Def); ok && d.value != nil {
                 assert(ok, "value is not Def")
                 if a.value != nil {
-                        res = d.value.cmp(a.value)
+                        res = d.value.cmp(ctx, a.value)
                 }
         }
         return
 }
-func (d *Def) elemstr(o Object, k elemkind) (s string) {
+func (d *Def) elemstr(_ Context, o Object, k elemkind) (s string) {
         if o != nil {
                 if p := d.OwnerProject(); p != o.OwnerProject() {
                         return fmt.Sprintf("$(%s->%s)", p.name, d.name)
@@ -353,9 +350,11 @@ func (d *Def) elemstr(o Object, k elemkind) (s string) {
         return
 }
 func (d *Def) isEmpty() bool { return isNone(d.value) || isNil(d.value) }
-func (d *Def) val(value Value) (err error) { return d.set(d.origin, value) }
-func (d *Def) set(origin Origin, value Value) (err error) {
-        if origin != DefExpand1 && !isNil(value) && value.refs(d) {
+func (d *Def) val(ctx Context, value Value) (err error) { return d.set(ctx, d.origin, value) }
+func (d *Def) set(ctx Context, origin Origin, value Value) (err error) {
+        defer d.critical()()
+
+        if origin != DefExpand1 && !isNil(value) && value.refs(ctx, d) {
                 var pos = d.position
                 if !pos.IsValid() && d.value != nil { pos = d.value.Position() }
                 diag.errorAt(pos, "value refers to assigning Def '%s': %v (%T)", d.name, value, value)
@@ -370,12 +369,12 @@ func (d *Def) set(origin Origin, value Value) (err error) {
         var elems []Value
         switch d.origin = origin; d.origin {
         case DefExpand1: // expands delegates
-                if elems, _, err = expandall2(expandDelegate, value); err != nil {
+                if elems, _, err = expandall2(ctx, expandDelegate, value); err != nil {
                         diag.errorOf(value, "%v: expand value '%v' failed: %v", d.origin, value, err)
                         return
                 } else { d.value = MakeListOrScalar(value.Position(), elems) }
         case DefExpand2: // expands delegates and closures
-                if elems, _, err = expandall2(expandPlainValue/*|expandArgs*/, value); err != nil {
+                if elems, _, err = expandall2(ctx, expandPlainValue/*|expandArgs*/, value); err != nil {
                         diag.errorOf(value, "%v: expand value '%v' failed: %v", d.origin, value, err)
                         return
                 } else { d.value = MakeListOrScalar(value.Position(), elems) }
@@ -392,12 +391,11 @@ func (d *Def) set(origin Origin, value Value) (err error) {
         return
 }
 
-func (d *Def) append(va... Value) (err error) {
+func (d *Def) append(ctx Context, va... Value) (err error) {
         for _, value := range va {
-                if !isNil(value) && value.refs(d) {
+                if !isNil(value) && value.refs(ctx, d) {
                         err = fmt.Errorf("%v: append recursive variable '%s'", d.owner, d.name)
-                        diag.infoAt(d.position, "%v", err).
-                                debug(options.debugInfos)
+                        diag.infoAt(d.position, "%v", err).debug(1)
                         return
                 }
         }
@@ -410,26 +408,59 @@ func (d *Def) append(va... Value) (err error) {
                 list = MakeList(d.position, d.value)
         }
         list.Append(merge(va...)...)
-        return d.val(list)
+        return d.val(ctx, list)
 }
 
-func (d *Def) execute() (err error) {
+func (d *Def) callVal(ctx Context, a... Value) (res Value) {
+        defer d.critical()()
+
+        var w = expandClosure|expandDelegate
+        if isNil(d.value) || !d.value.expandible(ctx, w) {
+                res = d.value
+                return
+        }
+
         var (
-                cmd string
+                pos Position = ctx.Position()
+                defs []*Def
+                vals []Value
+                err error
+        )
+        defer func() { for i, d := range defs { d.value = vals[i] }} ()
+        for i := 0; i < len(a) && i < maxNumVarVal; i += 1 {
+                var def = ctx.GlobeScope().Lookup(strconv.Itoa(i)).(*Def)
+                vals = append(vals, def.value)
+                defs = append(defs, def)
+                def.value = a[i]
+        }
+        if res, err = d.value.expand(ctx, w); err != nil {
+                diag.errorAt(pos, "expand def value failed: %v", err).debug(1)
+        } else if isNil(res) && !isNil(d.value) {
+                if d.value.expandible(ctx, w) {
+                        diag.warnAt(pos, "expand '%v' incomplete (value=%v (%T))", d.name, d.value, d.value).debug(1)
+                } else { res = d.value }
+        }
+        return
+}
+
+func (d *Def) execute(ctx Context, a... Value) (res Value) {
+        defer d.critical()()
+
+        var (
+                //pos = ctx.Position()
                 value = d.value
+                cmd string
+                err error
         )
         if d.origin != DefExecute {
-                diag.errorAt(d.position, "%v: non-execute def: %v", d.origin, value).
-                        debug(1)
+                diag.errorAt(d.position, "%v: non-execute def: %v", d.origin, value).debug(1)
         } else if isNil(value) || isNone(value) {
                 d.value = nil
-        } else if cmd, err = value.Strval(); err != nil {
-                diag.errorAt(d.position, "%v: strval '%v' failed: %v", d.origin, value, err).
-                        debug(1)
+        } else if cmd, err = value.Strval(ctx); err != nil {
+                diag.errorAt(d.position, "%v: strval '%v' failed: %v", d.origin, value, err).debug(1)
                 d.value = MakeNone(d.position)
         } else if cmd == "" {
-                diag.warnAt(d.position, "%v: empty command (value=%v)", d.origin, value).
-                        debug(1)
+                diag.warnAt(d.position, "%v: empty command (value=%v)", d.origin, value).debug(1)
                 d.value = MakeNone(d.position)
         } else {
                 // TODO: possibility to run command in the specified container
@@ -437,8 +468,7 @@ func (d *Def) execute() (err error) {
                 var sh = exec.Command("sh", "-c", cmd)
                 sh.Stdout, sh.Stderr = &stdout, &stderr
                 if err = sh.Run(); err != nil {
-                        diag.errorAt(d.position, "%v: execute command failed: %v", d.origin, err).
-                                debug(1)
+                        diag.errorAt(d.position, "%v: execute command failed: %v", d.origin, err).debug(1)
                         d.value = MakeNone(d.position)
                 } else {
                         d.value = MakeString(d.position, strings.TrimSpace(stdout.String()))
@@ -447,49 +477,14 @@ func (d *Def) execute() (err error) {
                 stderr.Reset()
                 d.origin = DefExecuted
         }
-        return
+        return d.value
 }
 
-func (d *Def) Call(pos Position, a... Value) (res Value) {
+func (d *Def) Call(ctx Context, a... Value) (res Value) {
         switch d.origin {
-        case DefDefault:
-                var w = expandClosure|expandDelegate
-                if isNil(d.value) || !d.value.expandible(w) {
-                        res = d.value
-                        break
-                }
-
-                var (
-                        defs []*Def
-                        vals []Value
-                        err error
-                )
-                defer func() { for i, d := range defs { d.value = vals[i] }} ()
-                for i := 0; i < len(a) && i < maxNumVarVal; i += 1 {
-                        var def = context.globe.scope.Lookup(strconv.Itoa(i)).(*Def)
-                        vals = append(vals, def.value)
-                        defs = append(defs, def)
-                        def.value = a[i]
-                }
-                if res, err = d.value.expand(w); err != nil {
-                        diag.errorAt(pos, "expand def value failed: %v", err).
-                                debug(1)
-                } else if isNil(res) && !isNil(d.value) {
-                        if d.value.expandible(w) {
-                                diag.warnAt(pos, "expand '%v' incomplete (value=%v (%T))", d.name, d.value, d.value).
-                                        debug(1)
-                        } else { res = d.value }
-                }
-        case DefExecute:
-                if err := d.execute(); err != nil {
-                        diag.errorAt(pos, "execute '%s' failed: %v", d.name, err).
-                                debug(1)
-                        return
-                } else {
-                        res = d.value
-                }
-        default: // DefArg, DefExpand1, DefExpand2, DefExecuted, etc.
-                res = d.value
+        case DefDefault: res = d.callVal(ctx, a...)
+        case DefExecute: res = d.execute(ctx, a...)
+        default: res = d.value // DefArg, DefExpand1, DefExpand2, DefExecuted, etc.
         }
         if isNil(res) {
                 // ...
@@ -503,30 +498,29 @@ func (d *Def) Call(pos Position, a... Value) (res Value) {
         return
 }
 
-func (d *Def) DiscloseValue() (res Value, err error) {
+func (d *Def) DiscloseValue(ctx Context) (res Value, err error) {
         if d.value != nil {
-                if res, err = d.value.expand(expandClosure); err != nil {
-                        diag.errorAt(d.position, "expand '%v' failed: %v", d.value, err).
-                                debug(1)
+                if res, err = d.value.expand(ctx, expandClosure); err != nil {
+                        diag.errorAt(d.position, "expand '%v' failed: %v", d.value, err).debug(1)
                         return
                 } else if isNil(res) { res = d.value }
         }
         return
 }
 
-func (d *Def) Get(name string) (res Value, err error) {
+func (d *Def) Get(_ Context, name string) (res Value, err error) {
         switch name {
-        case "name" : res = MakeString(d.Position(), d.name)
+        case "name" : res = MakeString(d.position, d.name)
         case "value": res = d.value
         default:
                 err = fmt.Errorf("no such property `%s' (Def)", name)
-                diag.errorAt(d.position, "%v", err).
-                        debug(1)
+                diag.errorAt(d.position, "%v", err).debug(1)
         }
         return
 }
-func (d *Def) traverse(t *traversal) {
-        if d.value != nil { d.value.traverse(t) }
+func (d *Def) traverse(t *traversal) (brks breakers) {
+        if d.value != nil { brks = d.value.traverse(t) }
+        return
 }
 func (d *Def) stat(t *traversal) (si *statinfo) {
         if d.value != nil { si = d.value.stat(t) }
@@ -539,33 +533,31 @@ type undetermined struct {
         value Value
 }
 func (p *undetermined) Position() Position { return p.identifier.Position() }
-func (p *undetermined) True() (bool, error) { return false, nil }
 func (p *undetermined) String() (s string) {
         s = p.identifier.String()
         s += p.tok.String()
         s += p.value.String()
         return
 }
-func (p *undetermined) Strval() (string, error) { return p.value.Strval() }
-func (p *undetermined) Float() (float64, error) { return 0, nil }
-func (p *undetermined) Integer() (int64, error) { return 0, nil }
-func (p *undetermined) refs(v Value) bool {
-        return p.identifier.refs(v) || p.value.refs(v)
+func (p *undetermined) Strval(ctx Context) (string, error) { return p.value.Strval(ctx) }
+func (p *undetermined) True(ctx Context) (bool, error) { return false, nil }
+func (p *undetermined) Float(ctx Context) (float64, error) { return 0, nil }
+func (p *undetermined) Integer(ctx Context) (int64, error) { return 0, nil }
+func (p *undetermined) refs(ctx Context, v Value) bool {
+        return p.identifier.refs(ctx, v) || p.value.refs(ctx, v)
 }
-func (p *undetermined) defs(s string) (res []*Def) {
-        return append(p.identifier.defs(s), p.value.defs(s)...)
+func (p *undetermined) defs(ctx Context, s string) (res []*Def) {
+        return append(p.identifier.defs(ctx, s), p.value.defs(ctx, s)...)
 }
-func (p *undetermined) expandible(w expandwhat) bool {
-        return p.identifier.expandible(w) || p.value.expandible(w)
+func (p *undetermined) expandible(ctx Context, w expandwhat) bool {
+        return p.identifier.expandible(ctx, w) || p.value.expandible(ctx, w)
 }
-func (p *undetermined) expand(w expandwhat) (res Value, err error) {
+func (p *undetermined) expand(ctx Context, w expandwhat) (res Value, err error) {
         var i, v Value
-        if i, err = p.identifier.expand(w); err != nil {
-                diag.errorOf(p.identifier, "expand '%v' failed: %v", p.identifier, err).
-                        debug(1)
-        } else if v, err = p.value.expand(w); err != nil {
-                diag.errorOf(p.value, "expand '%v' failed: %v", p.value, err).
-                        debug(1)
+        if i, err = p.identifier.expand(ctx, w); err != nil {
+                diag.errorOf(p.identifier, "expand '%v' failed: %v", p.identifier, err).debug(1)
+        } else if v, err = p.value.expand(ctx, w); err != nil {
+                diag.errorOf(p.value, "expand '%v' failed: %v", p.value, err).debug(1)
         } else if (!isNil(i) && i != p.identifier) || (!isNil(v) && v != p.value) {
                 if isNil(i) { i = p.identifier }
                 if isNil(v) { v = p.value }
@@ -573,24 +565,24 @@ func (p *undetermined) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-func (p *undetermined) traverse(t *traversal) { }
+func (p *undetermined) traverse(t *traversal) (brks breakers) { return }
 func (p *undetermined) exists() existence { return existenceMatterless }
 func (p *undetermined) stat(t *traversal) (si *statinfo) { return }
 func (p *undetermined) stamp(t *traversal) (files []*File, err error) { return }
-func (p *undetermined) cmp(v Value) (res cmpres) {
+func (p *undetermined) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*undetermined); ok {
                 assert(ok, "value is not undetermined")
-                if p.identifier.cmp(a.identifier) == cmpEqual {
-                        if p.value.cmp(a.value) == cmpEqual {
+                if p.identifier.cmp(ctx, a.identifier) == cmpEqual {
+                        if p.value.cmp(ctx, a.value) == cmpEqual {
                                 res = cmpEqual
                         }
                 }
         }
         return
 }
-func (p *undetermined) patterned() bool { return false }
-func (p *undetermined) match(i interface{}) (full bool, s string, stems []string) { return }
-func (p *undetermined) stencil(stems []string) (s string, rest []string) { return }
+func (p *undetermined) patterned(ctx Context) bool { return false }
+func (p *undetermined) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
+func (p *undetermined) stencil(ctx Context, stems []string) (s string, rest []string) { return }
 
 type builtinFlag uint32
 const (
@@ -605,10 +597,10 @@ type Builtin struct {
         flag builtinFlag
         f BuiltinFunc
 }
-func (p *Builtin) True() (bool, error) { return p.f != nil, nil }
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
-func (p *Builtin) Call(pos Position, a... Value) Value { return p.f(pos, a...) }
-func (p *Builtin) cmp(v Value) (res cmpres) {
+func (p *Builtin) True(_ Context) (bool, error) { return p.f != nil, nil }
+func (p *Builtin) Call(ctx Context, a... Value) Value { return p.f(ctx, a...) }
+func (p *Builtin) cmp(_ Context, v Value) (res cmpres) {
         if a, ok := v.(*Builtin); ok {
                 assert(ok, "value is not Builtin")
                 if /*p.f == a.f &&*/ p.name == a.name {
@@ -653,20 +645,18 @@ type RuleEntry struct {
         programs []*Program
         position Position
 }
-
+func (entry *RuleEntry) DeclScope() *Scope { return entry.OwnerProject().scope }
+func (entry *RuleEntry) OwnerProject() *Project { return entry.programs[0].project }
 func (entry *RuleEntry) Position() (pos Position) {
         if pos = entry.position; !pos.IsValid() {
                 if pos = entry.target.Position(); !pos.IsValid() {
-                        pos = entry.programs[0].position
+                        for _, prog := range entry.programs {
+                                if pos = prog.position; pos.IsValid() { break }
+                        }
                 }
         }
         return
 }
-func (entry *RuleEntry) True() (bool, error) { return entry.target.True() }
-func (entry *RuleEntry) Float() (float64, error) { return 0, nil }
-func (entry *RuleEntry) Integer() (int64, error) { return 0, nil }
-func (entry *RuleEntry) OwnerProject() *Project { return entry.programs[0].project }
-func (entry *RuleEntry) DeclScope() *Scope { return entry.OwnerProject().scope }
 func (entry *RuleEntry) Name() string {
         if entry == nil {
                 panic("entry is nil")
@@ -674,37 +664,36 @@ func (entry *RuleEntry) Name() string {
                 fmt.Fprintf(stderr, "%v: nil target\n", entry.position)
                 panic("entry target is nil")
         }
-        s, err := entry.target.Strval()
-        if err != nil { panic(err) } // FIXME: error
-        return s
+        return entry.target.String()
 }
-func (entry *RuleEntry) Strval() (string, error) { return entry.target.Strval() }
+func (entry *RuleEntry) True(ctx Context) (bool, error) { return entry.target.True(ctx) }
+func (entry *RuleEntry) Float(_ Context) (float64, error) { return 0, nil }
+func (entry *RuleEntry) Integer(_ Context) (int64, error) { return 0, nil }
 func (entry *RuleEntry) String() string { return entry.target.String() }
-func (entry *RuleEntry) Class() RuleEntryClass { return entry.class }
-func (entry *RuleEntry) SetClass(class RuleEntryClass) { entry.class = class }
-func (entry *RuleEntry) Programs() []*Program { return entry.programs }
-func (entry *RuleEntry) Depends() (depends []Value) {
-        for _, prog := range entry.programs {
-                depends = append(depends, prog.depends...)
-        }
-        return
-}
-func (entry *RuleEntry) IsFile() bool {
-        if p, ok := entry.target.(*File); ok && p != nil { return true }
-        if p, ok := entry.target.(*Path); ok && p != nil /*&& p.File != nil*/ {
-                return true
-        }
-        return false
-}
-func (entry *RuleEntry) SetExplicitFile(file *File) {
-        if file.dir == "" {
-                file.dir = entry.OwnerProject().absPath
-        }
-        if path, ok := entry.target.(*Path); ok && path != nil {
-                //path.File = file
-        }
-        return
-}
+func (entry *RuleEntry) Strval(ctx Context) (string, error) { return entry.target.Strval(ctx) }
+// func (entry *RuleEntry) Class() RuleEntryClass { return entry.class }
+// func (entry *RuleEntry) SetClass(class RuleEntryClass) { entry.class = class }
+// func (entry *RuleEntry) Programs() []*Program { return entry.programs }
+// func (entry *RuleEntry) Depends() (depends []Value) {
+//         for _, prog := range entry.programs {
+//                 depends = append(depends, prog.depends...)
+//         }
+//         return
+// }
+// func (entry *RuleEntry) IsFile() bool {
+//         if p, ok := entry.target.(*File); ok && p != nil { return true }
+//         if p, ok := entry.target.(*Path); ok && p != nil /*&& p.File != nil*/ {
+//                 return true
+//         }
+//         return false
+// }
+// func (entry *RuleEntry) SetExplicitFile(file *File) {
+//         if file.dir == "" { file.dir = entry.OwnerProject().absPath }
+//         if path, ok := entry.target.(*Path); ok && path != nil {
+//                 //path.File = file
+//         }
+//         return
+// }
 // func (entry *RuleEntry) SetExplicitPath(path *Path) {
 //         /*if path.File != nil && path.File.dir == "" {
 //                 path.File.dir = entry.OwnerProject().absPath
@@ -715,26 +704,26 @@ func (entry *RuleEntry) SetExplicitFile(file *File) {
 //         return
 // }
 // RuleEntry.Execute executes the rule program only if the target is outdated.
-func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, breakers []*breaker) {
+func (entry *RuleEntry) Execute(ctx Context, a... Value) (result []Value, brks breakers) {
         switch entry.class {
         case PercRuleEntry, GlobRuleEntry, RegexpRuleEntry, PathPattRuleEntry:
-                diag.errorAt(pos, "executing pattern entry '%v'", entry.target).debug(1)
+                diag.errorAt(ctx.Position(), "executing pattern entry '%v'", entry.target).debug(1)
                 return
         }
         var t = &traversal{
+                Context: ctx,
                 start: time.Now(),
-                visited: make(map[Value]int),
-                group: new(sync.WaitGroup),
+                project: entry.OwnerProject(),
+                execRec: make(map[Value]int),
         }
-        result = entry.execute(pos, t, a...)
-        breakers = t.breakers
-        return
+        return entry.execute(t, a...)
 }
-func (entry *RuleEntry) execute(pos Position, t *traversal, a... Value) (result []Value) {
+func (entry *RuleEntry) execute(t *traversal, a... Value) (result []Value, brks breakers) {
         for _, program := range entry.programs {
-                result = append(result, program.execute(t, entry, a))
-                if brks := t.breakersOf(breakFail, breakErro); len(brks) > 0 {
-                        t.breakers = t.breakersNot(breakFail, breakErro)
+                var res Value
+                res, brks = program.execute(t, entry, a); result = append(result, res)
+                if tb := brks.of(breakFail, breakErro); tb.has() {
+                        brks = brks.not(breakFail, breakErro)
                         for _, brk := range brks {
                                 switch brk.what {
                                 case breakFail: diag.errorAt(program.position, "execution failed: %v", brk.message).debug(1)
@@ -742,20 +731,20 @@ func (entry *RuleEntry) execute(pos Position, t *traversal, a... Value) (result 
                                 default: diag.errorAt(program.position, "breaker: %v", brk.what).debug(1)
                                 }
                         }
-                } else if brks = t.breakersOf(breakCase, breakDone); len(brks) > 0 {
-                        t.breakers = t.breakersNot(breakCase, breakDone)
-                        for _, brk := range t.breakers {
+                } else if tb = brks.of(breakCase, breakDone); tb.has() {
+                        brks = brks.not(breakCase, breakDone)
+                        for _, brk := range brks {
                                 diag.errorAt(program.position, "breaker: %v", brk.what).debug(1)
                         }
                         break
-                } else if brks = t.breakersOf(breakNext); len(brks) > 0 {
-                        t.breakers = t.breakersNot(breakNext)
-                        for _, brk := range t.breakers {
+                } else if tb = brks.of(breakNext); tb.has() {
+                        brks = brks.not(breakNext)
+                        for _, brk := range brks {
                                 diag.errorAt(program.position, "breaker: %v", brk.what).debug(1)
                         }
                         continue
-                } else if len(t.breakers) > 0 {
-                        for _, brk := range t.breakers {
+                } else if brks.has() {
+                        for _, brk := range brks {
                                 diag.errorAt(program.position, "unknown breaker: %v", brk.what).debug(1)
                         }
                         break
@@ -763,15 +752,15 @@ func (entry *RuleEntry) execute(pos Position, t *traversal, a... Value) (result 
         }
         return
 }
-func (entry *RuleEntry) Get(name string) (Value, error) {
+func (entry *RuleEntry) Get(_ Context, name string) (Value, error) {
         switch name {
         case "class": return MakeString(entry.position, entry.class.String()), nil
-        case "name": return MakeString(entry.position, entry.Name()), nil
-        // case "prerequisites": ...
+        case "name": return entry.target, nil //return MakeString(entry.position, entry.Name()), nil
+        //case "prerequisites": ...
         }
         return nil, fmt.Errorf("no such entry property (%s)", name)
 }
-func (entry *RuleEntry) redecl(scope *Scope) {
+func (entry *RuleEntry) redecl(ctx Context, scope *Scope) {
         panic("RuleEntry.redecl not supported")
 }
 func (entry *RuleEntry) recipes() (recipes []Value) {
@@ -782,8 +771,8 @@ func (entry *RuleEntry) recipes() (recipes []Value) {
         }
         return
 }
-func (entry *RuleEntry) refs(v Value) bool {
-        if entry.target.refs(v) { return true }
+func (entry *RuleEntry) refs(ctx Context, v Value) bool {
+        if entry.target.refs(ctx, v) { return true }
         
         // TODO: do more tests for this to see if we need to fallthrough
         return false // only check closured agaist target
@@ -795,43 +784,43 @@ func (entry *RuleEntry) refs(v Value) bool {
                         }
                 }*/
                 for _, depend := range prog.depends {
-                        if depend.refs(v) { return true }
+                        if depend.refs(ctx, v) { return true }
                 }
                 for _, recipe := range prog.recipes {
-                        if recipe.refs(v) { return true }
+                        if recipe.refs(ctx, v) { return true }
                 }
         }
         return false
 }
-func (entry *RuleEntry) defs(s string) (res []*Def) {
-        res = entry.target.defs(s)
+func (entry *RuleEntry) defs(ctx Context, s string) (res []*Def) {
+        res = entry.target.defs(ctx, s)
         for _, prog := range entry.programs {
                 for _, depend := range prog.depends {
-                        res = append(res, depend.defs(s)...)
+                        res = append(res, depend.defs(ctx, s)...)
                 }
                 for _, recipe := range prog.recipes {
-                        res = append(res, recipe.defs(s)...)
+                        res = append(res, recipe.defs(ctx, s)...)
                 }
         }
         return
 }
-func (entry *RuleEntry) expandible(w expandwhat) (res bool) {
-        if res = entry.target.expandible(w); res { return }
+func (entry *RuleEntry) expandible(ctx Context, w expandwhat) (res bool) {
+        if res = entry.target.expandible(ctx, w); res { return }
 
         // // TODO: do more tests for this to see if we need to fallthrough
         // return // only check closured agaist target
 
         for _, prog := range entry.programs {
                 for _, depend := range prog.depends {
-                        if res = depend.expandible(w); res { return }
+                        if res = depend.expandible(ctx, w); res { return }
                 }
                 for _, recipe := range prog.recipes {
-                        if res = recipe.expandible(w); res { return }
+                        if res = recipe.expandible(ctx, w); res { return }
                 }
         }
         return
 }
-func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
+func (entry *RuleEntry) expand(ctx Context, w expandwhat) (res Value, err error) {
         if entry == nil {
                 // happens from some &{xxx} exprs
                 err = fmt.Errorf("expand nil entry")
@@ -839,9 +828,8 @@ func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
         }
 
         var target Value
-        if target, err = entry.target.expand(w); err != nil {
-                diag.errorAt(entry.position, "expand '%v' failed: %v", entry.target, err).
-                        debug(1)
+        if target, err = entry.target.expand(ctx, w); err != nil {
+                diag.errorAt(entry.position, "expand '%v' failed: %v", entry.target, err).debug(1)
                 return
         } else if !isNil(target) && target != entry.target {
                 // TODO: test if programs are needed to be disclosed??
@@ -853,43 +841,41 @@ func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-func (entry *RuleEntry) stamp(t *traversal) (files []*File, err error) { return entry.target.stamp(t) }
-func (entry *RuleEntry) traverse(t *traversal) {
-        if optionTraceTraversal { defer un(tt(t_traverse, t, entry.target)) }
+func (entry *RuleEntry) stamp(t *traversal) (files []*File, err error) {
+        return entry.target.stamp(t)
+}
+func (entry *RuleEntry) traverse(t *traversal) (brks breakers) {
+        if optionTraceTraversal   { defer un(tt(t_traverse, t, entry.target)) }
         if optionEnableBenchmarks && false { defer bench(mark("RuleEntry.traverse")) }
         if optionEnableBenchspots { defer bench(spot("RuleEntry.traverse")) }
 ForPrograms:
         for _, prog := range entry.programs {
-                if brks := t.breakersNot(breakNext); len(brks) > 0 {
+                if brks = brks.not(breakNext); len(brks) > 0 {
                         diag.warnAt(prog.position, "broken traversal %v: %v (stems = %v)",
-                                entry, brks[0].what, t.stems).
-                                debug(6)
+                                entry, brks[0].what, t.stems).debug(6)
                         return
-                }
-                if prog.execute(t, entry, t.arguments); false && t.hasBreakers() {
+                } else if _, brks = prog.execute(t, entry, t.arguments); false && brks.has() {
                         diag.warnAt(prog.position, "entry: %v %d, %v, %v, %v",
-                                entry, len(entry.programs), t.stems, t.def.target.value, t.breakers[0].what).
+                                entry, len(entry.programs), t.stems, t.def.target.value, brks[0].what).
                                 debug(breakDone > 0, 6)
                 }
 
                 // Update traversal breakers
-                var breakers []*breaker = t.breakers
-                t.breakers = nil // take and reset breakers
-                for _, brk := range breakers {
+                var prevBrks = brks; brks = nil
+                for _, brk := range prevBrks {
                         // NOTE: see traversal.file and traversal.target for further processing
                         switch brk.what {
                         case breakCase, breakDone:
                                 // FIXME: t.breakers = append(t.breakers, brk)
                                 break ForPrograms // case selected or execution fully done
                         case breakFail, breakErro:
-                                t.breakers = append(t.breakers, brk)
+                                brks.append(brk)
                                 break ForPrograms
                         case breakNext:
-                                t.breakers = append(t.breakers, brk)
+                                brks.append(brk)
                                 continue ForPrograms
                         default:
-                                diag.warnAt(prog.position, "broken traversal %v: %v", entry, brk.what).
-                                        debug(6)
+                                diag.warnAt(prog.position, "broken traversal %v: %v", entry, brk.what).debug(6)
                                 break ForPrograms
                         }
                 }
@@ -900,10 +886,10 @@ func (entry *RuleEntry) stat(t *traversal) (si *statinfo) {
         // FIXME: entry.target maybe not the real target
         return entry.target.stat(t)
 }
-func (entry *RuleEntry) cmp(v Value) (res cmpres) {
+func (entry *RuleEntry) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*RuleEntry); ok {
                 assert(ok, "value is not RuleEntry")
-                if /*entry.class == a.class &&*/ entry.target.cmp(a.target) == cmpEqual {
+                if /*entry.class == a.class &&*/ entry.target.cmp(ctx, a.target) == cmpEqual {
                         if entry.OwnerProject() == a.OwnerProject() {
                                 res = cmpEqual
                         }
@@ -911,36 +897,36 @@ func (entry *RuleEntry) cmp(v Value) (res cmpres) {
         }
         return
 }
-func (entry *RuleEntry) patterned() bool { return entry.target.patterned() }
-func (entry *RuleEntry) match(i interface{}) (full bool, s string, stems []string) {
-    full, s, stems = entry.target.match(i)
+func (entry *RuleEntry) patterned(ctx Context) bool { return entry.target.patterned(ctx) }
+func (entry *RuleEntry) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
+    full, s, stems = entry.target.match(ctx, i)
     return
 }
-func (entry *RuleEntry) stencil(stems []string) (s string, rest []string) {
-    s, rest = entry.target.stencil(stems)
+func (entry *RuleEntry) stencil(ctx Context, stems []string) (s string, rest []string) {
+    s, rest = entry.target.stencil(ctx, stems)
     return
 }
 
-func (entry *RuleEntry) option() (res bool, infos []Value) {
+func (entry *RuleEntry) option(ctx Context) (res bool, infos []Value) {
         ForProgram: for _, program := range entry.programs {
                 if !program.configure { continue }
                 for _, depend := range program.depends {
                         g, ok := depend.(*modifiergroup)
                         if!ok { continue }
                         for _, m := range g.modifiers {
-                                s, e := m.name.Strval()
+                                s, e := m.name.Strval(ctx)
                                 if e != nil || s != "configure" { continue }
                                 for _, arg := range m.args {
                                         a, ok := arg.(*Argumented)
                                         if!ok { continue }
                                         f, ok := a.value.(*Flag)
                                         if!ok { continue }
-                                        s, e := f.name.Strval()
+                                        s, e := f.name.Strval(ctx)
                                         if e != nil { continue }
                                         if s != "option" { continue }
                                         for _, v := range a.args {
                                                 if p, ok := v.(*Pair); ok {
-                                                        s, _ := p.Key.Strval()
+                                                        s, _ := p.Key.Strval(ctx)
                                                         if s != "info" { continue }
                                                         v = p.Value
                                                 }
@@ -956,30 +942,28 @@ func (entry *RuleEntry) option() (res bool, infos []Value) {
 }
 
 type PatternEntry struct { Pattern Value; *RuleEntry }
-func (p *PatternEntry) expandible(w expandwhat) (res bool) {
-        if res = p.Pattern.expandible(w); !res {
-                res = p.RuleEntry.expandible(w)
+func (p *PatternEntry) expandible(ctx Context, w expandwhat) (res bool) {
+        if res = p.Pattern.expandible(ctx, w); !res {
+                res = p.RuleEntry.expandible(ctx, w)
         }
         return
 }
-func (p *PatternEntry) expand(w expandwhat) (res Value, err error) {
+func (p *PatternEntry) expand(ctx Context, w expandwhat) (res Value, err error) {
         var pat, ent Value
-        if pat, err = p.Pattern.expand(w); err != nil {
-                diag.errorOf(p.Pattern, "expand '%v' failed: %v", p.Pattern, err).
-                        debug(1)
-        } else if ent, err = p.RuleEntry.expand(w); err != nil {
-                diag.errorOf(p.RuleEntry, "expand '%v' failed: %v", p.RuleEntry, err).
-                        debug(1)
+        if pat, err = p.Pattern.expand(ctx, w); err != nil {
+                diag.errorOf(p.Pattern, "expand '%v' failed: %v", p.Pattern, err).debug(1)
+        } else if ent, err = p.RuleEntry.expand(ctx, w); err != nil {
+                diag.errorOf(p.RuleEntry, "expand '%v' failed: %v", p.RuleEntry, err).debug(1)
         } else if (!isNil(pat) && pat != p.Pattern) && (!isNil(ent) && ent != p.RuleEntry) {
                 res = &PatternEntry{p.Pattern, ent.(*RuleEntry)}
         }
         return
 }
-func (p *PatternEntry) cmp(v Value) (res cmpres) {
+func (p *PatternEntry) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*PatternEntry); ok {
                 assert(ok, "value is not PatternEntry")
                 // FIXME: p.Pattern.cmp(p.Pattern)
-                if p.RuleEntry.cmp(a.RuleEntry) == cmpEqual {
+                if p.RuleEntry.cmp(ctx, a.RuleEntry) == cmpEqual {
                         res = cmpEqual
                 }
         }
@@ -991,38 +975,33 @@ func (p *stemmed) String() (s string) {
         for i, stem := range p.Stems { if i > 0 { s += "," }; s += stem }
         return fmt.Sprintf("<%s,%s>", p.PatternEntry, s)
 }
-func (p *stemmed) expand(w expandwhat) (res Value, err error) {
+func (p *stemmed) expand(ctx Context, w expandwhat) (res Value, err error) {
         var v Value
-        if v, err = p.PatternEntry.expand(w); err != nil {
-                diag.errorOf(p.PatternEntry, "expand '%v' failed: %v", p.PatternEntry, err).
-                        debug(1)
+        if v, err = p.PatternEntry.expand(ctx, w); err != nil {
+                diag.errorOf(p.PatternEntry, "expand '%v' failed: %v", p.PatternEntry, err).debug(1)
                 return
         } else if !isNil(v) && v != p.PatternEntry {
                 res = &stemmed{v.(*PatternEntry), p.Stems}
         }
         return
 }
-func (p *stemmed) cmp(v Value) (res cmpres) {
+func (p *stemmed) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*stemmed); ok {
                 assert(ok, "value is not stemmed")
                 if len(p.Stems) != len(p.Stems) { return }
                 for i, stem := range p.Stems {
                         if stem != a.Stems[i] { return }
                 }
-                res = p.PatternEntry.cmp(a.PatternEntry)
+                res = p.PatternEntry.cmp(ctx, a.PatternEntry)
         }
         return
 }
-func (p *stemmed) traverse(t *traversal) {
-        diag.errorAt(p.position, "cant traverse stemmed entry directly: %v", p).
-                debug(1)
-        t.breakers = append(t.breakers, &breaker{
-                pos: p.position, what:breakErro,
-                error: fmt.Errorf("traversing stemmed entry: %v", p),
-        })
+func (p *stemmed) traverse(t *traversal) (brks breakers) {
+        diag.errorAt(p.position, "cant traverse stemmed entry directly: %v", p).debug(1)
+        brks.add(p.position, breakErro).error = fmt.Errorf("traversing stemmed entry: %v", p)
         return
 }
-func (p *stemmed) string(t *traversal, targetVal Value, target string) {
+func (p *stemmed) string(t *traversal, targetVal Value, target string) (res breakers) {
         if optionTraceTraversal   { defer un(tt(t_traverse, t, p)) }
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("stemmed.traverse(%v)", p))) }
         if optionEnableBenchspots { defer bench(spot("stemmed.traverse")) }
@@ -1030,16 +1009,16 @@ func (p *stemmed) string(t *traversal, targetVal Value, target string) {
         defer func(a Value, s []string) { p.target, t.stems = a, s } (p.target, t.stems)
         t.stems = p.Stems // set stems for the traversal
 
-        if file := t.project.FindFile(target); file != nil {
+        if file := t.project.FindFile(t, target); file != nil {
                 file.position = p.position
                 p.target = file
         } else {
                 p.target = targetVal
         }
 
-        p.RuleEntry.traverse(t)
+        return p.RuleEntry.traverse(t)
 }
-func (p *stemmed) file(t *traversal, file *File) {
+func (p *stemmed) file(t *traversal, file *File) (res breakers) {
         if optionTraceTraversal { defer un(tt(t_traverse, t, p)) }
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("stemmed.file(%v)", p))) }
         if optionEnableBenchspots { defer bench(spot("stemmed.file")) }
@@ -1048,10 +1027,10 @@ func (p *stemmed) file(t *traversal, file *File) {
         t.stems = p.Stems // set stems for the traversal
 
         if file.info == nil && file.filemap == nil { // !isAbsOrRel()
-                if f := t.project.FindFile(file.name); f != nil { *file = *f }
+                if f := t.project.FindFile(t, file.name); f != nil { *file = *f }
                 //if file.info == nil { file.info, _ = os.Stat(file.name) }
         }
         file.position = p.position
         p.target = file
-        p.RuleEntry.traverse(t)
+        return p.RuleEntry.traverse(t)
 }

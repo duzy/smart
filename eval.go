@@ -13,30 +13,29 @@ import (
 // evaluer evaluates smart statements
 type evaluer struct { accumulation bool }
 
-func (p *evaluer) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
+func (p *evaluer) Evaluate(t *traversal, args ...Value) (result Value, err error) {
+        var ( pos = t.Position(); list []Value )
         if false && len(t.program.recipes) > 0 {
                 defer func() {
                         diag.warnAt(pos, "%v", t.program.recipes)
-                        diag.warnAt(pos, "result=%v", result).
-                                debug(true,1)
+                        diag.warnAt(pos, "result=%v", result).debug(true,1)
                 } ()
         }
-        var list []Value
 ForRecipes:
         for _, recipe := range t.program.recipes {
                 if p.accumulation {
                         var v Value
                         // Expand both closures and delegates to ensure that
                         // the right recipe value is returned.
-                        if v, err = recipe.expand(expandPlainValue|expandPairVal); err != nil {
-                                diag.errorAt(pos, "expand recipe failed: %v", err).
-                                        debug(options.debugErrors,1)
+                        if v, err = recipe.expand(t, expandPlainValue|expandPairVal); err != nil {
+                                diag.errorAt(pos, "expand recipe failed: %v", err).debug(1)
                                 return
                         } else if isNil(v) { v = recipe }
                         list = append(list, v)
                         continue ForRecipes
                 }
 
+                var ctx = contextAt(recipe.Position(), t)
                 switch stmt := recipe.(type) {
                 case *Nil, *None, *unresolvedobject:
                 case *List:
@@ -48,11 +47,11 @@ ForRecipes:
                                 // Noop, just return v to the caller.
 
                         case Caller:
-                                v = tv.Call(t.program.position, stmt.Slice(1)...)
+                                v = tv.Call(contextAt(v.Position(), t), stmt.Slice(1)...)
 
                         case Executer:
                                 var ( a []Value; brks []*breaker )
-                                if a, brks = tv.Execute(t.program.Position(), stmt.Slice(1)...); len(brks) == 0 {
+                                if a, brks = tv.Execute(contextAt(t.program.Position(), t), stmt.Slice(1)...); len(brks) == 0 {
                                         if n := len(a); n == 1 {
                                                 v = a[0]
                                         } else if n > 1 {
@@ -63,15 +62,13 @@ ForRecipes:
                                                 var s string
                                                 if brk.message != "" { s = brk.message }
                                                 if brk.error != nil { s += fmt.Sprintf(" (error: %s)", brk.error) }
-                                                diag.errorAt(brk.pos, "eval '%v' breaked: (%s) %s", stmt, brk.what, s).
-                                                        debug(options.debugErrors,1)
+                                                diag.errorAt(brk.pos, "eval '%v' breaked: (%s) %s", stmt, brk.what, s).debug(1)
                                         }
                                 }
 
                         default:
-                                if v, err = tv.expand(expandPlainValue); err != nil {
-                                        diag.errorAt(pos, "expand recipe value failed: %v", err).
-                                                debug(options.debugErrors,1)
+                                if v, err = tv.expand(ctx, expandPlainValue); err != nil {
+                                        diag.errorAt(pos, "expand recipe value failed: %v", err).debug(1)
                                         return
                                 } else if isNil(v) { v = tv }
                         }
@@ -83,8 +80,7 @@ ForRecipes:
                         }
 
                         if err != nil {
-                                diag.errorAt(pos, "evaluation failed: %v", err).
-                                        debug(options.debugErrors,1)
+                                diag.errorAt(pos, "evaluation failed: %v", err).debug(1)
                                 break ForRecipes
                         }
 
@@ -93,14 +89,12 @@ ForRecipes:
                                 if g, _ := v.(*Group); g != nil {
                                         if s, c := g.Get(0), g.Get(1); s != nil && c != nil {
                                                 var ( str string; num int64 )
-                                                if str, err = s.Strval(); err != nil {
-                                                        diag.errorAt(pos, "strval '%v' failed: %v", s, err).
-                                                                debug(options.debugErrors, 1)
+                                                if str, err = s.Strval(ctx); err != nil {
+                                                        diag.errorAt(pos, "strval '%v' failed: %v", s, err).debug(1)
                                                         return
                                                 }
-                                                if num, err = c.Integer(); err != nil {
-                                                        diag.errorAt(pos, "integify '%v' failed: %v", c, err).
-                                                                debug(options.debugErrors, 1)
+                                                if num, err = c.Integer(ctx); err != nil {
+                                                        diag.errorAt(pos, "integify '%v' failed: %v", c, err).debug(1)
                                                         return
                                                 }
                                                 if str == "shell" && num != 0 {
@@ -112,8 +106,7 @@ ForRecipes:
                         }
 
                 default:
-                        diag.errorOf(recipe, "unsupported recipe: %T (target=%v)", recipe, t.def.target.value).
-                                debug(options.debugErrors, 16)
+                        diag.errorOf(recipe, "unsupported recipe: %T (target=%v)", recipe, t.def.target.value).debug(16)
                         return
                 }
         }

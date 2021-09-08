@@ -14,10 +14,10 @@ import (
 
 type XML struct { Value }
 func (p *XML) String() string { return "(xml " + p.Value.String() + ")" }
-func (p *XML) cmp(v Value) (res cmpres) {
+func (p *XML) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*XML); ok {
                 assert(ok, "value is not XML")
-                res = p.Value.cmp(a.Value)
+                res = p.Value.cmp(ctx, a.Value)
         }
         return
 }
@@ -50,14 +50,14 @@ Converted into:
                 (title '  abc  ')
         )
 ) */
-func DecodeXML(source string, ws bool) (result Value, err error) {
+func DecodeXML(ctx Context, source string, ws bool) (result Value, err error) {
         var (
+                pos = ctx.Position()
                 stack []*Group
                 nodes []*Group
-                pos Position // FIXME: calculate the position
+                tok xml_enc.Token
         )
         xd := xml_enc.NewDecoder(strings.NewReader(source))
-        var tok xml_enc.Token
         for tok, err = xd.Token(); err == nil; tok, err = xd.Token() {
                 switch elem := tok.(type) {
                 case xml_enc.ProcInst:
@@ -118,10 +118,13 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
 }
 
 type xml struct { whitespace bool }
-func (p *xml) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
-        var source string
-        if source, err = multiline(t.program.recipes...); err != nil { return }
-        if result, err = DecodeXML(source, p.whitespace); err == nil {
+func (p *xml) Evaluate(t *traversal, args ...Value) (result Value, err error) {
+        var ( ctx = t.Context; source string )
+        if source, err = multiline(ctx, t.program.recipes...); err != nil {
+                diag.errorAt(ctx.Position(), "%v", err).debug(1)
+                return
+        }
+        if result, err = DecodeXML(ctx, source, p.whitespace); err == nil {
                 result = &XML{ result }
         } else {
                 result = &XML{ &None{valbase{t.program.position}} }

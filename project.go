@@ -27,12 +27,12 @@ type FileMap struct {
 }
 
 func (filemap *FileMap) String() string { return filemap.pattern.String() }
-func (filemap *FileMap) Patterns() (pats []Value) {
-  if filemap.pattern.expandible(expandClosure) {
+func (filemap *FileMap) Patterns(ctx Context) (pats []Value) {
+  if filemap.pattern.expandible(ctx, expandClosure) {
     var err error
-    if pats, err = mergeresult(ExpandAll(filemap.pattern)); err != nil {
+    if pats, err = mergeresult2(expandall2(ctx, expandPlainValue, filemap.pattern)); err != nil {
       diag.errorOf(filemap.pattern, "merge pattern '%v' failed: %v", filemap.pattern, err)
-    } else if pats, err = ExpandAll(pats...); err != nil {
+    } else if pats, _, err = expandall2(ctx, expandPlainValue, pats...); err != nil {
       // Do a second expand to ensure converted closures are expanded
       diag.errorOf(filemap.pattern, "sencond expand patterns '%v' failed: %v", pats, err)
     }
@@ -43,9 +43,9 @@ func (filemap *FileMap) Patterns() (pats []Value) {
 }
 
 // Match split filename into list and match each part with the pattern correspondingly.
-func (filemap *FileMap) Match(filename string) (matched bool, pre string) {
-  /*if filemap.Pattern.expandible(expandClosure) {
-    if pats, err := mergeresult(ExpandAll(filemap.Pattern)); err != nil {
+func (filemap *FileMap) Match(ctx Context, filename string) (matched bool, pre string) {
+  /*if filemap.Pattern.expandible(ctx, expandClosure) {
+    if pats, err := mergeresult2(expandall2(ctx, expandPlainValue, filemap.Pattern)); err != nil {
       fmt.Fprintf(stderr, "%v: %v\n", filemap.Pattern.Position(), filemap.Pattern)
     } else {
       for _, pat := range pats {
@@ -57,22 +57,22 @@ func (filemap *FileMap) Match(filename string) (matched bool, pre string) {
   } else {
     matched, pre = filemap.match(filemap.Pattern, filename)
   }*/
-  for _, pat := range filemap.Patterns() {
-    if matched, pre = filemap.match(pat, filename); matched { break }
+  for _, pat := range filemap.Patterns(ctx) {
+    if matched, pre = filemap.match(ctx, pat, filename); matched { break }
   }
   return
 }
 
-func (filemap *FileMap) match(pattern Value, filename string) (matched bool, pre string) {
-  if matched, pre = globMatch(pattern, filename); matched { return }
+func (filemap *FileMap) match(ctx Context, pattern Value, filename string) (matched bool, pre string) {
+  if matched, pre = globMatch(ctx, pattern, filename); matched { return }
   return
 }
 
-func (filemap *FileMap) stat(base, pre, name string) (file *File) {
+func (filemap *FileMap) stat(ctx Context, base, pre, name string) (file *File) {
   var pos = filemap.pattern.Position()
   if filemap.Paths == nil {
     // Check file in the filesystem (no paths).
-    file = stat(pos, name, "", base, nil)
+    file = stat(ctx, name, "", base, nil)
     return
   }
   base = filepath.Clean(base)
@@ -84,9 +84,8 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
     }
 
     var ( dir, sub string ; err error )
-    if sub, err = path.Strval(); err != nil {
-      diag.errorAt(pos, "strval '%v' failed: %v", path, err).
-        debug(options.debugErrors, 1)
+    if sub, err = path.Strval(ctx); err != nil {
+      diag.errorAt(pos, "strval '%v' failed: %v", path, err).debug(1)
       return
     } else {
       // Clean the search path.
@@ -106,7 +105,7 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
                 }*/
 
     // Check file in the filesystem.
-    if file = stat(pos, name, sub, dir, nil); file != nil {
+    if file = stat(ctx, name, sub, dir, nil); file != nil {
       break
     }
 
@@ -116,7 +115,7 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
         //   xxx.c  <->  (*.c => /path/to/source)
         // Become:
         //   /path/to/source  ""  xxx.c
-        file = stat(pos, name, "", sub, nil)
+        file = stat(ctx, name, "", sub, nil)
       } else if strings.HasSuffix(sub, PathSep+pre) {
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => /path/to/source/foo/bar)
@@ -124,14 +123,14 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
         //   /path/to/source  foo/bar  xxx.c
         s := strings.TrimSuffix(sub, PathSep+pre)
         n := strings.TrimPrefix(name, pre+PathSep)
-        file = stat(pos, n, pre, s, nil)
+        file = stat(ctx, n, pre, s, nil)
       } else if false { // This is wrong, only base name matched!!
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => /path/to/source)
         // Become:
         //   /path/to/source  foo/bar  xxx.c
         n := strings.TrimPrefix(name, pre+PathSep)
-        file = stat(pos, n, pre, sub, nil)
+        file = stat(ctx, n, pre, sub, nil)
       }
     } else {
       if pre == "" { // Fullmatch!
@@ -139,14 +138,14 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
         //   xxx.c  <->  (*.c => source)
         // Become:
         //   <p.absPath>  source  xxx.c
-        file = stat(pos, name, sub, dir, nil)
+        file = stat(ctx, name, sub, dir, nil)
       } else if sub == pre {
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => foo/bar)
         // Become:
         //   <dir>  foo/bar  xxx.c
         n := strings.TrimPrefix(name, pre+PathSep)
-        file = stat(pos, n, sub, dir, nil)
+        file = stat(ctx, n, sub, dir, nil)
       } else if strings.HasSuffix(sub, PathSep+pre) {
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => source/foo/bar)
@@ -154,7 +153,7 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
         //   <dir>  source/foo/bar  xxx.c
         s := strings.TrimSuffix(sub, PathSep+pre)
         n := strings.TrimPrefix(name, pre+PathSep)
-        file = stat(pos, n, pre, s, nil)
+        file = stat(ctx, n, pre, s, nil)
       } else if false { // This is wrong, only base name matched!!
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => source)
@@ -162,7 +161,7 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
         //   <dir>  source/foo/bar  xxx.c
         s := filepath.Join(sub, pre)
         n := strings.TrimPrefix(name, pre+PathSep)
-        file = stat(pos, n, s, dir, nil)
+        file = stat(ctx, n, s, dir, nil)
       }
     }
   }
@@ -184,7 +183,7 @@ func hasGlobMeta(path string) bool {
 // all components are compared. If the pattern has only one component,
 // the last filename component is compared with the pattern, and the prefix
 // components are returned in 'pre'.
-func globMatch(patval Value, filename string) (matched bool, pre string) {
+func globMatch(ctx Context, patval Value, filename string) (matched bool, pre string) {
   switch patval.(type) {
   default: // good to go!
   case *List:
@@ -192,7 +191,7 @@ func globMatch(patval Value, filename string) (matched bool, pre string) {
     return
   }
 
-  pattern, err := patval.Strval()
+  pattern, err := patval.Strval(ctx)
   if err != nil { return false, "" }
 
   list0 := strings.Split(filepath.Clean(pattern ), PathSep)
@@ -236,6 +235,7 @@ func (rec *enterec) String() string { return rec.dir }
 var cd = &struct{
   stack []*enterec // entered directories
   enters map[string]*enterec // enters
+  mutex sync.Mutex
 }{
   enters: make(map[string]*enterec),
 }
@@ -303,7 +303,7 @@ func (p *Project) mapfile(pat Value, paths []Value) {
   // List order is significant, duplication is acceptable.
   p._filemap_ = append(p._filemap_, &FileMap{ p, pat, paths })
 }
-func (p *Project) myFilemaps() (filemap []*FileMap) {
+func (p *Project) myFilemaps(ctx Context) (filemap []*FileMap) {
   if true { return p._filemap_ }
 
   var _filemap_ []*FileMap
@@ -320,7 +320,7 @@ func (p *Project) myFilemaps() (filemap []*FileMap) {
         case *Group: pats = k.Elems
         default:     pats = append(pats, v.Key)
         }
-        if a, err := mergeresult(ExpandAll(pats...)); err != nil {
+        if a, err := mergeresult2(expandall2(ctx, expandPlainValue, pats...)); err != nil {
           diag.errorAt(v.Position(), "error expanding '%v': %v", v, err)
         } else {
           pats = a 
@@ -346,7 +346,7 @@ func (p *Project) myFilemaps() (filemap []*FileMap) {
   return _filemap_
 }
 
-func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
+func (p *Project) filemaps(ctx Context, using bool) (filemaps []*FileMap) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.filemaps")) }
 
   var uniqueAppend = func(a *FileMap) {
@@ -372,15 +372,15 @@ func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
     filemaps = append(filemaps, a)
   }
 
-  for _, m := range p.myFilemaps() { uniqueAppend(m) }
+  for _, m := range p.myFilemaps(ctx) { uniqueAppend(m) }
   for _, base := range p.bases {
-    for _, m := range base.filemaps(/*using*/false) { uniqueAppend(m) }
+    for _, m := range base.filemaps(ctx, /*using*/false) { uniqueAppend(m) }
   }
   if using {
     // takes a big longer time to map usee filemaps, but acceptable
     var appendUsingList func(*Project)
     appendUsingList = func(p *Project) {
-      for _, m := range p.myFilemaps() { uniqueAppend(m) }
+      for _, m := range p.myFilemaps(ctx) { uniqueAppend(m) }
       for _, u := range p.using.list {
         if u.opts.noFiles { appendUsingList(u.project) }
       }
@@ -390,33 +390,33 @@ func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
   return
 }
 
-func (p *Project) wildcard(pos Position, opts wildcardOpts, patterns ...Value) (files []*File, err error) {
-  var filemaps = p.filemaps(false)
-ForPats:
+func (p *Project) wildcard(ctx Context, opts wildcardOpts, patterns ...Value) (files []*File, err error) {
+  var pos = ctx.Position()
+  var filemaps = p.filemaps(ctx, false)
+ForPatterns:
   for _, pat := range patterns {
     var (
       breakAbsRel bool
       matched bool
       patStr string
     )
-    if patStr, err = pat.Strval(); err != nil {
-      diag.errorAt(pos, "strval '%v' failed: %v", pat, err).
-        debug(options.debugErrors,1)
-      break ForPats
+    if patStr, err = pat.Strval(ctx); err != nil {
+      diag.errorAt(pos, "strval '%v' failed: %v", pat, err).debug(1)
+      break ForPatterns
     }
     // The 'patStr' could be GlobPattern or just regular file/path names. PercPattern is not supported yet.
   ForFilemaps:
     for _, fm := range filemaps {
-      for _, pattern := range fm.Patterns() {
+      for _, pattern := range fm.Patterns(ctx) {
         var pre string // <pre>/*.xxx
         var str = patStr
-        if matched, pre = globMatch(pattern, patStr); !matched {
+        if matched, pre = globMatch(ctx, pattern, patStr); !matched {
           // Flip glob matching order.
           if _, yes := pat.(*GlobPattern); !yes {
             continue ForFilemaps
-          } else if str, err = pattern.Strval(); err != nil {
-            break ForPats
-          } else if matched, pre = globMatch(pat, str); !matched {
+          } else if str, err = pattern.Strval(ctx); err != nil {
+            break ForPatterns
+          } else if matched, pre = globMatch(ctx, pat, str); !matched {
             continue ForFilemaps
           } else {
             // using the arg glob
@@ -430,16 +430,16 @@ ForPats:
 
         // Absolute or relative files are not related to the paths.
         if filepath.IsAbs(str) || strings.HasPrefix(str, "./") || strings.HasPrefix(str, "../") {
-          if names, err = filepath.Glob(str); err != nil { break ForPats }
+          if names, err = filepath.Glob(str); err != nil { break ForPatterns }
           for _, s := range names {
-            file := stat(pos, filepath.Base(s), "", filepath.Dir(s))
+            file := stat(ctx, filepath.Base(s), "", filepath.Dir(s))
             files = append(files, file)
             if enable_assertions {
               assert(file != nil, "`%s` missing", s)
             }
           }
           if breakAbsRel {
-            continue ForPats
+            continue ForPatterns
           } else {
             continue ForFilemaps
           }
@@ -448,46 +448,56 @@ ForPats:
         // Check against paths for non-abs/rel patterns.
         for _, path := range fm.Paths {
           var sub string
-          if sub, err = path.Strval(); err != nil {
-            break ForPats
+          if sub, err = path.Strval(ctx); err != nil {
+            break ForPatterns
           }
 
           subfile := filepath.Join(sub, str)
           if names, err = filepath.Glob(subfile); err != nil {
-            break ForPats
+            break ForPatterns
           }
           // Chop off path 'sub' prefix to have shorter names
           // Aka. trim prefix 'file.Sub+PathSep'
           prefix := strings.TrimSuffix(subfile, str)
           if len(names) > 0 {
             for _, s := range names {
+              if false && s == "..." {
+                diag.warnAt(pos, "sub = %s", sub)
+                diag.warnAt(pos, "pat = %s", pat)
+                diag.warnAt(pos, "pattern = %v", pattern)
+                diag.warnAt(pos, "pre = %s", pre)
+                diag.warnAt(pos, "str = %s", str)
+                diag.warnAt(pos, "subfile = %s", subfile)
+                diag.warnAt(pos, "prefix = %s", prefix)
+                diag.warnAt(pos, "name = %s", s).debug(16)
+              }
               name := strings.TrimPrefix(s, prefix)
-              file := stat(pos, name, sub, prefix)
+              file := stat(ctx, name, sub, prefix)
               files = append(files, file)
               if enable_assertions {
                 assert(file != nil, "`%s` missing (%s)", s, name)
               }
             }
-          } else if ok := pattern.patterned(); !ok && opts.includeMissing {
+          } else if ok := pattern.patterned(ctx); !ok && opts.includeMissing {
             // If the filemap is not a pattern (e.g. foobar.cpp), we include it in the returning files
             var name string
-            name, err = pattern.Strval()
-            if err != nil { break ForPats }
+            name, err = pattern.Strval(ctx)
+            if err != nil { break ForPatterns }
 
             // Append this non-existed/missing file.
-            file := stat(pos, name, sub, prefix, nil)
+            file := stat(ctx, name, sub, prefix, nil)
             files = append(files, file)
-          } else if ok && !path.expandible(expandClosure) && len(fm.Paths) == 1 {
+          } else if ok && !path.expandible(ctx, expandClosure) && len(fm.Paths) == 1 {
             // Just report that the pattern matches no files in the
             // file system (if only one path specified).
             if false {
               diag.warnOf(pattern, "%s: %v matches no files in '%v'", p.name, fm, sub)
               diag.warnOf(    pat, "%s: here is %v (try using flag -m, aka -include-missing)", p.name, pat).
-                debug(options.debugErrors, 1)
+                debug(1)
             }
           } else if opts.errorMissing {
             err = fmt.Errorf("missing files like '%v'", fm)
-            break ForPats
+            break ForPatterns
           }
         }
       }
@@ -496,27 +506,27 @@ ForPats:
   return
 }
 
-func (p *Project) matchFile(name string) (file *File) {
+func (p *Project) matchFile(ctx Context, name string) (file *File) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.FindFile")) }
   if optionEnableBenchspots { defer bench(spot("Project.FindFile")) }
 
   var first *File
 
 ForFilemaps:
-  for _, filemap := range p.filemaps(true) {
+  for _, filemap := range p.filemaps(ctx, true) {
     // Match the represented file name.
-    var matched, pre = filemap.Match(name)
+    var matched, pre = filemap.Match(ctx, name)
     if !matched { continue ForFilemaps }
-    if p.changedWD != "" { file = filemap.stat(p.changedWD, pre, name) }
-    if file == nil       { file = filemap.stat(p.absPath,   pre, name) }
+    if p.changedWD != "" { file = filemap.stat(ctx, p.changedWD, pre, name) }
+    if file == nil       { file = filemap.stat(ctx, p.absPath,   pre, name) }
     if false {
       var s1, s2 string
       var pos = filemap.pattern.Position()
       if file  != nil { s1 = file.fullname() }
       if first != nil { s2 = first.fullname() }
       diag.errorAt(pos, "%s: name=%s (file=%v, exists=%v, first=%v, cwd=%s, filemap=%v, patterns=%v, pre=%v)\n",
-        p, name, s1, file.exists(), s2, p.changedWD, filemap.pattern, filemap.Patterns(), pre).
-        debug(options.debugErrors, 1)
+        p, name, s1, file.exists(), s2, p.changedWD, filemap.pattern, filemap.Patterns(ctx), pre).
+        debug(1)
     }
     if file != nil {
       if file.filemap == nil { file.filemap = filemap }
@@ -531,7 +541,7 @@ ForFilemaps:
     // usefull when the bases (or imported projects) have also
     // matched files. The current project have the highest
     // priority to match.
-    for _, fm := range p.myFilemaps() {
+    for _, fm := range p.myFilemaps(ctx) {
       if filemap == fm { break ForFilemaps }
     }
   }
@@ -539,41 +549,38 @@ ForFilemaps:
   return
 }
 
-func (p *Project) matchTempFile(pos Position, name string) (file *File) {
-  if file = p.matchFile(name); file != nil {
+func (p *Project) matchTempFile(ctx Context, name string) (file *File) {
+  var pos = ctx.Position()
+  if file = p.matchFile(ctx, name); file != nil {
     // good
   } else if ctd := p.scope.FindDef("CTD"); ctd == nil {
-    diag.errorAt(pos, "%v: CTD is not defined for temp file: %v", p, name).
-      debug(options.debugErrors, 1)
-  } else if s, err := ctd.Strval(); err != nil {
-    diag.errorAt(pos, "%v: stringify temp directory failed: %v", p, err).
-      debug(options.debugErrors, 1)
-  } else if file = stat(pos, filepath.Join(s, name), "", "", nil); file == nil {
-    diag.errorAt(pos, "%v: nil stat %v %v", p, s, name).
-      debug(options.debugErrors, 1)
+    diag.errorAt(pos, "%v: CTD is not defined for temp file: %v", p, name).debug(1)
+  } else if s, err := ctd.Strval(ctx); err != nil {
+    diag.errorAt(pos, "%v: stringify temp directory failed: %v", p, err).debug(1)
+  } else if file = stat(ctx, filepath.Join(s, name), "", "", nil); file == nil {
+    diag.errorAt(pos, "%v: nil stat %v %v", p, s, name).debug(1)
   } else if false {
     if !pos.IsValid() { pos = p.position }
     diag.warnAt(pos, "using default temp file: %v/%v", s, name)
-    diag.warnAt(p.position, "suggesting define files rule for '%s' in %v", name, p).
-      debug(options.debugErrors, 12)
+    diag.warnAt(p.position, "suggesting define files rule for '%s' in %v", name, p).debug(12)
   }
   return // NOTE: temp file may not exists
 }
 
-func (p *Project) configurationFile() (file *File) {
-    if file = p.matchTempFile(p.position, "configuration.sm"); file == nil {
+func (p *Project) configurationFile(ctx Context) (file *File) {
+    if file = p.matchTempFile(ctx, "configuration.sm"); file == nil {
         diag.errorAt(p.position, "%v: no file configuration.sm", p).
-            debug(options.debugErrors, 1)
+            debug(1)
     }
     return
 }
 
-func (p *Project) FindFile(name string) (file *File) { return p.matchFile(name) }
+func (p *Project) FindFile(ctx Context, name string) (file *File) { return p.matchFile(ctx, name) }
 
-func (p *Project) isFileName(s string) (res bool) {
+func (p *Project) isFileName(ctx Context, s string) (res bool) {
   if len(s) > 0 {
-    for _, filemap := range p.filemaps(true) {
-      if res, _ = filemap.Match(s); res { break }
+    for _, filemap := range p.filemaps(ctx, true) {
+      if res, _ = filemap.Match(ctx, s); res { break }
     }
   }
   return
@@ -586,7 +593,7 @@ func (p *Project) DefaultEntry() (entry *RuleEntry) {
   return
 }
 
-func (p *Project) resolveObject(s string) (obj Object, err error) {
+func (p *Project) resolveObject(ctx Context, s string) (obj Object, err error) {
   if _, obj = p.scope.Find(s); obj == nil {
     if p.pluginScope != nil {
       if obj = p.pluginScope.Lookup(s); obj != nil {
@@ -594,7 +601,7 @@ func (p *Project) resolveObject(s string) (obj Object, err error) {
       }
     }
     for _, base := range p.bases {
-      obj, err = base.resolveObject(s)
+      obj, err = base.resolveObject(ctx, s)
       if err != nil || obj != nil {
         break
       }
@@ -609,7 +616,7 @@ func (p *Project) resolveObject(s string) (obj Object, err error) {
   return
 }
 
-func (p *Project) resolveEntry(s string, matchFullSuffix bool) (entry *RuleEntry, err error) {
+func (p *Project) resolveEntry(ctx Context, s string, matchFullSuffix bool) (entry *RuleEntry, err error) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.resolveEntry")) }
   if optionEnableBenchspots { defer bench(spot("Project.resolveEntry")) }
   for _, rec := range p.concrete {
@@ -617,9 +624,9 @@ func (p *Project) resolveEntry(s string, matchFullSuffix bool) (entry *RuleEntry
     case *File:
       if false && s == "llvm/IR/Attributes.inc" && target.name == "Attributes.inc" {
         var ok = (!filepath.IsAbs(s) && strings.HasSuffix(target.fullname(), filepath.Clean(s)))
-        var full, res, stems = target.match(s)
+        var full, res, stems = target.match(ctx, s)
         diag.warnAt(rec.Position(), "%v: %s <-> %v => %v, %v, %v, %v", p, s, target, full, res, stems, ok).
-          debug(options.debugErrors, 1)
+          debug(1)
       }
       if target.name == s {
         return rec, nil
@@ -629,26 +636,25 @@ func (p *Project) resolveEntry(s string, matchFullSuffix bool) (entry *RuleEntry
         // not matching
       } else if strings.HasSuffix(target.fullname(), PathSep+filepath.Clean(s)) {
         if false { diag.warnAt(rec.Position(), "TODO: %v: %s <-> %v %v", p, s, target, target.fullname()).
-          debug(options.debugErrors, 8) }
+          debug(8) }
         return rec, nil
       }
     //case *Path:
     default:
       var sv string
-      if sv, err = target.Strval(); err != nil {
-        diag.errorAt(target.Position(), "strval '%v' failed: %v", target, err).
-          debug(options.debugErrors, 1)
+      if sv, err = target.Strval(ctx); err != nil {
+        diag.errorAt(target.Position(), "strval '%v' failed: %v", target, err).debug(1)
         return
       } else if sv == s { return rec, nil }
     }
   }
   for _, base := range p.bases {
-    if entry, err = base.resolveEntry(s, matchFullSuffix); entry != nil || err != nil { break }
+    if entry, err = base.resolveEntry(ctx, s, matchFullSuffix); entry != nil || err != nil { break }
   }
   if err == nil && entry == nil {
     if true { /* FAST */ } else { /* SLOW */
       for _, using := range p.using.list {
-        entry, err = using.project.resolveEntry(s, matchFullSuffix)
+        entry, err = using.project.resolveEntry(ctx, s, matchFullSuffix)
         if err != nil || entry != nil { break }
       }
     }
@@ -656,38 +662,38 @@ func (p *Project) resolveEntry(s string, matchFullSuffix bool) (entry *RuleEntry
   return
 }
 
-func (p *Project) resolvePatterns(i interface{}) (res []*stemmed) {
+func (p *Project) resolvePatterns(ctx Context, i interface{}) (res []*stemmed) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.resolvePatterns")) }
   if optionEnableBenchspots { defer bench(spot("Project.resolvePatterns")) }
-  res   = p._resolvePatterns1(i)
-  if v := p._resolvePatterns2(i); len(v) > 0 { res = append(res, v...) }
+  res   = p._resolvePatterns1(ctx, i)
+  if v := p._resolvePatterns2(ctx, i); len(v) > 0 { res = append(res, v...) }
   if true { /* FAST */ } else /* SLOW */
-  if v := p._resolvePatterns3(i); len(v) > 0 { res = append(res, v...) }
+  if v := p._resolvePatterns3(ctx, i); len(v) > 0 { res = append(res, v...) }
   return
 }
 
-func (p *Project) _resolvePatterns1(i interface{}) (res []*stemmed) {
+func (p *Project) _resolvePatterns1(ctx Context, i interface{}) (res []*stemmed) {
   if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns1")) }
   for _, pat := range p.patterns {
-    if full, _, stems := pat.Pattern.match(i); full {
+    if full, _, stems := pat.Pattern.match(ctx, i); full {
       res = append(res, &stemmed{pat, stems})
     }
   }
   return
 }
 
-func (p *Project) _resolvePatterns2(i interface{}) (res []*stemmed) {
+func (p *Project) _resolvePatterns2(ctx Context, i interface{}) (res []*stemmed) {
   if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns2")) }
   for _, base := range p.bases {
-    res = append(res, base.resolvePatterns(i)...)
+    res = append(res, base.resolvePatterns(ctx, i)...)
   }
   return
 }
 
-func (p *Project) _resolvePatterns3(i interface{}) (res []*stemmed) {
+func (p *Project) _resolvePatterns3(ctx Context, i interface{}) (res []*stemmed) {
   if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns3")) }
   for _, using := range p.using.list {
-    res = append(res, using.project.resolvePatterns(i)...)
+    res = append(res, using.project.resolvePatterns(ctx, i)...)
   }
   return
 }
@@ -695,7 +701,7 @@ func (p *Project) _resolvePatterns3(i interface{}) (res []*stemmed) {
 type entryOpts struct {
   postExec bool `p,post;pe,post-execute;pe,post-exec`
 }
-func (p *Project) entry(special specialRule, options []Value, target Value, prog *Program) (entry *RuleEntry, err error) {
+func (p *Project) entry(ctx Context, special specialRule, options []Value, target Value, prog *Program) (entry *RuleEntry, err error) {
   defer func() {
     if entry != nil && err == nil {
       entry.programs = append(entry.programs, prog)
@@ -703,17 +709,17 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
   } ()
 
   var strval string
-  if strval, err = fullnameOrStrval(target); err != nil {
+  if strval, err = fullnameOrStrval(ctx, target); err != nil {
     return
   }
 
   // The 'use' rule entries.
-  var closured = target.expandible(expandClosure)
+  var closured = target.expandible(ctx, expandClosure)
   if special == specialRuleUse && !closured {
     var opts entryOpts
     if len(options) > 0 {
       var pos = options[0].Position()
-      if _, err = parseOpts(pos, &opts, options...); err != nil {
+      if _, err = parseOpts(ctx, &opts, options...); err != nil {
         diag.errorAt(pos, "parse opts failed: %v", err)
         return
       }
@@ -728,7 +734,7 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
   }
 
   var name string
-  if name, err = fullnameOrStrval(target); err != nil {
+  if name, err = fullnameOrStrval(ctx, target); err != nil {
     return
   } else if name == "" {
     err = fmt.Errorf("name '%v' already taken as `%T'", name)
@@ -741,7 +747,7 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
     assert(t != nil, "nil PercPattern")
     if false {
       for _, pe := range p.patterns {
-        if pe.Pattern.cmp(t) == cmpEqual {
+        if pe.Pattern.cmp(ctx, t) == cmpEqual {
           entry = pe.RuleEntry
           return
         }
@@ -797,7 +803,7 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
     if closured && rec.String() == name {
       entry = rec; break
     }
-    if sv, err = fullnameOrStrval(rec); err != nil {
+    if sv, err = fullnameOrStrval(ctx, rec); err != nil {
       return
     } else if sv == strval {
       entry = rec; break
@@ -841,8 +847,7 @@ func (p *Project) hasLoadedRecur(top, proj *Project, depth int, breakUseLoop boo
     err = fmt.Errorf("exceeds maximum base depth (%d) (start=%v, target=%v)", depth, top, proj)
     diag.errorAt(p.position, "%v: %v", p, err)
     diag.errorAt(top.position, "start: %v", top)
-    diag.errorAt(proj.position, "target: %v", proj).
-      debug(200)
+    diag.errorAt(proj.position, "target: %v", proj).debug(200)
     return
   }
   for _, base := range p.bases {
@@ -858,7 +863,7 @@ func (p *Project) hasLoadedRecur(top, proj *Project, depth int, breakUseLoop boo
       diag.errorAt(top.position, "start: %v", top)
       diag.errorAt(proj.position, "stop: %v", proj)
       diag.errorAt(p.position, "%v: %v", p, err).
-        debug(options.debugErrors, 128)
+        debug(128)
       return
     }
     if res = imp == proj; res { rp = imp; return }
@@ -932,16 +937,18 @@ func lockCD(dir string, dura time.Duration) error {
   return os.Chdir(dir)
 }
 
-func enter(prog *Program, dir string) (err error) {
+func enter(t *traversal, dir string) (err error) {
+  cd.mutex.Lock(); defer cd.mutex.Unlock()
+
   if optionTraceEntering {
-    fmt.Fprintf(stderr, "entering: %v (%v)\n", dir, prog.project.name)
+    fmt.Fprintf(stderr, "entering: %v (%v)\n", dir, t.project.name)
   }
 
   var wd string
   if wd, err = os.Getwd(); err != nil { return }
   if err = lockCD(dir, 0); err != nil { return }
   if !filepath.IsAbs(dir) { dir = filepath.Join(wd, dir) }
-  prog.auto("CWD", &String{valbase{prog.position},dir})
+  t.auto("CWD", &String{valbase{t.program.position},dir})
 
   var ( enter *enterec ; ok bool )
   if enter, ok = cd.enters[dir]; !ok {
@@ -953,7 +960,9 @@ func enter(prog *Program, dir string) (err error) {
   return
 }
 
-func leave(prog *Program, stop *enterec) (err error) {
+func leave(ctx Context, prog *Program, stop *enterec) (err error) {
+  cd.mutex.Lock(); defer cd.mutex.Unlock()
+
   var size = len(cd.stack)
   if optionTraceEntering {
     fmt.Fprintf(stderr, "leaving: %v (%v %v %v)\n", stop.dir, prog.project.name, stop.num, size)
@@ -989,6 +998,7 @@ func leave(prog *Program, stop *enterec) (err error) {
 }
 
 func printEnteringDirectory() {
+  cd.mutex.Lock(); defer cd.mutex.Unlock()
   if size := len(cd.stack); size > 0 {
     var enter = cd.stack[0]
     if enter.silent { return }
@@ -1006,6 +1016,7 @@ func printEnteringDirectory() {
 }
 
 func printLeavingDirectory() {
+  cd.mutex.Lock(); defer cd.mutex.Unlock()
   if size := len(cd.stack); size > 0 {
     for _, enter := range cd.stack {
       if enter.print {

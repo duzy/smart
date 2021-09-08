@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"sync"
 	"fmt"
 )
 
@@ -191,7 +192,7 @@ func (p *parser) scanNext() {
 	p.pos, p.tok, p.lit = p.scanner.Scan()
 	if false && p.tok == token.EOF {
 		diag.errorAt(p.positionAt(pos), "unexpected end of file").
-			debug(options.debugErrors, 1)
+			debug(1)
 	}
 }
 
@@ -336,7 +337,7 @@ func (p *parser) expected(pos token.Pos, msg string, a... interface{}) {
 		}
 	}
 	diag.errorAt(p.positionAt(pos), msg).
-		debug(options.debugErrors, 16)
+		debug(16)
 }
 
 func (p *parser) expect(tok token.Token) token.Pos {
@@ -429,25 +430,23 @@ func (p *parser) parseSelect(lhs Value) (res Value) {
 	switch t := lhs.(type) {
 	case *selection:
 		diag.errorAt(position, "TODO: multiple selection: %v", lhs).
-			debug(options.debugErrors, 1)
+			debug(1)
 	case *Bareword:
         switch t.string {
-        case "goals": lhs = context.goals
-        case "os":    lhs = context.globe.os.self
-		case "mode":  lhs = context.mode
-        case "usee":  lhs = p.project.using
-        case "self":  lhs = p.project.self
+        case "goals", "os", "mode": lhs = p.Get(t.string)
+        case "usee": lhs = p.project.using
+        case "self": lhs = p.project.self
         default:
             if o, err := p.resolve(lhs); err != nil {
 				diag.errorOf(lhs, "resolve selection object '%v' error: %v", lhs, err).
-					debug(options.debugErrors, 1)
+					debug(1)
                 return
             } else if o == nil {
                 if tok == token.SELECT_PROG2 {
 					res = MakeNil(position) // ignore
                 } else {
 					diag.errorOf(lhs, "'%v' is undefined", lhs).
-						debug(options.debugErrors, 1)
+						debug(1)
                 }
                 return
             } else {
@@ -457,14 +456,14 @@ func (p *parser) parseSelect(lhs Value) (res Value) {
     case *Barecomp: // for cases like '.foo'
         if o, err := p.resolve(t); err != nil {
 			diag.errorOf(lhs, "resolve selection object '%v' error: %v", lhs, err).
-					debug(options.debugErrors, 1)
+					debug(1)
 			return
         } else if isNil(o) {
 			if tok == token.SELECT_PROG2 {
 				res = MakeNil(position) // ignore
 			} else {
 				diag.errorOf(lhs, "'%v' is undefined", lhs).
-					debug(options.debugErrors, 1)
+					debug(1)
 			}
 			return
 		} else {
@@ -524,8 +523,7 @@ func (p *parser) parseDependList() (list []Value) {
 	for p.tok != token.SEMICOLON && p.tok != token.BAR && !p.isEndOfLine() {
 		if p.tok == token.COLON { // FIXME: this check is not working!
 			// FIXME: detects unexpected colon ':'
-			diag.errorAt(p.position(), "unexpected colon").
-				debug(options.debugErrors, 1)
+			diag.errorAt(p.position(), "unexpected colon").debug(1)
 			p.next(true) // just ignore this colon
 		} else {
 			p.skipSpaces()
@@ -1003,6 +1001,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 	p.bits = 0 // start with zero bits
 
 	var (
+		ctx = contextAt(p.position(), p/*.defaultContext*/)
 		pos  = p.pos
 		tok  = p.tok
 		posLp = token.NoPos
@@ -1015,9 +1014,9 @@ func (p *parser) parseClosureDelegate() (result Value) {
 
 	resolveConfig := func() (obj Object) {
 		if p.project.configure != nil {
-			if s, err := name.Strval(); err != nil {
+			if s, err := name.Strval(ctx); err != nil {
 				diag.errorOf(name, "strval '%v' failed: %v", name, err)
-			} else if obj, err = p.project.configure.resolveObject(s); err != nil {
+			} else if obj, err = p.project.configure.resolveObject(ctx, s); err != nil {
 				diag.errorOf(name, "resolve configure '%s' failed: %v", s, err)
 			}
 		}
@@ -1032,7 +1031,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 				diag.errorOf(name, "resolve '%v' failed: %v", name, err)
 			} else if isNil(resolved) {
 				if p.isIncludingConf {
-					if s, err := name.Strval(); err != nil {
+					if s, err := name.Strval(ctx); err != nil {
 						diag.errorOf(name, "strval '%v' error: %v", name, err)
 					} else {
 						// Create an empty Def if it's referred in configuration.sm.
@@ -1041,13 +1040,13 @@ func (p *parser) parseClosureDelegate() (result Value) {
 						obj, okay = def, true
 					}
 				} else if sel, ok := name.(*selection); ok {
-					if o, err := sel.object(); err == nil && o.DeclScope().comment == usecomment {
+					if o, err := sel.object(ctx); err == nil && o.DeclScope().comment == usecomment {
 						obj, okay = unresolved(p.project, name), true
 					} else if err != nil {
 						diag.errorOf(sel, "`%v` invalid delegate selection", name)
 					} else if isNil(o) {
 						diag.errorOf(sel, "`%v` nil selection object", name)
-					} else if v, err := sel.value(); err != nil {
+					} else if v, err := sel.value(ctx); err != nil {
 						diag.errorOf(name, "`%v` invalid delegate selection", name)
 					} else if isNil(v) {
 						diag.errorOf(name, "`%v` not found in %v", sel.s, o)
@@ -1056,15 +1055,15 @@ func (p *parser) parseClosureDelegate() (result Value) {
 					}
 				} else if o := resolveConfig(); !isNil(o) {
 					obj, okay = o, true
-				} else if tok.IsClosure() || refdef(name, defany) || name.expandible(expandClosure) {
+				} else if tok.IsClosure() || refdef(ctx, name, defany) || name.expandible(ctx, expandClosure) {
 					obj, okay = unresolved(p.project, name), true // recursive delegation or closure
-				} else if name.expandible(expandPlainValue) {
-					s, _ := name.Strval()
+				} else if name.expandible(ctx, expandPlainValue) {
+					s, _ := name.Strval(ctx)
 					diag.errorOf(name, "resolved '%v' (aka. %s) is nil (project=%v)", name, s, p.project).
-						debug(options.debugErrors,1)
+						debug(1)
 				} else {
 					diag.errorOf(name, "resolved '%v' is nil (project=%v)", name, p.project).
-						debug(options.debugErrors,1)
+						debug(1)
 				}
 			} else if sel, _ := resolved.(*selection); !isNil(sel) {
 				obj, okay = sel, true
@@ -1077,13 +1076,13 @@ func (p *parser) parseClosureDelegate() (result Value) {
 			if resolved, err = p.find(name); err != nil {
 				p.error(posLp, "finding rule entry '%v' failed: %v", name, err)
 			} else if isNil(resolved) {
-				if name.expandible(expandPlainValue) {
-					s, _ := name.Strval()
+				if name.expandible(ctx, expandPlainValue) {
+					s, _ := name.Strval(ctx)
 					diag.errorOf(name, "resolved '%v' (aka. %s) is nil (project=%v)", name, s, p.project).
-						debug(options.debugErrors,1)
+						debug(1)
 				} else {
 					diag.errorOf(name, "resolved '%v' is nil (project=%v)", name, p.project).
-						debug(options.debugErrors,1)
+						debug(1)
 				}
 			} else if exe, _ := resolved.(Executer); exe == nil {
 				p.error(posLp, "resolved '%v' of '%T' is not Executer", name, resolved)
@@ -1091,15 +1090,13 @@ func (p *parser) parseClosureDelegate() (result Value) {
 				p.error(posLp, "resolved Executer '%v' of '%T' is not Object", name, resolved)
 			}
 		case token.LCOLON:
-			s, err := name.Strval()
+			s, err := name.Strval(ctx)
 			if err != nil {
 				p.error(posLp, "error strval name '%v': %v", name, err)
 				return
 			}
 			switch s {
-			case "goals": resolved = context.goals
-			case "os":    resolved = context.globe.os.self
-			case "mode":  resolved = context.mode
+			case "goals", "os", "mode": resolved = ctx.Get(s)
 			case "usee":  resolved = p.project.using
 			case "self":  resolved = p.project.self
 			default:
@@ -1117,16 +1114,14 @@ func (p *parser) parseClosureDelegate() (result Value) {
 
 		p._next() // skips LPAREN, LBRACE, LCOLON
 		if posLp+1 != p.pos {
-			diag.errorAt(p.positionAt(posLp+1), "unexpected spaces").
-				debug(options.debugErrors, 1)
+			diag.errorAt(p.positionAt(posLp+1), "unexpected spaces").debug(1)
 			return MakeNil(p.position())
 		}
 
 		if name = p.parseClosureDelegateName(tokLp); isNil(name) {
 			diag.errorAt(p.positionAt(posLp), "parsed name is nil")
-		} else if !name.expandible(expandClosure) && !resolveObject() {
-			diag.errorOf(name, "name '%v' is unidentified (project=%v)", name, p.project).
-				debug(options.debugErrors, 1)
+		} else if !name.expandible(ctx, expandClosure) && !resolveObject() {
+			diag.errorOf(name, "name '%v' is unidentified (project=%v)", name, p.project).debug(1)
 		}
 
 		if  (tokLp == token.LPAREN && p.tok != token.RPAREN) ||
@@ -1157,7 +1152,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 			// &'xxxx' or &"xxxx"
 			if name = p.parseExpr(false); isNil(name) {
 				p.error(posLp, "parsed name is nil")
-			} else if !name.expandible(expandClosure) && !resolveObject() {
+			} else if !name.expandible(ctx, expandClosure) && !resolveObject() {
 				diag.errorOf(name, "name '%v' is unidentified", name)
 			}
 		} else {
@@ -1167,7 +1162,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 		}
 	}
 	if isNil(obj) && p.project.plugin != nil && p.project.pluginScope != nil {
-		s, err := name.Strval()
+		s, err := name.Strval(ctx)
 		if err != nil {
 			p.error(pos, "strval name '%v' failed: %v", name, err)
 			return
@@ -1196,19 +1191,19 @@ func (p *parser) parseSpecialClosureDelegate(lhs bool) Value {
 	)
 	if err != nil {
 		diag.errorOf(name, "resolve '%v' failed: %v", name, err).
-			debug(options.debugErrors, 1)
+			debug(1)
 		return MakeNil(position)
 	} else if resolved == nil {
 		diag.errorOf(name, "resolved '%v' is nil", name).
-			debug(options.debugErrors, 1)
+			debug(1)
 		return MakeNil(position)
 	} else if def, ok := resolved.(Caller); def == nil || !ok {
 		diag.errorOf(resolved, "resolved '%v' is not callable: %T", name, resolved).
-			debug(options.debugErrors, 1)
+			debug(1)
 		return MakeNil(position)
 	} else if obj, ok = def.(Object); obj == nil || !ok {
 		diag.errorOf(resolved, "resolved '%v' is not object: %T", name, def).
-			debug(options.debugErrors, 1)
+			debug(1)
 		return MakeNil(position)
 	}
 
@@ -1337,7 +1332,7 @@ func (p *parser) parseComposedExpr(lhs bool) (x Value) {
 		}
 	case token.COLON:
 		if (p.bits&parsingBuiltinCommand != 0 || !lhs) && p.bits&composingNoURL == 0 {
-			if s, _ := x.Strval(); isKnownURLScheme(s) {
+			if s, _ := x.Strval(contextAt(p.position(), p)); isKnownURLScheme(s) {
 				x = p.parseURLExpr(lhs, x)
 			}
 		}
@@ -1464,12 +1459,13 @@ func (p *parser) parseUseSpecProps(props []Value) (opts importspecoptions, param
     //      -param
     //      -param(value)
     //      -param=value
+	var ctx = contextAt(p.position(), p)
     var useList []Value // TODO: apply useList
     for _, prop := range props {
         var s string
         switch t := prop.(type) {
         case *Flag:
-            if s, err = t.name.Strval(); err != nil {
+            if s, err = t.name.Strval(ctx); err != nil {
                 diag.errorOf(prop, "invalid flag `%v` (%v)", prop, err)
                 return
             }
@@ -1481,7 +1477,7 @@ func (p *parser) parseUseSpecProps(props []Value) (opts importspecoptions, param
         case *Pair: // -param=value
             switch tt := t.Key.(type) {
             case *Flag:
-                if s, err = tt.name.Strval(); err != nil {
+                if s, err = tt.name.Strval(ctx); err != nil {
                     diag.errorOf(t.Key, "invalid flag name `%v` (%v)", tt.name, err)
                     return
                 }
@@ -1496,7 +1492,7 @@ func (p *parser) parseUseSpecProps(props []Value) (opts importspecoptions, param
         case *Argumented: // -param(value)
             switch tt := t.value.(type) {
             case *Flag:
-                if s, err = tt.name.Strval(); err != nil {
+                if s, err = tt.name.Strval(ctx); err != nil {
                     diag.errorOf(t.value, "invalid flag name `%v` (%v)", tt.name, err)
                     return
                 }
@@ -1526,12 +1522,13 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
 	if generic.dontOperate { return }
 
 	var (
+		ctx = contextAt(p.position(), p)
 		uo useOpts
 		opts importoptions // allowReuse noFiles
 		err error
 	)
-	if _, err = parseOpts(p.position(), &uo, generic.options...); err != nil {
-		diag.errorAt(p.position(), "parse use opts failed: %v", err)
+	if _, err = parseOpts(ctx, &uo, generic.options...); err != nil {
+		diag.errorAt(p.position(), "parse use opts failed: %v", err).debug(1)
 		return
 	} else {
 		opts.allowReuse = uo.reuse
@@ -1545,7 +1542,7 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
         params []Value
 	)
 	if specOpts, params, err = p.parseUseSpecProps(props[1:]); err != nil {
-		diag.errorOf(specVal, "use opts error: %v", err)
+		diag.errorOf(specVal, "use opts error: %v", err).debug(1)
 		return
 	}
 
@@ -1555,7 +1552,7 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
         if f, ok := v.Key.(*Flag); !ok {
             diag.errorOf(specVal, "'%v' invalid use spec", v.Key)
             return
-        } else if s, err = f.name.Strval(); err != nil {
+        } else if s, err = f.name.Strval(ctx); err != nil {
             diag.errorOf(specVal, "%s", err)
             return
         } else if s != "list" {
@@ -1564,12 +1561,12 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
         }
 
         var list []Value
-        if list, err = mergeresult(ExpandAll(v.Value)); err != nil {
+        if list, err = mergeresult2(expandall2(ctx, expandPlainValue, v.Value)); err != nil {
             diag.errorOf(specVal, "%s", err)
             return
         }
         for _, val := range list {
-            if s, err = val.Strval(); err != nil {
+            if s, err = val.Strval(ctx); err != nil {
                 diag.errorOf(specVal, "%s", err)
                 return
             } else if s == "" { continue }
@@ -1577,7 +1574,7 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
         }
     default:
         var specName string
-        if specName, err = specVal.Strval(); err != nil {
+        if specName, err = specVal.Strval(ctx); err != nil {
             diag.errorOf(specVal, "%s", err)
             return
         } else if specName == "" { break }
@@ -1585,16 +1582,23 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
     }
 
     if len(specNames) == 0 {
-        diag.errorOf(specVal, "empty use spec (%v)", specVal)
+        diag.errorOf(specVal, "empty use spec (%v)", specVal).debug(1)
         return
     }
+
+	var wg sync.WaitGroup
     for _, specName := range specNames {
-        p.loadUseSpecName(opts, specVal, specName, &specOpts, params)
+		if false {
+			p.loadUseSpecName(opts, specVal, specName, &specOpts, params)
+		} else { wg.Add(1); go func() { defer wg.Done()
+			p.loadUseSpecName(opts, specVal, specName, &specOpts, params)
+		} () }
     }
+	wg.Wait()
 
     if err == nil && false {
         var using Object
-        if using, err = p.project.resolveObject("using.*"); err == nil && !isNil(using) {
+        if using, err = p.project.resolveObject(ctx, "using.*"); err == nil && !isNil(using) {
             if def, ok := using.(*Def); ok {
                 diag.infoOf(specVal, "TODO: using: %T %v", def, def.value).debug(true, 1)
             }
@@ -1660,12 +1664,13 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 		var paths = []Value{ MakeString(val.Position(), p.project.absPath) }
 		for _, k := range pats { p.project.mapfile(k, paths) }
 	} else {
+		var ctx = contextAt(p.position(), p)
 		var patsNew []Value
 		for _, pat := range pats {
-			if pat.expandible(expandClosure) {
+			if pat.expandible(ctx, expandClosure) {
 				patsNew = append(patsNew, pat)
 			} else {
-				if v, err := mergeresult(ExpandAll(pat)); err != nil {
+				if v, err := mergeresult2(expandall2(ctx, expandPlainValue, pat)); err != nil {
 					diag.errorOf(pat, "merge value '%v' failed: %v", pat, err)
 				} else {
 					patsNew = append(patsNew, v...)
@@ -1708,22 +1713,20 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
         // At the point of `eval` was represented, the closure context
         // might be empty. So we start closure with the current scope.
         defer setclosure(setclosure(cloctx.unshift(p.scope)))
-		var res Value
+		var ( ctx = contextAt(position, p); res Value )
         switch op := prop0.(type) {
-        case Caller: res = op.Call(position, props[1:]...)
+        case Caller: res = op.Call(ctx, props[1:]...)
         default:
             var ( name string; err error )
-            if name, err = op.Strval(); err != nil {
+            if name, err = op.Strval(ctx); err != nil {
                 diag.errorAt(position, "strval '%s' failed: %v", op, err).
 					debug(1)
             } else if _, obj := p.scope.Find(name); obj == nil {
-                diag.errorAt(position, "`%s` undefined", name).
-					debug(1)
+                diag.errorAt(position, "`%s` undefined", name).debug(1)
             } else if f, _ := obj.(Caller); f == nil {
-                diag.errorAt(position, "`%T` is not caller (%s)", obj, name).
-					debug(1)
+                diag.errorAt(position, "`%T` is not caller (%s)", obj, name).debug(1)
             } else {
-                res = f.Call(position, props[1:]...)
+                res = f.Call(ctx, props[1:]...)
             }
         }
 		if !isNil(res) {
@@ -1776,13 +1779,14 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 	for p.tok == token.MINUS {
 		var (
 			x = p.parseExpr(false)
+			ctx = contextAt(x.Position(), p)
 			conds []Value
 		)
 		switch t := x.(type) {
 		case *Argumented:
 			if flag, ok := t.value.(*Flag); !ok {
 				// does nothing
-			} else if s, err := flag.name.Strval(); err != nil {
+			} else if s, err := flag.name.Strval(ctx); err != nil {
 				diag.errorAt(x.Position(), "strval flag name '%v' failed: %v", flag.name, err)
 			} else if s == "cond" {
 				conds = t.args
@@ -1790,7 +1794,7 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 		case *Pair:
 			if flag, ok := t.Key.(*Flag); !ok {
 				// does nothing
-			} else if s, err := flag.name.Strval(); err != nil {
+			} else if s, err := flag.name.Strval(ctx); err != nil {
 				diag.errorAt(x.Position(), "strval flag name '%v' failed: %v", flag.name, err)
 			} else if s == "cond" {
 				if g, ok := t.Value.(*Group); ok {
@@ -1805,7 +1809,7 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 			continue
 		}
 		for _, cond := range conds {
-			if t, e := cond.True(); e != nil {
+			if t, e := cond.True(ctx); e != nil {
 				diag.errorAt(x.Position(), "conditon casting '%v' failed: %v", cond, e)
 			} else if !t {
 				generic.dontOperate = true
@@ -2004,7 +2008,7 @@ func (p *parser) parseModifySetVar(args []Value) (err error) {
 		}
 		var name string
 		var k, v = kv.Key, kv.Value
-		if name, err = k.Strval(); err != nil {
+		if name, err = k.Strval(contextAt(k.Position(), p)); err != nil {
 			diag.errorOf(k, "strval '%v' failed: %v", k, err)
 		} else if name == "" {
 			diag.errorOf(k, "name '%v' is empty", k)
@@ -2012,10 +2016,11 @@ func (p *parser) parseModifySetVar(args []Value) (err error) {
 		if def, alt := p.def(elem.Position(), name); alt != nil {
 			diag.errorOf(k, "Def '%v' already existed: %T", name, alt)
 		} else if def != nil {
+			var ctx = contextAt(v.Position(), p)
 			if g, ok := v.(*Group); ok {
-				def.val(g.ToList(def.position))
+				def.val(ctx, g.ToList(def.position))
 			} else {
-				def.val(v)
+				def.val(ctx, v)
 			}
 		}
 	}
@@ -2024,7 +2029,8 @@ func (p *parser) parseModifySetVar(args []Value) (err error) {
 
 func (p *parser) defineConfigureModifierVars() {
 	for _, t := range p.targets {
-		if name, e := t.Strval(); e != nil {
+		var ctx = contextAt(t.Position(), p)
+		if name, e := t.Strval(ctx); e != nil {
 			diag.errorOf(t, "strval target '%v' failed: %v", t, e)
 		} else if def, alt := p.def(t.Position(), name); alt != nil {
 			diag.errorOf(t, "configuration '%s' already defined: %v", name, alt)
@@ -2036,11 +2042,13 @@ func (p *parser) defineConfigureModifierVars() {
 
 func (p *parser) parseModifyParams(args []Value) (err error) {
 	for _, elem := range args {
+		var ctx = contextAt(elem.Position(), p)
 		switch elem.(type) {
 		case *Bareword, *Barecomp:
 			var s string
-			if s, err = elem.Strval(); err != nil {
+			if s, err = elem.Strval(ctx); err != nil {
 				diag.errorOf(elem, "strval '%v' failed: %v", elem, err)
+				return
 			}
 			var def, alt = p.def(elem.Position(), s)
 			if alt != nil {
@@ -2050,12 +2058,12 @@ func (p *parser) parseModifyParams(args []Value) (err error) {
 				}
 			}
 			if def != nil {
-				def.set(DefArg, nil)
+				def.set(ctx, DefArg, nil)
 			} else {
 				diag.errorOf(elem, "'%s' is not defined", s)
 			}
 			p.params = append(p.params, def)
-			p.scope.replace(strconv.Itoa(len(p.params)), def)
+			p.scope.replace(ctx, strconv.Itoa(len(p.params)), def)
 		default: //case *ast.GroupExpr, *ast.ListExpr, *ast.BasicLit:
 			diag.errorOf(elem, "bad parameter form (%T)", elem)
 		}
@@ -2085,8 +2093,7 @@ ForModifiersExpr:
 			err error
 		)
 		if g, ok := x.(*Group); !ok {
-			diag.errorAt(g.position, "modifier not represented by group: %T", x).
-				debug(1)
+			diag.errorAt(g.position, "modifier not represented by group: %T", x).debug(1)
 			continue ForModifiersExpr
 		} else {
 			group = g
@@ -2109,11 +2116,11 @@ ForModifiersExpr:
 			p.parseModifyParams(n.Elems)
 			continue ForModifiersExpr
 		case *delegate, *closure, *Barecomp, *String:
-			var v []Value
-			if v, err = mergeresult(ExpandAll(n)); err != nil {
+			var ( ctx = contextAt(n.Position(), p) ; v []Value )
+			if v, err = mergeresult2(expandall2(ctx, expandPlainValue, n)); err != nil {
 				diag.errorOf(n, "merge '%v' failed: %v", v, err).
 					debug(1)
-			} else if name, err = v[0].Strval(); err != nil {
+			} else if name, err = v[0].Strval(ctx); err != nil {
 				diag.errorOf(n, "strval '%v' failed: %v", v[0], err).
 					debug(1)
 				continue ForModifiersExpr
@@ -2124,8 +2131,7 @@ ForModifiersExpr:
 			}
 			goto checkNameAndAdd
 		default:
-			diag.errorOf(n, "unsupported dialect or modifier (%T): %v", group.Elems[0], group.Elems[0]).
-				debug(1)
+			diag.errorOf(n, "unsupported dialect or modifier (%T): %v", group.Elems[0], group.Elems[0]).debug(1)
 			continue ForModifiersExpr
 		}
 
@@ -2139,15 +2145,13 @@ ForModifiersExpr:
 				continue ForModifiersExpr
 			}
 		} else if _, ok = modifiers[name]; !ok {
-			diag.errorOf(x, "`%s` no such dialect or modifier", name).
-				debug(1)
+			diag.errorOf(x, "`%s` no such dialect or modifier", name).debug(1)
 			continue ForModifiersExpr
 		}
 
 	addModifier:
 		if len(group.Elems) == 0 {
-			diag.errorOf(x, "empty modifier: %v", x).
-				debug(1)
+			diag.errorOf(x, "empty modifier: %v", x).debug(1)
 		} else {
 			var m = &modifier{
                 valbase: valbase{group.Position()},
@@ -2245,14 +2249,15 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		}
 	}
 
+	var ( ctx = contextAt(position, p); err error )
 	switch special {
 	case specialRuleUse:
-		if name, alt := p.scope.ProjectName(p.project, selfproj, p.project); alt != nil {
+		if name, alt := p.scope.ProjectName(ctx, p.project, selfproj, p.project); alt != nil {
 			p.error(p.pos, "name `%s` already taken, not automatic (%T)", selfproj, alt)
 		} else if name == nil {
 			p.error(p.pos, "cannot define `%s` automatic", selfproj)
 		}
-		if name, alt := p.scope.ProjectName(p.project, userproj, nil); alt != nil {
+		if name, alt := p.scope.ProjectName(ctx, p.project, userproj, nil); alt != nil {
 			p.error(p.pos, "name `%s` already taken, not automatic (%T)", userproj, alt)
 		} else if name == nil {
 			p.error(p.pos, "cannot define `%s` automatic", userproj)
@@ -2261,17 +2266,16 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 
 	// NOTE: expand targets to speed up for later usage, it might spend lots of time in
 	// project.entry while matching for entry looked up if not expanded right now.
-	var err error
 	if true {
-		targets, err = ExpandAll(targets...)
+		targets, _, err = expandall2(ctx, expandPlainValue, targets...)
 		if err != nil { p.error(p.pos, "expand targets '%v' failed: %v", targets, err) }
 	} else {
 		var ta []Value
 		for _, t := range targets {
-			if t.expandible(expandClosure) {
+			if t.expandible(ctx, expandClosure) {
 				if false { diag.infoOf(t, "target: %T %v", t, t) }
 				ta = append(ta, t)
-			} else if a, e := ExpandAll(t); e == nil {
+			} else if a, _, e := expandall2(ctx, expandPlainValue, t); e == nil {
 				ta = append(ta, a...)
 			} else {
 				p.error(p.pos, "expand targets '%v' failed: %v", targets, e)
@@ -2309,10 +2313,10 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 
 	var params []string
 	if t := targets[0]; p.configure {
-		if name, err := t.Strval(); err != nil {
+		if name, err := t.Strval(ctx); err != nil {
 			diag.errorOf(t, "strval configure target '%v' failed: %v", t, err)
 		} else {
-			d, a := p.project.scope.define(p.project, name, nil)
+			d, a := p.project.scope.define(ctx, p.project, name, nil)
 			if d == nil && a == nil {
 				diag.errorOf(t, "cannot define configure target '%v'", name)
 			} else if a != nil {
@@ -2414,11 +2418,11 @@ func (p *parser) expandForeach(t *template, vars map[string]Value, params []Valu
 	defer p.closeScope(p.openScope("template expansion ")) // NOTE: comment here will affect loader.def()
 
 	//t_traverse.tracef("%v %v", t_traverse.elapsed(), vars)
+	var ctx = contextAt(p.position(), p)
 	for s, v := range vars {
 		var def, alt = p.def(p.position(), s)
-		if alt == nil { def.set(DefAuto, v) } else {
-			diag.errorAt(p.position(), "variable '%s' already taken", s).
-				debug(options.debugErrors)
+		if alt == nil { def.set(ctx, DefAuto, v) } else {
+			diag.errorAt(p.position(), "variable '%s' already taken", s).debug(1)
 		}
 	}
 
@@ -2453,9 +2457,8 @@ func (p *parser) expandTemplate(params []Value, endPos token.Pos) {
 	case "for":
 		for _, a := range t.params {
 			if pair, ok := a.(*Pair); ok {
-				if s, e := pair.Key.Strval(); e != nil {
-					diag.errorOf(pair.Key, "expand template %v", e).
-						debug(options.debugErrors)
+				if s, e := pair.Key.Strval(contextAt(pair.Key.Position(), p)); e != nil {
+					diag.errorOf(pair.Key, "expand template %v", e).debug(1)
 				} else if g, ok := pair.Value.(*Group); ok {
 					for _, v := range g.Elems {
 						p.expandForeach(t, map[string]Value{ s : v }, params, endPos)
@@ -2466,8 +2469,7 @@ func (p *parser) expandTemplate(params []Value, endPos token.Pos) {
 			}
 		}
 	default:
-		diag.errorAt(p.position(), "expand template %v: %v", t.verb, params).
-			debug(options.debugErrors)
+		diag.errorAt(p.position(), "expand template %v: %v", t.verb, params).debug(1)
 	}
 }
 
@@ -2479,8 +2481,7 @@ func (p *parser) parseTemplateClause() (end bool) {
 	var verb string
 	var op = p.parseExpr(false); p.skipSpaces()
 	if w, ok := op.(*Bareword); ok { verb = w.string } else {
-		diag.errorOf(op, "unknown template verb: %v", op).
-			debug(options.debugErrors)
+		diag.errorOf(op, "unknown template verb: %v", op).debug(1)
 		return
 	}
 
@@ -2497,8 +2498,8 @@ func (p *parser) parseTemplateClause() (end bool) {
 		return
 	}
 
-	var err error
-	if params, err = mergeresult(ExpandAll(params...)); err != nil {
+	var ( ctx = contextAt(p.position(), p); err error )
+	if params, err = mergeresult2(expandall2(ctx, expandPlainValue, params...)); err != nil {
 		diag.errorAt(p.positionAt(pos), "merge params %s failed", err)
 		return
 	}
@@ -2584,8 +2585,9 @@ func parseUsingNameProps(nameprops string) (name string, parts []string, optUniq
 }
 
 func (p *parser) applyUseeVars(position Position, proj *Project, using Value) {
+	var ctx = contextAt(position, p)
 	var userProj = p.scope.project // aka. p.project
-	if s, e := using.Strval(); e == nil {
+	if s, e := using.Strval(ctx); e == nil {
 		names := strings.Fields(s)
 		for _, nameprops := range names {
 			var (
@@ -2593,15 +2595,15 @@ func (p *parser) applyUseeVars(position Position, proj *Project, using Value) {
 				usingVarName = fmt.Sprintf("using.%s", name)
 				def *Def; alt Object
 			)
-			def, alt = proj.scope.define(proj, usingVarName, MakeNone(position))
+			def, alt = proj.scope.define(ctx, proj, usingVarName, MakeNone(position))
 			if def == nil && alt != nil { def, _ = alt.(*Def) }
 			for _, base := range proj.bases {
-				if obj, err := base.resolveObject(usingVarName); err == nil && !(isNil(obj) || isNone(obj)) {
-					def.append(obj)
+				if obj, err := base.resolveObject(ctx, usingVarName); err == nil && !(isNil(obj) || isNone(obj)) {
+					def.append(ctx, obj)
 				}
 			}
-			if l, e := proj.using.Get(name); e == nil {
-				if e = def.append(l); e != nil {
+			if l, e := proj.using.Get(ctx, name); e == nil {
+				if e = def.append(ctx, l); e != nil {
 					diag.errorAt(position, "append using value: %v (user=%v)", e, userProj)
 				}
 				if optUnique {
@@ -2609,9 +2611,9 @@ func (p *parser) applyUseeVars(position Position, proj *Project, using Value) {
 					defer func() { if cc != nil { setclosure(cc) } } ()
 					if optReverse {
 						var flag = MakeFlag(position, "r")
-						def.value = builtinUnique(position, flag, def.value)
+						def.value = builtinUnique(ctx, flag, def.value)
 					} else {
-						def.value = builtinUnique(position, def.value)
+						def.value = builtinUnique(ctx, def.value)
 					}
 					cc = nil
 				}
@@ -2648,6 +2650,7 @@ func (p *parser) parseFile() *parsedFile {
 		keyword = p.tok
 		filename = p.file.Name()
 		position = p.position()
+		ctx = contextAt(position, p)
 		ls = p.openScope(fmt.Sprintf("file %s", filename))
 	)
 	/*if filename == confinitFilename {
@@ -2660,7 +2663,7 @@ func (p *parser) parseFile() *parsedFile {
 			abs = filepath.Dir(filename)
 		}
 		rel, _ = filepath.Rel(p.workdir, abs)
-		tmp = joinTmpPath(p.workdir, rel)
+		tmp = joinTmpPath(ctx, p.workdir, rel)
 	}
 
 	if ls.scope != nil {
@@ -2668,16 +2671,16 @@ func (p *parser) parseFile() *parsedFile {
 		var ( def *Def ; s = ls.scope )
 		if p.mode&Flat == 0 {
 			def, _ = p.def(position, ".")
-			def.set(DefAuto, MakePathStr(position, rel))
+			def.set(ctx, DefAuto, MakePathStr(position, rel))
 
 			def, _ = p.def(position, "/")
-			def.set(DefAuto, MakePathStr(position, abs))
+			def.set(ctx, DefAuto, MakePathStr(position, abs))
 
 			def, _ = p.def(position, "CTD") // Current Temp Directory
-			def.set(DefAuto, MakePathStr(position, tmp))
+			def.set(ctx, DefAuto, MakePathStr(position, tmp))
 
 			def, _ = p.def(position, "CWD") // Current Work Directory
-			def.set(DefAuto, MakePathStr(position, abs))
+			def.set(ctx, DefAuto, MakePathStr(position, abs))
 		} else if def = s.FindDef("/"); def == nil {
 			diag.errorAt(position, "/ not in the scope: %v", s.comment)
 		} else if def = s.FindDef("."); def == nil {
@@ -2724,14 +2727,12 @@ func (p *parser) parseFile() *parsedFile {
 			if !pos.IsValid() { pos = opt.Position() }
 		}
 		if !pos.IsValid() { pos = p.position() }
-		if a, e := parseOpts(pos, &opts, optVals...); e != nil {
-			diag.errorAt(pos, "parse project decl opts failed: %v", e).
-				debug(1)
+		if a, e := parseOpts(ctx, &opts, optVals...); e != nil {
+			diag.errorAt(pos, "parse project decl opts failed: %v", e).debug(1)
 			return nil
 		} else if len(a) > 0 {
 			for _, v := range a {
-				diag.errorOf(v, "unknown option '%v'", v).
-					debug(1)
+				diag.errorOf(v, "unknown option '%v'", v).debug(1)
 			}
 			return nil
 		}
@@ -2793,24 +2794,20 @@ func (p *parser) parseFile() *parsedFile {
 		}
 
 		var err error
-		if identStr, err = ident.Strval(); err != nil {
-			diag.errorAt(ident.Position(), "strval '%v' failed: %v", ident, err).
-				debug(1)
+		if identStr, err = ident.Strval(ctx); err != nil {
+			diag.errorAt(ident.Position(), "strval '%v' failed: %v", ident, err).debug(1)
 			return nil
 		} else if linfo.loadee != nil && identStr != linfo.loadee.name {
-			diag.warnAt(ident.position, "declare multiple project in the same directory").
-				debug(1)
+			diag.warnAt(ident.position, "declare multiple project in the same directory").debug(1)
 		} else if identStr == "_" && p.mode&DeclarationErrors != 0 {
-			diag.errorAt(ident.Position(), "package name '_' is preserved").
-				debug(1)
+			diag.errorAt(ident.Position(), "package name '_' is preserved").debug(1)
 			return nil
 		}
 
 		// Don't bother parsing the rest if we had errors parsing the package clause.
 		// Likely not a Go source file at all.
 		if n := diag.numErrors(); n > 0 {
-			diag.errorAt(p.position(), "got %d errors parsing file: %s", filename).
-				debug(1)
+			diag.errorAt(p.position(), "got %d errors parsing file: %s", filename).debug(1)
 			return nil
 		}
 
@@ -2833,7 +2830,7 @@ func (p *parser) parseFile() *parsedFile {
 			defer func(proj *Project) {
 				if filepath.Base(filename) == "build.smart" {
 					var using Value
-					if o, e := proj.resolveObject("using.*"); e == nil && !isNil(o) {
+					if o, e := proj.resolveObject(ctx, "using.*"); e == nil && !isNil(o) {
 						if def, ok := o.(*Def); ok && !isNil(def) { using = def.value }
 					}
 					if !isNil(using) { p.applyUseeVars(ident.Position(), proj, using) }
@@ -2855,19 +2852,16 @@ func (p *parser) parseFile() *parsedFile {
 					//if p.lineComment != nil  { break }
 					//if p.tok == token.LINEND { break }
 					if p.tok == token.EOF {
-						diag.errorAt(basePos, "unexpected end of file while parsing bases").
-							debug(1)
+						diag.errorAt(basePos, "unexpected end of file while parsing bases").debug(1)
 						return nil
 					}
-					if t, e := parseOpts(param.Position(), &opts, param); e != nil {
-						diag.errorOf(param, "parse opt '%v' failed: %v", param, e).
-							debug(1)
+					if t, e := parseOpts(contextAt(param.Position(), p), &opts, param); e != nil {
+						diag.errorOf(param, "parse opt '%v' failed: %v", param, e).debug(1)
 						return nil
 					} else if keyword == token.PACKAGE || opts.final {
 						// No bases for PACKAGE or final project
 					} else if !p.loadBases(basePos, linfo, /*implicitBase*/"", merge(t...)...) {
-						diag.errorOf(param, "loading base '%v' failed", t).
-							debug(1)
+						diag.errorOf(param, "loading base '%v' failed", t).debug(1)
 						return nil
 					}
 				}
@@ -2876,8 +2870,7 @@ func (p *parser) parseFile() *parsedFile {
 			p.isLoadingBases = false
 			p.expect(token.RPAREN)
 		} else if !p.loadBases(basePos, linfo, implicitBase) { // for special bases, e.g. .base
-			diag.errorAt(basePos, "loading bases failed").
-				debug(1)
+			diag.errorAt(basePos, "loading bases failed").debug(1)
 			return nil
 		}
 		p.expectLinend()

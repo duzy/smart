@@ -21,27 +21,27 @@ type using struct {
         opts useoptions
 }
 
-func (p *using) refs(v Value) bool {
+func (p *using) refs(ctx Context, v Value) bool {
         for _, a := range p.params {
-                if a.refs(v) { return true }
+                if a.refs(ctx, v) { return true }
         }
         return false
 }
-func (p *using) defs(s string) (res []*Def) {
+func (p *using) defs(ctx Context, s string) (res []*Def) {
     for _, a := range p.params {
-        res = append(res, a.defs(s)...)
+        res = append(res, a.defs(ctx, s)...)
     }
     return
 }
-func (p *using) expandible(w expandwhat) (res bool) {
+func (p *using) expandible(ctx Context, w expandwhat) (res bool) {
         for _, a := range p.params {
-                if res = a.expandible(w); res { return }
+                if res = a.expandible(ctx, w); res { return }
         }
         return
 }
-func (p *using) expand(w expandwhat) (res Value, err error) {
+func (p *using) expand(ctx Context, w expandwhat) (res Value, err error) {
         var ( params []Value; num int )
-        if params, num, err = expandall2(w, p.params...); err != nil {
+        if params, num, err = expandall2(ctx, w, p.params...); err != nil {
                 diag.errorAt(p.position, "%v", err).debug(1)
                 return
         } else if num > 0 {
@@ -56,10 +56,11 @@ func (p *using) stat(t *traversal) (si *statinfo) {
         }
         return
 }
-func (p *using) traverse(pc *traversal) {
+func (p *using) traverse(t *traversal) (_ breakers) {
         diag.errorAt(p.position, "cant traverse 'using' %v", p.project).debug(1)
+        return
 }
-func (p *using) _traverse(pc *traversal) {
+/*func (p *using) _traverse(pc *traversal) {
         if optionTraceTraversal { defer un(tt(t_traverse, pc, p)) }
         if _, done := usingPrepared[p.project]; done {
                 usingPrepared[p.project] += 1
@@ -76,14 +77,14 @@ func (p *using) _traverse(pc *traversal) {
                 }
         }
         return
-}
-func (p *using) stamp(pc *traversal) (files []*File, err error) {
+}*/
+func (p *using) stamp(t *traversal) (files []*File, err error) {
         if entry := p.project.DefaultEntry(); entry != nil {
-                files, err = entry.stamp(pc)
+                files, err = entry.stamp(t)
         }
         return
 }
-func (p *using) cmp(v Value) (res cmpres) {
+func (p *using) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*using); ok {
                 assert(ok, "value is not using")
                 if p.project == a.project {
@@ -92,10 +93,10 @@ func (p *using) cmp(v Value) (res cmpres) {
         }
         return
 }
-func (p *using) patterned() bool { return false }
-func (p *using) match(i interface{}) (full bool, s string, stems []string) { return }
-func (p *using) stencil(stems []string) (s string, rest []string) { return }
-func (p *using) True() (bool, error) { return p.project != nil, nil }
+func (p *using) patterned(ctx Context) bool { return false }
+func (p *using) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
+func (p *using) stencil(ctx Context, stems []string) (s string, rest []string) { return }
+func (p *using) True(ctx Context) (bool, error) { return p.project != nil, nil }
 func (p *using) String() string {
         if len(p.params) > 0 {
                 return fmt.Sprintf("%s(%v)", p.project.name, p.params)
@@ -103,7 +104,7 @@ func (p *using) String() string {
                 return fmt.Sprintf("%s", p.project.name)
         }
 }
-func (p *using) Strval() (s string, err error) {
+func (p *using) Strval(ctx Context) (s string, err error) {
         s = fmt.Sprintf("use %s %v", p.project.name, p.params)
         return
 }
@@ -114,53 +115,7 @@ type usinglist struct {
         owner *Project
         list []*using
 }
-
-func (p *usinglist) refs(v Value) bool {
-        for _, a := range p.list {
-                if a.refs(v) { return true }
-        }
-        return false
-}
-func (p *usinglist) defs(s string) (res []*Def) {
-    for _, a := range p.list {
-        res = append(res, a.defs(s)...)
-    }
-    return
-}
-func (p *usinglist) expandible(w expandwhat) (res bool) {
-        for _, a := range p.list {
-                if res = a.expandible(w); res { break }
-        }
-        return
-}
-func (p *usinglist) expand(w expandwhat) (res Value, err error) {
-        var ( list []*using; num int )
-        for _, elem := range p.list {
-                var v Value
-                if v, err = elem.expand(w); err != nil {
-                        diag.errorAt(elem.position, "%v", err).debug(1)
-                        return
-                } else {
-                        if !isNil(v) { v = elem } else if v != elem { num += 1 }
-                        list = append(list, v.(*using))
-                }
-        }
-        if num > 0 {
-                return &usinglist{ p.name, p.scope, p.owner, list }, nil
-        }
-        return
-}
-func (p *usinglist) traverse(pc *traversal) {
-        diag.errorAt(p.list[0].position, "cant traverse 'usinglist'").debug(1)
-}
-func (p *usinglist) _traverse(pc *traversal) {
-        if optionTraceTraversal { defer un(tt(t_traverse, pc, p)) }
-        for _, elem := range p.list {
-                if elem.traverse(pc); pc.hasBreakers() { break }
-        }
-        return
-}
-func (p *usinglist) redecl(scope *Scope) { panic("redeclaring using list") }
+func (p *usinglist) Name() string { return p.name }
 func (p *usinglist) DeclScope() *Scope { return p.scope }
 func (p *usinglist) OwnerProject() *Project { return p.owner }
 func (p *usinglist) Position() (pos Position) {
@@ -169,10 +124,25 @@ func (p *usinglist) Position() (pos Position) {
         }
         return
 }
-func (p *usinglist) True() (bool, error) { return len(p.list) > 0, nil }
-func (p *usinglist) Name() string { return p.name }
-func (p *usinglist) Integer() (int64, error) { return 0, nil }
-func (p *usinglist) Float() (float64, error) { return 0, nil }
+func (p *usinglist) String() string {
+        var s string
+        for i, elem := range p.list {
+                if i > 0 { s += "," }
+                s += elem.project.name
+        }
+        return fmt.Sprintf("%s", s)
+}
+func (p *usinglist) Strval(ctx Context) (s string, err error) {
+        for i, elem := range p.list {
+                if i > 0 { s += " " }
+                s += elem.project.name
+        }
+        s = fmt.Sprintf("[%v]", s)
+        return
+}
+func (p *usinglist) True(ctx Context) (bool, error) { return len(p.list) > 0, nil }
+func (p *usinglist) Integer(ctx Context) (int64, error) { return 0, nil }
+func (p *usinglist) Float(ctx Context) (float64, error) { return 0, nil }
 func (p *usinglist) stat(t *traversal) (si *statinfo) {
         if len(p.list) > 0 {
                 for _, elem := range p.list {
@@ -187,16 +157,15 @@ func (p *usinglist) stat(t *traversal) (si *statinfo) {
         }
         return
 }
-func (p *usinglist) stamp(pc *traversal) (files []*File, err error) {
+func (p *usinglist) stamp(t *traversal) (files []*File, err error) {
         for _, elem := range p.list {
                 var a []*File
-                if a, err = elem.stamp(pc); err != nil { break }
+                if a, err = elem.stamp(t); err != nil { break }
                 files = append(files, a...)
         }
         return
 }
-func (p *usinglist) tryTraverse(t *traversal) (bool, []*breaker) { return false, nil }
-func (p *usinglist) cmp(v Value) (res cmpres) {
+func (p *usinglist) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*usinglist); ok {
                 assert(ok, "value is not usinglist")
                 if p.name == a.name && p.owner == a.owner {
@@ -205,36 +174,66 @@ func (p *usinglist) cmp(v Value) (res cmpres) {
         }
         return
 }
-func (p *usinglist) patterned() bool { return false }
-func (p *usinglist) match(i interface{}) (full bool, s string, stems []string) { return }
-func (p *usinglist) stencil(stems []string) (s string, rest []string) { return }
-func (p *usinglist) Strval() (s string, err error) {
-        for i, elem := range p.list {
-                if i > 0 { s += " " }
-                s += elem.project.name
+func (p *usinglist) patterned(ctx Context) bool { return false }
+func (p *usinglist) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
+func (p *usinglist) stencil(ctx Context, stems []string) (s string, rest []string) { return }
+func (p *usinglist) refs(ctx Context, v Value) bool {
+        for _, a := range p.list {
+                if a.refs(ctx, v) { return true }
         }
-        s = fmt.Sprintf("[%v]", s)
+        return false
+}
+func (p *usinglist) defs(ctx Context, s string) (res []*Def) {
+    for _, a := range p.list {
+        res = append(res, a.defs(ctx, s)...)
+    }
+    return
+}
+func (p *usinglist) expandible(ctx Context, w expandwhat) (res bool) {
+        for _, a := range p.list {
+                if res = a.expandible(ctx, w); res { break }
+        }
         return
 }
-func (p *usinglist) String() string {
-        var s string
-        for i, elem := range p.list {
-                if i > 0 { s += "," }
-                s += elem.project.name
+func (p *usinglist) expand(ctx Context, w expandwhat) (res Value, err error) {
+        var ( list []*using; num int )
+        for _, elem := range p.list {
+                var v Value
+                if v, err = elem.expand(ctx, w); err != nil {
+                        diag.errorAt(elem.position, "%v", err).debug(1)
+                        return
+                } else {
+                        if !isNil(v) { v = elem } else if v != elem { num += 1 }
+                        list = append(list, v.(*using))
+                }
         }
-        return fmt.Sprintf("%s", s)
+        if num > 0 {
+                return &usinglist{ p.name, p.scope, p.owner, list }, nil
+        }
+        return
 }
-
-func (p *usinglist) append(pos Position, proj *Project, params []Value, opts useoptions) {
+func (p *usinglist) traverse(t *traversal) (_ breakers) {
+        diag.errorAt(p.list[0].position, "cant traverse 'usinglist'").debug(1)
+        return
+}
+/*func (p *usinglist) _traverse(pc *traversal) {
+        if optionTraceTraversal { defer un(tt(t_traverse, pc, p)) }
+        for _, elem := range p.list {
+                if elem.traverse(pc); pc.hasBreakers() { break }
+        }
+        return
+}*/
+func (p *usinglist) redecl(ctx Context, scope *Scope) { panic("redeclaring using list") }
+func (p *usinglist) append(ctx Context, proj *Project, params []Value, opts useoptions) {
         for _, elem := range p.list {
                 if elem.project == proj {
                         return
                 }
         }
-        p.list = append(p.list, &using{valbase{pos},proj,params,opts})
+        p.list = append(p.list, &using{valbase{ctx.Position()},proj,params,opts})
 }
 
-func (p *usinglist) Get(name string) (result Value, err error) {
+func (p *usinglist) Get(ctx Context, name string) (result Value, err error) {
         var list []Value
         for _, usee := range p.list {
                 // Lookup only the project specific exported names. Don't use
@@ -255,7 +254,7 @@ func (p *usinglist) Get(name string) (result Value, err error) {
         return
 }
 
-func (p *usinglist) Call(pos Position, a... Value) (result Value) {
+func (p *usinglist) Call(ctx Context, a... Value) (result Value) {
         var targets []Value
         for _, usee := range p.list {
                 if entry := usee.project.DefaultEntry(); entry != nil {

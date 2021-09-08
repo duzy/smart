@@ -20,19 +20,20 @@ import (
 const maxNumVarVal = 9
 
 var (
+        _context defaultContext
 	universe *Scope
 )
 
-func defUniverseBuiltins() {
+func defineUniverseBuiltins(ctx Context) {
         for name, f := range builtins {
-                if v, alt := universe.Builtin(name, f); alt != nil {
+                if v, alt := universe.Builtin(ctx, name, f); alt != nil {
                         panic(fmt.Sprintf("builtin '%s' already defined", name))
                 } else {
                         v.flag |= builtinFunction
                 }
         }
         for name, f := range commands {
-                if v, alt := universe.Builtin(name, f); alt != nil {
+                if v, alt := universe.Builtin(ctx, name, f); alt != nil {
                         panic(fmt.Sprintf("builtin '%s' already defined (command)", name))
                 } else {
                         v.flag |= builtinCommand
@@ -41,24 +42,32 @@ func defUniverseBuiltins() {
 }
 
 func init() {
-        universe = NewScope(Position{}, nil, nil, "universe")
-
-        var pos Position
-        bin, args := &String{valbase{pos},os.Args[0]}, new(List)
-        for _, a := range os.Args[1:] {
-                args.Elems = append(args.Elems, &String{valbase{pos},a})
+        var err error
+        if _context.workdir, err = os.Getwd(); err != nil {
+                diag.errorAt(_context.Position(), "%v", err).debug(6)
+                return
         }
-        _, _ = universe.define(nil, "SMART.BIN", bin)
-        _, _ = universe.define(nil, "SMART.ARGS", args)
-        _, _ = universe.define(nil, "SMART", bin)
+
+        var (
+                ctx Context = &_context
+                pos Position = ctx.Position()
+                bin = MakeString(pos, os.Args[0])
+                args = MakeList(pos)
+        )
+        for _, a := range os.Args[1:] {
+                args.Elems = append(args.Elems, MakeString(pos, a))
+        }
+
+        universe = NewScope(pos, nil, nil, "universe")
+        _, _ = universe.define(ctx, nil, "SMART.ARGS", args)
+        _, _ = universe.define(ctx, nil, "SMART.BIN", bin)
+        _, _ = universe.define(ctx, nil, "SMART", bin)
         
-        defUniverseBuiltins()
+        defineUniverseBuiltins(ctx)
 }
 
 // IsUniverse checks if the scope is universe.
-func IsUniverse(scope *Scope) bool {
-        return scope == universe
-}
+func IsUniverse(scope *Scope) bool { return scope == universe }
 
 // A Globe represents a global execution context. 
 type Globe struct {
@@ -75,9 +84,7 @@ func (g *Globe) Scope() *Scope { return g.scope }
 // Main returns the main project.
 func (g *Globe) Main() *Project { return g.main }
 
-func (g *Globe) SetScopeOuter(scope *Scope) {
-        scope.outer = g.scope
-}
+func (g *Globe) SetScopeOuter(scope *Scope) { scope.outer = g.scope }
 
 func (g *Globe) timestamp(s string) (t time.Time) {
   g._timestampx.Lock(); defer g._timestampx.Unlock()
@@ -93,11 +100,10 @@ func (g *Globe) stamp(s string, t time.Time) {
 // project returns a new Project for the given project path and name;
 // the name must not be the blank identifier.
 // The project is not complete and contains no explicit imports.
-func (g *Globe) project(pos Position, outer *Scope, absPath, relPath, tmpPath, spec, name string) (m *Project) {
-        if outer == nil {
-                outer = g.scope
-        }
+func (g *Globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, spec, name string) (m *Project) {
+        if outer == nil { outer = g.scope }
 
+        var pos = ctx.Position()
 	m = &Project{
                 position: pos,
                 absPath: absPath,
@@ -130,11 +136,11 @@ func (g *Globe) project(pos Position, outer *Scope, absPath, relPath, tmpPath, s
 
                 var none = &None{valbase{pos}}
 
-                def, _ := g.scope.define(m, "_", none)
+                def, _ := g.scope.define(ctx, m, "_", none)
                 if enable_assertions { assert(def != nil, "'$_' is nil") }
 
                 for i := 1; i <= maxNumVarVal; i += 1 {
-                        def, _ := g.scope.define(m, strconv.Itoa(i), none)
+                        def, _ := g.scope.define(ctx, m, strconv.Itoa(i), none)
                         if enable_assertions { assert(def != nil, "'$%d' is nil", i) }
                 }
         }
@@ -142,16 +148,17 @@ func (g *Globe) project(pos Position, outer *Scope, absPath, relPath, tmpPath, s
 }
 
 // NewGlobe creates a new Globe context.
-func NewGlobe(name string) (g *Globe) {
+func NewGlobe(ctx Context, name string) (g *Globe) {
+        var pos = ctx.Position()
         g = &Globe{
-                scope: NewScope(Position{}, universe, nil, fmt.Sprintf("globe %q", name)),
+                scope: NewScope(pos, universe, nil, fmt.Sprintf("globe %q", name)),
                 _timestamps: make(map[string]time.Time),
                 _timestampx: new(sync.Mutex),
         }
 
         var absPath, relPath, tmpPath, spec string
         // TODO: determines absPath, relPath, tmpPath, spec
-        g.os = g.project(Position{}, nil, absPath, relPath, tmpPath, spec, runtime.GOOS)
+        g.os = g.project(ctx, nil, absPath, relPath, tmpPath, spec, runtime.GOOS)
         //g.os.scope.define(g.os, "name", &None{})
         return g
 }

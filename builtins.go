@@ -53,7 +53,7 @@ func convPosition(filename, line, column string) (pos Position) {
         return
 }
 
-type BuiltinFunc func(pos Position, args... Value) (Value)
+type BuiltinFunc func(ctx Context, args... Value) (Value)
 
 var builtins = map[string]BuiltinFunc {
         `typeof`:       builtinTypeOf,
@@ -251,13 +251,13 @@ func RegisterBuiltins(m map[string]BuiltinFunc) (err error) {
         return
 }
 
-func EscapedString(v Value) (s string, e error) {
+func EscapedString(ctx Context, v Value) (s string, e error) {
         if p, ok := v.(*String); ok {
-                if s, e = p.Strval(); e == nil {
+                if s, e = p.Strval(ctx); e == nil {
                         s = strings.Replace(s, "\\'", "'", -1)
                 }
         } else {
-                s, e = v.Strval()
+                s, e = v.Strval(ctx)
         }
         return
 }
@@ -298,9 +298,10 @@ type optFullname struct {
         value Value
 }
 
-func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... Value) (rest []Value, err error) {
+func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... Value) (rest []Value, err error) {
         var (
                 val = reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
+                pos Position = ctx.Position()
                 opt = string(tag)
                 short, long []string // short and long opt name
                 s, l string
@@ -333,9 +334,9 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                         return
                 }
         }
-        if false { diag.infoAt(pos, "%v -> %v %v\n", tag, short, long).debug(true,1) }
+        if false { diag.infoAt(pos, "%v -> %v %v\n", tag, short, long).debug(1) }
         if len(short) != len(long) {
-                diag.errorAt(pos, "short and long option names not matching: %v, %v", short, long).debug(/*options.debugErrors*/true)
+                diag.errorAt(pos, "short and long option names not matching: %v, %v", short, long).debug(1)
                 return
         }
 
@@ -343,23 +344,23 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
         set = func(val reflect.Value, v Value) {
                 switch val.Kind() {
                 case reflect.Bool:
-                        if t, e := v.True(); e == nil { val.SetBool(t) } else {
+                        if t, e := v.True(ctx); e == nil { val.SetBool(t) } else {
                                 diag.errorOf(v, "truthify '%v' failed: %v", v, e).debug(1)
                         }
                 case reflect.Float32, reflect.Float64:
-                        if t, e := v.Float(); e == nil { val.SetFloat(t) } else {
+                        if t, e := v.Float(ctx); e == nil { val.SetFloat(t) } else {
                                 diag.errorOf(v, "floatify '%v' failed: %v", v, e).debug(1)
                         }
                 case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-                        if t, e := v.Integer(); e == nil { val.SetInt(t) } else {
+                        if t, e := v.Integer(ctx); e == nil { val.SetInt(t) } else {
                                 diag.errorOf(v, "integify '%v' failed: %v", v, e).debug(1)
                         }
                 case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-                        if t, e := v.Integer(); e == nil { val.SetUint(uint64(t)) } else {
+                        if t, e := v.Integer(ctx); e == nil { val.SetUint(uint64(t)) } else {
                                 diag.errorOf(v, "integify '%v' failed: %v", v, e).debug(1)
                         }
                  case reflect.String:
-                        if t, e := v.Strval(); e == nil { val.SetString(t) } else {
+                        if t, e := v.Strval(ctx); e == nil { val.SetString(t) } else {
                                 diag.errorOf(v, "stringify '%v' failed: %v", v, e).debug(1)
                         }
                 case reflect.Slice:
@@ -376,14 +377,14 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                 case reflect.Ptr: switch val.Type().Elem().String() {
                 case "smart.optFullname":
                         var x Value
-                        if x, err = v.expand(expandPlainValue|expandFullName); err != nil {
+                        if x, err = v.expand(ctx, expandPlainValue|expandFullName); err != nil {
                                 diag.errorOf(v, "expand option '%v' failed: %v", v, err).debug(1)
                                 return
                         } else if isNil(x) { x = v } else if isNone(x) {
                                 diag.errorOf(v, "expecting file value: %T %v", v, v).debug(1)
                                 return
                         }
-                        if _, s, ok, err = asOptFullname(nil, x); err != nil {
+                        if _, s, ok, err = asOptFullname(ctx, nil, x); err != nil {
                                 diag.errorOf(x, "fullname '%v' failed: %v", x, err).debug(1)
                         } else if ok && s != "" {
                                 val.Set(reflect.ValueOf(&optFullname{ s, x }))
@@ -392,11 +393,11 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                         }
                         if false {
                                 vi := val.Interface().(*optFullname)
-                                diag.warnOf(v, "%v %v %v", current(), v, vi.string).debug(true,1)
+                                diag.warnOf(v, "%v %v %v", /*current()*/ctx.Project(), v, vi.string).debug(true,1)
                         }
                 case "smart.File":
                         var x Value
-                        if x, err = v.expand(expandPlainValue); err != nil {
+                        if x, err = v.expand(ctx, expandPlainValue); err != nil {
                                 diag.errorOf(v, "expand option '%v' failed: %v", v, err).debug(1)
                                 return
                         } else if isNil(x) { x = v } else if isNone(x) {
@@ -405,17 +406,17 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                         }
                         if file, ok := x.(*File); ok {
                                 val.Set(reflect.ValueOf(file))
-                        } else if s, e := x.Strval(); e != nil {
+                        } else if s, e := x.Strval(ctx); e != nil {
                                 diag.errorOf(x, "strval '%v' failed: %v", x, e).debug(1)
-                        } else if proj := current(); proj == nil {
+                        } else if proj := /*current()*/ctx.Project(); proj == nil {
                                 diag.errorOf(x, "no current project to find file '%v'", s).debug(1)
-                        } else if file = proj.FindFile(s); file != nil {
+                        } else if file = proj.FindFile(ctx, s); file != nil {
                                 val.Set(reflect.ValueOf(file))
                         } else {
                                 diag.errorOf(v, "'%s' is not a file", s).debug(1)
                         }
                 case "regexp.Regexp":
-                        if s, e := v.Strval(); e != nil {
+                        if s, e := v.Strval(ctx); e != nil {
                                 diag.errorOf(v, "stringify '%v' failed: %v", v, e).debug(1)
                         } else if rx, e := regexp.Compile(s); e != nil {
                                 diag.errorOf(v, "compile regexp '%v' failed: %v", v, e).debug(1)
@@ -428,7 +429,7 @@ func parseOpt(pos Position, tag reflect.StructTag, field reflect.Value, args... 
                 }
                 default: switch val.Type().String() {
                 case "fs.FileMode": // aka. reflect.Uint32
-                        if t, e := v.Integer(); e == nil { val.SetUint(uint64(t)) } else {
+                        if t, e := v.Integer(ctx); e == nil { val.SetUint(uint64(t)) } else {
                                 diag.errorOf(v, "integify '%v' failed: %v", v, e).debug(1)
                         }
                 case "regex.Regex": // aka. reflect.Ptr
@@ -444,7 +445,7 @@ ForArgs:
                         flag *Flag
                         value Value
                 )
-                if arg.patterned() {
+                if arg.patterned(ctx) {
                         // don't parse patterns, e.g. -I%
                 } else if flag, okay = arg.(*Flag); okay {
                         value = MakeBoolean(flag.position, true)
@@ -456,7 +457,7 @@ ForArgs:
                         continue ForArgs
                 }
                 for i := 0; i < len(short) && i < len(long); i += 1 {
-                        if _, match := flag.opt(short[i], long[i]); match {
+                        if _, match := flag.opt(ctx, short[i], long[i]); match {
                                 set(val, value)
                                 continue ForArgs
                         }
@@ -469,7 +470,8 @@ ForArgs:
         return
 }
 
-func parseOpts(pos Position, iOpts interface{}, args... Value) (rest []Value, err error) {
+func parseOpts(ctx Context, iOpts interface{}, args... Value) (rest []Value, err error) {
+        var pos = ctx.Position()
         rest = args // NOTE: set the returning args first of all!
         if opts := reflect.ValueOf(iOpts); opts.Kind() != reflect.Ptr {
                 diag.errorAt(pos, "opts must be ptr: %v", opts.Kind()).debug(1)
@@ -479,7 +481,7 @@ func parseOpts(pos Position, iOpts interface{}, args... Value) (rest []Value, er
                 for i := 0; i < otyp.NumField(); i += 1 {
                         var ft = otyp.Field(i)
                         var fv = opts.Field(i)
-                        rest, err = parseOpt(pos, ft.Tag, fv, rest...)
+                        rest, err = parseOpt(ctx, ft.Tag, fv, rest...)
                 }
         } else {
                 diag.errorAt(pos, "opts is not ptr of struct: %v", opts.Kind()).debug(1)
@@ -517,8 +519,8 @@ func typeof(arg interface{}) (s string) {
         return
 }
 
-func builtinTypeOf(pos Position, args... Value) (res Value) {
-        var ( elems []Value; s string )
+func builtinTypeOf(ctx Context, args... Value) (res Value) {
+        var ( pos = ctx.Position(); elems []Value; s string )
         for _, arg := range args {
                 // Arguments are passed in a list:
                 //   $(fun abc)                 args: (abc)
@@ -530,13 +532,15 @@ func builtinTypeOf(pos Position, args... Value) (res Value) {
         return MakeListOrScalar(pos, elems)
 }
 
-func builtinDefined(pos Position, args... Value) (res Value) {
-        var ( elems []Value; err error )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
+func builtinDefined(ctx Context, args... Value) (res Value) {
+        var ( pos = ctx.Position(); elems []Value; err error )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err).debug(1)
+                return
+        }
         for _, arg := range args {
                 var _, unresolved = arg.(*unresolvedobject)
                 elems = append(elems, MakeBoolean(pos, !unresolved))
-                if false { diag.infoAt(pos, "defined %v -> %v", arg, unresolved) }
         }
         return MakeListOrScalar(pos, elems)
 }
@@ -549,16 +553,19 @@ type builtinPositionOpts struct {
         addLine int `a,add;al,add-line`
         addColumn int `ac,add-column`
 }
-func builtinPosition(pos Position, args... Value) (res Value) {
+func builtinPosition(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 opts builtinPositionOpts
                 vals []Value
                 err error
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                diag.errorAt(pos, "position: %v", err); return
-        } else if args, err = parseOpts(pos, &opts, args...); err != nil {
-                diag.errorAt(pos, "position: %v", err); return
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "position: %v", err).debug(1)
+                return
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+                diag.errorAt(pos, "position: %v", err).debug(1)
+                return
         }
 
         if opts.filename {
@@ -570,18 +577,6 @@ func builtinPosition(pos Position, args... Value) (res Value) {
 
         if opts.line   { vals = append(vals, MakeInt(pos, int64(pos.Line + opts.addLine))) }
         if opts.column { vals = append(vals, MakeInt(pos, int64(pos.Column + opts.addColumn))) }
-        /* case 'a':
-                        if len(vals) == 0 { break }
-                        var last, okay = Scalar(vals[len(vals)-1]).(*Int)
-                        if okay {
-                                var n int64
-                                if n, err = int64Val(val, 0); err != nil {
-                                        diag.errorAt(pos, "position: %v", err)
-                                        return
-                                }
-                                last.int64 += n
-                        }
-        */
 
         if len(vals) > 0 {
                 res = MakeListOrScalar(pos, vals)
@@ -595,13 +590,19 @@ type builtinDateOpts struct {
         now bool `n,now`
         today bool `t,today`
 }
-func builtinDate(pos Position, args... Value) (res Value) {
+func builtinDate(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 opts = builtinDateOpts{ today:true }
                 err error
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
-        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err).debug(1)
+                return
+        } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
+                diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
+                return
+        }
         if t := time.Now(); opts.now {
                 res = MakeTime(pos, t)
         } else if opts.today {
@@ -610,45 +611,47 @@ func builtinDate(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinError(pos Position, args... Value) (res Value) {
+func builtinError(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 s bytes.Buffer
                 v string
                 err error
         )
         for i, a := range args {
                 if i > 0 { fmt.Fprintf(&s, " ") }
-                if v, err = a.Strval(); err == nil {
+                if v, err = a.Strval(ctx); err == nil {
                         fmt.Fprintf(&s, "%s", v)
                 } else {
-                        diag.errorOf(a, "error: %v: %v", a, err)
+                        diag.errorOf(a, "error: %v: %v", a, err).debug(1)
                         return
                 }
         }
-        diag.errorAt(pos, "%s", s)
+        diag.errorAt(pos, "%s", s).debug(1)
         return
 }
 
-func builtinWarning(pos Position, args... Value) (res Value) {
+func builtinWarning(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 s bytes.Buffer
                 v string
                 err error
         )
         for i, a := range args {
                 if i > 0 { fmt.Fprintf(&s, " ") }
-                if v, err = a.Strval(); err == nil {
+                if v, err = a.Strval(ctx); err == nil {
                         fmt.Fprintf(&s, "%s", v)
                 } else {
-                        diag.errorOf(a, "warning: %v: %v", a, err)
+                        diag.errorOf(a, "warning: %v: %v", a, err).debug(1)
                         return
                 }
         }
-        diag.warnAt(pos, "%s", s)
+        diag.warnAt(pos, "%s", s).debug(1)
         return
 }
 
-func builtinAssert(pos Position, args... Value) Value {
+func builtinAssert(ctx Context, args... Value) Value {
         var vals []Value
         for _, a := range args {
                 if g, ok := a.(*Group); ok {
@@ -656,7 +659,7 @@ func builtinAssert(pos Position, args... Value) Value {
                 }
         }
         for _, a := range vals {
-                if v, e := a.True(); e != nil {
+                if v, e := a.True(ctx); e != nil {
                         diag.errorOf(a, "assert: error: %v", e).debug(1)
                 } else if !v {
                         diag.errorOf(a, "assertion failed: %v", a).debug(1)
@@ -666,10 +669,13 @@ func builtinAssert(pos Position, args... Value) Value {
 }
 
 // $(defor $(x),$(y),$(z)) is identical to $(if $(defined $(x)),$(x),...)
-func builtinDefor(pos Position, args... Value) (res Value) {
-        var err error
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                diag.errorAt(pos, "merge args failed: %v", err)
+func builtinDefor(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                err error
+        )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err).debug(1)
                 return
         }
         for _, a := range args {
@@ -682,10 +688,14 @@ func builtinDefor(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinOr(pos Position, args... Value) (res Value) {
-        var ( t bool; e error )
+func builtinOr(ctx Context, args... Value) (res Value) {
+        var (
+                //pos = ctx.Position()
+                t bool
+                e error
+        )
         for _, a := range args {
-                if t, e = a.True(); e != nil {
+                if t, e = a.True(ctx); e != nil {
                         diag.errorOf(a, "or: error: %v", e).debug(1)
                         break
                 } else if t {
@@ -696,11 +706,15 @@ func builtinOr(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinAnd(pos Position, args... Value) (res Value) {
-        var ( t bool; e error )
+func builtinAnd(ctx Context, args... Value) (res Value) {
+        var (
+                //pos = ctx.Position()
+                t bool
+                e error
+        )
         for _, a := range args {
-                if t, e = a.True(); e != nil {
-                        diag.errorOf(a, "and: error: %v", e)
+                if t, e = a.True(ctx); e != nil {
+                        diag.errorOf(a, "and: error: %v", e).debug(1)
                         break
                 } else if t {
                         res = a
@@ -713,11 +727,17 @@ func builtinAnd(pos Position, args... Value) (res Value) {
 
 // $(not x y z) -> (not (or x y z))
 // $(not x,y,z) -> (and (not x) (not y) (not z))
-func builtinNot(pos Position, args... Value) (res Value) {
-        var ( t bool; e error )
+func builtinNot(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                t bool
+                e error
+        )
         for _, a := range args {
-                if t, e = a.True(); e != nil { diag.errorAt(pos, "not: error: %v", e); return } else
-                if t {
+                if t, e = a.True(ctx); e != nil {
+                        diag.errorAt(pos, "not: error: %v", e)
+                        return
+                } else if t {
                         res = &boolean{valbase{pos},false}
                         return
                 }
@@ -726,37 +746,41 @@ func builtinNot(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinNotEqual(pos Position, args... Value) (res Value) {
+func builtinNotEqual(ctx Context, args... Value) (res Value) {
+        var pos = ctx.Position()
         if n := len(args); n != 2 {
                 diag.errorAt(pos, "wrong number of arguments, try: $(not-equal <value-list>,<regexp-list>)")
-        } else if args[0].cmp(args[1]) != cmpEqual {
+        } else if args[0].cmp(ctx, args[1]) != cmpEqual {
                 res = &boolean{valbase{pos},true}
         }
         return
 }
 
-func builtinEqual(pos Position, args... Value) (res Value) {
+func builtinEqual(ctx Context, args... Value) (res Value) {
+        var pos = ctx.Position()
         if n := len(args); n != 2 {
                 diag.errorAt(pos, "wrong number of arguments, try: $(equal <value-list>,<regexp-list>)")
-        } else if cmp := args[0].cmp(args[1]); cmp == cmpEqual {
+        } else if cmp := args[0].cmp(ctx, args[1]); cmp == cmpEqual {
                 res = &boolean{valbase{pos},true}
         }
         return
 }
 
-func builtinGreater(pos Position, args... Value) (res Value) {
+func builtinGreater(ctx Context, args... Value) (res Value) {
+        var pos = ctx.Position()
         if n := len(args); n != 2 {
                 diag.errorAt(pos, "wrong number of arguments, try: $(greater <value-list>,<regexp-list>)")
-        } else if cmp := args[0].cmp(args[1]); cmp == cmpGreater {
+        } else if cmp := args[0].cmp(ctx, args[1]); cmp == cmpGreater {
                 res = &boolean{valbase{pos},true}
         }
         return
 }
 
-func builtinLess(pos Position, args... Value) (res Value) {
+func builtinLess(ctx Context, args... Value) (res Value) {
+        var pos = ctx.Position()
         if n := len(args); n != 2 {
                 diag.errorAt(pos, "wrong number of arguments, try: $(less <value-list>,<regexp-list>)")
-        } else if cmp := args[0].cmp(args[1]); cmp == cmpSmaller {
+        } else if cmp := args[0].cmp(ctx, args[1]); cmp == cmpSmaller {
                 res = &boolean{valbase{pos},true}
         }
         return
@@ -766,8 +790,9 @@ type builtinMatchOpts struct {
         regexps []*regexp.Regexp `r,reg;rx,regex;re,regexp`
 }
 // $(match rx1 rx2 rx3, a b c d...)
-func builtinMatch(pos Position, args... Value) (res Value) {
+func builtinMatch(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 patList, valList []Value
                 opts builtinMatchOpts
                 err error
@@ -775,13 +800,13 @@ func builtinMatch(pos Position, args... Value) (res Value) {
         if n := len(args); n < 2 {
                 diag.errorAt(pos, "wrong arguments, try: $(match <regexp-list>,<value-list>,...)").debug(1)
                 return
-        } else if patList, err = mergeresult2(expandall2(expandPlainValue, args[0])); err != nil {
+        } else if patList, err = mergeresult2(expandall2(ctx, expandPlainValue, args[0])); err != nil {
                 diag.errorAt(pos, "expand '%v' failed: %v", args[0], err).debug(1)
                 return
-        } else if patList, err = parseOpts(pos, &opts, patList...); err != nil {
+        } else if patList, err = parseOpts(ctx, &opts, patList...); err != nil {
                 diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
                 return
-        } else if valList, err = mergeresult2(expandall2(expandPlainValue, args[1:]...)); err != nil {
+        } else if valList, err = mergeresult2(expandall2(ctx, expandPlainValue, args[1:]...)); err != nil {
                 diag.errorAt(pos, "expand value list failed: %v", err).debug(1)
                 return
         }
@@ -791,7 +816,7 @@ ForValList:
                         continue ForValList
                 }
                 var str string
-                if str, err = val.Strval(); err != nil {
+                if str, err = val.Strval(ctx); err != nil {
                         diag.errorOf(val, "strval '%v' failed: %v", val, err).debug(1)
                         return
                 }
@@ -802,7 +827,7 @@ ForValList:
                         }
                 }
                 for _, pat := range patList {
-                        if matched, _, _ := pat.match(str); matched {
+                        if matched, _, _ := pat.match(ctx, str); matched {
                                 res = MakeBoolean(pos, true)
                                 break ForValList
                         }
@@ -812,12 +837,15 @@ ForValList:
 }
 
 // $(if cond, true-value, else-value, ...)
-func builtinBranchIf(pos Position, args... Value) (res Value) {
-        var err error
+func builtinBranchIf(ctx Context, args... Value) (res Value) {
         if n := len(args); n > 1 {
-                var t bool
-                if t, err = args[0].True(); err != nil {
-                        diag.errorAt(pos, "truthify if condition failed: %v", err)
+                var (
+                        pos = ctx.Position()
+                        err error
+                        t bool
+                )
+                if t, err = args[0].True(ctx); err != nil {
+                        diag.errorAt(pos, "truthify if condition failed: %v", err).debug(1)
                 } else if t { 
                         res = args[1]
                 } else if n > 1 {
@@ -827,27 +855,28 @@ func builtinBranchIf(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinBranchIfEq(pos Position, args... Value) (res Value) {
+func builtinBranchIfEq(ctx Context, args... Value) (res Value) {
         if n := len(args); n > 2 {
                 var (
-                        a, b Value
+                        pos = ctx.Position()
                         s1, s2 string
+                        a, b Value
                         err error
                 )
-                if a, err = args[0].expand(expandPlainValue); err != nil {
+                if a, err = args[0].expand(ctx, expandPlainValue); err != nil {
                         diag.errorAt(pos, "expand '%v' failed: %v", args[0], err).debug(1)
                         return
                 } else if isNil(a) { a = args[0] }
-                if b, err = args[1].expand(expandDelegate); err != nil {
+                if b, err = args[1].expand(ctx, expandDelegate); err != nil {
                         diag.errorAt(pos, "expand '%v' failed: %v", args[1], err).debug(1)
                         return
                 } else if isNil(b) { b = args[1] }
 
-                if s1, err = a.Strval(); err != nil {
+                if s1, err = a.Strval(ctx); err != nil {
                         diag.errorAt(pos, "strval '%v' failed: %v", a, err).debug(1)
                         return
                 }
-                if s2, err = b.Strval(); err != nil {
+                if s2, err = b.Strval(ctx); err != nil {
                         diag.errorAt(pos, "strval '%v' failed: %v", b, err).debug(1)
                         return
                 }
@@ -860,27 +889,28 @@ func builtinBranchIfEq(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinBranchIfNE(pos Position, args... Value) (res Value) {
+func builtinBranchIfNE(ctx Context, args... Value) (res Value) {
         if n := len(args); n > 2 {
                 var (
-                        a, b Value
+                        pos = ctx.Position()
                         s1, s2 string
+                        a, b Value
                         err error
                 )
-                if a, err = args[0].expand(expandPlainValue); err != nil {
+                if a, err = args[0].expand(ctx, expandPlainValue); err != nil {
                         diag.errorAt(pos, "expand '%v' failed: %v", args[0], err).debug(1)
                         return
                 } else if isNil(a) { a = args[0] }
-                if b, err = args[1].expand(expandDelegate); err != nil {
+                if b, err = args[1].expand(ctx, expandDelegate); err != nil {
                         diag.errorAt(pos, "expand '%v' failed: %v", args[1], err).debug(1)
                         return
                 } else if isNil(b) { b = args[1] }
 
-                if s1, err = a.Strval(); err != nil {
+                if s1, err = a.Strval(ctx); err != nil {
                         diag.errorAt(pos, "strval '%v' failed: %v", a, err).debug(1)
                         return
                 }
-                if s2, err = b.Strval(); err != nil {
+                if s2, err = b.Strval(ctx); err != nil {
                         diag.errorAt(pos, "strval '%v' failed: %v", b, err).debug(1)
                         return
                 }
@@ -893,17 +923,18 @@ func builtinBranchIfNE(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinFor(pos Position, args... Value) (res Value) {
+func builtinFor(ctx Context, args... Value) (res Value) {
+        var pos = ctx.Position()
         if n := len(args); n < 2 {
                 diag.errorAt(pos, "not enough arguments, try: $(foreach <list>,<template>)")
         } else {
                 var ( defs []*Def ; vals, values []Value; err error )
-                if values, err = mergeresult(ExpandAll(args[0])); err != nil {
-                        diag.errorAt(pos, "merge '%v' failed: %v", args[0], err)
+                if values, err = mergeresult2(expandall2(ctx, expandPlainValue, args[0])); err != nil {
+                        diag.errorAt(pos, "merge '%v' failed: %v", args[0], err).debug(1)
                         return
                 }
 
-                scope := context.globe.scope
+                var scope = ctx.GlobeScope()
                 for i := 1; i <= maxNumVarVal; i += 1 {
                         def := scope.Lookup(strconv.Itoa(i)).(*Def)
                         defs = append(defs, def)
@@ -920,7 +951,7 @@ func builtinFor(pos Position, args... Value) (res Value) {
 
                 var list []Value
                 for _, a := range args[1:] {
-                        if values, err = mergeresult(ExpandAll(a)); err != nil {
+                        if values, err = mergeresult2(expandall2(ctx, expandPlainValue, a)); err != nil {
                                 diag.errorAt(pos, "merge '%v' failed: %v", a, err)
                                 return
                         }
@@ -937,21 +968,22 @@ func builtinFor(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinForEach(pos Position, args... Value) (res Value) {
+func builtinForEach(ctx Context, args... Value) (res Value) {
+        var pos = ctx.Position()
         if n := len(args); n < 2 {
-                diag.errorAt(pos, "not enough arguments ($(foreach <list>,<template>)): %v", n)
+                diag.errorAt(pos, "not enough arguments ($(foreach <list>,<template>)): %v", n).debug(1)
                 return
         }
 
         var ( values []Value; err error )
-        if values, err = mergeresult(ExpandAll(args[0])); err != nil {
-                diag.errorAt(pos, "merge arg0 failed: %v", err)
+        if values, err = mergeresult2(expandall2(ctx, expandPlainValue, args[0])); err != nil {
+                diag.errorAt(pos, "merge arg0 failed: %v", err).debug(1)
                 return
         }
 
         var def *Def // = context.globe.scope.Lookup("_").(*Def)
         for _, a := range args[1:] {
-                for _, d := range a.defs("_") {
+                for _, d := range a.defs(ctx, "_") {
                         if def == nil { def = d } else if d != def {
                                 diag.errorAt(d.position  , "'_' resolves to different defs: %v", d)
                                 diag.errorAt(def.position, "'_' resolves to different defs: %v", def)
@@ -976,11 +1008,11 @@ func builtinForEach(pos Position, args... Value) (res Value) {
                 var list []Value
                 for _, a := range args[1:] {
                         var v Value
-                        if v, err = a.expand(expandPlainValue|expandPairVal); err != nil {
+                        if v, err = a.expand(ctx, expandPlainValue|expandPairVal); err != nil {
                                 diag.errorOf(a, "expand '%v' failed: %v", a, err).debug(1)
                                 return
                         } else if isNil(v) { v = a }
-                        if true && len(v.defs("_")) > 0 {
+                        if true && len(v.defs(ctx, "_")) > 0 {
                                 diag.errorOf(a, "'_' in '%v' not expanded: %v", a, v).debug(true, 1)
                         }
                         if isNil(v) || isUndef(v) || isNone(v) {
@@ -1003,40 +1035,48 @@ func builtinForEach(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinEnv(pos Position, args... Value) (res Value) {
+func builtinEnv(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 vals []Value
                 val Value
                 v string
                 err error
         )
         for _, a := range args {
-                if val, err = a.expand(expandDelegate); err != nil { diag.errorAt(pos, "%v", err); return }
+                if val, err = a.expand(ctx, expandDelegate); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
+                }
                 if val == nil {
                         // discard
-                } else if v, err = val.Strval(); err == nil {
+                } else if v, err = val.Strval(ctx); err == nil {
                         if s := strings.TrimSpace(v); s != "" {
                                 vals = append(vals, MakeString(pos, os.Getenv(s)))
                         }
                 } else {
-                        diag.errorAt(pos, "%v", err)
+                        diag.errorAt(pos, "%v", err).debug(1)
                         return
                 }
         }
         return MakeListOrScalar(pos, vals)
 }
 
-func builtinValue(pos Position, args... Value) (res Value) {
-        var scope *Scope
-        if len(cloctx) > 0 { scope = cloctx[0] } else
-        if context.loader != nil { scope = context.loader.scope }
+func builtinValue(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                scope *Scope
+                vals []Value
+                err error
+        )
+        if len(cloctx) > 0 { scope = cloctx[0] } else {
+                scope = ctx.LoaderScope()
+        }
 
-        var err error
-        var vals []Value
         for _, a := range args {
                 var s string
-                if s, err = a.Strval(); err != nil {
-                        diag.errorAt(pos, "strval '%v' failed: %v", a, err)
+                if s, err = a.Strval(ctx); err != nil {
+                        diag.errorAt(pos, "strval '%v' failed: %v", a, err).debug(1)
                         return
                 }
                 if def := scope.FindDef(s); def != nil {
@@ -1048,21 +1088,28 @@ func builtinValue(pos Position, args... Value) (res Value) {
         return MakeListOrScalar(pos, vals)
 }
 
-func builtinList(pos Position, args... Value) (res Value) {
-        res = MakeListOrScalar(pos, args)
+func builtinList(ctx Context, args... Value) (res Value) {
+        res = MakeListOrScalar(ctx.Position(), args)
         return
 }
 
-func builtinShell(pos Position, args... Value) (res Value) {
-        var ( vals []Value; err error )
+func builtinShell(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                vals []Value
+                err error
+        )
         for _, a := range args {
                 var ( bufout, buferr bytes.Buffer; s string )
-                if s, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                if s, err = a.Strval(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
+                }
                 sh := exec.Command("sh", "-c", s)
                 sh.Stdout, sh.Stderr = &bufout, &buferr
                 if err = sh.Run(); err != nil {
                         s = strings.TrimSpace(buferr.String())
-                        diag.errorAt(pos, "%s", err)
+                        diag.errorAt(pos, "%s", err).debug(1)
                         return
                 }
                 val := MakeString(pos, strings.TrimSpace(bufout.String()))
@@ -1077,17 +1124,18 @@ type builtinServeHttpOpts struct {
         host string `h,host`
         port int `p,port`
 }
-func builtinServeHttp(pos Position, args... Value) (res Value) {
+func builtinServeHttp(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 opts = builtinServeHttpOpts{ port:80 }
                 va []Value
                 err error
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                diag.errorAt(pos, "%v", err)
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
                 return
-        } else if va, err = parseOpts(pos, &opts, args...); err != nil {
-                diag.errorAt(pos, "%v", err)
+        } else if va, err = parseOpts(ctx, &opts, args...); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
                 return
         }
 
@@ -1105,7 +1153,10 @@ func builtinServeHttp(pos Position, args... Value) (res Value) {
 
         for _, a := range va {
                 var s string
-                if s, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                if s, err = a.Strval(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
+                }
                 fmt.Fprintf(stderr, "%s: serving files %v ...\n", pos, s)
                 http.Handle("/", http.FileServer(http.Dir(s)))
         }
@@ -1113,41 +1164,47 @@ func builtinServeHttp(pos Position, args... Value) (res Value) {
         if err = server.ListenAndServe(); err == http.ErrServerClosed {
                 if false { diag.infoAt(pos, "http server closed") }// Requested /quit
         } else if err != nil {
-                diag.errorAt(pos, "%s", err)
+                diag.errorAt(pos, "%s", err).debug(1)
         }
         return
 }
 
-func builtinServeHttps(pos Position, args... Value) (res Value) {
-        diag.errorAt(pos, "'serve-https' is unimplemented yet")
+func builtinServeHttps(ctx Context, args... Value) (res Value) {
+        diag.errorAt(ctx.Position(), "'serve-https' is unimplemented yet").debug(1)
         return
 }
 
-func builtinPrint(pos Position, args... Value) (res Value) {
-        var err error
-        var x = len(args)
+func builtinPrint(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                x = len(args)
+                err error
+        )
         for i, a := range args {
                 var s string
                 if 0 < i && i < x { fmt.Printf(" ") }
                 if a == nil {
                         continue
-                } else if s, err = EscapedString(a); err == nil {
+                } else if s, err = EscapedString(ctx, a); err == nil {
                         if s != "" { fmt.Printf("%s", s) }
                 } else {
-                        diag.errorAt(pos, "%s", err)
+                        diag.errorAt(pos, "%s", err).debug(1)
                         break
                 }
         }
         return
 }
 
-func builtinPrintl(pos Position, args... Value) (res Value) {
-        var err error
-        var x = len(args)
+func builtinPrintl(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                x = len(args)
+                err error
+        )
         for i, a := range args {
                 var s string
                 if 0 < i && i < x { fmt.Printf(" ") }
-                if s, err = EscapedString(a); err != nil {
+                if s, err = EscapedString(ctx, a); err != nil {
                         diag.errorAt(pos, "%s", err)
                         return
                 }
@@ -1159,8 +1216,8 @@ func builtinPrintl(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinPrintln(pos Position, args... Value) (res Value) {
-        builtinPrint(pos, args...)
+func builtinPrintln(ctx Context, args... Value) (res Value) {
+        builtinPrint(ctx, args...)
         fmt.Printf("\n")
         return
 }
@@ -1169,52 +1226,78 @@ type builtinAppendOpts struct {
         string bool `s,str;s,string`
         verbose bool `v,verbose`
 }
-func builtinAppend(pos Position, args... Value) (result Value) {
+func builtinAppend(ctx Context, args... Value) (result Value) {
         if len(args) < 2 {
-                diag.errorAt(pos, "insufficient number of arguments: %v", args)
+                diag.errorAt(ctx.Position(), "insufficient number of arguments: %v", args).debug(1)
                 return
         }
 
         var (
+                pos = ctx.Position()
                 opts builtinAppendOpts
                 vars []Value
                 list []Value
                 err error
         )
-        if vars, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorOf(args[0], "%s", err); return } else
-        if vars, err = parseOpts(pos, &opts, vars...); err != nil { diag.errorAt(pos, "%v", err); return }
-        if list, err = mergeresult(ExpandAll(args[1:]...)); err != nil { diag.errorOf(args[1], "%s", err); return }
-        if len(list) == 0 { diag.warnAt(pos, "append no values"); return }
+        if vars, err = mergeresult2(expandall2(ctx, expandPlainValue, args[0])); err != nil {
+                diag.errorOf(args[0], "%s", err).debug(1)
+                return
+        } else if vars, err = parseOpts(ctx, &opts, vars...); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        } else if list, err = mergeresult2(expandall2(ctx, expandPlainValue, args[1:]...)); err != nil {
+                diag.errorOf(args[1], "%s", err).debug(1)
+                return
+        } else if len(list) == 0 {
+                diag.warnAt(pos, "append no values").debug(1)
+                return
+        }
 
         for _, a := range vars {
                 var name string
-                if name, err = a.Strval(); err != nil { diag.errorOf(a, "%s", err); break }
-                if name == "" { diag.errorOf(a, "name '%v' is empty", a); break }
+                if name, err = a.Strval(ctx); err != nil {
+                        diag.errorOf(a, "%s", err).debug(1)
+                        break
+                } else if name == "" {
+                        diag.errorOf(a, "name '%v' is empty", a).debug(1)
+                        break
+                }
 
                 var def *Def
                 if def == nil {
                         var obj Object
-                        obj, err = cloctx[0].project.resolveObject(name)
-                        if err != nil { diag.errorOf(a, "%v", err); break } else
-                        if def, _ = obj.(*Def); def == nil { /*...*/ }
+                        if obj, err = cloctx[0].project.resolveObject(ctx, name); err != nil {
+                                diag.errorOf(a, "%v", err).debug(1)
+                                break
+                        } else if def, _ = obj.(*Def); def == nil {
+                                /*...*/
+                        }
                 }
                 if def == nil {
                         for _, scope := range cloctx {
                                 if def = scope.FindDef(name); def != nil { break }
                         }
                 }
-                if def == nil { diag.errorAt(pos, "'%s' (%v) is undefined (%v)", name, a, cloctx); break }
-                if err = def.append(list...); err != nil { diag.errorAt(pos, "%s", err); break }
+                if def == nil {
+                        diag.errorAt(pos, "'%s' (%v) is undefined (%v)", name, a, cloctx).debug(1)
+                        break
+                } else if err = def.append(ctx, list...); err != nil {
+                        diag.errorAt(pos, "%s", err).debug(1)
+                        break
+                }
         }
         return
 }
 
-func builtinPlus(pos Position, args... Value) (result Value) {
-        var err error
-        var num, v int64
+func builtinPlus(ctx Context, args... Value) (result Value) {
+        var (
+                pos = ctx.Position()
+                num, v int64
+                err error
+        )
         for _, a := range args {
-                if v, err = a.Integer(); err != nil {
-                        diag.errorOf(a, "%s", err)
+                if v, err = a.Integer(ctx); err != nil {
+                        diag.errorOf(a, "%s", err).debug(1)
                         return
                 }
                 num += v
@@ -1222,15 +1305,17 @@ func builtinPlus(pos Position, args... Value) (result Value) {
         return &Int{integer{valbase{pos},num}}
 }
 
-func builtinMinus(pos Position, args... Value) (result Value) {
-        var err error
-        var num, v int64
+func builtinMinus(ctx Context, args... Value) (result Value) {
+        var (
+                pos = ctx.Position()
+                num, v int64
+                err error
+        )
         for i, a := range args {
-                if v, err = a.Integer(); err != nil {
-                        diag.errorOf(a, "%s", err)
+                if v, err = a.Integer(ctx); err != nil {
+                        diag.errorOf(a, "%s", err).debug(1)
                         return
-                }
-                if i == 0 {
+                } else if i == 0 {
                         num = v
                 } else {
                         num -= v
@@ -1242,21 +1327,22 @@ func builtinMinus(pos Position, args... Value) (result Value) {
 type builtinUniqueOpts struct {
         reverse bool `r,reverse`
 }
-func builtinUnique(pos Position, args... Value) (res Value) {
+func builtinUnique(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                opts builtinUniqueOpts
+                err error
+        )
         if options.benchBuiltins {
                 defer func(t time.Time) {
                         var d = time.Now().Sub(t)
                         fmt.Fprintf(stderr, "%s:(%8s) unique\n", pos, d)
                 } (time.Now())
         }
-        var (
-                opts builtinUniqueOpts
-                err error
-        )
         if len(args) > 0 {
                 var a []Value
-                if a, err = parseOpts(pos, &opts, merge(args[0])...); err != nil {
-                        diag.errorOf(args[0], "%v", err)
+                if a, err = parseOpts(ctx, &opts, merge(args[0])...); err != nil {
+                        diag.errorOf(args[0], "%v", err).debug(1)
                         return
                 }
                 args = append(a, args[1:]...)
@@ -1264,13 +1350,15 @@ func builtinUnique(pos Position, args... Value) (res Value) {
         if false {
                 args = merge(args...)
         } else if true {
-                if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                        diag.errorAt(pos, "%v", err); return
+                if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
                 }
         } else {
                 var x = expandDelegate | expandPathStr | expandPairVal
-                if args, err = mergeresult2(expandall2(x, args...)); err != nil {
-                        diag.errorAt(pos, "%v", err); return
+                if args, err = mergeresult2(expandall2(ctx, x, args...)); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
                 }
         }
 
@@ -1280,16 +1368,22 @@ ForArgs:
                 var tmp []Value
                 if opts.reverse { tmp = args[i+1:] } else { tmp = list }
                 for _, v := range tmp {
-                        if a == v || a.cmp(v) == cmpEqual {
+                        if a == v || a.cmp(ctx, v) == cmpEqual {
                                 continue ForArgs
                         }
                 }
 
                 if false {
                         var s1, s2 string
-                        if s1, err = a.Strval(); err != nil { diag.errorOf(a, "%v", err); return }
+                        if s1, err = a.Strval(ctx); err != nil {
+                                diag.errorOf(a, "%v", err).debug(1)
+                                return
+                        }
                         for _, v := range list {
-                                if s2, err = v.Strval(); err != nil { diag.errorOf(v, "%v", err); return }
+                                if s2, err = v.Strval(ctx); err != nil {
+                                        diag.errorOf(v, "%v", err).debug(1)
+                                        return
+                                }
                                 if s1 == s2 { continue ForArgs }
                         }
                 }
@@ -1300,18 +1394,35 @@ ForArgs:
         return
 }
 
-func builtinJoin(pos Position, args... Value) (res Value) {
+func builtinJoin(ctx Context, args... Value) (res Value) {
         if l := len(args); l > 0 {
-                var ( vals []Value ; fields []string ; sep string; err error )
+                var (
+                        pos = ctx.Position()
+                        fields []string
+                        vals []Value
+                        sep string
+                        err error
+                )
                 if l < 2 {
-                        if vals, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if vals, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                                diag.errorAt(pos, "%v", err).debug(1)
+                                return
+                        }
                 } else {
-                        if vals, err = mergeresult(ExpandAll(args[:l-1]...)); err != nil { diag.errorAt(pos, "%v", err); return }
-                        if sep, err = args[l-1].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if vals, err = mergeresult2(expandall2(ctx, expandPlainValue, args[:l-1]...)); err != nil {
+                                diag.errorAt(pos, "%v", err).debug(1)
+                                return
+                        } else if sep, err = args[l-1].Strval(ctx); err != nil {
+                                diag.errorAt(pos, "%v", err).debug(1)
+                                return
+                        }
                 }
                 for _, a := range vals {
                         var v string
-                        if v, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if v, err = a.Strval(ctx); err != nil {
+                                diag.errorAt(pos, "%v", err).debug(1)
+                                return
+                        }
                         if v != "" { fields = append(fields, v) }
                 }
                 res = MakeString(pos, strings.Join(fields, sep))
@@ -1319,15 +1430,25 @@ func builtinJoin(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinQuote(pos Position, args... Value) (res Value) {
-        var err error
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
+func builtinQuote(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                err error
+        )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        }
         if l := len(args); l > 0 {
-                var fields []string
-                var v string
+                var (
+                        fields []string
+                        v string
+                )
                 for _, a := range args {
-                        if v, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                        if v != "" { fields = append(fields, v) }
+                        if v, err = a.Strval(ctx); err != nil {
+                                diag.errorAt(pos, "%v", err)
+                                return
+                        } else if v != "" { fields = append(fields, v) }
                 }
                 res = MakeString(pos, strconv.Quote(strings.Join(fields, " ")))
         } else {
@@ -1336,14 +1457,20 @@ func builtinQuote(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinQuoteJoin(pos Position, args... Value) (res Value) {
-        var err error
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
+func builtinQuoteJoin(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                sep string
+                err error
+        )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        }
 
-        var sep string
         if l := len(args); l > 1 {
-                if sep, err = args[l-1].Strval(); err != nil {
-                        diag.errorAt(pos, "%v", err)
+                if sep, err = args[l-1].Strval(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
                         return
                 }
                 args = args[:l-1]
@@ -1352,8 +1479,10 @@ func builtinQuoteJoin(pos Position, args... Value) (res Value) {
                 var fields []string
                 var v string
                 for _, a := range args {
-                        if v, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                        if v != "" { fields = append(fields, v) }
+                        if v, err = a.Strval(ctx); err != nil {
+                                diag.errorAt(pos, "%v", err).debug(1)
+                                return
+                        } else if v != "" { fields = append(fields, v) }
                 }
                 res = MakeString(pos, strconv.Quote(strings.Join(fields, sep)))
         } else {
@@ -1362,15 +1491,24 @@ func builtinQuoteJoin(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinSplitString(pos Position, args... Value) (res Value) {
-        var err error
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
-        if l := len(args); l > 0 {
+func builtinSplitString(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                err error
+        )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        } else if l := len(args); l > 0 {
                 var fields []Value
                 for _, a := range args {
                         var s string
-                        if s, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                        if s != "" { fields = append(fields, MakeString(a.Position(), s)) }
+                        if s, err = a.Strval(ctx); err != nil {
+                                diag.errorAt(pos, "%v", err).debug(1)
+                                return
+                        } else if s != "" {
+                                fields = append(fields, MakeString(a.Position(), s))
+                        }
                 }
                 res = MakeList(pos, fields...)
         } else {
@@ -1381,8 +1519,7 @@ func builtinSplitString(pos Position, args... Value) (res Value) {
 
 func quotestrings(value Value) {
         switch v := value.(type) {
-        case *String:
-                v.string = strconv.Quote(v.string)
+        case *String: v.string = strconv.Quote(v.string)
         case *List:
                 for _, elem := range v.Elems {
                         quotestrings(elem)
@@ -1391,16 +1528,17 @@ func quotestrings(value Value) {
         return
 }
 
-func joinstrings(value Value, sep string) (res Value, err error) {
+func joinstrings(ctx Context, value Value, sep string) (res Value, err error) {
         if sep == "" { sep = " " }
-        ValueType: switch v := value.(type) {
+ValueType:
+        switch v := value.(type) {
         case *String: res = value
         case *List:
                 var strs []string
                 for _, elem := range v.Elems {
                         var ( v Value; s string )
-                        if v, err = joinstrings(elem, sep); err != nil { break ValueType }
-                        if s, err = v.Strval(); err != nil { break ValueType }
+                        if v, err = joinstrings(ctx, elem, sep); err != nil { break ValueType }
+                        if s, err = v.Strval(ctx); err != nil { break ValueType }
                         if s != "" { strs = append(strs, s) }
                 }
                 res = MakeString(value.Position(), strings.Join(strs, sep))
@@ -1408,65 +1546,87 @@ func joinstrings(value Value, sep string) (res Value, err error) {
         return
 }
 
-func builtinSplitQuote(pos Position, args... Value) (res Value) {
-        if res = builtinSplitString(pos, args...); !isNil(res) {
+// TODO: deprecate this and add -quote to builtinSplitString
+func builtinSplitQuote(ctx Context, args... Value) (res Value) {
+        if res = builtinSplitString(ctx, args...); !isNil(res) {
                 quotestrings(res)
         }
         return
 }
 
-func builtinSplitQuoteJoin(pos Position, args... Value) (res Value) {
-        var ( sep string; err error )
+// TODO: deprecate this and add -quote to builtinSplitString
+func builtinSplitQuoteJoin(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                sep string
+                err error
+        )
         if l := len(args); l > 1 {
-                if sep, err = args[l-1].Strval(); err != nil {
-                        diag.errorAt(pos, "%v", err); return
+                if sep, err = args[l-1].Strval(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
                 }
                 args = args[:l-1]
         }
-        if res = builtinSplitQuote(pos, args...); !isNil(res) {
-                if res, err = joinstrings(res, sep); err != nil {
-                        diag.errorAt(pos, "%v", err)
+        if res = builtinSplitQuote(ctx, args...); !isNil(res) {
+                if res, err = joinstrings(ctx, res, sep); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
                 }
         } else {
-                diag.errorAt(pos, "%v", err)
+                diag.errorAt(pos, "%v", err).debug(1)
         }
         return
 }
 
-func builtinSplitJoinQuote(pos Position, args... Value) (res Value) {
-        var ( sep string; err error )
+func builtinSplitJoinQuote(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                sep string
+                err error
+        )
         if l := len(args); l > 1 {
-                if sep, err = args[l-1].Strval(); err != nil {
-                        diag.errorAt(pos, "%v", err); return
+                if sep, err = args[l-1].Strval(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
                 }
                 args = args[:l-1]
         }
         var v Value
-        if v = builtinSplitString(pos, args...); !isNil(v) {
-                if v, err = joinstrings(v, sep); err == nil {
+        if v = builtinSplitString(ctx, args...); !isNil(v) {
+                if v, err = joinstrings(ctx, v, sep); err == nil {
                         var s string
-                        if s, err = v.Strval(); err == nil {
+                        if s, err = v.Strval(ctx); err == nil {
                                 res = MakeString(pos, strconv.Quote(s))
                         }
                 }
         }
-        if err != nil { diag.errorAt(pos, "%v", err) }
+        if err != nil { diag.errorAt(pos, "%v", err).debug(1) }
         return
 }
 
-func builtinField(pos Position, args... Value) (res Value) {
+func builtinField(ctx Context, args... Value) (res Value) {
+        var pos = ctx.Position()
         if l := len(args); l >= 2 {
                 var (
+                        fields []string
                         i int64
                         s string
-                        fields []string
                         err error
                 )
-                if i, err = args[0].Integer(); err != nil { diag.errorAt(pos, "%v", err); return }
-                if s, err = args[1].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                if i, err = args[0].Integer(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
+                }
+                if s, err = args[1].Strval(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
+                }
                 if l > 2 {
                         var v string
-                        if v, err = args[2].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if v, err = args[2].Strval(ctx); err != nil {
+                                diag.errorAt(pos, "%v", err).debug(1)
+                                return
+                        }
                         fields = strings.Split(s, v)
                 } else {
                         fields = strings.Fields(s)
@@ -1481,27 +1641,30 @@ func builtinField(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinFields(pos Position, args... Value) (res Value) {
+func builtinFields(ctx Context, args... Value) (res Value) {
         // TODO: ...
         return
 }
 
-func builtinUsee(pos Position, args... Value) (result Value) {
-        var proj = current()
+func builtinUsee(ctx Context, args... Value) (result Value) {
+        var (
+                pos = ctx.Position()
+                proj = ctx.Project() //current()
+                list []Value
+                err error
+        )
         if proj == nil {
-                diag.errorAt(pos, "unknown current context")
+                diag.errorAt(pos, "unknown current context").debug(1)
                 return
         }
 
-        var err error
-        var list []Value
         for _, arg := range args {
                 var ( s string; v Value )
-                if s, err = arg.Strval(); err != nil {
-                        diag.errorAt(pos, "%v", err)
+                if s, err = arg.Strval(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
                         return
-                } else if v, err = proj.using.Get(s); err != nil {
-                        diag.errorAt(pos, "%v", err)
+                } else if v, err = proj.using.Get(ctx, s); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
                         return
                 } else {
                         list = append(list, v)
@@ -1513,25 +1676,37 @@ func builtinUsee(pos Position, args... Value) (result Value) {
         return
 }
 
-func builtinPath(pos Position, args... Value) (result Value) {
-        var err error
-        var list []Value
+func builtinPath(ctx Context, args... Value) (result Value) {
+        var (
+                pos = ctx.Position()
+                list []Value
+                err error
+        )
         for _, a := range args {
                 var s string
-                if s, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                list = append(list, MakePathStr(pos,s))
+                if s, err = a.Strval(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
+                }
+                list = append(list, MakePathStr(pos, s))
         }
         result = MakeListOrScalar(pos, list)
         return
 }
 
-func builtinString(pos Position, args... Value) (result Value) {
-        var err error
-        var s bytes.Buffer
+func builtinString(ctx Context, args... Value) (result Value) {
+        var (
+                pos = ctx.Position()
+                s bytes.Buffer
+                err error
+        )
         for i, a := range args {
                 var v string
                 if i > 0 { s.WriteString(" ") }
-                if v, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                if v, err = a.Strval(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
+                }
                 s.WriteString(v)
         }
         result = MakeString(pos, s.String())
@@ -1541,15 +1716,15 @@ func builtinString(pos Position, args... Value) (result Value) {
 type builtinFilterOpts struct {
         stem bool `s,stem;us,use-stem`
 }
-func filterValues(pats []Value, opts builtinFilterOpts, neg bool, values... Value) (result []Value, err error) {
+func filterValues(ctx Context, pats []Value, opts builtinFilterOpts, neg bool, values... Value) (result []Value, err error) {
         const info = false
         var filter = func(v Value) Value {
                 for _, pat := range pats {
-                        if info { if full, s, stems := pat.match(v); full || s != "" {
+                        if info { if full, s, stems := pat.match(ctx, v); full || s != "" {
                                 diag.warnOf(pat, "pat=%v (%T) value=%v (%T) => full=%v result=%v stems=%v",
                                         pat, pat, v, v, full, s, stems).debug(true, 1)
                         }}
-                        if full, s, stems := pat.match(v); full {
+                        if full, s, stems := pat.match(ctx, v); full {
                                 if neg { v = nil } else if opts.stem {
                                         if len(stems) > 0 { s = stems[0] }
                                         v = MakeString(v.Position(), s)
@@ -1559,7 +1734,7 @@ func filterValues(pats []Value, opts builtinFilterOpts, neg bool, values... Valu
                 }
                 if neg { return v } else { return nil }
         }
-        if values, err = mergeresult(Reveal(values...)); err != nil {
+        if values, err = mergeresult(Reveal(ctx, values...)); err != nil {
                 diag.errorOf(values[0], "%v", err).debug(1)
                 return
         }
@@ -1571,26 +1746,25 @@ func filterValues(pats []Value, opts builtinFilterOpts, neg bool, values... Valu
         return
 }
 
-func filterValues1(pos Position, neg bool, args... Value) (res Value) {
-        var err error
+func filterValues1(ctx Context, neg bool, args... Value) (res Value) {
+        var ( pos = ctx.Position(); err error )
         if len(args) > 1 {
                 var (
                         opts builtinFilterOpts
                         pats []Value
                         vals []Value
                 )
-                if pats, err = mergeresult2(expandall2(expandPlainValue, args[0])); err != nil {
+                if pats, err = mergeresult2(expandall2(ctx, expandPlainValue, args[0])); err != nil {
                         diag.errorAt(pos, "merge patterns '%v' failed: %v", args[0], err).debug(1)
                         return
-                } else if pats, err = parseOpts(pos, &opts, pats...); err != nil {
+                } else if pats, err = parseOpts(ctx, &opts, pats...); err != nil {
                         diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
                         return
-                }
-                if vals, err = mergeresult2(expandall2(expandPlainValue, args[1:]...)); err != nil {
+                } else if vals, err = mergeresult2(expandall2(ctx, expandPlainValue, args[1:]...)); err != nil {
                         diag.errorAt(pos, "merge values failed: %v", err).debug(1)
                         return
                 }
-                if vals, err = filterValues(pats, opts, neg, vals...); err == nil {
+                if vals, err = filterValues(ctx, pats, opts, neg, vals...); err == nil {
                         res = MakeListOrScalar(pos, vals)
                 }
         }
@@ -1598,21 +1772,21 @@ func filterValues1(pos Position, neg bool, args... Value) (res Value) {
         return
 }
 
-func builtinFilter(pos Position, args... Value) (res Value) {
+func builtinFilter(ctx Context, args... Value) (res Value) {
         // $(filter pattern…,text)
-        res = filterValues1(pos, false, args...)
+        res = filterValues1(ctx, false, args...)
         return
 }
 
-func builtinFilterOut(pos Position, args... Value) (res Value) {
+func builtinFilterOut(ctx Context, args... Value) (res Value) {
         // $(filter-out pattern…,text)
-        res = filterValues1(pos, true, args...)
+        res = filterValues1(ctx, true, args...)
         return
 }
 
-func builtinSubstring(pos Position, args... Value) (res Value) {
-        var err error
-        if args, err = mergeresult2(expandall2(expandPlainValue, args...)); err != nil {
+func builtinSubstring(ctx Context, args... Value) (res Value) {
+        var ( pos = ctx.Position(); err error )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
                 diag.errorAt(pos, "merge args failed: %v", err).debug(1)
                 return
         }
@@ -1620,13 +1794,13 @@ func builtinSubstring(pos Position, args... Value) (res Value) {
         var list []Value
         if n := len(args); n > 1 {
                 var ( i1, i2 int )
-                if i1, err = intVal(args[0], -1); err != nil {
+                if i1, err = intVal(ctx, args[0], -1); err != nil {
                         diag.errorAt(pos, "%v", err).debug(1)
                         return
                 } else {
                         args = args[1:]
                 }
-                if i2, err = intVal(args[0], -1); err != nil {
+                if i2, err = intVal(ctx, args[0], -1); err != nil {
                         if _, ok := err.(*strconv.NumError); ok {
                                 err = nil // ignore
                         } else {
@@ -1646,7 +1820,7 @@ func builtinSubstring(pos Position, args... Value) (res Value) {
 
                 for _, arg := range args {
                         var s string
-                        if s, err = arg.Strval(); err != nil {
+                        if s, err = arg.Strval(ctx); err != nil {
                                 diag.errorAt(pos, "strval '%v' failed: %v", arg, err).debug(1)
                                 return
                         }
@@ -1660,17 +1834,27 @@ func builtinSubstring(pos Position, args... Value) (res Value) {
 }
 
 // $(subst from,to,text)
-func builtinSubst(pos Position, args... Value) (res Value) {
-        var err error
-        var list []Value
+func builtinSubst(ctx Context, args... Value) (res Value) {
+        var ( pos = ctx.Position(); list []Value; err error )
         if nargs := len(args); nargs > 2 {
-                var s, s1, s2 string
-                if s1, err = args[0].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                if s2, err = args[1].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                var a []Value
-                if a, err = mergeresult(Reveal(args[2:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
+                var ( a []Value; s, s1, s2 string )
+                if s1, err = args[0].Strval(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
+                }
+                if s2, err = args[1].Strval(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
+                }
+                if a, err = mergeresult2(expandall2(ctx, expandDelegate, args[2:]...)); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
+                }
                 for _, arg := range a {
-                        if s, err = arg.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if s, err = arg.Strval(ctx); err != nil {
+                                diag.errorAt(pos, "%v", err).debug(1)
+                                return
+                        }
                         list = append(list, MakeString(pos, strings.Replace(s, s1, s2, -1)))
                 }
         }
@@ -1690,12 +1874,13 @@ type builtinPatsubstOpts struct {
 // TODO:
 //   $(var:pattern=replacement)
 //   $(var:suffix=replacement)
-func builtinPatsubst(pos Position, args... Value) (res Value) {
+func builtinPatsubst(ctx Context, args... Value) (res Value) {
         var list []Value
         if len(args) < 3 { return }
 
         var (
-                proj = current()
+                pos = ctx.Position()
+                proj = ctx.Project() //current()
                 opts builtinPatsubstOpts
                 arg0 []Value
                 err error
@@ -1704,11 +1889,11 @@ func builtinPatsubst(pos Position, args... Value) (res Value) {
                 diag.errorAt(pos, "unknown current context").debug(1)
                 return
         }
-        if arg0, err = mergeresult(ExpandAll(args[0])); err != nil {
+        if arg0, err = mergeresult2(expandall2(ctx, expandPlainValue, args[0])); err != nil {
                 diag.errorAt(pos, "merge args failed: %v", err).debug(1)
                 return
         }
-        if arg0, err = parseOpts(pos, &opts, arg0...) ; err != nil {
+        if arg0, err = parseOpts(ctx, &opts, arg0...) ; err != nil {
                 diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
                 return
         }
@@ -1720,17 +1905,17 @@ func builtinPatsubst(pos Position, args... Value) (res Value) {
         var srcPats, dstPats, sources []Value
         if len(arg0) > 0 {
                 srcPats = arg0
-                if dstPats, err = mergeresult(ExpandAll(args[1]))    ; err != nil { diag.errorAt(pos, "%v", err); return }
-                if sources, err = mergeresult(ExpandAll(args[2:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
+                if dstPats, err = mergeresult2(expandall2(ctx, expandPlainValue, args[1]))    ; err != nil { diag.errorAt(pos, "%v", err); return }
+                if sources, err = mergeresult2(expandall2(ctx, expandPlainValue, args[2:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
                 if infos {
                         diag.infoAt(pos, "src: %v", srcPats)
                         diag.infoAt(pos, "dst: %v", dstPats)
                         diag.infoAt(pos, "%v", sources).debug(1)
                 }
         } else {
-                if srcPats, err = mergeresult(ExpandAll(args[1]))    ; err != nil { diag.errorAt(pos, "%v", err); return }
-                if dstPats, err = mergeresult(ExpandAll(args[2]))    ; err != nil { diag.errorAt(pos, "%v", err); return }
-                if sources, err = mergeresult(ExpandAll(args[3:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
+                if srcPats, err = mergeresult2(expandall2(ctx, expandPlainValue, args[1]))    ; err != nil { diag.errorAt(pos, "%v", err); return }
+                if dstPats, err = mergeresult2(expandall2(ctx, expandPlainValue, args[2]))    ; err != nil { diag.errorAt(pos, "%v", err); return }
+                if sources, err = mergeresult2(expandall2(ctx, expandPlainValue, args[3:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
                 if infos {
                         diag.infoAt(pos, "src: %v", srcPats)
                         diag.infoAt(pos, "dst: %v", dstPats)
@@ -1742,7 +1927,7 @@ func builtinPatsubst(pos Position, args... Value) (res Value) {
         defer setclosure(setclosure(cloctx.unshift(proj.scope)))
 
         var filemaps []*FileMap
-        if !opts.noFileMap { filemaps = proj.filemaps(false) }
+        if !opts.noFileMap { filemaps = proj.filemaps(ctx, false) }
 
 ForSources:
         for _, src := range sources {
@@ -1751,11 +1936,11 @@ ForSources:
                         var s string
                         if file, ok := src.(*File); ok {
                                 source = file
-                        } else if s, err = src.Strval(); err != nil {
+                        } else if s, err = src.Strval(ctx); err != nil {
                                 diag.errorOf(src, "strval '%v' failed: %v", src, err)
                                 diag.errorAt(pos, "called from here", src).debug(1)
                                 return
-                        } else if file = proj.FindFile(s); file != nil {
+                        } else if file = proj.FindFile(ctx, s); file != nil {
                                 if (opts.full || opts.fullfiles) && !filepath.IsAbs(file.name) {
                                         if !file.change("", "", file.fullname()) {
                                                 diag.warnAt(pos, "changing fullname failed: %v", file).debug(1)
@@ -1765,7 +1950,7 @@ ForSources:
                         }
                 } else if opts.full {
                         var ( s string; ok bool )
-                        if _, s, ok, err = asOptFullname(proj, src); err != nil {
+                        if _, s, ok, err = asOptFullname(ctx, proj, src); err != nil {
                                 diag.errorOf(src, "fullname '%v' failed: %v", src, err)
                                 diag.errorAt(pos, "called from here", src).debug(1)
                                 return
@@ -1785,7 +1970,7 @@ ForSources:
                 var ( matched bool; str string; stems []string )
         ForSrcPats:
                 for _, elem := range srcPats {
-                        if matched, str, stems = elem.match(source); matched {
+                        if matched, str, stems = elem.match(ctx, source); matched {
                                 break ForSrcPats
                         } else if infos {
                                 diag.infoAt(pos, "source=%v (%T) elem=%v (%T) str=%s stems=%v",
@@ -1801,7 +1986,7 @@ ForSources:
                 // Compose the matched results with stem value.
         ForDstPats:
                 for _, dst := range dstPats {
-                        var name, rest = dst.stencil(stems)
+                        var name, rest = dst.stencil(ctx, stems)
                         if name == "" || len(rest) > 0 {
                                 continue ForDstPats
                         } else if opts.cleanPath {
@@ -1817,7 +2002,7 @@ ForSources:
                                         match *FileMap
                                 )
                                 for _, m := range filemaps {
-                                        if ok, s := m.Match(name); ok {
+                                        if ok, s := m.Match(ctx, name); ok {
                                                 match, pre = m, s
                                                 break
                                         }
@@ -1825,9 +2010,9 @@ ForSources:
 
                                 var file *File
                                 if match != nil {
-                                        if file = match.stat(t.dir, pre, name); file != nil {
+                                        if file = match.stat(ctx, t.dir, pre, name); file != nil {
                                                 assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (t.dir=%s, pre=%s)", file.name, name, t.dir, pre))
-                                        } else if file = match.stat(proj.absPath, pre, name); file != nil {
+                                        } else if file = match.stat(ctx, proj.absPath, pre, name); file != nil {
                                                 assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (proj.absPath=%s, pre=%s)", file.name, name, proj.absPath, pre))
                                         } /* else if match.Paths != nil {
                                                 var ( path = match.Paths[0] ; sub string )
@@ -1840,7 +2025,7 @@ ForSources:
                                         } */
                                 }
                                 if file == nil {
-                                        file = stat(pos, name, t.sub, t.dir, nil/* okay missing */)
+                                        file = stat(ctx, name, t.sub, t.dir, nil/* okay missing */)
                                 }
 
                                 list = append(list, file)
@@ -1857,18 +2042,18 @@ ForSources:
         return
 }
 
-func builtinStrip(pos Position, args... Value) (res Value) {
-        return builtinTrimSpace(pos, args...)
+func builtinStrip(ctx Context, args... Value) (res Value) {
+        return builtinTrimSpace(ctx, args...)
 }
 
-func builtinTrimSpace(pos Position, args... Value) (res Value) {
-        return builtinTrim(pos, append([]Value{MakeNone(pos)}, args...)...)
+func builtinTrimSpace(ctx Context, args... Value) (res Value) {
+        return builtinTrim(ctx, append([]Value{MakeNone(ctx.Position())}, args...)...)
 }
 
-func builtinTitle(pos Position, args... Value) (res Value) {
-        var err error
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                diag.errorAt(pos, "merge args failed: %v", err)
+func builtinTitle(ctx Context, args... Value) (res Value) {
+        var ( pos = ctx.Position(); err error )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err).debug(1)
                 return
         }
 
@@ -1877,8 +2062,8 @@ func builtinTitle(pos Position, args... Value) (res Value) {
                 s string
         )
         for _, a := range args {
-                if s, err = a.Strval(); err != nil {
-                        diag.errorOf(a, "stringify '%v' failed: %v", a, err)
+                if s, err = a.Strval(ctx); err != nil {
+                        diag.errorOf(a, "stringify '%v' failed: %v", a, err).debug(1)
                         return
                 } else if s != "" {
                         list = append(list, MakeString(a.Position(), strings.Title(s)))
@@ -1890,20 +2075,21 @@ func builtinTitle(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinUpperCase(pos Position, args... Value) (res Value) {
-        var err error
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                diag.errorAt(pos, "merge args failed: %v", err)
+func builtinUpperCase(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                list []Value
+                s string
+                err error
+        )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err).debug(1)
                 return
         }
 
-        var (
-                list []Value
-                s string
-        )
         for _, a := range args {
-                if s, err = a.Strval(); err != nil {
-                        diag.errorOf(a, "stringify '%v' failed: %v", a, err)
+                if s, err = a.Strval(ctx); err != nil {
+                        diag.errorOf(a, "stringify '%v' failed: %v", a, err).debug(1)
                         return
                 } else if s != "" {
                         list = append(list, MakeString(a.Position(), strings.ToUpper(s)))
@@ -1915,20 +2101,21 @@ func builtinUpperCase(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinLowerCase(pos Position, args... Value) (res Value) {
-        var err error
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                diag.errorAt(pos, "merge args failed: %v", err)
+func builtinLowerCase(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                list []Value
+                s string
+                err error
+        )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err).debug(1)
                 return
         }
 
-        var (
-                list []Value
-                s string
-        )
         for _, a := range args {
-                if s, err = a.Strval(); err != nil {
-                        diag.errorOf(a, "stringify '%v' failed: %v", a, err)
+                if s, err = a.Strval(ctx); err != nil {
+                        diag.errorOf(a, "stringify '%v' failed: %v", a, err).debug(1)
                         return
                 } else if s != "" {
                         list = append(list, MakeString(a.Position(), strings.ToLower(s)))
@@ -1940,17 +2127,22 @@ func builtinLowerCase(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinTrim(pos Position, args... Value) (res Value) {
-        var err error
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
-
+func builtinTrim(ctx Context, args... Value) (res Value) {
         var (
-                list []Value
+                pos = ctx.Position()
                 cutset, s string
+                list []Value
+                err error
         )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        }
+
         for i, a := range args {
-                if s, err = a.Strval(); err != nil {
-                        diag.errorAt(pos, "%v", err); return
+                if s, err = a.Strval(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
                 } else if s != "" {
                         if i == 0 {
                                 cutset = s
@@ -1967,16 +2159,21 @@ func builtinTrim(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinTrimLeft(pos Position, args... Value) (res Value) {
-        var err error
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
-
+func builtinTrimLeft(ctx Context, args... Value) (res Value) {
         var (
-                list []Value
+                pos = ctx.Position()
                 cutset, s string
+                list []Value
+                err error
         )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        }
+
         for i, a := range args {
-                if s, err = a.Strval(); err != nil {
+                if s, err = a.Strval(ctx); err != nil {
+                        diag.errorAt(a.Position(), "%v", err).debug(1)
                         return
                 } else if s != "" {
                         if i == 0 {
@@ -1994,17 +2191,22 @@ func builtinTrimLeft(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinTrimRight(pos Position, args... Value) (res Value) {
-        var err error
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
-
+func builtinTrimRight(ctx Context, args... Value) (res Value) {
         var (
-                list []Value
+                pos = ctx.Position()
                 cutset, s string
+                list []Value
+                err error
         )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        }
+
         for i, a := range args {
-                if s, err = a.Strval(); err != nil {
-                        diag.errorAt(pos, "%v", err); return
+                if s, err = a.Strval(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
                 } else if s != "" {
                         if i == 0 {
                                 cutset = s
@@ -2024,21 +2226,22 @@ func builtinTrimRight(pos Position, args... Value) (res Value) {
 // $(trim-prefix foo%, fooxxx foo123)
 // $(trim-prefix %/foo, xxx/foo/a/b/c)
 // $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
-func builtinTrimPrefix(pos Position, args... Value) (res Value) {
+func builtinTrimPrefix(ctx Context, args... Value) (res Value) {
         const info = false
         var (
+                pos = ctx.Position()
                 prefixs, values, list []Value
                 err error
         )
         if len(args) == 0 { return } else
-        if prefixs, err = mergeresult(ExpandAll(args[0])); err != nil {
-                diag.errorOf(args[0], "merge args '%v' failed: %v", args[0], err)
+        if prefixs, err = mergeresult2(expandall2(ctx, expandPlainValue, args[0])); err != nil {
+                diag.errorOf(args[0], "merge args '%v' failed: %v", args[0], err).debug(1)
                 return
         }
         if len(args) == 1 {
                 if len(prefixs) > 1 { values = prefixs[1:] }
-        } else if values, err = mergeresult(ExpandAll(args[1:]...)); err != nil {
-                diag.errorOf(args[1], "merge args '%v' failed: %v", args[1:], err)
+        } else if values, err = mergeresult2(expandall2(ctx, expandPlainValue, args[1:]...)); err != nil {
+                diag.errorOf(args[1], "merge args '%v' failed: %v", args[1:], err).debug(1)
                 return
         }
         if len(values) == 0 { return } else if len(prefixs) == 0 {
@@ -2050,13 +2253,13 @@ func builtinTrimPrefix(pos Position, args... Value) (res Value) {
                         pos = value.Position()
                         s string
                 )
-                if s, err = value.Strval(); err != nil {
-                        diag.errorOf(value, "strval '%v' failed: %v", value, err)
+                if s, err = value.Strval(ctx); err != nil {
+                        diag.errorOf(value, "strval '%v' failed: %v", value, err).debug(1)
                         return
                 }
         ForPrefix:
                 for _, prefix := range prefixs {
-                        var full, cutset, stems = prefix.match(value)
+                        var full, cutset, stems = prefix.match(ctx, value)
                         if info { diag.warnOf(prefix, "prefix=%v (%T); value=%v (%T) -> full=%v cutset=%v stems=%v",
                                 prefix, prefix, value, value, full, cutset, stems).debug(true, 1) }
                         if s != "" && (cutset == "" || strings.HasPrefix(s, cutset)) {
@@ -2076,17 +2279,22 @@ func builtinTrimPrefix(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinTrimSuffix(pos Position, args... Value) (res Value) {
-        var err error
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
-
+func builtinTrimSuffix(ctx Context, args... Value) (res Value) {
         var (
-                list []Value
+                pos = ctx.Position()
                 cutset, s string
+                list []Value
+                err error
         )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        }
+
         for i, a := range args {
-                if s, err = a.Strval(); err != nil {
-                        diag.errorAt(pos, "%v", err); return
+                if s, err = a.Strval(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
                 } else if s != "" {
                         if i == 0 {
                                 cutset = s
@@ -2103,19 +2311,22 @@ func builtinTrimSuffix(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinTrimExt(pos Position, args... Value) (res Value) {
-        var err error
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
+func builtinTrimExt(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                list []Value
+                err error
+        )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        }
 
-        var list []Value
         for i, a := range args {
-                /*switch _ := a.(type) {
-                case *File:
-                        fmt.Fprintf(stderr, "todo: trim-ext File{%v %v %v}\n", t.dir, t.sub, t.name)
-                }*/
                 var ext, s string
-                if s, err = a.Strval(); err != nil {
-                        diag.errorAt(pos, "%v", err); return
+                if s, err = a.Strval(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
                 } else if s != "" {
                         if i == 0 && len(args) > 1 {
                                 ext = s
@@ -2132,8 +2343,9 @@ func builtinTrimExt(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinIndent(pos Position, args... Value) (res Value) {
+func builtinIndent(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 l []Value
                 s string // indent
                 err error
@@ -2151,8 +2363,9 @@ func builtinIndent(pos Position, args... Value) (res Value) {
                         lines []string
                         v string
                 )
-                if v, err = a.Strval(); err != nil {
-                        diag.errorAt(pos, "%v", err); return
+                if v, err = a.Strval(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
                 }
                 for _, line := range strings.Split(v, "\n") {
                         lines = append(lines, s + line)
@@ -2163,7 +2376,7 @@ func builtinIndent(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinFindstring(pos Position, args... Value) (res Value) {
+func builtinFindstring(ctx Context, args... Value) (res Value) {
         // TODO: $(findstring find,text)
         return
 }
@@ -2177,26 +2390,27 @@ type builtinContainsOpts struct {
         verbose bool `v,verbose`
         string bool `s,string`
 }
-func builtinContains(pos Position, args... Value) (res Value) {
-        if len(args) < 2 {
-                diag.errorAt(pos, "unexpected number of arguments, try $(contains a b c1 -or c2, v1 v2 …)").debug(1)
-                return
-        }
-
+func builtinContains(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 opts builtinContainsOpts
                 vals []Value
                 list []Value
                 err error
         )
-        if vals, err = mergeresult2(expandall2(expandPlainValue, args[0])); err != nil {
+        if len(args) < 2 {
+                diag.errorAt(pos, "unexpected number of arguments, try $(contains a b c1 -or c2, v1 v2 …)").debug(1)
+                return
+        }
+
+        if vals, err = mergeresult2(expandall2(ctx, expandPlainValue, args[0])); err != nil {
                 diag.errorAt(pos, "expand args failed: %v", err).debug(1)
                 return
-        } else if vals, err = parseOpts(pos, &opts, vals...); err != nil {
+        } else if vals, err = parseOpts(ctx, &opts, vals...); err != nil {
                 diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
                 return
         }
-        if list, err = mergeresult2(expandall2(expandPlainValue, args[1:]...)); err != nil {
+        if list, err = mergeresult2(expandall2(ctx, expandPlainValue, args[1:]...)); err != nil {
                 diag.errorAt(pos, "expand args failed: %v", err).debug(1)
                 return
         }
@@ -2207,13 +2421,13 @@ func builtinContains(pos Position, args... Value) (res Value) {
                 switch v := val.(type) {
                 default: va = []Value{ val }
                 case *Flag:
-                        if s, err = v.name.Strval(); err != nil {
+                        if s, err = v.name.Strval(ctx); err != nil {
                                 diag.errorAt(pos, "strval '%v' failed: %v", v.name, err).debug(1)
                                 return
                         } else if s == "or" { va, x = append(va, val), x-1; continue }
                 case *Pair: // FIXME: -or=(c1 c2 c3)
                         if f, ok := v.Key.(*Flag); !ok {va = []Value{ val }} else {
-                                if s, err = f.name.Strval(); err != nil {
+                                if s, err = f.name.Strval(ctx); err != nil {
                                         diag.errorAt(pos, "strval '%v' failed: %v", f.name, err).debug(1)
                                         return
                                 } else if s == "or" { va, x = append(va, v.Value), x-1; continue }
@@ -2225,16 +2439,16 @@ func builtinContains(pos Position, args... Value) (res Value) {
                         for _, a := range va {
                                 if opts.string {
                                         var r string
-                                        if r, err = v.Strval(); err != nil {
+                                        if r, err = v.Strval(ctx); err != nil {
                                                 diag.errorAt(pos, "strval '%v' failed: %v", v, err).debug(1)
                                                 return
                                         }
-                                        if s, err = a.Strval(); err != nil {
+                                        if s, err = a.Strval(ctx); err != nil {
                                                 diag.errorAt(pos, "strval '%v' failed: %v", a, err).debug(1)
                                                 return
                                         }
                                         if r != s { continue ForList }
-                                } else if a.cmp(v) != cmpEqual { continue ForList }
+                                } else if a.cmp(ctx, v) != cmpEqual { continue ForList }
                         }
                         n += 1 // one matched
                 }
@@ -2247,43 +2461,44 @@ func builtinContains(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinSort(pos Position, args... Value) (res Value) {
+func builtinSort(ctx Context, args... Value) (res Value) {
         // TODO: $(sort list)
         return
 }
 
-func builtinWord(pos Position, args... Value) (res Value) {
+func builtinWord(ctx Context, args... Value) (res Value) {
         // TODO: $(word n,text)
         return
 }
 
-func builtinWordList(pos Position, args... Value) (res Value) {
+func builtinWordList(ctx Context, args... Value) (res Value) {
         // TODO: $(wordlist s,e,text)
         return
 }
 
-func builtinWords(pos Position, args... Value) (res Value) {
+func builtinWords(ctx Context, args... Value) (res Value) {
         // TODO: $(words n,text)
         return
 }
 
-func builtinFirstWord(pos Position, args... Value) (res Value) {
+func builtinFirstWord(ctx Context, args... Value) (res Value) {
         // TODO: $(firstword names...)
         return
 }
 
-func builtinLastWord(pos Position, args... Value) (res Value) {
+func builtinLastWord(ctx Context, args... Value) (res Value) {
         // TODO: $(lastword names...)
         return
 }
 
-func builtinEncodeBase64(pos Position, args... Value) (res Value) {
+func builtinEncodeBase64(ctx Context, args... Value) (res Value) {
         if len(args) > 0 {
+                pos := ctx.Position()
                 buf := new(bytes.Buffer)
                 enc := base64.NewEncoder(base64.StdEncoding, buf)
                 for _, a := range args {
                         var ( s string; err error )
-                        if s, err = a.Strval(); err != nil {
+                        if s, err = a.Strval(ctx); err != nil {
                                 diag.errorAt(pos, "strval '%v' failed: %v", a, err).debug(1)
                                 return
                         }
@@ -2295,16 +2510,16 @@ func builtinEncodeBase64(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinDecodeBase64(pos Position, args... Value) (res Value) {
+func builtinDecodeBase64(ctx Context, args... Value) (res Value) {
         if len(args) > 0 {
-                var list []Value
+                var ( pos = ctx.Position(); list []Value )
                 for _, a := range args {
                         var (
                                 dat []byte
                                 s string
                                 err error
                         )
-                        if s, err = a.Strval(); err != nil {
+                        if s, err = a.Strval(ctx); err != nil {
                                 diag.errorAt(pos, "strval '%v' failed: %v", a, err).debug(1)
                                 return
                         } else if dat, err = base64.StdEncoding.DecodeString(s); err != nil {
@@ -2330,8 +2545,8 @@ func asFile(a Value) (f *File) {
         return
 }
 
-func fullname(a Value) (s string, ok bool) {
-        if v, err := a.expand(expandFullName); err != nil {
+func fullname(ctx Context, a Value) (s string, ok bool) {
+        if v, err := a.expand(ctx, expandFullName); err != nil {
                 diag.errorOf(a, "expand fullname failed: %v", err).debug(1)
         } else {
                 if isNil(v) { v = a }
@@ -2351,26 +2566,26 @@ func fullname1(a Value) (s string, ok bool) {
         return
 }
 
-func fullnameOrStrval(a Value) (s string, err error) {
+func fullnameOrStrval(ctx Context, a Value) (s string, err error) {
         var ok bool
-        if s, ok = fullname(a); !ok {
-                s, err = a.Strval()
+        if s, ok = fullname(ctx, a); !ok {
+                s, err = a.Strval(ctx)
         }
         return
 }
 
 // see optFullname and parseOpt
-func asOptFullname(proj *Project, val Value) (rp *Project, s string, ok bool, e error) {
-        if proj == nil { proj = current() }
-        if s, ok = fullname(val); ok {
+func asOptFullname(ctx Context, proj *Project, val Value) (rp *Project, s string, ok bool, e error) {
+        if proj == nil { proj = /*current()*/ctx.Project() }
+        if s, ok = fullname(ctx, val); ok {
                 // done
         } else if proj == nil {
                 diag.errorOf(val, "no current project to find file '%v'", val).debug(1)
-        } else if s, e = val.Strval(); e != nil {
+        } else if s, e = val.Strval(ctx); e != nil {
                 diag.errorOf(val, "strval '%v' failed: %v", val, e).debug(1)
         } else if filepath.IsAbs(s) {
                 ok = true
-        } else if file := proj.FindFile(s); file != nil {
+        } else if file := proj.FindFile(ctx, s); file != nil {
                 s, ok = file.fullname(), true
         }
         rp = proj
@@ -2380,8 +2595,9 @@ func asOptFullname(proj *Project, val Value) (rp *Project, s string, ok bool, e 
 type builtinFullNameOpts struct {
         debug int `d,debug`
 }
-func builtinFullName(pos Position, args... Value) (res Value) {
+func builtinFullName(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 opts builtinFullNameOpts
                 proj *Project
                 l []Value
@@ -2389,10 +2605,10 @@ func builtinFullName(pos Position, args... Value) (res Value) {
                 s string
                 ok bool
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
                 diag.errorAt(pos, "merge args failed: %v", err).debug(1)
                 return
-        } else if args, err = parseOpts(pos, &opts, args...) ; err != nil {
+        } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
                 diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
                 return
         }
@@ -2405,7 +2621,7 @@ func builtinFullName(pos Position, args... Value) (res Value) {
                                 diag.warnAt(pos, "%T %v", a, a).debug(opts.debug,1)
                         }
                 }
-                if proj, s, ok, err = asOptFullname(proj, a); err != nil {
+                if proj, s, ok, err = asOptFullname(ctx, proj, a); err != nil {
                         diag.errorAt(pos, "fullname '%v' failed: %v", a, err).debug(1)
                         break
                 } else if ok || s != "" {
@@ -2422,23 +2638,24 @@ type builtinBaseOpts struct {
         debug int `d,debug`
         fullname bool `f,full;fn,fullname` // unused
 }
-func builtinBase(pos Position, args... Value) (res Value) {
+func builtinBase(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 opts builtinBaseOpts
+                l []Value
                 err error
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
                 diag.errorAt(pos, "merge args failed: %v", err).debug(1)
                 return
-        } else if args, err = parseOpts(pos, &opts, args...) ; err != nil {
+        } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
                 diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
                 return
         }
 
-        var l []Value
         for _, a := range args {
                 var s string
-                if s, err = fullnameOrStrval(a); err != nil {
+                if s, err = fullnameOrStrval(ctx, a); err != nil {
                         diag.errorAt(pos, "fullname '%v' failed : %v", a, err).debug(1)
                         return
                 }
@@ -2448,14 +2665,15 @@ func builtinBase(pos Position, args... Value) (res Value) {
         return
 }
 
-func dirx(pos Position, n int, args... Value) (res Value) {
+func dirx(ctx Context, n int, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 l []Value
                 s string
                 err error
         )
         for _, a := range args {
-                if s, err = fullnameOrStrval(a); err != nil {
+                if s, err = fullnameOrStrval(ctx, a); err != nil {
                         diag.errorAt(pos, "fullname '%v' failed : %v", a, err).debug(1)
                         return
                 }
@@ -2469,14 +2687,15 @@ func dirx(pos Position, n int, args... Value) (res Value) {
         return
 }
 
-func undirx(pos Position, n int, args... Value) (res Value) {
+func undirx(ctx Context, n int, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 l []Value
                 s string
                 err error
         )
         for _, a := range args {
-                if s, err = fullnameOrStrval(a); err != nil {
+                if s, err = fullnameOrStrval(ctx, a); err != nil {
                         diag.errorAt(pos, "fullname '%v' failed : %v", a, err).debug(1)
                         return
                 }
@@ -2497,30 +2716,31 @@ func undirx(pos Position, n int, args... Value) (res Value) {
 type builtinDirOpts struct {
         fullname bool `f,full;fn,fullname`
 }
-func builtinDir(pos Position, args... Value) (res Value) {
+func builtinDir(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 opts builtinDirOpts
                 proj *Project
                 l []Value
                 err error
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
                 diag.errorAt(pos, "merge args failed: %v", err).debug(1)
                 return
-        } else if args, err = parseOpts(pos, &opts, args...) ; err != nil {
+        } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
                 diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
                 return
         }
         for _, a := range args {
                 var s string
                 if opts.fullname {
-                        if proj, s, _, err = asOptFullname(proj, a); err != nil {
+                        if proj, s, _, err = asOptFullname(ctx, proj, a); err != nil {
                                 diag.errorAt(pos, "fullname '%v' failed: %v", a, err).debug(1)
                                 break
                         }
                 }
                 if !opts.fullname || s == "" {
-                        if s, err = a.Strval(); err != nil {
+                        if s, err = a.Strval(ctx); err != nil {
                                 diag.errorAt(pos, "strval '%v' failed: %v", a, err).debug(1)
                                 return
                         }
@@ -2531,40 +2751,40 @@ func builtinDir(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinDir2(pos Position, args... Value) (res Value) {
-        return dirx(pos, 2, args...)
+func builtinDir2(ctx Context, args... Value) (res Value) {
+        return dirx(ctx, 2, args...)
 }
 
-func builtinDir3(pos Position, args... Value) (res Value) {
-        return dirx(pos, 3, args...)
+func builtinDir3(ctx Context, args... Value) (res Value) {
+        return dirx(ctx, 3, args...)
 }
 
-func builtinDir4(pos Position, args... Value) (res Value) {
-        return dirx(pos, 4, args...)
+func builtinDir4(ctx Context, args... Value) (res Value) {
+        return dirx(ctx, 4, args...)
 }
 
-func builtinDir5(pos Position, args... Value) (res Value) {
-        return dirx(pos, 5, args...)
+func builtinDir5(ctx Context, args... Value) (res Value) {
+        return dirx(ctx, 5, args...)
 }
 
-func builtinDir6(pos Position, args... Value) (res Value) {
-        return dirx(pos, 6, args...)
+func builtinDir6(ctx Context, args... Value) (res Value) {
+        return dirx(ctx, 6, args...)
 }
 
-func builtinDir7(pos Position, args... Value) (res Value) {
-        return dirx(pos, 7, args...)
+func builtinDir7(ctx Context, args... Value) (res Value) {
+        return dirx(ctx, 7, args...)
 }
 
-func builtinDir8(pos Position, args... Value) (res Value) {
-        return dirx(pos, 8, args...)
+func builtinDir8(ctx Context, args... Value) (res Value) {
+        return dirx(ctx, 8, args...)
 }
 
-func builtinDir9(pos Position, args... Value) (res Value) {
-        return dirx(pos, 9, args...)
+func builtinDir9(ctx Context, args... Value) (res Value) {
+        return dirx(ctx, 9, args...)
 }
 
-func builtinDirs(pos Position, args... Value) (res Value) {
-        var n int
+func builtinDirs(ctx Context, args... Value) (res Value) {
+        var ( pos = ctx.Position(); n int )
         if x := len(args); x > 0 {
                 if v, ok := Scalar(args[0]).(*Int); ok {
                         args, n = args[1:], int(v.int64)
@@ -2575,48 +2795,48 @@ func builtinDirs(pos Position, args... Value) (res Value) {
                         return
                 }
         }
-        res = dirx(pos, n, args...)
+        res = dirx(ctx, n, args...)
         return
 }
 
-func builtinUndir(pos Position, args... Value) (res Value) {
-        return undirx(pos, 1, args...)
+func builtinUndir(ctx Context, args... Value) (res Value) {
+        return undirx(ctx, 1, args...)
 }
 
-func builtinUndir2(pos Position, args... Value) (res Value) {
-        return undirx(pos, 2, args...)
+func builtinUndir2(ctx Context, args... Value) (res Value) {
+        return undirx(ctx, 2, args...)
 }
 
-func builtinUndir3(pos Position, args... Value) (res Value) {
-        return undirx(pos, 3, args...)
+func builtinUndir3(ctx Context, args... Value) (res Value) {
+        return undirx(ctx, 3, args...)
 }
 
-func builtinUndir4(pos Position, args... Value) (res Value) {
-        return undirx(pos, 4, args...)
+func builtinUndir4(ctx Context, args... Value) (res Value) {
+        return undirx(ctx, 4, args...)
 }
 
-func builtinUndir5(pos Position, args... Value) (res Value) {
-        return undirx(pos, 5, args...)
+func builtinUndir5(ctx Context, args... Value) (res Value) {
+        return undirx(ctx, 5, args...)
 }
 
-func builtinUndir6(pos Position, args... Value) (res Value) {
-        return undirx(pos, 6, args...)
+func builtinUndir6(ctx Context, args... Value) (res Value) {
+        return undirx(ctx, 6, args...)
 }
 
-func builtinUndir7(pos Position, args... Value) (res Value) {
-        return undirx(pos, 7, args...)
+func builtinUndir7(ctx Context, args... Value) (res Value) {
+        return undirx(ctx, 7, args...)
 }
 
-func builtinUndir8(pos Position, args... Value) (res Value) {
-        return undirx(pos, 8, args...)
+func builtinUndir8(ctx Context, args... Value) (res Value) {
+        return undirx(ctx, 8, args...)
 }
 
-func builtinUndir9(pos Position, args... Value) (res Value) {
-        return undirx(pos, 9, args...)
+func builtinUndir9(ctx Context, args... Value) (res Value) {
+        return undirx(ctx, 9, args...)
 }
 
-func builtinUndirs(pos Position, args... Value) (res Value) {
-        var n = 0
+func builtinUndirs(ctx Context, args... Value) (res Value) {
+        var ( pos = ctx.Position() ; n = 0 )
         if x := len(args); x > 0 {
                 if v, ok := Scalar(args[0]).(*Int); ok {
                         args, n = args[1:], int(v.int64)
@@ -2627,11 +2847,12 @@ func builtinUndirs(pos Position, args... Value) (res Value) {
                         return
                 }
         }
-        return undirx(pos, n, args...)
+        return undirx(ctx, n, args...)
 }
 
-func builtinDirChop(pos Position, args... Value) (res Value) {
+func builtinDirChop(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 err error
                 l []Value
                 n = 0
@@ -2649,7 +2870,7 @@ func builtinDirChop(pos Position, args... Value) (res Value) {
         }
         for _, a := range args {
                 var s string
-                if s, err = a.Strval(); err != nil {
+                if s, err = a.Strval(ctx); err != nil {
                         diag.errorAt(pos, "strval '%v' failed: %v", err).debug(1)
                         return
                 }
@@ -2671,14 +2892,15 @@ func builtinDirChop(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinRelativeDir(pos Position, args... Value) (res Value) {
+func builtinRelativeDir(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 err error
                 l []Value
                 t, s string
         )
         for i, a := range args {
-                if s, err = a.Strval(); err != nil {
+                if s, err = a.Strval(ctx); err != nil {
                         diag.errorAt(pos, "%v", err)
                         return
                 }
@@ -2695,7 +2917,8 @@ func builtinRelativeDir(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinMkdir(pos Position, args... Value) (res Value) {
+func builtinMkdir(ctx Context, args... Value) (res Value) {
+        var pos = ctx.Position()
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -2705,28 +2928,28 @@ func builtinMkdir(pos Position, args... Value) (res Value) {
                 )
                 switch t := a.(type) {
                 case *Pair: // mkdir name => perm name => perm
-                        if name, err = t.Key.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                        if perm, err = permVal(t.Value,0600); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if name, err = t.Key.Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if perm, err = permVal(ctx, t.Value,0600); err != nil { diag.errorAt(pos, "%v", err); return }
                 case *Group: // mkdir (name perm) (name perm)
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                                if perm, err = permVal(t.Get(1),0600); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if name, err = t.Get(0).Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if perm, err = permVal(ctx, t.Get(1),0600); err != nil { diag.errorAt(pos, "%v", err); return }
                         } else {
                                 diag.errorAt(pos, "Wrong size of list `%v'", t)
                                 break
                         }
                 case *List: // mkdir name perm, name perm, ...
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                                if perm, err = permVal(t.Get(1),0600); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if name, err = t.Get(0).Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if perm, err = permVal(ctx, t.Get(1),0600); err != nil { diag.errorAt(pos, "%v", err); return }
                         } else {
                                 diag.errorAt(pos, "Wrong size of list `%v'", t)
                                 break
                         }
                 default: // mkdir name perm, name perm, ...
-                        if name, err = args[i].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if name, err = args[i].Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
                         if i+1 < nargs {
-                                if perm, err = permVal(args[i+1],0600); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if perm, err = permVal(ctx, args[i+1],0600); err != nil { diag.errorAt(pos, "%v", err); return }
                                 i += 1
                         }
                 }
@@ -2735,7 +2958,8 @@ func builtinMkdir(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinMkdirAll(pos Position, args... Value) (res Value) {
+func builtinMkdirAll(ctx Context, args... Value) (res Value) {
+        var pos = ctx.Position()
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -2745,28 +2969,28 @@ func builtinMkdirAll(pos Position, args... Value) (res Value) {
                 )
                 switch t := a.(type) {
                 case *Pair: // mkdir name => perm name => perm
-                        if name, err = t.Key.Strval(); err != nil { diag.errorOf(t.Key, "%v", err); return }
-                        if perm, err = permVal(t.Value,0600); err != nil { diag.errorOf(t.Value, "%v", err); return }
+                        if name, err = t.Key.Strval(ctx); err != nil { diag.errorOf(t.Key, "%v", err); return }
+                        if perm, err = permVal(ctx, t.Value,0600); err != nil { diag.errorOf(t.Value, "%v", err); return }
                 case *Group: // mkdir (name perm) (name perm)
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(); err != nil { diag.errorOf(t.Get(0), "%v", err); return }
-                                if perm, err = permVal(t.Get(1),0600); err != nil { diag.errorOf(t.Get(1), "%v", err); return }
+                                if name, err = t.Get(0).Strval(ctx); err != nil { diag.errorOf(t.Get(0), "%v", err); return }
+                                if perm, err = permVal(ctx, t.Get(1),0600); err != nil { diag.errorOf(t.Get(1), "%v", err); return }
                         } else {
                                 diag.errorAt(pos, "Wrong size of list `%v'", t);
                                 break
                         }
                 case *List: // mkdir name perm, name perm, ...
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(); err != nil { diag.errorOf(t.Get(0), "%v", err); return }
-                                if perm, err = permVal(t.Get(1),0600); err != nil { diag.errorOf(t.Get(1), "%v", err); return }
+                                if name, err = t.Get(0).Strval(ctx); err != nil { diag.errorOf(t.Get(0), "%v", err); return }
+                                if perm, err = permVal(ctx, t.Get(1),0600); err != nil { diag.errorOf(t.Get(1), "%v", err); return }
                         } else {
                                 diag.errorAt(pos, "Wrong size of list `%v'", t);
                                 break
                         }
                 default: // mkdir name perm, name perm, ...
-                        if name, err = args[i].Strval(); err != nil { diag.errorOf(args[i], "%v", err); return }
+                        if name, err = args[i].Strval(ctx); err != nil { diag.errorOf(args[i], "%v", err); return }
                         if i+1 < nargs {
-                                if perm, err = permVal(args[i+1],0600); err != nil { diag.errorOf(args[i+1], "%v", err); return }
+                                if perm, err = permVal(ctx, args[i+1],0600); err != nil { diag.errorOf(args[i+1], "%v", err); return }
                                 i += 1
                         }
                 }
@@ -2775,10 +2999,11 @@ func builtinMkdirAll(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinChdir(pos Position, args... Value) (res Value) {
+func builtinChdir(ctx Context, args... Value) (res Value) {
+        var pos = ctx.Position()
         if len(args) == 1 {
                 var ( str string; err error )
-                if str, err = args[0].Strval(); err != nil { diag.errorOf(args[0], "%v", err); return }
+                if str, err = args[0].Strval(ctx); err != nil { diag.errorOf(args[0], "%v", err); return }
                 if err = lockCD(str, 0); err != nil { diag.errorAt(pos, "%v", err) }
         } else {
                 diag.errorAt(pos, "wrong number of arguments: %v", len(args))
@@ -2789,7 +3014,7 @@ func builtinChdir(pos Position, args... Value) (res Value) {
 type builtinRenameOpts struct {
         // TODO: ...
 }
-func builtinRename(pos Position, args... Value) (res Value) {
+func builtinRename(ctx Context, args... Value) (res Value) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -2798,28 +3023,28 @@ func builtinRename(pos Position, args... Value) (res Value) {
                 )
                 switch t := a.(type) {
                 case *Pair: // rename oldname=newname
-                        if oldname, err = t.Key.Strval();   err != nil { diag.errorOf(t.Key, "%v", err); return }
-                        if newname, err = t.Value.Strval(); err != nil { diag.errorOf(t.Value, "%v", err); return }
+                        if oldname, err = t.Key.Strval(ctx);   err != nil { diag.errorOf(t.Key, "%v", err); return }
+                        if newname, err = t.Value.Strval(ctx); err != nil { diag.errorOf(t.Value, "%v", err); return }
                 case *Group: // rename (oldname newname) (old new)
                         if t.Len() == 2 {
-                                if oldname, err = t.Get(0).Strval(); err != nil { diag.errorOf(t.Get(0), "%v", err); return }
-                                if newname, err = t.Get(1).Strval(); err != nil { diag.errorOf(t.Get(1), "%v", err); return }
+                                if oldname, err = t.Get(0).Strval(ctx); err != nil { diag.errorOf(t.Get(0), "%v", err); return }
+                                if newname, err = t.Get(1).Strval(ctx); err != nil { diag.errorOf(t.Get(1), "%v", err); return }
                         } else {
                                 diag.errorOf(t, "wrong size of group `%v'", t)
                                 break
                         }
                 case *List: // rename oldname newname, old new, ...
                         if t.Len() == 2 {
-                                if oldname, err = t.Get(0).Strval(); err != nil { diag.errorOf(t.Get(0), "%v", err); return }
-                                if newname, err = t.Get(1).Strval(); err != nil { diag.errorOf(t.Get(1), "%v", err); return }
+                                if oldname, err = t.Get(0).Strval(ctx); err != nil { diag.errorOf(t.Get(0), "%v", err); return }
+                                if newname, err = t.Get(1).Strval(ctx); err != nil { diag.errorOf(t.Get(1), "%v", err); return }
                         } else {
                                 diag.errorOf(t, "wrong size of list `%v'", t)
                                 break
                         }
                 default: // rename newname oldname  newname oldname ...
                         if i+1 < nargs {
-                                if oldname, err = args[i+0].Strval(); err != nil { diag.errorOf(args[i+0], "%v", err); return }
-                                if newname, err = args[i+1].Strval(); err != nil { diag.errorOf(args[i+1], "%v", err); return }
+                                if oldname, err = args[i+0].Strval(ctx); err != nil { diag.errorOf(args[i+0], "%v", err); return }
+                                if newname, err = args[i+1].Strval(ctx); err != nil { diag.errorOf(args[i+1], "%v", err); return }
                                 i += 1
                         } else {
                                 diag.errorOf(t, "Wrong arguments `%v'", args)
@@ -2827,7 +3052,7 @@ func builtinRename(pos Position, args... Value) (res Value) {
                         }
                 }
                 if err = os.Rename(oldname, newname); err != nil {
-                        diag.errorAt(pos, "%v", err)
+                        diag.errorAt(ctx.Position(), "%v", err).debug(1)
                         break
                 }
         }
@@ -2839,25 +3064,29 @@ type builtinRemoveOpts struct {
         debug bool `d,debug`
         verbose bool `v,verbose`
 }
-func builtinRemove(pos Position, args... Value) (res Value) {
+func builtinRemove(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 opts builtinRemoveOpts
-                err error
-        )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return } else
-        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
-
-        var (
                 names []string
                 proj *Project
                 str string
+                err error
                 ok bool
         )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err)
+                return
+        } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
+                diag.errorAt(pos, "parse opts failed: %v", err)
+                return
+        }
+
         for _, a := range args {
                 if isNil(a) || isNone(a) {
                         // ignore
-                } else if a.patterned() {
-                        if str, err = a.Strval(); err != nil { diag.errorOf(a, "%v", err).debug(true, 1); return }
+                } else if a.patterned(ctx) {
+                        if str, err = a.Strval(ctx); err != nil { diag.errorOf(a, "%v", err).debug(true, 1); return }
                         if names, err = filepath.Glob(str); err != nil { diag.errorOf(a, "%v", err).debug(true, 1); return }
                         for _, s := range names {
                                 if opts.verbose { diag.prompt("remove %s\n", s) }
@@ -2872,7 +3101,7 @@ func builtinRemove(pos Position, args... Value) (res Value) {
                                         return
                                 }
                         }
-                } else if proj, str, ok, err = asOptFullname(proj, a); err != nil {
+                } else if proj, str, ok, err = asOptFullname(ctx, proj, a); err != nil {
                         diag.errorOf(a, "fullname '%v' failed: %v", a, err)
                         diag.errorAt(pos, "internal stack:").debug(16)
                         return
@@ -2904,29 +3133,41 @@ type builtinRemoveAllOpts struct {
         debug bool `d,debug`
         verbose bool `v,verbose`
 }
-func builtinRemoveAll(pos Position, args... Value) (res Value) {
+func builtinRemoveAll(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 opts builtinRemoveAllOpts
-                err error
-        )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
-        if args, err = parseOpts(pos, &opts, args...); err != nil { diag.errorAt(pos, "%v", err); return }
-
-        var (
                 names []string
                 proj *Project
                 str string
+                err error
                 ok bool
         )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        }
+
         for _, a := range args {
-                if a.patterned() {
-                        if str, err = a.Strval(); err != nil { diag.errorOf(a, "%v", err); return }
-                        if names, err = filepath.Glob(str); err != nil { diag.errorOf(a, "%v", err); return }
+                if a.patterned(ctx) {
+                        if str, err = a.Strval(ctx); err != nil {
+                                diag.errorOf(a, "%v", err).debug(1)
+                                return
+                        } else if names, err = filepath.Glob(str); err != nil {
+                                diag.errorOf(a, "%v", err).debug(1)
+                                return
+                        }
                         for _, s := range names {
                                 if opts.verbose { diag.infoAt(a.Position(), "remove %s", s) }
-                                if err = os.RemoveAll(s); err != nil { diag.errorOf(a, "%v", err); return }
+                                if err = os.RemoveAll(s); err != nil {
+                                        diag.errorOf(a, "%v", err).debug(1)
+                                        return
+                                }
                         }
-                } else if proj, str, ok, err = asOptFullname(proj, a); err != nil {
+                } else if proj, str, ok, err = asOptFullname(ctx, proj, a); err != nil {
                         diag.errorOf(a, "remove failed: %v", err).debug(1)
                         return
                 } else if !ok || str == "" {
@@ -2936,7 +3177,7 @@ func builtinRemoveAll(pos Position, args... Value) (res Value) {
                         if opts.verbose { diag.infoAt(pos, "remove %s", str) }
                         if opts.debug   { diag.infoAt(pos, "remove %s", str).debug(1) }
                         if err = os.RemoveAll(str); err != nil {
-                                diag.errorOf(a, "remove failed: %v", err)
+                                diag.errorOf(a, "remove failed: %v", err).debug(1)
                                 return
                         }
                 }
@@ -2944,7 +3185,8 @@ func builtinRemoveAll(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinTruncate(pos Position, args... Value) (res Value) {
+func builtinTruncate(ctx Context, args... Value) (res Value) {
+        var pos = ctx.Position()
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -2954,36 +3196,42 @@ func builtinTruncate(pos Position, args... Value) (res Value) {
                 )
                 switch t := a.(type) {
                 case *Pair: // truncate name => size old => new
-                        if name, err = t.Key.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                        if size, err = t.Value.Integer(); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if name, err = t.Key.Strval(ctx); err != nil {
+                                diag.errorAt(pos, "%v", err).debug(1)
+                                return
+                        } else if size, err = t.Value.Integer(ctx); err != nil {
+                                diag.errorAt(pos, "%v", err).debug(1)
+                                return
+                        }
                 case *Group: // truncate (name size) (old new)
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                                if size, err = t.Get(1).Integer(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if name, err = t.Get(0).Strval(ctx); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
+                                if size, err = t.Get(1).Integer(ctx); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
                         } else {
-                                diag.errorAt(pos, "Wrong size of group `%v'", t)
+                                diag.errorAt(pos, "Wrong size of group `%v'", t).debug(1)
                                 break
                         }
                 case *List: // truncate name size, old new, ...
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                                if size, err = t.Get(1).Integer(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if name, err = t.Get(0).Strval(ctx); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
+                                if size, err = t.Get(1).Integer(ctx); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
                         } else {
-                                diag.errorAt(pos, "Wrong size of list `%v'", t)
+                                diag.errorAt(pos, "Wrong size of list `%v'", t).debug(1)
                                 break
                         }
                 default: // truncate name size  name size ...
                         if i+1 < nargs {
-                                if name, err = args[i+0].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                                if size, err = args[i+1].Integer(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if name, err = args[i+0].Strval(ctx); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
+                                if size, err = args[i+1].Integer(ctx); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
                                 i += 1
                         } else {
-                                diag.errorAt(pos, "Wrong arguments `%v'", args)
+                                diag.errorAt(pos, "Wrong arguments `%v'", args).debug(1)
                                 break
                         }
                 }
                 if err = os.Truncate(name, size); err != nil {
-                        diag.errorAt(pos, "%v", err); break
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        break
                 }
         }
         return
@@ -2992,42 +3240,48 @@ func builtinTruncate(pos Position, args... Value) (res Value) {
 type builtinLinkOpts struct {
         // TODO: ...
 }
-func builtinLink(pos Position, args... Value) (res Value) {
+func builtinLink(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 opts builtinLinkOpts
                 err error
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
-        if args, err = parseOpts(pos, &opts, args...); err != nil { diag.errorAt(pos, "%v", err); return }
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        }
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
-                        a = args[i]
                         oldname, newname string
+                        a = args[i]
                 )
                 switch t := a.(type) {
                 case *Pair: // link oldname => newname old => new
-                        if oldname, err = t.Key.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                        if newname, err = t.Value.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if oldname, err = t.Key.Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if newname, err = t.Value.Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
                 case *Group: // link (oldname newname) (old new)
                         if t.Len() == 2 {
-                                if oldname, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                                if newname, err = t.Get(1).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if oldname, err = t.Get(0).Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if newname, err = t.Get(1).Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
                                 break
                         }
                 case *List: // link oldname newname, old new, ...
                         if t.Len() == 2 {
-                                if oldname, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                                if newname, err = t.Get(1).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if oldname, err = t.Get(0).Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if newname, err = t.Get(1).Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
                                 break
                         }
                 default: // link oldname newname  oldname newname ...
                         if i+1 < nargs {
-                                if oldname, err = args[i+0].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                                if newname, err = args[i+1].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if oldname, err = args[i+0].Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if newname, err = args[i+1].Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
                                 i += 1
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong arguments `%v'", args))
@@ -3035,6 +3289,7 @@ func builtinLink(pos Position, args... Value) (res Value) {
                         }
                 }
                 if err = os.Link(oldname, newname); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
                         break
                 }
         }
@@ -3052,15 +3307,16 @@ type builtinSymlinkOpts struct {
         relative bool `r,relative;l,rel`
         verbose bool `v,verbose`
 }
-func builtinSymlink(pos Position, args... Value) (res Value) {
+func builtinSymlink(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 opts builtinSymlinkOpts
                 err error
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
                 diag.errorAt(pos, "%v", err).debug(1)
                 return
-        } else if args, err = parseOpts(pos, &opts, args...); err != nil {
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
                 diag.errorAt(pos, "%v", err).debug(1)
                 return
         }
@@ -3095,11 +3351,11 @@ ForArgs:
                 }
 
                 var oldname, newname string
-                if oldname, err = oldNameVal.Strval(); err != nil {
+                if oldname, err = oldNameVal.Strval(ctx); err != nil {
                         diag.errorOf(oldNameVal, "%v", err).debug(1)
                         return
                 }
-                if newname, err = newNameVal.Strval(); err != nil {
+                if newname, err = newNameVal.Strval(ctx); err != nil {
                         diag.errorOf(newNameVal, "%v", err).debug(1)
                         return
                 }
@@ -3165,20 +3421,21 @@ type builtinFileExistsOpts struct {
         file bool `f,file`
         symbol bool `s,symlink;sym,symbol`
 }
-func builtinFileExists(pos Position, args... Value) (res Value) {
+func builtinFileExists(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 opts builtinFileExistsOpts
                 err error
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
                 diag.errorAt(pos, "%v", err).debug(1)
                 return
-        } else if args, err = parseOpts(pos, &opts, args...); err != nil {
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
                 diag.errorAt(pos, "%v", err).debug(1)
                 return
         }
 
-        var proj = current()
+        var proj = /*current()*/ctx.Project()
         if proj == nil {
                 diag.errorAt(pos, "unknown current context").debug(1)
                 return
@@ -3209,16 +3466,16 @@ func builtinFileExists(pos Position, args... Value) (res Value) {
 
         var checkstat = func(a Value) {
                 var ( s string ; file *File )
-                if s, err = a.Strval(); err != nil {
+                if s, err = a.Strval(ctx); err != nil {
                         diag.errorAt(pos, "%v", err).debug(1)
                         return
                 }
                 if filepath.IsAbs(s) {
-                        file = stat(pos, s, "", "")
+                        file = stat(ctx, s, "", "")
                 } else {
-                        file = stat(pos, s, "", proj.absPath)
+                        file = stat(ctx, s, "", proj.absPath)
                 }
-                if file == nil { file = proj./*searchFile*/FindFile(s) }
+                if file == nil { file = proj./*searchFile*/FindFile(ctx, s) }
                 if file != nil { check(file) }
         }
 
@@ -3237,14 +3494,14 @@ func builtinFileExists(pos Position, args... Value) (res Value) {
         return
 }
 
-func builtinFileSource(pos Position, args... Value) (res Value) {
-        var err error
-        if args, err = mergeresult2(expandall2(expandPlainValue, args...)); err != nil {
+func builtinFileSource(ctx Context, args... Value) (res Value) {
+        var ( pos = ctx.Position(); err error )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
                 diag.errorAt(pos, "expand args failed: %v", err).debug(1)
                 return
         }
 
-        var proj = current()
+        var proj = ctx.Project()//current()
         if proj == nil {
                 diag.errorAt(pos, "unknown current context").debug(1)
                 return
@@ -3253,11 +3510,11 @@ func builtinFileSource(pos Position, args... Value) (res Value) {
         var l []Value
         for _, a := range args {
                 var str string
-                if str, err = a.Strval(); err != nil {
+                if str, err = a.Strval(ctx); err != nil {
                         diag.errorAt(pos, "strval '%v' failed: %v", err).debug(1)
                         return
                 }
-                if file := proj./*searchFile*/FindFile(str); file != nil {
+                if file := proj./*searchFile*/FindFile(ctx, str); file != nil {
                         l = append(l, MakeString(a.Position(), file.sub))
                 }
         }
@@ -3271,12 +3528,12 @@ type builtinFileOpts struct {
         caller bool `c,caller;cc,callercontext;cc,caller-context`
         report bool `r,report;r,reportmissing;rm,report-missing;e,error`
 }
-func builtinFile(pos Position, args... Value) (res Value) {
-        var ( opts builtinFileOpts; err error; aa = args )
-        if args, err = mergeresult2(expandall2(expandPlainValue, args...)); err != nil {
+func builtinFile(ctx Context, args... Value) (res Value) {
+        var ( pos = ctx.Position(); opts builtinFileOpts; err error; aa = args )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
                 diag.errorAt(pos, "expand args failed: %v", err).debug(1)
                 return
-        } else if args, err = parseOpts(pos, &opts, args...); err != nil {
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
                 diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
                 return
         }
@@ -3284,7 +3541,7 @@ func builtinFile(pos Position, args... Value) (res Value) {
         var proj *Project
         if opts.caller {
                 proj = cloctx[0].project
-        } else if proj = current(); proj == nil {
+        } else if proj = /*current()*/ctx.Project(); proj == nil {
                 diag.errorAt(pos, "unknown current cntext").debug(1)
                 return
         } else if false {
@@ -3299,10 +3556,10 @@ func builtinFile(pos Position, args... Value) (res Value) {
                         list = append(list, file)
                         if file.exists() { continue }
                         if opts.report { diag.infoAt(pos, "%v is no such file", a).debug(1) }
-                } else if str, err = a.Strval(); err != nil {
+                } else if str, err = a.Strval(ctx); err != nil {
                         diag.errorAt(pos, "strval '%v' failed: %v", err).debug(1)
                         return
-                } else if file = proj.FindFile(str); file != nil {
+                } else if file = proj.FindFile(ctx, str); file != nil {
                         list = append(list, file)
                         if opts.report { diag.infoAt(pos, "%v is no such file", a).debug(1) }
                 } else {
@@ -3319,43 +3576,45 @@ type wildcardOpts struct {
         errorMissing bool `em,errormissing;e,error-missing`
         verbose bool `v,verbose`
 }
-func builtinWildcard(pos Position, args... Value) (res Value) {
-        var proj = current()
+func builtinWildcard(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                proj = /*current()*/ctx.Project()
+                opts wildcardOpts
+                files []*File
+                err error
+        )
         if proj == nil {
                 diag.errorAt(pos, "unknown most derived context").debug(1)
                 return
         }
 
-        var (
-                opts wildcardOpts
-                files []*File
-                err error
-        )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
                 diag.errorAt(pos, "merge args failed: %v", err).debug(1)
                 return
-        } else if args, err = parseOpts(pos, &opts, args...); err != nil {
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
                 diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
                 return
-        } else if files, err = proj.wildcard(pos, opts, args...); err == nil {
-                var list []Value
-                for _, f := range files { list = append(list, f) }
-                res = MakeListOrScalar(pos, list)
+        } else if files, err = proj.wildcard(ctx, opts, args...); err == nil {
+                res = MakeListOrScalar(pos, values(files))
         } else {
                 diag.errorAt(pos, "wildcard failed: %v", err).debug(1)
         }
         return
 }
 
-func builtinReadDir(pos Position, args... Value) (res Value) {
-        var l []Value
+func builtinReadDir(ctx Context, args... Value) (res Value) {
+        var ( pos = ctx.Position(); l []Value )
         for _, a := range args {
                 var (
                         fis []os.FileInfo
                         str string
                         err error
                 )
-                if str, err = a.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                if str, err = a.Strval(ctx); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
+                }
                 if fis, err = ioutil.ReadDir(str); err == nil {
                         v := new(List)
                         for _, fi := range fis {
@@ -3377,15 +3636,22 @@ type builtinReadFileOpts struct {
         trimLeft bool `tl,trim-left`
         trimRight bool `tr,trim-right`
 }
-func builtinReadFile(pos Position, args... Value) (res Value) {
+func builtinReadFile(ctx Context, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 opts builtinReadFileOpts
                 proj *Project
                 err error
                 l []Value
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
-        if args, err = parseOpts(pos, &opts, args...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "merge args failed: %v", err).debug(1)
+                return
+        }
+        if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
+                diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
+                return
+        }
         for _, a := range args {
                 var (
                         apos = a.Position()
@@ -3395,7 +3661,7 @@ func builtinReadFile(pos Position, args... Value) (res Value) {
                         ok bool
                 )
                 if !apos.IsValid() { apos = pos }
-                if proj, str, ok, err = asOptFullname(proj, a); err != nil {
+                if proj, str, ok, err = asOptFullname(ctx, proj, a); err != nil {
                         diag.errorAt(pos, "fullname '%v' failed: %v", a, err).debug(1)
                         break
                 } else if !ok || str == "" {
@@ -3420,17 +3686,23 @@ func builtinReadFile(pos Position, args... Value) (res Value) {
 type builtinWriteFileOpts struct {
         path bool `p,path`
 }
-func builtinWriteFile(pos Position, args... Value) (res Value) {
+func builtinWriteFile(ctx Context, args... Value) (res Value) {
         // $(write-file filename,content)
         // $(write-file -p filename,content)
         var (
+                pos = ctx.Position()
                 opts builtinWriteFileOpts
                 va []Value
                 err error
         )
         if len(args) > 0 {
-                if va, err = mergeresult(ExpandAll(args[1])); err != nil { diag.errorAt(pos, "merge args failed: %v", err); return }
-                if va, err = parseOpts(pos, &opts, va...) ; err != nil { diag.errorAt(pos, "parse opts failed: %v", err); return }
+                if va, err = mergeresult2(expandall2(ctx, expandPlainValue, args[1])); err != nil {
+                        diag.errorAt(pos, "merge args failed: %v", err)
+                        return
+                } else if va, err = parseOpts(ctx, &opts, va...) ; err != nil {
+                        diag.errorAt(pos, "parse opts failed: %v", err)
+                        return
+                }
                 args = append(va, args[1:]...)
         }
 ForArgs:
@@ -3442,34 +3714,34 @@ ForArgs:
                 )
                 switch t := a.(type) {
                 case *Pair: // write-file name=text name=text
-                        if name, err = t.Key.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                        if data, err = t.Value.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if name, err = t.Key.Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if data, err = t.Value.Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
                 case *Group: // write-file (name text) (name text 0660)
                         if n := t.Len(); n < 4 && n > 0 {
-                                if name, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                                if n > 1 { if data, err = t.Get(1).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }}
-                                if n > 2 { if perm, err = permVal(t.Get(2),0600); err != nil { diag.errorAt(pos, "%v", err); return }}
+                                if name, err = t.Get(0).Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if n > 1 { if data, err = t.Get(1).Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }}
+                                if n > 2 { if perm, err = permVal(ctx, t.Get(2),0600); err != nil { diag.errorAt(pos, "%v", err); return }}
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
                                 break
                         }
                 case *List: // write-file name text, name text 0660, ...
                         if n := t.Len(); n < 4 && n > 0 {
-                                if name, err = t.Get(0).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
-                                if n > 1 { if data, err = t.Get(1).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }}
-                                if n > 2 { if perm, err = permVal(t.Get(2),0600); err != nil { diag.errorAt(pos, "%v", err); return }}
+                                if name, err = t.Get(0).Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if n > 1 { if data, err = t.Get(1).Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }}
+                                if n > 2 { if perm, err = permVal(ctx, t.Get(2),0600); err != nil { diag.errorAt(pos, "%v", err); return }}
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
                                 break
                         }
                 default: // write-file name text 0660  name text 0660 ...
-                        if name, err = args[i].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                        if name, err = args[i].Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
                         if i+1 < len(args) {
-                                if data, err = args[i+1].Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if data, err = args[i+1].Strval(ctx); err != nil { diag.errorAt(pos, "%v", err); return }
                                 i += 1
                         }
                         if i+1 < len(args) {
-                                if perm, err = permVal(args[i+1],0600); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if perm, err = permVal(ctx, args[i+1],0600); err != nil { diag.errorAt(pos, "%v", err); return }
                                 i += 1
                         }
                 }
@@ -3485,8 +3757,8 @@ ForArgs:
         return
 }
 
-func touch(file Value, optMode uint32, optPath bool, ts ...time.Time) (err error) {
-        var filename, _ = fullname(file)
+func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Time) (err error) {
+        var filename, _ = fullname(ctx, file)
         if  filename == "" {
                 diag.errorOf(file, "touch: file fullname of '%v' is empty", file, err).debug(1)
                 return
@@ -3536,36 +3808,47 @@ type builtinTouchFileOpts struct {
         path bool `p,path`
         mode os.FileMode `m,mode;fm,filemode;fm,file-mode`
 }
-func builtinTouchFile(pos Position, args... Value) (res Value) {
+func builtinTouchFile(ctx Context, args... Value) (res Value) {
         // $(touch-file filename)
         // $(touch-file -p filename)
         var (
+                pos = ctx.Position()
                 opts = builtinTouchFileOpts{ mode: os.FileMode(0600) }
                 err error
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
-        if args, err = parseOpts(pos, &opts, args...); err != nil { diag.errorAt(pos, "%v", err); return }
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        }
         for i := 0; i < len(args); i += 1 {
-                err = touch(args[i], uint32(opts.mode), opts.path)
-                if err != nil { diag.errorAt(pos, "%v", err); break }
+                if err = touch(ctx, args[i], uint32(opts.mode), opts.path); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        break
+                }
         }
         return
 }
 
 // $(grep 'status=1',$@)
 // $(grep -1 'status=1',$@)
-func builtinGrep(pos Position, args... Value) (res Value) {
+func builtinGrep(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                vals, list []Value
+                linesPos, linesNeg []int
+                rxs []*regexp.Regexp
+                err error
+        )
         if len(args) != 2 {
-                diag.errorAt(pos, "wants exactly 2 args, e.g. $(grep -1 '^example$',$(file))")
+                diag.errorAt(pos, "wants exactly 2 args, e.g. $(grep -1 '^example$',$(file))").debug(1)
                 return
+        } else if vals, err = mergeresult2(expandall2(ctx, expandPlainValue, args[0])); err != nil {
+                 diag.errorAt(pos, "%v", err).debug(1)
+                 return
         }
-
-        var err error
-        var vals, list []Value
-        var linesPos, linesNeg []int
-        var rxs []*regexp.Regexp
-        
-        if vals, err = mergeresult(ExpandAll(args[0])); err != nil { diag.errorAt(pos, "%v", err); return }
         for _, a := range vals {
                 if i, ok := a.(*Int); ok {
                         if i.int64 > 0 {
@@ -3573,10 +3856,10 @@ func builtinGrep(pos Position, args... Value) (res Value) {
                         } else if i.int64 < 0{
                                 linesNeg = append(linesNeg, int(i.int64))
                         } else {
-                                diag.errorOf(a, "zero line number")
+                                diag.errorOf(a, "zero line number").debug(1)
                                 return
                         }
-                } else if s, e := a.Strval(); e != nil {
+                } else if s, e := a.Strval(ctx); e != nil {
                         diag.errorOf(a, "%v", e); return
                 } else if s == "" {
                         diag.errorOf(a, "empty regexp"); return
@@ -3587,21 +3870,28 @@ func builtinGrep(pos Position, args... Value) (res Value) {
                 }
         }
 
-        if vals, err = mergeresult(ExpandAll(args[1:]...)); err != nil { diag.errorAt(pos, "%v", err); return }
+        if vals, err = mergeresult2(expandall2(ctx, expandPlainValue, args[1:]...)); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        }
         for _, a := range vals {
                 var file *os.File
                 var filename string
-                if filename, err = a.Strval(); err != nil {
-                        diag.errorOf(a, "%v", err); return
+                if filename, err = a.Strval(ctx); err != nil {
+                        diag.errorOf(a, "%v", err).debug(1)
+                        return
                 }
                 if file, err = os.Open(filename); err != nil {
-                        diag.errorOf(a, "%v", err); return
+                        diag.errorOf(a, "%v", err).debug(1)
+                        return
                 }
                 defer file.Close()
 
-                var greps = make(map[int][]string,2)
-                var line int // line number
-                var scanner = bufio.NewScanner(file)
+                var (
+                        line int // line number
+                        greps = make(map[int][]string,2)
+                        scanner = bufio.NewScanner(file)
+                )
                 scanner.Split(bufio.ScanLines)
                 for scanner.Scan() {
                         var text = scanner.Text()
@@ -3655,48 +3945,58 @@ var (
         rxConfigRef = regexp.MustCompile(rsConfigRef)
 )
 
-func (project *Project) config(name string) (def *Def, err error) {
+func (project *Project) config(ctx Context, name string) (def *Def, err error) {
         var obj Object
-        if obj, err = project.resolveObject(name); err == nil && !isNil(obj) { def, _ = obj.(*Def) }
+        if obj, err = project.resolveObject(ctx, name); err == nil && !isNil(obj) { def, _ = obj.(*Def) }
         if false && def != nil { fmt.Fprintf(stderr, "%s: %s: %v\n", project, def.position, def) }
         return
 }
 
-func (project *Project) configExpand(pos Position, s string) (result string, err error) {
-        var index = 0
-        var res = new(bytes.Buffer)
+func (project *Project) configExpand(ctx Context, s string) (result string, err error) {
+        var (
+                pos = ctx.Position()
+                res = new(bytes.Buffer)
+                index = 0
+        )
         for _, m := range rxConfigRef.FindAllStringSubmatchIndex(s, -1) {
                 fmt.Fprint(res, s[index:m[0]])
                 index = m[1] // reset index immediately to keep forward
 
                 var name string
                 switch {
-                case m[2] > m[0] && m[3] > m[2]: // ${VAR}
-                        name = s[m[2]:m[3]]
-                case m[4] > m[0] && m[5] > m[4]: // @VAR@
-                        name = s[m[4]:m[5]]
+                case m[2] > m[0] && m[3] > m[2]: name = s[m[2]:m[3]] // ${VAR}
+                case m[4] > m[0] && m[5] > m[4]: name = s[m[4]:m[5]] // @VAR@
                 }
 
                 var def *Def
-                if def, err = project.config(name); err != nil { diag.errorAt(pos, "%v", err); return }
-                if false && strings.Contains(name, "LLDB_") { fmt.Fprintf(stderr, "%s: %s: %s: %v\n", project, pos, name, def) }
-                if def != nil {
-                        var val = def.Call(pos)
-                        if false { fmt.Fprintf(stderr, "%s: %s: %s = %v -> %v (%v)\n", project, pos, name, def.value, val, typeof(val)) }
+                if def, err = project.config(ctx, name); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
+                } else if def != nil {
+                        var val = def.Call(ctx)
                         if isNil(val) || isNone(val) { continue }
                         switch t := val.(type) {
                         case *Plain: fmt.Fprintf(res, "%s", t.Value)
                         case *answer, *boolean:
                                 var v int64
-                                if v, err = t.Integer(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if v, err = t.Integer(ctx); err != nil {
+                                        diag.errorAt(pos, "%v", err).debug(1)
+                                        return
+                                }
                                 fmt.Fprintf(res, "%d", v)
                         case *Group:
                                 var v string
-                                if v, err = parseGroupValue(t).Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if v, err = parseGroupValue(t).Strval(ctx); err != nil {
+                                        diag.errorAt(pos, "%v", err).debug(1)
+                                        return
+                                }
                                 fmt.Fprintf(res, "%s", v)
                         default:
                                 var v string
-                                if v, err = val.Strval(); err != nil { diag.errorAt(pos, "%v", err); return }
+                                if v, err = val.Strval(ctx); err != nil {
+                                        diag.errorAt(pos, "%v", err).debug(1)
+                                        return
+                                }
                                 fmt.Fprintf(res, "%s", v)
                         }
                 }
@@ -3706,11 +4006,17 @@ func (project *Project) configExpand(pos Position, s string) (result string, err
         return
 }
 
-func configure(pos Position, out *bytes.Buffer, project *Project, str string) (err error) {
-        var index = 0
-        if str, err = project.configExpand(pos, str); err != nil { diag.errorAt(pos, "%v", err); return }
+func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (err error) {
+        var ( pos = ctx.Position(); index = 0 )
+        if str, err = project.configExpand(ctx, str); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        }
         for _, m := range rxConfigure.FindAllStringSubmatchIndex(str, -1) {
-                if _, err = out.WriteString(str[index:m[0]]); err != nil { diag.errorAt(pos, "%v", err); return }
+                if _, err = out.WriteString(str[index:m[0]]); err != nil {
+                        diag.errorAt(pos, "%v", err).debug(1)
+                        return
+                }
                 index = m[1] // reset index immediately to keep forward
 
                 var t bool
@@ -3719,13 +4025,13 @@ func configure(pos Position, out *bytes.Buffer, project *Project, str string) (e
                 var name = str[m[4]:m[5]]
                 var hasv = m[6] > m[0] && m[7] > m[6]
                 var def *Def
-                if def, err = project.config(name); err != nil {
-                        diag.errorAt(pos, "config '%s' failed: %v", name, err)
+                if def, err = project.config(ctx, name); err != nil {
+                        diag.errorAt(pos, "config '%s' failed: %v", name, err).debug(1)
                         return
                 } else if def == nil {
                         // ...
-                } else if t, err = def.True(); err != nil {
-                        diag.errorAt(pos, "truthify '%v failed: %v", def, err)
+                } else if t, err = def.True(ctx); err != nil {
+                        diag.errorAt(pos, "truthify '%v failed: %v", def, err).debug(1)
                         return
                 }
                 //fmt.Fprintf(stderr, "%v: configure: %v %v %v\n", scope.comment, verb, name, def)
@@ -3743,13 +4049,13 @@ func configure(pos Position, out *bytes.Buffer, project *Project, str string) (e
                                 s = fmt.Sprintf("#undef %s", name)
                         } else if isNil(def.value) || isNone(def.value) {
                                 s = fmt.Sprintf("#undef %s /* %v */", name, def.value)
-                        } else if va, err = ExpandAll(def.value); err != nil {
+                        } else if va, _, err = expandall2(ctx, expandPlainValue, def.value); err != nil {
                                 diag.errorOf(def.value, "expand '%v' failed: %v", def.value, err)
                                 return
                         } else if len(va) == 1 {
                                 switch v := va[0].(type) {
                                 case *answer, *boolean:
-                                        if b, e := v.True(); e != nil {
+                                        if b, e := v.True(ctx); e != nil {
                                                 diag.errorOf(def.value, "truthify '%v' failed: %v", v, e)
                                                 return
                                         } else if b {
@@ -3793,7 +4099,6 @@ func configure(pos Position, out *bytes.Buffer, project *Project, str string) (e
         return
 }
 
-func builtinReturn(pos Position, args... Value) Value {
-        //if args, err = mergeresult(ExpandAll(args...)); err != nil { diag.errorAt(pos, "%v", err); return }
-        return &returner{ valbase{pos}, args }
+func builtinReturn(ctx Context, args... Value) Value {
+        return &returner{valbase{ctx.Position()}, args }
 }

@@ -10,7 +10,7 @@ import (
         "fmt"
 )
 
-func do_helpscreen() {
+func do_helpscreen(ctx Context) {
         fmt.Fprintf(stderr, `Build your projects the smart way!
 
 Usage:
@@ -19,7 +19,7 @@ Usage:
     smart -configure[(arguments)]
     smart -reconfigure[(arguments)]
 `)
-        for name, _ := range context.flagEntries {
+        for name, _ := range ctx.FlagEntries() {
                 if name == "" { continue }
                 fmt.Fprintf(stderr, `
     smart -%s[(arguments)]`, name)
@@ -43,9 +43,9 @@ Basic:
 
 `)
 
-        print_flag_entries()
-        print_help_entries()
-        print_options()
+        print_flag_entries(ctx)
+        print_help_entries(ctx)
+        print_options(ctx)
 
         fmt.Fprintf(stderr, `
 Issues:
@@ -56,9 +56,9 @@ Issues:
 `)
 }
 
-func print_flag_entries() {
+func print_flag_entries(ctx Context) {
         fmt.Fprintf(stderr, "Defined:\n")
-        for name, entries := range context.flagEntries {
+        for name, entries := range ctx.FlagEntries() {
                 if len(entries) == 0 || name == "" { continue }
                 fmt.Fprintf(stderr, `
    -%s`, name)
@@ -66,8 +66,8 @@ func print_flag_entries() {
         fmt.Fprintf(stderr, "\n\n")
 }
 
-func print_flag_trace() {
-        for name, entries := range context.flagEntries {
+func print_flag_trace(ctx Context) {
+        for name, entries := range ctx.FlagEntries() {
                 if name == "" { continue }
                 for _, entry := range entries {
                         fmt.Fprintf(stderr, "%s: %v\n", entry.position, entry)
@@ -75,14 +75,14 @@ func print_flag_trace() {
         }
 }
 
-func print_help_entries() {
+func print_help_entries(ctx Context) {
 }
 
-func print_options() {
+func print_options(ctx Context) {
         type opt struct { entry *RuleEntry; infos []Value }
         var opts []opt
         for _, entry := range configuration.entries {
-                okay, infos := entry.option()
+                okay, infos := entry.option(ctx)
                 if okay { opts = append(opts, opt{entry, infos}) }
         }
 
@@ -92,13 +92,13 @@ func print_options() {
         for _, opt := range opts {
                 fmt.Fprintf(stderr, "    %v:\n", opt.entry)
                 for _, info := range opt.infos {
-                        s, _ := info.Strval()
+                        s, _ := info.Strval(ctx)
                         fmt.Fprintf(stderr, "        %s\n", s)
                 }
         }
 }
 
-func print_configuration() {
+func print_configuration(ctx Context) {
         fmt.Fprintf(stderr, `Configuration:
 `)
 

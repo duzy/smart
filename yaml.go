@@ -15,27 +15,30 @@ import (
 
 type YAML struct { Value }
 func (p *YAML) String() string { return "(yaml " + p.Value.String() + ")" }
-func (p *YAML) cmp(v Value) (res cmpres) {
+func (p *YAML) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*YAML); ok {
                 assert(ok, "value is not YAML")
-                res = p.Value.cmp(a.Value)
+                res = p.Value.cmp(ctx, a.Value)
         }
         return
 }
 
-func DecodeYAML(source string, ws bool) (result Value, err error) {
+func DecodeYAML(ctx Context, source string, ws bool) (result Value, err error) {
         err = fmt.Errorf("DecodeYAML not implemented yet")
         return 
 }
 
 type yaml struct { whitespace bool }
-func (p *yaml) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
-        var source string
-        if source, err = multiline(t.program.recipes...); err != nil { return }
-        if result, err = DecodeYAML(source, p.whitespace); err == nil {
+func (p *yaml) Evaluate(t *traversal, args ...Value) (result Value, err error) {
+        var ( ctx = t.Context; source string )
+        if source, err = multiline(ctx, t.program.recipes...); err != nil {
+                diag.errorAt(ctx.Position(), "%v", err).debug(1)
+                return
+        } else if result, err = DecodeYAML(ctx, source, p.whitespace); err == nil {
                 result = &YAML{ result }
         } else {
                 result = &YAML{ &None{valbase{t.program.position}} }
+                diag.errorAt(ctx.Position(), "%v", err).debug(1)
         }
         return
 }

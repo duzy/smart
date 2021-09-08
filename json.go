@@ -14,10 +14,10 @@ import (
 
 type JSON struct { Value }
 func (p *JSON) String() string { return "(json " + p.Value.String() + ")" }
-func (p *JSON) cmp(v Value) (res cmpres) {
+func (p *JSON) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*JSON); ok {
                 assert(ok, "value is not JSON")
-                res = p.Value.cmp(a.Value)
+                res = p.Value.cmp(ctx, a.Value)
         }
         return
 }
@@ -27,25 +27,23 @@ type jsonDecodeState struct {
         stack []*Group
         nodes []*Group
 }
-
-func (ds *jsonDecodeState) decode() {
-}
+func (ds *jsonDecodeState) decode() {}
 
 const (
         JsonArray  = "array"
         JsonObject = "object"
 )
 
-func DecodeJSON(source string) (result Value, err error) {
+func DecodeJSON(ctx Context, source string) (result Value, err error) {
         //fmt.Fprintf(stderr, "json: %v\n", source)
         var (
+                pos Position = ctx.Position()
                 stack []*Group
                 nodes []Value
                 node *Group
                 value Value
                 t, v json_enc.Token
                 s string
-                pos Position // TODO: compute positions
         )
         jd := json_enc.NewDecoder(strings.NewReader(source))
         LoopJSON: for {
@@ -79,7 +77,10 @@ func DecodeJSON(source string) (result Value, err error) {
                                         err = ErrorIllJson; break LoopJSON
                                 }
                                 if k := stack[x-1].Get(0); k == nil {
-                                        if s, err = k.Strval(); err != nil { return } else if s != JsonObject {
+                                        if s, err = k.Strval(ctx); err != nil {
+                                                diag.errorAt(pos, "%v", err).debug(1)
+                                                return
+                                        } else if s != JsonObject {
                                                 err = ErrorIllJson; break LoopJSON
                                         }
                                 }
@@ -90,7 +91,10 @@ func DecodeJSON(source string) (result Value, err error) {
                                         err = ErrorIllJson; break LoopJSON
                                 }
                                 if k := stack[x-1].Get(0); k == nil {
-                                        if s, err = k.Strval(); err != nil { return } else if s != JsonArray {
+                                        if s, err = k.Strval(ctx); err != nil {
+                                                diag.errorAt(pos, "%v", err).debug(1)
+                                                return
+                                        } else if s != JsonArray {
                                                 err = ErrorIllJson; break LoopJSON
                                         }
                                 }
@@ -109,7 +113,10 @@ func DecodeJSON(source string) (result Value, err error) {
                         node = stack[x-1]
                         if k := node.Get(0); k != nil {
                                 var kind string
-                                if kind, err = k.Strval(); err != nil { return } else if kind == JsonArray {
+                                if kind, err = k.Strval(ctx); err != nil {
+                                        diag.errorAt(pos, "%v", err).debug(1)
+                                        return
+                                } else if kind == JsonArray {
                                         node.Append(sv); continue
                                 } else if kind != JsonObject {
                                         err = ErrorIllJson; break LoopJSON
@@ -160,7 +167,10 @@ func DecodeJSON(source string) (result Value, err error) {
                 }
                 if node != nil && value != nil {
                         if k := node.Get(0); k != nil {
-                                if s, err = k.Strval(); err != nil { return } else if s != JsonArray {
+                                if s, err = k.Strval(ctx); err != nil {
+                                        diag.errorAt(pos, "%v", err).debug(1)
+                                        return
+                                } else if s != JsonArray {
                                         err = ErrorIllJson; break LoopJSON
                                 }
                         }
@@ -185,10 +195,10 @@ func DecodeJSON(source string) (result Value, err error) {
 
 type json struct {}
 
-func (_ *json) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
-        var source string
-        if source, err = multiline(t.program.recipes...); err != nil { return }
-        if result, err = DecodeJSON(source); err == nil {
+func (_ *json) Evaluate(t *traversal, args ...Value) (result Value, err error) {
+        var ( ctx = t.Context; source string )
+        if source, err = multiline(ctx, t.program.recipes...); err != nil { return }
+        if result, err = DecodeJSON(ctx, source); err == nil {
                 result = &JSON{ result }
         } else {
                 result = &JSON{ MakeNone(t.program.position) }
