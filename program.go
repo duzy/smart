@@ -407,20 +407,26 @@ func (prog *Program) exec(t *traversal) (result Value, brks breakers) {
     var pos = prog.position
 
     // Update normal prerequisites
-    if brks = t.normalPrerequisites(ctx); brks.has() { return }
-    if n := diag.checkErrors(true); n > 0 {
-        diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).debug(1)
-        t.traceCallStack(pos, -1, "call stack for %v:", t.def.target.value)
+    if brks = t.normalPrerequisites(ctx); brks.has() {
+        return
+    } else if n := diag.checkErrors(true); n > 0 {
         brks.add(pos, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", n)
+        t.batch(func() {
+            diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).debug(8)
+            t.traceCallStack(pos, -1, "call stack for %v:", t.def.target.value)
+        })
         return
     }
 
     // Update order-only prerequisites
-    if brks = t.orderOnlyPrerequisites(ctx); brks.has() { return }
-    if n := diag.checkErrors(true); n > 0 {
-        diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).debug(1)
-        t.traceCallStack(pos, -1, "call stack for %v:", t.def.target.value)
+    if brks = t.orderOnlyPrerequisites(ctx); brks.has() {
+        return
+    } else if n := diag.checkErrors(true); n > 0 {
         brks.add(pos, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", n)
+        t.batch(func() {
+            diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).debug(8)
+            t.traceCallStack(pos, -1, "call stack for %v:", t.def.target.value)
+        })
         return
     }
 
