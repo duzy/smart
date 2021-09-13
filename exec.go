@@ -692,13 +692,13 @@ type executor struct {
 }
 func (p *executor) Evaluate(t *traversal, args ...Value) (result Value, err error) {
   if optionTraceExecutor {
-    var t = t.def.target.value
+    var t, _ = t.Get("@")
     defer un(trace(t_exec, fmt.Sprintf("executor(%s %v)", typeof(t), t)))
   }
 
   var (
     cmd = p.cmd
-    ctx = t.Context
+    ctx Context = t //ctx = &t.callContext //
     pos = ctx.Position()
     opts = executorOpts{ scanStderr: true }
   )
@@ -739,6 +739,7 @@ func (p *executor) Evaluate(t *traversal, args ...Value) (result Value, err erro
     diag.warnAt(pos, "add -stamp to (shell)").debug(1)
   }
 
+  const goro = false
   var exeres = &ExecResult{valbase:valbase{pos}, x:p, t:t}
   var run = func(start time.Time) {
     var aa []string
@@ -841,16 +842,22 @@ func (p *executor) Evaluate(t *traversal, args ...Value) (result Value, err erro
 
     var cwd string
     {
-      var cc = contextAt(t.program.position, ctx)
-      var v Value
-      if v = t.program.scope.Lookup("CWD").(*Def).Call(cc); isNil(v) {
-        v = t.program.scope.Lookup("/").(*Def).Call(cc)
-      }
-      if !isNil(v) && !isNone(v) {
-        if cwd, err = v.Strval(ctx); err != nil {
-          diag.errorAt(pos, "strval '%v' failed: %v", v, err).debug(1)
+      var ( cc = contextAt(t.program.position, ctx); o Object; v Value )
+      if _, o = t.program.scope.Find("CWD"); isNil(o) {
+        if _, o = t.program.scope.Find("/"); isNil(o) {
+          diag.errorAt(pos, "'CWD' and '/' is undefined").debug(1)
           return
         }
+      }
+      if v = o.(*Def).Call(cc); isNil(v) || isNone(v) {
+        diag.errorAt(pos, "CWD is <nil>").debug(1)
+        return
+      } else if cwd, err = v.Strval(ctx); err != nil {
+        diag.errorAt(pos, "strval '%v' failed: %v", v, err).debug(1)
+        return
+      } else if cwd == "" {
+        diag.errorAt(pos, "CWD is empty").debug(1)
+        return
       }
     }
 
@@ -998,8 +1005,8 @@ func (p *executor) Evaluate(t *traversal, args ...Value) (result Value, err erro
       if false && log.filename != "" && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
         os.Remove(log.filename)
       }
-      if t.caller != nil { t.caller.calleeDone(err) }
-      exeres.wg.Done()
+      if c := t.caller(); c != nil { c.calleeDone(err) }
+      if goro { exeres.wg.Done() }
       exeres.Stdout.res = nil
       exeres.Stderr.res = nil
       exeres.container = nil
@@ -1130,8 +1137,8 @@ func (p *executor) Evaluate(t *traversal, args ...Value) (result Value, err erro
     }
   }
 
-  if t.caller != nil { t.caller.calleeStart() }
-  if true { exeres.wg.Add(1); go run(time.Now()) }
+  if c := t.caller(); c != nil { c.calleeStart() }
+  if goro { exeres.wg.Add(1); go run(time.Now()) } else { run(time.Now()) }
   if true || t.caller == nil || opts.wait /*|| opts.stamp/*FIXME: it's a temporary solution */ {
     exeres.wg.Wait()
   }

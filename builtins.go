@@ -371,8 +371,7 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                         }
                 case reflect.Interface: switch val.Type().String() {
                 case "smart.Value": val.Set(reflect.ValueOf(v))
-                default:
-                        diag.errorOf(v, "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
+                default: diag.errorOf(v, "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
                 }
                 case reflect.Ptr: switch val.Type().Elem().String() {
                 case "smart.optFullname":
@@ -389,7 +388,8 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                         } else if ok && s != "" {
                                 val.Set(reflect.ValueOf(&optFullname{ s, x }))
                         } else {
-                                diag.errorOf(v, "'%s' is not a file: %v", s, x).debug(6)
+                                var target, _ = ctx.Get("@")
+                                diag.errorOf(v, "not a file: %v -> %v -> %s (%T, @=%v)", v, x, s, ctx, target).debug(16)
                         }
                         if false {
                                 vi := val.Interface().(*optFullname)

@@ -507,7 +507,7 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
         for _, nameprops := range names {
             var name, _, _, _ = parseUsingNameProps(nameprops)
             var usingVarName = fmt.Sprintf("using.%s", name)
-            var def, alt = l.project.scope.define(ctx, l.project, name, MakeNone(position))
+            var def, alt = l.project.scope.define(ctx, DefVoid, name, MakeNone(position))
             if def != nil && alt == nil { // if it's new Def (first time being defined)
                 for _, base := range l.project.bases {
                     if obj, err := base.resolveObject(ctx, name); err == nil && !(isNil(obj) || isNone(obj)) {
@@ -1407,15 +1407,18 @@ func (l *loader) OpenNamedScope(name, comment string) (loaderScope, error) {
     return ls, nil
 }
 
-func (l *loader) resolve(value Value) (result Value, err error) {
-    var ( pos = l.position(); ctx = contextAt(pos, l) )
-    if sel, ok := value.(*selection); ok {
-        result = sel
-        return
-    }
+func (l *loader) resolve(value Value) (name string, result Value, err error) {
+    var pos = value.Position()
+    if !pos.IsValid() { pos = l.position() }
 
-    var name string
-    if name, err = value.Strval(ctx); err == nil {
+    var ctx = contextAt(pos, l)
+    if _, ok := value.(*selection); ok {
+        panic(failure{pos,"resolving a selection"})
+    } else if name, err = value.Strval(ctx); err != nil {
+        diag.errorAt(pos, "strval name '%v' failed: %v", name, err).debug(1)
+    } else if name == "" {
+        diag.errorAt(pos, "name '%v' is empty", name).debug(1)
+    } else {
         if l.scope != nil { _, result = l.scope.Find(name) }
         if isNil(result) && l.project != nil {
             result, err = l.project.resolveObject(ctx, name)
@@ -1446,7 +1449,7 @@ func (l *loader) def(position Position, name string) (def *Def, alt Object) {
         // to ensure that the symbol is valid in the project
         scope = l.project.scope
     }
-    def, alt = scope.define(contextAt(position, l), l.project, name, MakeNone(position))
+    def, alt = scope.define(contextAt(position, l), DefVoid, name, MakeNone(position))
     if def != nil { def.position = position }
     return
 }
@@ -1584,18 +1587,21 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *pars
             pos.Filename = filename
         }
         for e := recover(); e != nil; e = recover() {
-            if _, ok := e.(bailout); !ok {
-                diag.errorAt(pos, "panic %v", e)
+            if f, ok := e.(failure); ok {
+                diag.errorAt(f.position, "panic: %v", f.metainfo)
+                panics += 1
+            } else if _, ok := e.(bailout); !ok {
+                diag.errorAt(pos, "panic: %v", e)
                 panics += 1
             }
         }
         if panics > 0 {
             if err != nil { diag.errorAt(pos, "panics with error: %v", panics, err) }
             if l.project.position.Equals(&pos) {
-                diag.errorAt(pos, "got %d panics from %v", panics, l.project).debug(4, 128)
+                diag.errorAt(pos, "failed: got %d panics from %v", panics, l.project).debug(128)
             } else {
-                diag.errorAt(pos, "got %d panics from %v", panics, l.project)
-                diag.errorAt(l.project.position, "got %d panics from %v", panics, l.project).debug(4, 128)
+                diag.errorAt(pos, "failed: got %d panics from %v", panics, l.project)
+                diag.errorAt(l.project.position, "got %d panics from %v", panics, l.project).debug(128)
             }
         } else if err != nil {
             diag.errorAt(pos, "parse file failed: %v", err).debug(128)

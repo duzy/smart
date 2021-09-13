@@ -106,7 +106,8 @@ ForRecipes:
                         }
 
                 default:
-                        diag.errorOf(recipe, "unsupported recipe: %T (target=%v)", recipe, t.def.target.value).debug(16)
+                        target, _ := t.Get("@")
+                        diag.errorOf(recipe, "unsupported recipe: %T (target=%v)", recipe, target).debug(16)
                         return
                 }
         }

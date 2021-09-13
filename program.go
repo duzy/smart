@@ -7,7 +7,7 @@
 package smart
 
 import (
-    "strconv"
+    //"strconv"
     "sync"
     "time"
     "fmt"
@@ -34,10 +34,11 @@ type Program struct {
 func (prog *Program) Position() Position { return prog.position }
 func (prog *Program) Project() *Project { return prog.project }
 func (prog *Program) Scope() *Scope { return prog.scope }
-
+/*
 func (t *traversal) auto(name string, value Value) (auto *Def, err error) {
     var alt Object
-    if auto, alt = t.closure.define(t, t.project, name, value); alt != nil {
+    assert(t.closure != t.program.scope, "traversal closure must not be program scope")
+    if auto, alt = t.closure.define(t, DefAutoVal, name, value); alt != nil {
         var found = false
         if auto, found = alt.(*Def); found {
             auto.val(t, value)
@@ -51,29 +52,28 @@ func (t *traversal) auto(name string, value Value) (auto *Def, err error) {
     return
 }
 
-func (t *traversal) seta(prog *Program, args []Value) (params []*Def, restore func(), err error) {
+func (t *traversal) seta(prog *Program, args []Value) (params []*Def, err error) {
     var argnum int // setup named/number parameters ($1, $2, etc.)
-    var rest, values []Value // save values to restore after execution
-    for _, d := range prog.params { values = append(values, d.value) }
+    var rest []Value
+    assert(t.closure != t.program.scope, "traversal closure must not be program scope")
     for _, a := range args {
         var def *Def
         //<!IMPORTANT: Don't translate Flag, Flag values are valid
         //         regular arguments. Pair values are special.
         if l, ok := a.(*List); ok && l.Len() == 1 { a = l.Elems[0] }
         if p, ok := a.(*Pair); ok {
-            var s string
-            if s, err = p.Key.Strval(t); err != nil {
+            var name string
+            if name, err = p.Key.Strval(t); err != nil {
                 diag.errorOf(p.Key, "strval '%v' failed: %v", p.Key, err).debug(1)
                 return
-            } else if o := prog.scope.Lookup(s); isNil(o) {
+            } else if o := t.closure.Lookup(name); isNil(o) {
                 rest = append(rest, a)
             } else if def, ok = o.(*Def); !ok {
                 diag.errorOf(o, "object is not a Def: %v", o).debug(1)
                 return
             } else {
-                values = append(values, def.value)
                 params = append(params, def)
-                def.set(t, DefArg, p.Value)
+                def.set(t, DefArgVal, p.Value)
                 argnum += 1
             }
         } else { rest = append(rest, a) }
@@ -83,34 +83,27 @@ func (t *traversal) seta(prog *Program, args []Value) (params []*Def, restore fu
         if l, ok := a.(*List); ok && l.Len() == 1 { a = l.Elems[0] }
         if argnum < len(prog.params) {
             def = prog.params[argnum]
-            values = append(values, def.value)
             params = append(params, def)
-            def.set(t, DefArg, a)
+            def.set(t, DefArgVal, a)
         } else {
             name := strconv.Itoa(argnum+1)
             if def, err = t.auto(name, a); err != nil {
                 diag.errorOf(a, "arg: %v", err).debug(1)
                 return
             }
-            values = append(values, def.value)
             params = append(params, def)
-            def.origin = DefArg
+            def.origin = DefArgVal
         }
         argnum += 1
     }
-    restore = func() {
-        var nlen  = len(prog.params)
-        for i, d := range prog.params { d.value = values[i] }
-        for i, d := range params { d.value = values[nlen+i] }
-    }
     return
 }
-
+*/
 func (prog *Program) interpret(t *traversal, i interpreter, params []Value) (err error) {
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.interpret(%s)", typeof(i)))) }
 
     var pos = t.Position()
-    var value Value
+    if !pos.IsValid() { pos = prog.position }
     /*for _, e := range t.breakers {
         if e.what != breakCase { return }
     }*/
@@ -118,14 +111,15 @@ func (prog *Program) interpret(t *traversal, i interpreter, params []Value) (err
     // Wait for prerequisites before interpretion
     t.wait(t)
 
+    var value Value
     if value, err = i.Evaluate(t, params...); err != nil {
         diag.errorAt(pos, "evaluation failed: %v", err).debug(1)
         return
-    } else if !isNil(value) {
-        if err = t.def.buffer.val(t, value); err != nil {
-            diag.errorAt(pos, "set modify buffer value failed: %v", err).debug(1)
-            return
-        }
+    } else if isNil(value) {
+        // disgard nil value
+    } else if _, okay := t.Set("-", value); !okay {
+        diag.errorAt(pos, "set buffer value failed: %v", value).debug(1)
+        return
     }
 
     if _, _, err = t.updateRecipesHash(t); err != nil {
@@ -174,9 +168,9 @@ func (prog *Program) modify(t *traversal, m *modifier) (brks breakers) {
         args = append(args[1:], m.args...)
     }
 
-    var ctx = contextAt(m.position, t)
+    //var ctx = contextAt(m.position, t)
     if f, ok := modifiers[name]; ok {
-        var value = t.def.buffer.value
+        var value, _ = t.Get("-")
         // Special modifier processing (implicit interpretation) before (configure)
         if name == "configure" && len(t.interpreted) == 0 && len(prog.recipes) > 0 /*&& (isNil(value) || isNone(value))*/ {
             // Evaluate for configure modifier
@@ -200,10 +194,10 @@ func (prog *Program) modify(t *traversal, m *modifier) (brks breakers) {
                     diag.errorAt(m.position, "borken modifier %s %v", name, args).debug(6)
                 })
             }
-        } else if isNil(value) || value == t.def.buffer.value || value == t.def.buffer {
+        } else if bv, _ := t.Get("-"); isNil(value) || value == bv {
             // does nothing
-        } else if err = t.def.buffer.val(ctx, value); err != nil {
-            diag.errorAt(m.position, "setting modifier buffer value failed: %v", err).debug(1)
+        } else if _, okay := t.Set("-", value); !okay {
+            diag.errorAt(m.position, "setting buffer value failed: %v", value).debug(1)
         }
     } else if i, _ := dialects[name]; i != nil {
         if err = prog.interpret(t, i, args); err != nil {
@@ -250,50 +244,56 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     } ()
 
     var recursion int
-    for c := caller; c != nil; c = c.caller {
+    for c := caller; c != nil; c = c.caller() {
         if c.program == prog { recursion += 1 }
     }
     if recursion >= maxRecursion {
         diag.errorAt(pos, "exceeds max recursion: %v", entry.target).debug(1)
-        for c := caller; c != nil; c = c.caller {
+        for c := caller; c != nil; c = c.caller() {
             var n int
-            for next := c.caller; next != nil; next = next.caller {
+            for next := c.caller(); next != nil; next = next.caller() {
                 if next.program == c.program { n += 1; c = next } else { break }
             }
+            var ct, _ = c.Get("@")
             if n > 0 {
-                diag.errorAt(c.program.position, "%v (repeats %d times)", c.def.target.value, n)
+                diag.errorAt(c.program.position, "%v (repeats %d times)", ct, n)
             } else {
-                diag.errorAt(c.program.position, "%v", c.def.target.value)
+                diag.errorAt(c.program.position, "%v", ct)
             }
         }
-        diag.errorAt(pos, "too many recursion (%d) (%v) (from %v)",
-            recursion, entry.target, caller.def.target.value).debug(1)
+        diag.errorAt(pos, "too many recursion (%d) (%v)", recursion, entry.target).debug(1)
         return
     }
 
     // The program scope must be protected!
-    for _, o := range prog.scope.elems { if d, okay := o.(*Def); okay {
+    /*for _, o := range prog.scope.elems { if d, okay := o.(*Def); okay {
         defer func(d *Def, v Value) { d.value = v } (d, d.value)
-    }}
+    }}*/
 
     var t = &traversal{
-        Context: caller,
-        caller: caller,
+        //Context: caller/*.Context*/,
+        //caller: caller,
         isConfigureExecution: isConfigureExecution,
-        start: time.Now(),
-        program: prog,
-        project: prog.project,
-        closure: prog.scope,
+        callContext: callContext{ caller, make(callContextDefs) },
         execRec: make(map[Value]int),
+        closure: prog.scope, //NewScope(pos, prog.scope, prog.project, "exec "+prog.scope.comment),
+        project: prog.project,
+        program: prog,
+        start: time.Now(),
         entry: entry,
-        args: args,
         print: true,
+        args: args,
     }
 
-    var ( none = MakeNone(pos) ; stem Value = none; f func() ; err error )
-    if t.caller != nil {
-        if optionTraceTraversalNestIndent { t.traceLevel = t.caller.traceLevel }
-        if t.stems = t.caller.stems; t.stems != nil { stem = MakeString(pos, t.stems[0]) }
+    /*
+    var (
+        none = MakeNone(pos)
+        stem Value = none
+        err error
+    )
+    if caller != nil {
+        if optionTraceTraversalNestIndent { t.traceLevel = caller.traceLevel }
+        if t.stems = caller.stems; t.stems != nil { stem = MakeString(pos, t.stems[0]) }
     }
     if t.def.target,  err = t.auto("@", none); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
     if t.def.depend0, err = t.auto("<", none); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
@@ -304,8 +304,18 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     if t.def.updated, err = t.auto("?", none); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
     if t.def.buffer,  err = t.auto("-", none); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
     if t.def.stem,    err = t.auto("*", stem); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
-    if t.def.params,f,err = t.seta(prog,args); err != nil { diag.errorAt(pos, "%v", err).debug(1); return } else {
-        defer f()
+    if t.def.params,  err = t.seta(prog.params, args); err != nil { diag.errorAt(pos, "%v", err).debug(1); return }
+    */
+    var err error
+    if caller != nil {
+        if optionTraceTraversalNestIndent { t.traceLevel = caller.traceLevel }
+        if t.stems = caller.stems; t.stems != nil {
+            t.Set("*", MakeString(pos, t.stems[0]))
+        }
+    }
+    if t.params, err = t.setArgs(prog.params, args); err != nil {
+        diag.errorAt(pos, "%v", err).debug(1)
+        return
     }
 
     // Note: must enter work directory (cd) before setting cloctx
@@ -340,8 +350,8 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
 
         if !isNil(result) && !isNone(result) {
             // good!
-        } else if !isNil(t.def.buffer.value) {
-            result = t.def.buffer.Call(ctx)
+        } else if result, _ = t.Get("-"); !isNil(result) {
+            // good!
         } else if !isNil(defaultVal) {
             result = defaultVal
         }
@@ -355,12 +365,12 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
     // because the target could be overrided by parameters.
     switch a := t.entry.target.(type) {
     case *Flag:
-        t.def.target.val(ctx, a)
+        t.Set("@", a)
         // Flag target (-foo) turns off printing automatically
         t.print = false
     case *File:
+        t.Set("@", a)
         //alreadyUpdated = a.info != nil && a.updated
-        t.def.target.val(ctx, a)
     default:
         var name string
         var target = t.entry.target
@@ -372,12 +382,13 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
             //alreadyUpdated = file.info != nil && file.updated
             target = file
         }
-        t.def.target.val(ctx, target)
+        t.Set("@", target)
     }
     if alreadyUpdated {
-        if optionTraceTraversal { t.tracef("Program.execute: '%v' already updated (%v)", t.def.target.value, t.targets) }
-        if options.verbose { diag.infoAt(pos, "'%v' already updated", t.def.target.value) }
-        if false { diag.warnAt(pos, "'%v' already updated", t.def.target.value).debug(true, 1) }
+        var target, _ = t.Get("@")
+        if optionTraceTraversal { t.tracef("Program.execute: '%v' already updated (%v)", target, t.targets) }
+        if options.verbose { diag.infoAt(pos, "'%v' already updated", target) }
+        if false { diag.warnAt(pos, "'%v' already updated", target).debug(true, 1) }
         if false { return }
     }
 
@@ -392,19 +403,20 @@ func (prog *Program) exec(t *traversal) (result Value, brks breakers) {
     if optionEnableBenchspots { defer bench(spot("traversal.exec")) }
     if optionTraceExec {
         var d = t.depth()
-        var t = t.def.target.value
+        var t, _ = t.Get("@")
         var s = fmt.Sprintf("%s: %v (%p, exec.depth=%d)", typeof(t), t, t, d)
         defer un(trace(t_exec, s))
     }
 
-    t.execRec[t.def.target.value] += 1
-    if false { if t.execRec[t.def.target.value] > 1 {
-        if optionTraceExec { t_exec.trace(fmt.Sprintf("exec: %v", t.def.target.value)) }
+    var target, _ = t.Get("@")
+    t.execRec[target] += 1
+    if false { if t.execRec[target] > 1 {
+        if optionTraceExec { t_exec.trace(fmt.Sprintf("exec: %v", target)) }
         return
     }}
 
-    var ctx = contextAt(prog.position, t)
     var pos = prog.position
+    var ctx = contextAt(pos, t)
 
     // Update normal prerequisites
     if brks = t.normalPrerequisites(ctx); brks.has() {
@@ -412,8 +424,8 @@ func (prog *Program) exec(t *traversal) (result Value, brks breakers) {
     } else if n := diag.checkErrors(true); n > 0 {
         brks.add(pos, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", n)
         t.batch(func() {
-            diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).debug(8)
-            t.traceCallStack(pos, -1, "call stack for %v:", t.def.target.value)
+            diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, target).debug(8)
+            t.traceCallStack(pos, -1, "call stack for %v:", target)
         })
         return
     }
@@ -424,8 +436,8 @@ func (prog *Program) exec(t *traversal) (result Value, brks breakers) {
     } else if n := diag.checkErrors(true); n > 0 {
         brks.add(pos, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", n)
         t.batch(func() {
-            diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).debug(8)
-            t.traceCallStack(pos, -1, "call stack for %v:", t.def.target.value)
+            diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, target).debug(8)
+            t.traceCallStack(pos, -1, "call stack for %v:", target)
         })
         return
     }
@@ -434,12 +446,12 @@ func (prog *Program) exec(t *traversal) (result Value, brks breakers) {
     /* modifierGrepFiles already did the traverse()
     if t.greppedFiles(pos);           t.hasBreakers() { return }
     if n := diag.checkErrors(true); n > 0 {
-        diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, t.def.target.value).debug(1)
+        diag.warnAt(pos, "%d errors while traversing prerequisites for %v", n, target).debug(1)
         return
     }
     */
 
-    var value = t.def.buffer.value
+    var value, _ = t.Get("-")
     if len(t.interpreted) == 0 && len(prog.recipes) > 0 && (isNil(value) || isNone(value)) {
         // Using the default statements interpreter.
         if i, ok := dialects["eval"]; ok && i != nil {
@@ -450,17 +462,6 @@ func (prog *Program) exec(t *traversal) (result Value, brks breakers) {
             diag.errorAt(pos, "no default dialect").debug(1)
         }
     }
-
-    if optionTraceExec {
-        t_exec.trace(t.def.stem)
-        t_exec.trace(t.def.target)
-        t_exec.trace(t.def.depend0)
-        t_exec.trace(t.def.depends)
-        t_exec.trace(t.def.ordered)
-        t_exec.trace(t.def.grepped)
-        t_exec.trace(t.def.updated)
-        t_exec.trace(t.def.buffer)
-    }
     return
 }
 
@@ -468,13 +469,14 @@ func (t *traversal) prerequisites(ctx Context, prerequisites []Value) (brks brea
     // IMPORTANT: don't expand the args here. The prerequisites like
     // '$(or &@,...)' have to be expanded when it's used (e.g. compare).
     var pos = ctx.Position()
+    var target, _ = t.Get("@")
     if true {
         for _, prerequisite := range prerequisites {
             if brks = prerequisite.traverse(t); brks.has() {
                 var tb = brks.not(breakNext, breakCase, breakDone)
                 if len(tb) > 0 && len(t.stems) > 0 && false {
                     diag.warnAt(pos, "broken traversal: %v (target = %v, stems = %v)", tb[0].what,
-                        t.def.target.value, t.stems).debug(1)
+                        target, t.stems).debug(1)
                 }
                 break
             }
@@ -487,7 +489,8 @@ func (t *traversal) prerequisites(ctx Context, prerequisites []Value) (brks brea
         wg.Add(num)
         for _, prerequisite := range prerequisites {
             go func () {
-                defer wg.Done()
+                defer recoverPanics(ctx)
+                defer wg.Done() // minus 1
                 if tb := prerequisite.traverse(t); tb.has() {
                     mu.Lock(); defer mu.Unlock()
                     brks = append(brks, tb...)
@@ -498,7 +501,7 @@ func (t *traversal) prerequisites(ctx Context, prerequisites []Value) (brks brea
             var tb = brks.not(breakNext, breakCase, breakDone)
             if len(tb) > 0 && len(t.stems) > 0 && false {
                 diag.warnAt(pos, "broken traversal: %v (target = %v, stems = %v)", tb[0].what,
-                    t.def.target.value, t.stems).debug(1)
+                    target, t.stems).debug(1)
             }
         }
     }
@@ -506,37 +509,46 @@ func (t *traversal) prerequisites(ctx Context, prerequisites []Value) (brks brea
 }
 
 func (t *traversal) normalPrerequisites(ctx Context) (brks breakers) {
-    if optionTraceExec        { defer un(trace(t_exec, t.def.depends.name)) }
+    if optionTraceExec        { defer un(trace(t_exec, "^")) }
     if optionEnableBenchmarks { defer bench(mark("traversal.normalPrerequisites")) }
-    defer func(t0, tx, ta *Def) {
+    /*defer func(t0, tx, ta *Def) {
         if t.target0, t.targetx, t.targets = t0, tx, ta; len(t.updated) > 0 {
             t.def.updated.value = t.updated[0].target // $?
             for _, u := range t.updated[1:] {
                 t.def.updated.append(ctx, u.target)
             }
         }
-    } (t.target0, t.targetx, t.targets)
-    t.targets, t.target0, t.targetx = t.def.depends, t.def.depend0, t.def.dependx
+    } (t.target0, t.targetx, t.targets)*/
+    t.target0, t.targetN, t.targetX = "<", ">", "^"
     return t.prerequisites(ctx, t.program.depends)
+    /*if n := len(t.targets); n > 0 {
+        t.Set("<", t.targets[0])
+        t.Set(">", t.targets[n-1])
+        if n == 1 {
+            t.Set("^", t.targets[0])
+        } else {
+            t.Set("^", MakeList(t.targets[0].Position(), t.targets))
+        }
+    }*/
 }
 
 func (t *traversal) orderOnlyPrerequisites(ctx Context) (brks breakers) {
-    if optionTraceExec        { defer un(trace(t_exec, t.def.ordered.name)) }
+    if optionTraceExec        { defer un(trace(t_exec, "|")) }
     if optionEnableBenchmarks { defer bench(mark("traversal.orderOnlyPrerequisites")) }
-    defer func(t0, tx, ta *Def) {
+    /*defer func(t0, tx, ta *Def) {
         t.target0, t.targetx, t.targets = t0, tx, ta
-    } (t.target0, t.targetx, t.targets)
-    t.targets, t.target0, t.targetx = t.def.ordered, nil, nil
+    } (t.target0, t.targetx, t.targets)*/
+    t.target0, t.targetN, t.targetX = "", "", "|"
     return t.prerequisites(ctx, t.program.ordered)
 }
 
 // DEPRECATED
 func (t *traversal) greppedFiles(ctx Context) (brks breakers) {
-    if optionTraceExec        { defer un(trace(t_exec, t.def.grepped.name)) }
+    if optionTraceExec        { defer un(trace(t_exec, "~")) }
     if optionEnableBenchmarks { defer bench(mark("traversal.greppedFiles")) }
-    defer func(t0, tx, ta *Def) {
+    /*defer func(t0, tx, ta *Def) {
         t.target0, t.targetx, t.targets = t0, tx, ta
-    } (t.target0, t.targetx, t.targets)
-    t.targets, t.target0, t.targetx = t.def.grepped, nil, nil
+    } (t.target0, t.targetx, t.targets)*/
+    t.target0, t.targetN, t.targetX = "", "", "~"
     return t.prerequisites(ctx, t.grepped)
 }

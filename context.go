@@ -76,7 +76,7 @@ const (
 var (
   //goStackLine1 = regexp.MustCompile(`^(?:extbit\.io/smart\.)?(.+)(\(.*\))$`)
   goStackLine1 = regexp.MustCompile(`^(?:extbit\.io/)?(.+)(\(.*\))$`)
-  goStackLine2 = regexp.MustCompile(`^	(.*?:\d+) \+.*$`)
+  goStackLine2 = regexp.MustCompile(`^	(.*?:\d+)(?: \+.*)?$`)
 
   diag Diagnostic
 )
@@ -144,18 +144,24 @@ func (d *diagnostic) debug(args ...interface{}) {
       d.stack = append(bytes.Join(v[i:i+j], ln), ending...)
     }
   } else if true {
+    var gotPanic bool
     for j += j % 2; i+1 < len(v) && 0 < j; i += 2 {
+      if false { fmt.Fprintf(stderr, "%s\n%s\n", v[i+0], v[i+1]) }
       var (
         sm1 = goStackLine1.FindAllSubmatch(v[i+0], 1)
         sm2 = goStackLine2.FindAllSubmatch(v[i+1], 1)
+        isPanic = len(sm1) > 0 && len(sm1[0]) > 1 && bytes.Equal(sm1[0][1], []byte("panic"))
+        se string
       )
-      if sm1 != nil && sm2 != nil {
+      if gotPanic { se = "		<---- panic" }
+      if sm1 != nil && sm2 != nil && !isPanic {
         d.stack = append(d.stack, sm2[0][1]...)
         d.stack = append(d.stack, []byte(":"+s+" ")...)
         d.stack = append(d.stack, sm1[0][1]...)
         d.stack = append(d.stack, sm1[0][2]...)
-        d.stack = append(d.stack, []byte("\n")...)
+        d.stack = append(d.stack, []byte(se+"\n")...)
       }
+      gotPanic = isPanic
       j -= 2
     }
   } else {
@@ -284,8 +290,11 @@ type Context interface {
   // FlagEntries returns all flag entries from all projects
   FlagEntries() map[string][]*RuleEntry
 
-  // Get returns the global Def
-  Get(string) Object
+  // Get returns the requested context value
+  Get(string) (Value, bool)
+
+  // Set change the specified context value and returns old value
+  Set(string, Value) (Value, bool)
 
   // Done returns a channel that is closed when this context is canceled.
   Done() <-chan Value
@@ -339,9 +348,10 @@ type defaultContext struct {
   flagEntries map[string][]*RuleEntry
   flags []*Flag
 }
-func (ctx *defaultContext) Position() (res Position) { res.Filename = ctx.workdir; return }
+func (ctx *defaultContext) Position() (res Position) { res.Filename, res.Line = ctx.workdir, 1; return }
 func (ctx *defaultContext) WorkDir() (res string) { return ctx.workdir }
 func (ctx *defaultContext) Project() (proj *Project) { // aka. current()
+  // TODO: get rid of cloctx
   if len(cloctx) > 0 && cloctx[0].project != nil {
     proj = cloctx[0].project
   } else if ctx.loader != nil { // for load time
@@ -350,14 +360,15 @@ func (ctx *defaultContext) Project() (proj *Project) { // aka. current()
   return
 }
 func (ctx *defaultContext) GlobeScope() *Scope { return ctx.globe.scope }
-func (ctx *defaultContext) Get(name string) (obj Object) {
+func (ctx *defaultContext) Get(name string) (res Value, okay bool) {
   switch name {
-  case "goals": obj = ctx.goals
-  case "mode": obj = ctx.mode
-  case "os": obj = ctx.globe.os.self
+  case "goals": res, okay = ctx.goals, true
+  case "mode": res, okay = ctx.mode, true
+  case "os": res, okay = ctx.globe.os.self, true
   }
   return
 }
+func (ctx *defaultContext) Set(_ string, _ Value) (Value, bool) { return nil, false }
 func (ctx *defaultContext) LoaderScope() (scope *Scope) {
   if ctx.loader != nil {  scope = ctx.loader.scope }
   return
@@ -624,13 +635,30 @@ func (ctx *defaultContext) load() (err error) {
   return
 }
 
+func recoverPanics(ctx Context) {
+  var (
+    pos = ctx.Position()
+    panics int
+  )
+  for e := recover(); e != nil; e = recover() {
+    switch t := e.(type) {
+    case bailout: continue
+    case failure: diag.errorAt(t.position, "panic: %v", t.metainfo)
+    default     : diag.errorAt(pos, "panic: %v", e)
+    }
+    panics += 1
+  }
+  if panics > 0 {
+    diag.errorAt(pos, "failed: got %d panics (%T)", panics, ctx).debug(128)
+  }
+  if numErrs := diag.checkErrors(true); numErrs > 0 && panics == 0 {
+    diag.warnAt(pos, "got %d errors (%T)", numErrs, ctx).debug(16)
+  }
+}
+
 func CommandLine() {
   var context = &_context
-  defer func() {
-    if numErrs := diag.checkErrors(true); numErrs > 0 {
-      diag.warnAt(context.Position(), "got %d errors", numErrs).debug(6)
-    }
-  } ()
+  defer recoverPanics(context)
 
   if optionTraceLaunch { defer un(trace(t_launch, "CommandLine")) }
   if optionEnableBenchmarks {

@@ -948,7 +948,7 @@ func enter(t *traversal, dir string) (err error) {
   if wd, err = os.Getwd(); err != nil { return }
   if err = lockCD(dir, 0); err != nil { return }
   if !filepath.IsAbs(dir) { dir = filepath.Join(wd, dir) }
-  t.auto("CWD", &String{valbase{t.program.position},dir})
+  t.Set("CWD", MakeString(t.program.position, dir))
 
   var ( enter *enterec ; ok bool )
   if enter, ok = cd.enters[dir]; !ok {

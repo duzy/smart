@@ -24,6 +24,12 @@ var (
     ErrorUpdated    = errors.New("target updated")
 )
 
+// failure is for panics with positions
+type failure struct {
+    position Position
+    metainfo interface{}
+}
+
 type AssertionFailed string
 
 func (s AssertionFailed) Error() string { return string(s) }

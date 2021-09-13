@@ -17,24 +17,22 @@ import (
 
 // A Scope maintains a set of objects;
 type Scope struct {
-	mutex *sync.Mutex
+	mutex sync.Mutex
+	elems map[string]Object
 	position Position
 	project *Project
 	outer *Scope
-	elems map[string]Object
 	comment string
 }
 
 func NewScope(pos Position, outer *Scope, project *Project, comment string) *Scope {
-	scope := &Scope{
-		mutex: new(sync.Mutex),
+	return &Scope{
+		elems: make(map[string]Object),
 		position: pos,
 		project: project,
 		outer: outer,
-		elems: make(map[string]Object),
 		comment: comment,
 	}
-	return scope
 }
 
 func (s *Scope) copyElems() (result map[string]Object) {
@@ -230,7 +228,7 @@ func (scope *Scope) Builtin(ctx Context, name string, f BuiltinFunc) (bui *Built
 	return
 }
 
-func (scope *Scope) define(ctx Context, owner *Project, name string, value Value) (def *Def, alt Object) {
+func (scope *Scope) define(ctx Context, origin Origin, name string, value Value) (def *Def, alt Object) {
 	var okay bool
 	scope.mutex.Lock(); defer scope.mutex.Unlock()
 	if alt, okay = scope.elems[name]; okay && alt == nil {
@@ -239,13 +237,13 @@ func (scope *Scope) define(ctx Context, owner *Project, name string, value Value
 	}
 	if !okay {
 		def = &Def{
+			origin: origin, value: value,
 			knownobject: knownobject{
 				objbase{
 					scope: scope,
-					owner: owner,
+					owner: scope.project,
 				}, name,
 			},
-			origin: Origin(0), value: value,
 		}
 		scope.replace(ctx, name, def)
 	}

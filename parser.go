@@ -373,7 +373,7 @@ func (p *parser) expectLinend() {
 // may be past the file's EOF position, which would lead to panics if used
 // later on.
 //
-func (p *parser) _safePos(pos token.Pos) (res token.Pos) {
+/*func (p *parser) _safePos(pos token.Pos) (res token.Pos) {
 	defer func() {
 		if recover() != nil {
 			res = token.Pos(p.file.Base() + p.file.Size()) // EOF position
@@ -381,7 +381,7 @@ func (p *parser) _safePos(pos token.Pos) (res token.Pos) {
 	}()
 	_ = p.file.Offset(pos) // trigger a panic if position is out-of-range
 	return pos
-}
+}*/
 
 // ----------------------------------------------------------------------------
 // Barewords & Identifiers
@@ -429,45 +429,38 @@ func (p *parser) parseSelect(lhs Value) (res Value) {
 	position := p.positionAt(pos)
 	switch t := lhs.(type) {
 	case *selection:
-		diag.errorAt(position, "TODO: multiple selection: %v", lhs).
-			debug(1)
+		diag.errorAt(position, "TODO: multiple selection: %v", lhs).debug(1)
 	case *Bareword:
         switch t.string {
-        case "goals", "os", "mode": lhs = p.Get(t.string)
+        case "goals", "os", "mode": lhs, _ = p.Get(t.string)
         case "usee": lhs = p.project.using
         case "self": lhs = p.project.self
         default:
-            if o, err := p.resolve(lhs); err != nil {
-				diag.errorOf(lhs, "resolve selection object '%v' error: %v", lhs, err).
-					debug(1)
+            if name, o, err := p.resolve(lhs); err != nil {
+				diag.errorOf(lhs, "resolve selection object '%v' (%s) error: %v", lhs, name, err).debug(1)
                 return
-            } else if o == nil {
-                if tok == token.SELECT_PROG2 {
-					res = MakeNil(position) // ignore
-                } else {
-					diag.errorOf(lhs, "'%v' is undefined", lhs).
-						debug(1)
-                }
-                return
-            } else {
-                lhs = o
+            } else if !isNil(o) {
+				lhs = o
+			} else if tok == token.SELECT_PROG2 {
+				res = MakeNil(position) // ignore
+				return
+			} else {
+				diag.errorOf(lhs, "'%v' is undefined", lhs).debug(1)
+				return
             }
         }
     case *Barecomp: // for cases like '.foo'
-        if o, err := p.resolve(t); err != nil {
-			diag.errorOf(lhs, "resolve selection object '%v' error: %v", lhs, err).
-					debug(1)
+        if name, o, err := p.resolve(t); err != nil {
+			diag.errorOf(lhs, "resolve selection object '%v' (%s) error: %v", lhs, name, err).debug(1)
 			return
-        } else if isNil(o) {
-			if tok == token.SELECT_PROG2 {
-				res = MakeNil(position) // ignore
-			} else {
-				diag.errorOf(lhs, "'%v' is undefined", lhs).
-					debug(1)
-			}
+        } else if !isNil(o) {
+			lhs = o
+		} else if tok == token.SELECT_PROG2 {
+			res = MakeNil(position) // ignore
 			return
 		} else {
-			lhs = o
+			diag.errorOf(lhs, "'%v' is undefined", lhs).debug(1)
+			return
         }
 	}
 
@@ -1002,133 +995,147 @@ func (p *parser) parseClosureDelegate() (result Value) {
 
 	var (
 		ctx = contextAt(p.position(), p/*.defaultContext*/)
-		pos  = p.pos
-		tok  = p.tok
-		posLp = token.NoPos
-		tokLp  token.Token
-		name   Value
-		rest []Value
+		pos = p.pos
+		tok = p.tok
 		resolved Value // Object or *selection
-		obj Value
+		rest []Value
 	)
 
-	resolveConfig := func() (obj Object) {
+	resolveConfig := func(val Value, name string) (obj Object) {
 		if p.project.configure != nil {
-			if s, err := name.Strval(ctx); err != nil {
-				diag.errorOf(name, "strval '%v' failed: %v", name, err)
-			} else if obj, err = p.project.configure.resolveObject(ctx, s); err != nil {
-				diag.errorOf(name, "resolve configure '%s' failed: %v", s, err)
+			var err error
+			if obj, err = p.project.configure.resolveObject(ctx, name); err != nil {
+				diag.errorAt(val.Position(), "resolve configure '%s' failed: %v", name, err).debug(4)
 			}
 		}
 		return
 	}
 
-	resolveObject := func() (okay bool) {
+	resolveObject := func(lPos Position, lTok token.Token, name Value) (str string, obj Value, okay bool) {
+		if true {
+			defer func() {
+				if isNil(obj) /*&& !isNil(resolved)*/ {
+					diag.warnAt(name.Position(), "nil: %v (tok=%v%v, resolved=%v (%T))",
+						name, tok, lTok, resolved, resolved).debug(6)
+				}
+			}()
+		}
 		var err error
-		switch tokLp {
+		switch lTok {
 		case token.LPAREN:
-			if resolved, err = p.resolve(name); err != nil {
-				diag.errorOf(name, "resolve '%v' failed: %v", name, err)
+			if sel, ok := name.(*selection); ok {
+				if sel == nil {
+					diag.errorAt(name.Position(), "nil selection: %v", name).debug(1)
+				} else if o, err := sel.object(ctx); err == nil && o.DeclScope().comment == usecomment {
+					obj, okay = unresolved(p.project, name), true
+				} else if err != nil {
+					diag.errorOf(sel, "`%v` invalid delegate selection", name).debug(1)
+				} else if isNil(o) {
+					diag.errorOf(sel, "`%v` nil selection object", name).debug(1)
+				} else if v, err := sel.value(ctx); err != nil {
+					diag.errorOf(name, "`%v` invalid delegate selection", name).debug(1)
+				} else if isNil(v) {
+					diag.errorOf(name, "`%v` not found in %v", sel.s, o).debug(1)
+				} else if obj, okay = v.(Object); !okay {
+					return // just use the selected value
+				}
+			} else if str, resolved, err = p.resolve(name); err != nil {
+				diag.errorAt(name.Position(), "resolve '%v' (%s) failed: %v", name, str, err).debug(1)
+			} else if str == "" {
+				diag.errorAt(name.Position(), "name '%v' is empty", name).debug(1)
 			} else if isNil(resolved) {
 				if p.isIncludingConf {
-					if s, err := name.Strval(ctx); err != nil {
-						diag.errorOf(name, "strval '%v' error: %v", name, err)
-					} else {
-						// Create an empty Def if it's referred in configuration.sm.
-						def, _ := p.def(name.Position(), s)
-						def.origin = DefConfRef
-						obj, okay = def, true
-					}
-				} else if sel, ok := name.(*selection); ok {
-					if o, err := sel.object(ctx); err == nil && o.DeclScope().comment == usecomment {
-						obj, okay = unresolved(p.project, name), true
-					} else if err != nil {
-						diag.errorOf(sel, "`%v` invalid delegate selection", name)
-					} else if isNil(o) {
-						diag.errorOf(sel, "`%v` nil selection object", name)
-					} else if v, err := sel.value(ctx); err != nil {
-						diag.errorOf(name, "`%v` invalid delegate selection", name)
-					} else if isNil(v) {
-						diag.errorOf(name, "`%v` not found in %v", sel.s, o)
-					} else if obj, okay = v.(Object); !okay {
-						// just use the selected value
-					}
-				} else if o := resolveConfig(); !isNil(o) {
-					obj, okay = o, true
+					// Create an empty Def if it's referred in configuration.sm.
+					def, _ := p.def(name.Position(), str)
+					def.origin = DefConfRef
+					obj, okay = def, true
+					return
+				} else if obj = resolveConfig(name, str); !isNil(obj) {
+					okay = true
+					return
 				} else if tok.IsClosure() || refdef(ctx, name, defany) || name.expandible(ctx, expandClosure) {
 					obj, okay = unresolved(p.project, name), true // recursive delegation or closure
+					return
 				} else if name.expandible(ctx, expandPlainValue) {
-					s, _ := name.Strval(ctx)
-					diag.errorOf(name, "resolved '%v' (aka. %s) is nil (project=%v)", name, s, p.project).
-						debug(1)
+					diag.errorOf(name, "resolved '%v' (aka. %s) is nil (project=%v)", name, str, p.project).debug(1)
 				} else {
-					diag.errorOf(name, "resolved '%v' is nil (project=%v)", name, p.project).
-						debug(1)
+					diag.errorOf(name, "resolved '%v' is nil (project=%v)", name, p.project).debug(1)
 				}
-			} else if sel, _ := resolved.(*selection); !isNil(sel) {
+			} else if sel, ok = resolved.(*selection); ok && sel != nil {
 				obj, okay = sel, true
-			} else if def, _ := resolved.(Caller); def == nil {
-				p.error(posLp, "resolved '%v' is not callable: %T", name, resolved)
-			} else if obj, okay = def.(Object); isNil(obj) || !okay {
-				p.error(posLp, "resolved '%v' is not object: %T", name, def)
+				return
+			} else if caller, _ := resolved.(Caller); caller == nil {
+				diag.errorAt(lPos, "resolved '%v' is not callable: %T", name, resolved).debug(1)
+			} else if obj, okay = caller.(Object); isNil(obj) || !okay {
+				diag.errorAt(lPos, "resolved '%v' is not object: %T", name, resolved).debug(1)
+			} else if isNil(obj) {
+				diag.errorAt(lPos, "resolved '%v' is nil: %T", name, resolved).debug(1)
+			} else {
+				return
 			}
 		case token.LBRACE:
 			if resolved, err = p.find(name); err != nil {
-				p.error(posLp, "finding rule entry '%v' failed: %v", name, err)
+				diag.errorAt(lPos, "finding rule entry '%v' failed: %v", name, err).debug(1)
 			} else if isNil(resolved) {
 				if name.expandible(ctx, expandPlainValue) {
 					s, _ := name.Strval(ctx)
-					diag.errorOf(name, "resolved '%v' (aka. %s) is nil (project=%v)", name, s, p.project).
-						debug(1)
+					diag.errorOf(name, "resolved '%v' (aka. %s) is nil (project=%v)", name, s, p.project).debug(1)
 				} else {
-					diag.errorOf(name, "resolved '%v' is nil (project=%v)", name, p.project).
-						debug(1)
+					diag.errorOf(name, "resolved '%v' is nil (project=%v)", name, p.project).debug(1)
 				}
 			} else if exe, _ := resolved.(Executer); exe == nil {
-				p.error(posLp, "resolved '%v' of '%T' is not Executer", name, resolved)
+				diag.errorAt(lPos, "resolved '%v' of '%T' is not Executer", name, resolved).debug(1)
 			} else if obj, okay = exe.(Object); !okay || isNil(obj) {
-				p.error(posLp, "resolved Executer '%v' of '%T' is not Object", name, resolved)
+				diag.errorAt(lPos, "resolved Executer '%v' of '%T' is not Object", name, resolved).debug(1)
 			}
 		case token.LCOLON:
-			s, err := name.Strval(ctx)
-			if err != nil {
-				p.error(posLp, "error strval name '%v': %v", name, err)
+			if str, err = name.Strval(ctx); err != nil {
+				diag.errorAt(lPos, "error strval name '%v': %v", name, err).debug(1)
 				return
 			}
-			switch s {
-			case "goals", "os", "mode": resolved = ctx.Get(s)
-			case "usee":  resolved = p.project.using
+			switch str {
+			case "goals", "os", "mode": resolved, _ = ctx.Get(str)
+			case "usee":  resolved = p.project.using // TODO: move usee and self into ctx
 			case "self":  resolved = p.project.self
 			default:
-				p.error(posLp, "unknown special property: %v", s, err)
+				diag.errorAt(lPos, "unknown special property: %v", str, err).debug(1)
 				return
 			}
 			obj, okay = resolved, true
+			return
 		}
 		return
 	}
 
+	var (
+		name Value
+		nameStr string
+		tokLp token.Token
+		obj Value
+		okay bool
+	)
 	switch p._next(); p.tok {
 	case token.LPAREN, token.LBRACE, token.LCOLON: // $(...), ${...}, $:...:
-		posLp, tokLp = p.pos, p.tok
+		var posLp = p.position()
+		tokLp = p.tok
 
 		p._next() // skips LPAREN, LBRACE, LCOLON
-		if posLp+1 != p.pos {
-			diag.errorAt(p.positionAt(posLp+1), "unexpected spaces").debug(1)
-			return MakeNil(p.position())
-		}
-
-		if name = p.parseClosureDelegateName(tokLp); isNil(name) {
-			diag.errorAt(p.positionAt(posLp), "parsed name is nil")
-		} else if !name.expandible(ctx, expandClosure) && !resolveObject() {
-			diag.errorOf(name, "name '%v' is unidentified (project=%v)", name, p.project).debug(1)
+		if /*posLp+1 != p.pos*/p.tok == token.SPACE {
+			var position = p.position()
+			diag.errorAt(position, "unexpected spaces").debug(1)
+			return MakeNil(position)
+		} else if name = p.parseClosureDelegateName(tokLp); isNil(name) {
+			diag.errorAt(posLp, "parsed name is nil").debug(1)
+		} else if name.expandible(ctx, expandClosure) {
+			diag.errorAt(name.Position(), "name '%v' (%T) is closured (project=%v)", name, name, p.project).debug(1)
+		} else if nameStr, obj, okay = resolveObject(posLp, tokLp, name); !okay {
+			diag.errorAt(name.Position(), "name '%v' is unidentified (project=%v)", name, p.project).debug(1)
 		}
 
 		if  (tokLp == token.LPAREN && p.tok != token.RPAREN) ||
 			(tokLp == token.LBRACE && p.tok != token.RBRACE) ||
 			(tokLp == token.LCOLON && p.tok != token.RCOLON) {
-			rest = append(rest, p.parseListExpr(false))
-			for p.tok == token.COMMA {
+			for rest = append(rest, p.parseListExpr(false)); p.tok == token.COMMA; {
 				p.next(true)
 				rest = append(rest, p.parseListExpr(false))
 			}
@@ -1138,7 +1145,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 		case token.LPAREN: p.expect(token.RPAREN)
 		case token.LBRACE: p.expect(token.RBRACE)
 		case token.LCOLON: p.expect(token.RCOLON)
-			if p.tok == token.ASSIGN { diag.errorAt(p.position(), "unexpected assignment") }
+			if p.tok == token.ASSIGN { diag.errorAt(p.position(), "unexpected assignment").debug(1) }
 		}
 
 	default:
@@ -1147,13 +1154,16 @@ func (p *parser) parseClosureDelegate() (result Value) {
 			diag.errorAt(position, "expects `%v` or `%v` or quotes", token.LPAREN, token.LBRACE).debug(1)
 			return MakeNil(position)
 		} else if p.tok == token.STRING || p.tok == token.COMPOUND {
-			posLp, tokLp = p.pos, p.tok
+			var posLp = p.position()
+			tokLp = p.tok
 
 			// &'xxxx' or &"xxxx"
 			if name = p.parseExpr(false); isNil(name) {
-				p.error(posLp, "parsed name is nil")
-			} else if !name.expandible(ctx, expandClosure) && !resolveObject() {
-				diag.errorOf(name, "name '%v' is unidentified", name)
+				diag.errorAt(posLp, "parsed name is nil").debug(1)
+			} else if name.expandible(ctx, expandClosure) {
+				diag.errorAt(name.Position(), "name '%v' (%T) is closured (project=%v)", name, name, p.project).debug(1)
+			} else if nameStr, obj, okay = resolveObject(posLp, tokLp, name); !okay {
+				diag.errorAt(name.Position(), "name '%v' is unidentified", name).debug(1)
 			}
 		} else {
 			// &(...), &{...}, &'...', &"..."
@@ -1162,17 +1172,28 @@ func (p *parser) parseClosureDelegate() (result Value) {
 		}
 	}
 	if isNil(obj) && p.project.plugin != nil && p.project.pluginScope != nil {
-		s, err := name.Strval(ctx)
-		if err != nil {
-			p.error(pos, "strval name '%v' failed: %v", name, err)
-			return
+		var err error
+		if nameStr == "" && !isNil(name) {
+			if nameStr, err = name.Strval(ctx); err != nil {
+				diag.errorAt(name.Position(), "strval name '%v' failed: %v", name, err).debug(1)
+				return
+			}
 		}
-		obj = p.project.pluginScope.Lookup(s)
+		if nameStr == "" {
+			diag.errorAt(name.Position(), "strval name '%v' is empty", name).debug(1)
+		} else {
+			obj = p.project.pluginScope.Lookup(nameStr)
+		}
 	}
-
 	if position := p.positionAt(pos); tok.IsDelegate() {
+		if isNil(obj) {
+			diag.errorAt(name.Position(), "resolved '%v' is nil (%T %v, tok=%v)", name, resolved, resolved, tok).debug(1)
+		}
 		return MakeDelegate(position, tokLp, obj, rest...);
 	} else {
+		if isNil(obj) {
+			diag.errorAt(name.Position(), "resolved '%v' is nil (%T %v), shall be 'unresolved' (tok=%v)", name, resolved, resolved, tok).debug(1)
+		}
 		return MakeClosure(position, tokLp, obj, rest...);
 	}
 }
@@ -1186,28 +1207,30 @@ func (p *parser) parseSpecialClosureDelegate(lhs bool) Value {
 	var (
 		position = p.positionAt(pos)
 		name = MakeBareword(position, s)
-		resolved, err = p.resolve(name)
+		nameStr, resolved, err = p.resolve(name)
 		obj Object
 	)
 	if err != nil {
-		diag.errorOf(name, "resolve '%v' failed: %v", name, err).
-			debug(1)
+		diag.errorOf(name, "resolve '%v' failed: %v", name, err).debug(1)
 		return MakeNil(position)
 	} else if resolved == nil {
-		diag.errorOf(name, "resolved '%v' is nil", name).
-			debug(1)
+		diag.errorOf(name, "resolved '%v' is nil", name).debug(1)
+		return MakeNil(position)
+	} else if nameStr == "" {
+		diag.errorOf(name, "name '%v' is empty", name).debug(1)
 		return MakeNil(position)
 	} else if def, ok := resolved.(Caller); def == nil || !ok {
-		diag.errorOf(resolved, "resolved '%v' is not callable: %T", name, resolved).
-			debug(1)
+		diag.errorOf(resolved, "resolved '%v' is not callable: %T", name, resolved).debug(1)
 		return MakeNil(position)
 	} else if obj, ok = def.(Object); obj == nil || !ok {
-		diag.errorOf(resolved, "resolved '%v' is not object: %T", name, def).
-			debug(1)
+		diag.errorOf(resolved, "resolved '%v' is not object: %T", name, def).debug(1)
 		return MakeNil(position)
 	}
 
-	if tok.IsDelegate() {
+	if isNil(obj) {
+		diag.errorOf(resolved, "resolved '%v' is <nil>: %v (%T)", name, resolved, resolved).debug(1)
+		return MakeNil(position)
+	}  else if tok.IsDelegate() {
 		return MakeDelegate(position, tok, obj);
 	} else {
 		return MakeClosure(position, tok, obj);
@@ -1695,20 +1718,15 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 		err error
 	)
 	if prop0 := props[0]; isNil(prop0) {
-		diag.errorAt(position, "illegal").
-			debug(1)
+		diag.errorAt(position, "illegal").debug(1)
 	} else if position = prop0.Position(); !position.IsValid() {
-		diag.errorAt(position, "command name '%v' has invalid position", prop0).
-			debug(1)
-	} else if resolved, err = p.resolve(prop0); err != nil {
-		diag.errorAt(position, "resolve '%v' failed: %v", prop0, err).
-			debug(1)
+		diag.errorAt(position, "command name '%v' has invalid position", prop0).debug(1)
+	} else if _, resolved, err = p.resolve(prop0); err != nil {
+		diag.errorAt(position, "resolve '%v' failed: %v", prop0, err).debug(1)
 	} else if isNil(resolved) {
-		diag.errorAt(position, "resolved '%v' is nil", prop0).
-			debug(1)
+		diag.errorAt(position, "resolved '%v' is nil", prop0).debug(1)
 	} else if b, ok := resolved.(*Builtin); ok && (b.flag&builtinCommand) == 0 {
-		diag.errorAt(position, "resolved builtin '%v' is not a command: %T", prop0, resolved).
-			debug(1)
+		diag.errorAt(position, "resolved builtin '%v' is not a command: %T", prop0, resolved).debug(1)
 	} else if !generic.dontOperate { //p.evalspec(spec)
         // At the point of `eval` was represented, the closure context
         // might be empty. So we start closure with the current scope.
@@ -1717,10 +1735,9 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
         switch op := prop0.(type) {
         case Caller: res = op.Call(ctx, props[1:]...)
         default:
-            var ( name string; err error )
+            var name string
             if name, err = op.Strval(ctx); err != nil {
-                diag.errorAt(position, "strval '%s' failed: %v", op, err).
-					debug(1)
+                diag.errorAt(position, "strval '%s' failed: %v", op, err).debug(1)
             } else if _, obj := p.scope.Find(name); obj == nil {
                 diag.errorAt(position, "`%s` undefined", name).debug(1)
             } else if f, _ := obj.(Caller); f == nil {
@@ -1932,7 +1949,7 @@ SwitchDialect:
 			if isNil(x) {
 				diag.errorAt(position, "parsed value is nil")
 			} else if t, ok := x.(*Bareword); ok && !isVal {
-				if sym, err := p.resolve(t); err != nil {
+				if _, sym, err := p.resolve(t); err != nil {
 					diag.errorAt(position, "resolve '%v' failed: %v", x, err)
 				} else if isNil(sym) {
 					diag.errorAt(position, "resolved '%v' (from %v) is nil", t.string, x)
@@ -2226,8 +2243,12 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		scopeComment = fmt.Sprintf("rule %v", targets)
 	}
 
-	position := p.position()
-	ls := p.openScope(scopeComment)
+	var (
+		position = p.position()
+		ctx = contextAt(position, p)
+		ls = p.openScope(scopeComment)
+		err error
+	)
 	for _, s := range automatics {
 		var def, alt = p.def(position, s)
 		if alt != nil {
@@ -2249,7 +2270,6 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		}
 	}
 
-	var ( ctx = contextAt(position, p); err error )
 	switch special {
 	case specialRuleUse:
 		if name, alt := p.scope.ProjectName(ctx, p.project, selfproj, p.project); alt != nil {
@@ -2316,7 +2336,7 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		if name, err := t.Strval(ctx); err != nil {
 			diag.errorOf(t, "strval configure target '%v' failed: %v", t, err)
 		} else {
-			d, a := p.project.scope.define(ctx, p.project, name, nil)
+			d, a := p.project.scope.define(ctx, DefVoid, name, nil)
 			if d == nil && a == nil {
 				diag.errorOf(t, "cannot define configure target '%v'", name)
 			} else if a != nil {
@@ -2595,7 +2615,7 @@ func (p *parser) applyUseeVars(position Position, proj *Project, using Value) {
 				usingVarName = fmt.Sprintf("using.%s", name)
 				def *Def; alt Object
 			)
-			def, alt = proj.scope.define(ctx, proj, usingVarName, MakeNone(position))
+			def, alt = proj.scope.define(ctx, DefVoid, usingVarName, MakeNone(position))
 			if def == nil && alt != nil { def, _ = alt.(*Def) }
 			for _, base := range proj.bases {
 				if obj, err := base.resolveObject(ctx, usingVarName); err == nil && !(isNil(obj) || isNone(obj)) {
@@ -2691,8 +2711,7 @@ func (p *parser) parseFile() *parsedFile {
 			diag.errorAt(position, "CWD not in the scope: %v", s.comment)
 		}
 	} else {
-		diag.errorAt(position, "opened invalid scope for %s", filename).
-			debug(1)
+		diag.errorAt(position, "opened invalid scope for %s", filename).debug(1)
 		return nil
 	}
 

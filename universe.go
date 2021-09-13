@@ -59,9 +59,9 @@ func init() {
         }
 
         universe = NewScope(pos, nil, nil, "universe")
-        _, _ = universe.define(ctx, nil, "SMART.ARGS", args)
-        _, _ = universe.define(ctx, nil, "SMART.BIN", bin)
-        _, _ = universe.define(ctx, nil, "SMART", bin)
+        _, _ = universe.define(ctx, DefVoid, "SMART.ARGS", args)
+        _, _ = universe.define(ctx, DefVoid, "SMART.BIN", bin)
+        _, _ = universe.define(ctx, DefVoid, "SMART", bin)
         
         defineUniverseBuiltins(ctx)
 }
@@ -136,11 +136,11 @@ func (g *Globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, sp
 
                 var none = &None{valbase{pos}}
 
-                def, _ := g.scope.define(ctx, m, "_", none)
+                def, _ := g.scope.define(ctx, DefAuto, "_", none)
                 if enable_assertions { assert(def != nil, "'$_' is nil") }
 
                 for i := 1; i <= maxNumVarVal; i += 1 {
-                        def, _ := g.scope.define(ctx, m, strconv.Itoa(i), none)
+                        def, _ := g.scope.define(ctx, DefAuto, strconv.Itoa(i), none)
                         if enable_assertions { assert(def != nil, "'$%d' is nil", i) }
                 }
         }

@@ -27,9 +27,9 @@ func (p *using) refs(ctx Context, v Value) bool {
         }
         return false
 }
-func (p *using) defs(ctx Context, s string) (res []*Def) {
+func (p *using) defs(ctx Context, s ...string) (res []*Def) {
     for _, a := range p.params {
-        res = append(res, a.defs(ctx, s)...)
+        res = append(res, a.defs(ctx, s...)...)
     }
     return
 }
@@ -183,9 +183,9 @@ func (p *usinglist) refs(ctx Context, v Value) bool {
         }
         return false
 }
-func (p *usinglist) defs(ctx Context, s string) (res []*Def) {
+func (p *usinglist) defs(ctx Context, s ...string) (res []*Def) {
     for _, a := range p.list {
-        res = append(res, a.defs(ctx, s)...)
+            res = append(res, a.defs(ctx, s...)...)
     }
     return
 }

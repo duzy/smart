@@ -54,7 +54,7 @@ var configuration = &struct{
     done: make(map[*Def]bool),
 }
 
-var configurationOps = map[string] func(t *traversal, def *Def, fields map[string]Value, args ...Value) (result Value, err error) {
+var configurationOps = map[string] func(*traversal, map[string]Value, ...Value) (Value, error) {
     "answer":  configureAnswer,
     "bool":    configureBool,
     "dump":    configureDump,
@@ -180,26 +180,25 @@ func configMessageDone(ctx Context, str string, args... interface{}) {
 }
 
 // -dump
-func configureDump(t *traversal, def *Def, fields map[string]Value, params ...Value) (result Value, err error) {
-    result = def.value
+func configureDump(t *traversal, fields map[string]Value, params ...Value) (result Value, err error) {
+    result, _ = t.Get("-")
     return
 }
 
-func configureBoolValue(t *traversal, def *Def) (result bool, err error) {
+func configureBoolValue(t *traversal) (result bool, err error) {
     var (
         pos = t.Position()
-        value = def.Call(t)
+        value, okay = t.Get("-")
+        res Value
     )
-    if !isNil(value) {
-        var res Value
-        if res, err = value.expand(t, expandPlainValue); err != nil {
-            diag.errorAt(pos, "expand value failed: %v", err).debug(1)
-            return
-        } else if !isNil(res) && res != value {
-            value = res
-        }
+    if !okay || isNil(value) {
+        return
+    } else if res, err = value.expand(t, expandPlainValue); err != nil {
+        diag.errorAt(pos, "expand value failed: %v", err).debug(1)
+        return
+    } else if !isNil(res) && res != value {
+        value = res
     }
-
     for i, v := range merge(value) {
         var a bool
         if v == nil {
@@ -219,9 +218,9 @@ func configureBoolValue(t *traversal, def *Def) (result bool, err error) {
 
 // -bool
 // -bool('message...')
-func configureBool(t *traversal, def *Def, fields map[string]Value, params ...Value) (result Value, err error) {
+func configureBool(t *traversal, fields map[string]Value, params ...Value) (result Value, err error) {
     var ( pos = t.Position(); val bool )
-    if val, err = configureBoolValue(t, def); err != nil {
+    if val, err = configureBoolValue(t); err != nil {
         diag.errorAt(pos, "configure bool value failed: %v", err).debug(1)
     } else {
         result = MakeBoolean(pos, val)
@@ -231,9 +230,9 @@ func configureBool(t *traversal, def *Def, fields map[string]Value, params ...Va
 
 // -answer
 // -answer('message...')
-func configureAnswer(t *traversal, def *Def, fields map[string]Value, params ...Value) (result Value, err error) {
+func configureAnswer(t *traversal, fields map[string]Value, params ...Value) (result Value, err error) {
     var ( pos = t.Position(); val bool )
-    if val, err = configureBoolValue(t, def); err != nil {
+    if val, err = configureBoolValue(t); err != nil {
         diag.errorAt(pos, "configure bool value failed: %v", err).debug(1)
     } else {
         result = MakeAnswer(pos, val)
@@ -243,22 +242,23 @@ func configureAnswer(t *traversal, def *Def, fields map[string]Value, params ...
 
 // -option
 // -option('message...')
-func configureOption(t *traversal, def *Def, fields map[string]Value, args ...Value) (result Value, err error) {
-    var pos = t.Position()
-    if result = def.Call(t); isNil(result) { result = MakeAnswer(pos, false) }
-    if result != nil {
+func configureOption(t *traversal, fields map[string]Value, args ...Value) (result Value, err error) {
+    var ( pos = t.Position(); okay bool )
+    if result, okay = t.Get("-"); okay && !isNil(result) {
         var res Value
         if res, err = result.expand(t, expandPlainValue); err != nil {
             diag.errorAt(pos, "expand configure option failed: %v", err).debug(1)
         } else if !isNil(res) && res != result {
             result = res
         }
+    } else {
+        result = MakeAnswer(pos, false)
     }
     return
 }
 
 // -package finds system package in a way similar to cmake.find_package
-func configurePackage(t *traversal, def *Def, fields map[string]Value, args ...Value) (result Value, err error) {
+func configurePackage(t *traversal, fields map[string]Value, args ...Value) (result Value, err error) {
     var pos = t.Position()
     var names []string
     var optType packagetype = packageSmart
@@ -342,6 +342,7 @@ func configureExec(t *traversal, opts *modifierConfigureOpts, s string, target V
     if false { defer setclosure(setclosure(cloctx.unshift(t.program.scope))) }
     if false { diag.infoAt(pos, "configureExec(%v %v): %v, %v", entry, t.entry, paramsOrig, cloctx).debug(true, 1)}
 
+    var buffer, _ = t.Get("-")
     var silent bool
     var params []Value
     var prog = entry.programs[0]
@@ -349,7 +350,7 @@ func configureExec(t *traversal, opts *modifierConfigureOpts, s string, target V
         switch par.name {
         case "LANG":   params = append(params, MakePair(pos, MakeBareword(pos, "LANG"),   MakeString(pos, t.program.language)))
         case "TARGET": params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
-        case "VALUE":  params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"),  t.def.buffer))
+        case "VALUE":  params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"),  buffer))
         }
         for _, a := range paramsOrig {
             if f, ok := a.(*Flag); ok {
@@ -384,8 +385,11 @@ func configureExec(t *traversal, opts *modifierConfigureOpts, s string, target V
 
     var brks breakers
     result, brks = prog.execute(t, entry, params)
-    if false && (isNil(result) || isNone(result)) { diag.infoAt(pos, "%v: %v = %v, %v, params = %v",
-        entry, target, result, t.def.target, params).debug(true,1) }
+    if false && (isNil(result) || isNone(result)) {
+        var target, _ = t.Get("@")
+        diag.infoAt(pos, "%v: %v = %v, %v, params = %v",
+            entry, target, result, target, params).debug(true,1)
+    }
     if brks = brks.not(breakDone); brks.has() {
         for i, brk := range brks {
             switch brk.what {
@@ -420,7 +424,6 @@ func configureDo(t *traversal, opts *modifierConfigureOpts, target Value, def, n
 
     var (
         pos = t.Position()
-        pipe = t.def.buffer
         strName string
         params []Value
         infos []Value
@@ -498,7 +501,7 @@ ForArgs:
     //   ...
     if config, ok := configurationOps[strName]; ok {
         params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
-        if result, err = config(t, pipe, nil, params...); err != nil {
+        if result, err = config(t, nil, params...); err != nil {
             diag.errorAt(pos, "configure '%s' failed: %v", strName, err).debug(1)
         } else {
             if optionTraceConfig {
@@ -564,7 +567,7 @@ func modifierConfigure(t *traversal, args ...Value) (result Value, _ breakers) {
         }
     }
 
-    var target = t.def.target.value
+    var target, _ = t.Get("@")
     if isNil(target) || isNone(target) {
         diag.errorAt(pos, "target is nil for entry '%s'", t.entry.target).debug(1)
         return
@@ -579,7 +582,7 @@ func modifierConfigure(t *traversal, args ...Value) (result Value, _ breakers) {
         diag.warnOf(target, "%v: %v %v", name, t.program.project.bases, cloctx).debug(1)
     }
 
-    var def, alt = t.program.project.scope.define(t, t.program.project, name, nil)
+    var def, alt = t.program.project.scope.define(t, DefConfig, name, nil)
     if alt != nil { def, _ = alt.(*Def) }
     if def != nil { result = def } else {
         diag.errorAt(pos, "cannot define configuration `%s`", name).debug(1)
@@ -596,7 +599,7 @@ func modifierConfigure(t *traversal, args ...Value) (result Value, _ breakers) {
 
     var value Value
     if len(args) == 0 { // Empty configuration: (configure)
-        if value = t.def.buffer.Call(t); value == nil {
+        if value, _ = t.Get("-"); value == nil {
             diag.errorAt(pos, "`%v` not configured (%v)", target, value).debug(1)
             return
         } else if value == def || value.refs(t, def) {
@@ -759,10 +762,13 @@ func modifierConfigureFile(t *traversal, args ...Value) (result Value, _ breaker
         return
     }
 
-    if file, _ = t.def.target.value.(*File); file == nil {
+    if target, okay := t.Get("@"); !okay || isNil(target) {
+        diag.errorAt(pos, "target '@' is not defined").debug(1)
+        return
+    } else if file, _ = target.(*File); file == nil {
         var ( s string; okay bool )
-        if s, err = t.def.target.value.Strval(t); err != nil {
-            diag.errorAt(pos, "strval target '%v' failed: %v", t.def.target.value, err).debug(1)
+        if s, err = target.Strval(t); err != nil {
+            diag.errorAt(pos, "strval target '%v' failed: %v", target, err).debug(1)
             return
         }
 
@@ -794,7 +800,9 @@ func modifierConfigureFile(t *traversal, args ...Value) (result Value, _ breaker
         t.forClosuredProjects(func(p *Project) (ok bool, err error) {
             if f := p.FindFile(t, filename); f != nil {
                 ok, file, filename, project = true, f, f.fullname(), p
-                t.def.target.value = file // reset target file
+                if _, okay := t.Set("@", file); !okay { // reset target file
+                    diag.errorAt(pos, "set '@' failed: %v", file).debug(1)
+                }
                 if opts.debug {
                     diag.infoAt(pos, "configure-file: %v: %s->%s", p, f, filename).debug(1)
                 }
@@ -809,7 +817,7 @@ func modifierConfigureFile(t *traversal, args ...Value) (result Value, _ breaker
     if file.info == nil { if f := stat(t, filename, "", ""); f != nil { file.info = f.info }}
     if project == nil { project = t.project }
     if opts.debug && file != nil {
-        var target = t.def.target.value
+        var target, _ = t.Get("@")
         diag.infoAt(pos, "configure-file: %v: %v (%s) (%v, %v) (%v)",
             project, target, file.fullname(), t.project, t.closure.comment, cloctx)
     }
@@ -828,7 +836,10 @@ func modifierConfigureFile(t *traversal, args ...Value) (result Value, _ breaker
     } (filename, closure)
 
     var data bytes.Buffer
-    for _, arg := range append(args, t.def.buffer.value) {
+    if buffer, okay := t.Get("-"); okay && !isNil(buffer) {
+        args = append(args, buffer)
+    }
+    for _, arg := range args {
         var str string
         if str, err = arg.Strval(t); err != nil {
             diag.errorAt(pos, "%v", err).debug(1)
@@ -863,7 +874,7 @@ func modifierConfigureFile(t *traversal, args ...Value) (result Value, _ breaker
             return
         } else if same {
             var tt = file.info.ModTime()
-            for _, d := range merge(t.targets.value) {
+            for _, d := range merge(t.targets...) {
                 if f, ok := d.(*File); !ok { continue } else
                 if dt := f.info.ModTime(); dt.After(tt) { tt = dt }
             }
@@ -940,8 +951,11 @@ func modifierExtractConfiguration(t *traversal, args ...Value) (result Value, _ 
     }
 
     var outFile string
-    if outFile, err = t.def.target.value.Strval(t); err != nil {
-        diag.errorAt(pos, "strval '%v' failed: %v", t.def.target.value, err).debug(1)
+    if target, okay := t.Get("@"); !okay || isNil(target) {
+        diag.errorAt(pos, "target '@' is undefined").debug(1)
+        return
+    }  else if outFile, err = target.Strval(t); err != nil {
+        diag.errorAt(pos, "strval '%v' failed: %v", target, err).debug(1)
         return
     }
     if opts.makePath {
@@ -962,7 +976,9 @@ func modifierExtractConfiguration(t *traversal, args ...Value) (result Value, _ 
     }()
 
     var depends []Value
-    if depends, err = mergeresult2(expandall2(t, expandPlainValue, t.def.depends.value)); err != nil {
+    if value, okay := t.Get("^"); !okay || isNil(value) {
+        // ...
+    } else if depends, err = mergeresult2(expandall2(t, expandPlainValue, value)); err != nil {
         diag.errorAt(pos, "merge depends failed: %v", err).debug(1)
         return
     }
