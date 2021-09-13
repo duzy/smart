@@ -850,16 +850,16 @@ func (t *traversal) string(targetVal Value, target string) (okay bool, brks brea
                 okay = true
                 return
             } else if tb := brks.of(breakFail, breakErro); len(tb) > 0 {
+                brks = brks.not(breakFail, breakErro);
                 t.batch(func () {
                     for _, brk := range tb {
                         switch brk.what {
-                        case breakFail: diag.errorAt(entry.position, "traverse %v failed: %v", file, brk.message).debug(1)
-                        case breakErro: diag.errorAt(entry.position, "traverse %v error: %v", file, brk.error).debug(1)
+                        case breakFail: diag.errorAt(entry.position, "traverse %v failed: %v", entry, brk.message).debug(1)
+                        case breakErro: diag.errorAt(entry.position, "traverse %v error: %v", entry, brk.error).debug(1)
                         }
                     }
                     diag.errorAt(pos, "broken traversal for stemmed entry '%v' in %v", entry, entry.OwnerProject()).debug(1)
                 })
-                brks = brks.not(breakFail, breakErro);
                 return
             } else if tb = brks.of(breakNext); len(tb) > 0 {
                 if brks = brks.not(breakNext); brks.has() {

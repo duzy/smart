@@ -203,9 +203,9 @@ var builtins = map[string]BuiltinFunc {
         `link`:       builtinLink,      // os/file_*.go
         `symlink`:    builtinSymlink,   // os/file_*.go
 
-        `file-exists`:builtinFileExists,// stat
-        `file-source`:builtinFileSource,
         `file`:       builtinFile,
+        `stat`:       builtinStat,// stat (deprecates file-exists)
+        `glob`:       builtinGlob,
         `wildcard`:   builtinWildcard,
 
         // TODO: move these into builtin package 'io/ioutil'
@@ -3416,15 +3416,15 @@ ForArgs:
         return
 }
 
-type builtinFileExistsOpts struct {
+type builtinStatOpts struct {
         dir bool `d,dir`
         file bool `f,file`
         symbol bool `s,symlink;sym,symbol`
 }
-func builtinFileExists(ctx Context, args... Value) (res Value) {
+func builtinStat(ctx Context, args... Value) (res Value) {
         var (
                 pos = ctx.Position()
-                opts builtinFileExistsOpts
+                opts builtinStatOpts
                 err error
         )
         if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
@@ -3443,31 +3443,24 @@ func builtinFileExists(ctx Context, args... Value) (res Value) {
 
         var reses []Value
         var check = func(file *File) {
-                if file.info == nil {
-                        reses = append(reses, &boolean{valbase{pos},false})
-                        return
+                if file == nil || file.info == nil {
+                        reses = append(reses, MakeBoolean(pos, false))
+                } else if mode := file.info.Mode(); opts.dir && mode&os.ModeDir != 0 { // IsDir()
+                        reses = append(reses, MakeBoolean(pos, true))//file
+                } else if opts.symbol && mode&os.ModeSymlink != 0 {
+                        reses = append(reses, MakeBoolean(pos, true))//file
+                } else if opts.file && mode&os.ModeType != 0 { // IsRegular()
+                        reses = append(reses, MakeBoolean(pos, true))//file
+                } else {
+                        reses = append(reses, MakeBoolean(pos, true))//file
                 }
-                var mode = file.info.Mode()
-                 if opts.dir && mode&os.ModeDir != 0 { // IsDir()
-                        reses = append(reses, &boolean{valbase{pos},true})//file
-                        return
-                }
-                if opts.symbol && mode&os.ModeSymlink != 0 {
-                        reses = append(reses, &boolean{valbase{pos},true})//file
-                        return
-                }
-                if opts.file && mode&os.ModeType != 0 { // IsRegular()
-                        reses = append(reses, &boolean{valbase{pos},true})//file
-                        return
-                }
-                reses = append(reses, &boolean{valbase{pos},true})//file
                 return
         }
 
         var checkstat = func(a Value) {
                 var ( s string ; file *File )
                 if s, err = a.Strval(ctx); err != nil {
-                        diag.errorAt(pos, "%v", err).debug(1)
+                        diag.errorAt(pos, "strval '%v' failed: %v", a, err).debug(1)
                         return
                 }
                 if filepath.IsAbs(s) {
@@ -3494,7 +3487,7 @@ func builtinFileExists(ctx Context, args... Value) (res Value) {
         return
 }
 
-func builtinFileSource(ctx Context, args... Value) (res Value) {
+/*func builtinFileSource(ctx Context, args... Value) (res Value) {
         var ( pos = ctx.Position(); err error )
         if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
                 diag.errorAt(pos, "expand args failed: %v", err).debug(1)
@@ -3514,7 +3507,7 @@ func builtinFileSource(ctx Context, args... Value) (res Value) {
                         diag.errorAt(pos, "strval '%v' failed: %v", err).debug(1)
                         return
                 }
-                if file := proj./*searchFile*/FindFile(ctx, str); file != nil {
+                if file := proj.FindFile(ctx, str); file != nil {
                         l = append(l, MakeString(a.Position(), file.sub))
                 }
         }
@@ -3522,7 +3515,7 @@ func builtinFileSource(ctx Context, args... Value) (res Value) {
                 res = MakeListOrScalar(pos, l)
         }
         return
-}
+}*/
 
 type builtinFileOpts struct {
         caller bool `c,caller;cc,callercontext;cc,caller-context`
@@ -3569,6 +3562,54 @@ func builtinFile(ctx Context, args... Value) (res Value) {
 
         res = MakeListOrScalar(pos, list)
         return
+}
+
+type builtinGlobOpts struct {
+        dir bool `d,dir;d,directory`
+        file bool `f,file`
+        symbol bool `s,symlink;sym,symbol;sym,symbolic`
+}
+func builtinGlob(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                opts builtinGlobOpts
+                proj *Project
+                err error
+        )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "expand args failed: %v", err).debug(1)
+                return
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+                diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
+                return
+        }
+
+        var cwd string // TODO: get current work directory
+        if proj = ctx.Project(); proj == nil {
+                diag.errorAt(pos, "unknown current cntext").debug(1)
+                return
+        }
+
+        var list []Value
+        for _, a := range args {
+                var ( str string; names []string )
+                if str, err = a.Strval(ctx); err != nil {
+                        diag.errorAt(pos, "strval '%v' failed: %v", err).debug(1)
+                        return
+                } else if !filepath.IsAbs(str) {
+                        str = filepath.Join(cwd, str)
+                } 
+                if names, err = filepath.Glob(str); err != nil {
+                        diag.errorAt(pos, "glob '%v' failed: %v", str, err).debug(1)
+                        return
+                }
+                for _, name := range names {
+                        //var fi, _ = os.Stat(name)
+                        // TODO: opts.dir, opts.file, opts.symbol
+                        list = append(list, MakePathStr(pos, name))
+                }
+        }
+        return MakeListOrScalar(pos, list)
 }
 
 type wildcardOpts struct {

@@ -320,7 +320,7 @@ func (cc *callContext) setArgs(params []*Def, args []Value) (names []string, err
                 } else if argnum < len(params) {
                         name = params[argnum].name
                 } else {
-                        name = strconv.Itoa(argnum)
+                        name = strconv.Itoa(argnum+1)
                 }
                 argnum += 1
                 if _, okay := cc.Set(name, a); !okay {
