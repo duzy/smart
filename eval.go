@@ -35,7 +35,7 @@ ForRecipes:
                         continue ForRecipes
                 }
 
-                var ctx = contextAt(recipe.Position(), t)
+                var ctx = positional(t, recipe.Position())
                 switch stmt := recipe.(type) {
                 case *Nil, *None, *unresolvedobject:
                 case *List:
@@ -47,11 +47,11 @@ ForRecipes:
                                 // Noop, just return v to the caller.
 
                         case Caller:
-                                v = tv.Call(contextAt(v.Position(), t), stmt.Slice(1)...)
+                                v = tv.Call(positional(t, v.Position()), stmt.Slice(1)...)
 
                         case Executer:
                                 var ( a []Value; brks []*breaker )
-                                if a, brks = tv.Execute(contextAt(t.program.Position(), t), stmt.Slice(1)...); len(brks) == 0 {
+                                if a, brks = tv.Execute(positional(t, t.program.Position()), stmt.Slice(1)...); len(brks) == 0 {
                                         if n := len(a); n == 1 {
                                                 v = a[0]
                                         } else if n > 1 {
@@ -106,8 +106,7 @@ ForRecipes:
                         }
 
                 default:
-                        target, _ := t.Get("@")
-                        diag.errorOf(recipe, "unsupported recipe: %T (target=%v)", recipe, target).debug(16)
+                        diag.errorOf(recipe, "unsupported recipe: %T (target=%v)", recipe, t.autoGet("@")).debug(16)
                         return
                 }
         }

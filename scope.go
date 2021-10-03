@@ -87,17 +87,9 @@ func (s *Scope) Lookup(name string) (obj Object) {
 // time (see Insert, below). This can only happen for dot-imported objects
 // whose scope is the scope of the package that exported them.
 func (s *Scope) findouter(name string) (*Scope, Object) {
-	if false {
-		for p := s; p != nil; p = p.outer {
-			if obj := p.Lookup(name); obj != nil /*&& (!pos.IsValid() || obj.scopePos() <= pos)*/ {
-				return p, obj
-			}
-		}
-	} else {
-		if s.outer != nil {
-			if p, obj := s.outer.Find(name); obj != nil {
-				return p, obj
-			}
+	if s.outer != nil {
+		if p, obj := s.outer.Find(name); obj != nil {
+			return p, obj
 		}
 	}
 	return nil, nil
@@ -134,7 +126,7 @@ func (s *Scope) Insert(ctx Context, obj Object) Object {
 
 func (s *Scope) replace(ctx Context, name string, obj Object) {
 	if s.elems[name] = obj; obj.DeclScope() == nil {
-		obj.redecl(ctx, s)
+		obj.rescope(ctx, s)
 	}
 }
 
@@ -164,9 +156,14 @@ func (s *Scope) WriteTo(w io.Writer, n int) {
 }
 
 // String returns a string representation of the scope, for debugging.
-func (s *Scope) String() string {
-	var buf bytes.Buffer
-	s.WriteTo(&buf, 0)
+func (s *Scope) String() string { return fmt.Sprintf("scope{%s}", s.string()) }
+func (s *Scope) string() string {
+	var buf bytes.Buffer //s.WriteTo(&buf, 0)
+	if s.outer != nil {
+		fmt.Fprintf(&buf, "%s → %s", s.outer.string(), s.comment)
+	} else {
+		fmt.Fprintf(&buf, "%s", s.comment)
+	}
 	return buf.String()
 }
 
@@ -177,14 +174,14 @@ func (s *Scope) FindDef(name string) (def *Def) {
 	return
 }
 
-func (scope *Scope) ProjectName(ctx Context, owner *Project, name string, project *Project) (pn *ProjectName, alt Object) {
+func (scope *Scope) ProjectName(ctx Context, name string, project *Project) (pn *ProjectName, alt Object) {
 	scope.mutex.Lock(); defer scope.mutex.Unlock()
 	if alt = scope.elems[name]; alt == nil {
 		pn = &ProjectName{
 			knownobject{
 				objbase{
 					scope: scope,
-					owner: owner,
+					owner: scope.project,
 				}, name,
 			},
 			project,
@@ -194,14 +191,14 @@ func (scope *Scope) ProjectName(ctx Context, owner *Project, name string, projec
 	return
 }
 
-func (scope *Scope) ScopeName(ctx Context, owner *Project, name string, s *Scope) (sn *ScopeName, alt Object) {
+func (scope *Scope) ScopeName(ctx Context, name string, s *Scope) (sn *ScopeName, alt Object) {
 	scope.mutex.Lock(); defer scope.mutex.Unlock()
 	if alt = scope.elems[name]; alt == nil {
 		sn = &ScopeName{
 			knownobject{
 				objbase{
 					scope: scope,
-					owner: owner,
+					owner: scope.project,
 				}, name,
 			},
 			s,

@@ -61,7 +61,7 @@ func (p *using) traverse(t *traversal) (_ breakers) {
         return
 }
 /*func (p *using) _traverse(pc *traversal) {
-        if optionTraceTraversal { defer un(tt(t_traverse, pc, p)) }
+        if options.traceTraversal { defer un(tt(t_traverse, pc, p)) }
         if _, done := usingPrepared[p.project]; done {
                 usingPrepared[p.project] += 1
                 // FIXME: allow re-using the project
@@ -217,13 +217,13 @@ func (p *usinglist) traverse(t *traversal) (_ breakers) {
         return
 }
 /*func (p *usinglist) _traverse(pc *traversal) {
-        if optionTraceTraversal { defer un(tt(t_traverse, pc, p)) }
+        if options.traceTraversal { defer un(tt(t_traverse, pc, p)) }
         for _, elem := range p.list {
                 if elem.traverse(pc); pc.hasBreakers() { break }
         }
         return
 }*/
-func (p *usinglist) redecl(ctx Context, scope *Scope) { panic("redeclaring using list") }
+func (p *usinglist) rescope(ctx Context, scope *Scope) { panic("rescoping using list") }
 func (p *usinglist) append(ctx Context, proj *Project, params []Value, opts useoptions) {
         for _, elem := range p.list {
                 if elem.project == proj {

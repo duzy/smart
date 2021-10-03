@@ -23,47 +23,47 @@ import (
 )
 
 type commandLineOpts struct {
-  help        bool `h,help`
-  debug       bool `d,debug;ps,print-stack`
-  debugErrors bool `de,debug-errors` // optionDebugErrors
-  debugWarns  bool `dw,debug-warns`  // optionDebugWarns
-  debugInfos  bool `di,debug-infos`  // optionDebugInfos
-  debugPrompt bool `dp,debug-prompt` // optionDebugInfos
-  printConfig   bool `po,print-options;po,printoptions`  // optionPrintConfiguration
-  printFlags    bool `pf,print-flags`                    // optionPrintFlags
-  buildPlugins  bool `bp,build-plugins;bp,buildplugins`  // optionAlwaysBuildPlugins
-  benchImport   bool `bi,bench-import;bi,benchimport`    // optionBenchImport
-  benchBuiltins bool `bb,bench-builtins`                 // optionBenchBuiltin
-  benchSlow     bool `bs,bench-slow;bs,benchslow`        // optionBenchSlow
-  verbose       bool `v,verbose`          // optionVerbose
-  verboseImport bool `vi,verbose-import`  // optionVerboseImport
-  verboseChecks bool `vc,verbose-checks`  // optionVerboseChecks
-  verboseLoads  bool `vl,verbose-loading` // optionVerboseLoading
-  verboseParse  bool `vp,verbose-parsing` // optionVerboseParsing
-  verboseUsing  bool `vu,verbose-using`   // optionVerboseUsing
-  configure   bool `g,configure`          // optionConfigure
-  reconfigure bool `r,reconfigure`        // optionReconfig
-  noExec bool `ne,no-exec;ne,no-execute`  // optionNoExec
-  saveGrepSource bool `sgs,save-grep-source`
-}
-var (
-  options = commandLineOpts{
-    debugPrompt: false,
-    debugErrors: true,
-    debugWarns : true,
-    debugInfos : true,
-  }
+  help            bool `h,help`
+  debug           bool `d,debug;ps,print-stack`
+  debugErrors     bool `de,debug-errors` // optionDebugErrors
+  debugWarns      bool `dw,debug-warns`  // optionDebugWarns
+  debugInfos      bool `di,debug-infos`  // optionDebugInfos
+  debugPrompt     bool `dp,debug-prompt` // optionDebugInfos
+  printConfig     bool `po,print-options;po,printoptions`  // optionPrintConfiguration
+  printFlags      bool `pf,print-flags`                    // optionPrintFlags
+  buildPlugins    bool `bp,build-plugins;bp,buildplugins`  // optionAlwaysBuildPlugins
+  benchImport     bool `bi,bench-import;bi,benchimport`    // optionBenchImport
+  benchBuiltins   bool `bb,bench-builtins`                 // optionBenchBuiltin
+  benchSlow       bool `bs,bench-slow;bs,benchslow`        // optionBenchSlow
+  verbose         bool `v,verbose`          // optionVerbose
+  verboseImport   bool `vi,verbose-import`  // optionVerboseImport
+  verboseChecks   bool `vc,verbose-checks`  // optionVerboseChecks
+  verboseLoads    bool `vl,verbose-loading` // optionVerboseLoading
+  verboseParse    bool `vp,verbose-parsing` // optionVerboseParsing
+  verboseUsing    bool `vu,verbose-using`   // optionVerboseUsing
+  configure       bool `g,configure`          // optionConfigure
+  reconfigure     bool `r,reconfigure`        // optionReconfig
+  noExec          bool `ne,no-exec;ne,no-execute`  // optionNoExec
+  saveGrepSource  bool `sgs,save-grep-source`
 
-  // Tracking options
-  optionTraceLaunch = false
-  optionTraceParsing = false
-  optionTraceTraversal = false
-  optionTraceTraversalNestIndent = true
-  optionTraceExecutor = false
-  optionTraceExec = false
-  optionTraceEntering = optionTraceTraversal && false
-  optionTraceConfig = false
-)
+  traceLaunch     bool `tl,trace-launch`
+  traceParsing    bool `tp,trace-parse`
+  traceExecutor   bool `te,trace-executor`
+  traceExec       bool `tx,trace-exec`
+  traceEntering   bool `ti,trace-entering`
+  traceConfig     bool `tc,trace-config`
+  traceTraversal  bool `tt,trace-traverse`
+  traceTraversalNestIndent bool `tni,trace-nest-indent`
+}
+
+var options = commandLineOpts{
+  debugPrompt: false,
+  debugErrors: true,
+  debugWarns : true,
+  debugInfos : true,
+
+  traceTraversalNestIndent: true,
+}
 
 type diagType int
 const (
@@ -171,6 +171,7 @@ func (d *diagnostic) debug(args ...interface{}) {
 
 type Diagnostic struct {
   points []*diagnostic
+  errs int
   m sync.Mutex
 }
 func (diag *Diagnostic) reset() {
@@ -243,7 +244,10 @@ func (diag *Diagnostic) numErrors() (num int) {
   return
 }
 func (diag *Diagnostic) checkErrors(reset bool) (num int) {
-  diag.m.Lock(); defer diag.m.Unlock()
+  diag.m.Lock(); defer func() {
+    diag.errs += num
+    diag.m.Unlock()
+  } ()
   for _, d := range diag.points {
     var (
       msg = d.message
@@ -269,50 +273,48 @@ func (diag *Diagnostic) checkErrors(reset bool) (num int) {
 }
 
 type Context interface {
-  // Pos returns the diagnostic position where this context is taking place.
-  Position() Position
+  // Globe returns the universe globe.
+  Globe() *Globe
 
   // WorkDir returns the specific work directory for this context
   WorkDir() string // vs os.Getwd, aka. context.workdir
 
-  // GlobeScope returns the global scope
-  GlobeScope() *Scope
-
-  // LoaderScope returns the loader scope if any
-  LoaderScope() *Scope
+  // Pos returns the diagnostic position where this context is taking place.
+  Position() Position
 
   // CurrentProject returns the project to which this context is bound
   Project() *Project // aka. current()
 
-  // Stamp changes a target timestamp
-  Stamp(string, time.Time)
-
-  // FlagEntries returns all flag entries from all projects
-  FlagEntries() map[string][]*RuleEntry
+  // String() returns a string form of the context
+  String() string
 
   // Get returns the requested context value
-  Get(string) (Value, bool)
+  autoGet(string) Value
 
   // Set change the specified context value and returns old value
-  Set(string, Value) (Value, bool)
+  autoSet(string, Value) (Value, bool)
 
-  // Done returns a channel that is closed when this context is canceled.
-  Done() <-chan Value
+  // closureGet returns the closure value if any
+  closureGet(string) Value
+
+  // closureSet returns the closure value
+  closureSet(string, Value) (Value, bool)
+
+  closureResolveObject(Position, string) Object
+  closureResolveEntry(Position, string) *RuleEntry
+
+  inner() Context
 }
 
-type diagnosableContext struct {
-  Context // base context
-  position Position
-}
-func (dc *diagnosableContext) Position() Position { return dc.position }
-
-func contextAt(pos Position, ctx Context) Context {
-  return &diagnosableContext{ ctx, pos }
-}
+type positionalContext struct { Context; position Position }
+func (pc *positionalContext) inner() Context { return pc.Context }
+func (pc *positionalContext) Position() Position { return pc.position }
+func (pc *positionalContext) String() string { return fmt.Sprintf("positional{%s}", pc.Context) }
+func positional(ctx Context, pos Position) Context { return &positionalContext{ ctx, pos } }
 
 func executeEntry(ctx Context, entry *RuleEntry, args ...Value) (result []Value, okay bool) {
   var brks breakers
-  if result, brks = entry.Execute(contextAt(entry.position, ctx), args...); !brks.has() {
+  if result, brks = entry.Execute(positional(ctx, entry.position), args...); !brks.has() {
     okay = true; return
   }
   if tb := brks.of(breakNext, breakCase, breakDone); tb.has() {
@@ -337,46 +339,63 @@ func executeEntry(ctx Context, entry *RuleEntry, args ...Value) (result []Value,
 }
 
 type defaultContext struct {
-  workdir string
-  prefix  string // FIXME: prefix for distribution
+  workdir  string
+  prefix   string // FIXME: prefix for distribution
   globe   *Globe
-  goals   *Def
-  mode    *Def
-  pairs []*Pair
   loader  *loader
-  args map[Value][]Value
-  flagEntries map[string][]*RuleEntry
-  flags []*Flag
 }
+func (ctx *defaultContext) inner() Context { return nil }
+func (ctx *defaultContext) Project() (proj *Project) { return nil }
 func (ctx *defaultContext) Position() (res Position) { res.Filename, res.Line = ctx.workdir, 1; return }
 func (ctx *defaultContext) WorkDir() (res string) { return ctx.workdir }
-func (ctx *defaultContext) Project() (proj *Project) { // aka. current()
-  // TODO: get rid of cloctx
-  if len(cloctx) > 0 && cloctx[0].project != nil {
-    proj = cloctx[0].project
-  } else if ctx.loader != nil { // for load time
-    proj = ctx.loader.project
+func (ctx *defaultContext) Globe() *Globe { return ctx.globe }
+func (ctx *defaultContext) String() string { return "default" }
+func (ctx *defaultContext) autoGet(name string) (res Value) {
+  switch g := ctx.globe; name {
+  case "os"   : res = g.os.self
+  case "goals": res = g.goals
+  case "mode" : res = g.mode
   }
   return
 }
-func (ctx *defaultContext) GlobeScope() *Scope { return ctx.globe.scope }
-func (ctx *defaultContext) Get(name string) (res Value, okay bool) {
-  switch name {
-  case "goals": res, okay = ctx.goals, true
-  case "mode": res, okay = ctx.mode, true
-  case "os": res, okay = ctx.globe.os.self, true
+func (ctx *defaultContext) autoSet(_ string, _ Value) (Value, bool) { return nil, false }
+func (ctx *defaultContext) closureGet(name string) Value {
+  if m := ctx.globe.main; m != nil && m.scope != nil {
+    if def := m.scope.FindDef(name); def != nil {
+        return def.Call(ctx)
+    }
+  }
+  return ctx.autoGet(name)
+}
+func (ctx *defaultContext) closureSet(name string, val Value) (Value, bool) {
+  if m := ctx.globe.main; m != nil && m.scope != nil {
+    if def := m.scope.FindDef(name); def != nil {
+      diag.warnAt(def.position, "closure set in default context: %s -> %v", name, val).debug(1)
+      var prev = def.value
+      def.val(ctx, val)
+      return prev, true
+    }
+  }
+  return ctx.autoSet(name, val)
+}
+func (ctx *defaultContext) closureResolveObject(pos Position, name string) (obj Object) {
+  if m := ctx.globe.main; m != nil {
+    var err error
+    if obj, err = m.resolveObject(ctx, name); err != nil {
+      diag.errorAt(pos, "resolve closure object '%s' failed: %v", name, err).debug(1)
+    }
   }
   return
 }
-func (ctx *defaultContext) Set(_ string, _ Value) (Value, bool) { return nil, false }
-func (ctx *defaultContext) LoaderScope() (scope *Scope) {
-  if ctx.loader != nil {  scope = ctx.loader.scope }
+func (ctx *defaultContext) closureResolveEntry(pos Position, name string) (entry *RuleEntry) {
+  if m := ctx.globe.main; m != nil {
+    var err error
+    if entry, err = m.resolveEntry(ctx, name, false); err != nil {
+      diag.errorAt(pos, "resolve '%s' failed: %v", err).debug(1)
+    }
+  }
   return
 }
-
-func (ctx *defaultContext) Stamp(name string, t time.Time) { ctx.globe.stamp(name, t) }
-
-func (ctx *defaultContext) FlagEntries() map[string][]*RuleEntry { return ctx.flagEntries }
 
 func (ctx *defaultContext) Done() <-chan Value { return nil }
 
@@ -386,25 +405,25 @@ func (ctx *defaultContext) helpConfig() { print_configuration(ctx) }
 func (ctx *defaultContext) configure() { do_configuration(ctx) }
 
 func (ctx *defaultContext) run() (result []Value, breakers []*breaker) {
-  if optionTraceLaunch { defer un(trace(t_launch, "defaultContext.run")) }
+  if options.traceLaunch { defer un(trace(t_launch, "defaultContext.run")) }
 
   var main = ctx.globe.main
   if main == nil {
-    fmt.Fprintf(stderr, "no targets to update `%v`", ctx.goals)
+    fmt.Fprintf(stderr, "no targets to update `%v`", ctx.globe.goals)
     return
   }
 
-  defer setclosure(setclosure(cloctx.unshift(main.scope)))
+  //defer setclosure(setclosure(cloctx.unshift(main.scope)))
 
   var done bool
-  for _, flag := range ctx.flags {
+  for _, flag := range ctx.globe.flags {
     var ( s string; err error )
     if s, err = flag.name.Strval(ctx); err != nil { return }
-    var args, _ = ctx.args[flag]
-    var entries, _ = ctx.flagEntries[s]
+    var args, _ = ctx.globe.args[flag]
+    var entries, _ = ctx.globe.flagEntries[s]
     for _, entry := range entries {
       var ( res []Value; brks []*breaker )
-      if res, brks = entry.Execute(contextAt(entry.position, ctx), args...); len(brks) > 0 {
+      if res, brks = entry.Execute(positional(ctx, entry.position), args...); len(brks) > 0 {
         for _, brk := range brks {
           if brk.what == breakErro {
             diag.errorAt(entry.position, "execute '%v' failed: %v", entry, brk.error).debug(1)
@@ -418,7 +437,7 @@ func (ctx *defaultContext) run() (result []Value, breakers []*breaker) {
   if done { return }
 
   var goals []Value
-  for _, goal := range merge(ctx.goals.value) {
+  for _, goal := range merge(ctx.globe.goals.value) {
     switch t := goal.(type) {
     case *None: // just ignore
     case *Bareword:
@@ -451,7 +470,7 @@ func (ctx *defaultContext) run() (result []Value, breakers []*breaker) {
     }
   }
   for _, goal := range goals {
-    var args, _ = ctx.args[goal]
+    var args, _ = ctx.globe.args[goal]
     result = append(result, ctx.update(goal, args)...)
     updated += 1
   }
@@ -465,7 +484,7 @@ func (ctx *defaultContext) update(goal Value, args []Value) (result []Value) {
     var okay bool
     switch g := goal.(type) {
     case *RuleEntry:
-      if result, okay = executeEntry(contextAt(g.position, ctx), g, args...); !okay {
+      if result, okay = executeEntry(positional(ctx, g.position), g, args...); !okay {
         diag.errorAt(ctx.Position(), "update '%v' failed", g).debug(1)
       }
     default:
@@ -542,7 +561,7 @@ func joinTmpPath(ctx Context, base, rel string) string {
 
 // load loads smart files, making it as individual func to avoid being abused by loaders.
 func (ctx *defaultContext) load() (err error) {
-  if optionTraceLaunch { defer un(trace(t_launch, "defaultContext.load")) }
+  if options.traceLaunch { defer un(trace(t_launch, "defaultContext.load")) }
   defer func(l *loader) { ctx.loader = l } (ctx.loader)
 
   var (
@@ -553,17 +572,17 @@ func (ctx *defaultContext) load() (err error) {
   )
   pos.Filename = base
   ctx.loader = &loader{
-    defaultContext:  ctx,
+    closureContext: closureContext{ctx, ctx.globe.scope},
     fset:     token.NewFileSet(), 
     paths:    []string(globalPaths),
     loaded:   make(map[string]*Project),
-    scope:    ctx.globe.scope,
+    //scope:    ctx.globe.scope,
   }
-  ctx.goals = &Def{
+  ctx.globe.goals = &Def{
     knownobject: knownobject{objbase{scope:ctx.globe.scope}, "goals"},
     origin: DefDefault, value: MakeNone(pos),
   }
-  ctx.mode = &Def{
+  ctx.globe.mode = &Def{
     knownobject: knownobject{objbase{scope:ctx.globe.scope}, "mode"},
     origin: DefDefault, value: MakeNone(pos),
   }
@@ -584,29 +603,29 @@ func (ctx *defaultContext) load() (err error) {
   if options.verbose || options.benchImport {
     defer func(t time.Time) {
       var d = time.Now().Sub(t)
-      diag.prompt("Goals %v (%s)\n", ctx.goals, d)
+      diag.prompt("Goals %v (%s)\n", ctx.globe.goals, d)
     } (time.Now())
   }
 
-  ctx.args = make(map[Value][]Value)
+  assert(ctx.globe.args != nil, "globe args is nil")
 
   var mode = new(Bareword)
   for _, target := range args {
     switch t := target.(type) {
-    case *Pair: ctx.pairs = append(ctx.pairs, t)
-    case *Flag: ctx.flags = append(ctx.flags, t)
+    case *Pair: ctx.globe.pairs = append(ctx.globe.pairs, t)
+    case *Flag: ctx.globe.flags = append(ctx.globe.flags, t)
       if s, err := t.name.Strval(ctx); err == nil && s == "clean" {
         mode.position, mode.string = t.position, "clean"
       }
     case *Argumented:
-      ctx.args[t.value] = t.args
+      ctx.globe.args[t.value] = t.args
       if f, ok := t.value.(*Flag); ok {
-        ctx.flags = append(ctx.flags, f)
+        ctx.globe.flags = append(ctx.globe.flags, f)
       } else {
-        ctx.goals.append(ctx, t.value)
+        ctx.globe.goals.append(ctx, t.value)
       }
     default:
-      ctx.goals.append(ctx, t)
+      ctx.globe.goals.append(ctx, t)
     }
   }
   if mode.string == "" {
@@ -616,13 +635,13 @@ func (ctx *defaultContext) load() (err error) {
       mode.string = "goals"
     }
   }
-  ctx.mode.value = mode
+  ctx.globe.mode.value = mode
 
   defer func(t time.Time) {
     var d = time.Now().Sub(t)
     if options.verboseImport {
       var name string
-      if p := ctx.loader.project; p != nil { name = p.name }
+      if p := ctx.loader.Project(); p != nil { name = p.name }
       fmt.Fprintf(stderr, "└·%s … (%s)\n", name, d)
     } else if d > 4999*time.Millisecond {
       diag.prompt("warning: long load time: %s !\n", d).debug(options.debug, 1)
@@ -631,15 +650,12 @@ func (ctx *defaultContext) load() (err error) {
   if options.verboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
 
   if !ctx.loader.loadPath(base, nil) { return }
-  if ctx.loader.globe.main == nil { fmt.Fprintf(stderr, "nothing loaded\n") }
+  if ctx.globe.main == nil { fmt.Fprintf(stderr, "nothing loaded\n") }
   return
 }
 
-func recoverPanics(ctx Context) {
-  var (
-    pos = ctx.Position()
-    panics int
-  )
+func recoverPanics(ctx Context, dontCheckErrors ...bool) (panics int) {
+  var pos = ctx.Position()
   for e := recover(); e != nil; e = recover() {
     switch t := e.(type) {
     case bailout: continue
@@ -649,18 +665,21 @@ func recoverPanics(ctx Context) {
     panics += 1
   }
   if panics > 0 {
-    diag.errorAt(pos, "failed: got %d panics (%T)", panics, ctx).debug(128)
+    diag.errorAt(pos, "failed: got %d panics (%s)", panics, ctx).debug(128)
   }
-  if numErrs := diag.checkErrors(true); numErrs > 0 && panics == 0 {
-    diag.warnAt(pos, "got %d errors (%T)", numErrs, ctx).debug(16)
+  if len(dontCheckErrors) > 0 && dontCheckErrors[0] {
+    // okay
+  } else if diag.checkErrors(true) > 0 && panics == 0 {
+    diag.warnAt(pos, "got %d errors (%s)", diag.errs, ctx).debug(16)
   }
+  return
 }
 
 func CommandLine() {
   var context = &_context
   defer recoverPanics(context)
 
-  if optionTraceLaunch { defer un(trace(t_launch, "CommandLine")) }
+  if options.traceLaunch { defer un(trace(t_launch, "CommandLine")) }
   if optionEnableBenchmarks {
     var w *bufio.Writer
     var d = filepath.Join(context.workdir, "benchmarks")
@@ -734,12 +753,11 @@ func CommandLine() {
     context.globe = globe
   } (context.globe)
   context.globe = NewGlobe(context, "smart")
-  context.flagEntries = make(map[string][]*RuleEntry)
 
   if err := context.load(); err != nil {
     diag.errorAt(context.Position(), "loading work failed: %v", err)
-  } else if numErrs := diag.checkErrors(true); numErrs > 0 {
-    diag.prompt("loading work got %d errors\n", numErrs)
+  } else if diag.checkErrors(true) > 0 {
+    diag.prompt("loading work got %d errors\n", diag.errs)
   } else if options.help {
     context.help()
   } else if options.printFlags {
@@ -752,8 +770,8 @@ func CommandLine() {
     context.configure()
   } else if result, err := context.run(); err != nil {
     diag.errorAt(context.Position(), "run work failed: %v", err)
-  } else if numErrs = diag.checkErrors(true); numErrs > 0 {
-    diag.prompt("run work got %d errors\n", numErrs)
+  } else if diag.checkErrors(true) > 0 {
+    diag.prompt("run work got %d errors\n", diag.errs)
   } else if result != nil {
     var ( s string; err error )
     for i, v := range result {

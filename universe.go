@@ -74,6 +74,14 @@ type Globe struct {
         scope  *Scope
 	os     *Project
         main   *Project
+
+        args        map[Value][]Value
+        flagEntries map[string][]*RuleEntry
+        flags []*Flag
+        pairs []*Pair
+        goals   *Def
+        mode    *Def
+
         _timestamps map[string]time.Time
         _timestampx *sync.Mutex
 }
@@ -85,6 +93,13 @@ func (g *Globe) Scope() *Scope { return g.scope }
 func (g *Globe) Main() *Project { return g.main }
 
 func (g *Globe) SetScopeOuter(scope *Scope) { scope.outer = g.scope }
+
+func (g *Globe) AddFlagEntry(name string, entry *RuleEntry) {
+  flags, _ := g.flagEntries[name]
+  flags     = append(flags, entry)
+  g.flagEntries[name] = flags
+  return
+}
 
 func (g *Globe) timestamp(s string) (t time.Time) {
   g._timestampx.Lock(); defer g._timestampx.Unlock()
@@ -126,23 +141,21 @@ func (g *Globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, sp
 
         if g.main == nil && spec != "" && name != "@" && name != "~" {
                 for outer != nil && outer != g.scope {
-                        if p := outer.project; p != nil && p.Name() == "@" {
+                        if p := outer.project; p != nil && p.name == "@" {
                                 return
                         }
                         outer = outer.outer
                 }
-
-                g.main = m
-
-                var none = &None{valbase{pos}}
-
-                def, _ := g.scope.define(ctx, DefAuto, "_", none)
+                var (
+                        none = MakeNone(pos)
+                        def, _ = g.scope.define(ctx, DefAuto, "_", none)
+                )
                 if enable_assertions { assert(def != nil, "'$_' is nil") }
-
                 for i := 1; i <= maxNumVarVal; i += 1 {
                         def, _ := g.scope.define(ctx, DefAuto, strconv.Itoa(i), none)
                         if enable_assertions { assert(def != nil, "'$%d' is nil", i) }
                 }
+                g.main = m
         }
         return
 }
@@ -152,6 +165,8 @@ func NewGlobe(ctx Context, name string) (g *Globe) {
         var pos = ctx.Position()
         g = &Globe{
                 scope: NewScope(pos, universe, nil, fmt.Sprintf("globe %q", name)),
+                args: make(map[Value][]Value),
+                flagEntries: make(map[string][]*RuleEntry),
                 _timestamps: make(map[string]time.Time),
                 _timestampx: new(sync.Mutex),
         }

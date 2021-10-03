@@ -19,7 +19,7 @@ Usage:
     smart -configure[(arguments)]
     smart -reconfigure[(arguments)]
 `)
-        for name, _ := range ctx.FlagEntries() {
+        for name, _ := range ctx.Globe().flagEntries {
                 if name == "" { continue }
                 fmt.Fprintf(stderr, `
     smart -%s[(arguments)]`, name)
@@ -58,7 +58,7 @@ Issues:
 
 func print_flag_entries(ctx Context) {
         fmt.Fprintf(stderr, "Defined:\n")
-        for name, entries := range ctx.FlagEntries() {
+        for name, entries := range ctx.Globe().flagEntries {
                 if len(entries) == 0 || name == "" { continue }
                 fmt.Fprintf(stderr, `
    -%s`, name)
@@ -67,7 +67,7 @@ func print_flag_entries(ctx Context) {
 }
 
 func print_flag_trace(ctx Context) {
-        for name, entries := range ctx.FlagEntries() {
+        for name, entries := range ctx.Globe().flagEntries {
                 if name == "" { continue }
                 for _, entry := range entries {
                         fmt.Fprintf(stderr, "%s: %v\n", entry.position, entry)

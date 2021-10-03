@@ -388,8 +388,7 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                         } else if ok && s != "" {
                                 val.Set(reflect.ValueOf(&optFullname{ s, x }))
                         } else {
-                                var target, _ = ctx.Get("@")
-                                diag.errorOf(v, "not a file: %v -> %v -> %s (%T, @=%v)", v, x, s, ctx, target).debug(16)
+                                diag.errorOf(v, "not a file: %v -> %v -> %s (%T, @=%v)", v, x, s, ctx, ctx.autoGet("@")).debug(16)
                         }
                         if false {
                                 vi := val.Interface().(*optFullname)
@@ -934,7 +933,7 @@ func builtinFor(ctx Context, args... Value) (res Value) {
                         return
                 }
 
-                var scope = ctx.GlobeScope()
+                var scope = ctx.Globe().scope
                 for i := 1; i <= maxNumVarVal; i += 1 {
                         def := scope.Lookup(strconv.Itoa(i)).(*Def)
                         defs = append(defs, def)
@@ -975,45 +974,34 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        var ( values []Value; err error )
+        var (
+                cc = callContext{ ctx, make(callDefMap) }
+                resList []Value
+                values []Value
+                err error
+        )
         if values, err = mergeresult2(expandall2(ctx, expandPlainValue, args[0])); err != nil {
                 diag.errorAt(pos, "merge arg0 failed: %v", err).debug(1)
                 return
         }
 
-        var def *Def // = context.globe.scope.Lookup("_").(*Def)
-        for _, a := range args[1:] {
-                for _, d := range a.defs(ctx, "_") {
-                        if def == nil { def = d } else if d != def {
-                                diag.errorAt(d.position  , "'_' resolves to different defs: %v", d)
-                                diag.errorAt(def.position, "'_' resolves to different defs: %v", def)
-                                diag.errorAt(a.Position(), "'_' is used here")
-                                diag.errorAt(pos         , "'_' is used here")
-                                return
-                        }
-                }
-        }
-
-        if def != nil { defer func(v Value) { def.value = v } (def.value) }
-        if false { diag.infoAt(pos, "%v; %v; %v", def, values, args).debug(true, 1) }
-
-        var resList []Value
         for _, val := range values {
                 if isNil(val) || isUndef(val) || isNone(val) {
                         continue // ignore
                 } else if s, ok := val.(*String); ok && s.string == "" {
                         continue // ignore
-                } else if def != nil { def.value = val } // set "$_" value
+                } else { cc.autoSet("_", val) }
 
                 var list []Value
                 for _, a := range args[1:] {
                         var v Value
-                        if v, err = a.expand(ctx, expandPlainValue|expandPairVal); err != nil {
+                        if v, err = a.expand(&cc, expandPlainValue|expandPairVal); err != nil {
                                 diag.errorOf(a, "expand '%v' failed: %v", a, err).debug(1)
                                 return
                         } else if isNil(v) { v = a }
-                        if true && len(v.defs(ctx, "_")) > 0 {
+                        if true && len(v.defs(&cc, "_")) > 0 {
                                 diag.errorOf(a, "'_' in '%v' not expanded: %v", a, v).debug(true, 1)
+                                return
                         }
                         if isNil(v) || isUndef(v) || isNone(v) {
                                 // ignore
@@ -1062,7 +1050,11 @@ func builtinEnv(ctx Context, args... Value) (res Value) {
         return MakeListOrScalar(pos, vals)
 }
 
+type builtinValueOpts struct {
+        closure bool `c,closure`
+}
 func builtinValue(ctx Context, args... Value) (res Value) {
+        /*
         var (
                 pos = ctx.Position()
                 scope *Scope
@@ -1084,6 +1076,38 @@ func builtinValue(ctx Context, args... Value) (res Value) {
                 } else {
                         vals = append(vals, MakeNone(pos))
                 }
+        }*/
+        var (
+                pos = ctx.Position()
+                opts builtinValueOpts
+                vals []Value
+                err error
+        )
+        if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+                diag.errorAt(pos, "%v", err).debug(1)
+                return
+        }
+        for _, a := range args {
+                var ( name string; val Value/*; scope *Scope*/ )
+                if name, err = a.Strval(ctx); err != nil {
+                        diag.errorAt(a.Position(), "strval '%v' failed: %v", a, err).debug(1)
+                        return
+                } else if opts.closure {
+                        val = ctx.closureGet(name)
+                } /*else if scope = ctx.closureScope(); scope == nil {
+                        scope = ctx.loaderScope()
+                }
+                if scope != nil {
+                        if def := scope.FindDef(name); def != nil {
+                                val = def.Call(ctx)
+                        }
+                }*/
+                if isNil(val) { val = ctx.autoGet(name) }
+                if isNil(val) { val = MakeNone(a.Position()) }
+                vals = append(vals, val)
         }
         return MakeListOrScalar(pos, vals)
 }
@@ -1223,15 +1247,11 @@ func builtinPrintln(ctx Context, args... Value) (res Value) {
 }
 
 type builtinAppendOpts struct {
-        string bool `s,str;s,string`
         verbose bool `v,verbose`
+        closure bool `c,closure`
+        string bool `s,str;s,string`
 }
 func builtinAppend(ctx Context, args... Value) (result Value) {
-        if len(args) < 2 {
-                diag.errorAt(ctx.Position(), "insufficient number of arguments: %v", args).debug(1)
-                return
-        }
-
         var (
                 pos = ctx.Position()
                 opts builtinAppendOpts
@@ -1239,7 +1259,10 @@ func builtinAppend(ctx Context, args... Value) (result Value) {
                 list []Value
                 err error
         )
-        if vars, err = mergeresult2(expandall2(ctx, expandPlainValue, args[0])); err != nil {
+        if len(args) < 2 {
+                diag.errorAt(pos, "insufficient number of arguments: %v", args).debug(1)
+                return
+        } else if vars, err = mergeresult2(expandall2(ctx, expandPlainValue, args[0])); err != nil {
                 diag.errorOf(args[0], "%s", err).debug(1)
                 return
         } else if vars, err = parseOpts(ctx, &opts, vars...); err != nil {
@@ -1262,7 +1285,7 @@ func builtinAppend(ctx Context, args... Value) (result Value) {
                         diag.errorOf(a, "name '%v' is empty", a).debug(1)
                         break
                 }
-
+                /*
                 var def *Def
                 if def == nil {
                         var obj Object
@@ -1270,7 +1293,6 @@ func builtinAppend(ctx Context, args... Value) (result Value) {
                                 diag.errorOf(a, "%v", err).debug(1)
                                 break
                         } else if def, _ = obj.(*Def); def == nil {
-                                /*...*/
                         }
                 }
                 if def == nil {
@@ -1284,6 +1306,14 @@ func builtinAppend(ctx Context, args... Value) (result Value) {
                 } else if err = def.append(ctx, list...); err != nil {
                         diag.errorAt(pos, "%s", err).debug(1)
                         break
+                } */
+                if val := ctx.closureGet(name); !isNil(val) {
+                        list = append(merge(val), list...)
+                }
+                if val := MakeListOrScalar(pos, list); opts.closure {
+                        ctx.closureSet(name, val)
+                } else {
+                        ctx.autoSet(name, val)
                 }
         }
         return
@@ -1875,25 +1905,24 @@ type builtinPatsubstOpts struct {
 //   $(var:pattern=replacement)
 //   $(var:suffix=replacement)
 func builtinPatsubst(ctx Context, args... Value) (res Value) {
-        var list []Value
-        if len(args) < 3 { return }
-
         var (
                 pos = ctx.Position()
                 proj = ctx.Project() //current()
                 opts builtinPatsubstOpts
+                list []Value
                 arg0 []Value
                 err error
         )
         if proj == nil {
                 diag.errorAt(pos, "unknown current context").debug(1)
                 return
-        }
-        if arg0, err = mergeresult2(expandall2(ctx, expandPlainValue, args[0])); err != nil {
+        } else if len(args) < 3 {
+                diag.errorAt(pos, "not enough arguments").debug(1)
+                return
+        } else if arg0, err = mergeresult2(expandall2(ctx, expandPlainValue, args[0])); err != nil {
                 diag.errorAt(pos, "merge args failed: %v", err).debug(1)
                 return
-        }
-        if arg0, err = parseOpts(ctx, &opts, arg0...) ; err != nil {
+        } else if arg0, err = parseOpts(ctx, &opts, arg0...) ; err != nil {
                 diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
                 return
         }
@@ -1924,7 +1953,7 @@ func builtinPatsubst(ctx Context, args... Value) (res Value) {
         }
 
         // Using the most derived context for correct &(...)
-        defer setclosure(setclosure(cloctx.unshift(proj.scope)))
+        //defer setclosure(setclosure(cloctx.unshift(proj.scope)))
 
         var filemaps []*FileMap
         if !opts.noFileMap { filemaps = proj.filemaps(ctx, false) }
@@ -3522,7 +3551,11 @@ type builtinFileOpts struct {
         report bool `r,report;r,reportmissing;rm,report-missing;e,error`
 }
 func builtinFile(ctx Context, args... Value) (res Value) {
-        var ( pos = ctx.Position(); opts builtinFileOpts; err error; aa = args )
+        var (
+                pos = ctx.Position()
+                opts builtinFileOpts
+                err error
+        )
         if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
                 diag.errorAt(pos, "expand args failed: %v", err).debug(1)
                 return
@@ -3531,18 +3564,10 @@ func builtinFile(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        var proj *Project
-        if opts.caller {
-                proj = cloctx[0].project
-        } else if proj = /*current()*/ctx.Project(); proj == nil {
-                diag.errorAt(pos, "unknown current cntext").debug(1)
-                return
-        } else if false {
-                // Ensure that we're in the right closure context
-                defer setclosure(setclosure(cloctx.unshift(proj.scope)))
-        }
-
-        var list []Value
+        var (
+                proj = ctx.Project()
+                list []Value
+        )
         for _, a := range args {
                 var str string
                 if file, ok := a.(*File); ok {
@@ -3556,7 +3581,7 @@ func builtinFile(ctx Context, args... Value) (res Value) {
                         list = append(list, file)
                         if opts.report { diag.infoAt(pos, "%v is no such file", a).debug(1) }
                 } else {
-                        diag.errorAt(pos, "%v is not a file in %v (%v -> %v)", a, proj, aa, args).debug(1)
+                        diag.errorAt(pos, "%v is not a file in %v (%v)", a, proj, args).debug(1)
                 }
         }
 

@@ -87,7 +87,7 @@ func do_configuration(ctx Context) {
 
     var defs = make(map[string]*Def)
     for _, entry := range configuration.entries {
-        var entryCtx = contextAt(entry.position, ctx)
+        var entryCtx = positional(ctx, entry.position)
         if p := entry.OwnerProject(); p != project && p != nil {
             defs = make(map[string]*Def) // reset defs for p
             var f, e = openConfigurationFile(entryCtx, p)
@@ -157,7 +157,7 @@ func do_configuration(ctx Context) {
 }
 
 func openConfigurationFile(ctx Context, p *Project) (file *os.File, err error) {
-    defer setclosure(setclosure(cloctx.unshift(p.scope)))
+    // defer setclosure(setclosure(cloctx.unshift(p.scope)))
     if f := p.configurationFile(ctx); f == nil {
         diag.errorAt(p.position, "nil configuration file for %v", p).debug(1)
     } else if s := f.fullname(); s == "" {
@@ -181,17 +181,17 @@ func configMessageDone(ctx Context, str string, args... interface{}) {
 
 // -dump
 func configureDump(t *traversal, fields map[string]Value, params ...Value) (result Value, err error) {
-    result, _ = t.Get("-")
+    result = t.autoGet("-")
     return
 }
 
 func configureBoolValue(t *traversal) (result bool, err error) {
     var (
         pos = t.Position()
-        value, okay = t.Get("-")
+        value = t.autoGet("-")
         res Value
     )
-    if !okay || isNil(value) {
+    if isNil(value) {
         return
     } else if res, err = value.expand(t, expandPlainValue); err != nil {
         diag.errorAt(pos, "expand value failed: %v", err).debug(1)
@@ -243,8 +243,8 @@ func configureAnswer(t *traversal, fields map[string]Value, params ...Value) (re
 // -option
 // -option('message...')
 func configureOption(t *traversal, fields map[string]Value, args ...Value) (result Value, err error) {
-    var ( pos = t.Position(); okay bool )
-    if result, okay = t.Get("-"); okay && !isNil(result) {
+    var pos = t.Position()
+    if result = t.autoGet("-"); !isNil(result) {
         var res Value
         if res, err = result.expand(t, expandPlainValue); err != nil {
             diag.errorAt(pos, "expand configure option failed: %v", err).debug(1)
@@ -321,7 +321,7 @@ func scanExitStatus(err error) (n, status int) {
 }
 
 func configureExec(t *traversal, opts *modifierConfigureOpts, s string, target Value, paramsOrig ...Value) (configured bool, result Value, err error) {
-    if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("configureExec(%s %v)", s, t.entry.target))) }
+    if options.traceConfig { defer un(trace(t_config, fmt.Sprintf("configureExec(%s %v)", s, t.entry.target))) }
 
     var pos = t.Position()
     var projectConfigure = t.program.project.configure
@@ -339,10 +339,8 @@ func configureExec(t *traversal, opts *modifierConfigureOpts, s string, target V
         return
     }
 
-    if false { defer setclosure(setclosure(cloctx.unshift(t.program.scope))) }
-    if false { diag.infoAt(pos, "configureExec(%v %v): %v, %v", entry, t.entry, paramsOrig, cloctx).debug(true, 1)}
+    if false { diag.infoAt(pos, "configureExec(%v %v): %v", entry, t.entry, paramsOrig).debug(true, 1)}
 
-    var buffer, _ = t.Get("-")
     var silent bool
     var params []Value
     var prog = entry.programs[0]
@@ -350,7 +348,7 @@ func configureExec(t *traversal, opts *modifierConfigureOpts, s string, target V
         switch par.name {
         case "LANG":   params = append(params, MakePair(pos, MakeBareword(pos, "LANG"),   MakeString(pos, t.program.language)))
         case "TARGET": params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
-        case "VALUE":  params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"),  buffer))
+        case "VALUE":  params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"),  t.autoGet("-")))
         }
         for _, a := range paramsOrig {
             if f, ok := a.(*Flag); ok {
@@ -386,9 +384,8 @@ func configureExec(t *traversal, opts *modifierConfigureOpts, s string, target V
     var brks breakers
     result, brks = prog.execute(t, entry, params)
     if false && (isNil(result) || isNone(result)) {
-        var target, _ = t.Get("@")
         diag.infoAt(pos, "%v: %v = %v, %v, params = %v",
-            entry, target, result, target, params).debug(true,1)
+            entry, t.autoGet("@"), result, target, params).debug(true,1)
     }
     if brks = brks.not(breakDone); brks.has() {
         for i, brk := range brks {
@@ -410,8 +407,8 @@ func configureExec(t *traversal, opts *modifierConfigureOpts, s string, target V
             var t, _ = target.Strval(t)
             diag.errorAt(pos, "s=%v target=%v result=%v res=%v", s, t, result, res).debug(1)
         }
-        if n := diag.checkErrors(true); n > 0 {
-            diag.warnAt(pos, "got %d error(s)", n).debug(1)
+        if diag.checkErrors(true) > 0 {
+            diag.warnAt(pos, "got %d error(s)", diag.errs).debug(1)
         }
     }
 
@@ -420,7 +417,7 @@ func configureExec(t *traversal, opts *modifierConfigureOpts, s string, target V
 }
 
 func configureDo(t *traversal, opts *modifierConfigureOpts, target Value, def, name Value, args []Value) (configured bool, result Value, err error) {
-    if optionTraceConfig { defer un(trace(t_config, "configureDo")) }
+    if options.traceConfig { defer un(trace(t_config, "configureDo")) }
 
     var (
         pos = t.Position()
@@ -504,7 +501,7 @@ ForArgs:
         if result, err = config(t, nil, params...); err != nil {
             diag.errorAt(pos, "configure '%s' failed: %v", strName, err).debug(1)
         } else {
-            if optionTraceConfig {
+            if options.traceConfig {
                 t_config.tracef("configured: %v, result = %v (%s)", configured, result, typeof(result))
             }
             configured = true
@@ -512,7 +509,7 @@ ForArgs:
     } else if configured, result, err = configureExec(t, opts, strName, target, params...); err != nil {
         diag.errorAt(pos, "configure exec '%v' failed: %v", name, err).debug(1)
     }
-    if configured && optionTraceConfig {
+    if configured && options.traceConfig {
         t_config.tracef("configured: %v, result = %v (%s)", configured, result, typeof(result))
     }
     return
@@ -533,7 +530,7 @@ type modifierConfigureOpts struct {
 //     (configure -symbol(symbol,include='<xxx.h>'))
 //     (configure -compiles(info="..."))
 func modifierConfigure(t *traversal, args ...Value) (result Value, _ breakers) {
-    if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", t.entry.target, options.reconfigure))) }
+    if options.traceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", t.entry.target, options.reconfigure))) }
 
     var ( pos = t.Position(); opts modifierConfigureOpts; err error )
     if args, err = mergeresult2(expandall2(t, expandPlainValue, args...)); err != nil {
@@ -555,7 +552,7 @@ func modifierConfigure(t *traversal, args ...Value) (result Value, _ breakers) {
                     } else if val {
                         t.program.project.configure = t.program.project
                         if opts.verbose {
-                            diag.infoAt(pos, "self-configure project enabled: %v", t.project).debug(1)
+                            diag.infoAt(pos, "self-configure project enabled: %v", t.Project()).debug(1)
                         }
                     }
                 }
@@ -567,7 +564,7 @@ func modifierConfigure(t *traversal, args ...Value) (result Value, _ breakers) {
         }
     }
 
-    var target, _ = t.Get("@")
+    var target = t.autoGet("@")
     if isNil(target) || isNone(target) {
         diag.errorAt(pos, "target is nil for entry '%s'", t.entry.target).debug(1)
         return
@@ -579,7 +576,7 @@ func modifierConfigure(t *traversal, args ...Value) (result Value, _ breakers) {
         return
     }
     if len(t.program.project.bases) == 0 {
-        diag.warnOf(target, "%v: %v %v", name, t.program.project.bases, cloctx).debug(1)
+        diag.warnOf(target, "%v: %v", name, t.program.project.bases).debug(1)
     }
 
     var def, alt = t.program.project.scope.define(t, DefConfig, name, nil)
@@ -588,7 +585,7 @@ func modifierConfigure(t *traversal, args ...Value) (result Value, _ breakers) {
         diag.errorAt(pos, "cannot define configuration `%s`", name).debug(1)
         return
     }
-    if optionTraceConfig {
+    if options.traceConfig {
         t_config.tracef("%s: %v (%T)", def.name, def.value, def.value)
         defer func() { t_config.tracef("%s: %v (%T)", def.name, def.value, def.value) } ()
     }
@@ -599,7 +596,7 @@ func modifierConfigure(t *traversal, args ...Value) (result Value, _ breakers) {
 
     var value Value
     if len(args) == 0 { // Empty configuration: (configure)
-        if value, _ = t.Get("-"); value == nil {
+        if value = t.autoGet("-"); value == nil {
             diag.errorAt(pos, "`%v` not configured (%v)", target, value).debug(1)
             return
         } else if value == def || value.refs(t, def) {
@@ -686,7 +683,7 @@ ForConfig:
         }
 
         if def == nil && err == nil { configuration.done[def] = true }
-        if optionTraceConfig {
+        if options.traceConfig {
             t_config.tracef("configured: %v (%s) (%v)", value, typeof(value), def.origin)
         }
     }
@@ -762,7 +759,7 @@ func modifierConfigureFile(t *traversal, args ...Value) (result Value, _ breaker
         return
     }
 
-    if target, okay := t.Get("@"); !okay || isNil(target) {
+    if target := t.autoGet("@"); isNil(target) {
         diag.errorAt(pos, "target '@' is not defined").debug(1)
         return
     } else if file, _ = target.(*File); file == nil {
@@ -799,12 +796,10 @@ func modifierConfigureFile(t *traversal, args ...Value) (result Value, _ breaker
         // FIXES: match file map to have the full filename.
         t.forClosuredProjects(func(p *Project) (ok bool, err error) {
             if f := p.FindFile(t, filename); f != nil {
+                var prev Value
                 ok, file, filename, project = true, f, f.fullname(), p
-                if _, okay := t.Set("@", file); !okay { // reset target file
-                    diag.errorAt(pos, "set '@' failed: %v", file).debug(1)
-                }
-                if opts.debug {
-                    diag.infoAt(pos, "configure-file: %v: %s->%s", p, f, filename).debug(1)
+                if prev, _ = t.autoSet("@", file); opts.debug {
+                    diag.infoAt(pos, "configure-file: %v: %s->%s (prev=%v)", p, f, filename, prev).debug(1)
                 }
             }
             return
@@ -815,11 +810,10 @@ func modifierConfigureFile(t *traversal, args ...Value) (result Value, _ breaker
         }
     }
     if file.info == nil { if f := stat(t, filename, "", ""); f != nil { file.info = f.info }}
-    if project == nil { project = t.project }
+    if project == nil { project = t.Project() }
     if opts.debug && file != nil {
-        var target, _ = t.Get("@")
-        diag.infoAt(pos, "configure-file: %v: %v (%s) (%v, %v) (%v)",
-            project, target, file.fullname(), t.project, t.closure.comment, cloctx)
+        diag.infoAt(pos, "configure-file: %v: %v (%s) (%v, %v)",
+            project, t.autoGet("@"), file.fullname(), t.Project(), t.Context)
     }
 
     // Check previously configured files, we only configure once unless
@@ -830,13 +824,13 @@ func modifierConfigureFile(t *traversal, args ...Value) (result Value, _ breaker
         closure, okay = configuredFiles[filename]
         if okay && closure != nil && !opts.reconfig { return }
     }
-    if closure == nil { closure = t.closure }
+    //if closure == nil { closure = t.closcop }
     defer func(s string, c *Scope) {
         if err == nil { configuredFiles[s] = c } else { diag.errorAt(pos, "%v", err) }
     } (filename, closure)
 
     var data bytes.Buffer
-    if buffer, okay := t.Get("-"); okay && !isNil(buffer) {
+    if buffer := t.autoGet("-"); !isNil(buffer) {
         args = append(args, buffer)
     }
     for _, arg := range args {
@@ -846,7 +840,7 @@ func modifierConfigureFile(t *traversal, args ...Value) (result Value, _ breaker
             return
         }
         if str == "" { continue }
-        if err = configure(t, &data, closure.project, str); err != nil {
+        if err = configure(t, &data, t.Project(), str); err != nil {
             diag.errorAt(pos, "%v", err).debug(1)
             return
         }
@@ -894,7 +888,7 @@ func modifierConfigureFile(t *traversal, args ...Value) (result Value, _ breaker
         return
     } else if file.info != nil { result = file } else {
         if file.info, err = os.Stat(filename); err == nil {
-            t.Stamp(filename, file.info.ModTime())
+            t.Globe().stamp(filename, file.info.ModTime())
             result = file
         }
     }
@@ -951,7 +945,7 @@ func modifierExtractConfiguration(t *traversal, args ...Value) (result Value, _ 
     }
 
     var outFile string
-    if target, okay := t.Get("@"); !okay || isNil(target) {
+    if target := t.autoGet("@"); isNil(target) {
         diag.errorAt(pos, "target '@' is undefined").debug(1)
         return
     }  else if outFile, err = target.Strval(t); err != nil {
@@ -976,7 +970,7 @@ func modifierExtractConfiguration(t *traversal, args ...Value) (result Value, _ 
     }()
 
     var depends []Value
-    if value, okay := t.Get("^"); !okay || isNil(value) {
+    if value := t.autoGet("^"); isNil(value) {
         // ...
     } else if depends, err = mergeresult2(expandall2(t, expandPlainValue, value)); err != nil {
         diag.errorAt(pos, "merge depends failed: %v", err).debug(1)
