@@ -482,6 +482,19 @@ ForArgs:
         return
 }
 
+func unclosure(ctx Context) (ctxs []Context) {
+        switch cc := ctx.(type) {
+        case *traversal: ctxs = append(ctxs, unclosure(cc.Context)...)
+        case *closureContext: ctxs = append(ctxs, unclosure(cc.Context)...)
+        case *prioritizedContext: //ctxs = append(ctxs, unclosure(cc.Context)...)
+                for _, c := range append([]Context{cc.Context}, cc.more...) {
+                        ctxs = append(ctxs, unclosure(c)...)
+                }
+        default: ctxs = append(ctxs, cc)
+        }
+        return
+}
+
 type modifierClosureOpts struct {
         dump bool `d,dump`
         verbose bool `v,verbose`
@@ -494,15 +507,29 @@ func modifierClosure(t *traversal, args... Value) (result Value, brks breakers) 
                 pos = t.Position()
                 err error
         )
+
+        // Closure the caller program, the context will be restored when execution is finished.
         if c, ctx := t.caller(); c != nil && c.program != nil {
-                // Closure the caller program, the context will be restored when
-                // execution is finished.
-                if ctx == nil {
-                        ctx = t.Context
-                } else {
-                        ctx = prioritize(ctx, t.Context)
+                var (
+                        cc []Context
+                        scope = c.program.scope
+                )
+                var in Context = c
+                for in = in.inner(); in != nil; in = in.inner() {
+                        if cc, ok := in.(*closureContext); ok {
+                                // diag.infoAt(pos, "%T %v", in, cc)
+                                scope = cc.scope
+                        }
                 }
-                t.Context = closureWith(ctx, c.program.scope)
+                // diag.infoAt(pos, "%T %v", in, in).debug(1)
+
+                if ctx != nil { cc = append(cc, ctx) }
+                if true {
+                        cc = append(cc, t.Context)
+                } else {
+                        cc = append(cc, unclosure(t.Context)...)
+                }
+                t.Context = closureWith(prioritize(cc...), scope)
         }
 
         if args, err = mergeresult2(expandall2(t, expandPlainValue, args...)); err != nil {
@@ -1558,6 +1585,16 @@ func modifierDeps(t *traversal, args... Value) (result Value, brks breakers) {
                 opts modifierDepsOpts
                 err error
         )
+        /*diag.infoAt(pos, "%v", t)
+        //diag.infoAt(pos, "%v", t.inner())
+        //diag.infoAt(pos, "%v", t.inner().inner())
+        for _, a := range args {
+                v1, _ := a.expand(t, expandPlainValue)
+                v2, _ := a.expand(t.inner().inner(), expandPlainValue)
+                diag.infoAt(pos, "%T %v -> %v", a, a, v1)
+                diag.infoAt(pos, "%T %v -> %v", a, a, v2)
+        }
+        diag.infoAt(pos, "%T", t.Context).debug(1)*/
         if args, err = parseOpts(t, &opts, args...); err != nil {
                 diag.errorAt(pos, "parse deps args failed: %v", err).debug(1)
                 return
@@ -1580,7 +1617,7 @@ CorrectCC:
         case "cl"   : opts.cc = "clang"; goto CorrectCC
         case "gc"   : opts.cc = "gcc"  ; goto CorrectCC
         case "clang": opts.useClang = true
-        case "gcc"  : opts.useGcc = true
+        case "gcc"  : opts.useGcc   = true
         case "":
                 if opts.useGcc   { opts.cc = "gcc" }
                 if opts.useClang { opts.cc = "clang" }
@@ -1589,7 +1626,7 @@ CorrectCC:
                         diag.errorAt(pos, "unsupported cc: %v", opts.cc).debug(1)
                         return
                 } else if strings.HasPrefix(base, "clang") { opts.useClang = true
-                } else if strings.HasPrefix(base, "gcc")   { opts.useGcc = true }
+                } else if strings.HasPrefix(base, "gcc")   { opts.useGcc   = true }
         }
 
         var flags []Value
@@ -1630,8 +1667,8 @@ CorrectCC:
                 } else { s = strings.TrimSpace(s) }
                 switch s {
                 case "", "-M", "-MM", "-MG", "-MD", "-MV", "-MP", "-Os", "-O1", "-O2", "-O3",
-                     "-c", "-shared", "-static", "-fPIC", "-fcxx-modules", "-fvisibility-inlines-hidden":
-                        break // discard unused args
+                     "-c", "-shared", "-static", "-fPIC", "-fcxx-modules",
+                     "-fvisibility-inlines-hidden": break // discard unused args
                 default: ca = append(ca, s)
                 }
         }
@@ -1658,7 +1695,7 @@ CorrectCC:
                                         cc.Path, strings.Join(ca, " \\\n  "), &stdout, &stderr) }
                                 diag.errorAt(pos, "deps with %s failed: %v", filepath.Base(opts.cc), err)
                                 diag.errorAt(t.Project().position, "for project %v", t.Project()).debug(6)
-                                t.traceCallStack(pos, -1, "deps with %s: %v", filepath.Base(opts.cc), err)
+                                t.traceCallStack(pos, -1, "deps with %s faled: %v", filepath.Base(opts.cc), err)
                         })
                         return
                 }

@@ -298,8 +298,10 @@ func (pc *prioritizedContext) closureResolveEntry(pos Position, name string) (en
 }
 
 func prioritize(ctxs ...Context) (ctx Context) {
-    if n := len(ctxs); n > 0 {
+    if n := len(ctxs); n > 1 {
         ctx = &prioritizedContext{ctxs[0], ctxs[1:]}
+    } else if n == 1 {
+        ctx = ctxs[0]
     } else {
         panic("prioritize zero contexts")
     }
@@ -312,7 +314,7 @@ type closureContext struct {
 }
 func (cc *closureContext) inner() Context { return cc.Context }
 //func (cc *closureContext) Position() Position { return cc.scope.position }
-func (cc *closureContext) Project() *Project { return cc.scope.project }
+//func (cc *closureContext) Project() *Project { return cc.scope.project }
 func (cc *closureContext) String() string {
     return fmt.Sprintf("closure{%s,%s}", cc.scope.comment, cc.Context)
 }
@@ -386,7 +388,14 @@ func (cc *closureContext) closureResolveEntry(pos Position, name string) (entry 
     return
 }
 
-func closureWith(ctx Context, scope *Scope) Context { return &closureContext{ ctx, scope } }
+func closureWith(ctx Context, scope *Scope) (res Context) {
+    if c, ok := ctx.(*closureContext); ok {
+        res = closureWith(c.Context, scope)
+    } else {
+        res = &closureContext{ ctx, scope }
+    }
+    return
+}
 
 type updatedtarget struct {
     target Value
@@ -466,23 +475,23 @@ func (t *traversal) tracef(s string, a ...interface{}) { printIndentDots(t.trace
 
 func (t *traversal) guarding() func() { t.batchMux.Lock(); return t.batchMux.Unlock }
 func (t *traversal) batch(job func()) { defer t.guarding()(); job() }
-func (t *traversal) caller() (c *traversal, ctx Context) {
+func (t *traversal) caller() (caller *traversal, ctx Context) {
     var more []Context
     ctx = t.Context
 SwitchCtx:
-    switch tc := ctx.(type) {
-    case *traversal         : c   = tc
-    case *callContext       : ctx = tc.Context; c, _ = tc.Context.(*traversal)
-    case *entryContext      : ctx = tc.Context; c, _ = tc.Context.(*traversal)
-    case *closureContext    : ctx = tc.Context; goto SwitchCtx
-    case *prioritizedContext: ctx = tc.Context; more = append(more, tc.more...); goto SwitchCtx
+    switch c := ctx.(type) {
+    case *prioritizedContext: ctx = c.Context; more = append(more, c.more...); goto SwitchCtx
+    case *closureContext    : ctx = c.Context; caller    = nil               ; goto SwitchCtx
+    case *callContext       : ctx = c.Context; caller, _ = c.Context.(*traversal)
+    case *entryContext      : ctx = c.Context; caller, _ = c.Context.(*traversal)
+    case *traversal         : ctx = c.Context; caller    = c
     default:
         if len(more) > 0 {
-            ctx = more[1]
+            ctx  = more[1]
             more = more[1:]
             goto SwitchCtx
         }
-        diag.errorAt(t.Position(), "%s", tc)
+        diag.errorAt(t.Position(), "%s", c)
         diag.errorAt(t.Position(), "%s", t).debug(1)
     }
     return
@@ -502,13 +511,18 @@ func (t *traversal) traceCallStack(pos Position, n int, s string, a ...interface
     return
 }
 
-func (t *traversal) Project() *Project {
-    if cc, ok := t.Context.(*closureContext); ok && cc != nil {
-        return cc.Project()
-    } else if t.program != nil {
-        return t.program.project
+func (t *traversal) Project() (proj *Project) {
+    switch cc := t.Context.(type) {
+    case *closureContext: proj = cc.scope.project
+    case *prioritizedContext: proj = t.Context.Project()
+    default:
+        if  t.program != nil  {
+            proj = t.program.project
+        } else {
+            proj = t.Context.Project()
+        }
     }
-    return t.Context.Project()
+    return
 }
 
 func (t *traversal) Position() Position {
@@ -551,12 +565,15 @@ func (t *traversal) add(ctx Context, target Value) {
 }
 
 func (t *traversal) getCurrentTargetValue(ctx Context) (res Value) {
+    var pos = ctx.Position()
     if target := t.autoGet("@"); isNil(target) {
-        if false { diag.errorOf(target, "target '%v' is nil", target) }
+        if false { diag.errorAt(pos, "target '%v' is nil", target) }
     } else if vals, _, err := expandall2(ctx, expandPlainValue, target); err != nil {
-        diag.errorOf(target, "expand target '%v' failed: %v", target, err)
+        if p := target.Position(); p.IsValid() { pos = p }
+        diag.errorAt(pos, "expand target '%v' failed: %v", target, err)
     } else if len(vals) == 1 { res = vals[0] } else {
-        diag.errorOf(target, "target '%v' expaned to many: %v", target, res)
+        if p := target.Position(); p.IsValid() { pos = p }
+        diag.errorAt(pos, "target '%v' expaned to many: %v", target, res)
     }
     return
 }
@@ -4560,7 +4577,7 @@ func (p *closure) expand(ctx Context, w expandwhat) (res Value, err error) {
     } else if val, err = res.expand(ctx, w); err != nil {
         diag.errorOf(p, "expand '%v' failed: %v", res, err).debug(1)
     } else if !isNil(val) && val != res {
-        if p.String() == "&(objects)" {
+        if /*p.String() == "&(objects)"*/false {
             var v, _ = res.expand(ctx.inner(), w)
             diag.infoAt(p.position, "%v -> %T %v -> %T %v -> %T %v", p, res, res, val, val, v, v)
             diag.infoAt(p.position, "%v %v", p, ctx.inner())
@@ -5383,11 +5400,11 @@ func permVal(ctx Context, v Value, i uint32) (res os.FileMode, err error) {
     return
 }
 
-var expandDepth int64 = 0
-func expandall1(ctx Context, w expandwhat, values ...Value) (elems []Value, num int, err error) {
-    defer func(i int64) { expandDepth = i } (expandDepth)
-    if expandDepth += 1; expandDepth > 128 {
-        err = fmt.Errorf("exceeds maximum expand depth")
+func expandall1x(ctx Context, w expandwhat, depth int, values ...Value) (elems []Value, num int, err error) {
+    if depth += 1; depth > 128 {
+        var pos = ctx.Position()
+        diag.errorAt(pos, "maximum expand depth (%d)", depth).debug(512)
+        fail(pos, "exceeds maximum expand depth (%d)", depth)
         return
     }
     for _, elem := range values {
@@ -5406,6 +5423,9 @@ func expandall1(ctx Context, w expandwhat, values ...Value) (elems []Value, num 
         }
     }
     return
+}
+func expandall1(ctx Context, w expandwhat, values ...Value) (elems []Value, num int, err error) {
+    return expandall1x(ctx, w, 0, values...)
 }
 
 func expandall2(ctx Context, w expandwhat, values ...Value) (res []Value, num int, err error) {
