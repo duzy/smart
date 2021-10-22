@@ -49,66 +49,69 @@ const (
   rxBashNoSuchFile_i
   rxClangNoSuchFile_i
   rxClangError_i
-  rxLdError_i
-  rxLdWarning_i
+  rxCmdError_i
+  rxCmdWarning_i
   rxLdLibNotFound_i
   rxCouldnotParseObj_i
   rxTooManyPosArgs_i
   rxUndefinedReference_i
   rxShellCmdNotFound_i
   rxExitStatus_i
+  rxIgnoringDuplicateDirectory_i
 )
 var (
   defaultShell = "bash"
 
-  errErrorPreprocess = `#error (.+)`
+  strErrorPreprocess = `#error (.+)`
 
-  errNotTTYDevice = `the input device is not a TTY`
-  errNoContainer = `Error.*: No such container: (.*)`
-  errNoNetwork = `Error.*: network (.*) not found\.`
-  errDockerDaemonNotRunning = `Cannot connect to the Docker daemon at (.*?)\. Is the docker daemon running\?`
-  errContainerNotRunning = `Error response from daemon: Container (.*?) is not running`
+  strNotTTYDevice = `the input device is not a TTY`
+  strNoContainer = `Error.*: No such container: (.*)`
+  strNoNetwork = `Error.*: network (.*) not found\.`
+  strDockerDaemonNotRunning = `Cannot connect to the Docker daemon at (.*?)\. Is the docker daemon running\?`
+  strContainerNotRunning = `Error response from daemon: Container (.*?) is not running`
 
-  errCompilation = `(.+?):(\d+):(\d+): error: (.+)(?: {2,}\n(.+))?`
-  errIncludedFrom2 = `In file included from (.+?):(\d+):`
-  errIncludedFrom3 = `In file included from (.+?):(\d+):(\d+):`
-  errFileNotFound = `(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`
-  errArNoSuchFile = `ar: (.+?): No such file or directory`
-  errArNoArchiveMembers = `ar: no archive members specified`
-  errBashNoSuchFile = `bash: (.+?): No such file or directory`
-  errClangNoSuchFile = `clang(?:-(.+?))?: error: no such file or directory: '(.+?)'`
-  errClangError = `clang(?:-(.+?))?: error: (.+)(?: \(.+\))?`
-  errLdError = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): error: (.+)`
-  errLdWarning = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): warning: (.+)`
-  errLdLibNotFound = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): library not found for (.+)`
-  errCouldnotParseObj = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`
-  errTooManyPosArgs = `(.+?): Too many positional arguments specified!`
-  errUndefinedReference = `  +"(.+?)", referenced from:`
-  errShellCmdNotFound = `(.+?): (.+?):( command)? not found`
-  errExitStatus = `exit status (\-?[0-9]+)`
+  strCompilation = `(.+?):(\d+):(\d+): error: (.+)(?: {2,}\n(.+))?`
+  strIncludedFrom2 = `In file included from (.+?):(\d+):`
+  strIncludedFrom3 = `In file included from (.+?):(\d+):(\d+):`
+  strFileNotFound = `(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`
+  strArNoSuchFile = `ar: (.+?): No such file or directory`
+  strArNoArchiveMembers = `ar: no archive members specified`
+  strBashNoSuchFile = `bash: (.+?): No such file or directory`
+  strClangNoSuchFile = `clang(?:-(.+?))?: error: no such file or directory: '(.+?)'`
+  strClangError = `clang(?:-(.+?))?: error: (.+)(?: \(.+\))?`
+  strCmdError = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang): error: (.+)`
+  strCmdWarning = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang): warning: (.+)`
+  strLdLibNotFound = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): library not found for (.+)`
+  strCouldnotParseObj = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`
+  strTooManyPosArgs = `(.+?): Too many positional arguments specified!`
+  strUndefinedReference = `  +"(.+?)", referenced from:`
+  strShellCmdNotFound = `(.+?): (.+?):( command)? not found`
+  strExitStatus = `exit status (\-?[0-9]+)`
+  strIgnoringDuplicateDirectory = `ignoring duplicate directory "(.*?)"`
 
-  rxNotTTYDevice = regexp.MustCompile(errNotTTYDevice)
-  rxNoContainer = regexp.MustCompile(errNoContainer)
-  rxNoNetwork = regexp.MustCompile(errNoNetwork)
-  rxDockerDaemonNotRunning = regexp.MustCompile(errDockerDaemonNotRunning)
-  rxContainerNotRunning = regexp.MustCompile(errContainerNotRunning)
-  rxCompilation = regexp.MustCompile(errCompilation)
-  rxIncludedFrom2 = regexp.MustCompile(errIncludedFrom2)
-  rxIncludedFrom3 = regexp.MustCompile(errIncludedFrom3)
-  rxFileNotFound = regexp.MustCompile(errFileNotFound)
-  rxArNoSuchFile = regexp.MustCompile(errArNoSuchFile)
-  rxArNoArchiveMembers = regexp.MustCompile(errArNoArchiveMembers)
-  rxBashNoSuchFile = regexp.MustCompile(errBashNoSuchFile)
-  rxClangNoSuchFile = regexp.MustCompile(errClangNoSuchFile)
-  rxClangError = regexp.MustCompile(errClangError)
-  rxLdError = regexp.MustCompile(errLdError)
-  rxLdWarning = regexp.MustCompile(errLdWarning)
-  rxLdLibNotFound = regexp.MustCompile(errLdLibNotFound)
-  rxCouldnotParseObj = regexp.MustCompile(errCouldnotParseObj)
-  rxTooManyPosArgs = regexp.MustCompile(errTooManyPosArgs)
-  rxUndefinedReference = regexp.MustCompile(errUndefinedReference)
-  rxShellCmdNotFound = regexp.MustCompile(errShellCmdNotFound)
-  rxExitStatus = regexp.MustCompile(errExitStatus)
+  rxNotTTYDevice = regexp.MustCompile(strNotTTYDevice)
+  rxNoContainer = regexp.MustCompile(strNoContainer)
+  rxNoNetwork = regexp.MustCompile(strNoNetwork)
+  rxDockerDaemonNotRunning = regexp.MustCompile(strDockerDaemonNotRunning)
+  rxContainerNotRunning = regexp.MustCompile(strContainerNotRunning)
+  rxCompilation = regexp.MustCompile(strCompilation)
+  rxIncludedFrom2 = regexp.MustCompile(strIncludedFrom2)
+  rxIncludedFrom3 = regexp.MustCompile(strIncludedFrom3)
+  rxFileNotFound = regexp.MustCompile(strFileNotFound)
+  rxArNoSuchFile = regexp.MustCompile(strArNoSuchFile)
+  rxArNoArchiveMembers = regexp.MustCompile(strArNoArchiveMembers)
+  rxBashNoSuchFile = regexp.MustCompile(strBashNoSuchFile)
+  rxClangNoSuchFile = regexp.MustCompile(strClangNoSuchFile)
+  rxClangError = regexp.MustCompile(strClangError)
+  rxCmdError = regexp.MustCompile(strCmdError)
+  rxCmdWarning = regexp.MustCompile(strCmdWarning)
+  rxLdLibNotFound = regexp.MustCompile(strLdLibNotFound)
+  rxCouldnotParseObj = regexp.MustCompile(strCouldnotParseObj)
+  rxTooManyPosArgs = regexp.MustCompile(strTooManyPosArgs)
+  rxUndefinedReference = regexp.MustCompile(strUndefinedReference)
+  rxShellCmdNotFound = regexp.MustCompile(strShellCmdNotFound)
+  rxExitStatus = regexp.MustCompile(strExitStatus)
+  rxIgnoringDuplicateDirectory = regexp.MustCompile(strIgnoringDuplicateDirectory)
 
   knownerrors = []*regexp.Regexp{
     rxNotTTYDevice_i:           rxNotTTYDevice,
@@ -123,8 +126,8 @@ var (
     rxBashNoSuchFile_i:         rxBashNoSuchFile,
     rxClangNoSuchFile_i:        rxClangNoSuchFile,
     rxClangError_i:             rxClangError,
-    rxLdError_i:                rxLdError,
-    rxLdWarning_i:              rxLdWarning,
+    rxCmdError_i:               rxCmdError,
+    rxCmdWarning_i:             rxCmdWarning,
     rxLdLibNotFound_i:          rxLdLibNotFound,
     rxDockerDaemonNotRunning_i: rxDockerDaemonNotRunning,
     rxContainerNotRunning_i:    rxContainerNotRunning,
@@ -133,6 +136,7 @@ var (
     rxUndefinedReference_i:     rxUndefinedReference,
     rxShellCmdNotFound_i:       rxShellCmdNotFound,
     rxExitStatus_i:             rxExitStatus,
+    rxIgnoringDuplicateDirectory_i: rxIgnoringDuplicateDirectory,
   }
 
   workingMutex = new(sync.Mutex)
@@ -252,6 +256,11 @@ type knownMatch struct {
   v [][]knownMatchCap // groups of captures
 }
 
+type ignoringDuplicateDirectoryCounter struct {
+  position Position
+  dir string
+  num int
+}
 type ExecBuffer struct {
   res *ExecResult
   log *ExecLog
@@ -266,7 +275,6 @@ type ExecBuffer struct {
   errors []error
   includedFrom struct { pos1, pos2 Position }
 }
-
 func (p *ExecBuffer) filter(s string) { p.filters = append(p.filters, s) }
 func (p *ExecBuffer) Write(b []byte) (n int, err error) {
   for _, s := range p.filters {
@@ -338,10 +346,10 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
   return
 }
 
-func (p *ExecBuffer) startDockerDaemon(pos Position, t *traversal, container *Project, sock string) (err error) {
+func (p *ExecBuffer) startDockerDaemon(pos Position, ctx Context, container *Project, sock string) (err error) {
   var c = exec.Command("dockerd") //c.Stdout, c.Stderr = stdout, stderr
   if err = c.Run(); err != nil {
-    if p.report { diag.errorAt(pos, "dokcer daemon not running (at %s)", sock).debug(1) }
+    if p.report { ctx.error("dokcer daemon not running (at %s)", sock).at(pos).debug(1) }
   } else {
     // TODO: start docker daemon
   }
@@ -349,18 +357,18 @@ func (p *ExecBuffer) startDockerDaemon(pos Position, t *traversal, container *Pr
 }
 
 func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
+  var t = p.res.t
   if p == nil {
-    diag.errorAt(pos, "nil exec buffer").debug(1)
+    t.error("nil exec buffer").at(pos).debug(1)
     return
   }
   var (
     container *Project = p.res.container
-    t *traversal = p.res.t
     lpos Position = pos
     reportIncludedFrom = func() (res bool) {
       if p.includedFrom.pos1.IsValid() && p.includedFrom.pos2.IsValid() {
-        diag.errorAt(p.includedFrom.pos1, "…included from here")
-        diag.errorAt(p.includedFrom.pos2, "…reported here").debug(4)
+        t.error("… included from here").at(p.includedFrom.pos1)
+        t.error("… reported here").at(p.includedFrom.pos2).debug(4)
         p.includedFrom.pos1 = Position{}
         p.includedFrom.pos2 = Position{}
         res = true
@@ -375,18 +383,18 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
     switch m.i {
     case rxNotTTYDevice_i:
       if p.report {
-        diag.errorAt(lpos, "Needs TTY (input device)").debug(1)
+        t.error("Needs TTY (input device)").at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxDockerDaemonNotRunning_i:
       if err = p.startDockerDaemon(lpos, t, container, v[1].string); err != nil {
-        diag.errorAt(pos, "start container failed: %v", err).debug(1)
+        t.error("start container failed: %v", err).at(pos).debug(1)
         p.res.errs += 1
       }
     case rxNoContainer_i:
       if name := v[1].string; p.res.skips(name) {
         if p.report {
-          diag.errorAt(lpos, "container not running: %v", name).debug(1)
+          t.error("container not running: %v", name).at(lpos).debug(1)
           p.res.errs += 1
         }
       } else {
@@ -394,12 +402,12 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       }
     case rxContainerNotRunning_i:
       if p.report {
-        diag.errorAt(lpos, "Container not running (%v)", v[1].string).debug(1)
+        t.error("Container not running (%v)", v[1].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxNoNetwork_i:
       if p.report {
-        diag.errorAt(lpos, "Network not found (%v)", v[1].string).debug(1)
+        t.error("Network not found (%v)", v[1].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxIncludedFrom2_i:
@@ -419,34 +427,34 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         p.errorPos = convPosition(v[1].string, v[2].string, v[3].string)
         lpos.Column = v[4].col
         if s := v[5].string; s != "" {
-          diag.errorAt(p.errorPos, "%s: %s", v[4].string, s)
+          t.error("%s: %s", v[4].string, s).at(p.errorPos)
         } else {
-          diag.errorAt(p.errorPos, "%s", v[4].string)
+          t.error("%s", v[4].string).at(p.errorPos)
         }
-        if !reportIncludedFrom() { diag.errorAt(lpos, "…reported here").debug(1) }
+        if !reportIncludedFrom() { t.error("…reported here").at(lpos).debug(1) }
         p.res.errs += 1
       }
     case rxFileNotFound_i:
       if p.report {
         p.errorPos = convPosition(v[1].string, v[2].string, v[3].string)
         lpos.Column = v[4].col
-        diag.errorAt(p.errorPos, "'%s' file not found", v[4].string)
-        if !reportIncludedFrom() { diag.errorAt(lpos, "…reported here").debug(1) }
+        t.error("'%s' file not found", v[4].string).at(p.errorPos)
+        if !reportIncludedFrom() { t.error("…reported here").at(lpos).debug(1) }
         p.res.errs += 1
       }
     case rxArNoSuchFile_i:
       if p.report {
-        diag.errorAt(lpos, "'%v' file not found (as '%s')", filepath.Base(v[1].string), v[1]).debug(1)
+        t.error("'%v' file not found (as '%s')", filepath.Base(v[1].string), v[1]).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxArNoArchiveMembers_i:
       if p.report {
-        diag.errorAt(lpos, "%s", v[0].string).debug(1)
+        t.error("%s", v[0].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxBashNoSuchFile_i:
       if p.report {
-        diag.errorAt(lpos, "%v: no such command", v[1].string).debug(1)
+        t.error("%v: no such command", v[1].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxClangNoSuchFile_i:
@@ -454,7 +462,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         var vs string
         if s := v[1].string; s != "" { vs = "-" + s }
         lpos.Column = v[2].col + 1
-        diag.errorAt(lpos, "clang%s: no such source file: %s", vs, v[2].string).debug(1)
+        t.error("clang%s: no such source file: %s", vs, v[2].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxClangError_i:
@@ -462,57 +470,70 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         var vs string
         if s := v[1].string; s != "" { vs = "-" + s }
         lpos.Column = v[2].col + 1
-        diag.errorAt(lpos, "clang%s: %s", vs, v[2].string).debug(1)
+        t.error("clang%s: %s", vs, v[2].string).at(lpos).debug(1)
         p.res.errs += 1
       }
-    case rxLdError_i:
+    case rxCmdError_i:
       if p.report {
         lpos.Column = v[2].col + 1
-        diag.errorAt(lpos, "%s", v[2].string).debug(1)
+        t.error("%s", v[2].string).at(lpos).debug(1)
         p.res.errs += 1
       }
-    case rxLdWarning_i:
+    case rxCmdWarning_i:
       if p.report {
         lpos.Column = v[2].col + 1
-        diag.warnAt(lpos, "%s: %s", v[1].string, v[2].string).debug(1)
+        t.warn("%s: %s", v[1].string, v[2].string).at(lpos).debug(1)
         p.res.warns += 1
       }
     case rxLdLibNotFound_i:
       if p.report {
         lpos.Column = v[2].col + 1
         if false {
-          diag.errorAt(lpos, "%s: library not found: %s", v[1].string, v[2].string).debug(1)
+          t.error("%s: library not found: %s", v[1].string, v[2].string).at(lpos).debug(1)
         } else {
-          diag.errorAt(lpos, "%s", v[0].string).debug(1)
+          t.error("%s", v[0].string).at(lpos).debug(1)
         }
         p.res.errs += 1
       }
     case rxCouldnotParseObj_i:
       if p.report {
         lpos.Column = v[3].col
-        diag.errorAt(lpos, "%s", v[3].string).debug(1)
+        t.error("%s", v[3].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxTooManyPosArgs_i:
       if p.report {
-        diag.errorAt(lpos, "%s: too many positional arguments", v[1].string).debug(1)
+        t.error("%s: too many positional arguments", v[1].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxUndefinedReference_i:
       if p.report {
-        diag.errorAt(lpos, "Undefined reference '%s'", v[1].string).debug(1)
+        t.error("Undefined reference '%s'", v[1].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxShellCmdNotFound_i:
       if p.report {
         lpos.Column = v[2].col
-        diag.errorAt(lpos, "%s: command not found", v[2].string).debug(1)
+        t.error("%s: command not found", v[2].string).at(lpos).debug(1)
         p.res.errs += 1
+      }
+    case rxIgnoringDuplicateDirectory_i:
+      if p.report {
+        var ( dir = v[1].string; done bool )
+        lpos.Column = v[1].col + 1
+        if false { t.info("ignoring duplicate directory: %s", dir).at(lpos).debug(1) }
+        for _, rec := range p.res.ignoringDuplicateDirectory {
+          if rec.dir == dir { rec.num += 1; done = true }
+        }
+        if !done {
+          var rec = &ignoringDuplicateDirectoryCounter{ lpos, dir, 1 }
+          p.res.ignoringDuplicateDirectory = append(p.res.ignoringDuplicateDirectory, rec)
+        }
       }
     case rxExitStatus_i:
       if s := v[1].string; s != "0" /*&& p.report*/ {
         // FIXME: the 'exit status' report is not working
-        diag.errorAt(lpos, "abnormal exist status %s", s).debug(1)
+        t.error("abnormal exist status %s", s).at(lpos).debug(1)
         p.res.errs += 1
       }
     }
@@ -521,10 +542,9 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
   return
 }
 
-const waitExecResult = false
 type ExecResult struct {
   valbase
-  wg sync.WaitGroup
+
   Stdout ExecBuffer
   Stderr ExecBuffer
   Status int // aka. exit code
@@ -535,38 +555,31 @@ type ExecResult struct {
   errs, warns int
 
   num int
-  t *traversal
+  t *traverseContext
   x *executor
   sh *exec.Cmd
   container *Project
-}
-func (p *ExecResult) expand(ctx Context, _ expandwhat) (res Value, err error) {
-  if waitExecResult { p.wg.Wait() }
-  return
+
+  ignoringDuplicateDirectory []*ignoringDuplicateDirectoryCounter
 }
 func (p *ExecResult) cmp(ctx Context, v Value) (res cmpres) {
   if a, ok := v.(*ExecResult); ok {
     assert(ok, "value is not ExecResult")
-    if waitExecResult { p.wg.Wait() }
     if p.Status == a.Status { res = cmpEqual }
   }
   return
 }
 func (p *ExecResult) True(ctx Context) (res bool, err error) {
-  if waitExecResult { p.wg.Wait() }
   res = p.Status == 0 && p.Stderr.Buf != nil && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */
   return
 }
 func (p *ExecResult) Integer(ctx Context) (int64, error) {
-  if waitExecResult { p.wg.Wait() }
   return int64(p.Status), nil
 }
 func (p *ExecResult) Float(ctx Context) (float64, error) {
-  if waitExecResult { p.wg.Wait() }
   return float64(p.Status), nil
 }
 func (p *ExecResult) Strval(ctx Context) (s string, err error) {
-  if waitExecResult { p.wg.Wait() }
   if p.Stdout.Buf != nil { s = p.Stdout.Buf.String() }
   return
 }
@@ -581,7 +594,7 @@ func (p *ExecResult) String() string {
 
 func (p *ExecResult) runContainerAndRetry(ctx Context) (status int, err error) {
   if p.container == nil {
-    diag.errorAt(p.position, "no container").debug(1)
+    ctx.error("no container").at(p.position).debug(1)
     return
   } else if maxRetries < p.num {
     fmt.Fprintf(p.sh.Stderr, "\n---- Retried %d times\n", p.num)
@@ -596,11 +609,11 @@ func (p *ExecResult) runContainerAndRetry(ctx Context) (status int, err error) {
   fmt.Fprintf(sh.Stderr, "\n---- Run container '%s'\n", name)
   if run, _ := p.container.resolveEntry(ctx, "run", false); run != nil {
     if _, brks := run.execute(p.t); brks.has() {
-      diag.errorAt(p.position, "%d breakers", len(brks)).debug(1)
+      ctx.error("%d breakers", len(brks)).at(p.position).debug(1)
       return
-    } else { p.t.group.Wait() }
+    } //else { p.t.group.Wait() }
   } else {
-    diag.errorAt(p.t.program.position, "%s⇒run undefined", p.container).debug(1)
+    ctx.error("%s⇒run undefined", p.container).at(p.t.program.position).debug(1)
     return
   }
 
@@ -623,7 +636,7 @@ func (p *ExecResult) runContainerAndRetry(ctx Context) (status int, err error) {
 }
 
 // DEPRECATED
-func (p *ExecResult) ensureContainerRunning(ctx Context, t *traversal, containerName string) (err error) {
+func (p *ExecResult) ensureContainerRunning(ctx Context, containerName string) (err error) {
   var (
     stdoutR, stdoutW = io.Pipe()
     stderrR, stderrW = io.Pipe()
@@ -669,15 +682,15 @@ func (p *ExecResult) ensureContainerRunning(ctx Context, t *traversal, container
   if err = cmd.Run(); err == nil && foundID == "" {
     if run, _ := p.container.resolveEntry(ctx, "run", false); run != nil {
       if _, brks := run.execute(p.t); brks.has() {
-        diag.errorAt(p.position, "%d breakers", len(brks)).debug(1)
+        ctx.error("%d breakers", len(brks)).at(p.position).debug(1)
         return
-      } else { p.t.group.Wait() }
+      } //else { p.t.group.Wait() }
     } else {
-      diag.errorAt(p.t.program.position, "%s⇒run undefined", p.container).debug(1)
+      ctx.error("%s⇒run undefined", p.container).at(p.t.program.position).debug(1)
       return
     }
   } else if err != nil {
-    diag.errorAt(p.container.position, "%v", err).debug(1)
+    ctx.error("%v", err).at(p.container.position).debug(1)
   }
   return
 }
@@ -689,13 +702,11 @@ func (p *ExecResult) skips(tag string) bool {
 }
 
 func (p *ExecResult) run(ctx Context) (status int, err error) {
-  var pos = ctx.Position()
-
   p.num += 1
   if err = p.sh.Run(); err == nil {
     return
   } else if ee, ok := err.(*exec.ExitError); !ok {
-    diag.errorAt(pos, "exec failed: %v", err).debug(1)
+    ctx.error("exec failed: %v", err).debug(1)
     return
   } else if status = ee.ExitCode(); status == 0 {
     return // success!
@@ -737,26 +748,25 @@ type (
     contained bool
   }
 )
-func (p *executor) Evaluate(t *traversal, args ...Value) (result Value, err error) {
+func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error) {
   if options.traceExecutor {
-    var t = t.autoGet("@")
+    var t, _ = ctx.autoGet("@")
     defer un(trace(t_exec, fmt.Sprintf("executor(%s %v)", typeof(t), t)))
   }
 
   var (
-    cmd = p.cmd
-    ctx Context = t //ctx = &t.callContext //
-    pos = ctx.Position()
     opts = executorOpts{ scanStderr: true }
+    pos = ctx.Position()
+    cmd = p.cmd
   )
-  if args, err = mergeresult2(expandall2(ctx, expandPlainValue, args...)); err != nil {
-    diag.errorAt(pos, "merge args failed: %v", err).debug(1)
+  if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
+    ctx.error("merge args failed: %v", err).debug(1)
     return
   } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-    diag.errorAt(pos, "parse opts failed: %v", err).debug(1)
+    ctx.error("parse opts failed: %v", err).debug(1)
     return
   } else if opts.deprecated {
-    diag.errorAt(pos, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug(1)
+    ctx.error("deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug(1)
     return
   } else if !opts.prompt {
     opts.prompt = opts.promStr != ""
@@ -768,444 +778,473 @@ func (p *executor) Evaluate(t *traversal, args ...Value) (result Value, err erro
   }
 
   var (
-    target = t.getCurrentTargetValue(ctx)
+    t = ctx.traversal()
+    caller = t.caller()
+    target = getTargetValue(ctx)
     targetName string
   )
   if targetName, err = fullnameOrStrval(ctx, target); err != nil {
-    diag.errorOf(target, "stringify target '%v' failed: %v", target, err).debug(1)
+    ctx.error("stringify target '%v' failed: %v", target, err).of(target).debug(1)
     return
-  } else if t.isConfigureExecution {
+  } else if t.configuration {
     // does nothing
   } else if opts.wait {
     // good to work without (stamp) or (wait) with the -wait flag
   } else if ms := t.program.getModifiers(ctx, "stamp"); len(ms) > 0 {
     switch target.(type) {
     case *Barefile, *File, *Path:
-      diag.warnAt(ms[0].position, "use (shell -stamp) instead of stamp modifier (%T %v)", target, target).debug(1)
+      t.warn("use (shell -stamp) instead of stamp modifier (%T %v)", target, target).at(ms[0].position).debug(1)
     }
   } else if ms := t.program.getModifiers(ctx, "wait"); len(ms) > 0 {
     // should be good to work
   } else if !opts.stamp && !opts.silent {
-    diag.warnAt(pos, "add -stamp to (shell)").debug(1)
+    t.warn("add -stamp to (shell)").debug(1)
   }
 
-  const goro = false
+  var start = time.Now()
   var exeres = &ExecResult{valbase:valbase{pos}, x:p, t:t}
-  var run = func(start time.Time) {
-    var aa []string
-    for i, v := range args {
-      var s string
-      if p.contained && i == 0 {
-        if s, err = v.Strval(ctx); err != nil {
-          diag.errorOf(v, "strval '%v' failed: %v", v, err).debug(1)
-          return
-        } else if s == "shell" {
-          cmd = defaultShell
-        }
-      } else if s, err = v.Strval(ctx); err != nil {
-        diag.errorOf(v, "strval '%v' failed: %v", v, err).debug(1)
+  var aa []string
+  for i, v := range args {
+    var s string
+    if p.contained && i == 0 {
+      if s, err = v.Strval(ctx); err != nil {
+        ctx.error("strval '%v' failed: %v", v, err).of(v).debug(1)
         return
-      } else if s = strings.TrimSpace(s); s != "" {
-        aa = append(aa, s)
+      } else if s == "shell" {
+        cmd = defaultShell
+      }
+    } else if s, err = v.Strval(ctx); err != nil {
+      ctx.error("strval '%v' failed: %v", v, err).of(v).debug(1)
+      return
+    } else if s = strings.TrimSpace(s); s != "" {
+      aa = append(aa, s)
+    }
+  }
+
+  var container *Project
+  if p.contained {
+    if t.program.project.name == dotContainer {
+      container = t.program.project
+    } else if _, containerSym := t.program.project.scope.Find(dotContainer); containerSym != nil {
+      if pn, _ := containerSym.(*ProjectName); pn != nil {
+        container = pn.NamedProject()
       }
     }
 
-    var container *Project
-    if p.contained {
-      if t.program.project.name == dotContainer {
-        container = t.program.project
-      } else if _, containerSym := t.program.project.scope.Find(dotContainer); containerSym != nil {
-        if pn, _ := containerSym.(*ProjectName); pn != nil {
-          container = pn.NamedProject()
-        }
-      }
+    if container == nil {
+      ctx.error("container unavailable (in %s)", t.program.project.name).debug(1)
+      return
+    }
 
-      if container == nil {
-        diag.errorAt(pos, "container unavailable (in %s)", t.program.project.name).debug(1)
-        return
-      }
-
-      var strval = func(name string) (str string, err error) {
-        var ctx = closureWith(ctx, container.Scope())
-        if obj, _ := container.resolveObject(ctx, name); obj != nil {
-          if def, _ := obj.(*Def); def != nil {
-            var v Value
-            if v, err = def.DiscloseValue(ctx); err == nil && v != nil {
-              if str, err = v.Strval(ctx); str == "-" {
-                /*if v, err = def.DiscloseValue(container); err == nil && v != nil {
+    var strval = func(name string) (str string, err error) {
+      var ctx = closureWith(ctx, pos, container.Scope())
+      if obj, _ := container.resolveObject(ctx, name); obj != nil {
+        if def, _ := obj.(*Def); def != nil {
+          var v Value
+          if v, err = def.DiscloseValue(ctx); err == nil && v != nil {
+            if str, err = v.Strval(ctx); str == "-" {
+              /*if v, err = def.DiscloseValue(container); err == nil && v != nil {
                   if str, err = v.Strval(ctx); str == "" { str = "-" }
                   fmt.Fprintf(stderr, "%v: %v (%v)\n", name, str, def)
                 }*/
-              }
             }
           }
         }
-        return
       }
-
-      var containerName string
-      if containerName , err = strval("container"); err != nil {
-        diag.errorAt(pos, "strval .container.container failed: %v", err).debug(1)
-        return
-      } else if containerName == "" {
-        diag.errorAt(pos, ".container.name undefined").debug(1)
-        return
-      }
-
-      var containerImage string
-      if containerImage, err = strval("image"); err != nil {
-        diag.errorAt(pos, "strval .container.image failed: %v", err).debug(1)
-        return
-      } else if containerImage == "" {
-        diag.errorAt(pos, ".container.image undefined").debug(1)
-        return
-      }
-
-      if options.verbose {
-        diag.prompt("%v: container=%v, image=%v\n", container, containerName, containerImage)
-      }
-
-      aa = append(aa, "exec", containerName, cmd)
-      cmd = "docker"
+      return
     }
 
-    var cwd string
-    {
-      var (
-        cc = positional(ctx, t.program.position)
-        o Object
-        v Value
-      )
-      if _, o = t.program.scope.Find("CWD"); isNil(o) {
-        if _, o = t.program.scope.Find("/"); isNil(o) {
-          diag.errorAt(pos, "'CWD' and '/' is undefined").debug(1)
-          return
-        }
-      }
-      if v = o.(*Def).Call(cc); isNil(v) || isNone(v) {
-        diag.errorAt(pos, "CWD is <nil>").debug(1)
-        return
-      } else if cwd, err = v.Strval(ctx); err != nil {
-        diag.errorAt(pos, "strval '%v' failed: %v", v, err).debug(1)
-        return
-      } else if cwd == "" {
-        diag.errorAt(pos, "CWD is empty").debug(1)
-        return
-      }
+    var containerName string
+    if containerName , err = strval("container"); err != nil {
+      ctx.error("strval .container.container failed: %v", err).debug(1)
+      return
+    } else if containerName == "" {
+      ctx.error(".container.name undefined").debug(1)
+      return
     }
 
-    // Fixes work directory conflicts. It happens
-    // sometimes even the 'sh.Dir' is set to cwd.
-    // Because the current work directory is not
-    // thread safe.
-    var dir = cwd
-    if t.program.changedWD != "" {
-      if filepath.IsAbs(t.program.changedWD) {
-        dir = t.program.changedWD
-      } else {
-        dir = filepath.Join(t.program.project.absPath, t.program.changedWD)
-      }
+    var containerImage string
+    if containerImage, err = strval("image"); err != nil {
+      ctx.error("strval .container.image failed: %v", err).debug(1)
+      return
+    } else if containerImage == "" {
+      ctx.error(".container.image undefined").debug(1)
+      return
     }
 
-    if opts.path {
-      var s string
-      if s = filepath.Dir(targetName); s != "" && s != "." && s != "/" {
-        if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
-          diag.errorOf(target, "make path '%s' for target failed: %v", s, err).debug(1)
-          return
-        }
-      }
+    if options.verbose {
+      t.prompt("%v: container=%v, image=%v\n", container, containerName, containerImage)
     }
 
-    var envars []*Pair // disclosed values
-    if def, _ := t.program.scope.Lookup(TheShellEnvarsDef).(*Def); def != nil {
-      if l, _ := def.value.(*List); l != nil {
-        for _, v := range l.Elems {
-          var t Value
-          if t, err = v.expand(ctx, expandClosure); err != nil {
-            diag.errorOf(v, "expand value '%v' failed: %v", v, err).debug(1)
-            return
-          } else if isNil(t) { t = v }
-          if p, ok := t.(*Pair); ok {
-            envars = append(envars, p)
-          } else {
-            diag.errorOf(t, "env expecting pairs: %T", t).debug(1)
-            return
-          }
-        }
-      }
-    }
+    aa = append(aa, "exec", containerName, cmd)
+    cmd = "docker"
+  }
 
+  var cwd string
+  {
     var (
-      positions []Position
-      recipePos Position
-      recipes []Value
-      sources []string
-      source string
-      w = expandPlainValue
+      cc = positional(ctx, t.program.position)
+      o Object
+      v Value
     )
-    if opts.fullname { w |= expandFullName }
-    if recipes, err = mergeresult2(expandall2(ctx, w, t.program.recipes...)); err != nil {
-      diag.errorAt(pos, "merge recipes failed: %v", err).debug(1)
-      return
-    }
-    for _, recipe := range recipes {
-      var str string
-      if !recipePos.IsValid() { recipePos = recipe.Position() }
-      if str, err = recipe.Strval(ctx); err != nil {
-        diag.errorOf(recipe, "strval recipe failed: %v", err).debug(1)
-        return
-      } else if str = strings.TrimRightFunc(str, unicode.IsSpace); str == "" {
-        source += "\n" // an empty line
-        continue
-      } else if source += str; strings.HasSuffix(source, "\\") {
-        source += "\n" // append the line feed
-        continue
-      }
-
-      // Escape '$$' sequences.
-      source = strings.Replace(source, "$$", "$", -1)
-
-      // Remove tabs in line breakings.
-      source = strings.Replace(source, "\\\n\t", "\\\n", -1)
-
-      // Duplicate all %
-      //source = strings.Replace(source, "%", "%%", -1)
-
-      positions = append(positions, recipePos); recipePos = Position{}
-      sources = append(sources, source)
-      source = ""
-    }
-    if len(recipes) > 0 && len(sources) == 0 {
-      diag.errorAt(pos, "empty recipes: %v", recipes).debug(1)
-      return;
-    }
-
-    var envstr string
-    var envs []string = os.Environ()
-    for i, p := range envars {
-      var k, v string
-      if k, err = p.Key.Strval(ctx); err != nil {
-        diag.errorOf(p.Key, "strval '%v' failed: %v", p.Key, err).debug(1)
+    if _, o = t.program.scope.Find("CWD"); isNil(o) {
+      if _, o = t.program.scope.Find("/"); isNil(o) {
+        ctx.error("'CWD' and '/' is undefined").debug(1)
         return
       }
-      if v, err = p.Value.Strval(ctx); err != nil {
-        diag.errorOf(p.Value, "strval '%v' failed: %v", p.Value, err).debug(1)
-        return
-      }
-      if i > 0 { envstr += " && " }
-      envstr += fmt.Sprintf(`%s=%s`, k, strconv.Quote(v))
-      envs = append(envs, fmt.Sprintf("%s=%s", k, v))
     }
+    if v = o.(*Def).Call(cc); isNil(v) || isNone(v) {
+      ctx.error("CWD is <nil>").debug(1)
+      return
+    } else if cwd, err = v.Strval(ctx); err != nil {
+      ctx.error("strval '%v' failed: %v", v, err).debug(1)
+      return
+    } else if cwd == "" {
+      ctx.error("CWD is empty").debug(1)
+      return
+    }
+  }
 
-    var log *ExecLog
-    var logFile *os.File
-    if opts.logFileName != nil { log = &ExecLog{ filename: opts.logFileName.string } }
-    if opts.bufStdout { exeres.Stdout.Buf = new(bytes.Buffer) }
-    if opts.bufStderr { exeres.Stderr.Buf = new(bytes.Buffer) }
-    if opts.tieStdout { exeres.Stdout.Tie = stdout }
-    if opts.tieStderr { exeres.Stderr.Tie = stderr }
-    if log == nil || log.filename == "" {
-      // no log required
-    } else if err = os.MkdirAll(filepath.Dir(log.filename), os.FileMode(0755)); err != nil {
-      diag.errorAt(t.program.position, "%v", err).debug(1)
-      return
-    } else if logFile, err = os.Create(log.filename); err != nil {
-      diag.errorAt(t.program.position, "%v", err).debug(1)
-      return
+  // Fixes work directory conflicts. It happens
+  // sometimes even the 'sh.Dir' is set to cwd.
+  // Because the current work directory is not
+  // thread safe.
+  var dir = cwd
+  if t.program.changedWD != "" {
+    if filepath.IsAbs(t.program.changedWD) {
+      dir = t.program.changedWD
     } else {
-      cmdline := strings.Join(sources, "\n")
-      log.createWriter(logFile, dir, cmdline)
-      exeres.Stdout.log = log
-      exeres.Stderr.log = log
+      dir = filepath.Join(t.program.project.absPath, t.program.changedWD)
     }
-    exeres.Stdout.scanKnownErrors = opts.scanStdout
-    exeres.Stderr.scanKnownErrors = opts.scanStderr
-    exeres.Stdout.res = exeres
-    exeres.Stderr.res = exeres
+  }
 
-    ///////////
-    if false {
-      defer func() {
-        diag.infoAt(pos, "%v, status=%v", target, exeres.Status)
-        diag.infoAt(pos, "%v: %v", target, recipes)
-        diag.infoAt(pos, "%v: %v", target, sources).debug(6)
-      } ()
-    }
-    defer func() {
-      if log.writer != nil { log.writer.Flush() }
-      if logFile != nil { logFile.Close() }
-      if false && log.filename != "" && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
-        os.Remove(log.filename)
-      }
-      if c, _ := t.caller(); c != nil { c.calleeDone(err) }
-      if goro { exeres.wg.Done() }
-      exeres.Stdout.res = nil
-      exeres.Stderr.res = nil
-      exeres.container = nil
-      exeres.sh = nil
-      exeres.x = nil
-      exeres.t = nil
-    } ()
-
-    defer func() {
-      if opts.stamp && !t.isConfigureExecution {
-        var files []*File
-        if files, err = target.stamp(t); err != nil {
-          if pe, ok := err.(*fs.PathError); ok {
-            diag.errorAt(pos, "stamp %v: not found", trimPromptString(pe.Path)).debug(6)
-          } else {
-            diag.errorAt(pos, "%v", err).debug(6)
-          }
-          return
-        } else if opts.report {
-          reportFileUpdates(ctx, t.start, files)
-        }
-      }
-
-      if t.isConfigureExecution && err != nil {
-        if false { diag.infoAt(pos, "configure failed: %v", err).debug(1) }
-        err = nil
-      } else if err != nil {
-        diag.errorAt(pos, "shell: %v", err).debug(1)
+  if opts.path {
+    var s string
+    if s = filepath.Dir(targetName); s != "" && s != "." && s != "/" {
+      if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
+        ctx.error("make path '%s' for target failed: %v", s, err).of(target).debug(1)
         return
-      }
-
-      if opts.prompt {
-        var (
-          ps = opts.promStr
-          st = trimPromptString(targetName)
-        )
-        if false && ps == "" { ps = "exec: " }
-        if t.caller == nil {
-          if st += " …… "; err == nil {
-            st += "ok"
-          } else if _, ok := err.(*scanner.Error); ok {
-            st += "scan error" // fmt.Fprintf(stderr, "%v\n", err)
-          } else {
-            st += err.Error()
-          }
-        }
-        diag.prompt("%s%s (%v, stdout=%d bytes, stderr=%d bytes)\n", ps, st, time.Now().Sub(start),
-          exeres.Stdout.wrote, exeres.Stderr.wrote)
-      }
-    } ()
-
-    if diag.checkErrors(true) > 0 {
-      diag.warnAt(pos, "got %d error(s), cancel execution for %s", diag.errs, trimPromptString(targetName)).debug(1)
-      return
-    }
-
-    for i, src := range sources {
-      var pos = positions[i]
-      if strings.HasPrefix(src, "@") {
-        src = src[1:]
-      } else if opts.verboseSrc && !opts.prompt {
-        var s string = src
-        s = strings.Replace(s, "\n", "\\n", -1)
-        s = strings.Replace(s, "\\\\n", "\\\n", -1)
-        diag.prompt("%s\n", s)//.debug(1)
-      }
-      if src = strings.TrimSpace(src); src == "" { continue }
-      if dir != "" && !opts.noCD /*&& t.program.changedWD == ""*/ {
-        if strings.HasPrefix(src, "#") {
-          src = fmt.Sprintf("cd '%s' %s", dir, src)
-        } else {
-          // Insert a "\n" before the right paren ')' to ensure that
-          // it's working with comments like "true #comment...".
-          src = fmt.Sprintf("cd '%s' && (%s\n)", dir, src)
-        }
-      }
-      if cmd == "docker" && len(envstr) > 0 {
-        src = fmt.Sprintf("%s && %s", envstr, src)
-      }
-
-      if options.noExec { continue }
-
-      if false {
-        // Restricts the number of workers.
-        ///fmt.Fprintf(stderr, "run.1: %v\n", targetName)
-        var num = waitForWork(); defer releaseWork(num)
-        ///fmt.Fprintf(stderr, "run.2: %v\n", targetName)
-      }
-
-      //if err = lockCD(dir, 25*time.Millisecond); err != nil { diag.errorAt(pos, "%v", err); return }
-      //if s, e := os.Getwd(); e == nil { assert(s == dir, "wrong work directory (%s != %s)", s, dir) }
-      for {
-        if err = lockCD(dir, 25*time.Millisecond); err != nil {
-          diag.errorAt(pos, "%v", err).debug(1)
-          return
-        } else if s, _ := os.Getwd(); s == dir { break }
-      }
-      if !opts.silent || opts.prompt || opts.verboseSrc {
-        printEnteringDirectory()
-      }
-
-      exeres.container = container
-      exeres.sh = exec.Command(cmd, aa...)
-      exeres.sh.Dir = dir
-      exeres.sh.Env = envs // always set command work directory
-      exeres.sh.Stdout = &exeres.Stdout
-      exeres.sh.Stderr = &exeres.Stderr
-      if opts.stdin {
-        exeres.sh.Stdin = os.Stdin
-        exeres.sh.Args = append(exeres.sh.Args, "-ti")
-      }
-      if p.opt != "" { exeres.sh.Args = append(exeres.sh.Args, p.opt) }
-      if src   != "" { exeres.sh.Args = append(exeres.sh.Args, src) }
-      if opts.debug  { diag.warnAt(pos, "%v", exeres.sh).debug(1) }
-
-      exeres.Stdout.report = !opts.silent
-      exeres.Stderr.report = !opts.silent
-      if exeres.Status, err = exeres.run(positional(ctx, pos)); err != nil {
-        if !opts.silent || opts.debug {
-          if exeres.Stderr.log != nil {
-            var pos Position
-            pos.Filename = log.filename
-            pos.Line = exeres.Stderr.log.lines
-            diag.errorAt(pos, "%v: %s", target, err).debug(1)
-          }
-          if exeres.errs > 0 { exeres.errs += 1 // err != nil
-            if inner, _ := t.inner().(*closureContext); inner != nil {
-              if exeres.warns > 0 {
-                diag.errorAt(pos, "exec: got %d errors and %d warnings", exeres.errs, exeres.warns)
-              } else {
-                diag.errorAt(pos, "exec: got %d errors", exeres.errs)
-              }
-              diag.errorAt(inner.Position(), "… requested here").debug(16)
-            } else {
-              diag.errorAt(pos, "… requested here").debug(16)
-            }
-          } else if exeres.warns > 0 {
-            if inner, _ := t.inner().(*closureContext); inner != nil {
-              diag.warnAt(pos, "exec: got %d warnings", exeres.warns)
-              diag.warnAt(inner.Position(), "… requested here").debug(16)
-            } else {
-              diag.warnAt(pos, "… requested here").debug(16)
-            }
-          } else if inner, _ := t.inner().(*closureContext); inner != nil {
-            diag.errorAt(pos, "%v: %v (%T, status=%v)", target, err, err, exeres.Status)
-            diag.errorAt(inner.Position(), "… requested here").debug(16)
-          } else if c, _ := t.caller(); c != nil {
-            diag.errorAt(pos, "%v: %v (%T, status=%v)", target, err, err, exeres.Status)
-            diag.errorAt(c.Position(), "… requested here").debug(16)
-          } else {
-            diag.errorAt(pos, "%v: %v (%T, status=%v)", target, err, err, exeres.Status).debug(16)
-          }
-        }
-        if opts.silent { err = nil }
-      } else if exeres.Status != 0 && (!opts.silent || opts.debug) {
-        diag.errorAt(pos, "abnormal exec exit status %d", exeres.Status).debug(1)
-        err = &exitstatus{ exeres.Status } // convert to exitstatus
-        break
       }
     }
   }
 
-  if c, _ := t.caller(); c != nil { c.calleeStart() }
-  if goro { exeres.wg.Add(1); go run(time.Now()) } else { run(time.Now()) }
-  if true || t.caller == nil || opts.wait /*|| opts.stamp/*FIXME: it's a temporary solution */ {
-    exeres.wg.Wait()
+  var envars []*Pair // disclosed values
+  if def, _ := t.program.scope.Lookup(TheShellEnvarsDef).(*Def); def != nil {
+    if l, _ := def.value.(*List); l != nil {
+      for _, v := range l.Elems {
+        var t Value
+        if t, err = v.expand(ctx, expandClosure); err != nil {
+          ctx.error("expand value '%v' failed: %v", v, err).of(v).debug(1)
+          return
+        } else if isNil(t) { t = v }
+        if p, ok := t.(*Pair); ok {
+          envars = append(envars, p)
+        } else {
+          ctx.error("env expecting pairs: %T", t).of(t).debug(1)
+          return
+        }
+      }
+    }
+  }
+
+  var (
+    positions []Position
+    recipePos Position
+    recipes []Value
+    sources []string
+    source string
+    w = expandPlainValue
+  )
+  if opts.fullname { w |= expandFullName }
+  if recipes, err = expandmerge2(ctx, w, t.program.recipes...); err != nil {
+    ctx.error("merge recipes failed: %v", err).debug(1)
+    return
+  }
+  for _, recipe := range recipes {
+    var str string
+    if !recipePos.IsValid() { recipePos = recipe.Position() }
+    if str, err = recipe.Strval(ctx); err != nil {
+      ctx.error("strval recipe failed: %v", err).of(recipe).debug(1)
+      return
+    } else if str = strings.TrimRightFunc(str, unicode.IsSpace); str == "" {
+      source += "\n" // an empty line
+      continue
+    } else if source += str; strings.HasSuffix(source, "\\") {
+      source += "\n" // append the line feed
+      continue
+    }
+
+    // Escape '$$' sequences.
+    source = strings.Replace(source, "$$", "$", -1)
+
+    // Remove tabs in line breakings.
+    source = strings.Replace(source, "\\\n\t", "\\\n", -1)
+
+    // Duplicate all %
+    //source = strings.Replace(source, "%", "%%", -1)
+
+    positions = append(positions, recipePos); recipePos = Position{}
+    sources = append(sources, source)
+    source = ""
+  }
+  if len(recipes) > 0 && len(sources) == 0 {
+    ctx.error("empty recipes: %v", recipes).debug(1)
+    return;
+  }
+
+  var envstr string
+  var envs []string = os.Environ()
+  for i, p := range envars {
+    var k, v string
+    if k, err = p.Key.Strval(ctx); err != nil {
+      ctx.error("strval '%v' failed: %v", p.Key, err).of(p.Key).debug(1)
+      return
+    }
+    if v, err = p.Value.Strval(ctx); err != nil {
+      ctx.error("strval '%v' failed: %v", p.Value, err).of(p.Value).debug(1)
+      return
+    }
+    if i > 0 { envstr += " && " }
+    envstr += fmt.Sprintf(`%s=%s`, k, strconv.Quote(v))
+    envs = append(envs, fmt.Sprintf("%s=%s", k, v))
+  }
+
+  var log *ExecLog
+  var logFile *os.File
+  if opts.logFileName != nil { log = &ExecLog{ filename: opts.logFileName.string } }
+  if opts.bufStdout { exeres.Stdout.Buf = new(bytes.Buffer) }
+  if opts.bufStderr { exeres.Stderr.Buf = new(bytes.Buffer) }
+  if opts.tieStdout { exeres.Stdout.Tie = stdout }
+  if opts.tieStderr { exeres.Stderr.Tie = stderr }
+  if log == nil || log.filename == "" {
+    // no log required
+  } else if err = os.MkdirAll(filepath.Dir(log.filename), os.FileMode(0755)); err != nil {
+    ctx.error("%v", err).at(t.program.position).debug(1)
+    return
+  } else if logFile, err = os.Create(log.filename); err != nil {
+    ctx.error("%v", err).at(t.program.position).debug(1)
+    return
+  } else {
+    cmdline := strings.Join(sources, "\n")
+    log.createWriter(logFile, dir, cmdline)
+    exeres.Stdout.log = log
+    exeres.Stderr.log = log
+  }
+  exeres.Stdout.scanKnownErrors = opts.scanStdout
+  exeres.Stderr.scanKnownErrors = opts.scanStderr
+  exeres.Stdout.res = exeres
+  exeres.Stderr.res = exeres
+
+  if t.checkErrors(true) > 0 {
+    if str := trimPromptString(targetName); filepath.IsAbs(targetName) {
+      var pos Position; pos.Filename, pos.Line = targetName, 1
+      t.warn("got %d error(s)", t.totalErrors())
+      t.warn("cancel execution for %s", str).at(pos).debug(1)
+    } else {
+      t.warn("got %d error(s), cancel execution for %s", t.totalErrors(), str).debug(1)
+    }
+    if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.totalErrors()) }
+    return
+  }
+
+  ///////////
+  if false {
+    defer func() {
+      t.info("%v, status=%v", target, exeres.Status)
+      t.info("%v: %v", target, recipes)
+      t.info("%v: %v", target, sources).debug(6)
+    } ()
+  }
+  defer func() {
+    if log.writer != nil { log.writer.Flush() }
+    if logFile != nil { logFile.Close() }
+    if false && log.filename != "" && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
+      os.Remove(log.filename)
+    }
+    if caller != nil && err != nil { caller.calleeError(err) }
+    exeres.Stdout.res = nil
+    exeres.Stderr.res = nil
+    exeres.container = nil
+    exeres.sh = nil
+    exeres.x = nil
+    exeres.t = nil
+  } ()
+
+  defer func() {
+    if opts.stamp && !t.configuration {
+      var files []*File
+      if files, err = target.stamp(t); err != nil {
+        if pe, ok := err.(*fs.PathError); ok {
+          ctx.error("stamp %v: not found", trimPromptString(pe.Path)).debug(6)
+        } else {
+          ctx.error("%v", err).debug(6)
+        }
+        return
+      } else if opts.report {
+        reportFileUpdates(ctx, t.start, files)
+      }
+    }
+
+    if err == nil {
+      // Good!
+    } else if t.configuration {
+      if false { t.info("configure failed: %v", err).debug(1) }
+      err = nil
+    } else {
+      ctx.error("shell: %v", err).debug(1)
+      return
+    }
+
+    if opts.prompt {
+      var (
+        ps = opts.promStr
+        st = trimPromptString(targetName)
+      )
+      if false && ps == "" { ps = "exec: " }
+      if caller == nil {
+        if st += " …… "; err == nil {
+          st += "ok"
+        } else if _, ok := err.(*scanner.Error); ok {
+          st += "scan error" // fmt.Fprintf(stderr, "%v\n", err)
+        } else {
+          st += err.Error()
+        }
+      }
+      t.prompt("%s%s (%v, stdout=%d bytes, stderr=%d bytes)\n", ps, st, time.Now().Sub(start),
+        exeres.Stdout.wrote, exeres.Stderr.wrote)
+    }
+  } ()
+
+  for i, src := range sources {
+    var pos = positions[i]
+    if strings.HasPrefix(src, "@") {
+      src = src[1:]
+    } else if opts.verboseSrc && !opts.prompt {
+      var s string = src
+      s = strings.Replace(s, "\n", "\\n", -1)
+      s = strings.Replace(s, "\\\\n", "\\\n", -1)
+      t.prompt("%s\n", s)//.debug(1)
+    }
+    if src = strings.TrimSpace(src); src == "" { continue }
+    if dir != "" && !opts.noCD /*&& t.program.changedWD == ""*/ {
+      if strings.HasPrefix(src, "#") {
+        src = fmt.Sprintf("cd '%s' %s", dir, src)
+      } else {
+        // Insert a "\n" before the right paren ')' to ensure that
+        // it's working with comments like "true #comment...".
+        src = fmt.Sprintf("cd '%s' && (%s\n)", dir, src)
+      }
+    }
+    if cmd == "docker" && len(envstr) > 0 {
+      src = fmt.Sprintf("%s && %s", envstr, src)
+    }
+
+    if options.noExec { continue }
+
+    if false {
+      // Restricts the number of workers.
+      ///fmt.Fprintf(stderr, "run.1: %v\n", targetName)
+      var num = waitForWork(); defer releaseWork(num)
+      ///fmt.Fprintf(stderr, "run.2: %v\n", targetName)
+    }
+
+    //if err = lockCD(dir, 25*time.Millisecond); err != nil { ctx.error("%v", err); return }
+    //if s, e := os.Getwd(); e == nil { assert(s == dir, "wrong work directory (%s != %s)", s, dir) }
+    for {
+      if err = lockCD(dir, 25*time.Millisecond); err != nil {
+        ctx.error("%v", err).debug(1)
+        return
+      } else if s, _ := os.Getwd(); s == dir { break }
+    }
+    if !opts.silent || opts.prompt || opts.verboseSrc {
+      printEnteringDirectory(t)
+    }
+
+    exeres.container = container
+    exeres.sh = exec.Command(cmd, aa...)
+    exeres.sh.Dir = dir
+    exeres.sh.Env = envs // always set command work directory
+    exeres.sh.Stdout = &exeres.Stdout
+    exeres.sh.Stderr = &exeres.Stderr
+    if opts.stdin {
+      exeres.sh.Stdin = os.Stdin
+      exeres.sh.Args = append(exeres.sh.Args, "-ti")
+    }
+    if p.opt != "" { exeres.sh.Args = append(exeres.sh.Args, p.opt) }
+    if src   != "" { exeres.sh.Args = append(exeres.sh.Args, src) }
+    if opts.debug {
+      t.warn("%v: %v", t.entry, target).at(t.program.position)
+      t.warn("context: %v", t)
+      t.warn("exec:\n%v", exeres.sh).debug(1)
+    }
+
+    exeres.Stdout.report = !opts.silent
+    exeres.Stderr.report = !opts.silent
+    if exeres.Status, err = exeres.run(positional(ctx, pos)); err != nil {
+      if !opts.silent || opts.debug {
+        if exeres.Stderr.log != nil {
+          var pos Position
+          pos.Filename = log.filename
+          pos.Line = exeres.Stderr.log.lines
+          ctx.error("%v: %s", target, err).debug(1)
+        }
+        if exeres.errs > 0 { exeres.errs += 1 // err != nil
+          if cc, _ := t.inner().(*closureContext); cc != nil {
+            if exeres.warns > 0 {
+              ctx.error("exec: got %d errors and %d warnings", exeres.errs, exeres.warns)
+            } else {
+              ctx.error("exec: got %d errors", exeres.errs)
+            }
+            ctx.error("%v", t).at(t.Position())
+            if caller != nil {
+              ctx.error("%v", cc).at(cc.Position())
+              ctx.error("%v", caller).at(caller.Position()).debug(16)
+            } else {
+              ctx.error("%v", cc).at(cc.Position()).debug(16)
+            }
+          } else {
+            ctx.error("… requested here").debug(16)
+          }
+        } else if exeres.warns > 0 {
+          if cc, _ := t.inner().(*closureContext); cc != nil {
+            t.warn("exec: got %d warnings", exeres.warns)
+            t.warn("… requested here").at(cc.Position()).debug(16)
+          } else {
+            t.warn("… requested here").debug(16)
+          }
+        } else if cc, _ := t.inner().(*closureContext); cc != nil {
+          ctx.error("%v: %v (%T, status=%v)", target, err, err, exeres.Status)
+          ctx.error("… requested here").at(cc.Position()).debug(16)
+        } else if caller != nil {
+          ctx.error("%v: %v (%T, status=%v)", target, err, err, exeres.Status)
+          ctx.error("… requested here").at(caller.Position()).debug(16)
+        } else {
+          ctx.error("%v: %v (%T, status=%v)", target, err, err, exeres.Status).debug(16)
+        }
+      }
+    }
+    if len(exeres.ignoringDuplicateDirectory) > 0 {
+      var idds int
+      for _, rec := range exeres.ignoringDuplicateDirectory {                idds += rec.num
+        ctx.info(`ignoring duplicate directory "%v" (%d)`, rec.dir, rec.num).at(rec.position)
+      }
+      if idds > 0 && !opts.silent {
+        if true {
+          ctx.info("%v: ignoring duplicate directories: %v", target, idds).debug(1)
+        } else {
+          var t, _ = ctx.autoGet("@")
+          ctx.info("%v: ignoring duplicate directories: %v", target, idds)
+          ctx.info("%v: %v", target, t)
+          ctx.info("%v: %v", target, ctx).debug(16)
+        }
+      }
+      if opts.silent { err = nil }
+    }
+    if exeres.Status != 0 && (!opts.silent || opts.debug) {
+      ctx.error("abnormal exec exit status %d", exeres.Status).debug(1)
+      err = &exitstatus{ exeres.Status } // convert to exitstatus
+      break
+    }
   }
 
   // The execution is performed asynchronously, the result can't

@@ -118,16 +118,16 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value, err error) {
 }
 
 type xml struct { whitespace bool }
-func (p *xml) Evaluate(t *traversal, args ...Value) (result Value, err error) {
-        var ( ctx = t.Context; source string )
-        if source, err = multiline(ctx, t.program.recipes...); err != nil {
-                diag.errorAt(ctx.Position(), "%v", err).debug(1)
+func (p *xml) Evaluate(ctx Context, args ...Value) (result Value, err error) {
+        var source string
+        if source, err = multiline(ctx, ctx.traversal().program.recipes...); err != nil {
+                ctx.error("%v", err).debug(1)
                 return
         }
         if result, err = DecodeXML(ctx, source, p.whitespace); err == nil {
                 result = &XML{ result }
         } else {
-                result = &XML{ &None{valbase{t.program.position}} }
+                result = &XML{ MakeNone(ctx.Position()) }
         }
         return
 }

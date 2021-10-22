@@ -7,7 +7,7 @@
 package smart
 
 import (
-	"extbit.io/smart/token"
+	//"extbit.io/smart/token"
 	"time"
 	"fmt"
 	"io"
@@ -61,12 +61,13 @@ func tr(t tracer, i Value) tracer {
     return t
 }
 
-func tt(t tracer, tr *traversal, i Value) tracer {
+func tt(t tracer, ctx Context, i Value) tracer {
     // Note that t.args and t.arguments are different, they're
     // target execution args and argumented-prerequisite args.
     var a string
-    if tar := tr.entry.target; len(tr.args) > 0 {
-        a = fmt.Sprintf("%s{%s}%s", typeof(tar), tar, tr.args)
+	var tr = ctx.traversal()
+    if tar := tr.entry.Target(); len(tr.params) > 0 {
+        a = fmt.Sprintf("%s{%s}%s", typeof(tar), tar, tr.params)
     } else {
         a = fmt.Sprintf("%s{%v}", typeof(tar), tar)
     }
@@ -85,15 +86,12 @@ type tracing struct {
 	tm time.Time
 }
 
-func (p *tracing) errorAt(pos token.Position, err interface{}, a ...interface{}) {
+/*func (p *tracing) errorAt(pos token.Position, err interface{}, a ...interface{}) {
 	// If AllErrors is not set, discard errors reported on the same line
 	// as the last recorded error and stop parsing if there are more than
 	// 10 errors.
 	if p.all {
 		n := diag.numErrors()
-		/*if n > 0 && p.errors[n-1].Pos.Line == pos.Line {
-			return // discard - likely a spurious error
-		}*/
 		if n > 10 { panic(bailout{}) }
 	}
 
@@ -104,7 +102,7 @@ func (p *tracing) errorAt(pos token.Position, err interface{}, a ...interface{})
 	default: s = fmt.Sprintf("%v", err)
 	}
 	diag.errorAt(Position(pos), fmt.Sprintf(s, a...))
-}
+}*/
 
 // Printing fields (splitted by \t).
 //var lenPrintField = lenPrintTab * 1

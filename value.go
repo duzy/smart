@@ -46,6 +46,7 @@ const (
     existenceConfirmed
     existenceNegated
 )
+const expandArgumented = true
 const (
     expandDelegate expandwhat = 1<<iota // $(...)  ->  ......
     expandClosure   // &(...)            ->  $(...)
@@ -252,9 +253,9 @@ func (pc *prioritizedContext) String() string {
     for _, c := range pc.more { s += fmt.Sprintf(",%s", c) }
     return fmt.Sprintf("prioritized{%s%s}", pc.Context, s)
 }
-func (pc *prioritizedContext) autoGet(name string) (res Value) {
+func (pc *prioritizedContext) autoGet(name string) (res Value, found bool) {
     for _, c := range append([]Context{ pc.Context }, pc.more...) {
-        if res = c.autoGet(name); !(isNil(res) /*|| isNone(res) || isUndef(res)*/) {
+        if res, found = c.autoGet(name); found/*!isNil(res)*/ {
             break
         }
     }
@@ -288,7 +289,7 @@ func (pc *prioritizedContext) closureResolveObject(pos Position, name string) (o
     }
     return
 }
-func (pc *prioritizedContext) closureResolveEntry(pos Position, name string) (entry *RuleEntry) {
+func (pc *prioritizedContext) closureResolveEntry(pos Position, name string) (entry Entry) {
     for _, c := range append([]Context{ pc.Context }, pc.more...) {
         if entry = c.closureResolveEntry(pos, name); entry != nil {
             break
@@ -308,91 +309,224 @@ func prioritize(ctxs ...Context) (ctx Context) {
     return
 }
 
+const (
+    recursiveTraversalClosureAuto = false
+    recursiveTraversalClosureReso = true
+)
 type closureContext struct {
     Context
-    scope *Scope
+    scopes []*Scope
 }
 func (cc *closureContext) inner() Context { return cc.Context }
-//func (cc *closureContext) Position() Position { return cc.scope.position }
-//func (cc *closureContext) Project() *Project { return cc.scope.project }
-func (cc *closureContext) String() string {
-    return fmt.Sprintf("closure{%s,%s}", cc.scope.comment, cc.Context)
+func (cc *closureContext) String() string { return fmt.Sprintf("closure{%s}", cc.Context) }
+func (cc *closureContext) Scope() (scope *Scope) {
+    if len(cc.scopes) > 0 {
+        scope = cc.scopes[0]
+    } else {
+        scope = cc.Context.Scope()
+    }
+    return
+}
+func (cc *closureContext) forScopes(work func(*Scope) bool) (scopes []*Scope) {
+    if scopes = cc.closureScopes(); work != nil {
+        for _, scope := range scopes {
+            if scope != nil && work(scope) { break }
+        }
+    }
+    return
+}
+func (cc *closureContext) Project() (proj *Project) {
+    for _, scope := range cc.closureScopes() {
+        if proj = scope.project; proj != nil { break }
+    }
+    return
+}
+func (cc *closureContext) closure() *closureContext { return cc }
+func (cc *closureContext) closureScopes() (scopes []*Scope) {
+    if scopes = cc.Context.closureScopes(); false {
+        scopes = append(scopes, cc.scopes...)
+    } else {
+    ForScopes:
+        for _, s1 := range cc.scopes {
+            for _, s2 := range scopes {
+                if s2 == s1 || s2.inside(s1) { continue ForScopes }
+            }
+            scopes = append(scopes, s1)
+        }
+    }
+    if false {
+        for i, j := 0, len(scopes)-1; i < j; i, j = i+1, j-1 {
+            scopes[i], scopes[j] = scopes[j], scopes[i]
+        }
+    }
+    return
+}
+func (cc *closureContext) closureProjects() (projects []*Project) {
+ForScopes:
+    for _, scope := range cc.closureScopes() {
+        for _, project := range projects {
+            if project == scope.project || project.hasBase(scope.project) {
+                continue ForScopes
+            }
+        }
+        projects = append(projects, scope.project)
+    }
+    return
 }
 func (cc *closureContext) closureGet(name string) (res Value) {
-    var (
-        pos = cc.Position()
-        err error
-    )
-    if cc.scope.project != nil {
-        if !pos.IsValid() { pos = cc.scope.position }
-        if !pos.IsValid() { pos = cc.scope.project.position }
-        if cc.scope != cc.scope.project.scope {
-            if _, res = cc.scope.Find(name); !isNil(res) { return }
+    var err error
+    if t := cc.traversal(); t != nil && recursiveTraversalClosureReso {
+        if _, ok := t.Context.(*closureContext); ok {
+            if res = t.closureGet(name); res != nil { return }
         }
-        if res, err = cc.scope.project.resolveObject(cc, name); err != nil {
-            diag.errorAt(pos, "resolve '%s' failed: %v", name, err).debug(1)
-            return
-        } else if isNil(res) {
-            res = cc.autoGet(name)
+    }
+    for _, scope := range cc.closureScopes() {
+        if scope.project == nil {
+            if _, res = scope.Find(name); !isNil(res) { break }
+        } else {
+            var pos = cc.Position()
+            if !pos.IsValid() { pos = scope.position }
+            if !pos.IsValid() { pos = scope.project.position }
+            if scope != scope.project.scope {
+                if _, res = scope.Find(name); !isNil(res) { break  }
+            }
+            if res, err = scope.project.resolveObject(cc, name); err != nil {
+                cc.error("resolve '%s' failed: %v", name, err).debug(1)
+                break
+            } else if isNil(res) {
+                res, _ = cc.autoGet(name)
+            }
         }
+        if !isNil(res) { break }
     }
     return
 }
 func (cc *closureContext) closureSet(name string, val Value) (prev Value, okay bool) {
-    if def := cc.scope.FindDef(name); def != nil {
-        prev = def.value
-        def.val(cc, val)
-        okay = true
+    if t := cc.traversal(); t != nil && recursiveTraversalClosureReso {
+        if _, ok := t.Context.(*closureContext); ok {
+            if prev, okay = t.closureSet(name, val); okay { return }
+        }
+    }
+    for _, scope := range cc.closureScopes() {
+        if def := scope.FindDef(name); def != nil {
+            prev = def.value
+            def.val(cc, val)
+            okay = true
+            break
+        }
     }
     return
 }
 func (cc *closureContext) closureResolveObject(pos Position, name string) (obj Object) {
-    var err error
-    if false && name == "objects" { defer func() {
-        _, o1 := cc.scope.Find(name)
-        o2, _ := cc.scope.project.resolveObject(cc, name)
-        o3, _ := cc.scope.project.resolveObject(cc.inner(), name)
-        var o4 Object
-        if c := cc.inner().inner(); c != nil { o4, _ = cc.scope.project.resolveObject(c, name) }
-        if o1 != nil { diag.warnAt(o1.Position(), "o1 = %T %v, project = %v, scope = %v", o1, o1, cc.scope.project, cc.scope) }
-        if o2 != nil { diag.warnAt(o2.Position(), "o2 = %T %v, project = %v, scope = %v", o2, o2, cc.scope.project, cc.scope.project.scope) }
-        if o2 != nil {
-            val, _ := o2.expand(cc, expandPlainValue)
-            diag.infoAt(o2.Position(), "o2 = %v", val)
+    if t := cc.traversal(); t != nil && recursiveTraversalClosureReso {
+        if _, ok := t.Context.(*closureContext); ok {
+            if obj = t.closureResolveObject(pos, name); obj != nil { return }
         }
-        diag.warnAt(cc.scope.position, "%v: bases = %v, name = %s", cc.scope.project, cc.scope.project.bases, name)
-        diag.warnAt(pos, "%s: %T, %T, %T, %T", cc.scope.project, o1, o2, o3, o4)
-        diag.warnAt(pos, "%s: obj = %T %v (%s)", cc.scope.project, obj, obj, cc.scope)
-        diag.warnAt(pos, "%s: %s, %s", cc.scope.project, name, cc).debug(24)
-    } () }
-    if cc.scope != cc.scope.project.scope {
-        if _, obj = cc.scope.Find(name); !isNil(obj) { return }
     }
-    if obj, err = cc.scope.project.resolveObject(cc, name); err != nil {
-        diag.errorAt(pos, "resolve object '%s' in '%s' failed: %v", name, cc.scope.project, err).debug(1)
-    } else if isNil(obj) {
-        obj = cc.Context.closureResolveObject(pos, name)
-    }
-    return
-}
-func (cc *closureContext) closureResolveEntry(pos Position, name string) (entry *RuleEntry) {
-    var err error
-    if project := cc.scope.project; project == nil {
-        // none
-    } else if entry, err = project.resolveEntry(cc, name, false); err != nil {
-        diag.errorAt(pos, "resolve entry '%s' in '%s' failed: %v", name, project, err).debug(1)
-        return
-    } else if entry == nil {
-        entry = cc.Context.closureResolveEntry(pos, name)
-    }
-    return
-}
 
-func closureWith(ctx Context, scope *Scope) (res Context) {
+    var (
+        infos = false && name == "@"
+        scope *Scope
+        err error
+    )
+    if infos { defer func() {
+        var o4 Object
+        _, o1 := scope.Find(name)
+        o2, _ := scope.project.resolveObject(cc, name)
+        o3, _ := scope.project.resolveObject(cc.inner(), name)
+        if c := cc.inner().inner(); c != nil { o4, _ = scope.project.resolveObject(c, name) }
+
+        var val Value
+        if obj != nil { val, _ = obj.expand(cc, expandPlainValue) }
+
+        cc.warn("%v(%v), name = %s", scope.project, scope.project.bases, name).at(scope.position)
+        cc.warn("%v: %v", scope.project, cc).at(scope.position)
+        cc.warn("%v: %v", scope.project, scope).at(scope.position)
+
+        cc.warn("%s: o1 = %T, %v", scope.project, o1, o1).at(pos)
+        cc.warn("%s: o2 = %T, %v", scope.project, o2, o2).at(pos)
+        cc.warn("%s: o3 = %T, %v", scope.project, o3, o3).at(pos)
+        cc.warn("%s: o4 = %T, %v", scope.project, o4, o4).at(pos)
+        cc.warn("%s: obj = %T, %v", scope.project, obj, obj).at(pos)
+        cc.warn("%s: obj = %v", scope.project, val).at(pos)
+        for i, s := range cc.closureScopes() {
+            cc.warn("%s: %d. %s", scope.project, i, s).at(pos)
+        }
+        cc.warn("%s: %s", scope.project, cc).at(pos).debug(24)
+    } () }
+    for _, scope = range cc.closureScopes() {
+        var ctx Context = positional(cc, scope.position)
+        if infos { ctx.warn("%s", scope).debug(1) }
+        if scope.project == nil || scope != scope.project.scope {
+            if _, obj = scope.Find(name); isNil(obj) {
+                // ...
+            } else if def, ok := obj.(*Def); ok && (def.origin == DefAuto || def.origin == DefArg) {
+                if infos {
+                    val, _ := obj.expand(cc, expandPlainValue)
+                    va2, _ := cc.traversal().autoGet(name)
+                    va3, _ := cc.closureResolveAuto(scope, name)
+                    ctx.warn("%v: %v -> %v, %v, %v, %v, %v", obj.OwnerProject(), obj, val, va2, va3, cc.Program().scope == scope, obj.(*Def).origin)
+                    ctx.warn("%v: %v", obj.OwnerProject(), cc).debug(1)
+                }
+                if o, ok := cc.closureResolveAuto(scope, name); ok && !isNil(o) { obj = o }
+                break
+            } else {
+                break // got the obj
+            }
+        }
+        if scope.project != nil {
+            if obj, err = scope.project.resolveObject(cc, name); err != nil {
+                ctx.error("resolve object '%s' in '%s' failed: %v", name, scope.project, err).at(pos).debug(1)
+                break
+            }
+        }
+        if isNil(obj) && false { obj = cc.Context.closureResolveObject(pos, name) }
+        if!isNil(obj) { if infos { ctx.warn("%v %s", obj, scope).debug(1) }
+            break
+        }
+    }
+    return
+}
+func (cc *closureContext) closureResolveEntry(pos Position, name string) (entry Entry) {
+    if t := cc.traversal(); t != nil && recursiveTraversalClosureReso {
+        if _, ok := t.Context.(*closureContext); ok {
+            if entry = t.closureResolveEntry(pos, name); entry != nil { return }
+        }
+    }
+    var scope *Scope
+    for _, scope = range cc.closureScopes() {
+        var err error
+        if project := scope.project; project == nil {
+            // none
+        } else if entry, err = project.resolveEntry(cc, name, false); err != nil {
+            cc.error("resolve entry '%s' in '%s' failed: %v", name, project, err).at(pos).debug(1)
+            break
+        } else if entry == nil && false {
+            entry = cc.Context.closureResolveEntry(pos, name)
+        }
+        if entry != nil { break }
+    }
+    return
+}
+/*
+func (cc *closureContext) autoGet(name string) (res Value, okay bool) {
+    if t := cc.traversal(); t != nil && recursiveTraversalClosureAuto {
+        if res, okay = t.autoGet(name); okay { return }
+    }
+    return cc.Context.autoGet(name)
+}
+func (cc *closureContext) autoSet(name string, val Value) (res Value, okay bool) {
+    if t := cc.traversal(); t != nil && recursiveTraversalClosureAuto {
+        if res, okay = t.autoSet(name, val); okay { return }
+    }
+    return cc.Context.autoSet(name, val)
+}
+*/
+func closureWith(ctx Context, pos Position, scopes ...*Scope) (res Context) {
     if c, ok := ctx.(*closureContext); ok {
-        res = closureWith(c.Context, scope)
+        res = closureWith(c.Context, pos, scopes...)
     } else {
-        res = &closureContext{ ctx, scope }
+        res = &closureContext{ ctx, scopes }
     }
     return
 }
@@ -423,9 +557,13 @@ func refdef(ctx Context, val Value, origin Origin) (res bool) {
     return
 }
 
-// traversal is a single thread traverse context, for traversing in a new goroutine,
+type spawnContext struct { Context }
+
+func (sc *spawnContext) String() string { return fmt.Sprintf("spawn{%s}", sc.Context) }
+
+// traverseContext is a single thread traverse context, for traversing in a new goroutine,
 // a spawned traversal must be used and then merge.
-type traversal struct {
+type traverseContext struct {
     Context
 
     program *Program
@@ -435,12 +573,11 @@ type traversal struct {
     params []string // $0, $1, $2, ...
     execRec map[Value]int
 
-    group sync.WaitGroup
     calleeErrs []error
     calleeErrsM sync.Mutex
 
-    entry *RuleEntry // caller entry (target)
-    args, arguments []Value // target and argumented prerequisite args
+    entry Entry // caller entry (target)
+    argumented []Value // argumented args
 
     target0, targetN, targetX string // names for setting first, last and all targets
     targets []Value // all targets def
@@ -453,57 +590,36 @@ type traversal struct {
     traceLevel int
 
     interpreted []interpreter
-    isConfigureExecution bool
+
+    configuration bool
 
     print bool // printing work directories (Entering/Leaving)
-    debug bool
-
-    batchMux sync.Mutex
-    traceCallStackMux sync.Mutex
 }
-func (t *traversal) inner() Context { return t.Context }
-func (t *traversal) String() string {
-    var proj *Project
-    if t.program != nil { proj = t.program.project }
-    if proj == nil { proj = t.Context.Project() }
-    return fmt.Sprintf("traversal{%s,%s}", proj, t.Context)
-}
-
-func (t *traversal) level(n int) { t.traceLevel += n }
-func (t *traversal) trace(a ...interface{}) { printIndentDots(t.traceLevel, a...) }
-func (t *traversal) tracef(s string, a ...interface{}) { printIndentDots(t.traceLevel, fmt.Sprintf(s, a...)) }
-
-func (t *traversal) guarding() func() { t.batchMux.Lock(); return t.batchMux.Unlock }
-func (t *traversal) batch(job func()) { defer t.guarding()(); job() }
-func (t *traversal) caller() (caller *traversal, ctx Context) {
-    var more []Context
-    ctx = t.Context
-SwitchCtx:
-    switch c := ctx.(type) {
-    case *prioritizedContext: ctx = c.Context; more = append(more, c.more...); goto SwitchCtx
-    case *closureContext    : ctx = c.Context; caller    = nil               ; goto SwitchCtx
-    case *callContext       : ctx = c.Context; caller, _ = c.Context.(*traversal)
-    case *entryContext      : ctx = c.Context; caller, _ = c.Context.(*traversal)
-    case *traversal         : ctx = c.Context; caller    = c
-    default:
-        if len(more) > 0 {
-            ctx  = more[1]
-            more = more[1:]
-            goto SwitchCtx
-        }
-        diag.errorAt(t.Position(), "%s", c)
-        diag.errorAt(t.Position(), "%s", t).debug(1)
+func (t *traverseContext) inner() Context { return t.Context }
+func (t *traverseContext) String() string {
+    var s string
+    if t.program != nil {
+        s = t.program.scope.comment //t.program.project.name
+    } else if p := t.Context.Project(); p != nil {
+        s = p.scope.comment //p.name
     }
-    return
+    return fmt.Sprintf("traversal{%s,%s}", s, t.Context)
 }
 
-func (t *traversal) traceCallStack(pos Position, n int, s string, a ...interface{}) (point *diagnostic) {
-    t.traceCallStackMux.Lock(); defer t.traceCallStackMux.Unlock()
-    point = diag.errorAt(pos, s, a...)
-    point = diag.errorAt(t.program.position, "from here for %v", t.entry)
-    for c, last := t, t.program.position; c != nil && c.program != nil && n != 0; c, _ = c.caller() {
+func (t *traverseContext) level(n int) { t.traceLevel += n }
+func (t *traverseContext) trace(a ...interface{}) { printIndentDots(t.traceLevel, a...) }
+func (t *traverseContext) tracef(s string, a ...interface{}) { printIndentDots(t.traceLevel, fmt.Sprintf(s, a...)) }
+
+func (t *traverseContext) traversal() *traverseContext { return t }
+func (t *traverseContext) caller() (caller *traverseContext) { return t.Context.traversal() }
+
+func callstack(ctx Context, n int, s string, a ...interface{}) (point *diagPoint) {
+    var t = ctx.traversal()
+    point = ctx.error(s, a...)
+    point = ctx.error("from here for %v", t.entry).at(t.program.position)
+    for c, last := t, t.program.position; c != nil && c.program != nil && n != 0; c = c.caller() {
         if pos := c.program.position; !pos.SameLine(&last) {
-            point = diag.errorAt(pos, "and here for %v", c.entry)
+            point = ctx.error("and here for %v", c.entry).at(pos)
             last = pos
             n -= 1
         }
@@ -511,47 +627,64 @@ func (t *traversal) traceCallStack(pos Position, n int, s string, a ...interface
     return
 }
 
-func (t *traversal) Project() (proj *Project) {
-    switch cc := t.Context.(type) {
-    case *closureContext: proj = cc.scope.project
-    case *prioritizedContext: proj = t.Context.Project()
-    default:
-        if  t.program != nil  {
-            proj = t.program.project
-        } else {
-            proj = t.Context.Project()
-        }
-    }
-    return
+func (t *traverseContext) Scope() (scope *Scope) {
+    if t.program != nil { return t.program.scope }
+    return t.Context.Scope()
 }
-
-func (t *traversal) Position() Position {
+func (t *traverseContext) Program() *Program { return t.program }
+func (t *traverseContext) Project() *Project {
+    if false && t.program != nil {
+        return t.program.project // FIXME: return program project will fail
+    }
+    return t.Context.Project()
+}
+func (t *traverseContext) Position() Position {
     if t.program != nil { return t.program.position }
     return t.Context.Position()
 }
-
-func (t *traversal) spawn(ctx Context, args ...Value) (child *traversal) {
-    var (
-        cc = &callContext{ ctx, make(callDefMap) }
-        pos = ctx.Position()
-        err error
-    )
-    child = &traversal{
-        Context: cc,
-        execRec: make(map[Value]int),
-        program: t.program,
-        start: time.Now(),
-    }
-    for _, s := range []string{ "@", "<", ">", "^", "|", "~", "?", "-", "*" } {
-        if val := t.autoGet(s); !isNil(val) { child.autoSet(s, val) }
-    }
-    if child.params, err = cc.setArgs(t.program.params, args); err != nil {
-        diag.errorAt(pos, "%v", err).debug(1)
-    }
-    return
+func (t *traverseContext) info(f string, a ...interface{}) (d *diagPoint) {
+  if d = t.Context.info(f, a...); d != nil { d.at(t.Position()) }
+  return
+}
+func (t *traverseContext) warn(f string, a ...interface{}) (d *diagPoint) {
+  if d = t.Context.warn(f, a...); d != nil { d.at(t.Position()) }
+  return
+}
+func (t *traverseContext) error(f string, a ...interface{}) (d *diagPoint) {
+  if d = t.Context.error(f, a...); d != nil { d.at(t.Position()) }
+  return
+}
+func (t *traverseContext) prompt(f string, a ...interface{}) (d *diagPoint) {
+  if d = t.Context.prompt(f, a...); d != nil { d.at(t.Position()) }
+  return
+}
+func (t *traverseContext) diag(dt diagType, f string, a ...interface{}) (d *diagPoint) {
+  if d = t.Context.diag(dt, f, a...); d != nil { d.at(t.Position()) }
+  return
 }
 
-func (t *traversal) add(ctx Context, target Value) {
+func (t *traverseContext) spawn() Context {
+    var cc = &autoContext{ Context: t.caller(), defs: make(autoDefMap) }
+    var child = &traverseContext{
+        Context: &diagContext{ Context:cc },
+        execRec: make(map[Value]int),
+        start:   time.Now(),
+        configuration: t.configuration,
+        argumented: t.argumented,
+        program:    t.program,
+        params:     t.params,
+        entry:      t.entry,
+        stems:      t.stems,
+        print:      t.print,
+    }
+    for _, s := range append(t.params, "@", "<", ">", "^", "|", "~", "?", "-", "*") {
+        if val, found := t.autoGet(s); found { child.autoSet(s, val) }
+    }
+    return &spawnContext{ child } // child
+}
+
+func addTarget(ctx Context, target Value) {
+    var t = ctx.traversal()
     if isNil(target) || isNone(target) { return } else {
         for _, t := range t.targets {
             if t == target || t.cmp(ctx, target) == cmpEqual { return }
@@ -564,45 +697,26 @@ func (t *traversal) add(ctx Context, target Value) {
     }
 }
 
-func (t *traversal) getCurrentTargetValue(ctx Context) (res Value) {
-    var pos = ctx.Position()
-    if target := t.autoGet("@"); isNil(target) {
-        if false { diag.errorAt(pos, "target '%v' is nil", target) }
-    } else if vals, _, err := expandall2(ctx, expandPlainValue, target); err != nil {
-        if p := target.Position(); p.IsValid() { pos = p }
-        diag.errorAt(pos, "expand target '%v' failed: %v", target, err)
-    } else if len(vals) == 1 { res = vals[0] } else {
-        if p := target.Position(); p.IsValid() { pos = p }
-        diag.errorAt(pos, "target '%v' expaned to many: %v", target, res)
-    }
-    return
-}
-
-func (t *traversal) exists(ctx Context, v Value) bool {
+func exists(ctx Context, v Value) bool {
     // FIXME: returns true if existenceMatterless ??
-    return v != nil && v.stat(t).exists() == existenceConfirmed
+    return v != nil && v.stat(ctx).exists() == existenceConfirmed
 }
 
-func (t *traversal) depth() (res int) {
-    for c, _ := t.caller(); c != nil; c, _ = c.caller() { res += 1 }
+func (t *traverseContext) depth() (res int) {
+    for c := t.caller(); c != nil; c = c.caller() { res += 1 }
     return
 }
 
-func (t *traversal) calleeStart() {
-    t.group.Add(1)
-}
-
-func (t *traversal) calleeDone(err error) {
+func (t *traverseContext) calleeError(err error) {
     if err != nil {
         t.calleeErrsM.Lock()
         t.calleeErrs = append(t.calleeErrs, err)
         t.calleeErrsM.Unlock()
     }
-    t.group.Done()
 }
 
 // DEPRECATED
-func (t *traversal) any(ctx Context, i interface{}) {
+func traverseAny(ctx Context, i interface{}) {
     if optionEnableBenchmarks && false {  defer bench(mark(fmt.Sprintf("traversal.any(%s=%v)", typeof(i), i))) }
 
     var err error
@@ -612,107 +726,113 @@ func (t *traversal) any(ctx Context, i interface{}) {
             if optionEnableBenchmarks && false {
                 i := v.Index(n).Interface()
                 a, b := mark(fmt.Sprintf("%v: %s %v", n, typeof(i), i))
-                t.any(ctx, i)
+                traverseAny(ctx, i)
                 bench(a, b)
             } else {
-                t.any(ctx, v.Index(n).Interface())
+                traverseAny(ctx, v.Index(n).Interface())
             }
         }
     } else if i == nil {
-        diag.errorAt(pos, "updating nil prerequisite")
+        ctx.error("updating nil prerequisite").at(pos)
     } else if value, ok := i.(Value); !ok {
-        diag.errorAt(pos, "'%v' is invalid", value)
+        ctx.error("'%v' is invalid", value).at(pos)
     } else if isNil(value) { // this could happen
-        diag.errorAt(pos, "updating nil prerequisite")
+        ctx.error("updating nil prerequisite").at(pos)
     } else {
-        value.traverse(t)
+        value.traverse(ctx)
     }
     return
 }
 
 // DEPRECATED
-func (t *traversal) filestub(ctx Context, p *Project, file *File, stub *filestub) (okay bool, brks  breakers) {
+func traverseFileStub(ctx Context, p *Project, file *File, stub *filestub) (okay bool, brks  breakers) {
+    var t = ctx.traversal()
     if optionEnableBenchspots { defer bench(spot("traversal.filestub")) }
 
     /// Searching entries from the most derived project.
-    var ( entry *RuleEntry; err error )
+    var ( entry Entry; err error )
     if entry, err = p.resolveEntry(ctx, stub.name, t.grepping); err != nil {
-        diag.errorOf(stub.filemap.pattern, "resolve entry failed: %v", err).debug(1)
+        ctx.error("resolve entry failed: %v", err).of(stub.filemap.pattern).debug(1)
         return
     } else if entry != nil {
-        entry.traverse(t)
+        entry.traverse(ctx)
         return
     }
 
     /// Searching patterns from the most derived project.
     for _, entry := range p.resolvePatterns(ctx, stub) {
-        brks = entry.file(t, file);
+        brks = entry.file(ctx, file);
         okay = !brks.has()
         break
     }
     return
 }
 
-func (t *traversal) closuredProjects() (projects []*Project) {
-    if t.Project() != nil { projects = append(projects, t.Project()) }
-    if t.Project() != t.program.project { projects = append(projects, t.program.project) }
-    for c := t; c != nil; c, _ = c.caller() {
-        var proj = c.Project()
-        for _, p := range projects {
-            if proj == p { proj = nil; break }
+func (t *traverseContext) closureScopes() (scopes []*Scope) {
+    if cc, ok := t.Context.(*closureContext); ok {
+        scopes = cc.closureScopes()
+    }
+    if t.program != nil { scopes = append(scopes, t.program.scope) }
+    return
+}
+
+func (t *traverseContext) closureProjects() (projects []*Project) {
+    projects = t.Context.closureProjects()
+
+    var prog = t.program != nil
+    if project := t.Project(); project != nil && prog {
+        if prog = prog && t.program.project != project && !project.hasBase(t.program.project); prog {
+            for _, proj := range projects {
+                if proj == project || project.hasBase(proj) {
+                    prog = false
+                    break
+                }
+            }
         }
-        if proj != nil { projects = append(projects, proj) }
     }
+    if prog { projects = append(projects, t.program.project) }
     return
 }
 
-func (t *traversal) forClosuredProjects(f func(*Project) (bool, error)) (okay bool, err error) {
-    var projects = t.closuredProjects()
-    for _, proj := range projects {
-        if okay, err = f(proj); okay || err != nil { break }
-    }
-    return
-}
-
-func (t *traversal) file(file *File) (okay bool, brks breakers) {
-    if options.traceTraversal   { t.tracef("traversal.file: %s", file) }
+func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
+    var t = ctx.traversal()
+    if options.traceTraversal { t.tracef("traversal.file: %s", file) }
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.file(%v)", file))) }
     if optionEnableBenchspots { defer bench(spot("traversal.file")) }
 
-    var (
-        ctx = t.Context
-        projects = t.closuredProjects()
-        currentTargetValue = t.getCurrentTargetValue(ctx)
-        concreteEntries = make(map[*RuleEntry]bool)
-        concreteList []*RuleEntry
-        err error
-    )
-    if isNil(currentTargetValue) {
-        diag.errorAt(t.program.position, "target is <nil>").debug(1)
+    var targetVal = getTargetValue(ctx)
+    if isNil(targetVal) {
+        ctx.error("target is <nil>").at(t.program.position).debug(1)
         return
     }
+    ctx = positional(ctx, file.position)
+
+    var (
+        projects = ctx.closureProjects()
+        concreteEntries = make(map[Entry]bool)
+        concreteList []Entry
+        err error
+    )
     defer func() {
         // Note that the file maybe not traversed yet at this point. But we
         // still have to check mod-time.
         var (
-            a = currentTargetValue.stat(t).mod()
+            a = targetVal.stat(t).mod()
             b = file.stat(t).mod()
         )
         if !a.IsZero() && b.After(a) { // a.IsZero() indicates the target not exists
-            t.appendUpdated(ctx, newUpdatedTarget(file))
+            appendUpdated(ctx, newUpdatedTarget(file))
         }
 
         // Add to the $^ or $| list
-        t.add(ctx, file)
+        addTarget(ctx, file)
     } ()
 
     for _, project := range projects {
-        var entry *RuleEntry
+        var entry Entry
         if entry, err = project.resolveEntry(ctx, file.name, t.grepping); err != nil {
-            t.batch(func() {
-                diag.errorAt(file.position, "resolve entry '%v' failed: %v", file.name, err).debug(1)
-                t.traceCallStack(file.position, -1, "%v:", file.name)
-            })
+            ctx.error("resolve entry '%v' failed: %v", file.name, err).at(file.position).debug(1)
+            callstack(positional(ctx, file.position), -1, "%v:", file.name)
             return
         } else if entry == nil {
             continue
@@ -722,45 +842,35 @@ func (t *traversal) file(file *File) (okay bool, brks breakers) {
         }
     }
     for _, entry := range concreteList {
-        if entry != nil && currentTargetValue != entry {
-            if brks = entry.traverse(t); brks.has() {
+        if entry != nil && targetVal != entry {
+            if brks = entry.traverse(ctx); brks.has() {
                 okay = brks.has(breakCase, breakDone)
                 return
             }
         }
     }
 
-    var (
-        stemmedEntries = make(map[*RuleEntry]bool)
-        stemmedList []*stemmed
-    )
+    var stemmedList []*stemmed
     for _, project := range projects {
-        for _, ent := range project.resolvePatterns(ctx, file.name) {
-            if _, ok := stemmedEntries[ent.RuleEntry]; !ok {
-                stemmedList = append(stemmedList, ent)
-                stemmedEntries[ent.RuleEntry] = true
-            }
-        }
+        stemmedList = append(stemmedList, project.resolvePatterns(ctx, file.name)...)
     }
     for _, entry := range stemmedList {
         var proj = entry.OwnerProject()
-        if brks = entry.file(t, file); !brks.has() {
+        if brks = entry.file(ctx, file); !brks.has() {
             if okay = file.exists(); okay { break }
         } else if tb := brks.of(breakFail, breakErro); tb.has() {
-            t.batch(func() {
-                for _, brk := range tb {
-                    switch brk.what {
-                    case breakFail: diag.errorAt(brk.pos, "broken traversal for stemmed file entry %v failed: %v", file, brk.message)
-                    case breakErro: diag.errorAt(brk.pos, "broken traversal for stemmed file entry %v with error: %v", file, brk.error)
-                    default: diag.errorAt(brk.pos, "broken traversal for stemmed file entry %v (%v)", file, brk.what)
-                    }
+            for _, brk := range tb {
+                switch brk.what {
+                case breakFail: ctx.error("broken traversal for stemmed file entry %v failed: %v", file, brk.message).at(brk.pos)
+                case breakErro: ctx.error("broken traversal for stemmed file entry %v with error: %v", file, brk.error).at(brk.pos)
+                default: ctx.error("broken traversal for stemmed file entry %v (%v)", file, brk.what).at(brk.pos)
                 }
-                if brks.has() {
-                    diag.errorAt(entry.position, "broken traversal for stemmed file entry %v in %v (%d more)", entry, proj, len(brks)).debug(1)
-                } else {
-                    diag.errorAt(entry.position, "broken traversal for stemmed file entry %v in %v", entry, proj).debug(1)
-                }
-            })
+            }
+            if brks.has() {
+                ctx.error("broken traversal for stemmed file entry %v in %v (%d more)", entry, proj, len(brks)).at(entry.position).debug(1)
+            } else {
+                ctx.error("broken traversal for stemmed file entry %v in %v", entry, proj).at(entry.position).debug(1)
+            }
             brks = brks.not(breakFail, breakErro)
             return
         } else if tb := brks.of(breakCase, breakDone); tb.has() {
@@ -769,13 +879,11 @@ func (t *traversal) file(file *File) (okay bool, brks breakers) {
             if brks = brks.not(breakNext); !brks.has() { continue }
         }
         if brks.has() {
-            t.batch(func() {
-                for _, brk := range brks {
-                    diag.errorAt(brk.pos, "broken traversal for stemmed file entry %v (%v)", file, brk.what)
-                }
-                diag.errorAt(entry.position, "broken traversal for stemmed file entry %v", entry).debug(1)
-                t.traceCallStack(entry.position, -1, "broken traversal for stemmed file %v:", file)
-            })
+            for _, brk := range brks {
+                ctx.error("broken traversal for stemmed file entry %v (%v)", file, brk.what).at(brk.pos)
+            }
+            ctx.error("broken traversal for stemmed file entry %v", entry).at(entry.position).debug(1)
+            callstack(positional(ctx, entry.position), -1, "broken traversal for stemmed file %v:", file)
             return
         } else if okay { break }
     }
@@ -788,19 +896,23 @@ func (t *traversal) file(file *File) (okay bool, brks breakers) {
     }
 
     if err != nil {
-        t.traceCallStack(file.position, -1, "%v: file(%v): error: %v", t.Project(), file, err).debug(1)
+        callstack(positional(ctx, file.position), -1, "%v: file(%v): error: %v", t.Project(), file, err).debug(1)
     } else if !okay && len(t.stems) == 0 {
-        t.batch(func() {
-            for _, concrete := range concreteList {
-                diag.errorAt(concrete.position, "concrete: %v", concrete)
-            }
-            for _, stemmed := range stemmedList {
-                diag.errorAt(stemmed.position, "stemmed: %v", stemmed)
-            }
-            diag.errorAt(file.position, "missing file %v (%d concrete, %d stemmed)", file, len(concreteList), len(stemmedList))
-            diag.errorAt(file.position, "missing file %v, call stack:", file).debug(16)
-            t.traceCallStack(file.position, -1, "missing file %v required by %v (in %v)", file, currentTargetValue, t.Project())
-        })
+        ctx.error("projects: %v", projects).at(file.position)
+        ctx.error("missing: %v (%d concrete, %d stemmed)", file, len(concreteList), len(stemmedList)).at(file.position)
+        for _, concrete := range concreteList { ctx.error("concrete: %v", concrete).at(concrete.Position()) }
+        for _, stemmed  := range stemmedList  { ctx.error("stemmed: %v", stemmed).at(stemmed.position) }
+        if true {
+            var (
+                td, _ = ctx.autoGet("TARGET")
+                tv, _ = td.expand(ctx, expandPlainValue)
+            )
+            ctx.error("%v %v -> %T %v", targetVal, td, tv, tv).at(file.position)
+        }
+        ctx.error("%v", t.argumented).at(file.position)
+        ctx.error("%v", ctx).at(file.position)
+        ctx.error("%v", t).at(file.position).debug(16)
+        callstack(positional(ctx, file.position), -1, "missing file %v required by %v (in %v)", file, targetVal, t.Project())
         brks.add(file.position, breakErro).error = fileNotFoundError{ t.Project(), file }
     } else if !okay && len(t.stems) > 0 {
         if false { brks.add(file.position, breakNext).scope = breakTrave }
@@ -808,25 +920,27 @@ func (t *traversal) file(file *File) (okay bool, brks breakers) {
     return
 }
 
-func (t *traversal) string(targetVal Value, target string) (okay bool, brks breakers) {
+func traverseString(ctx Context, targetVal Value, target string) (okay bool, brks breakers) {
+    var t = ctx.traversal()
     if options.traceTraversal { t.tracef("traversal.target: %s", target) }
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.target(%v)", target))) }
     if optionEnableBenchspots { defer bench(spot("traversal.target")) }
 
+    var currentTargetValue = getTargetValue(ctx)
+    if isNil(currentTargetValue) {
+        ctx.error("target is <nil>").at(t.program.position).debug(1)
+        return
+    }
+    //ctx = positional(ctx, targetVal.Position())
+
     var (
-        ctx = t.Context
         pos Position = ctx.Position()
-        projects = t.closuredProjects()
-        currentTargetValue = t.getCurrentTargetValue(ctx)
-        concreteEntries = make(map[*RuleEntry]bool)
-        concreteList []*RuleEntry
+        projects = ctx.closureProjects()
+        concreteEntries = make(map[Entry]bool)
+        concreteList []Entry
         file *File // if target is file
         err error
     )
-    if isNil(currentTargetValue) {
-        diag.errorAt(t.program.position, "target is <nil>").debug(1)
-        return
-    }
     defer func() {
         // Note that the file maybe not traversed yet at this point. But we
         // still have to check mod-time.
@@ -836,25 +950,25 @@ func (t *traversal) string(targetVal Value, target string) (okay bool, brks brea
                 b = file.stat(t).mod()
             )
             if !a.IsZero() && b.After(a) { // a.IsZero() indicates the target not exists
-                t.appendUpdated(ctx, newUpdatedTarget(file))
+                appendUpdated(ctx, newUpdatedTarget(file))
             }
             if !file.position.IsValid() {
                 file.position = pos
             }
 
             // Add to the $^ or $| list
-            t.add(ctx, file)
+            addTarget(ctx, file)
         } else if true {
             if targetVal == nil { targetVal = MakeString(pos, target) }
-            t.add(ctx, targetVal)
+            addTarget(ctx, targetVal)
         }
     } ()
 
     for _, project := range projects {
-        var entry *RuleEntry
+        var entry Entry
         if entry, err = project.resolveEntry(ctx, target, t.grepping); err != nil {
-            diag.errorAt(pos, "resolve entry '%v' failed: %v", target, err).debug(1)
-            t.traceCallStack(pos, -1, "resolve entry '%v' failed: %v", target, err)
+            ctx.error("resolve entry '%v' failed: %v", target, err).at(pos).debug(1)
+            callstack(ctx, -1, "resolve entry '%v' failed: %v", target, err)
             return
         } else if entry == nil {
             continue
@@ -869,26 +983,23 @@ func (t *traversal) string(targetVal Value, target string) (okay bool, brks brea
         if entry != nil && currentTargetValue != entry {
             if w, ok := currentTargetValue.(*Bareword); ok && w.string == target {
                 continue // target resolve to itself, does nothing
-            } else if brks = entry.traverse(t); !brks.has() {
-                file, _ = entry.target.(*File)
+            } else if brks = entry.traverse(ctx); !brks.has() {
+                file, _ = entry.Target().(*File)
                 okay = true
                 return
             } else if tb := brks.of(breakFail, breakErro); len(tb) > 0 {
                 brks = brks.not(breakFail, breakErro);
-                t.batch(func () {
-                    for _, brk := range tb {
-                        switch brk.what {
-                        case breakFail: diag.errorAt(entry.position, "traverse %v failed: %v", entry, brk.message).debug(1)
-                        case breakErro: diag.errorAt(entry.position, "traverse %v error: %v", entry, brk.error).debug(1)
-                        }
+                for _, brk := range tb {
+                    switch brk.what {
+                    case breakFail: ctx.error("traverse %v failed: %v", entry, brk.message).at(entry.Position()).debug(1)
+                    case breakErro: ctx.error("traverse %v error: %v", entry, brk.error).at(entry.Position()).debug(1)
                     }
-                    diag.errorAt(pos, "broken traversal for stemmed entry '%v' in %v", entry, entry.OwnerProject()).debug(1)
-                })
+                }
+                ctx.error("broken traversal for stemmed entry '%v' in %v", entry, entry.OwnerProject()).at(pos).debug(1)
                 return
             } else if tb = brks.of(breakNext); len(tb) > 0 {
                 if brks = brks.not(breakNext); brks.has() {
-                    diag.errorAt(entry.position, "next with broken traversal for %v (entry=%v, next=%v)",
-                        target, entry, tb[0].value).debug(1)
+                    ctx.error("next with broken traversal for %v (entry=%v, next=%v)", target, entry, tb[0].value).at(entry.Position()).debug(1)
                 }
                 continue
             } else if tb = brks.of(breakCase, breakDone); len(tb) > 0 {
@@ -896,16 +1007,14 @@ func (t *traversal) string(targetVal Value, target string) (okay bool, brks brea
                 break
             }
             if brks.has() {
-                t.batch(func() {
-                    for _, brk := range brks {
-                        switch brk.what {
-                        case breakFail: diag.errorAt(pos, "broken traversal for concrete entry '%v' failed: %v", entry, brk.message)
-                        case breakErro: diag.errorAt(pos, "broken traversal for concrete entry '%v' with error: %v", entry, brk.error)
-                        default: diag.errorAt(pos, "broken traversal for concrete entry '%v' in %v (%v)", entry, project, brk.what)
-                        }
+                for _, brk := range brks {
+                    switch brk.what {
+                    case breakFail: ctx.error("broken traversal for concrete entry '%v' failed: %v", entry, brk.message).at(pos)
+                    case breakErro: ctx.error("broken traversal for concrete entry '%v' with error: %v", entry, brk.error).at(pos)
+                    default: ctx.error("broken traversal for concrete entry '%v' in %v (%v)", entry, project, brk.what).at(pos)
                     }
-                    diag.errorAt(pos, "broken traversal for concrete entry '%v' in %v", entry, project).debug(1)
-                })
+                }
+                ctx.error("broken traversal for concrete entry '%v' in %v", entry, project).at(pos).debug(1)
                 return
             }
         }
@@ -914,14 +1023,12 @@ func (t *traversal) string(targetVal Value, target string) (okay bool, brks brea
     for _, project := range projects {
         var obj Object
         if obj, err = project.resolveObject(ctx, target); err != nil {
-            diag.errorAt(pos, "resolve object '%s' failed: %v", target, err).debug(1)
+            ctx.error("resolve object '%s' failed: %v", target, err).at(pos).debug(1)
             return
         } else if isNil(obj) || isUndef(obj) || isNone(obj) {
             // does nothing here and keep trying FindFile
-        } else if brks = obj.traverse(t); brks.has() {
-            t.batch(func() {
-                diag.errorAt(pos, "broken traversal '%v' (%T) (project=%v)", obj, obj, project).debug(1)
-            })
+        } else if brks = obj.traverse(ctx); brks.has() {
+            ctx.error("broken traversal '%v' (%T) (project=%v)", obj, obj, project).at(pos).debug(1)
             return
         } else if _, ok := obj.(*ProjectName); ok {
             // solved, no need to check against patterns
@@ -929,47 +1036,34 @@ func (t *traversal) string(targetVal Value, target string) (okay bool, brks brea
         }
     }
 
-    var (
-        stemmedEntries = make(map[*RuleEntry]bool)
-        stemmedList []*stemmed
-    )
+    var stemmedList []*stemmed
     for _, project := range projects {
-        for _, ent := range project.resolvePatterns(ctx, target) {
-            if _, ok := stemmedEntries[ent.RuleEntry]; !ok {
-                stemmedList = append(stemmedList, ent)
-                stemmedEntries[ent.RuleEntry] = true
-            }
-        }
+        stemmedList = append(stemmedList, project.resolvePatterns(ctx, target)...)
     }
     for _, entry := range stemmedList {
-        if brks = entry.string(t, targetVal, target); !brks.has() {
+        if brks = entry.string(ctx, targetVal, target); !brks.has() {
             okay = true; break // continue
         } else if tb := brks.of(breakFail, breakErro); len(tb) > 0 {
             brks = brks.not(breakFail, breakErro);
-            t.batch(func () {
-                for _, brk := range tb {
-                    switch brk.what {
-                    case breakFail: diag.errorAt(entry.position, "traverse %v failed: %v", file, brk.message).debug(1)
-                    case breakErro: diag.errorAt(entry.position, "traverse %v error: %v", file, brk.error).debug(1)
-                    }
+            for _, brk := range tb {
+                switch brk.what {
+                case breakFail: ctx.error("traverse %v failed: %v", file, brk.message).at(entry.Position()).debug(1)
+                case breakErro: ctx.error("traverse %v error: %v", file, brk.error).at(entry.Position()).debug(1)
                 }
-                diag.errorAt(pos, "broken traversal for stemmed entry '%v' in %v", entry, entry.OwnerProject()).debug(1)
-            })
+            }
+            ctx.error("broken traversal for stemmed entry '%v' in %v", entry, entry.OwnerProject()).at(pos).debug(1)
             return
         } else if tb = brks.of(breakNext); len(tb) > 0 {
             if brks = brks.not(breakNext); brks.has() {
-                diag.errorAt(entry.position, "next with broken traversal for %v (pattern=%v, next=%v)",
-                    target, entry.Pattern, tb[0].value).debug(1)
+                ctx.error("next with broken traversal for %v (pattern=%v, next=%v)", target, entry.target, tb[0].value).at(entry.Position()).debug(1)
             }
             continue
         } else if tb = brks.of(breakCase, breakDone); len(tb) > 0 {
             brks, okay = brks.not(breakCase, breakDone), true // reset breakers
             break
         } else {
-            t.batch(func () {
-                diag.errorAt(entry.position, "unknown breakers for target %v (%v)", target, brks[0].what).debug(1)
-                t.traceCallStack(entry.position, -1, "unknown breakers for target %v (%v)", target, brks[0].what)
-            })
+            ctx.error("unknown breakers for target %v (%v)", target, brks[0].what).at(entry.Position()).debug(1)
+            callstack(positional(ctx, entry.Position()), -1, "unknown breakers for target %v (%v)", target, brks[0].what)
             return
         }
     }
@@ -981,7 +1075,7 @@ func (t *traversal) string(targetVal Value, target string) (okay bool, brks brea
                 var names = make(map[string]bool)
                 for stub := file.filestub; true; stub = stub.other {
                     names[stub.name] = true // mark to avoid trying many times
-                    if okay, brks = t.filestub(ctx, project, file, stub); brks.has() { return }
+                    if okay, brks = traverseFileStub(ctx, project, file, stub); brks.has() { return }
                     if okay { file.filestub = stub; return }
                     if stub.other == file.filestub { break }
                 }
@@ -999,10 +1093,10 @@ func (t *traversal) string(targetVal Value, target string) (okay bool, brks brea
                     var stub = &filestub{ file.dir, sub, name, file.filemap, file.filestub.other }
                     file.filestub.other = stub
 
-                    if okay, brks = t.filestub(ctx, project, file, stub); brks.has() { return }
+                    if okay, brks = traverseFileStub(ctx, project, file, stub); brks.has() { return }
                     if okay { file.filestub = stub; break }
                 }
-            } else if okay, brks = t.file(file); brks.has() {
+            } else if okay, brks = traverseFile(ctx, file); brks.has() {
                 return
             }
 
@@ -1021,21 +1115,23 @@ func (t *traversal) string(targetVal Value, target string) (okay bool, brks brea
     }
 
     if err != nil {
-        t.traceCallStack(pos, -1, "%v: target(%v), file=%v: error: %v", t.Project(), target, file, err).debug(1)
-    } else if !okay && !t.isConfigureExecution && len(t.stems) == 0 {
+        callstack(ctx, -1, "%v: target(%v), file=%v: error: %v", t.Project(), target, file, err).debug(1)
+    } else if !okay && !t.configuration && len(t.stems) == 0 {
         if file != nil {
-            diag.errorAt(file.position, "missing file %v", file)
-            diag.errorAt(file.position, "concrete: %v", concreteList)
-            diag.errorAt(file.position, "stemmed: %v", stemmedList)
-            diag.errorAt(file.position, "internal stack:").debug(64)
-            t.traceCallStack(file.position, -1, "traverse missing target file '%v' for %v", file, t.Project()).debug(1)
+            ctx.error("projects: %v", projects).at(file.position)
+            ctx.error("missing: %v", file).at(file.position)
+            ctx.error("concrete: %v", concreteList).at(file.position)
+            ctx.error("stemmed: %v", stemmedList).at(file.position)
+            ctx.error("%v", t).at(file.position).debug(64)
+            callstack(positional(ctx, file.position), -1, "traverse missing target file '%v' for %v", file, t.Project()).debug(1)
             brks.add(file.position, breakErro).error = fileNotFoundError{t.Project(), file}
         } else {
-            diag.errorAt(pos, "missing target %v", target)
-            diag.errorAt(pos, "concrete: %v", concreteList)
-            diag.errorAt(pos, "stemmed: %v", stemmedList)
-            diag.errorAt(pos, "internal stack:").debug(64)
-            t.traceCallStack(pos, -1, "traverse missing target '%v' for %v", target, t.Project()).debug(1)
+            ctx.error("projects: %v", projects).at(pos)
+            ctx.error("missing: %v", target).at(pos)
+            ctx.error("concrete: %v", concreteList).at(pos)
+            ctx.error("stemmed: %v", stemmedList).at(pos)
+            ctx.error("%v", t).at(pos).debug(64)
+            callstack(ctx, -1, "traverse missing target '%v' for %v", target, t.Project()).debug(1)
             brks.add(pos, breakErro).error = targetNotFoundError{t.Project(), target}
         }
     } else if !okay && len(t.stems) > 0 {
@@ -1044,26 +1140,25 @@ func (t *traversal) string(targetVal Value, target string) (okay bool, brks brea
     return
 }
 
-func (t *traversal) pattern(pat Value) (brks breakers) {
+func traversePattern(ctx Context, pat Value) (brks breakers) {
     var (
+        t = ctx.traversal()
         pos = pat.Position()
-        ctx = positional(t, pos)
         rest []string
         okay bool
         s string
     )
-    ctx = positional(ctx, pos)
     if s, rest = pat.stencil(ctx, t.stems); s == "" {
-        diag.errorAt(pos, "empty stencil: %v %v", pat, t.stems).debug(1)
+        ctx.error("empty stencil: %v %v", pat, t.stems).at(pos).debug(1)
         return
     } else if len(rest) > 0 {
-        diag.errorAt(pos, "partial stencil: %v, %v, %v, %v", pat, s, rest, t.stems).debug(1)
+        ctx.error("partial stencil: %v, %v, %v, %v", pat, s, rest, t.stems).at(pos).debug(1)
         panic(s)
     } else if file := t.Project().FindFile(ctx, s); file != nil {
         file.position = pos
-        okay, brks = t.file(file)
+        okay, brks = traverseFile(ctx, file)
     } else {
-        okay, brks = t.string(pat, s)
+        okay, brks = traverseString(ctx, pat, s)
     }
 
     if !okay && len(t.stems) > 0 {
@@ -1074,83 +1169,106 @@ func (t *traversal) pattern(pat Value) (brks breakers) {
     return
 }
 
-func (t *traversal) appendUpdated(ctx Context, updated *updatedtarget) {
-    var currentTargetValue Value = t.getCurrentTargetValue(ctx)
-    if isNil(currentTargetValue) {
-        diag.errorAt(t.program.position, "target is <nil>").debug(1)
+func appendUpdated(ctx Context, updated *updatedtarget) {
+    var t = ctx.traversal()
+    var targetValue Value = getTargetValue(ctx)
+    if isNil(targetValue) {
+        if t.program != nil {
+            ctx.error("target is <nil> for %v", t.entry).at(t.program.position)
+            ctx.error("%v", ctx.traversal())
+            ctx.error("%v", t)//.debug(6)
+            fail(t.program.position, "target is <nil>")
+        } else {
+            var tv, _ = ctx.autoGet("@")
+            ctx.error("target is <nil> for %v", tv)
+            ctx.error("%v", ctx.traversal())
+            ctx.error("%v", t)//.debug(6)
+            panic("target is <nil>")
+        }
         return
     } else {
-        if currentTargetValue == updated.target { return }
-        if currentTargetValue.cmp(ctx, updated.target) == cmpEqual { return }
+        if targetValue == updated.target { return }
+        if targetValue.cmp(ctx, updated.target) == cmpEqual { return }
     }
     for _, u := range t.updated { // check if already added
         if u.target == updated.target { return }
         if u.target.cmp(ctx, updated.target) == cmpEqual { return }
     }
     t.updated = append(t.updated, updated)
-    for c, _ := t.caller(); c != nil; c, _ = c.caller() { // clear update loop
-        if ct := c.autoGet("@"); !isNil(ct) && ct == updated.target { return }
+    for c := t.caller(); c != nil; c = c.caller() { // clear update loop
+        if ct, has := c.autoGet("@"); has && !isNil(ct) && ct == updated.target { return }
     }
-    if c, _ := t.caller(); c != nil {
-        c.appendUpdated(ctx, newUpdatedTarget(currentTargetValue, updated))
+    if c := t.caller(); c != nil {
+        appendUpdated(positional(c, ctx.Position()), newUpdatedTarget(targetValue, updated))
     }
 }
 
-func (t *traversal) removeUpdated(ctx Context, target Value) (removed []*updatedtarget) {
-    var currentTargetValue = t.getCurrentTargetValue(ctx)
-    if isNil(currentTargetValue) {
-        diag.errorAt(t.program.position, "target is <nil>").debug(1)
+func removeUpdated(ctx Context, target Value) (removed []*updatedtarget) {
+    var t = ctx.traversal()
+    var targetValue = getTargetValue(ctx)
+    if isNil(targetValue) {
+        ctx.error("target is <nil>").at(t.program.position).debug(1)
         return
     }
     for i, u := range t.updated {
         if u.target == target || u.target.cmp(ctx, target) == cmpEqual {
             removed = append(removed, u)
             t.updated = append(t.updated[:i], t.updated[i+1:]...)
-            if c, _ := t.caller(); c != nil && len(t.updated) == 0 {
-                c.removeUpdated(ctx, currentTargetValue)
+            if c := t.caller(); c != nil && len(t.updated) == 0 {
+                removeUpdated(positional(c, ctx.Position()), targetValue)
             }
         }
     }
     return
 }
 
-func (t *traversal) removeCallerUpdated(ctx Context, target Value) {
-    if c, _ := t.caller(); c != nil {
-        for _, u := range c.removeUpdated(ctx, target) {
+func removeCallerUpdated(ctx Context, target Value) {
+    var t = ctx.traversal()
+    if c := t.caller(); c != nil {
+        for _, u := range removeUpdated(positional(c, ctx.Position()), target) {
             for _, uu := range u.prerequisites {
-                t.removeUpdated(ctx, uu.target)
+                removeUpdated(ctx, uu.target)
             }
         }
     }
 }
 
-func (t *traversal) hashDir(k []byte) string {
-    dir := t.program.project.tmpPath
-    h := fmt.Sprintf("%x", k[:2]) // HEX of the first two bytes
+func getHashDir(ctx Context, k []byte) string {
+    var dir string
+    if program := ctx.Program(); program != nil {
+        dir = program.project.tmpPath
+    } else if project := ctx.Project(); project != nil {
+        dir = project.tmpPath
+    } else if scope := ctx.Scope(); scope != nil && scope.project != nil {
+        dir = scope.project.tmpPath
+    }
+    var h = fmt.Sprintf("%x", k[:2]) // HEX of the first two bytes
     return filepath.Join(dir, ".hash", h[0:1], h[1:2], h[2:3], h[3:])
 }
 
-func (t *traversal) cmdHash(ctx Context, values ...Value) (k, v HashBytes, err error) {
-    var currentTargetValue = t.getCurrentTargetValue(ctx)
-    if isNil(currentTargetValue) {
-        diag.errorAt(t.program.position, "target is <nil>").debug(1)
+func getCmdHash(ctx Context, values ...Value) (k, v HashBytes, err error) {
+    var t = ctx.traversal()
+    var targetVal, targetStr = getTargetValueString(ctx)
+    if isNil(targetVal) {
+        ctx.error("target is <nil>").at(t.program.position).debug(1)
+        return
+    } else if targetStr == "" {
+        ctx.error("target is <nil>").at(t.program.position).debug(1)
         return
     }
 
     var (
         key = sha256.New()
         val = sha256.New()
-        str string
     )
-    if str, err = fullnameOrStrval(ctx, currentTargetValue); err != nil { return }
     fmt.Fprintf(key, "%s", t.program.project.absPath)
-    fmt.Fprintf(key, "%v", str)
+    fmt.Fprintf(key, "%v", targetStr)
 
     for _, value := range values {
         if false {
             // FIXME: Strval() varies when &(var) is used
-            if str, err = value.Strval(ctx); err != nil { return }
-            fmt.Fprintf(val, "%v", str)
+            if targetStr, err = value.Strval(ctx); err != nil { return }
+            fmt.Fprintf(val, "%v", targetStr)
         } else {
             fmt.Fprintf(val, "%v", value)
         }
@@ -1160,13 +1278,14 @@ func (t *traversal) cmdHash(ctx Context, values ...Value) (k, v HashBytes, err e
     return
 }
 
-func (t *traversal) updateRecipesHash(ctx Context) (k, v HashBytes, err error) {
-    if k, v, err = t.cmdHash(ctx, t.program.recipes...); err != nil {
-        diag.errorAt(t.program.position, "hashing recipes failed: %v", err).debug(1)
+func updateRecipesHash(ctx Context) (k, v HashBytes, err error) {
+    var t = ctx.traversal()
+    if k, v, err = getCmdHash(ctx, t.program.recipes...); err != nil {
+        ctx.error("hashing recipes failed: %v", err).at(t.program.position).debug(1)
         return
     }
 
-    var dir = t.hashDir(k[:])
+    var dir = getHashDir(ctx, k[:])
     var name = filepath.Join(dir, fmt.Sprintf("%x", k))
     if f, e := os.Open(name); e == nil {
         defer f.Close()
@@ -1190,14 +1309,17 @@ func (t *traversal) updateRecipesHash(ctx Context) (k, v HashBytes, err error) {
     return
 }
 
-func (t *traversal) isRecipesDirty(ctx Context) (dirty bool, err error) {
+func isRecipesDirty(ctx Context) (dirty bool, err error) {
     var k, v HashBytes
-    if k, v, err = t.cmdHash(ctx, t.program.recipes...); err != nil {
-        diag.errorAt(t.program.position, "compute recipes hash failed: %v", err).debug(1)
+    if program := ctx.Program(); program == nil {
+        ctx.error("no program in context %v", ctx).debug(1)
+        return
+    } else if k, v, err = getCmdHash(ctx, program.recipes...); err != nil {
+        ctx.error("compute recipes hash failed: %v", err).at(program.position).debug(1)
         return
     }
 
-    var dir = t.hashDir(k[:])
+    var dir = getHashDir(ctx, k[:])
     var name = filepath.Join(dir, fmt.Sprintf("%x", k))
     if f, e := os.Open(name); e == nil {
         defer f.Close()
@@ -1212,63 +1334,62 @@ func (t *traversal) isRecipesDirty(ctx Context) (dirty bool, err error) {
     return
 }
 
-func (t *traversal) wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *ExecResult, err error) {
+func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *ExecResult, err error) {
     if optionEnableBenchmarks && false { defer bench(mark("traversal.wait")) }
 
-    var pos Position = ctx.Position()
     // Waiting for prerequisites
-    var calleeErrs []error
-    t.group.Wait()
+    var (
+        t = ctx.traversal()
+        pos Position = ctx.Position()
+        calleeErrs []error
+    )
+    //t.group.Wait()
     t.calleeErrsM.Lock()
     calleeErrs = t.calleeErrs; t.calleeErrs = nil
     t.calleeErrsM.Unlock()
 
-    if target = t.getCurrentTargetValue(ctx); isNil(target) {
-        diag.errorAt(t.program.position, "target is <nil>").debug(1)
+    if target = getTargetValue(ctx); isNil(target) {
+        ctx.error("target is <nil>").at(t.program.position).debug(1)
         return
     } else if isNone(target) {
-        t.batch(func() {
-            diag.errorAt(pos, "target is <none>").debug(8)
-            t.traceCallStack(pos, 8, "target is <none>")
-        })
+        ctx.error("target is <none>").at(pos).debug(8)
+        callstack(ctx, 8, "target is <none>")
         return
     } else if n := len(calleeErrs); n > 0 /*&& t.stems == nil*/ {
-        t.batch(func() {
-            var (
-                numRealErrs = 0
-                targetPos = pos //target.Position()
-                targetValuePos = target.Position()
-            )
-            for _, err := range calleeErrs {
-                diag.errorAt(pos, "%v: %v", target, err).debug(1)
-                numRealErrs += 1
-            }
-            if numRealErrs == 0 { return } // simply return if no real errors
-            if !pos.Equals(&targetPos) {
-                var s string; if n > 1 { s = "s" }
-                diag.errorAt(targetPos, "%d error%s while waiting prerequisites for '%v'", n, s, target).debug(1)
-            }
+        var (
+            numRealErrs = 0
+            targetPos = pos //target.Position()
+            targetValuePos = target.Position()
+        )
+        for _, err := range calleeErrs {
+            ctx.error("%v: %v", target, err).debug(1)
+            numRealErrs += 1
+        }
+        if numRealErrs == 0 { return } // simply return if no real errors
+        if !pos.Equals(&targetPos) {
+            var s string; if n > 1 { s = "s" }
+            ctx.error("%d error%s while waiting prerequisites for '%v'", n, s, target).at(targetPos).debug(1)
+        }
 
-            var v = target
-            if l, ok := v.(*List); ok && l.Len() == 1 { v = l.Elems[0] }
-            if targetValuePos.IsValid() && !targetValuePos.Equals(&targetPos) {
-                if f, ok := v.(*File); ok && f.filemap != nil {
-                    diag.errorAt(targetValuePos, "waiting for '%v'", target)
-                    diag.errorOf(f.filemap.pattern, "via pattern '%v' (of %v)", v, f.filemap.project).debug(1)
-                } else {
-                    diag.errorAt(targetValuePos, "waiting for '%v'", target).debug(1)
-                }
+        var v = target
+        if l, ok := v.(*List); ok && l.Len() == 1 { v = l.Elems[0] }
+        if targetValuePos.IsValid() && !targetValuePos.Equals(&targetPos) {
+            if f, ok := v.(*File); ok && f.filemap != nil {
+                ctx.error("waiting for '%v'", target).at(targetValuePos)
+                ctx.error("via pattern '%v' (of %v)", v, f.filemap.project).of(f.filemap.pattern).debug(1)
+            } else {
+                ctx.error("waiting for '%v'", target).at(targetValuePos).debug(1)
             }
-            if def, ok := v.(*Def); ok && target != v && target != def.value { // trace source Def in diagnostics
-                diag.errorOf(def.value, "waiting for def '%v': %v", def.name, def.value).debug(1)
+        }
+        if def, ok := v.(*Def); ok && target != v && target != def.value { // trace source Def in diagnostics
+            ctx.error("waiting for def '%v': %v", def.name, def.value).of(def.value).debug(1)
+        }
+        /*if c := t.closcop; c != nil {
+                ctx.error("waiting closured from %v", c.comment).at(c.position).debug(1)
             }
-            /*if c := t.closcop; c != nil {
-                diag.errorAt(c.position, "waiting closured from %v", c.comment).debug(1)
-            }
-            if t.isConfigureExecution {
-                diag.errorOf(t., "%v: %v = %v", s, t, result)
+            if t.configuration {
+                ctx.error("%v: %v = %v", s, t, result).of(t.)
             }*/
-        })
         return
     }
 
@@ -1279,21 +1400,18 @@ func (t *traversal) wait(ctx Context, opts ...bool) (target Value, files []*File
     )
     if optWaitForExecResult {
         // Waiting for command (shell/python/etc.) exec result
-        if bv := t.autoGet("-"); !isNil(bv) && !isNone(bv) {
+        if bv, has := t.autoGet("-"); has && !isNil(bv) && !isNone(bv) {
             var ok bool
             if execRes, ok = bv.(*ExecResult); ok {
-                execRes.wg.Wait()
-            }
-            if target.String() == "tensorflow/core/framework/registration/options.h" {
-                diag.infoAt(pos, "%v %v", target, ok).debug(1)
+                //execRes.wg.Wait()
             }
         }
     }
     if !optStampCurrentTarget {
         // done!
     } else if files, err = target.stamp(t); err != nil {
-        if p := target.Position(); p.IsValid() { diag.errorAt(p, "%v", err) }
-        diag.errorAt(pos, "%v", err).debug(1)
+        if p := target.Position(); p.IsValid() { ctx.error("%v", err).at(p) }
+        ctx.error("%v", err).at(pos).debug(1)
         return
     } else if optReportFileUpdates {
         reportFileUpdates(ctx, t.start, files)
@@ -1348,12 +1466,12 @@ type Value interface {
     // foo->bar      -> ...
     expand(Context, expandwhat) (Value, error) // result is nil or identical to this value if no expansions
 
-    traverse(*traversal) breakers
-
-    stat(*traversal) (*statinfo)
+    stat(Context) (*statinfo)
 
     // Stamp the value if it's a file (aka. update FileInfo).
-    stamp(*traversal) ([]*File, error)
+    stamp(Context) ([]*File, error)
+
+    traverse(Context) breakers
 }
 
 type elemkind int
@@ -1391,9 +1509,9 @@ func (_ *valbase) cmp(_ Context, _ Value) (res cmpres) { return }
 func (_ *valbase) patterned(_ Context) bool { return false }
 func (_ *valbase) match(_ Context, i interface{}) (full bool, s string, stems []string) { return }
 func (_ *valbase) stencil(_ Context, stems []string) (s string, rest []string) { return }
-func (_ *valbase) stat(t *traversal) (si *statinfo) { return }
-func (_ *valbase) stamp(t *traversal) (file []*File, err error) { return }
-func (_ *valbase) traverse(t *traversal) (brks breakers) { return }
+func (_ *valbase) stat(ctx Context) (si *statinfo) { return }
+func (_ *valbase) stamp(ctx Context) (file []*File, err error) { return }
+func (_ *valbase) traverse(ctx Context) (brks breakers) { return }
 func (_ *valbase) _match(ctx Context, p Value, i interface{}) (full bool, s string, stems []string) {
     var ( v string; e error )
     if v, e = p.Strval(ctx); e == nil {
@@ -1402,7 +1520,7 @@ func (_ *valbase) _match(ctx Context, p Value, i interface{}) (full bool, s stri
         case string: is = t
         case Value:
             if is, e = t.Strval(ctx); e != nil {
-                diag.errorOf(t, "strval '%v' error: %v", t, e).debug(1)
+                ctx.error("strval '%v' error: %v", t, e).of(t).debug(1)
                 return
             }
         }
@@ -1410,7 +1528,7 @@ func (_ *valbase) _match(ctx Context, p Value, i interface{}) (full bool, s stri
             s, full = v, (len(v) == len(is))
         }
     } else {
-        diag.errorOf(p, "strval '%v' error: %v", p, e).debug(1)
+        ctx.error("strval '%v' error: %v", p, e).of(p).debug(1)
     }
     return
 }
@@ -1419,7 +1537,7 @@ func (_ *valbase) _stencil(ctx Context, p Value, stems []string) (s string, rest
     if v, e = p.Strval(ctx); e == nil {
         s, rest = v, stems
     } else {
-        diag.errorOf(p, "strval '%v' error: %v", p, e).debug(1)
+        ctx.error("strval '%v' error: %v", p, e).of(p).debug(1)
     }
     return
 }
@@ -1463,12 +1581,12 @@ func (p *Argumented) expand(ctx Context, w expandwhat) (res Value, err error) {
         num int
     )
     if val, err = p.value.expand(ctx, w); err != nil {
-        diag.errorOf(p.value, "expand '%v' failed: %v", p.value, err).debug(1)
+        ctx.error("expand '%v' failed: %v", p.value, err).of(p.value).debug(1)
         return
     } else if isNil(val) { val = p.value }
     if w&expandArgedArgs != 0 {
         if args, num, err = expandall1(ctx, w, p.args...); err != nil {
-            diag.errorOf(p.value, "expand args '%v' failed: %v", p.args, err).debug(1)
+            ctx.error("expand args '%v' failed: %v", p.args, err).of(p.value).debug(1)
             return
         }
     }
@@ -1493,10 +1611,10 @@ func (p *Argumented) stencil(ctx Context, stems []string) (s string, rest []stri
     return
 }
 
-func (p *Argumented) stamp(t *traversal) ([]*File, error) { return p.value.stamp(t) }
-func (p *Argumented) stat(t *traversal) (si *statinfo) {
+func (p *Argumented) stamp(ctx Context) ([]*File, error) { return p.value.stamp(ctx) }
+func (p *Argumented) stat(ctx Context) (si *statinfo) {
     // FIXME: p.value might be not the real target (depending on the arguments)
-    return p.value.stat(t)
+    return p.value.stat(ctx)
 }
 func (p *Argumented) True(ctx Context) (res bool, err error) {
     if p.value != nil { res, err = p.value.True(ctx) }
@@ -1540,13 +1658,28 @@ func (p *Argumented) Strval(ctx Context) (s string, err error) {
     s += ")"
     return
 }
-func (p *Argumented) traverse(t *traversal) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, t, p)) }
+
+func (p *Argumented) traverse(ctx Context) (brks breakers) {
+    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     //!< IMPORTANT! - Don't merge-expand arguments here!
     //!< Arguments should be passed to program.execute as it is.
-    defer func(a []Value) { t.arguments = a } (t.arguments)
-    t.arguments = p.args
-    return p.value.traverse(t)
+    var t = ctx.traversal()
+    defer func(a []Value) { t.argumented = a } (t.argumented)
+    if expandArgumented {
+        var args []Value
+        for _, a := range p.args {
+            if val, err := a.expand(ctx, /*expandPlainValue*/expandDelegate); err != nil {
+                ctx.error(`expand "%v" failed: %v`, a, err).debug(1)
+            } else {
+                args = append(args, val)
+            }
+        }
+        // TODO: use `&argumentedContext{ t, p.args }` instead
+        if true { t.argumented = args } else {
+            t.Context = &argumentedContext{ t.Context, args }
+        }
+    } else { t.argumented = p.args }
+    return p.value.traverse(ctx)
 }
 
 type None struct { valbase }
@@ -1625,18 +1758,18 @@ func (p *Any) stencil(ctx Context, stems []string) (s string, rest []string) {
     }
     return
 }
-func (p *Any) stamp(t *traversal) (files []*File, err error) {
-    if a, ok := p.value.(Value); ok { files, err = a.stamp(t) }
+func (p *Any) stamp(ctx Context) (files []*File, err error) {
+    if a, ok := p.value.(Value); ok { files, err = a.stamp(ctx) }
     return
 }
-func (p *Any) stat(t *traversal) (si *statinfo) {
-    if v, ok := p.value.(Value); ok && v != nil { si = v.stat(t) }
+func (p *Any) stat(ctx Context) (si *statinfo) {
+    if v, ok := p.value.(Value); ok && v != nil { si = v.stat(ctx) }
     return
 }
 func (p *Any) expand(ctx Context, w expandwhat) (res Value, err error) {
     if val, ok := p.value.(Value); ok && !isNil(val) {
         if res, err = val.expand(ctx, w); err != nil {
-            diag.errorOf(p, "expand '%v' failed: %v", val, err).debug(1)
+            ctx.error("expand '%v' failed: %v", val, err).of(p).debug(1)
         }
     }
     return
@@ -1703,9 +1836,9 @@ func (p *Any) Strval(ctx Context) (s string, err error) {
     return
 }
 func (p *Any) String() string { return fmt.Sprintf("<%v>", p.value) }
-func (p *Any) traverse(t *traversal) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, t, p)) }
-    if v, ok := p.value.(Value); ok { brks = v.traverse(t) }
+func (p *Any) traverse(ctx Context) (brks breakers) {
+    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
+    if v, ok := p.value.(Value); ok { brks = v.traverse(ctx) }
     return
 }
 
@@ -1716,7 +1849,7 @@ func (p *negative) expandible(ctx Context, w expandwhat) bool { return p.x.expan
 func (p *negative) expand(ctx Context, w expandwhat) (res Value, err error) {
     var val Value
     if val, err = p.x.expand(ctx, w); err != nil {
-        diag.errorOf(p.x, "expand '%v' failed: %v", p.x, err).debug(1)
+        ctx.error("expand '%v' failed: %v", p.x, err).of(p.x).debug(1)
     } else if !isNil(val) && val != p.x {
         res = &negative{p.valbase, val}
     }
@@ -1737,7 +1870,7 @@ func (p *negative) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *negative) Strval(ctx Context) (s string, err error) {
     var t bool
     if t, err = p.x.True(ctx); err != nil {
-        diag.errorAt(p.position, "truthify '%v' failed: %v", p.x, err).debug(1)
+        ctx.error("truthify '%v' failed: %v", p.x, err).at(p.position).debug(1)
     } else {
         s = fmt.Sprintf("%v", !t)
     }
@@ -1757,9 +1890,9 @@ func (p *negative) Integer(ctx Context) (res int64, err error) {
     }
     return
 }
-func (p *negative) traverse(t *traversal) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, t, p)) }
-    if p.x != nil { brks = p.x.traverse(t) }
+func (p *negative) traverse(ctx Context) (brks breakers) {
+    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
+    if p.x != nil { brks = p.x.traverse(ctx) }
     return
 }
 
@@ -1924,6 +2057,10 @@ func (p *option) stencil(ctx Context, stems []string) (s string, rest []string) 
 type prediction struct {
     boolean
     reason string
+}
+
+func MakePrediction(pos Position, val bool, reason string) *prediction {
+    return &prediction{boolean{valbase{pos}, val}, reason}
 }
 
 type integer struct {
@@ -2300,9 +2437,9 @@ func (p *String) stencil(ctx Context, stems []string) (s string, rest []string) 
     s, rest = p._stencil(ctx, p, stems)
     return
 }
-func (p *String) traverse(t *traversal) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, t, p)) }
-    _, brks = t.string(p, p.string)
+func (p *String) traverse(ctx Context) (brks breakers) {
+    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
+    _, brks = traverseString(ctx, p, p.string)
     return
 }
 func (p *String) elemStr(_ Context, o Object, k elemkind) (s string) {
@@ -2345,9 +2482,9 @@ func (p *Bareword) stencil(ctx Context, stems []string) (s string, rest []string
     s, rest = p._stencil(ctx, p, stems)
     return
 }
-func (p *Bareword) traverse(t *traversal) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, t, p)) }
-    _, brks = t.string(p, p.string)
+func (p *Bareword) traverse(ctx Context) (brks breakers) {
+    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
+    _, brks = traverseString(ctx, p, p.string)
     return
 }
 
@@ -2388,9 +2525,9 @@ func (p *Qualiword) stencil(ctx Context, stems []string) (s string, rest []strin
     s, rest = p._stencil(ctx, p, stems)
     return
 }
-func (p *Qualiword) traverse(t *traversal) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, t, p)) }
-    _, brks = t.string(p, p.String())
+func (p *Qualiword) traverse(ctx Context) (brks breakers) {
+    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
+    _, brks = traverseString(ctx, p, p.String())
     return
 }
 
@@ -2419,7 +2556,7 @@ func (p *elements) True(ctx Context) (t bool, err error) { // (or elems...)
         if isNil(elem) {
             continue
         } else if t, err = elem.True(ctx); err != nil {
-            diag.errorOf(elem, "truthify '%v' failed: %v", elem, err).debug(1)
+            ctx.error("truthify '%v' failed: %v", elem, err).of(elem).debug(1)
             break
         } else if t { break }
     }
@@ -2492,20 +2629,20 @@ func (p *Barecomp) expandible(ctx Context, w expandwhat) bool { return p.element
 func (p *Barecomp) expand(ctx Context, w expandwhat) (res Value, err error) {
     var ( elems []Value; num int )
     if elems, num, err = expandall1(ctx, w, p.Elems...); err != nil {
-        diag.errorOf(p, "expand '%v' failed: %v", p, err).debug(1)
+        ctx.error("expand '%v' failed: %v", p, err).of(p).debug(1)
     } else if num > 0 {
         res = &Barecomp{p.valbase, elements{elems}}
     }
     return
 }
-func (p *Barecomp) traverse(t *traversal) (brks breakers) {
-    var ctx = positional(t, p.Position())
-    if options.traceTraversal { defer un(tt(t_traverse, t, p)) }
+func (p *Barecomp) traverse(ctx Context) (brks breakers) {
+    ctx = positional(ctx, p.Position())
+    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     if target, err := p.Strval(ctx); err == nil {
-        if false { diag.warnAt(p.position, "%v (%s)", p, target).debug(1) }
-        _, brks = t.string(p, target)
+        if false { ctx.warn("%v (%s)", p, target).at(p.position).debug(1) }
+        _, brks = traverseString(ctx, p, target)
     } else {
-        diag.errorOf(p, "strval '%v' error: %v", p, err).debug(1)
+        ctx.error("strval '%v' error: %v", p, err).of(p).debug(1)
     }
     return
 }
@@ -2527,11 +2664,9 @@ func (p *Barecomp) stencil(ctx Context, stems []string) (s string, rest []string
     s, rest = p._stencil(ctx, p, stems)
     return
 }
-func (p *Barecomp) Combine(x Value) {
+func (p *Barecomp) Combine(ctx Context, x Value) {
     if o, ok := x.(*Barecomp); ok {
-        for _, elem := range o.Elems {
-            p.Combine(elem)
-        }
+        for _, elem := range o.Elems { p.Combine(ctx, elem) }
     } else {
         p.Elems = append(p.Elems, x)
     }
@@ -2573,7 +2708,7 @@ func (p *Barefile) expand(ctx Context, w expandwhat) (res Value, err error) {
         if p.File == nil {
             return
         } else if file, err = p.File.expand(ctx, w); err != nil {
-            diag.errorOf(p.File, "expand '%v' failed: %v", p.File, err).debug(1)
+            ctx.error("expand '%v' failed: %v", p.File, err).of(p.File).debug(1)
             return
         } else if !isNil(file) && file != p.File {
             return file, nil
@@ -2582,43 +2717,41 @@ func (p *Barefile) expand(ctx Context, w expandwhat) (res Value, err error) {
 
     var name Value
     if name, err = p.Name.expand(ctx, w); err != nil {
-        diag.errorOf(p.Name, "expand '%v' failed: %v", p.Name, err).debug(1)
+        ctx.error("expand '%v' failed: %v", p.Name, err).of(p.Name).debug(1)
     } else if !isNil(name) && name != p.Name {
         res = &Barefile{p.valbase, name, p.File}
     }
     return
 }
-func (p *Barefile) traverse(t *traversal) (brks breakers) {
-    var ctx = positional(t, p.position)
-    if options.traceTraversal { defer un(tt(t_traverse, t, p)) }
+func (p *Barefile) traverse(ctx Context) (brks breakers) {
+    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
+    ctx = positional(ctx, p.position)
     if p.File == nil { // it happens if p.Name refers argument
         var ( target string; err error )
         if target, err = p.Strval(ctx); err != nil {
-            diag.errorOf(p, "strval '%v' failed: %v", p, err).debug(1)
+            ctx.error("strval '%v' failed: %v", p, err).of(p).debug(1)
             return
         }
 
-        var okay bool
-        okay, err = t.forClosuredProjects(func(project *Project) (bool, error) {
-            p.File = project.FindFile(ctx, target)
-            return p.File != nil, nil
-        })
-        if !okay || p.File == nil {
-            diag.errorAt(p.position, "barefile '%s' not found", target).debug(1)
+        for _, project := range ctx.closureProjects() {
+            if p.File = project.FindFile(ctx, target); p.File != nil { break }
+        }
+        if p.File == nil {
+            ctx.error("barefile '%s' not found", target).at(p.position).debug(1)
             return
         }
     }
-    if p.File != nil { brks = p.File.traverse(t) } else {
-        diag.errorAt(p.position, "barefile '%s' is nil", p).debug(1)
+    if p.File != nil { brks = p.File.traverse(ctx) } else {
+        ctx.error("barefile '%s' is nil", p).at(p.position).debug(1)
     }
     return
 }
-func (p *Barefile) stamp(t *traversal) (files []*File, err error) {
-    if p.File != nil { files, err = p.File.stamp(t) }
+func (p *Barefile) stamp(ctx Context) (files []*File, err error) {
+    if p.File != nil { files, err = p.File.stamp(ctx) }
     return
 }
-func (p *Barefile) stat(t *traversal) (si *statinfo) {
-    if p.File != nil { si = p.File.stat(t) }
+func (p *Barefile) stat(ctx Context) (si *statinfo) {
+    if p.File != nil { si = p.File.stat(ctx) }
     return
 }
 func (p *Barefile) cmp(ctx Context, v Value) (res cmpres) {
@@ -2673,7 +2806,7 @@ func (p *GlobRange) expandible(ctx Context, w expandwhat) bool { return p.Chars.
 func (p *GlobRange) expand(ctx Context, w expandwhat) (res Value, err error) {
     var val Value
     if val, err = p.Chars.expand(ctx, w); err != nil {
-        diag.errorOf(p.Chars, "expand '%v' failed: %v", p.Chars, err).debug(1)
+        ctx.error("expand '%v' failed: %v", p.Chars, err).of(p.Chars).debug(1)
     } else if !isNil(val) && val != p.Chars {
         res = &GlobRange{p.valbase, val}
     }
@@ -2696,11 +2829,11 @@ func (p *Path) Strval(ctx Context) (s string, e error) {
 
         var v string
         if isUndef(seg) {
-            diag.errorAt(seg.Position(), "undef path segment (%T)", seg)
-            diag.errorAt(ctx.Position(), "… from this context: %s", ctx).debug(16)
+            ctx.error("undef path segment (%T)", seg).at(seg.Position())
+            ctx.error("… from this context: %s", ctx).at(ctx.Position()).debug(16)
             return
         } else if v, e = seg.Strval(ctx); e != nil {
-            diag.errorAt(seg.Position(), "%v: %v", seg, e).debug(1)
+            ctx.error("%v: %v", seg, e).at(seg.Position()).debug(1)
             return
         } else if i > 0 {
             s += PathSep + v
@@ -2716,7 +2849,7 @@ func (p *Path) True(ctx Context) (t bool, err error) {
     // FIXME: return p.exists() ??
     for _, elem := range p.Elems {
         if t, err = elem.True(ctx); err != nil {
-            diag.errorAt(p.position, "truthify path element '%v' failed: %v", elem, err).debug(1)
+            ctx.error("truthify path element '%v' failed: %v", elem, err).at(p.position).debug(1)
         } else if t { break }
     }
     return
@@ -2727,7 +2860,7 @@ func (p *Path) expandible(ctx Context, w expandwhat) bool { return p.elements.ex
 func (p *Path) expand(ctx Context, w expandwhat) (res Value, err error) {
     var ( elems []Value; num int )
     if elems, num, err = expandPathElems(ctx, w, p.Elems...); err != nil {
-        diag.errorAt(p.position, "expand path elems failed: %v", err).debug(1)
+        ctx.error("expand path elems failed: %v", err).at(p.position).debug(1)
     } else if num > 0 {
         res = &Path{p.valbase, elements{elems}}
     }
@@ -2737,66 +2870,67 @@ func (p *Path) pathname(ctx Context, stems []string) (pathname string, err error
     var rest []string // unmatched path segmants
     if len(stems) == 0 {
         if pathname, err = p.Strval(ctx); err != nil {
-            diag.errorAt(p.position, "strval '%v' failed: %v", p, err).debug(1)
+            ctx.error("strval '%v' failed: %v", p, err).at(p.position).debug(1)
         }
     } else if pathname, rest = p.stencil(ctx, stems); len(rest) > 0 {
         //err = errorf(p.position, "partial match: %v", rest)
     }
     return
 }
-func (p *Path) stamp(t *traversal) (files []*File, err error) {
-    var ctx = positional(t, p.position)
+func (p *Path) stamp(ctx Context) (files []*File, err error) {
     var pathname string
+    ctx = positional(ctx, p.position)
     if pathname, err = p.Strval(ctx); err == nil {
         if pathname == "" {
-            diag.errorOf(p, "no pathname for `%s`", p)
+            ctx.error("no pathname for `%s`", p)
         } else if file := stat(ctx,pathname,"","",nil); file != nil {
-            if files, err = file.stamp(t); err != nil {
-                diag.errorOf(p, "stamp: %v (%v)", err, file)
+            if files, err = file.stamp(ctx); err != nil {
+                ctx.error("stamp: %v (%v)", err, file)
             }
         }
     }
     return
 }
-func (p *Path) stat(t *traversal) (si *statinfo) {
+func (p *Path) stat(ctx Context) (si *statinfo) {
     var (
-        ctx = positional(t, p.position)
         pathname string // the addressed file target
         err error
     )
-    if pathname, err = p.pathname(ctx, t.stems); err != nil {
-        diag.errorAt(p.position, "pathname error: %v", err)
+    ctx = positional(ctx, p.position)
+    if pathname, err = p.pathname(ctx, ctx.traversal().stems); err != nil {
+        ctx.error("pathname error: %v", err)
     } else if pathname == "" {
-        diag.errorAt(p.position, "pathname is empty: %v", p)
+        ctx.error("pathname is empty: %v", p)
     } else if file := stat(ctx, pathname, "", "", nil); file != nil {
         si = &statinfo{ file: file }
     }
     return
 }
-func (p *Path) traverse(t *traversal) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, t, p)) }
+func (p *Path) traverse(ctx Context) (brks breakers) {
+    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
+    ctx = positional(ctx, p.position)
 
     var (
-        ctx = positional(t, p.position)
+        t = ctx.traversal()
         pathname string
         err error
     )
     if p.patterned(ctx) && len(t.stems) == 0 {
-        diag.errorAt(p.position, "empty stems to traverse pattern: %v", p).debug(8)
+        ctx.error("empty stems to traverse pattern: %v", p).at(p.position).debug(8)
         return
     } else if pathname, err = p.pathname(ctx, t.stems); err == nil && pathname == "" {
-        diag.errorAt(p.position, "path matches no target: %v", p).debug(1)
+        ctx.error("path matches no target: %v", p).at(p.position).debug(1)
         return
     } else if err != nil {
-        diag.errorAt(p.position, "compute pathname failed: %v", err).debug(1)
+        ctx.error("compute pathname failed: %v", err).at(p.position).debug(1)
         return
     }
 
     var okay bool
     // Stat the file by pathname.
     if file := stat(ctx, pathname, "", ""/*, nil*/); file != nil {
-        file.traverse(t)
-    } else if okay, brks = t.string(p, pathname); !okay && len(t.stems) > 0 {
+        file.traverse(ctx)
+    } else if okay, brks = traverseString(ctx, p, pathname); !okay && len(t.stems) > 0 {
         if false { brks.add(p.position, breakNext).scope = breakTrave }
     }
     return
@@ -2829,14 +2963,14 @@ func expandPathElems(ctx Context, w expandwhat, elems ...Value) (res []Value, nu
     var pos Position = ctx.Position()
     var xelems []Value
     if xelems, num, err = expandall1(ctx, w, elems...); err != nil {
-        diag.errorAt(pos, "expand path elems failed: %v", err).debug(1)
+        ctx.error("expand path elems failed: %v", err).at(pos).debug(1)
         return
     }
     for _, elem := range xelems {
         if p, ok := elem.(*Path); ok {
             var ( ev []Value; n int )
             if ev, n, err = expandPathElems(ctx, w, p.Elems...); err != nil {
-                diag.errorOf(elem, "expand sub path '%v' failed: %v", elem, err).debug(1)
+                ctx.error("expand sub path '%v' failed: %v", elem, err).of(elem).debug(1)
                 return
             }
             res = append(res, ev...)
@@ -2857,7 +2991,7 @@ func expandPathElems(ctx Context, w expandwhat, elems ...Value) (res []Value, nu
                 num += 1
             case *Compound:
                 if s, err = v.Strval(ctx); err != nil {
-                    diag.errorAt(v.position, "strval '%v' failed: %v", v, err).debug(1)
+                    ctx.error("strval '%v' failed: %v", v, err).at(v.position).debug(1)
                     return
                 } else if s != "" {
                     vals = append(vals, splitPathStr(v.position, s)...)
@@ -2879,11 +3013,11 @@ func (p *Path) match1(ctx Context, str string) (full bool, result string, stems 
         err error
     )
     if srcs = strings.Split(str, PathSep); len(srcs) == 0 {
-        //diag.errorAt(p.position, "empty: %v", str)
+        //ctx.error("empty: %v", str).at(p.position)
         return
     }
     if segs, _, err = expandPathElems(ctx, expandPlainValue, p.Elems...); err != nil {
-        diag.errorAt(p.position, "failed to expand path '%v': %v", p, segs).debug(1)
+        ctx.error("failed to expand path '%v': %v", p, segs).at(p.position).debug(1)
         return
     }
 
@@ -2908,7 +3042,7 @@ SegsLoop:
     for n, m := 0, 0; n < lenSegs && m < lenSrcs; {
         var si, seg, src = n, segs[n], srcs[m]
         if cs := correctPathSegForMatch(seg); cs != nil { seg = cs } else {
-            diag.errorOf(seg, "invalid path seg: %v (%T)", seg, seg).debug(1)
+            ctx.error("invalid path seg: %v (%T)", seg, seg).of(seg).debug(1)
             break SegsLoop
         }
         var (
@@ -2918,24 +3052,22 @@ SegsLoop:
             f    bool
         )
         if pp {
-            if info { diag.infoOf(p, "%d: path=%v seg=%v (%T) src=%v pp=%v pre=%v suf=%v res=%v stems=%v srcs[%d]=%s lenSegs=%d",
-                si, p, seg, seg, src, pp, pre, suf, res, stems, m, src, lenSegs).debug(true,1) }
+            if info { ctx.info("%d: path=%v seg=%v (%T) src=%v pp=%v pre=%v suf=%v res=%v stems=%v srcs[%d]=%s lenSegs=%d", si, p, seg, seg, src, pp, pre, suf, res, stems, m, src, lenSegs).of(p).debug(true,1) }
             if !isNil(lastSuf) && !isNil(pre) && !isNone(pre) {
-                diag.errorOf(seg, "the continual %%/%% makes no sense")
+                ctx.error("the continual %%/%% makes no sense").of(seg)
                 break SegsLoop
             }
             if /*ps, ok := seg.(*PathSeg);*/ src == "" /*&& ok && (ps.rune == 0 || ps.rune == '/')*/ { // for root path seg '/'
                 // NOTE: seg could also be % or %% here
                 res = append(res, "") // for '/'
                 stems = append(stems, "")
-                //diag.infoOf(p, "%v %v; %v %v; %v %v", p, seg, res, stems, ps, ok)
+                //ctx.info("%v %v; %v %v; %v %v", p, seg, res, stems, ps, ok).of(p)
             }
             lastSuf = suf
             n += 1 // move forward to the next seg
             m += 1 // move forward to the next src
         } else if f, s, ss = seg.match(ctx, src); f || s == src {
-            if info { diag.infoOf(p, "%d: path=%v seg=%v (%T); str=%v srcs[%d]=%v -> f=%v s=%v ss=%v => res=%v stems=%v",
-                si, p, seg, seg, str, m, src, f, s, ss, res, stems).debug(true,1) }
+            if info { ctx.info("%d: path=%v seg=%v (%T); str=%v srcs[%d]=%v -> f=%v s=%v ss=%v => res=%v stems=%v", si, p, seg, seg, str, m, src, f, s, ss, res, stems).of(p).debug(true,1) }
             // NOTE: `s` could be empty string, e.g. when `str` is absolute path
             res   = append(res  , s)
             stems = append(stems, ss...)
@@ -2949,19 +3081,17 @@ SegsLoop:
             } else {
                 res, stems = nil, nil
             }
-            if info { diag.infoOf(p, "%d: path=%v seg=%v (%T) res=%v stems=%v f=%v s=%s ss=%v str=%s src=%s lenSegs=%d",
-                si, p, seg, seg, res, stems, f, s, ss, str, src, lenSegs).debug(true,1) }
+            if info { ctx.info("%d: path=%v seg=%v (%T) res=%v stems=%v f=%v s=%s ss=%v str=%s src=%s lenSegs=%d", si, p, seg, seg, res, stems, f, s, ss, str, src, lenSegs).of(p).debug(true,1) }
             break SegsLoop
         }
 
         var prefix string
         if !(isNil(pre) || isNone(pre)) {
             if prefix, err = pre.Strval(ctx); err != nil {
-                diag.errorOf(pre, "strval prefix '%v' failed: %v", pre, err)
+                ctx.error("strval prefix '%v' failed: %v", pre, err).of(pre)
                 return
             } else if !strings.HasPrefix(src, prefix) {
-                if info { diag.infoOf(p, "%d: seg=%v (%T) pp=%v pre=%v suf=%v res=%v stems=%v src=%s",
-                    si, seg, seg, pp, pre, suf, res, stems, src).debug(true,1) }
+                if info { ctx.info("%d: seg=%v (%T) pp=%v pre=%v suf=%v res=%v stems=%v src=%s", si, seg, seg, pp, pre, suf, res, stems, src).of(p).debug(true,1) }
                 break SegsLoop
             }
         }
@@ -2972,7 +3102,7 @@ SegsLoop:
         if !(isNil(suf) || isNone(suf)) {
             var suffix string
             if suffix, err = suf.Strval(ctx); err != nil {
-                diag.errorOf(suf, "strval suffix '%v' failed: %v", suf, err)
+                ctx.error("strval suffix '%v' failed: %v", suf, err).of(suf)
                 break SegsLoop
             }
             res = append(res, src)
@@ -2984,8 +3114,7 @@ SegsLoop:
                     if strings.HasSuffix(src, suffix) {
                         stem = append(stem, strings.TrimSuffix(src, suffix))
                         stems = append(stems, strings.Join(stem, PathSep))
-                        if info { diag.infoOf(p, "%d: path=%v seg=%v (%T) res=%v stems=%v suffix=%v src=%s lenSegs=%d",
-                            si, p, seg, seg, res, stems, suffix, src, lenSegs).debug(true,1) }
+                        if info { ctx.info("%d: path=%v seg=%v (%T) res=%v stems=%v suffix=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, suffix, src, lenSegs).of(p).debug(true,1) }
                         n += 1 // continue for next seg
                         continue SegsLoop
                     } else {
@@ -2997,8 +3126,7 @@ SegsLoop:
             }
             if len(stem) > 0 {
                 stems = append(stems, strings.Join(stem, PathSep))
-                if info { diag.infoOf(p, "%d: path=%v seg=%v (%T) res=%v stems=%v suffix=%v src=%s lenSegs=%d lenSrcs=%d m=%d",
-                    si, p, seg, seg, res, stems, suffix, src, lenSegs, lenSrcs, m).debug(true,1) }
+                if info { ctx.info("%d: path=%v seg=%v (%T) res=%v stems=%v suffix=%v src=%s lenSegs=%d lenSrcs=%d m=%d", si, p, seg, seg, res, stems, suffix, src, lenSegs, lenSrcs, m).of(p).debug(true,1) }
             }
         } else if n < lenSegs && !(isNil(segs[n]) || isNone(segs[n])) {
             for seg = segs[n]; m < lenSrcs; m += 1 {
@@ -3016,8 +3144,7 @@ SegsLoop:
                     } else {
                         stems = append(stems, strings.Join(stem, PathSep))
                     }
-                    if info { diag.infoOf(p, "%d: path=%v seg=%v (%T) res=%v stems=%v matched=%v s=%s ss=%v src=%s lenSegs=%d",
-                        si, p, seg, seg, res, stems, matched, s, ss, src, lenSegs).debug(true,1) }
+                    if info { ctx.info("%d: path=%v seg=%v (%T) res=%v stems=%v matched=%v s=%s ss=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, matched, s, ss, src, lenSegs).of(p).debug(true,1) }
                     n += 1 // continue for next seg
                     continue SegsLoop
                 } else {
@@ -3027,8 +3154,7 @@ SegsLoop:
             }
             if len(stem) > 0 {
                 stems = append(stems, strings.Join(stem, PathSep))
-                if info { diag.infoOf(p, "%d: path=%v seg=%v (%T) res=%v stems=%v s=%s ss=%v src=%s lenSegs=%d",
-                    si, p, seg, seg, res, stems, s, ss, src, lenSegs).debug(true,1) }
+                if info { ctx.info("%d: path=%v seg=%v (%T) res=%v stems=%v s=%s ss=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, s, ss, src, lenSegs).of(p).debug(true,1) }
             }
         } else { // the tailing %%
             if /*m < lenSrcs*/true {
@@ -3037,35 +3163,29 @@ SegsLoop:
                 stem = append(stem, rest...)
                 stems = append(stems, strings.Join(stem, PathSep))
             }
-            if info { diag.infoOf(p, "%d: seg=%v pre=%v suf=%v res=%v stems=%v src=%s",
-                si, seg, pre, suf, res, stems, src).debug(true,1) }
+            if info { ctx.info("%d: seg=%v pre=%v suf=%v res=%v stems=%v src=%s", si, seg, pre, suf, res, stems, src).of(p).debug(true,1) }
             break SegsLoop
         }
         if info && n == lenSegs {
-            diag.infoOf(p, "%d: path=%v seg=%v (%T) str=%v src=%v -> f=%v s=%v ss=%v -> res=%v stems=%v stem=%v m=%d/%d 3.lengSegs=%d",
-                si, p, seg, seg, str, src, f, s, ss, res, stems, stem, m, lenSrcs, lenSegs).debug(true, 1)
+            ctx.info("%d: path=%v seg=%v (%T) str=%v src=%v -> f=%v s=%v ss=%v -> res=%v stems=%v stem=%v m=%d/%d 3.lengSegs=%d", si, p, seg, seg, str, src, f, s, ss, res, stems, stem, m, lenSrcs, lenSegs).of(p).debug(true, 1)
         }
     }
     if lenRes := len(res); lenRes > 0 { // full or partial matched
         result = strings.Join(res, PathSep) // NOTE: don NOT use `filepath.Join(res...)` here
         full = lenRes == lenSrcs && result == str
         if info { if false {
-            diag.warnOf(p, "Path.match: path=%v str=%v res=%v stems=%v -> full=%v result=%v lens=%d,%d",
-                p, str, res, stems, full, result, lenRes, lenSrcs).debug(1)
+            ctx.warn("Path.match: path=%v str=%v res=%v stems=%v -> full=%v result=%v lens=%d,%d", p, str, res, stems, full, result, lenRes, lenSrcs).of(p).debug(1)
         } else {
-            diag.warnOf(p, "Path.match: path=%v res=%v stems=%v lenRes=%d", p, res, stems, lenRes)
-            diag.warnOf(p, "Path.match: str=%v full=%v result=%v lenSrcs=%d", str, full, result, lenSrcs).debug(1)
+            ctx.warn("Path.match: path=%v res=%v stems=%v lenRes=%d", p, res, stems, lenRes).of(p)
+            ctx.warn("Path.match: str=%v full=%v result=%v lenSrcs=%d", str, full, result, lenSrcs).of(p).debug(1)
         }}
         if correct := (!full && strings.HasPrefix(str, result)) || (full && str == result); false {
-            assert(correct, "incorrect result: res=%v result=%v full=%v stems=%v str=%s",
-                res, result, full, stems, str)
+            assert(correct, "incorrect result: res=%v result=%v full=%v stems=%v str=%s", res, result, full, stems, str)
         } else if !correct {
-            diag.errorAt(p.position, "incorrect result: str=%s res=%v stems=%v full=%v result=%v",
-                str, res, stems, full, result).debug(1)
+            ctx.error("incorrect result: str=%s res=%v stems=%v full=%v result=%v", str, res, stems, full, result).at(p.position).debug(1)
         }
         if p.patterned(ctx) && full && len(stems) == 0 {
-            diag.errorAt(p.position, "incorrect result: path=%v, str=%s, res=%v result=%v",
-                p, str, res, result).debug(1)
+            ctx.error("incorrect result: path=%v, str=%s, res=%v result=%v", p, str, res, result).at(p.position).debug(1)
         }
     }
     return
@@ -3107,12 +3227,12 @@ func (p *Path) match(ctx Context, i interface{}) (full bool, result string, stem
         }
     case Value :
         if str, err := t.Strval(ctx); err != nil {
-            diag.errorOf(t, "strval '%v' failed: %v", t, err).debug(1)
+            ctx.error("strval '%v' failed: %v", t, err).of(t).debug(1)
         } else if str != "" {
             return p.match1(ctx, str)
         }
     default:
-        diag.errorAt(p.position, "matching unsupport value: %T %v", i, i).debug(8)
+        ctx.error("matching unsupport value: %T %v", i, i).at(p.position).debug(8)
     }
     return
 }
@@ -3123,8 +3243,8 @@ func (p *Path) stencil(ctx Context, stems []string) (result string, rest []strin
         segs []Value
         err error
     )
-    if segs, err = mergeresult2(expandall2(ctx, expandPlainValue, p.Elems...)); err != nil {
-        diag.errorOf(p, "expand path '%v' failed: %v", p, err).debug(1)
+    if segs, err = expandmerge2(ctx, expandPlainValue, p.Elems...); err != nil {
+        ctx.error("expand path '%v' failed: %v", p, err).of(p).debug(1)
         return
     }
 
@@ -3135,7 +3255,7 @@ ForPathSegs:
             strs = append(strs, s)
             continue ForPathSegs
         } else if s, err = seg.Strval(ctx); err != nil {
-            diag.errorOf(seg, "strval seg '%v' failed: %v", seg, err).debug(1)
+            ctx.error("strval seg '%v' failed: %v", seg, err).of(seg).debug(1)
             break ForPathSegs
         } else {
             strs = append(strs, s)
@@ -3146,27 +3266,30 @@ ForPathSegs:
     return
 }
 
-func (p *Path) Combine(val Value) {
+func (p *Path) Combine(ctx Context, val Value) {
     var (
+        comp *Barecomp
         ti = len(p.Elems)-1
         tail = p.Elems[ti]
-        comp *Barecomp
     )
-    if isNil(tail) {
-        diag.errorOf(p, "path tail is nil: %v", p)
+    if isNil(val) || isNone(val) {
+        ctx.error("path combines invalid value: %v", val).of(p)
+        return
+    } else if isNil(tail) {
+        ctx.error("path tail is nil: %v", p).of(p)
+        return
+    } else if isNone(tail) {
+        p.Elems[ti] = val
         return
     } else if seg, ok := tail.(*PathSeg); ok {
         switch comp = MakeBarecomp(tail.Position()); seg.rune {
         case 0, '/': break // discard
-        default: comp.Combine(tail)
+        default: comp.Combine(ctx, tail)
         }
         p.Elems[ti] = comp
     } else if comp, ok = tail.(*Barecomp); !ok || comp == nil {
         comp = MakeBarecomp(tail.Position(), tail)
         p.Elems[ti] = comp
-    } else {
-        diag.errorAt(p.position, "FIXME: join %v (%T), %v (%T)", tail, tail, val, val).debug(1)
-        return
     }
 
     if vp, ok := val.(*Path); ok {
@@ -3174,11 +3297,15 @@ func (p *Path) Combine(val Value) {
         if seg, ok := head.(*PathSeg); ok {
             switch seg.rune {
             case 0, '/': break // discard
-            default: comp.Combine(head)
+            default: comp.Combine(ctx, head)
             }
-        } else { comp.Combine(head) }
+        } else {
+            comp.Combine(ctx, head)
+        }
         p.Elems = append(p.Elems, vp.Elems[1:]...)
-    } else { comp.Combine(val) }
+    } else {
+        comp.Combine(ctx, val)
+    }
 }
 
 type PathSeg struct { valbase; rune }
@@ -3199,7 +3326,7 @@ func (p *PathSeg) Strval(ctx Context) (s string, e error) {
         s = "" // the 'empty' before the first '/'
     } else if s = p.String(); s == "" {
         e = fmt.Errorf("unknown pathseg '%s'", string(p.rune))
-        diag.errorAt(p.position, "unknown segment '%s' ('%v')", string(p.rune), p).debug(1)
+        ctx.error("unknown segment '%s' ('%v')", string(p.rune), p).at(p.position).debug(1)
     }
     return
 }
@@ -3214,7 +3341,7 @@ func (p *PathSeg) match(ctx Context, i interface{}) (full bool, result string, s
     case Value:
         var e error
         if s, e = t.Strval(ctx); e != nil {
-            diag.errorAt(p.position, "strval '%v' failed: %v", t, e).debug(1)
+            ctx.error("strval '%v' failed: %v", t, e).at(p.position).debug(1)
             return
         }
     }
@@ -3230,7 +3357,7 @@ func (p *PathSeg) match(ctx Context, i interface{}) (full bool, result string, s
 func (p *PathSeg) stencil(ctx Context, stems []string) (result string, rest []string) {
     var e error
     if result, e = p.Strval(ctx); e != nil {
-        diag.errorAt(p.position, "strval '%v' failed: %v", p, e).debug(1)
+        ctx.error("strval '%v' failed: %v", p, e).at(p.position).debug(1)
     }
     return
 }
@@ -3292,7 +3419,7 @@ func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
             }
         } else if dir != "" {
             if true { dir = "" } else if false {
-                diag.errorAt(pos, "dir name conflicts: %s <-> %s (sub=%v)", dir, name, sub).debug(16)
+                ctx.error("dir name conflicts: %s <-> %s (sub=%v)", dir, name, sub).at(pos).debug(16)
                 unreachable("path error")
             } else {
                 return
@@ -3328,25 +3455,25 @@ func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
         assert(filepath.IsAbs(fullname), "`%s` is not abs {%s %s %s}", fullname, name, sub, dir)
         if filepath.IsAbs(name) && sub != "-" {
             if dir != "" {
-                diag.errorAt(pos, "dirty dir: dir  = %s", dir)
-                diag.errorAt(pos, "dirty dir: sub  = %s", sub)
-                diag.errorAt(pos, "dirty dir: name = %s", name)
-                diag.errorAt(pos, "dirty dir: full = %s", fullname).debug(16)
+                ctx.error("dirty dir: dir  = %s", dir).at(pos)
+                ctx.error("dirty dir: sub  = %s", sub).at(pos)
+                ctx.error("dirty dir: name = %s", name).at(pos)
+                ctx.error("dirty dir: full = %s", fullname).at(pos).debug(16)
                 assert(false, "dir is not empty for abs name: %s", name)
             }
             if sub != "" {
-                diag.errorAt(pos, "dirty sub: dir  = %s", dir)
-                diag.errorAt(pos, "dirty sub: sub  = %s", sub)
-                diag.errorAt(pos, "dirty sub: name = %s", name)
-                diag.errorAt(pos, "dirty sub: full = %s", fullname).debug(16)
+                ctx.error("dirty sub: dir  = %s", dir).at(pos)
+                ctx.error("dirty sub: sub  = %s", sub).at(pos)
+                ctx.error("dirty sub: name = %s", name).at(pos)
+                ctx.error("dirty sub: full = %s", fullname).at(pos).debug(16)
                 assert(false, "sub is not empty for abs name: %s", name)
             }
-            if s := filepath.Clean(name); fullname != s {
-                diag.errorAt(pos, "dirty fullname: dir  = %s", dir)
-                diag.errorAt(pos, "dirty fullname: sub  = %s", sub)
-                diag.errorAt(pos, "dirty fullname: name = %s", name)
-                diag.errorAt(pos, "dirty fullname: clean = %s", s)
-                diag.errorAt(pos, "dirty fullname: full  = %s", fullname).debug(16)
+            if s := filepath.Clean(name); fullname != s && strings.Contains(name, "//")/* skips /../ */ {
+                ctx.error("dirty fullname: dir  = %s", dir).at(pos)
+                ctx.error("dirty fullname: sub  = %s", sub).at(pos)
+                ctx.error("dirty fullname: name = %s", name).at(pos)
+                ctx.error("dirty fullname: clean = %s", s).at(pos)
+                ctx.error("dirty fullname: full  = %s", fullname).at(pos).debug(16)
                 assert(false, "fullname is not clean: %s", name)
             }
         } else if filepath.IsAbs(sub) {
@@ -3430,7 +3557,7 @@ GotFile:
         if file.dir != dir {
             var head = &base.stub
             for stub := head; stub != nil; stub = stub.other {
-                diag.infoAt(pos, "stat: %s %s %s", stub.dir, stub.sub, stub.name).debug(true,1)
+                ctx.info("stat: %s %s %s", stub.dir, stub.sub, stub.name).at(pos).debug(true,1)
                 if stub.other == head { break }
             }
         }
@@ -3445,14 +3572,13 @@ GotFile:
                     file.dir, file.sub, file.name, s)
             } else {
                 if file.info == nil {
-                    diag.errorAt(pos, "{%s %s %s} file info is nil", file.dir, file.sub, file.name).debug(true,24)
+                    ctx.error("{%s %s %s} file info is nil", file.dir, file.sub, file.name).at(pos).debug(true,24)
                 }
                 if file.fullname() != s {
-                    diag.errorAt(pos, "{dir=%s sub=%s name=%s} fullname incorrect: %s", file.dir, file.sub, file.name, s).debug(true,24)
+                    ctx.error("{dir=%s sub=%s name=%s} fullname incorrect: %s", file.dir, file.sub, file.name, s).at(pos).debug(true,24)
                 }
                 if file.info.Name() != filepath.Base(s) { // NOTE: file.name might be "" here
-                    diag.errorAt(pos, "{dir=%s sub=%s name=%s} name incorrect: %s",
-                        file.dir, file.sub, file.name, file.info.Name()).debug(true,24)
+                    ctx.error("{dir=%s sub=%s name=%s} name incorrect: %s", file.dir, file.sub, file.name, file.info.Name()).at(pos).debug(true,24)
                 }
             }
         }
@@ -3467,7 +3593,7 @@ type File struct {
 }
 func (p *File) String() string { return p.name }
 func (p *File) Strval(ctx Context) (s string, err error) {
-    if false { diag.warnOf(p, "use file.fullname() instead").debug(true, 8) }
+    if false { ctx.warn("use file.fullname() instead").of(p).debug(true, 8) }
     s = p.name; return }
 func (p *File) True(ctx Context) (t bool, err error) {
     if p.name != "" {
@@ -3494,38 +3620,39 @@ func (p *File) searchInMatchedPaths(ctx Context, proj *Project) (res bool) {
     }
     return
 }
-func (p *File) stamp(t *traversal) (files []*File, err error) {
+func (p *File) stamp(ctx Context) (files []*File, err error) {
+    ctx = positional(ctx, p.position)
+
     var fullname string
     if fullname = p.fullname(); fullname == "" {
-        diag.errorOf(p, "file `%s` has no fullname", p).debug(1)
+        ctx.error("file `%s` has no fullname", p).of(p).debug(1)
         return
     }
 
-    var ctx = positional(t, p.position)
-    var currentTargetValue = t.getCurrentTargetValue(ctx)
-    if isNil(currentTargetValue) {
-        diag.errorAt(t.program.position, "target is <nil>").debug(1)
+    var t = ctx.traversal()
+    var targetValue = getTargetValue(ctx)
+    if isNil(targetValue) {
+        ctx.error("target is <nil>").at(t.program.position).debug(1)
         return
     }
 
     //var oldModTime time.Time
     //if p.info != nil { oldModTime = p.info.ModTime() }
     if p.info, err = os.Stat(fullname); err != nil {
-        if false { diag.errorAt(p.position, "%v", err).debug(1) }
+        if false { ctx.error("%v", err).at(p.position).debug(1) }
     } else if p.info != nil {
         var newModTime = p.info.ModTime()
         ctx.Globe().stamp(fullname, newModTime)
         // p.updated = newModTime.After(oldModTime)
         files = append(files, p)
 
-        var target = currentTargetValue
-        var cmp = target.cmp(ctx, p)
-        if c, _ := t.caller(); cmp == cmpEqual && c != nil {
+        var cmp = targetValue.cmp(ctx, p)
+        if c := t.caller(); cmp == cmpEqual && c != nil {
             // Add to caller context
-            c.appendUpdated(ctx, newUpdatedTarget(p))
-            target = c.autoGet("@")
+            appendUpdated(positional(c, ctx.Position()), newUpdatedTarget(p))
+            if false { targetValue, _ = c.autoGet("@") }
         } else {
-            t.appendUpdated(ctx, newUpdatedTarget(p))
+            appendUpdated(ctx, newUpdatedTarget(p))
         }
     }
     return
@@ -3558,18 +3685,18 @@ func (p *File) exists() (res bool) {
     }
     return
 }
-func (p *File) stat(t *traversal) (si *statinfo) {
+func (p *File) stat(ctx Context) (si *statinfo) {
     var err error
     if p.info == nil {
         if p.info, err = os.Stat(p.fullname()); err == nil {
             // good
         } else if pe, ok := err.(*fs.PathError); ok {
             if false {
-                diag.errorAt(p.position, "File.stat %v: %v", trimPromptString(pe.Path), pe.Err).debug(1)
+                ctx.error("File.stat %v: %v", trimPromptString(pe.Path), pe.Err).at(p.position).debug(1)
             }
             return
         } else {
-            diag.errorAt(p.position, "File.stat failed: %v", err).debug(1)
+            ctx.error("File.stat failed: %v", err).at(p.position).debug(1)
         }
     }
     if err == nil { si = &statinfo{ file: p } }
@@ -3587,64 +3714,70 @@ func (p *File) isSysFile() (res bool) {
     }
     return
 }
-func (p *File) traverse(t *traversal) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, t, p)) }
+func (p *File) traverse(ctx Context) (brks breakers) {
+    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     if options.traceExec { defer un(trace(t_exec, fmt.Sprintf("File %v", p))) }
+
+    var t = ctx.traversal()
     if p.isSysFile() { if options.traceTraversal { t.tracef("SysFile: true") }
         return
     }
 
-    var ctx = positional(t, p.position)
-    var currentTargetValue = t.getCurrentTargetValue(ctx)
-    if isNil(currentTargetValue) {
-        diag.errorAt(t.program.position, "target is <nil>").debug(1)
+    ctx = positional(ctx, p.position)
+
+    var targetValue = getTargetValue(ctx)
+    if isNil(targetValue) {
+        ctx.error("target is <nil>").at(t.program.position).debug(1)
         return
     }
 
     // FIXES: checks none-File file target
-    switch a := currentTargetValue.(type) {
+    switch a := targetValue.(type) {
     case *Barecomp: // convert barecomp path into a real Path
         if p, ok := a.Elems[0].(*Path); ok {
             a.Elems = append(p.Elems[len(p.Elems)-1:], a.Elems[1:]...)
             p.Elems[len(p.Elems)-1] = a
-            currentTargetValue = p
-            t.autoSet("@", p)
+            targetValue = p
+            ctx.autoSet("@", p)
             if options.traceTraversal { t.tracef("FIX: barecomp path: %v", p) }
         } else {
             var s string
             var err error
             if s, err = a.Strval(ctx); err != nil {
-                diag.errorOf(a, "strval '%v' failed: %v", a, err).debug(1)
+                ctx.error("strval '%v' failed: %v", a, err).of(a).debug(1)
                 return
             }
-            if file := t.Project().FindFile(ctx, s); file != nil {
-                currentTargetValue = file
-                t.autoSet("@", file)
+            if file := ctx.Project().FindFile(ctx, s); file != nil {
+                targetValue = file
+                ctx.autoSet("@", file)
                 if options.traceTraversal { t.tracef("FIX: barecomp file: %v", p) }
             }
         }
     }
 
-    if _, brks = t.file(p); p.info == nil {
-        brks.add(p.position, breakErro).error = fileNotFoundError{ t.Project(), p }
-        t.batch(func () {
-            diag.errorAt(p.position, "break: missing file %v (at %s)", p, p.fullname())
-            diag.errorAt(t.Project().position, "for project %v (for '%v')", t.Project(), p).debug(6)
-        })
+    if _, brks = traverseFile(ctx, p); p.info == nil {
+        brks.add(p.position, breakErro).error = fileNotFoundError{ ctx.Project(), p }
+        ctx.error("break: missing file %v (at %s)", p, p.fullname()).at(p.position)
+        var pos Position
+        if c := t.caller(); c != nil {
+            pos = c.Position()
+        } else {
+            pos = ctx.Project().position
+        }
+        ctx.error("%v: %v", ctx.Project(), p)
+        ctx.error("%v: %v", ctx.Project(), ctx).at(pos).debug(16)
     } else if tb := brks.not(breakNext, breakCase, breakDone); len(tb) > 0 {
-        t.batch(func () {
-            for _, brk := range tb {
-                switch brk.what {
-                case breakFail: diag.errorAt(brk.pos, "broken traversal for file %v: %v", p, brk.message)
-                case breakErro: diag.errorAt(brk.pos, "broken traversal for file %v with error: %v", p, brk.error)
-                default: diag.errorAt(brk.pos, "broken traversal for file %v (%v)", p, brk.what)
-                }
+        for _, brk := range tb {
+            switch brk.what {
+            case breakFail: ctx.error("broken traversal for file %v: %v", p, brk.message).at(brk.pos)
+            case breakErro: ctx.error("broken traversal for file %v with error: %v", p, brk.error).at(brk.pos)
+            default: ctx.error("broken traversal for file %v (%v)", p, brk.what).at(brk.pos)
             }
-            diag.errorAt(p.position, "broken traversal for file '%v' (at %s)", p, p.fullname())
-            diag.errorAt(t.Project().position, "broken traversal for file '%v' from %v", p, t.Project()).debug(1)
-        })
+        }
+        ctx.error("broken traversal for file '%v' (at %s)", p, p.fullname()).at(p.position)
+        ctx.error("broken traversal for file '%v' from %v", p, ctx.Project()).at(ctx.Project().position).debug(1)
     } else if false && brks.has() {
-        diag.errorAt(p.position, "broken traversal for file '%v' (at %s)", p, p.fullname()).debug(1)
+        ctx.error("broken traversal for file '%v' (at %s)", p, p.fullname()).at(p.position).debug(1)
     }
     return
 }
@@ -3686,11 +3819,11 @@ func (p *File) match(ctx Context, i interface{}) (full bool, s string, stems []s
         if !(isNil(t) || isNone(t)) {
             var ( v string; e error )
             if v, e = t.Strval(ctx); e != nil {
-                diag.errorOf(t, "strval '%v' failed: %v", t, e).debug(1)
+                ctx.error("strval '%v' failed: %v", t, e).of(t).debug(1)
             } else { return p.match1(ctx, v) }
         }
     default:
-        diag.errorAt(p.position, "matching file '%v' with unknown input: %v", p, i).debug(1)
+        ctx.error("matching file '%v' with unknown input: %v", p, i).at(p.position).debug(1)
     }
     return
 }
@@ -3748,7 +3881,7 @@ func (p *Flag) match(ctx Context, i interface{}) (full bool, s string, stems []s
         s = "-" + s
     case Value:
         if v, e := t.Strval(ctx); e != nil {
-            diag.errorOf(t, "strval '%v' failed: %v", t, e).debug(1)
+            ctx.error("strval '%v' failed: %v", t, e).of(t).debug(1)
         } else if strings.HasPrefix(v, "-") {
             full, s, stems = p.name.match(ctx, v[1:])
             s = "-" + s
@@ -3759,7 +3892,7 @@ func (p *Flag) match(ctx Context, i interface{}) (full bool, s string, stems []s
             s = "-" + s
         }
     default:
-        diag.warnAt(p.position, "-%v <-> %T %v", p.name, i, i).debug(true, 16)
+        ctx.warn("-%v <-> %T %v", p.name, i, i).at(p.position).debug(true, 16)
     }
     return
 }
@@ -3767,7 +3900,7 @@ func (p *Flag) expandible(ctx Context, w expandwhat) bool { return p.name.expand
 func (p *Flag) expand(ctx Context, w expandwhat) (res Value, err error) {
     var name Value
     if name, err = p.name.expand(ctx, w); err != nil {
-        diag.errorOf(p.name, "expand '%v' failed: %v", p.name, err).debug(1)
+        ctx.error("expand '%v' failed: %v", p.name, err).of(p.name).debug(1)
     } else if !isNil(name) && name != p.name {
         res = &Flag{p.valbase, name}
     }
@@ -3778,11 +3911,11 @@ func (p *Flag) elemStr(ctx Context, o Object, k elemkind) (s string) {
 }
 func (p *Flag) opt(ctx Context, short, long string) (res string, match bool) {
         if isNil(p.name) {
-                diag.errorOf(p, "flag name is nil")
+                ctx.error("flag name is nil").of(p)
         } else if f, ok := p.name.(*Flag); ok {
                 res, match = f.opt(ctx, short, long)
         } else if s, err := p.name.Strval(ctx); err != nil {
-                diag.errorOf(p.name, "strval '%v' failed: %v", p.name, err)
+                ctx.error("strval '%v' failed: %v", p.name, err).of(p.name)
         } else if s == short {
                 res, match = short, true
         } else if s == long {
@@ -3800,7 +3933,7 @@ func (p *Flag) opts(ctx Context, try bool, opts ...string) (runes []rune, names 
             if t.string == opt { names = append(names, opt) }
         }
         if !try && len(names) == 0 {
-            diag.errorOf(p, "unknown flag (known: %s)", strings.Join(opts, ", "))
+            ctx.error("unknown flag (known: %s)", strings.Join(opts, ", ")).of(p)
         }
     case *Bareword:
         for _, opt := range opts {
@@ -3819,7 +3952,7 @@ func (p *Flag) opts(ctx Context, try bool, opts ...string) (runes []rune, names 
             }
         }
         if !try && (len(runes) == 0 || len(names) == 0) {
-            diag.errorOf(p, "unknown flag (known: %s)", strings.Join(opts, ", "))
+            ctx.error("unknown flag (known: %s)", strings.Join(opts, ", ")).of(p)
         }
     }
     if enable_assertions {
@@ -3835,12 +3968,12 @@ func (p *Flag) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *Flag) traverse(t *traversal) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, t, p)) }
-    if s, err := p.Strval(positional(t, p.position)); err != nil {
-        diag.errorOf(p, "strval '%v' failed: %v", p, err).debug(1)
+func (p *Flag) traverse(ctx Context) (brks breakers) {
+    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
+    if s, err := p.Strval(positional(ctx, p.position)); err != nil {
+        ctx.error("strval '%v' failed: %v", p, err).of(p).debug(1)
     } else {
-        _, brks = t.string(p, s)
+        _, brks = traverseString(ctx, p, s)
     }
     return
 }
@@ -3881,7 +4014,7 @@ func (p *Compound) expandible(ctx Context, w expandwhat) bool { return p.element
 func (p *Compound) expand(ctx Context, w expandwhat) (res Value, err error) {
     var ( elems []Value; num int )
     if elems, num, err = expandall1(ctx, w, p.Elems...); err != nil {
-        diag.errorAt(p.position, "expand compound elems failed: %v", err).debug(1)
+        ctx.error("expand compound elems failed: %v", err).at(p.position).debug(1)
     } else if num > 0 {
         res = &Compound{p.valbase, elements{elems}}
     }
@@ -3900,7 +4033,7 @@ func (p *Compound) elemStr(ctx Context, o Object, k elemkind) (s string) {
     } ()
     for i := strings.IndexAny(s, escapedChars); i != -1; {
         if _, err = buf.WriteString(s[:i]); err != nil {
-            diag.errorOf(p, "%v", err)
+            ctx.error("%v", err).of(p)
             return
         }
         var esc string
@@ -3911,13 +4044,13 @@ func (p *Compound) elemStr(ctx Context, o Object, k elemkind) (s string) {
         }
         s = s[i+1:]
         if _, err = buf.WriteString(esc); err != nil {
-            diag.errorOf(p, "%v", err)
+            ctx.error("%v", err).of(p)
 			return
         }
         i = strings.IndexAny(s, escapedChars)
     }
     if _, err = buf.WriteString(s); err != nil {
-        diag.errorOf(p, "%v", err)
+        ctx.error("%v", err).of(p)
     }
     return
 }
@@ -3976,24 +4109,26 @@ func (p *List) elemStr(ctx Context, o Object, k elemkind) (s string) {
 func (p *List) expand(ctx Context, w expandwhat) (res Value, err error) {
     var ( elems []Value; num int )
     if elems, num, err = expandall1(ctx, w, p.Elems...); err != nil {
-        diag.errorAt(p.position, "expand list elems failed: %v", err).debug(1)
+        ctx.error("expand list elems failed: %v", err).at(p.position).debug(1)
     } else if num > 0 {
-        res = &List{p.position, elements{elems}}
+        if false && len(elems) == 1 { res = elems[0] } else {
+            res = &List{p.position, elements{elems}}
+        }
     }
     return
 }
-func (p *List) traverse(t *traversal) (brks breakers) {
+func (p *List) traverse(ctx Context) (brks breakers) {
     if len(p.Elems) == 0 { return }
-    if options.traceTraversal { defer un(tt(t_traverse, t, p)) }
+    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     for _, v := range p.Elems {
-        if brks = v.traverse(t); brks.has() { break }
+        if brks = v.traverse(ctx); brks.has() { break }
     }
     return
 }
-func (p *List) stat(t *traversal) (si *statinfo) {
+func (p *List) stat(ctx Context) (si *statinfo) {
     if len(p.Elems) > 0 {
         for _, elem := range p.Elems {
-            if ei := elem.stat(t); ei == nil {
+            if ei := elem.stat(ctx); ei == nil {
                 // FIXME: insert new statinfo or just discard it ??
             } else if si == nil {
                 si = ei
@@ -4004,10 +4139,10 @@ func (p *List) stat(t *traversal) (si *statinfo) {
     }
     return
 }
-func (p *List) stamp(t *traversal) (files []*File, err error) {
+func (p *List) stamp(ctx Context) (files []*File, err error) {
     for _, elem := range p.Elems {
         var a []*File
-        if a, err = elem.stamp(t); err != nil { break }
+        if a, err = elem.stamp(ctx); err != nil { break }
         files = append(files, a...)
     }
     return
@@ -4053,8 +4188,8 @@ func (p *Group) Strval(ctx Context) (s string, err error) {
 }
 func (p *Group) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
 func (p *Group) defs(ctx Context, s ...string) []*Def { return p.elements.defs(ctx, s...) }
-func (p *Group) stat(t *traversal) (si *statinfo) { return }
-func (p *Group) stamp(t *traversal) (files []*File, err error) { return }
+func (p *Group) stat(ctx Context) (si *statinfo) { return }
+func (p *Group) stamp(ctx Context) (files []*File, err error) { return }
 func (p *Group) elemStr(ctx Context, o Object, k elemkind) string {
     var strs []string
     for _, elem := range p.Elems {
@@ -4066,14 +4201,14 @@ func (p *Group) expandible(ctx Context, w expandwhat) bool { return p.elements.e
 func (p *Group) expand(ctx Context, w expandwhat) (res Value, err error) {
     var ( elems []Value; num int )
     if elems, num, err = expandall1(ctx, w, p.Elems...); err != nil {
-        diag.errorAt(p.position, "expand group elems failed: %v", err).debug(1)
+        ctx.error("expand group elems failed: %v", err).at(p.position).debug(1)
     } else if num > 0 {
         res = &Group{p.valbase, elements{elems}}
     }
     return
 }
-func (p *Group) traverse(t *traversal) (brks breakers) {
-    diag.warnAt(p.position, "traversing group: %v", p).debug(32)
+func (p *Group) traverse(ctx Context) (brks breakers) {
+    ctx.warn("traversing group: %v", p).at(p.position).debug(32)
     return
 }
 func (p *Group) cmp(ctx Context, v Value) (res cmpres) {
@@ -4084,7 +4219,7 @@ func (p *Group) patterned(ctx Context, ) bool { return false }
 func (p *Group) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
 func (p *Group) stencil(ctx Context, stems []string) (s string, rest []string) { return }
 
-func parseGroupValue(g *Group) (result Value) {
+func parseGroupValue(ctx Context, g *Group) (result Value) {
     if len(g.Elems) == 0 { return g } else {
         var word *Bareword
         switch kind := g.Elems[0].(type) {
@@ -4092,7 +4227,7 @@ func parseGroupValue(g *Group) (result Value) {
         case *Group: if len(kind.Elems) > 0 {
             var ( name = kind.Elems[0]; ok bool )
             if word, ok = name.(*Bareword); !ok {
-                diag.errorOf(name, "unsupported name type: %T %v", name, name).debug(1)
+                ctx.error("unsupported name type: %T %v", name, name).of(name).debug(1)
             }
         }}
         if word != nil {
@@ -4130,11 +4265,11 @@ func (p *Pair) Strval(ctx Context) (s string, err error) {
 }
 func (p *Pair) True(ctx Context) (t bool, err error) {
     if t, err = p.Key.True(ctx); err != nil {
-        diag.errorOf(p.Key, "truthify '%v' failed: %v", p.Key, err).debug(1)
+        ctx.error("truthify '%v' failed: %v", p.Key, err).of(p.Key).debug(1)
     } else if t || isNil(p.Value) {
         // done
     } else if t, err = p.Value.True(ctx); err != nil {
-        diag.errorOf(p.Key, "truthify '%v' failed: %v", p.Value, err).debug(1)
+        ctx.error("truthify '%v' failed: %v", p.Value, err).of(p.Key).debug(1)
     }
     return
 }
@@ -4144,9 +4279,9 @@ func (p *Pair) refs(ctx Context, v Value) bool { return p.Key.refs(ctx, v) || p.
 func (p *Pair) defs(ctx Context, s ...string) []*Def {
     return append(p.Key.defs(ctx, s...), p.Value.defs(ctx, s...)...)
 }
-func (p *Pair) traverse(t *traversal) (brks breakers) {
-    diag.errorAt(p.position, "traversing pair '%v' is undefined", p).debug(16)
-    t.traceCallStack(p.position, -1, "pair is not traversible: %v", p)
+func (p *Pair) traverse(ctx Context) (brks breakers) {
+    ctx.error("traversing pair '%v' is undefined", p).at(p.position).debug(16)
+    callstack(positional(ctx, p.position), -1, "pair is not traversible: %v", p)
     return
 }
 func (p *Pair) expandible(ctx Context, w expandwhat) bool {
@@ -4156,7 +4291,7 @@ func (p *Pair) expandible(ctx Context, w expandwhat) bool {
 func (p *Pair) expand(ctx Context, w expandwhat) (res Value, err error) {
     var k, v Value
     if k, err = p.Key.expand(ctx, w); err != nil {
-        diag.errorOf(p.Key, "expand '%v' failed: %v", p.Key, err).debug(1)
+        ctx.error("expand '%v' failed: %v", p.Key, err).of(p.Key).debug(1)
         return
     } else if isNil(k) { k = p.Key }
 
@@ -4164,7 +4299,7 @@ func (p *Pair) expand(ctx Context, w expandwhat) (res Value, err error) {
     // in arguments (see copy-file for example).
     if w&expandPairVal != 0 {
         if v, err = p.Value.expand(ctx, w); err != nil {
-            diag.errorOf(p.Value, "expand '%v' failed: %v").debug(1)
+            ctx.error("expand '%v' failed: %v").of(p.Value).debug(1)
         } else if (!isNil(k) && k != p.Key) || (!isNil(v) && v != p.Value) {
             if isNil(v) { v = p.Value }
             res = &Pair{p.valbase, k, v}
@@ -4200,46 +4335,46 @@ func (p *delegate) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *delegate) Strval(ctx Context) (s string, err error) {
     var v Value
     if v, err = p.value(ctx); err != nil {
-        diag.errorOf(p, "delegate '%v' value failed: %v", p, err).debug(1)
+        ctx.error("delegate '%v' value failed: %v", p, err).of(p).debug(1)
     } else if isNil(v) {
-        diag.errorOf(p, "delegate value is nil: %v", p).debug(1)
+        ctx.error("delegate value is nil: %v", p).of(p).debug(1)
     } else if s, err = v.Strval(ctx); err != nil {
-        diag.errorOf(v, "strval '%v' failed: %v", v, err).debug(1)
+        ctx.error("strval '%v' failed: %v", v, err).of(v).debug(1)
     }
     return
 }
 func (p *delegate) True(ctx Context) (t bool, err error) {
     var v Value
     if v, err = p.expand(ctx, expandPlainValue); err != nil {
-        diag.errorAt(p.position, "expand '%v' failed: %v", p, err).debug(1)
+        ctx.error("expand '%v' failed: %v", p, err).at(p.position).debug(1)
     } else if isNil(v) {
-        diag.errorAt(p.position, "expand '%v' to nil", p).debug(1)
+        ctx.error("expand '%v' to nil", p).at(p.position).debug(1)
     } else if t, err = v.True(ctx); err != nil {
-        diag.errorAt(p.position, "truthify '%v' failed: %v", p, err).debug(1)
+        ctx.error("truthify '%v' failed: %v", p, err).at(p.position).debug(1)
     } else if false {
-        diag.infoAt(p.position, "%v -> %T %v -> %v", p, v, v, t).debug(8)
+        ctx.info("%v -> %T %v -> %v", p, v, v, t).at(p.position).debug(8)
     }
     return
 }
 func (p *delegate) Integer(ctx Context) (i int64, err error) {
     var v Value
     if v, err = p.value(ctx); err != nil {
-        diag.errorOf(p, "delegate '%v' value failed: %v", p, err).debug(1)
+        ctx.error("delegate '%v' value failed: %v", p, err).of(p).debug(1)
     } else if isNil(v) {
-        diag.errorOf(p, "delegate value is nil: %v", p).debug(1)
+        ctx.error("delegate value is nil: %v", p).of(p).debug(1)
     } else if i, err = v.Integer(ctx); err != nil {
-        diag.errorOf(v, "integify '%v' failed: %v", v, err).debug(1)
+        ctx.error("integify '%v' failed: %v", v, err).of(v).debug(1)
     }
     return
 }
 func (p *delegate) Float(ctx Context) (f float64, err error) {
     var v Value
     if v, err = p.value(ctx); err != nil {
-        diag.errorOf(p, "delegate '%v' value failed: %v", p, err).debug(1)
+        ctx.error("delegate '%v' value failed: %v", p, err).of(p).debug(1)
     } else if isNil(v) {
-        diag.errorOf(p, "nil delegate value: %v", p).debug(1)
+        ctx.error("nil delegate value: %v", p).of(p).debug(1)
     } else if f, err = v.Float(ctx); err != nil {
-        diag.errorOf(v, "floatify '%v' failed: %v", v, err).debug(1)
+        ctx.error("floatify '%v' failed: %v", v, err).of(v).debug(1)
     }
     return
 }
@@ -4255,7 +4390,7 @@ func (p *delegate) isValidToken() (res bool) {
 }
 func (p *delegate) refs(ctx Context, v Value) (res bool) {
     if isNil(p.x) {
-        diag.errorOf(p, "delegation of nil (v=%v)", v).debug(1)
+        ctx.error("delegation of nil (v=%v)", v).of(p).debug(1)
         return
     } else if p.x == v || p.x.refs(ctx, v) {
         return true
@@ -4267,7 +4402,7 @@ func (p *delegate) refs(ctx Context, v Value) (res bool) {
 }
 func (p *delegate) defs(ctx Context, s ...string) (res []*Def) {
     if isNil(p.x) {
-        diag.errorOf(p, "delegation of nil (s=%v)", p, s).debug(1)
+        ctx.error("delegation of nil (s=%v)", p, s).of(p).debug(1)
         return
     } else if d, ok := p.x.(*Def); ok {
         if ok = len(s) == 0; !ok {
@@ -4282,20 +4417,27 @@ func (p *delegate) defs(ctx Context, s ...string) (res []*Def) {
     }
     return
 }
-func (p *delegate) traverse(t *traversal) (brks breakers) {
-    var ctx = positional(t, p.position)
-    if options.traceTraversal { defer un(tt(t_traverse, t, p)) }
+func (p *delegate) traverse(ctx Context) (brks breakers) {
+    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
+    ctx = positional(ctx, p.position)
     if val, err := p.expand(ctx, expandPlainValue); err != nil { if true {
-        diag.errorAt(p.position, "expand '%v' failed: %v", p, err).debug(16)
-        if true { t.traceCallStack(p.position, -1, "expand '%v' failed", p) }
+        ctx.error("expand '%v' failed: %v", p, err).at(p.position).debug(16)
+        if true { callstack(ctx, -1, "expand '%v' failed", p) }
     }} else if isNil(val) { if true {
-        diag.warnAt(p.position, "delegate '%v' expands to nil", p).debug(16)
-        if true { t.traceCallStack(p.position, -1, "delegate '%v' expands to <nil>", p) }
+        ctx.warn("delegate '%v' expands to nil", p).at(p.position).debug(16)
+        if true { callstack(ctx, -1, "delegate '%v' expands to <nil>", p) }
     }} else if isNone(val) { if false {
-        diag.warnAt(p.position, "delegate '%v' expands to none", p).debug(16)
-        if true { t.traceCallStack(p.position, -1, "delegate '%v' expands to <none>", p) }
+        ctx.warn("delegate '%v' expands to none", p).at(p.position).debug(16)
+        if true { callstack(ctx, -1, "delegate '%v' expands to <none>", p) }
     }} else {
-        brks = val.traverse(t)
+        brks = val.traverse(ctx)
+    }
+    return
+}
+func (p *delegate) name(sel bool) (name string) {
+    switch x := p.x.(type) {
+    case *selection: if sel { name = x.String() }
+    case Object: name = x.Name()
     }
     return
 }
@@ -4341,7 +4483,7 @@ func (p *delegate) elemStr(ctx Context, o Object, k elemkind) (s string) {
     if ctx == nil || k&elemExpand == 0 {
         if s = p.string(ctx, o, k); !(p.l.IsClosure() || p.l.IsDelegate()) { s = "$" + s }
     } else if v, e := p.expand(ctx, expandDelegate); e != nil {
-        diag.errorAt(p.position, "expand failed: %v", e).debug(1)
+        ctx.error("expand failed: %v", e).at(p.position).debug(1)
     } else {
         if isNil(v) { v = p }
         s = elementString(ctx, o, v, k)
@@ -4350,16 +4492,16 @@ func (p *delegate) elemStr(ctx Context, o Object, k elemkind) (s string) {
 }
 func (p *delegate) value(ctx Context) (v Value, err error) {
     if v, err = p.expand(ctx, expandDelegate); err != nil {
-        diag.errorAt(p.position, "expand '%v' failed: %v", p, err).debug(1)
+        ctx.error("expand '%v' failed: %v", p, err).at(p.position).debug(1)
     } else if v == p { // d, ok := v.(*delegate); ok && d == p
-        diag.errorOf(p, "self delegation: %v", p).debug(1)
+        ctx.error("self delegation: %v", p).of(p).debug(1)
     }
     return
 }
 func (p *delegate) args(ctx Context, w expandwhat) (args []Value, num int, err error) {
     if w&expandArgs != 0 {
         if args, num, err = expandall1(ctx, w, p.a...); err != nil {
-            diag.errorAt(p.position, "expand args %v failed: %v", p.a, err).debug(1)
+            ctx.error("expand args %v failed: %v", p.a, err).at(p.position).debug(1)
             return
         } else if len(args) == 0 && num == 0 && len(p.a) > 0 { args = p.a }
     } else if len(p.a) > 0 { args = p.a }
@@ -4376,82 +4518,94 @@ func (p *delegate) expandible(ctx Context, w expandwhat) (res bool) {
     return
 }
 func (p *delegate) expand(ctx Context, w expandwhat) (res Value, err error) {
-    if isNil(p.x) {
-        diag.errorAt(p.position, "expand nil delegation: %v (w=%016b)", p, w).debug(32)
+    if isNil(p.x) || isNone(p.x) {
+        ctx.error("expand nil delegation: %v (w=%016b)", p, w).at(p.position).debug(64)
         return
     }
+    if false { if o, ok := p.x.(Object); ok && strings.HasPrefix(o.Name(), "HAVE_TERMINFO") {
+        defer func() {
+            ctx.info("%p %T %v -> %T %v", p.x, p.x, p.x, res, res)
+            ctx.info("%v : %v", p.x, ctx).debug(6)
+        } ()
+    }}
 
     var v Value
     if w&expandDelegate == 0 {
         var x Value
         if x, err = p.x.expand(ctx, w); err != nil {
-            diag.errorOf(p.x, "expand '%v' failed: %v", p.x, err).debug(1)
+            ctx.error("expand '%v' failed: %v", p.x, err).of(p.x).debug(1)
             return
         } else if isNil(x) { x = p.x }
 
         var ( args []Value; num int )
         if args, num, err = p.args(ctx, w); err != nil {
-            diag.errorAt(p.position, "expand args failed: %v", err).debug(1)
+            ctx.error("expand args failed: %v", err).at(p.position).debug(1)
             return
         }
 
         if (!isNil(x) && x != p.x) || num > 0 {
             if num == 0 { args = p.a }
             res = &delegate{p.valbase, p.l, x, args}
+            return
         }
+        return
     } else if res, err = p.reveal(ctx, w); err != nil {
-        diag.errorOf(p, "reveal '%v' failed: %v", p, err).debug(1)
+        ctx.error("reveal '%v' failed: %v", p, err).of(p).debug(1)
+        return
     } else if isNil(res) {
         res = MakeNone(p.position)
+        return
     } else if v, err = res.expand(ctx, w); err != nil {
-        diag.errorOf(p, "expand '%v' failed: %v", res, err).debug(1)
+        ctx.error("expand '%v' failed: %v", res, err).of(p).debug(1)
+        return
     } else if !isNil(v) && v != res {
         res = v
+        return
     }
     return
 }
 func (p *delegate) reveal(ctx Context, w expandwhat) (res Value, err error) {
+    ctx = positional(ctx, p.position)
+
     var x Object
-    /*if pn, ok := p.x.(*ProjectName); ok {
-        ...
-    } else*/ if t, ok := p.x.(Object); ok && t != nil {
+    if t, ok := p.x.(Object); ok && t != nil {
         x = t
     } else if t, ok := p.x.(*usinglist); ok {
         x = t
-    } else if t, ok := p.x.(*selection); ok && t != nil && !isNil(t.o) {
-        if isNil(t.o) {
-            diag.errorAt(p.position, "%v: selection object is nil (w=%016b)", p, w).debug(16)
-            return
-        } else if n, ok := t.o.(*ProjectName); ok && n != nil && n.project != nil {
-            ctx = closureWith(ctx, n.project.scope)
+    } else if t, ok := p.x.(*selection); !ok || t == nil {
+        ctx.error("delegate unsupported value: %T %v", p.x, p.x).debug(1)
+        return
+    } else if isNil(t.o) {
+        ctx.error("%v: selection object is nil (w=%016b)", p, w).debug(16)
+        return
+    } else {
+        if n, ok := t.o.(*ProjectName); ok && n != nil && n.project != nil {
+            ctx = closureWith(ctx, n.position, n.project.scope)
         }
-        if v, e := t.value(ctx); e != nil {
-            diag.errorAt(p.position, "select value '%v' failed: %v", p.x, e).debug(1)
-            err = e; return
+
+        var v Value
+        if v, err = t.value(ctx); err != nil {
+            ctx.error("select value '%v' failed: %v", p.x, err).debug(1)
+            return
         } else if isNil(v) {
-            diag.errorAt(p.position, "%v: selected value is nil (%T %v) (w=%016b)", p, t.o, t.o, w).debug(16)
+            ctx.error("%v: selected value is nil (%T %v) (w=%016b)", p, t.o, t.o, w).debug(16)
             return
         } else if t, ok := v.(Object); ok {
             x = t
         }
-    } else {
-        diag.errorOf(p, "delegate unsupported value '%v' (%T)", p.x, p.x).debug(1)
-        return
     }
 
     var args []Value
     if args, _, err = p.args(ctx, w); err != nil {
-        diag.errorAt(p.position, "apply args failed: %v", err).debug(1)
+        ctx.error("apply args failed: %v", err).debug(1)
         return
     }
 
-    ctx = positional(ctx, p.position)
     switch t := x.(type) {
     case Caller:
         if res = t.Call(ctx, args...); isNil(res) {
             if d, ok := x.(*Def); ok && !isNil(d.value) {
-                diag.errorAt(p.position, "calling def '%v' (%v) returns <nil> (def.value=%v %T, %T)",
-                    d.name, d.origin, d.value, d.value, ctx).debug(16)
+                ctx.error("calling def '%v' (%v) returns <nil> (def.value=%v %T, %T)", d.name, d.origin, d.value, d.value, ctx).debug(16)
             }
         }
     case Executer:
@@ -4460,7 +4614,7 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (res Value, err error) {
                 var s string
                 if brk.message != "" { s = brk.message }
                 if brk.error != nil { s += fmt.Sprintf(" (error: %s)", brk.error) }
-                diag.errorAt(brk.pos, "broken '%v': (%s) %s", x, brk.what, s).debug(1)
+                ctx.error("broken '%v': (%s) %s", x, brk.what, s).at(brk.pos).debug(1)
             }
         } else if len(vals) > 0 {
             res = MakeList(ctx.Position(), vals...)
@@ -4468,16 +4622,16 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (res Value, err error) {
     default:
         var pos = t.Position()
         if !pos.IsValid() { pos = p.position }
-        diag.errorAt(pos, "%s: unknown delegation: %T %v -> %T %v", x.Name(), p.x, p.x, x, x).debug(32)
+        ctx.error("%s: unknown delegation: %T %v -> %T %v", x.Name(), p.x, p.x, x, x).at(pos).debug(32)
     }
     return
 }
-func (p *delegate) stat(t *traversal) (si *statinfo) {
-    diag.errorAt(p.position, "cant stat delegate %v, must expand it first", p).debug(16)
+func (p *delegate) stat(ctx Context) (si *statinfo) {
+    ctx.error("cant stat delegate %v, must expand it first", p).at(p.position).debug(16)
     return
 }
-func (p *delegate) stamp(t *traversal) (file []*File, err error) {
-    diag.errorAt(p.position, "cant stamp delegate %v, must expand it first", p).debug(16)
+func (p *delegate) stamp(ctx Context) (file []*File, err error) {
+    ctx.error("cant stamp delegate %v, must expand it first", p).at(p.position).debug(16)
     return
 }
 func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
@@ -4499,30 +4653,30 @@ func (p *closure) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *closure) Strval(ctx Context) (s string, err error) {
     if !p.isValidToken() {
         err = fmt.Errorf("invalid closure token: %v", p.l)
-        diag.errorAt(p.Position(), err.Error()).debug(1)
+        ctx.error("%v", err.Error()).at(p.Position()).debug(1)
         return
     }
 
     var val Value
     if val, err = p.expand(ctx, expandDelegate|expandClosure); err != nil {
-        diag.errorOf(p, "expand '%v' failed: %v", p, err).debug(1)
+        ctx.error("expand '%v' failed: %v", p, err).of(p).debug(1)
     } else if isNil(val) {
-        if false { diag.warnOf(p, "expand '%v' to nil", p).debug(1) }
+        if false { ctx.warn("expand '%v' to nil", p).of(p).debug(1) }
     } else if s, err = val.Strval(ctx); err != nil {
-        diag.errorOf(p, "strval '%v' failed: %v", p, err).debug(1)
+        ctx.error("strval '%v' failed: %v", p, err).of(p).debug(1)
     }
     return
 }
 func (p *closure) True(ctx Context) (t bool, err error) {
     var v Value
     if v, err = p.expand(ctx, expandPlainValue); err != nil {
-        diag.errorAt(p.position, "expand '%v' failed: %v", p, err).debug(1)
+        ctx.error("expand '%v' failed: %v", p, err).at(p.position).debug(1)
     } else if isNil(v) {
         // does nothing
     } else if t, err = v.True(ctx); err != nil {
-        diag.errorAt(p.position, "truthify '%v' failed: %v", p, err).debug(1)
+        ctx.error("truthify '%v' failed: %v", p, err).at(p.position).debug(1)
     } else if false {
-        diag.infoAt(p.position, "%v -> %T %v -> %v", p, v, v, t).debug(8)
+        ctx.info("%v -> %T %v -> %v", p, v, v, t).at(p.position).debug(8)
     }
     return
 }
@@ -4530,7 +4684,7 @@ func (p *closure) elemStr(ctx Context, o Object, k elemkind) (s string) {
     if ctx == nil || k&elemExpand == 0 {
         if s = p.string(ctx, o, k); !(p.l.IsClosure() || p.l.IsDelegate()) { s = "&" + s }
     } else if v, e := p.expand(ctx, expandDelegate/*|expandClosure*/); e != nil {
-        diag.errorAt(p.position, "expand failed: %v", e).debug(1)
+        ctx.error("expand failed: %v", e).at(p.position).debug(1)
     } else {
         if isNil(v) { v = p }
         s = elementString(ctx, o, v, k)
@@ -4549,39 +4703,39 @@ func (p *closure) expandible(ctx Context, w expandwhat) (res bool) {
 }
 func (p *closure) expand(ctx Context, w expandwhat) (res Value, err error) {
     if isNil(p.x) {
-        diag.errorAt(p.position, "expand nil closure: %v (%d)", p, w).debug(1)
+        ctx.error("expand nil closure: %v (%d)", p, w).at(p.position).debug(1)
         return
     }
 
     var val Value
     if w&expandClosure == 0 {
         if val, err = p.x.expand(ctx, w); err != nil {
-            diag.errorOf(p.x, "expand '%v' failed: %v", p.x, err).debug(1)
+            ctx.error("expand '%v' failed: %v", p.x, err).of(p.x).debug(1)
             return
         } else if isNil(val) { val = p.x }
 
         var ( args []Value; num int )
         if args, num, err = p.args(ctx, w); err != nil {
-            diag.errorOf(p, "expand args failed: %v", err).debug(1)
+            ctx.error("expand args failed: %v", err).of(p).debug(1)
             return
         } else if (!isNil(val) && val != p.x) || num > 0 {
             if num == 0 { args = p.a }
             res = &closure{delegate{p.valbase, p.l, val, args}}
         }
     } else if res, err = p.disclose(ctx, w); err != nil {
-        diag.errorOf(p, "disclose '%v' failed: %v", p, err).debug(1)
+        ctx.error("disclose '%v' failed: %v", p, err).of(p).debug(1)
     } else if isNil(res) {
-        diag.errorOf(p, "disclose '%v' to nil (%s '%v')", p, typeof(p.x), p.x).debug(16)
+        ctx.error("disclose '%v' to nil (%s '%v')", p, typeof(p.x), p.x).of(p).debug(16)
     } else if w&^expandClosure == 0 {
         // done, no more expand
     } else if val, err = res.expand(ctx, w); err != nil {
-        diag.errorOf(p, "expand '%v' failed: %v", res, err).debug(1)
+        ctx.error("expand '%v' failed: %v", res, err).of(p).debug(1)
     } else if !isNil(val) && val != res {
         if /*p.String() == "&(objects)"*/false {
             var v, _ = res.expand(ctx.inner(), w)
-            diag.infoAt(p.position, "%v -> %T %v -> %T %v -> %T %v", p, res, res, val, val, v, v)
-            diag.infoAt(p.position, "%v %v", p, ctx.inner())
-            diag.infoAt(p.position, "%v %v", p, ctx).debug(16)
+            ctx.info("%v -> %T %v -> %T %v -> %T %v", p, res, res, val, val, v, v).at(p.position)
+            ctx.info("%v %v", p, ctx.inner()).at(p.position)
+            ctx.info("%v %v", p, ctx).at(p.position).debug(16)
         }
         res = val
     }
@@ -4589,29 +4743,29 @@ func (p *closure) expand(ctx Context, w expandwhat) (res Value, err error) {
 }
 func (p *closure) disclose(ctx Context, w expandwhat) (res Value, err error) {
     var x Object
-    if true { defer func() { if name, proj := p.x.(Object).Name(), ctx.Project(); name == "objects" {
+    if true { defer func() { if name, proj := p.x.(Object).Name(), ctx.Project(); name == "@" {
         var val1, _ = res.expand(ctx, w)
         var s, _ = val1.Strval(ctx); if !strings.Contains(s, "/unknown/") { return }
         var o1 = ctx.closureResolveObject(p.position, name)
-        diag.warnAt(p.Position(), "%v: p = %v, %016b", proj, p, w) //.debug(1)
-        diag.warnAt(p.x.Position(), "%v: p.x = %T %v", proj, p.x, p.x) //.debug(1)
-        diag.warnAt(res.Position(), "%v: res = %T %v", proj, res, res) //.debug(1)
-        diag.warnAt(val1.Position(), "%v: val1 = %T %v", proj, val1, val1) //.debug(1)
-        diag.warnAt(val1.Position(), "%v: val1 = %T %v", proj, val1, s) //.debug(1)
-        if o1 != nil { diag.warnAt(o1.Position(), "%v: o1  = %T %v", proj, o1, o1)/*.debug(1)*/ }
+        ctx.warn("%v: p = %v, %016b", proj, p, w).at(p.Position()) //.debug(1)
+        ctx.warn("%v: p.x = %T %v", proj, p.x, p.x).at(p.x.Position()) //.debug(1)
+        ctx.warn("%v: res = %T %v", proj, res, res).at(res.Position()) //.debug(1)
+        ctx.warn("%v: val1 = %T %v", proj, val1, val1).at(val1.Position()) //.debug(1)
+        ctx.warn("%v: val1 = %T %v", proj, val1, s).at(val1.Position()) //.debug(1)
+        if o1 != nil { ctx.warn("%v: o1  = %T %v", proj, o1, o1).at(o1.Position())/*.debug(1)*/ }
         if d, ok := res.(*delegate); ok {
-            diag.warnAt(d.x.Position(), "%v: d.x = %T %v", proj, d.x, d.x)/*.debug(1)*/ }
-        diag.warnAt(ctx.Position(), "%v: %s", proj, ctx).debug(240)
+            ctx.warn("%v: d.x = %T %v", proj, d.x, d.x).at(d.x.Position())/*.debug(1)*/ }
+        ctx.warn("%v: %s", proj, ctx).at(ctx.Position()).debug(240)
     } } () }
 
     if t, ok := p.x.(Object); ok && t != nil {
         x = t
     } else if t, ok := p.x.(*selection); ok && t != nil && !isNil(t.o) {
         if n, ok := t.o.(*ProjectName); ok && n != nil && n.project != nil {
-            ctx = closureWith(ctx, n.project.scope)
+            ctx = closureWith(ctx, n.position, n.project.scope)
         }
         if v, e := t.value(ctx); e != nil {
-            diag.errorOf(p.x, "select value '%v' failed: %v", p.x, e).debug(1)
+            ctx.error("select value '%v' failed: %v", p.x, e).of(p.x).debug(1)
             err = e; return
         } else if t, ok := v.(Object); ok {
             x = t
@@ -4620,10 +4774,10 @@ func (p *closure) disclose(ctx Context, w expandwhat) (res Value, err error) {
 
     var name string
     if isNil(x) {
-        diag.errorOf(p.x, "closure non-object: %v (%T)", p.x, p.x).debug(1)
+        ctx.error("closure non-object: %v (%T)", p.x, p.x).of(p.x).debug(1)
         return
     } else if name = x.Name(); name == "" {
-        diag.errorOf(p.x, "empty closure name: %T %v -> %T %v", p.x, p.x, x, x).debug(1)
+        ctx.error("empty closure name: %T %v -> %T %v", p.x, p.x, x, x).of(p.x).debug(1)
         return
     }
 
@@ -4651,21 +4805,21 @@ ClosureTok:
 
     var ( args []Value; num int )
     if args, num, err = p.args(ctx, w); err != nil {
-        diag.errorAt(p.position, "get args failed: %v", err).debug(1)
+        ctx.error("get args failed: %v", err).at(p.position).debug(1)
     } else if isNil(x) {
-        diag.errorAt(p.position, "closure object is nil: %v", p.x).debug(1)
+        ctx.error("closure object is nil: %v", p.x).at(p.position).debug(1)
     } else if p.x != x || num > 0 {
         if t1, t2 := reflect.TypeOf(p.x), reflect.TypeOf(x); t1 != t2 {
             if unres := reflect.TypeOf((*unresolvedobject)(nil)); t1 != unres {
                 var o1 = ctx.closureResolveObject(p.position, name)
                 var o2 = ctx.inner().closureResolveObject(p.position, name)
                 var o3 = ctx.inner().inner().closureResolveObject(p.position, name)
-                diag.errorAt(p.position, "%T %v", o1, o1)
-                diag.errorAt(p.position, "%T %v", o2, o2)
-                diag.errorAt(p.position, "%T %v", o3, o3)
-                diag.errorAt(p.position, "closure object type differs: %v (!= %v)", t2, t1)
-                diag.errorAt(p.x.Position(), "%v '%s' is found here", t1, name)
-                diag.errorAt(ctx.Position(), "%v", ctx).debug(16)
+                ctx.error("%T %v", o1, o1).at(p.position)
+                ctx.error("%T %v", o2, o2).at(p.position)
+                ctx.error("%T %v", o3, o3).at(p.position)
+                ctx.error("closure object type differs: %v (!= %v)", t2, t1).at(p.position)
+                ctx.error("%v '%s' is found here", t1, name).at(p.x.Position())
+                ctx.error("%v", ctx).at(ctx.Position()).debug(16)
                 return
             }
         }
@@ -4675,25 +4829,25 @@ ClosureTok:
     }
     return
 }
-func (p *closure) traverse(t *traversal) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, t, p)) }
-    if val, err := p.expand(positional(t, p.position), expandClosure); err != nil {
-        diag.errorAt(p.position, "expand '%v' failed: %v", p, err).debug(1)
+func (p *closure) traverse(ctx Context) (brks breakers) {
+    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
+    if val, err := p.expand(positional(ctx, p.position), expandClosure); err != nil {
+        ctx.error("expand '%v' failed: %v", p, err).at(p.position).debug(1)
     } else if isNil(val) {
-        diag.warnAt(p.position, "closure '%v' expands to nil", p).debug(1)
+        ctx.warn("closure '%v' expands to nil", p).at(p.position).debug(1)
     } else if isNone(val) {
-        diag.warnAt(p.position, "closure '%v' expands to none", p).debug(1)
+        ctx.warn("closure '%v' expands to none", p).at(p.position).debug(1)
     } else {
-        brks = val.traverse(t)
+        brks = val.traverse(ctx)
     }
     return
 }
-func (p *closure) stat(t *traversal) (si *statinfo) {
-    diag.errorAt(p.position, "cant stat closure %v, must expand it first", p).debug(16)
+func (p *closure) stat(ctx Context) (si *statinfo) {
+    ctx.error("cant stat closure %v, must expand it first", p).at(p.position).debug(16)
     return
 }
-func (p *closure) stamp(t *traversal) (file []*File, err error) {
-    diag.errorAt(p.position, "cant stamp closure %v, must expand it first", p).debug(16)
+func (p *closure) stamp(ctx Context) (file []*File, err error) {
+    ctx.error("cant stamp closure %v, must expand it first", p).at(p.position).debug(16)
     return
 }
 func (p *closure) cmp(ctx Context, v Value) (res cmpres) {
@@ -4717,18 +4871,18 @@ type selection struct {
 func (p *selection) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *selection) Strval(ctx Context) (s string, err error) {
     if n, ok := p.o.(*ProjectName); ok && n != nil {
-        ctx = closureWith(ctx, n.project.scope)
+        ctx = closureWith(ctx, n.position, n.project.scope)
     }
 
     var v Value
     if v, err = p.value(ctx); err != nil {
-        diag.errorAt(p.position, "%v", err)
+        ctx.error("%v", err).at(p.position)
     } else if v != nil {
         if s, err = v.Strval(ctx); err != nil {
-            diag.errorAt(p.position, "%v", err).debug(1)
+            ctx.error("%v", err).at(p.position).debug(1)
         }
     } else if false {
-        diag.errorAt(p.position, "selection.strval: `%s` is nil", p.String())
+        ctx.error("selection.strval: `%s` is nil", p.String()).at(p.position)
     }
     return
 }
@@ -4777,39 +4931,39 @@ func (p *selection) object(ctx Context) (o Object, err error) {
         if v, err = s.value(ctx); err != nil {
             // sth's wrong!
         } else if o, _ = v.(Object); o == nil {
-            diag.errorAt(p.position, "selection.object: `%s` is nil", s.String())
+            ctx.error("selection.object: `%s` is nil", s.String()).at(p.position)
         }
     } else if o, ok = p.o.(Object); !ok {
-        diag.errorAt(p.position, "selection.object: '%v' is not object (but %s)", p.o, typeof(p.o))
+        ctx.error("selection.object: '%v' is not object (but %s)", p.o, typeof(p.o)).at(p.position)
     }
     return
 }
 func (p *selection) value(ctx Context) (v Value, err error) {
     var o Object
     if isNil(p.s) {
-        diag.errorAt(p.position, "selection prop is nil: %s", p.String()).debug(1)
+        ctx.error("selection prop is nil: %s", p.String()).at(p.position).debug(1)
     } else if o, err = p.object(ctx); err != nil {
-        diag.errorAt(p.position, "get selection object failed: %v", err).debug(1)
+        ctx.error("get selection object failed: %v", err).at(p.position).debug(1)
     } else if s := ""; o != nil {
         /*if n, ok := o.(*ProjectName); ok && n != nil && n.project != nil {
             defer setclosure(setclosure(cloctx.unshift(n.project.scope)))
         }*/
         if s, err = p.s.Strval(ctx); err == nil {
             if pn, ok := o.(*ProjectName); ok && (p.t == token.SELECT_PROG1 || p.t == token.SELECT_PROG2) {
-                var entry *RuleEntry
+                var entry Entry
                 if entry, err = pn.project.resolveEntry(ctx, s, false); err != nil {
                     return
                 } else if entry == nil {
-                    diag.errorAt(p.position, "selection.value: no entry `%s` (%+v)", s, p.String())
+                    ctx.error("selection.value: no entry `%s` (%+v)", s, p.String()).at(p.position)
                 } else {
                     v = entry
                 }
             } else if v, err = o.Get(ctx, s); err != nil {
-                diag.errorAt(p.position, "%v", err)
+                ctx.error("%v", err).at(p.position)
             }
         }
     } else /*if o == nil*/ {
-        diag.errorAt(p.position, "selection.value: nil object `%s`", p.String())
+        ctx.error("selection.value: nil object `%s`", p.String()).at(p.position)
     }
     return
 }
@@ -4822,7 +4976,7 @@ func (p *selection) expandible(ctx Context, w expandwhat) (res bool) {
 func (p *selection) expand(ctx Context, w expandwhat) (res Value, err error) {
     if w&expandSelection != 0 {
         if res, err = p.value(ctx); err != nil {
-            diag.errorAt(p.position, "selection '%v' failed: %v", p, err).debug(1)
+            ctx.error("selection '%v' failed: %v", p, err).at(p.position).debug(1)
         }
     } else if isNil(p.o) {
         return // nil object
@@ -4832,37 +4986,37 @@ func (p *selection) expand(ctx Context, w expandwhat) (res Value, err error) {
 
     var o, s Value
     if o, err = p.o.expand(ctx, w); err != nil {
-        diag.errorOf(p.o, "expand '%v' failed: %v", p.o, err).debug(1)
+        ctx.error("expand '%v' failed: %v", p.o, err).of(p.o).debug(1)
         return
     } else if isNil(o) { o = p.o }
     if s, err = p.s.expand(ctx, w); err != nil {
-        diag.errorOf(p.s, "expand '%v' failed: %v", p.s, err).debug(1)
+        ctx.error("expand '%v' failed: %v", p.s, err).of(p.s).debug(1)
         return
     } else if isNil(s) { s = p.s }
 
     if o != p.o || s != p.s { res = &selection{p.valbase,p.t,o,s}}
     return
 }
-func (p *selection) traverse(t *traversal) (brks breakers) {
-    var ctx = positional(t, p.position)
-    if options.traceTraversal { defer un(tt(t_traverse, t, p)) }
+func (p *selection) traverse(ctx Context) (brks breakers) {
+    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
+    ctx = positional(ctx, p.position)
     if val, err := p.value(ctx); err != nil {
-        diag.errorAt(p.position, "select value '%v' failed: %v", p, err).debug(1)
+        ctx.error("select value '%v' failed: %v", p, err).at(p.position).debug(1)
     } else if isNil(val) {
-        diag.warnAt(p.position, "selected value '%v' is nil", p).debug(1)
+        ctx.warn("selected value '%v' is nil", p).at(p.position).debug(1)
     } else if isNone(val) {
-        diag.warnAt(p.position, "selected value '%v' is none", p).debug(1)
+        ctx.warn("selected value '%v' is none", p).at(p.position).debug(1)
     } else {
-        brks = val.traverse(t)
+        brks = val.traverse(ctx)
     }
     return
 }
-func (p *selection) stat(t *traversal) (si *statinfo) {
-    diag.errorAt(p.position, "cant stat selection %v, must expand it first", p).debug(1)
+func (p *selection) stat(ctx Context) (si *statinfo) {
+    ctx.error("cant stat selection %v, must expand it first", p).at(p.position).debug(1)
     return
 }
-func (p *selection) stamp(t *traversal) (file []*File, err error) {
-    diag.errorAt(p.position, "cant stamp selection %v, must expand it first", p).debug(1)
+func (p *selection) stamp(ctx Context) (file []*File, err error) {
+    ctx.error("cant stamp selection %v, must expand it first", p).at(p.position).debug(1)
     return
 }
 func (p *selection) cmp(ctx Context, v Value) (res cmpres) {
@@ -4944,7 +5098,7 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
     if !(isNil(p.Prefix) || isNone(p.Prefix)) {
         // FIXME: the prefix could be Glob, Regexp, etc.
         if prefix, err = p.Prefix.Strval(ctx); err != nil {
-            diag.errorOf(p.Prefix, "prefix strval '%v' failed: %v", p.Prefix, err)
+            ctx.error("prefix strval '%v' failed: %v", p.Prefix, err).of(p.Prefix)
             return
         } else if strings.HasPrefix(rep, prefix) {
             result = prefix
@@ -4964,7 +5118,7 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
             if isNil(pp.Prefix) || isNone(pp.Prefix) {
                 // does nothing
             } else if s, e := pp.Prefix.Strval(ctx); e != nil {
-                diag.errorOf(pp.Prefix, "strval '%v' failed: %v", pp.Prefix, e)
+                ctx.error("strval '%v' failed: %v", pp.Prefix, e).of(pp.Prefix)
                 return
             } else if s != "" {
                 if n := strings.Index(rep[a:], s); n < 0 {
@@ -4986,7 +5140,7 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
                 pp = pp2
                 continue
             } else if s, e := pp.Suffix.Strval(ctx); e != nil {
-                diag.errorOf(pp.Prefix, "strval '%v' failed: %v", pp.Suffix, e)
+                ctx.error("strval '%v' failed: %v", pp.Suffix, e).of(pp.Prefix)
                 return
             } else if s != "" && strings.HasSuffix(rep[a:], s) {
                 if b -= len(s); a < b {
@@ -4999,7 +5153,7 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
         }
     } else if a < b && p.Suffix.patterned(ctx) {
         if false {
-            diag.warnOf(p.Suffix, "mixing % pattern might have performance impact: %v", p).debug(1)
+            ctx.warn("mixing % pattern might have performance impact: %v", p).of(p.Suffix).debug(1)
         }
         for n := b-1; a < n; n -= 1 {
             if f, s, ss := p.Suffix.match(ctx, rep[n:]); f && s != "" {
@@ -5012,7 +5166,7 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
    } else if a <= b {
         var s string
         if s, err = p.Suffix.Strval(ctx); err != nil {
-            diag.errorOf(p.Suffix, "strval '%v' failed: %v", p.Suffix, err)
+            ctx.error("strval '%v' failed: %v", p.Suffix, err).of(p.Suffix)
         } else if strings.HasSuffix(rep[a:], s) {
             if b -= len(s); a < b {
                 stems = append(stems, rep[a:b])
@@ -5044,7 +5198,7 @@ func (p *PercPattern) match(ctx Context, i interface{}) (full bool, result strin
         }
     case Value:
         if rep, err := t.Strval(ctx); err != nil {
-            diag.errorOf(t, "strval '%v' failed: %v", t, err)
+            ctx.error("strval '%v' failed: %v", t, err).of(t)
         } else { return p.match1(ctx, rep) }
     default:
         unreachable(fmt.Sprintf("perc.match: %T %v", i, i))
@@ -5059,7 +5213,7 @@ func (p *PercPattern) stencil(ctx Context, stems []string) (s string, rest []str
     if !(isNil(p.Prefix) || isNone(p.Prefix)) {
         // FIXME: the prefix could be Glob, Regexp, etc.
         if s, err = p.Prefix.Strval(ctx); err != nil {
-            diag.errorOf(p.Suffix, "strval prefix '%v' failed: %v", p.Prefix, err).debug(1)
+            ctx.error("strval prefix '%v' failed: %v", p.Prefix, err).of(p.Suffix).debug(1)
             return
         }
     }
@@ -5079,14 +5233,14 @@ func (p *PercPattern) stencil(ctx Context, stems []string) (s string, rest []str
         // FIXME: patterns like '%xxx%...' use multiple stems.
         if v, rest = p.Suffix.stencil(ctx, rest); v != "" { s += v }
     } else if v, err = p.Suffix.Strval(ctx); err != nil {
-        diag.errorOf(p.Suffix, "strval suffix '%v' failed: %v", p.Suffix, err).debug(1)
+        ctx.error("strval suffix '%v' failed: %v", p.Suffix, err).of(p.Suffix).debug(1)
         return
     } else if v != "" {
         s += v
     }
     return
 }
-func (p *PercPattern) traverse(t *traversal) (brks breakers) { return t.pattern(p) }
+func (p *PercPattern) traverse(ctx Context) (brks breakers) { return traversePattern(ctx, p) }
 func (p *PercPattern) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*PercPattern); ok {
         if p.Prefix.cmp(ctx, a.Prefix) == cmpEqual {
@@ -5180,7 +5334,7 @@ func (p *GlobPattern) expandible(ctx Context, w expandwhat) (res bool) {
 func (p *GlobPattern) expand(ctx Context, w expandwhat) (res Value, err error) {
     var ( components []Value; num int )
     if components, num, err = expandall1(ctx, w, p.Components...); err != nil {
-        diag.errorOf(p, "expand glob components failed: %v (w=%016b)", err, w).debug(1)
+        ctx.error("expand glob components failed: %v (w=%016b)", err, w).of(p).debug(1)
     } else if num > 0 {
         res = &GlobPattern{p.valbase, components}
     }
@@ -5196,16 +5350,16 @@ func (p *GlobPattern) match(ctx Context, i interface{}) (full bool, result strin
     case *filestub: s = t.name
     case Value:
         if s, e = t.Strval(ctx); e != nil {
-            diag.errorOf(t, "strval '%v' failed: %v", t, e)
+            ctx.error("strval '%v' failed: %v", t, e).of(t)
             return
         }
     default:
         unreachable("glob.match: %T %v", i, i)
     }
     if pat, e = p.Strval(ctx); e != nil {
-        diag.errorAt(p.position, "strval '%v' failed: %v", p, e)
+        ctx.error("strval '%v' failed: %v", p, e).at(p.position)
     } else if full, e = filepath.Match(pat, s); e != nil {
-        diag.errorAt(p.position, "glob match '%s' failed: %v", pat, e)
+        ctx.error("glob match '%s' failed: %v", pat, e).at(p.position)
     } else if full {
         result = s
         // FIXME: calculate stems from matching
@@ -5216,7 +5370,7 @@ func (p *GlobPattern) stencil(ctx Context, stems []string) (s string, rest []str
     unreachable(fmt.Sprintf("Unimplemented GlobPattern stencil %v (stems=%v)", p, stems))
     return
 }
-func (p *GlobPattern) traverse(t *traversal) (brks breakers) { return t.pattern(p) }
+func (p *GlobPattern) traverse(ctx Context) (brks breakers) { return traversePattern(ctx, p) }
 func (p *GlobPattern) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*GlobPattern); ok {
         if len(p.Components) == len(a.Components) {
@@ -5251,7 +5405,7 @@ func (p *RegexpPattern) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *RegexpPattern) traverse(t *traversal) (brks breakers) { return t.pattern(p) }
+func (p *RegexpPattern) traverse(ctx Context) (brks breakers) { return traversePattern(ctx, p) }
 
 func NewRegexpPattern(pos Position) Value {
     return &RegexpPattern{valbase{pos}} // TODO: RegexpPattern implementation
@@ -5303,7 +5457,7 @@ func Reveal(ctx Context, values ...Value) (res []Value, err error) {
         var t Value
         //if v, err = Reveal(v); err != nil { break }
         if t, err = v.expand(ctx, expandDelegate); err != nil {
-            diag.errorOf(v, "expand '%v' failed: %v", v, err).debug(1)
+            ctx.error("expand '%v' failed: %v", v, err).of(v).debug(1)
             break
         } else if isNil(t) { t = v }
         res = append(res, t)
@@ -5316,7 +5470,7 @@ func Disclose(ctx Context, values ...Value) (res []Value, err error) {
     for _, v := range values {
         var t Value
         if t, err = v.expand(ctx, expandClosure); err != nil {
-            diag.errorOf(v, "expand '%v' failed: %v", v, err).debug(1)
+            ctx.error("expand '%v' failed: %v", v, err).of(v).debug(1)
             break
         } else if isNil(t) { t = v }
         res = append(res, t)
@@ -5333,7 +5487,7 @@ func values(args ...interface{}) (elems []Value) {
                 elems = append(elems, values(v.Index(n).Interface())...)
             }
         } else {
-            diag.error("'%v' is not value type (%T)", a, a).debug(6)
+            //ctx.error("'%v' is not value type (%T)", a, a).debug(6)
         }
     }
     return
@@ -5359,8 +5513,7 @@ func mergeresult(res []Value, err error) ([]Value, error) {
 
 // example: mergeresult2(expandall2(...))
 func mergeresult2(res []Value, _ int, err error) ([]Value, error) {
-    if err == nil { res = merge(res...) }
-    return res, err
+    return mergeresult(res, err)
 }
 
 func trueVal(ctx Context, v Value, i bool) (res bool, err error) {
@@ -5400,19 +5553,13 @@ func permVal(ctx Context, v Value, i uint32) (res os.FileMode, err error) {
     return
 }
 
-func expandall1x(ctx Context, w expandwhat, depth int, values ...Value) (elems []Value, num int, err error) {
-    if depth += 1; depth > 128 {
-        var pos = ctx.Position()
-        diag.errorAt(pos, "maximum expand depth (%d)", depth).debug(512)
-        fail(pos, "exceeds maximum expand depth (%d)", depth)
-        return
-    }
+func expandall1(ctx Context, w expandwhat, values ...Value) (elems []Value, num int, err error) {
     for _, elem := range values {
         var val Value
         if isNil(elem) {
             // TODO: report nil expand ??
         } else if val, err = elem.expand(ctx, w); err != nil {
-            diag.errorOf(elem, "expand '%v' failed: %v", elem, err).debug(1)
+            ctx.error("expand '%v' failed: %v", elem, err).of(elem).debug(1)
             break
         }
         if isNil(val) || val == elem {
@@ -5424,21 +5571,29 @@ func expandall1x(ctx Context, w expandwhat, depth int, values ...Value) (elems [
     }
     return
 }
-func expandall1(ctx Context, w expandwhat, values ...Value) (elems []Value, num int, err error) {
-    return expandall1x(ctx, w, 0, values...)
-}
 
 func expandall2(ctx Context, w expandwhat, values ...Value) (res []Value, num int, err error) {
     if res, num, err = expandall1(ctx, w, values...); err == nil && w != 0 {
         for i, v := range res {
             if v.expandible(ctx, w) {
                 t, _ := v.expand(ctx, w)
-                diag.warnOf(values[i], "expand incomplete: %T %v -> %T %v (equal=%v) -> %v (w=%016b)",
-                    values[i], values[i], v, v, (values[i]==v), t, w).debug(true,16)
+                ctx.warn("expand incomplete: %T %v -> %T %v (equal=%v) -> %v (w=%016b)", values[i], values[i], v, v, (values[i]==v), t, w).of(values[i]).debug(true,16)
             }
         }
     }
     return
+}
+
+func expandmerge1(ctx Context, w expandwhat, values ...Value) (res []Value, err error) {
+    var num int
+    if res, num, err = expandall1(ctx, w, values...); err == nil && num > 0 {
+         res, err = mergeresult(res, err)
+    }
+    return
+}
+
+func expandmerge2(ctx Context, w expandwhat, values ...Value) ([]Value, error) {
+    return mergeresult2(expandall2(ctx, w, values...))
 }
 
 func ExpandAll(ctx Context, values ...Value) (res []Value, err error) {
@@ -5569,10 +5724,7 @@ func MakeDelegate(pos Position, tok token.Token, obj Value, args... Value) Value
     return &delegate{valbase{pos}, tok, obj, args}
 }
 func MakeClosure(pos Position, tok token.Token, obj Value, args... Value) Value {
-    if isNil(obj) {
-        if false && pos.IsValid() { diag.errorAt(pos, "closure nil object").debug(1) }
-        panic(failure{pos,"making closure on <nil> object"})
-    }
+    if isNil(obj) { panic(failure{pos,"making closure on <nil> object"}) }
     return &closure{delegate{valbase{pos}, tok, obj, args}}
 }
 func MakeListOrScalar(pos Position, elems []Value) (res Value) {

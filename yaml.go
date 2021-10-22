@@ -29,16 +29,16 @@ func DecodeYAML(ctx Context, source string, ws bool) (result Value, err error) {
 }
 
 type yaml struct { whitespace bool }
-func (p *yaml) Evaluate(t *traversal, args ...Value) (result Value, err error) {
-        var ( ctx = t.Context; source string )
-        if source, err = multiline(ctx, t.program.recipes...); err != nil {
-                diag.errorAt(ctx.Position(), "%v", err).debug(1)
+func (p *yaml) Evaluate(ctx Context, args ...Value) (result Value, err error) {
+        var source string
+        if source, err = multiline(ctx, ctx.traversal().program.recipes...); err != nil {
+                ctx.error("%v", err).debug(1)
                 return
         } else if result, err = DecodeYAML(ctx, source, p.whitespace); err == nil {
                 result = &YAML{ result }
         } else {
-                result = &YAML{ &None{valbase{t.program.position}} }
-                diag.errorAt(ctx.Position(), "%v", err).debug(1)
+                result = &YAML{ MakeNone(ctx.Position()) }
+                ctx.error("%v", err).debug(1)
         }
         return
 }

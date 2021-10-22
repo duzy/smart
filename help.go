@@ -70,7 +70,7 @@ func print_flag_trace(ctx Context) {
         for name, entries := range ctx.Globe().flagEntries {
                 if name == "" { continue }
                 for _, entry := range entries {
-                        fmt.Fprintf(stderr, "%s: %v\n", entry.position, entry)
+                        fmt.Fprintf(stderr, "%s: %v\n", entry.Position(), entry)
                 }
         }
 }
@@ -79,7 +79,7 @@ func print_help_entries(ctx Context) {
 }
 
 func print_options(ctx Context) {
-        type opt struct { entry *RuleEntry; infos []Value }
+        type opt struct { entry Entry; infos []Value }
         var opts []opt
         for _, entry := range configuration.entries {
                 okay, infos := entry.option(ctx)
@@ -102,7 +102,7 @@ func print_configuration(ctx Context) {
         fmt.Fprintf(stderr, `Configuration:
 `)
 
-        var configs = make(map[*Project][]*RuleEntry)
+        var configs = make(map[*Project][]Entry)
         for _, entry := range configuration.entries {
                 project := entry.OwnerProject()
                 entries, _ := configs[project]

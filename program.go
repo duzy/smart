@@ -16,6 +16,12 @@ import (
 type dependPatternUnfit struct {}
 func (*dependPatternUnfit) Error() string { return "pattern unfit" }
 
+type programContext struct {
+    autoContext
+}
+
+func (pc *programContext) String() string { return fmt.Sprintf("program{%s}", pc.autoContext.String()) }
+
 type Program struct {
     position Position
     project *Project
@@ -28,103 +34,37 @@ type Program struct {
     language string
     changedWD string
     configure bool
-    mutex sync.Mutex
 }
 
 func (prog *Program) Position() Position { return prog.position }
 func (prog *Program) Project() *Project { return prog.project }
 func (prog *Program) Scope() *Scope { return prog.scope }
-/*
-func (t *traversal) auto(name string, value Value) (auto *Def, err error) {
-    var alt Object
-    assert(t.closure != t.program.scope, "traversal closure must not be program scope")
-    if auto, alt = t.closure.define(t, DefAutoVal, name, value); alt != nil {
-        var found = false
-        if auto, found = alt.(*Def); found {
-            auto.val(t, value)
-        } else {
-            err = fmt.Errorf("`%v` name already taken (%T)", name, alt)
-        }
-    }
-    if enable_assertions && auto != nil {
-        assert(auto.value == value, "wrong auto value")
-    }
-    return
-}
-
-func (t *traversal) seta(prog *Program, args []Value) (params []*Def, err error) {
-    var argnum int // setup named/number parameters ($1, $2, etc.)
-    var rest []Value
-    assert(t.closure != t.program.scope, "traversal closure must not be program scope")
-    for _, a := range args {
-        var def *Def
-        //<!IMPORTANT: Don't translate Flag, Flag values are valid
-        //         regular arguments. Pair values are special.
-        if l, ok := a.(*List); ok && l.Len() == 1 { a = l.Elems[0] }
-        if p, ok := a.(*Pair); ok {
-            var name string
-            if name, err = p.Key.Strval(t); err != nil {
-                diag.errorOf(p.Key, "strval '%v' failed: %v", p.Key, err).debug(1)
-                return
-            } else if o := t.closure.Lookup(name); isNil(o) {
-                rest = append(rest, a)
-            } else if def, ok = o.(*Def); !ok {
-                diag.errorOf(o, "object is not a Def: %v", o).debug(1)
-                return
-            } else {
-                params = append(params, def)
-                def.set(t, DefArgVal, p.Value)
-                argnum += 1
-            }
-        } else { rest = append(rest, a) }
-    }
-    for _, a := range rest {
-        var def *Def
-        if l, ok := a.(*List); ok && l.Len() == 1 { a = l.Elems[0] }
-        if argnum < len(prog.params) {
-            def = prog.params[argnum]
-            params = append(params, def)
-            def.set(t, DefArgVal, a)
-        } else {
-            name := strconv.Itoa(argnum+1)
-            if def, err = t.auto(name, a); err != nil {
-                diag.errorOf(a, "arg: %v", err).debug(1)
-                return
-            }
-            params = append(params, def)
-            def.origin = DefArgVal
-        }
-        argnum += 1
-    }
-    return
-}
-*/
-func (prog *Program) interpret(t *traversal, i interpreter, params []Value) (err error) {
+func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err error) {
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.interpret(%s)", typeof(i)))) }
 
-    var pos = t.Position()
-    if !pos.IsValid() { pos = prog.position }
-    /*for _, e := range t.breakers {
-        if e.what != breakCase { return }
-    }*/
+    if pos := ctx.Position(); !pos.IsValid() && prog.position.IsValid() {
+        ctx = positional(ctx, prog.position)
+    }
 
     // Wait for prerequisites before interpretion
-    t.wait(t)
+    wait(ctx)
 
     var value Value
-    if value, err = i.Evaluate(t, params...); err != nil {
-        diag.errorAt(pos, "evaluation failed: %v", err).debug(6)
+    if value, err = i.Evaluate(ctx, params...); err != nil {
+        ctx.error("evaluation failed: %v", err).debug(6)
         return
     } else if isNil(value) {
         // disgard nil value
-    } else if t.autoSet("-", value); false {
-        diag.errorAt(pos, "set buffer value failed: %v", value).debug(1)
+    } else if prev, ok := ctx.autoSet("-", value); !ok {
+        ctx.error("set buffer value failed: %v -> %v", prev, value)
+        ctx.error("set buffer value failed: %v", ctx).debug(1)
         return
     }
 
-    if _, _, err = t.updateRecipesHash(t); err != nil {
-        diag.errorAt(pos, "update recipes hash failed: %v", err).debug(1)
+    if _, _, err = updateRecipesHash(ctx); err != nil {
+        ctx.error("update recipes hash failed: %v", err).debug(1)
     } else {
+        var t = ctx.traversal()
         t.interpreted = append(t.interpreted, i)
     }
     return
@@ -136,7 +76,7 @@ func (prog *Program) getModifiers(ctx Context, name string) (ms []*modifier) {
         if !ok { continue }
         for _, m := range g.modifiers {
             if s, e := m.name.Strval(ctx); e != nil {
-                diag.errorOf(m.name, "get modifier name '%v' failed: %v", m.name, e).debug(1)
+                ctx.error("get modifier name '%v' failed: %v", m.name, e).of(m.name).debug(1)
                 return
             } else if s == name {
                 ms = append(ms, m)
@@ -146,7 +86,7 @@ func (prog *Program) getModifiers(ctx Context, name string) (ms []*modifier) {
     return
 }
 
-func (prog *Program) modify(t *traversal, m *modifier) (brks breakers) {
+func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
     // TODO: using rules in a different project to implement modifiers, e.g.
     //       [ foo.check-preprequisites ]
     //       [ foo.baaaar ]
@@ -155,160 +95,156 @@ func (prog *Program) modify(t *traversal, m *modifier) (brks breakers) {
         args []Value
         err error
     )
-    if args, err = mergeresult2(expandall2(t, expandPlainValue, m.name)); err != nil {
-        diag.errorOf(m.name, "expand modifier name '%v' failed: %v", m.name, err).debug(1)
+    if args, err = expandmerge2(ctx, expandPlainValue, m.name); err != nil {
+        ctx.error("expand modifier name '%v' failed: %v", m.name, err).of(m.name).debug(1)
         return
     } else if n := len(args); n == 0 {
-        diag.errorOf(m.name, "modifier name '%v' is empty", m.name).debug(1)
+        ctx.error("modifier name '%v' is empty", m.name).of(m.name).debug(1)
         return
-    } else if name, err = args[0].Strval(t); err != nil {
-        diag.errorOf(args[0], "strval '%v' failed: %v", args[0], err).debug(1)
+    } else if name, err = args[0].Strval(ctx); err != nil {
+        ctx.error("strval '%v' failed: %v", args[0], err).of(args[0]).debug(1)
         return
     } else {
         args = append(args[1:], m.args...)
     }
 
-    //var ctx = contextAt(m.position, t)
+    var t = ctx.traversal()
     if f, ok := modifiers[name]; ok {
-        var value = t.autoGet("-")
+        var value Value //, _ = ctx.autoGet("-")
         // Special modifier processing (implicit interpretation) before (configure)
-        if name == "configure" && len(t.interpreted) == 0 && len(prog.recipes) > 0 /*&& (isNil(value) || isNone(value))*/ {
+        if len(t.interpreted) == 0 && len(prog.recipes) > 0 && name == "configure" /*&& (isNil(value) || isNone(value))*/ {
             // Evaluate for configure modifier
             if i, ok := dialects["eval"]; ok && i != nil {
-                if err = prog.interpret(t, i, args); err != nil {
-                    diag.errorAt(m.position, "interpret failed: %v", err).debug(1)
+                if err = prog.interpret(ctx, i, args); err != nil {
+                    ctx.error("interpret failed: %v", err).at(m.position).debug(1)
                     return
+                }
+                if false && t.entry.String() == "HAVE_TERMINFO" {
+                    var v, _ = ctx.autoGet("-")
+                    ctx.info("eval %v -> %T %v", t.entry, v, v).debug(6)
                 }
             }
         }
-        if value, brks = f(t, args...); brks.has() {
-            if tb := brks.not(breakCase, breakDone); tb.has() {
-                t.batch(func() {
-                    for _, brk := range tb {
-                        switch brk.what {
-                        case breakFail: diag.errorAt(brk.pos, "broken modifier %v with failure: %v", name, brk.message)
-                        case breakErro: diag.errorAt(brk.pos, "broken modifier %v with error: %v", name, brk.error)
-                        default: diag.errorAt(brk.pos, "broken modifier %v (%v)", name, brk.what)
-                        }
+        if value, brks = f(positional(ctx, m.position), args...); brks.has() {
+            if tb := brks.not(breakCase, breakNext, breakDone); tb.has() {
+                for _, brk := range brks {
+                    switch brk.what {
+                    case breakFail: ctx.error("broken modifier %v with failure: %v", name, brk.message).at(brk.pos)
+                    case breakErro: ctx.error("broken modifier %v with error: %v", name, brk.error).at(brk.pos)
+                    default: ctx.error("broken modifier %v (%v)", name, brk.what).at(brk.pos)
                     }
-                    diag.errorAt(m.position, "borken modifier %s %v", name, args).debug(6)
-                })
+                }
+                ctx.error("borken modifier %s %v", name, args).at(m.position).debug(6)
             }
-        } else if bv := t.autoGet("-"); isNil(value) || value == bv {
+        } else if hyphen, found := ctx.autoGet("-"); !found || isNil(value) || value == hyphen {
             // does nothing
-        } else if t.autoSet("-", value); false {
-            diag.errorAt(m.position, "setting buffer value failed: %v", value).debug(1)
+        } else if ctx.autoSet("-", value); false {
+            ctx.error("setting buffer value failed: %v", value).at(m.position).debug(1)
         }
     } else if i, _ := dialects[name]; i != nil {
-        if err = prog.interpret(t, i, args); err != nil {
-            diag.errorAt(m.position, "interpret '%s' failed: %v", name, err).debug(1)
+        if err = prog.interpret(ctx, i, args); err != nil {
+            ctx.error("interpret '%s' failed: %v", name, err).at(m.position).debug(1)
         }
     } else {
-        diag.errorAt(m.position, "unknown modifier '%s'", name).debug(1)
+        ctx.error("unknown modifier '%s'", name).at(m.position).debug(1)
     }
     return
 }
 
 const maxRecursion  = 16 //32 //64
 
-func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) (result Value, brks breakers) {
-    if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.execute(%s)", entry.target))) }
+func (prog *Program) _execute(cc Context, entry Entry, args []Value) (result Value, brks breakers) {
+    if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.execute(%s)", entry.Target()))) }
     if optionEnableBenchspots { defer bench(spot("Program.execute")) }
 
-    var err error
-    var pos = prog.position
+    var pos = cc.Position()
     if !pos.IsValid() { pos = entry.Position() }
-    if !pos.IsValid() { pos = entry.position }
-
-    var isConfigureExecution bool = prog.configure
-    if !isConfigureExecution && caller != nil {
-        isConfigureExecution =  caller.isConfigureExecution
-    }
-
-    // only one thread allowed to enter this section
-    if false { prog.mutex.Lock(); defer prog.mutex.Unlock() }
-
-    defer func() {
-        if diag.checkErrors(true) > 0 && !isConfigureExecution {
-            if caller != nil {
-                if diag.errs == 1 {
-                    err = fmt.Errorf("execution yields an error for %v", entry)
-                } else {
-                    err = fmt.Errorf("execution yields %d errors for %v", diag.errs, entry)
-                }
-                //caller._break(pos, breakErro).error = err
-                //if false { diag.warnAt(pos, "break: %v", err).debug(1) }
-                brks.add(pos, breakErro).error = err
-            }
-        }
-    } ()
-
-    var recursion int
-    for c := caller; c != nil; c, _ = c.caller() { if c.program == prog { recursion += 1 }}
-    if recursion >= maxRecursion {
-        diag.errorAt(pos, "exceeds max recursion: %v", entry.target).debug(1)
-        for c := caller; c != nil; c, _ = c.caller() {
-            var n int
-            for next, _ := c.caller(); next != nil; next, _ = next.caller() {
-                if next.program == c.program { n += 1; c = next } else { break }
-            }
-            var ct = c.autoGet("@")
-            if n > 0 {
-                diag.errorAt(c.program.position, "%v (repeats %d times)", ct, n)
-            } else {
-                diag.errorAt(c.program.position, "%v", ct)
-            }
-        }
-        diag.errorAt(pos, "too many recursion (%d) (%v)", recursion, entry.target).debug(1)
+    if cc != nil && cc.checkErrors(true) > 0 {
+        var errs = cc.totalErrors()
+        var s string; if errs > 1 { s = "(s)" }
+        cc.warn(`cancel execution for "%v" due to %d error%s`, entry, errs, s).debug(16)
+        if options.failOnErrors { fail(pos, "fail by %d error%s", errs, s) }
         return
     }
 
     assert(prog.project == prog.scope.project, "mismatched scope/project")
 
-    var cc = &callContext{ caller, make(callDefMap) }
-    var t = &traversal{
-        Context: cc, //&closureContext{cc,prog.scope},
-        isConfigureExecution: isConfigureExecution,
-        execRec: make(map[Value]int),
-        program: prog,
-        start: time.Now(),
-        entry: entry,
-        print: true,
-        args: args,
-    }
-    if caller != nil {
-        if options.traceTraversalNestIndent { t.traceLevel = caller.traceLevel }
-        if t.stems = caller.stems; t.stems != nil {
-            cc.autoSet("*", MakeString(pos, t.stems[0]))
+    var (
+        _t_ = traverseContext{
+            Context: cc,
+            configuration: prog.configure || (cc != nil && cc.traversal().configuration),
+            execRec: make(map[Value]int),
+            start: time.Now(),
+            program: prog,
+            entry: entry,
+            print: true,
         }
+        pc = programContext{autoContext{ Context:&_t_, defs:make(autoDefMap) }}
+        ctx Context = &pc
+        err error
+    )
+    defer func() {
+        if ctx.checkErrors(true) > 0  {
+            var errs = ctx.totalErrors()
+            if !_t_.configuration && cc != nil {
+                if errs == 1 {
+                    err = fmt.Errorf("execution yields an error for %v", entry)
+                } else {
+                    err = fmt.Errorf("execution yields %d errors for %v", errs, entry)
+                }
+                brks.add(pos, breakErro).error = err
+            }
+            ctx.warn("execution got %d errors", errs).debug(1)
+            if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", errs) }
+        }
+    } ()
+    if cc != nil {
+        var recursion int
+        for c := cc.traversal(); c != nil; c = c.caller() { if c.program == prog { recursion += 1 }}
+        if recursion >= maxRecursion {
+            ctx.error("exceeds max recursion: %v", entry.Target()).debug(1)
+            for c := cc.traversal(); c != nil; c = c.caller() {
+                var n int
+                for next := c.caller(); next != nil; next = next.caller() {
+                    if next.program == c.program { n += 1; c = next } else { break }
+                }
+                var ct, _ = c.autoGet("@")
+                if n > 0 {
+                    ctx.error("%v (repeats %d times)", ct, n).at(c.program.position)
+                } else {
+                    ctx.error("%v", ct).at(c.program.position)
+                }
+            }
+            ctx.error("too many recursion (%d) (%v)", recursion, entry.Target()).debug(1)
+            return
+        }
+        if options.traceTraversalNestIndent { _t_.traceLevel = cc.traversal().traceLevel }
+        if _t_.stems = cc.traversal().stems; _t_.stems != nil { ctx.autoSet("*", MakeString(pos, _t_.stems[0])) }
     }
-    if t.params, err = cc.setArgs(prog.params, args); err != nil {
-        diag.errorAt(pos, "%v", err).debug(1)
+    if _t_.params, err = ctx.autoArgs(_t_.program.params, args); err != nil {
+        ctx.error("auto args failed: %v", err).debug(1)
         return
     }
 
     // Note: must enter work directory (cd) before setting cloctx
     var (
-        ctx = positional(t, prog.position)
         alreadyUpdated bool
         enterBack *enterec
     )
     if len(cd.stack) > 0 { enterBack = cd.stack[0] }
-    if err = enter(t, prog.project.absPath); err != nil {
-        diag.errorAt(pos, "enter project '%v' failed: %v", prog.project, err).debug(1)
+    if err = enter(ctx, prog.project.absPath); err != nil {
+        ctx.error("enter project '%v' failed: %v", prog.project, err).debug(1)
         return
     }
     defer func(swd string) {
-        if e := leave(t, prog, enterBack); e != nil {
+        if e := leave(ctx, prog, enterBack); e != nil {
             // NOTE: err could be breakCase, breakDone, etc.
             if err == nil { err = e } else {
-                diag.errorAt(pos, "leave project '%v' failed: %v", prog.project, err).debug(1)
+                ctx.error("leave project '%v' failed: %v", prog.project, err).debug(1)
             }
         }
-        prog.project.changedWD = swd
-
-        if err != nil {
-            diag.errorAt(pos, "execution failed: %v", err).debug(6)
+        if prog.project.changedWD = swd; err != nil {
+            ctx.error("execution failed: %v", err).debug(6)
             return
         }
 
@@ -317,65 +253,63 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
 
         if !isNil(result) && !isNone(result) {
             // good!
-        } else if result = t.autoGet("-"); !isNil(result) {
+        } else if result, _ = ctx.autoGet("-"); !isNil(result) {
             // good!
         } else if !isNil(defaultVal) {
             result = defaultVal
         }
 
-        if caller != nil && caller.program != nil && !isNil(result) {
-            caller.program.defaultVal = result
+        if cc != nil && cc.traversal().program != nil && !isNil(result) {
+            cc.traversal().program.defaultVal = result
         }
     } (prog.project.changedWD)
 
     // Select the right target value before setting parameters,
     // because the target could be overrided by parameters.
-    switch a := t.entry.target.(type) {
+    switch a := _t_.entry.Target().(type) {
     case *Flag:
-        t.autoSet("@", a)
-        t.print = false // Flag target (-foo) turns off printing automatically
+        ctx.autoSet("@", a)
+        ctx.traversal().print = false // Flag target (-foo) turns off printing automatically
     case *File:
-        t.autoSet("@", a)
+        ctx.autoSet("@", a)
         //alreadyUpdated = a.info != nil && a.updated
     default:
-        var ( target = t.entry.target; name string )
-        if name, err = target.Strval(ctx); err != nil {
-            diag.errorAt(pos, "strval '%v' failed: %v", target, err).debug(1)
+        var name string
+        if name, err = a.Strval(ctx); err != nil {
+            ctx.error("strval '%v' failed: %v", a, err).debug(1)
             return
         } else if file := prog.project.FindFile(ctx, name); file != nil {
             //alreadyUpdated = file.info != nil && file.updated
-            target = file
+            a = file
         }
-        t.autoSet("@", target)
-        if false && entry.String() == "program" {
-            diag.infoAt(pos, "%v: %v, %v, %v", target, prog.params, args, t.args).debug(1)
-        }
+        ctx.autoSet("@", a)
     }
     if alreadyUpdated {
-        var target = t.autoGet("@")
-        if options.traceTraversal { t.tracef("Program.execute: '%v' already updated (%v)", target, t.targets) }
-        if options.verbose { diag.infoAt(pos, "'%v' already updated", target) }
-        if false { diag.warnAt(pos, "'%v' already updated", target).debug(true, 1) }
+        var target, _ = ctx.autoGet("@")
+        if options.traceTraversal { _t_.tracef("Program.execute: '%v' already updated (%v)", target, _t_.targets) }
+        if options.verbose { ctx.info("'%v' already updated", target) }
+        if false { ctx.warn("'%v' already updated", target).debug(1) }
         if false { return }
     }
 
-    if t.print && t.entry.class == UseRuleEntry { t.print = false }
-    if t.print && prog.configure { t.print = false }
-    cd.stack[0].silent = !t.print
-    return prog.exec(t)
+    if _t_.print && _t_.entry.Class() == UseRuleEntry { _t_.print = false }
+    if _t_.print && prog.configure { _t_.print = false }
+    cd.stack[0].silent = !_t_.print
+    return prog.exec(ctx)
 }
 
-func (prog *Program) exec(t *traversal) (result Value, brks breakers) {
+func (prog *Program) exec(ctx Context) (result Value, brks breakers) {
     if optionEnableBenchmarks { defer bench(mark("traversal.exec")) }
     if optionEnableBenchspots { defer bench(spot("traversal.exec")) }
+
+    var t = ctx.traversal()
+    var target, _ = ctx.autoGet("@")
     if options.traceExec {
         var d = t.depth()
-        var t = t.autoGet("@")
-        var s = fmt.Sprintf("%s: %v (%p, exec.depth=%d)", typeof(t), t, t, d)
+        var s = fmt.Sprintf("%s: %v (%p, exec.depth=%d)", typeof(target), target, target, d)
         defer un(trace(t_exec, s))
     }
 
-    var target = t.autoGet("@")
     t.execRec[target] += 1
     if false { if t.execRec[target] > 1 {
         if options.traceExec { t_exec.trace(fmt.Sprintf("exec: %v", target)) }
@@ -383,71 +317,67 @@ func (prog *Program) exec(t *traversal) (result Value, brks breakers) {
     }}
 
     var pos = prog.position
-    var ctx = positional(t, pos)
 
     // Update normal prerequisites
-    if brks = t.normalPrerequisites(ctx); brks.has() {
+    if brks = traverseNormal(ctx); brks.has() {
         return
-    } else if diag.checkErrors(true) > 0 {
-        brks.add(pos, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", diag.errs)
-        t.batch(func() {
-            diag.warnAt(pos, "%d errors while traversing prerequisites for %v", diag.errs, target).debug(8)
-            t.traceCallStack(pos, -1, "call stack for %v:", target)
-        })
+    } else if errs := ctx.checkErrors(true); errs > 0 {
+        brks.add(pos, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", ctx.totalErrors())
+        ctx.warn("%d errors while traversing prerequisites for %v", errs, target).debug(8)
+        callstack(ctx, -1, "call stack for %v:", target)
+        if options.failOnErrors { fail(pos, "fail by %d errors", ctx.totalErrors()) }
         return
     }
 
     // Update order-only prerequisites
-    if brks = t.orderOnlyPrerequisites(ctx); brks.has() {
+    if brks = traverseOrderOnly(ctx); brks.has() {
         return
-    } else if diag.checkErrors(true) > 0 {
-        brks.add(pos, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", diag.errs)
-        t.batch(func() {
-            diag.warnAt(pos, "%d errors while traversing prerequisites for %v", diag.errs, target).debug(8)
-            t.traceCallStack(pos, -1, "call stack for %v:", target)
-        })
+    } else if errs := ctx.checkErrors(true); errs > 0 {
+        brks.add(pos, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", errs)
+        ctx.warn("%d errors while traversing prerequisites for %v", errs, target).debug(8)
+        callstack(ctx, -1, "call stack for %v:", target)
+        if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.totalErrors()) }
         return
     }
 
-    var value = t.autoGet("-")
+    var value, _ = ctx.autoGet("-")
     if len(t.interpreted) == 0 && len(prog.recipes) > 0 && (isNil(value) || isNone(value)) {
         // Using the default statements interpreter.
         if i, ok := dialects["eval"]; ok && i != nil {
-            if err := prog.interpret(t, i, nil); err != nil {
-                diag.errorAt(pos, "%v", err).debug(1)
+            if err := prog.interpret(ctx, i, nil); err != nil {
+                ctx.error("%v", err).debug(1)
             }
         } else {
-            diag.errorAt(pos, "no default dialect").debug(1)
+            ctx.error("no default dialect").debug(1)
         }
     }
     return
 }
 
-func (t *traversal) prerequisites(ctx Context, prerequisites []Value) (brks breakers) {
+func traversePrerequisites(ctx Context, prerequisites []Value) (brks breakers) {
     // IMPORTANT: don't expand the args here. The prerequisites like
     // '$(or &@,...)' have to be expanded when it's used (e.g. compare).
-    var pos = ctx.Position()
-    var target = t.autoGet("@")
+    var t = ctx.traversal()
+    var target, _ = ctx.autoGet("@")
     if true {
         //var entryName = t.entry.Name()
-        //var infos = entryName == "llvm-ar"
+        //var infos = t.configuration //entryName == "llvm-ar"
         for _, prerequisite := range prerequisites {
             /*var prestr = prerequisite.String()
             if infos || (entryName == "program" && prestr == "$(requirement)") {
                 if d, _ := prerequisite.(*delegate); d != nil {
-                    diag.infoAt(ctx.Position(), "%v: %T %v, %v", entryName, d.x, d.x, d.x.(*Def).origin)
+                    t.info("%v: %T %v, %v", entryName, d.x, d.x, d.x.(*Def).origin).at(ctx.Position())
                 }
-                var val, _ = prerequisite.expand(t, expandPlainValue)
-                diag.infoAt(ctx.Position(), "%v: %T %v -> %T %v", entryName, prerequisite, prerequisite, val, val)
-                diag.infoAt(ctx.Position(), "%v: args = %v", entryName, t.args)
-                diag.infoAt(ctx.Position(), "%v: %v", entryName, ctx)
-                diag.infoAt(ctx.Position(), "%v: %v", entryName, t).debug(1)
+                var val, _ = prerequisite.expand(ctx, expandPlainValue)
+                t.info("%v: %T %v -> %T %v", entryName, prerequisite, prerequisite, val, val).at(ctx.Position())
+                t.info("%v: args = %v", entryName, t.args).at(ctx.Position())
+                t.info("%v: %v", entryName, ctx).at(ctx.Position())
+                t.info("%v: %v", entryName, t).at(ctx.Position()).debug(1)
             }*/
-            if brks = prerequisite.traverse(t); brks.has() {
+            if brks = prerequisite.traverse(ctx); brks.has() {
                 var tb = brks.not(breakNext, breakCase, breakDone)
                 if len(tb) > 0 && len(t.stems) > 0 && false {
-                    diag.warnAt(pos, "broken traversal: %v (target = %v, stems = %v)", tb[0].what,
-                        target, t.stems).debug(1)
+                    t.warn("broken traversal: %v (target = %v, stems = %v)", tb[0].what, target, t.stems).debug(1)
                 }
                 break
             }
@@ -460,9 +390,9 @@ func (t *traversal) prerequisites(ctx Context, prerequisites []Value) (brks brea
         wg.Add(num)
         for _, prerequisite := range prerequisites {
             go func () {
-                defer recoverPanics(ctx)
+                defer checkPanicsErrors(ctx)
                 defer wg.Done() // minus 1
-                if tb := prerequisite.traverse(t); tb.has() {
+                if tb := prerequisite.traverse(ctx); tb.has() {
                     mu.Lock(); defer mu.Unlock()
                     brks = append(brks, tb...)
                 }
@@ -471,17 +401,17 @@ func (t *traversal) prerequisites(ctx Context, prerequisites []Value) (brks brea
         if wg.Wait(); brks.has() {
             var tb = brks.not(breakNext, breakCase, breakDone)
             if len(tb) > 0 && len(t.stems) > 0 && false {
-                diag.warnAt(pos, "broken traversal: %v (target = %v, stems = %v)", tb[0].what,
-                    target, t.stems).debug(1)
+                t.warn("broken traversal: %v (target = %v, stems = %v)", tb[0].what, target, t.stems).debug(1)
             }
         }
     }
     return
 }
 
-func (t *traversal) normalPrerequisites(ctx Context) (brks breakers) {
-    if options.traceExec        { defer un(trace(t_exec, "^")) }
-    if optionEnableBenchmarks { defer bench(mark("traversal.normalPrerequisites")) }
+func traverseNormal(ctx Context) (brks breakers) {
+    if options.traceExec      { defer un(trace(t_exec, "^")) }
+    if optionEnableBenchmarks { defer bench(mark("traversal.normal")) }
+    var t = ctx.traversal()
     /*defer func(t0, tx, ta *Def) {
         if t.target0, t.targetx, t.targets = t0, tx, ta; len(t.updated) > 0 {
             t.def.updated.value = t.updated[0].target // $?
@@ -491,7 +421,7 @@ func (t *traversal) normalPrerequisites(ctx Context) (brks breakers) {
         }
     } (t.target0, t.targetx, t.targets)*/
     t.target0, t.targetN, t.targetX = "<", ">", "^"
-    return t.prerequisites(ctx, t.program.depends)
+    return traversePrerequisites(ctx, t.program.depends)
     /*if n := len(t.targets); n > 0 {
         t.autoSet("<", t.targets[0])
         t.autoSet(">", t.targets[n-1])
@@ -503,23 +433,25 @@ func (t *traversal) normalPrerequisites(ctx Context) (brks breakers) {
     }*/
 }
 
-func (t *traversal) orderOnlyPrerequisites(ctx Context) (brks breakers) {
+func traverseOrderOnly(ctx Context) (brks breakers) {
     if options.traceExec        { defer un(trace(t_exec, "|")) }
-    if optionEnableBenchmarks { defer bench(mark("traversal.orderOnlyPrerequisites")) }
+    if optionEnableBenchmarks { defer bench(mark("traversal.orderonly")) }
+    var t = ctx.traversal()
     /*defer func(t0, tx, ta *Def) {
         t.target0, t.targetx, t.targets = t0, tx, ta
     } (t.target0, t.targetx, t.targets)*/
     t.target0, t.targetN, t.targetX = "", "", "|"
-    return t.prerequisites(ctx, t.program.ordered)
+    return traversePrerequisites(ctx, t.program.ordered)
 }
 
 // DEPRECATED
-func (t *traversal) greppedFiles(ctx Context) (brks breakers) {
+func _traverseGrepped(ctx Context) (brks breakers) {
     if options.traceExec        { defer un(trace(t_exec, "~")) }
-    if optionEnableBenchmarks { defer bench(mark("traversal.greppedFiles")) }
+    if optionEnableBenchmarks { defer bench(mark("traversal.grepped")) }
+    var t = ctx.traversal()
     /*defer func(t0, tx, ta *Def) {
         t.target0, t.targetx, t.targets = t0, tx, ta
     } (t.target0, t.targetx, t.targets)*/
     t.target0, t.targetN, t.targetX = "", "", "~"
-    return t.prerequisites(ctx, t.grepped)
+    return traversePrerequisites(ctx, t.grepped)
 }

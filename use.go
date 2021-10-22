@@ -42,22 +42,22 @@ func (p *using) expandible(ctx Context, w expandwhat) (res bool) {
 func (p *using) expand(ctx Context, w expandwhat) (res Value, err error) {
         var ( params []Value; num int )
         if params, num, err = expandall2(ctx, w, p.params...); err != nil {
-                diag.errorAt(p.position, "%v", err).debug(1)
+                ctx.error("%v", err).at(p.position).debug(1)
                 return
         } else if num > 0 {
                 return &using{p.valbase,p.project,params,p.opts}, nil
         }
         return
 }
-func (p *using) stat(t *traversal) (si *statinfo) {
+func (p *using) stat(ctx Context) (si *statinfo) {
         if entry := p.project.DefaultEntry(); entry != nil {
                 // FIXME: entry maybe not pointing to the real target
-                si = entry.stat(t)
+                si = entry.stat(ctx)
         }
         return
 }
-func (p *using) traverse(t *traversal) (_ breakers) {
-        diag.errorAt(p.position, "cant traverse 'using' %v", p.project).debug(1)
+func (p *using) traverse(ctx Context) (_ breakers) {
+        ctx.error("cant traverse 'using' %v", p.project).at(p.position).debug(1)
         return
 }
 /*func (p *using) _traverse(pc *traversal) {
@@ -78,9 +78,9 @@ func (p *using) traverse(t *traversal) (_ breakers) {
         }
         return
 }*/
-func (p *using) stamp(t *traversal) (files []*File, err error) {
+func (p *using) stamp(ctx Context) (files []*File, err error) {
         if entry := p.project.DefaultEntry(); entry != nil {
-                files, err = entry.stamp(t)
+                files, err = entry.stamp(ctx)
         }
         return
 }
@@ -143,10 +143,10 @@ func (p *usinglist) Strval(ctx Context) (s string, err error) {
 func (p *usinglist) True(ctx Context) (bool, error) { return len(p.list) > 0, nil }
 func (p *usinglist) Integer(ctx Context) (int64, error) { return 0, nil }
 func (p *usinglist) Float(ctx Context) (float64, error) { return 0, nil }
-func (p *usinglist) stat(t *traversal) (si *statinfo) {
+func (p *usinglist) stat(ctx Context) (si *statinfo) {
         if len(p.list) > 0 {
                 for _, elem := range p.list {
-                        if ei := elem.stat(t); ei == nil {
+                        if ei := elem.stat(ctx); ei == nil {
                                 // FIXME: insert new statinfo or just discard it ??
                         } else if si == nil {
                                 si = ei
@@ -157,10 +157,10 @@ func (p *usinglist) stat(t *traversal) (si *statinfo) {
         }
         return
 }
-func (p *usinglist) stamp(t *traversal) (files []*File, err error) {
+func (p *usinglist) stamp(ctx Context) (files []*File, err error) {
         for _, elem := range p.list {
                 var a []*File
-                if a, err = elem.stamp(t); err != nil { break }
+                if a, err = elem.stamp(ctx); err != nil { break }
                 files = append(files, a...)
         }
         return
@@ -200,7 +200,7 @@ func (p *usinglist) expand(ctx Context, w expandwhat) (res Value, err error) {
         for _, elem := range p.list {
                 var v Value
                 if v, err = elem.expand(ctx, w); err != nil {
-                        diag.errorAt(elem.position, "%v", err).debug(1)
+                        ctx.error("%v", err).at(elem.position).debug(1)
                         return
                 } else {
                         if !isNil(v) { v = elem } else if v != elem { num += 1 }
@@ -212,8 +212,8 @@ func (p *usinglist) expand(ctx Context, w expandwhat) (res Value, err error) {
         }
         return
 }
-func (p *usinglist) traverse(t *traversal) (_ breakers) {
-        diag.errorAt(p.list[0].position, "cant traverse 'usinglist'").debug(1)
+func (p *usinglist) traverse(ctx Context) (_ breakers) {
+        ctx.error("cant traverse 'usinglist'").at(p.list[0].position).debug(1)
         return
 }
 /*func (p *usinglist) _traverse(pc *traversal) {

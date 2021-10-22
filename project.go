@@ -30,11 +30,11 @@ func (filemap *FileMap) String() string { return filemap.pattern.String() }
 func (filemap *FileMap) Patterns(ctx Context) (pats []Value) {
   if filemap.pattern.expandible(ctx, expandClosure) {
     var err error
-    if pats, err = mergeresult2(expandall2(ctx, expandPlainValue, filemap.pattern)); err != nil {
-      diag.errorOf(filemap.pattern, "merge pattern '%v' failed: %v", filemap.pattern, err)
+    if pats, err = expandmerge2(ctx, expandPlainValue, filemap.pattern); err != nil {
+      ctx.error("merge pattern '%v' failed: %v", filemap.pattern, err).of(filemap.pattern)
     } else if pats, _, err = expandall2(ctx, expandPlainValue, pats...); err != nil {
       // Do a second expand to ensure converted closures are expanded
-      diag.errorOf(filemap.pattern, "sencond expand patterns '%v' failed: %v", pats, err)
+      ctx.error("sencond expand patterns '%v' failed: %v", pats, err).of(filemap.pattern)
     }
   } else {
     pats = append(pats, filemap.pattern)
@@ -45,7 +45,7 @@ func (filemap *FileMap) Patterns(ctx Context) (pats []Value) {
 // Match split filename into list and match each part with the pattern correspondingly.
 func (filemap *FileMap) Match(ctx Context, filename string) (matched bool, pre string) {
   /*if filemap.Pattern.expandible(ctx, expandClosure) {
-    if pats, err := mergeresult2(expandall2(ctx, expandPlainValue, filemap.Pattern)); err != nil {
+    if pats, err := expandmerge2(ctx, expandPlainValue, filemap.Pattern); err != nil {
       fmt.Fprintf(stderr, "%v: %v\n", filemap.Pattern.Position(), filemap.Pattern)
     } else {
       for _, pat := range pats {
@@ -76,16 +76,16 @@ func (filemap *FileMap) stat(ctx Context, base, pre, name string) (file *File) {
   } else if pre != "" { pre = filepath.Clean(pre) }
   for _, path := range filemap.Paths {
     if isNil(path) {
-      diag.errorAt(pos, "nil path: base=%s)", base)
-      diag.errorAt(pos, "nil path: pre=%s",   pre)
-      diag.errorAt(pos, "nil path: name=%s",  name)
-      diag.errorAt(pos, "nil path: %v", filemap).debug(32)
+      ctx.error("nil path: base=%s)", base).at(pos)
+      ctx.error("nil path: pre=%s",   pre).at(pos)
+      ctx.error("nil path: name=%s",  name).at(pos)
+      ctx.error("nil path: %v", filemap).at(pos).debug(32)
       fail(pos, "file mapping nil path: %v", filemap)
     } else if isNone(path) {
-      diag.warnAt(pos, "nil path: base=%s)", base)
-      diag.warnAt(pos, "nil path: pre=%s",   pre)
-      diag.warnAt(pos, "nil path: name=%s",  name)
-      diag.warnAt(pos, "nil path: %v", filemap).debug(32)
+      ctx.warn("nil path: base=%s)", base).at(pos)
+      ctx.warn("nil path: pre=%s",   pre).at(pos)
+      ctx.warn("nil path: name=%s",  name).at(pos)
+      ctx.warn("nil path: %v", filemap).at(pos).debug(32)
       continue
     }
 
@@ -94,20 +94,23 @@ func (filemap *FileMap) stat(ctx Context, base, pre, name string) (file *File) {
       err error
     )
     if sub, err = path.Strval(ctx); err != nil {
-      diag.errorAt(path.Position(), "strval path failed: %v", err)
-      diag.errorAt(pos, "strval '%v' failed: %v", path, err)
-      diag.errorAt(ctx.Position(), "%v: strval '%v' failed (%s)", ctx.Project(), path, ctx).debug(32)
+      ctx.error("strval path failed: %v", err).at(path.Position())
+      ctx.error("strval '%v' failed: %v", path, err).at(pos)
+      ctx.error("strval '%v' failed (project=%s)", path, ctx.Project())//.at(pos)
+      ctx.error("strval '%v' failed in %v", ctx).debug(32)
       return
     } else if sub == "" {
-      diag.errorAt(path.Position(), "filemap path is empty: %v", path)
-      diag.errorAt(pos, "filemap path is empty: %v (%v)", path, filemap.pattern)
-      diag.errorAt(ctx.Position(), "%v: filemap path is empty: %v (%s)", ctx.Project(), path, ctx).debug(64)
+      ctx.error("filemap path '%v' is empty", path).at(path.Position())
+      ctx.error("filemap path '%v' is empty (pattern=%v)", path, filemap.pattern).at(pos)
+      ctx.error("filemap path '%v' is empty (project=%v)", path, ctx.Project())//.at(pos)
+      ctx.error("filemap path '%v' is empty in %v", path, ctx).debug(64)
       return
     } else if s := filepath.Clean(sub); sub != s {
       if false {
-        diag.errorAt(path.Position(), "filemap path is not clean: %v -> %s", path, sub)
-        diag.errorAt(pos, "filemap path is not clean: %v (%v)", path, filemap.pattern)
-        diag.errorAt(ctx.Position(), "%v: filemap path is not clean: %v (%s)", ctx.Project(), path, ctx).debug(16)
+        ctx.error("filemap path '%v' is not clean (sub=%s)", path, sub).at(path.Position())
+        ctx.error("filemap path '%v' is not clean (pattern=%v)", path, filemap.pattern).at(pos)
+        ctx.error("filemap path '%v' is not clean (project=%v)", path, ctx.Project())//.at(pos)
+        ctx.error("filemap path '%v' is not clean in %v", ctx).debug(16)
         return
       } else {
         sub = s
@@ -119,16 +122,16 @@ func (filemap *FileMap) stat(ctx Context, base, pre, name string) (file *File) {
       if filepath.IsAbs(name) { // 'name' is abs too
         if strings.HasPrefix(name, sub) { // 'name' should have 'sub' prefix
           if true {
-            diag.warnAt(pos, "sub  = %v", sub)
-            diag.warnAt(pos, "name = %v", name)
-            diag.warnAt(ctx.Position(), "%v", ctx).debug(6)
+            ctx.warn("sub  = %v", sub).at(pos)
+            ctx.warn("name = %v", name).at(pos)
+            ctx.warn("%v", ctx).debug(6)
             name = strings.TrimPrefix(name, sub)
           }
         } else {
           if false {
-            diag.warnAt(pos, "sub  = %v", sub)
-            diag.warnAt(pos, "name = %v", name)
-            diag.warnAt(ctx.Position(), "%v", ctx).debug(6)
+            ctx.warn("sub  = %v", sub).at(pos)
+            ctx.warn("name = %v", name).at(pos)
+            ctx.warn("%v", ctx).debug(6)
           }
           continue
         }
@@ -136,10 +139,10 @@ func (filemap *FileMap) stat(ctx Context, base, pre, name string) (file *File) {
     } else if !filepath.IsAbs(name) { dir = base }
 
     if false && strings.HasSuffix(name, "/...") {
-      diag.warnAt(pos, "dir  = %v", dir)
-      diag.warnAt(pos, "sub  = %v", sub)
-      diag.warnAt(pos, "name = %v", name)
-      diag.warnAt(ctx.Position(), "%v", ctx).debug(6)
+      ctx.warn("dir  = %v", dir).at(pos)
+      ctx.warn("sub  = %v", sub).at(pos)
+      ctx.warn("name = %v", name).at(pos)
+      ctx.warn("%v", ctx).debug(6)
     }
 
     if file = stat(ctx, name, sub, dir, nil); file != nil {
@@ -224,7 +227,7 @@ func globMatch(ctx Context, patval Value, filename string) (matched bool, pre st
   switch patval.(type) {
   default: // good to go!
   case *List:
-    diag.errorOf(patval, "invalid glob matching pattern: %v (%T)", patval, patval)
+    ctx.error("invalid glob matching pattern: %v (%T)", patval, patval).of(patval)
     return
   }
 
@@ -306,7 +309,7 @@ type Project struct {
 
   // Rule Registry (orderred)
   userules []*useRuleEntry // the 'use' rule
-  concrete []*RuleEntry
+  concrete []Entry //*RuleEntry
   patterns []*PatternEntry
 
   filescopes []*Scope
@@ -332,9 +335,9 @@ func (p *Project) Spec() string { return p.spec }
 func (p *Project) Name() string { return p.name }
 func (p *Project) Scope() *Scope { return p.scope }
 func (p *Project) Bases() []*Project { return p.bases }
-func (p *Project) Chain(bases ...*Project) {
-  for _, base := range bases { p.bases = append(p.bases, base) }
-}
+//func (p *Project) Chain(bases ...*Project) {
+//  for _, base := range bases { p.bases = append(p.bases, base) }
+//}
 
 func (p *Project) mapfile(pat Value, paths []Value) {
   // List order is significant, duplication is acceptable.
@@ -357,8 +360,8 @@ func (p *Project) myFilemaps(ctx Context) (filemap []*FileMap) {
         case *Group: pats = k.Elems
         default:     pats = append(pats, v.Key)
         }
-        if a, err := mergeresult2(expandall2(ctx, expandPlainValue, pats...)); err != nil {
-          diag.errorAt(v.Position(), "error expanding '%v': %v", v, err)
+        if a, err := expandmerge2(ctx, expandPlainValue, pats...); err != nil {
+          ctx.error("error expanding '%v': %v", v, err).at(v.Position())
         } else {
           pats = a 
         }
@@ -376,7 +379,7 @@ func (p *Project) myFilemaps(ctx Context) (filemap []*FileMap) {
         }
         for _, k := range pats { mapfile(k, paths) }
       default:
-        diag.errorOf(v, "invalid file spec: %v", v)
+        ctx.error("invalid file spec: %v", v).of(v)
       }
     }
   }
@@ -397,15 +400,15 @@ func (p *Project) filemaps(ctx Context, using bool) (filemaps []*FileMap) {
           if ap != m.Paths[i] { same = false; break }
         }
         if same { return } else {
-          diag.warnOf(a.pattern,  "files might be duplicated: %v (paths=%v),", a, a.Paths)
-          diag.warnOf(m.pattern,  "                     with: %v (paths=%v)" , m, m.Paths)
-          diag.warnOf(a.Paths[0], "          differred paths: %v", a.Paths[0])
-          diag.warnOf(m.Paths[0], "                      and: %v", m.Paths[0])
+          ctx.warn("files might be duplicated: %v (paths=%v),", a, a.Paths).of(a.pattern)
+          ctx.warn("                     with: %v (paths=%v)" , m, m.Paths).of(m.pattern)
+          ctx.warn("          differred paths: %v", a.Paths[0]).of(a.Paths[0])
+          ctx.warn("                      and: %v", m.Paths[0]).of(m.Paths[0])
           numDuplicated += 1
         }
       }
     }
-    if numDuplicated > 0 { diag.errorOf(a.pattern, "duplicated files: %v", a.pattern) }
+    if numDuplicated > 0 { ctx.error("duplicated files: %v", a.pattern).of(a.pattern) }
     filemaps = append(filemaps, a)
   }
 
@@ -438,7 +441,7 @@ ForPatterns:
       patStr string
     )
     if patStr, err = pat.Strval(ctx); err != nil {
-      diag.errorAt(pos, "strval '%v' failed: %v", pat, err).debug(1)
+      ctx.error("strval '%v' failed: %v", pat, err).at(pos).debug(1)
       break ForPatterns
     }
     // The 'patStr' could be GlobPattern or just regular file/path names. PercPattern is not supported yet.
@@ -499,14 +502,14 @@ ForPatterns:
           if len(names) > 0 {
             for _, s := range names {
               if false && s == "..." {
-                diag.warnAt(pos, "sub = %s", sub)
-                diag.warnAt(pos, "pat = %s", pat)
-                diag.warnAt(pos, "pattern = %v", pattern)
-                diag.warnAt(pos, "pre = %s", pre)
-                diag.warnAt(pos, "str = %s", str)
-                diag.warnAt(pos, "subfile = %s", subfile)
-                diag.warnAt(pos, "prefix = %s", prefix)
-                diag.warnAt(pos, "name = %s", s).debug(16)
+                ctx.warn("sub = %s", sub).at(pos)
+                ctx.warn("pat = %s", pat).at(pos)
+                ctx.warn("pattern = %v", pattern).at(pos)
+                ctx.warn("pre = %s", pre).at(pos)
+                ctx.warn("str = %s", str).at(pos)
+                ctx.warn("subfile = %s", subfile).at(pos)
+                ctx.warn("prefix = %s", prefix).at(pos)
+                ctx.warn("name = %s", s).at(pos).debug(16)
               }
               name := strings.TrimPrefix(s, prefix)
               file := stat(ctx, name, sub, prefix)
@@ -527,9 +530,8 @@ ForPatterns:
             // Just report that the pattern matches no files in the
             // file system (if only one path specified).
             if false {
-              diag.warnOf(pattern, "%s: %v matches no files in '%v'", p.name, fm, sub)
-              diag.warnOf(    pat, "%s: here is %v (try using flag -m, aka -include-missing)", p.name, pat).
-                debug(1)
+              ctx.warn("%s: %v matches no files in '%v'", p.name, fm, sub).of(pattern)
+              ctx.warn("%s: here is %v (try using flag -m, aka -include-missing)", p.name, pat).of(pat).debug(1)
             }
           } else if opts.errorMissing {
             err = fmt.Errorf("missing files like '%v'", fm)
@@ -559,8 +561,9 @@ ForFilemaps:
       var ( s1, s2 string; pos = filemap.pattern.Position() )
       if file  != nil { s1 =  file.fullname() }
       if first != nil { s2 = first.fullname() }
-      diag.errorAt(pos, "%s: name=%s (file=%v, exists=%v, first=%v, cwd=%s, filemap=%v, patterns=%v, pre=%v)\n",
-        p, name, s1, file.exists(), s2, p.changedWD, filemap.pattern, filemap.Patterns(ctx), pre).debug(1)
+      ctx.error("%s: name=%s (file=%v, exists=%v, first=%v, cwd=%s, filemap=%v, patterns=%v, pre=%v)\n",
+        p, name, s1, file.exists(), s2, p.changedWD, filemap.pattern, filemap.Patterns(ctx), pre).
+        at(pos).debug(1)
     }
     if file != nil {
       if file.filemap == nil { file.filemap = filemap }
@@ -588,24 +591,25 @@ func (p *Project) matchTempFile(ctx Context, name string) (file *File) {
   if file = p.matchFile(ctx, name); file != nil {
     // good
   } else if ctd := p.scope.FindDef("CTD"); ctd == nil {
-    diag.errorAt(pos, "%v: CTD is not defined for temp file: %v", p, name).debug(1)
+    ctx.error("%v: CTD is not defined for temp file: %v", p, name).at(pos).debug(1)
   } else if s, err := ctd.Strval(ctx); err != nil {
-    diag.errorAt(pos, "%v: stringify temp directory failed: %v", p, err).debug(1)
+    ctx.error("%v: stringify temp directory failed: %v", p, err).at(pos).debug(1)
   } else if file = stat(ctx, filepath.Join(s, name), "", "", nil); file == nil {
-    diag.errorAt(pos, "%v: nil stat %v %v", p, s, name).debug(1)
+    ctx.error("%v: nil stat %v %v", p, s, name).at(pos).debug(1)
   } else if false {
     if !pos.IsValid() { pos = p.position }
-    diag.warnAt(pos, "using default temp file: %v/%v", s, name)
-    diag.warnAt(p.position, "suggesting define files rule for '%s' in %v", name, p).debug(12)
+    ctx.warn("using default temp file: %v/%v", s, name).at(pos)
+    ctx.warn("suggesting define files rule for '%s' in %v", name, p).at(p.position).debug(12)
   }
   return // NOTE: temp file may not exists
 }
 
-func (p *Project) configurationFile(ctx Context) (file *File) {
-    if file = p.matchTempFile(ctx, "configuration.sm"); file == nil {
-        diag.errorAt(p.position, "%v: no file configuration.sm", p).debug(1)
-    }
-    return
+func (p *Project) configuration(ctx Context) (file *File) {
+  ctx = closureWith(ctx, p.scope.position, p.scope)
+  if file = p.matchTempFile(ctx, "configuration.sm"); file == nil {
+    ctx.error("%v: no file configuration.sm", p).at(p.position).debug(1)
+  }
+  return
 }
 
 func (p *Project) FindFile(ctx Context, name string) (file *File) { return p.matchFile(ctx, name) }
@@ -618,7 +622,7 @@ func (p *Project) isFileName(ctx Context, s string) (res bool) {
   return
 }
 
-func (p *Project) DefaultEntry() (entry *RuleEntry) {
+func (p *Project) DefaultEntry() (entry Entry) {
   if len(p.concrete) > 0 {
     entry = p.concrete[0]
   }
@@ -634,7 +638,7 @@ func (p *Project) resolveObject(ctx Context, s string) (obj Object, err error) {
     }
     for _, base := range p.bases {
       if obj, err = base.resolveObject(ctx, s); err != nil {
-        diag.errorAt(base.position, "resolve object '%v' failed: %v", s, err).debug(1)
+        ctx.error("resolve object '%v' failed: %v", s, err).at(base.position).debug(1)
         break
       } else if obj != nil {
         break
@@ -644,11 +648,11 @@ func (p *Project) resolveObject(ctx Context, s string) (obj Object, err error) {
   return
 }
 
-func (p *Project) resolveEntry(ctx Context, s string, matchFullSuffix bool) (entry *RuleEntry, err error) {
+func (p *Project) resolveEntry(ctx Context, s string, matchFullSuffix bool) (entry Entry, err error) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.resolveEntry")) }
   if optionEnableBenchspots { defer bench(spot("Project.resolveEntry")) }
   for _, rec := range p.concrete {
-    switch target := rec.target.(type) {
+    switch target := rec.Target().(type) {
     case *File:
       if target.name == s {
         return rec, nil
@@ -657,21 +661,21 @@ func (p *Project) resolveEntry(ctx Context, s string, matchFullSuffix bool) (ent
       } else if !matchFullSuffix {
         // not matching
       } else if strings.HasSuffix(target.fullname(), PathSep+filepath.Clean(s)) {
-        if false { diag.warnAt(rec.Position(), "TODO: %v: %s <-> %v %v", p, s, target, target.fullname()).debug(8) }
+        if false { ctx.warn("TODO: %v: %s <-> %v %v", p, s, target, target.fullname()).at(rec.Position()).debug(8) }
         return rec, nil
       }
     default:
       var sv string
       if sv, err = target.Strval(ctx); err != nil {
-        diag.errorAt(target.Position(), "strval '%v' failed: %v", target, err).debug(1)
+        ctx.error("strval '%v' failed: %v", target, err).at(target.Position()).debug(1)
         return
       } else if sv == s { return rec, nil }
     }
   }
   for _, base := range p.bases {
     if entry, err = base.resolveEntry(ctx, s, matchFullSuffix); err != nil {
-      diag.errorAt(base.position, "resolve entry '%v' failed: %v", s, err)
-      diag.errorAt(ctx.Position(), "resolve entry '%v' failed (%s)", s, ctx).debug(1)
+      ctx.error("resolve entry '%v' failed: %v", s, err).at(base.position)
+      ctx.error("resolve entry '%v' failed (%s)", s, ctx).debug(1)
       break
     } else if entry != nil { break }
   }
@@ -679,8 +683,8 @@ func (p *Project) resolveEntry(ctx Context, s string, matchFullSuffix bool) (ent
     if true { /* FAST */ } else { /* SLOW */
       for _, using := range p.using.list {
         if entry, err = using.project.resolveEntry(ctx, s, matchFullSuffix); err != nil {
-          diag.errorAt(using.position, "resolve entry '%v' failed: %v", s, err)
-          diag.errorAt(ctx.Position(), "resolve entry '%v' failed (%s)", s, ctx).debug(1)
+          ctx.error("resolve entry '%v' failed: %v", s, err).at(using.position)
+          ctx.error("resolve entry '%v' failed (%s)", s, ctx).debug(1)
           break
         } else if entry != nil { break }
       }
@@ -702,8 +706,8 @@ func (p *Project) resolvePatterns(ctx Context, i interface{}) (res []*stemmed) {
 func (p *Project) _resolvePatterns1(ctx Context, i interface{}) (res []*stemmed) {
   if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns1")) }
   for _, pat := range p.patterns {
-    if full, _, stems := pat.Pattern.match(ctx, i); full {
-      res = append(res, &stemmed{pat, stems})
+    if full, _, stems := pat.target.match(ctx, i); full {
+      res = append(res, &stemmed{*pat, stems})
     }
   }
   return
@@ -728,15 +732,16 @@ func (p *Project) _resolvePatterns3(ctx Context, i interface{}) (res []*stemmed)
 type entryOpts struct {
   postExec bool `p,post;pe,post-execute;pe,post-exec`
 }
-func (p *Project) entry(ctx Context, special specialRule, options []Value, target Value, prog *Program) (entry *RuleEntry, err error) {
+func (p *Project) entry(ctx Context, special specialRule, options []Value, target Value, prog *Program) (entry Entry, err error) {
   defer func() {
     if entry != nil && err == nil {
-      entry.programs = append(entry.programs, prog)
+      entry.SetPrograms(append(entry.Programs(), prog))
     }
   } ()
 
   var strval string
   if strval, err = fullnameOrStrval(ctx, target); err != nil {
+    ctx.error("fullname or strval '%s' failed: %v", target, err).debug(1)
     return
   }
 
@@ -747,16 +752,20 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
     if len(options) > 0 {
       var pos = options[0].Position()
       if _, err = parseOpts(ctx, &opts, options...); err != nil {
-        diag.errorAt(pos, "parse opts failed: %v", err)
+        ctx.error("parse opts failed: %v", err).at(pos)
         return
       }
     }
     var userule = &useRuleEntry{
-      RuleEntry{ class:UseRuleEntry, target:target },
+      RuleEntry{
+        position: target.Position(),
+        class:UseRuleEntry,
+        target:target,
+      },
       opts.postExec, // post-execute use rule?
     }
     p.userules = append(p.userules, userule)
-    entry = &userule.RuleEntry
+    entry = userule //&userule.RuleEntry
     return
   }
 
@@ -772,23 +781,18 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
   switch t := target.(type) {
   case *PercPattern:
     assert(t != nil, "nil PercPattern")
-    if false {
-      for _, pe := range p.patterns {
-        if pe.Pattern.cmp(ctx, t) == cmpEqual {
-          entry = pe.RuleEntry
-          return
-        }
-      }
-    }
-    entry = &RuleEntry{
+    var pattern = &PatternEntry{RuleEntry{
+      position: target.Position(),
       class: PercRuleEntry,
       target: target,
-    }
-    p.patterns = append(p.patterns, &PatternEntry{ t, entry })
+    }}
+    p.patterns = append(p.patterns, pattern)
+    entry = pattern //&pattern.RuleEntry
     return
   case *GlobPattern:
     assert(t != nil, "nil GlobPattern")
     entry = &RuleEntry{
+      position: target.Position(),
       class: GlobRuleEntry,
       target: target,
     }
@@ -796,6 +800,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
   case *RegexpPattern:
     assert(t != nil, "nil RegexpRuleEntry")
     entry = &RuleEntry{
+      position: target.Position(),
       class: RegexpRuleEntry,
       target: target,
     }
@@ -815,11 +820,13 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
       }
     }
     if isPathPattern {
-      entry = &RuleEntry{
+      var pattern = &PatternEntry{RuleEntry{
+        position: target.Position(),
         class: PathPattRuleEntry,
         target: target,
-      }
-      p.patterns = append(p.patterns, &PatternEntry{ t, entry })
+      }}
+      p.patterns = append(p.patterns, pattern)
+      entry = &pattern.RuleEntry
       return
     }
   }
@@ -838,6 +845,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
   }
   if entry == nil {
     entry = &RuleEntry{
+      position: target.Position(),
       class: GeneralRuleEntry,
       target: target,
     }
@@ -861,25 +869,25 @@ func (p *Project) hasBase(proj *Project) (res bool) {
   return
 }
 
-func (p *Project) hasLoaded(proj *Project, breakUseLoop bool) (rp *Project, res, isb bool, err error) {
-  return p.hasLoadedRecur(p, proj, 1, breakUseLoop)
+func (p *Project) hasLoaded(ctx Context, proj *Project, breakUseLoop bool) (rp *Project, res, isb bool, err error) {
+  return p.hasLoadedRecur(ctx, p, proj, 1, breakUseLoop)
 }
 
-func (p *Project) hasLoadedRecur(top, proj *Project, depth int, breakUseLoop bool) (rp *Project, res, isb bool, err error) {
+func (p *Project) hasLoadedRecur(ctx Context, top, proj *Project, depth int, breakUseLoop bool) (rp *Project, res, isb bool, err error) {
   if depth > 1 && top == p && true {
     err = fmt.Errorf("loop '%v' (depth=%d)", p.loopLoadPath(), depth)
-    diag.errorAt(p.position, "%v: %v", p, err).debug(128)
+    ctx.error("%v: %v", p, err).at(p.position).debug(128)
     return
   } else if depth > 128 {
     err = fmt.Errorf("exceeds maximum base depth (%d) (start=%v, target=%v)", depth, top, proj)
-    diag.errorAt(p.position, "%v: %v", p, err)
-    diag.errorAt(top.position, "start: %v", top)
-    diag.errorAt(proj.position, "target: %v", proj).debug(200)
+    ctx.error("%v: %v", p, err).at(p.position)
+    ctx.error("start: %v", top).at(top.position)
+    ctx.error("target: %v", proj).at(proj.position).debug(200)
     return
   }
   for _, base := range p.bases {
     if isb = base == proj; isb { return }
-    if rp, res, isb, err = base.hasLoadedRecur(top, proj, depth+1, breakUseLoop); err != nil {
+    if rp, res, isb, err = base.hasLoadedRecur(ctx, top, proj, depth+1, breakUseLoop); err != nil {
       return
     } else if res || isb { rp = base ; return }
   }
@@ -887,14 +895,13 @@ func (p *Project) hasLoadedRecur(top, proj *Project, depth int, breakUseLoop boo
     if imp == top && !breakUseLoop {
       s := top.loopLoadPath()
       err = fmt.Errorf("loop `%v`", s)
-      diag.errorAt(top.position, "start: %v", top)
-      diag.errorAt(proj.position, "stop: %v", proj)
-      diag.errorAt(p.position, "%v: %v", p, err).
-        debug(128)
+      ctx.error("start: %v", top).at(top.position)
+      ctx.error("stop: %v", proj).at(proj.position)
+      ctx.error("%v: %v", p, err).at(p.position).debug(128)
       return
     }
     if res = imp == proj; res { rp = imp; return }
-    if rp, res, res, err = imp.hasLoadedRecur(top, proj, depth+1, breakUseLoop); err != nil {
+    if rp, res, res, err = imp.hasLoadedRecur(ctx, top, proj, depth+1, breakUseLoop); err != nil {
       return
     } else if res { rp = imp; return }
   }
@@ -964,18 +971,18 @@ func lockCD(dir string, dura time.Duration) error {
   return os.Chdir(dir)
 }
 
-func enter(t *traversal, dir string) (err error) {
+func enter(ctx Context, dir string) (err error) {
   cd.mutex.Lock(); defer cd.mutex.Unlock()
 
   if options.traceEntering {
-    fmt.Fprintf(stderr, "entering: %v (%v)\n", dir, t.Project().name)
+    fmt.Fprintf(stderr, "entering: %v (%v)\n", dir, ctx.Project().name)
   }
 
   var wd string
   if wd, err = os.Getwd(); err != nil { return }
   if err = lockCD(dir, 0); err != nil { return }
   if !filepath.IsAbs(dir) { dir = filepath.Join(wd, dir) }
-  t.autoSet("CWD", MakeString(t.program.position, dir))
+  ctx.autoSet("CWD", MakeString(ctx.traversal().program.position, dir))
 
   var ( enter *enterec ; ok bool )
   if enter, ok = cd.enters[dir]; !ok {
@@ -1002,7 +1009,7 @@ func leave(ctx Context, prog *Program, stop *enterec) (err error) {
     if enter == stop {
       if enter.print && false {
         enter.print = false
-        diag.prompt("smart:  Leaving directory '%s'\n", enter.dir)
+        ctx.prompt("smart:  Leaving directory '%s'\n", enter.dir)
       }
       err = lockCD(enter.wd, 0)
       break
@@ -1024,7 +1031,7 @@ func leave(ctx Context, prog *Program, stop *enterec) (err error) {
   return
 }
 
-func printEnteringDirectory() {
+func printEnteringDirectory(ctx Context) {
   cd.mutex.Lock(); defer cd.mutex.Unlock()
   if size := len(cd.stack); size > 0 {
     var enter = cd.stack[0]
@@ -1032,23 +1039,23 @@ func printEnteringDirectory() {
     for _, p := range cd.stack {
       if p.print && p != enter {
         p.print = false
-        diag.prompt("smart:  Leaving directory '%s'\n", p.dir)
+        ctx.prompt("smart:  Leaving directory '%s'\n", p.dir)
       }
     }
     if !enter.print {
       enter.print = true
-      diag.prompt("smart: Entering directory '%s'\n", enter.dir)
+      ctx.prompt("smart: Entering directory '%s'\n", enter.dir)
     }
   }
 }
 
-func printLeavingDirectory() {
+func printLeavingDirectory(ctx Context) {
   cd.mutex.Lock(); defer cd.mutex.Unlock()
   if size := len(cd.stack); size > 0 {
     for _, enter := range cd.stack {
       if enter.print {
         enter.print = false
-        diag.prompt("smart:  Leaving directory '%s'\n", enter.dir)
+        ctx.prompt("smart:  Leaving directory '%s'\n", enter.dir)
       }
     }
   }

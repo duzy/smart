@@ -44,21 +44,21 @@ func (p *Plain) cmp(_ Context, v Value) (res cmpres) {
 
 type plain struct {}
 
-func (_ *plain) Evaluate(t *traversal, args ...Value) (result Value, err error) {
+func (_ *plain) Evaluate(ctx Context, args ...Value) (result Value, err error) {
         var (
-                ctx = t.Context
+                t = ctx.traversal()
                 pos = ctx.Position()
                 str, name string
         )
         if len(args) > 0 {
                 if name, err = args[0].Strval(ctx); err != nil {
-                        diag.errorOf(args[0], "%v", err).debug(1)
+                        t.error("%v", err).of(args[0]).debug(1)
                         return
                 }
                 t.program.language = name
         }
         if str, err = multiline(ctx, t.program.recipes...); err != nil {
-                diag.errorOf(args[0], "%v", err).debug(1)
+                t.error("%v", err).of(args[0]).debug(1)
                 return
         }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
@@ -68,14 +68,13 @@ func (_ *plain) Evaluate(t *traversal, args ...Value) (result Value, err error) 
 
 func multiline(ctx Context, recipes... Value) (res string, err error) {
         var (
-                pos = ctx.Position()
                 x = len(recipes)-1
                 w = new(bytes.Buffer)
                 s string
         )
         for n, recipe := range recipes {
                 if s, err = recipe.Strval(ctx); err != nil {
-                        diag.errorAt(pos, "%v", err).debug(1)
+                        ctx.error("%v", err).debug(1)
                         return
                 }
                 if fmt.Fprint(w, s); n < x { fmt.Fprint(w, "\n") }

@@ -35,6 +35,10 @@ func NewScope(pos Position, outer *Scope, project *Project, comment string) *Sco
 	}
 }
 
+func (s *Scope) inside(outer *Scope) bool {
+	return s.outer != nil && (s.outer == outer || s.outer.inside(outer))
+}
+
 func (s *Scope) copyElems() (result map[string]Object) {
 	s.mutex.Lock(); defer s.mutex.Unlock()
 	result = make(map[string]Object, len(s.elems))
@@ -160,7 +164,11 @@ func (s *Scope) String() string { return fmt.Sprintf("scope{%s}", s.string()) }
 func (s *Scope) string() string {
 	var buf bytes.Buffer //s.WriteTo(&buf, 0)
 	if s.outer != nil {
-		fmt.Fprintf(&buf, "%s → %s", s.outer.string(), s.comment)
+		if false {
+			fmt.Fprintf(&buf, "%s → %s", s.outer.string(), s.comment)
+		} else {
+			fmt.Fprintf(&buf, "%s ← %s", s.comment, s.outer.string())
+		}
 	} else {
 		fmt.Fprintf(&buf, "%s", s.comment)
 	}

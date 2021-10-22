@@ -42,9 +42,11 @@ func defineUniverseBuiltins(ctx Context) {
 }
 
 func init() {
+        _context.Context = &_context // self context for diagnostic
+
         var err error
         if _context.workdir, err = os.Getwd(); err != nil {
-                diag.errorAt(_context.Position(), "%v", err).debug(6)
+                _context.error("%v", err).debug(6)
                 return
         }
 
@@ -76,7 +78,7 @@ type Globe struct {
         main   *Project
 
         args        map[Value][]Value
-        flagEntries map[string][]*RuleEntry
+        flagEntries map[string][]Entry
         flags []*Flag
         pairs []*Pair
         goals   *Def
@@ -94,7 +96,7 @@ func (g *Globe) Main() *Project { return g.main }
 
 func (g *Globe) SetScopeOuter(scope *Scope) { scope.outer = g.scope }
 
-func (g *Globe) AddFlagEntry(name string, entry *RuleEntry) {
+func (g *Globe) AddFlagEntry(name string, entry Entry) {
   flags, _ := g.flagEntries[name]
   flags     = append(flags, entry)
   g.flagEntries[name] = flags
@@ -166,7 +168,7 @@ func NewGlobe(ctx Context, name string) (g *Globe) {
         g = &Globe{
                 scope: NewScope(pos, universe, nil, fmt.Sprintf("globe %q", name)),
                 args: make(map[Value][]Value),
-                flagEntries: make(map[string][]*RuleEntry),
+                flagEntries: make(map[string][]Entry),
                 _timestamps: make(map[string]time.Time),
                 _timestampx: new(sync.Mutex),
         }
