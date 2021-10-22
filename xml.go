@@ -120,7 +120,7 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value, err error) {
 type xml struct { whitespace bool }
 func (p *xml) Evaluate(ctx Context, args ...Value) (result Value, err error) {
         var source string
-        if source, err = multiline(ctx, ctx.traversal().program.recipes...); err != nil {
+        if source, err = multiline(ctx, ctx.Program().recipes...); err != nil {
                 ctx.error("%v", err).debug(1)
                 return
         }

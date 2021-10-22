@@ -382,7 +382,7 @@ func executeConfigureEntry(ctx Context, opts *modifierConfigureOpts, entryName s
 
     for _, par := range prog.params {
         switch par.name {
-        case "LANG":   params = append(params, MakePair(pos, MakeBareword(pos, "LANG"),   MakeString(pos, ctx.traversal().program.language)))
+        case "LANG":   params = append(params, MakePair(pos, MakeBareword(pos, "LANG"),   MakeString(pos, ctx.Program().language)))
         case "TARGET": params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
         case "VALUE":  params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"),  hyphenVal))
         }

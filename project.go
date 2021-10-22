@@ -982,7 +982,7 @@ func enter(ctx Context, dir string) (err error) {
   if wd, err = os.Getwd(); err != nil { return }
   if err = lockCD(dir, 0); err != nil { return }
   if !filepath.IsAbs(dir) { dir = filepath.Join(wd, dir) }
-  ctx.autoSet("CWD", MakeString(ctx.traversal().program.position, dir))
+  ctx.autoSet("CWD", MakeString(ctx.Program().position, dir))
 
   var ( enter *enterec ; ok bool )
   if enter, ok = cd.enters[dir]; !ok {

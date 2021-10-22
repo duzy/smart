@@ -259,8 +259,8 @@ func (prog *Program) _execute(cc Context, entry Entry, args []Value) (result Val
             result = defaultVal
         }
 
-        if cc != nil && cc.traversal().program != nil && !isNil(result) {
-            cc.traversal().program.defaultVal = result
+        if cc != nil && cc.Program() != nil && !isNil(result) {
+            cc.Program().defaultVal = result
         }
     } (prog.project.changedWD)
 
