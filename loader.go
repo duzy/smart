@@ -493,13 +493,15 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
     }
 
     if err = l.useProject(position, loaded, params, useopts); err == nil && !specOpts.unuse {
-        var values []Value
+        var using Value
         if o, e := l.project.resolveObject(ctx, "using.*"); e != nil {
             ctx.error("resolve using.* failed: %v", e).at(ctx.Position()).debug(1)
         } else if !isNil(o) {
-            if def, ok := o.(*Def); ok && !isNil(def) { values = merge(def.value) }
+            if def, ok := o.(*Def); ok && !isNil(def) { using = def.value }
         }
-        for _, value := range values {
+        if isNil(using) || isNone(using) {
+            // fallthrough
+        } else { for _, value := range merge(using) { // NOTE: see also applyUseeVar(...)
             var (
                 opts applyUseeOpts
                 name string
@@ -552,7 +554,11 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
             } else if opts.unique {
                 def.value = builtinUnique(closureWith(ctx, position, l.Scope()), def.value)
             }
-        }
+            if false && name == "ldlibs" && (l.project.name == "llvm.utils.TableGen" || loaded.name == "llvm.utils.TableGen") {
+                ctx.info("%v: %v: %v", l.project, loaded, def)
+                ctx.info("%v: %v: %v", l.project, loaded, ctx).debug(10)
+            }
+        }}
     }
     return
 }

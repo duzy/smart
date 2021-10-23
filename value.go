@@ -425,65 +425,50 @@ func (cc *closureContext) closureResolveObject(pos Position, name string) (obj O
     }
 
     var (
-        infos = false && name == "@"
+        infos = true && strings.HasPrefix(name, "ldlibs")
         scope *Scope
         err error
     )
     if infos { defer func() {
-        var o4 Object
-        _, o1 := scope.Find(name)
-        o2, _ := scope.project.resolveObject(cc, name)
-        o3, _ := scope.project.resolveObject(cc.inner(), name)
-        if c := cc.inner().inner(); c != nil { o4, _ = scope.project.resolveObject(c, name) }
-
         var val Value
         if obj != nil { val, _ = obj.expand(cc, expandPlainValue) }
-
-        cc.warn("%v(%v), name = %s", scope.project, scope.project.bases, name).at(scope.position)
-        cc.warn("%v: %v", scope.project, cc).at(scope.position)
+        cc.warn("%v: name = %s", scope.project, name).at(scope.position)
         cc.warn("%v: %v", scope.project, scope).at(scope.position)
-
-        cc.warn("%s: o1 = %T, %v", scope.project, o1, o1).at(pos)
-        cc.warn("%s: o2 = %T, %v", scope.project, o2, o2).at(pos)
-        cc.warn("%s: o3 = %T, %v", scope.project, o3, o3).at(pos)
-        cc.warn("%s: o4 = %T, %v", scope.project, o4, o4).at(pos)
-        cc.warn("%s: obj = %T, %v", scope.project, obj, obj).at(pos)
-        cc.warn("%s: obj = %v", scope.project, val).at(pos)
-        for i, s := range cc.closureScopes() {
-            cc.warn("%s: %d. %s", scope.project, i, s).at(pos)
-        }
-        cc.warn("%s: %s", scope.project, cc).at(pos).debug(24)
+        cc.warn("%v: %v", scope.project, cc).at(scope.position)
+        cc.warn("%s: %T, %v", scope.project, obj, obj).at(pos)
+        cc.warn("%s: %T, %v", scope.project, val, val).at(pos).debug(24)
     } () }
     for _, scope = range cc.closureScopes() {
         var ctx Context = positional(cc, scope.position)
         if infos { ctx.warn("%s", scope).debug(1) }
         if scope.project == nil || scope != scope.project.scope {
             if _, obj = scope.Find(name); isNil(obj) {
-                // ...
+                // fallthrough
             } else if def, ok := obj.(*Def); ok && (def.origin == DefAuto || def.origin == DefArg) {
                 if infos {
+                    proj := obj.OwnerProject()
                     val, _ := obj.expand(cc, expandPlainValue)
                     va2, _ := cc.traversal().autoGet(name)
                     va3, _ := cc.closureResolveAuto(scope, name)
-                    ctx.warn("%v: %v -> %v, %v, %v, %v, %v", obj.OwnerProject(), obj, val, va2, va3, cc.Program().scope == scope, obj.(*Def).origin)
-                    ctx.warn("%v: %v", obj.OwnerProject(), cc).debug(1)
+                    ctx.warn("%v: %v -> %v, %v, %v, %v", proj, obj, val, va2, va3, obj.(*Def).origin)
+                    ctx.warn("%v: %v", proj, cc).debug(1)
                 }
                 if o, ok := cc.closureResolveAuto(scope, name); ok && !isNil(o) { obj = o }
                 break
             } else {
+                if false && infos { ctx.warn("%v: %v", obj.OwnerProject(), obj).debug(1) }
                 break // got the obj
             }
         }
         if scope.project != nil {
             if obj, err = scope.project.resolveObject(cc, name); err != nil {
-                ctx.error("resolve object '%s' in '%s' failed: %v", name, scope.project, err).at(pos).debug(1)
+                ctx.error("resolve object '%s' in '%s' failed: %v", name, scope.project, err)
+                ctx.error("failed from here '%s' in '%s'", name, scope).at(pos).debug(1)
                 break
             }
         }
         if isNil(obj) && false { obj = cc.Context.closureResolveObject(pos, name) }
-        if!isNil(obj) { if infos { ctx.warn("%v %s", obj, scope).debug(1) }
-            break
-        }
+        if!isNil(obj) { if infos { ctx.warn("%v", obj).debug(1) }; break }
     }
     return
 }
@@ -5561,8 +5546,7 @@ func expandall1(ctx Context, w expandwhat, values ...Value) (elems []Value, num 
         } else if val, err = elem.expand(ctx, w); err != nil {
             ctx.error("expand '%v' failed: %v", elem, err).of(elem).debug(1)
             break
-        }
-        if isNil(val) || val == elem {
+        } else if isNil(val) || val == elem {
             elems = append(elems, elem)
         } else {
             elems = append(elems, val)

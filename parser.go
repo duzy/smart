@@ -1624,9 +1624,9 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
     }
 	wg.Wait()
 
-    if err == nil && false {
+    if false && err == nil {
         var using Object
-        if using, err = p.Project().resolveObject(ctx, "using.*"); err != nil {
+        if using, err = p.project.resolveObject(ctx, "using.*"); err != nil {
 			p.error("resolve 'using.*' failed: %v", err).at(p.Position()).debug(1)
 		} else if isNil(using) {
 			// does nothing
@@ -2614,7 +2614,7 @@ type applyUseeOpts struct {
 	unique bool `u,unique;uni,unique`
 	reverse bool `r,reverse;rev,reverse`
 }
-func (p *parser) applyUseeVar(ctx Context, proj *Project, value Value) {
+func (p *parser) applyUseeVar(ctx Context, value Value) {
 	var (
 		position = ctx.Position()
 		opts applyUseeOpts
@@ -2637,42 +2637,49 @@ func (p *parser) applyUseeVar(ctx Context, proj *Project, value Value) {
 		}
 	}
 	if name, err = value.Strval(ctx); err != nil {
-		p.error("%v: strval usee '%v' failed: %v", proj, value, err).at(position)
+		p.error("%v: strval usee '%v' failed: %v", p.project, value, err).at(position)
 		return
 	}
 
 	var (
-		usingName = fmt.Sprintf("using.%s", name)
-		def, alt = proj.scope.define(ctx, DefVoid, usingName, MakeNone(position))
+		//usingName = fmt.Sprintf("using.%s", name) // using.%s -> %s
+		def, alt = p.project.scope.define(ctx, DefVoid, /*usingName*/name, MakeNone(position))
 	)
-	if def == nil && alt != nil { def, _ = alt.(*Def) }
+	if def == nil && alt != nil { var ok bool; if def, ok = alt.(*Def); !ok {
+		p.error(`%v: "%s" is not Def: %T'`, p.project, name, alt).at(alt.Position()).debug(1)
+		return
+	}}
 	if def == nil {
-		p.error(`%v: "%s" is undefined'`, proj, name).at(value.Position()).debug(1)
+		p.error(`%v: "%s" is undefined'`, p.project, name).at(value.Position()).debug(1)
 		return
 	}
-	for _, base := range proj.bases {
-		if obj, err := base.resolveObject(ctx, usingName); err != nil {
-			p.error("resolve '%s' failed: %v", usingName, err).at(position).debug(1)
+	for _, base := range p.project.bases {
+		if obj, err := base.resolveObject(ctx, /*usingName*/name); err != nil {
+			p.error("resolve '%s' failed: %v", name, err).at(position).debug(1)
 		} else if isNil(obj) || isNone(obj) {
 			continue
 		} else {
 			def.append(ctx, obj)
 		}
 	}
-	if l, e := proj.using.Get(ctx, name); e != nil {
-		p.error("%v: %v (using.%s)", proj, e, name).at(position)
+	if l, e := p.project.using.Get(ctx, name/* NOTE: gets `using.%s` */); e != nil {
+		p.error("%v: %v (using.%s)", p.project, e, name).at(position)
 	} else if e = def.append(ctx, l); e != nil {
 		p.error("append using value: %v (from %v)", e, p.Scope()).at(position)
 	} else if opts.unique && opts.reverse {
-		def.value = builtinUnique(closureWith(ctx, position, proj.scope), MakeFlag(position, "r"), def.value)
+		def.value = builtinUnique(closureWith(ctx, position, p.project.scope), MakeFlag(position, "r"), def.value)
 	} else if opts.unique {
-		def.value = builtinUnique(closureWith(ctx, position, proj.scope), def.value)
+		def.value = builtinUnique(closureWith(ctx, position, p.project.scope), def.value)
+	}
+	if false && name == "ldlibs" && p.project.name == "llvm.utils.TableGen" {
+		p.info("%v: %v", p.project, def)
+		p.info("%v: %v", p.project, ctx).debug(10)
 	}
 }
-func (p *parser) applyUseeVars(position Position, proj *Project, using Value) {
+func (p *parser) applyUseeVars(position Position, using Value) {
 	var ctx = positional(p, position)
 	for _, value := range merge(using) {
-		p.applyUseeVar(ctx, proj, value)
+		p.applyUseeVar(ctx, value)
 	}
 }
 
@@ -2882,11 +2889,14 @@ func (p *parser) parseFile() *parsedFile {
 					} else if !isNil(o) {
 						if def, ok := o.(*Def); ok && !isNil(def) { using = def.value }
 					}
-					if !isNil(using) { p.applyUseeVars(ident.Position(), proj, using) }
+					if !isNil(using) && !isNone(using) {
+						assert(p.project == proj, "diverged project: %v != %v", p.project, proj)
+						p.applyUseeVars(ident.Position(), using)
+					}
 				}
 				p.isLoadingBases = false
 				p.closeCurrent(ident, identStr)
-			} (p.Project())
+			} (p.project)
 		}
 
 		var basePos Position

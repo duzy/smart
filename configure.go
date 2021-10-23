@@ -430,7 +430,7 @@ ForInParams:
     }
 
     var brks breakers
-    if result, brks = prog._execute(ctx, entry, params); ctx.checkErrors(true) > 0 {
+    if result, brks = prog.execute(ctx, entry, params); ctx.checkErrors(true) > 0 {
         ctx.warn(`configure '%s' got %d error(s)`, entryName, ctx.totalErrors()).debug(1)
         if options.failOnErrors { fail(pos, "fail by %d errors", ctx.totalErrors()) }
     } else if !isNil(result) && result == hyphenVal {

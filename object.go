@@ -1094,7 +1094,7 @@ func (entry *RuleEntry) execute(cc Context, a... Value) (result []Value, brks br
                         ctx = positional(&ec, pos)
                         res Value
                 )
-                res, brks = program._execute(ctx, entry, a)
+                res, brks = program.execute(ctx, entry, a)
                 result = append(result, res)
                 if tb := brks.of(breakFail, breakErro); tb.has() {
                         brks = brks.not(breakFail, breakErro)
@@ -1230,7 +1230,7 @@ ForPrograms:
                 if brks = brks.not(breakNext); len(brks) > 0 {
                         ctx.warn("broken traversal %v: %v (stems = %v)", entry, brks[0].what, t.stems).debug(6)
                         return
-                } else if res, brks = prog._execute(ctx, entry, t.argumented); false && brks.has() {
+                } else if res, brks = prog.execute(ctx, entry, t.argumented); false && brks.has() {
                         ctx.warn("entry: %v %d, %v, %v, %v", entry, len(entry.programs), t.stems, target, brks[0].what).debug(breakDone > 0, 6)
                 } else if !isNil(res) {
                         // TODO: deal with res

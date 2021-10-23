@@ -153,7 +153,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
 
 const maxRecursion  = 16 //32 //64
 
-func (prog *Program) _execute(cc Context, entry Entry, args []Value) (result Value, brks breakers) {
+func (prog *Program) execute(cc Context, entry Entry, args []Value) (result Value, brks breakers) {
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.execute(%s)", entry.Target()))) }
     if optionEnableBenchspots { defer bench(spot("Program.execute")) }
 
