@@ -68,11 +68,6 @@ type Context interface {
   // Pos returns the diagnostic position where this context is taking place.
   Position() Position
 
-  // Project returns the project to which this context is bound
-  Project() *Project // aka. current()
-
-  Program() *Program
-
   // Scope returns the closure scope
   Scope() *Scope
 
@@ -86,26 +81,31 @@ type Context interface {
 
   closure() *closureContext
   closureScopes() []*Scope
-  closureProjects() []*Project
-  closureGet(string) Value
-  closureSet(string, Value) (Value, bool)
-  closureResolveAuto(*Scope, string) (Object, bool)
-  closureResolveObject(Position, string) Object
-  closureResolveEntry(Position, string) Entry
+  //closureProjects() []*Project
+  //closureGet(string) Value
+  //closureSet(string, Value) (Value, bool)
+  //closureResolveObject(Position, string) Object
+  //closureResolveEntry(Position, string) Entry
+  closureResolveAuto(string) (Object, bool)
 
   inner() Context
   spawn() Context
 
   traversal() *traverseContext
 
-  arged() []Value
+  Project() *Project
+
+  programCtx() *programContext
+  program() *Program
+
+  entry() Entry
+
+  argumented() *argumentedContext
+  argumentedSet([]Value) []Value
+  arguments() []Value
 
   diagnostic() *diagContext
   diag(diagType, string, ...interface{}) *diagPoint
-  info(string, ...interface{}) *diagPoint
-  warn(string, ...interface{}) *diagPoint
-  error(string, ...interface{}) *diagPoint
-  prompt(string, ...interface{}) *diagPoint
   checkErrors(bool) int
   countErrors() int
   totalErrors() int
@@ -113,11 +113,11 @@ type Context interface {
 
 func getTargetValue(ctx Context) (res Value) {
     if target, ok := ctx.autoGet("@"); !ok || isNil(target) {
-        if false { ctx.error("target '%v' is nil", target) }
+        if false { erro(ctx, "target '%v' is nil", target) }
     } else if vals, _, err := expandall2(ctx, expandPlainValue, target); err != nil {
-        ctx.error("expand target '%v' failed: %v", target, err).of(target)
+        erro(ctx, "expand target '%v' failed: %v", target, err).of(target)
     } else if len(vals) == 1 { res = vals[0] } else {
-        ctx.error("target '%v' expaned to many: %v", target, res).of(target)
+        erro(ctx, "target '%v' expaned to many: %v", target, res).of(target)
     }
     return
 }
@@ -125,9 +125,9 @@ func getTargetValue(ctx Context) (res Value) {
 func getTargetValueString(ctx Context) (val Value, str string) {
   var err error
   if val = getTargetValue(ctx); isNil(val) {
-    if false { ctx.error("target '%v' is nil", val) }
+    if false { erro(ctx, "target '%v' is nil", val) }
   } else if str, err = fullnameOrStrval(ctx, val); err != nil {
-    ctx.error("strval target '%v' failed: %v", val, err).of(val)
+    erro(ctx, "strval target '%v' failed: %v", val, err).of(val)
   }
   return
 }
@@ -307,30 +307,29 @@ func (diag *diagContext) checkErrors(reset bool) (num int) {
 }
 
 func diagnostic(ctx Context) Context { return &diagContext{ Context: ctx } }
+func diag(ctx Context, dt diagType, f string, a ...interface{}) (p *diagPoint) {
+  if p = ctx.diag(dt, f, a...); p != nil { p.at(ctx.Position()) }
+  return
+}
+func info(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagInfo, f, a...) }
+func warn(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagWarn, f, a...) }
+func erro(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagError, f, a...) }
+func prompt(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagPrompt, f, a...) }
+
+type spawnPositionalContext struct { positionalContext }
+func (pc *spawnPositionalContext) String() string { return fmt.Sprintf("spawn-%s", pc.positionalContext.String()) }
 
 type positionalContext struct { Context; position Position }
 func (pc *positionalContext) inner() Context { return pc.Context }
 func (pc *positionalContext) Position() Position { return pc.position }
 func (pc *positionalContext) String() string { return fmt.Sprintf("positional{%s}", pc.Context) }
-func (pc *positionalContext) info(f string, a ...interface{}) (p *diagPoint) {
-  if p = pc.Context.info(f, a...); p != nil { p.at(pc.position) }
-  return
-}
-func (pc *positionalContext) warn(f string, a ...interface{}) (p *diagPoint) {
-  if p = pc.Context.warn(f, a...); p != nil { p.at(pc.position) }
-  return
-}
-func (pc *positionalContext) error(f string, a ...interface{}) (p *diagPoint) {
-  if p = pc.Context.error(f, a...); p != nil { p.at(pc.position) }
-  return
-}
-func (pc *positionalContext) prompt(f string, a ...interface{}) (p *diagPoint) {
-  if p = pc.Context.prompt(f, a...); p != nil { p.at(pc.position) }
-  return
-}
-func (pc *positionalContext) diag(dt diagType, f string, a ...interface{}) (p *diagPoint) {
-  if p = pc.Context.diag(dt, f, a...); p != nil { p.at(pc.position) }
-  return
+func (pc *positionalContext) spawn() Context {
+  var ctx = pc.Context
+  switch t := ctx.(type) {
+  case *programContext, *traverseContext, *closureContext: ctx = t.spawn()
+  default: erro(pc, "needs to spawn positional context: %v", ctx).debug(1)
+  }
+  return &spawnPositionalContext{positionalContext{ ctx, pc.position }}
 }
 func positional(ctx Context, pos Position) Context {
   if pc, ok := ctx.(*positionalContext); ok && pos.Equals(&pc.position) {
@@ -345,7 +344,12 @@ type argumentedContext struct {
 }
 func (ac *argumentedContext) inner() Context { return ac.Context }
 func (ac *argumentedContext) String() string { return fmt.Sprintf(`argumented{%s}`, ac.Context) }
-func (ac *argumentedContext) arged() []Value { return ac.args }
+func (ac *argumentedContext) arguments() []Value { return ac.args }
+func (ac *argumentedContext) argumented() *argumentedContext { return ac }
+func (ac *argumentedContext) argumentedSet(args []Value) (prev []Value) {
+  prev, ac.args = ac.args, args
+  return
+}
 
 func executeEntry(ctx Context, entry *RuleEntry, args ...Value) (result []Value, okay bool) {
   var brks breakers
@@ -359,14 +363,14 @@ func executeEntry(ctx Context, entry *RuleEntry, args ...Value) (result []Value,
     brks, okay = brks.not(breakFail, breakErro), false
     for _, brk := range tb {
       switch brk.what {
-      case breakErro: ctx.error("broken execution '%v' error: %v", entry, brk.error).at(brk.pos).debug(1)
-      case breakFail: ctx.error("broken execution '%v' failed: %v", entry, brk.message).at(brk.pos).debug(1)
+      case breakErro: erro(ctx, "broken execution '%v' error: %v", entry, brk.error).at(brk.pos).debug(1)
+      case breakFail: erro(ctx, "broken execution '%v' failed: %v", entry, brk.message).at(brk.pos).debug(1)
       }
     }
   }
   if brks.has() {
     for _, brk := range brks {
-      ctx.error("broken execution for '%v' (%v)", entry, brk.what).at(brk.pos).debug(1)
+      erro(ctx, "broken execution for '%v' (%v)", entry, brk.what).at(brk.pos).debug(1)
     }
     okay = false
   }
@@ -380,22 +384,26 @@ type defaultContext struct {
   globe   *Globe
   loader  *loader
 }
-func (ctx *defaultContext) arged() []Value { return nil }
+func (ctx *defaultContext) arguments() []Value { return nil }
+func (ctx *defaultContext) argumented() *argumentedContext { return nil }
+func (ctx *defaultContext) argumentedSet([]Value) []Value { return nil }
 func (ctx *defaultContext) inner() Context { return nil }
 func (ctx *defaultContext) spawn() Context { return nil }
 func (ctx *defaultContext) auto() *autoContext { return nil }
 func (ctx *defaultContext) closure() *closureContext { return nil }
 func (ctx *defaultContext) traversal() *traverseContext { return nil }
+func (ctx *defaultContext) entry() Entry { return nil }
 func (ctx *defaultContext) Scope() *Scope { return ctx.globe/*.main*/.scope }
 func (ctx *defaultContext) Project() *Project { return ctx.globe.main }
-func (ctx *defaultContext) Program() *Program { return nil }
+func (ctx *defaultContext) program() *Program { return nil }
+func (ctx *defaultContext) programCtx() *programContext { return nil }
 func (ctx *defaultContext) Position() (res Position) { res.Filename, res.Line = ctx.workdir, 1; return }
 func (ctx *defaultContext) WorkDir() string { return ctx.workdir }
 func (ctx *defaultContext) Globe() *Globe { return ctx.globe }
 func (ctx *defaultContext) String() string { return "default" }
 func (ctx *defaultContext) autoArgs(_ []*Def, _ []Value) ([]string, error) { return nil, nil }
 func (ctx *defaultContext) autoSet(_ string, _ Value) (Value, bool) { return nil, false }
-func (ctx *defaultContext) closureResolveAuto(_ *Scope, name string) (obj Object, found bool) {
+func (ctx *defaultContext) closureResolveAuto(name string) (obj Object, found bool) {
   switch g := ctx.globe; name {
   case "os"   : obj, found = g.os.self, true
   case "goals": obj, found = g.goals,   true
@@ -405,7 +413,7 @@ func (ctx *defaultContext) closureResolveAuto(_ *Scope, name string) (obj Object
 }
 func (ctx *defaultContext) autoGet(name string) (res Value, found bool) {
   var obj Object
-  if obj, found = ctx.closureResolveAuto(nil, name); found {
+  if obj, found = ctx.closureResolveAuto(name); found {
     if def, ok := obj.(*Def); ok {
       res = def.value
     } else {
@@ -414,7 +422,14 @@ func (ctx *defaultContext) autoGet(name string) (res Value, found bool) {
   }
   return
 }
-func (ctx *defaultContext) closureGet(name string) (res Value) {
+func (ctx *defaultContext) closureScopes() (scopes []*Scope) {
+  if m := ctx.globe.main; m != nil && m.scope != nil {
+    if false { scopes = append(scopes, m.scope) }
+  }
+  return
+}
+//func (ctx *defaultContext) closureProjects() []*Project { return nil }
+/*func (ctx *defaultContext) closureGet(name string) (res Value) {
   if m := ctx.globe.main; m == nil {
     // ...
   } else if m.scope == nil {
@@ -431,7 +446,7 @@ func (ctx *defaultContext) closureSet(name string, val Value) (Value, bool) {
   } else if m.scope == nil {
     // ...
   } else if def := m.scope.FindDef(name); def != nil {
-    ctx.warn("closure set in default context: %s -> %v", name, val).at(def.position).debug(1)
+    warn(ctx, "closure set in default context: %s -> %v", name, val).at(def.position).debug(1)
     var prev = def.value
     def.val(ctx, val)
     return prev, true
@@ -443,7 +458,7 @@ func (ctx *defaultContext) closureResolveObject(pos Position, name string) (obj 
   if m := ctx.globe.main; m == nil {
     // ...
   } else if obj, err = m.resolveObject(ctx, name); err != nil {
-    ctx.error("resolve closure object '%s' failed: %v", name, err).at(pos).debug(16)
+    erro(ctx, "resolve closure object '%s' failed: %v", name, err).at(pos).debug(16)
   }
   return
 }
@@ -452,17 +467,10 @@ func (ctx *defaultContext) closureResolveEntry(pos Position, name string) (entry
   if m := ctx.globe.main; m == nil {
     // ...
   } else if entry, err = m.resolveEntry(ctx, name, false); err != nil {
-    ctx.error("resolve closure entry '%s' failed: %v", err).at(pos).debug(16)
+    erro(ctx, "resolve closure entry '%s' failed: %v", err).at(pos).debug(16)
   }
   return
-}
-func (ctx *defaultContext) closureScopes() []*Scope { return nil }
-func (ctx *defaultContext) closureProjects() []*Project { return nil }
-
-func (ctx *defaultContext) info(f string, a ...interface{}) *diagPoint { return ctx.diag(diagInfo, f, a...) }
-func (ctx *defaultContext) warn(f string, a ...interface{}) *diagPoint { return ctx.diag(diagWarn, f, a...) }
-func (ctx *defaultContext) error(f string, a ...interface{}) *diagPoint { return ctx.diag(diagError, f, a...) }
-func (ctx *defaultContext) prompt(f string, a ...interface{}) *diagPoint { return ctx.diag(diagPrompt, f, a...) }
+}*/
 
 func (ctx *defaultContext) help()       { do_helpscreen(ctx) }
 func (ctx *defaultContext) helpFlags()  { print_flag_trace(ctx) }
@@ -490,7 +498,7 @@ func (ctx *defaultContext) run() (result []Value, breakers []*breaker) {
       if res, brks = entry.Execute(positional(ctx, entry.Position()), args...); len(brks) > 0 {
         for _, brk := range brks {
           if brk.what == breakErro {
-            ctx.error("execute '%v' failed: %v", entry, brk.error).at(entry.Position()).debug(1)
+            erro(ctx, "execute '%v' failed: %v", entry, brk.error).at(entry.Position()).debug(1)
           }
         }
       }
@@ -549,10 +557,10 @@ func (ctx *defaultContext) update(goal Value, args []Value) (result []Value) {
     switch g := goal.(type) {
     case *RuleEntry:
       if result, okay = executeEntry(positional(ctx, g.position), g, args...); !okay {
-        ctx.error("update '%v' failed", g).at(ctx.Position()).debug(1)
+        erro(ctx, "update '%v' failed", g).at(ctx.Position()).debug(1)
       }
     default:
-      ctx.error("'%v' is not an entry (%T)", goal, goal).of(goal).debug(1)
+      erro(ctx, "'%v' is not an entry (%T)", goal, goal).of(goal).debug(1)
     }
   }
   return
@@ -657,7 +665,7 @@ func (ctx *defaultContext) load() (err error) {
   } else if args = ctx.loader.loadText("@", text); len(args) == 0 {
     // ohh...
   } else if args, err = parseOpts(ctx, &options, args...); err != nil {
-    ctx.error("parse opts failed: %v", err).at(pos).debug(1)
+    erro(ctx, "parse opts failed: %v", err).at(pos).debug(1)
     return
   }
 
@@ -666,7 +674,7 @@ func (ctx *defaultContext) load() (err error) {
   if options.verbose || options.benchImport {
     defer func(t time.Time) {
       var d = time.Now().Sub(t)
-      ctx.prompt("Goals %v (%s)\n", ctx.globe.goals, d)
+      prompt(ctx, "Goals %v (%s)\n", ctx.globe.goals, d)
     } (time.Now())
   }
 
@@ -707,7 +715,7 @@ func (ctx *defaultContext) load() (err error) {
       if p := ctx.loader.Project(); p != nil { name = p.name }
       fmt.Fprintf(stderr, "└·%s … (%s)\n", name, d)
     } else if d > 4999*time.Millisecond {
-      ctx.prompt("warning: long load time: %s !\n", d).debug(1)
+      prompt(ctx, "warning: long load time: %s !\n", d).debug(1)
     }
   } (time.Now())
   if options.verboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
@@ -721,18 +729,18 @@ func checkPanicsErrors(ctx Context, dontCheckErrors ...bool) (panics, errs int) 
   for e := recover(); e != nil; e = recover() {
     switch t := e.(type) {
     case bailout: continue
-    case failure: ctx.error("panic: %v", t.metainfo).at(t.position)
-    default     : ctx.error("panic: %v", e)
+    case failure: erro(ctx, "panic: %v", t.metainfo).at(t.position)
+    default     : erro(ctx, "panic: %v", e)
     }
     panics += 1
   }
   if panics > 0 {
-    ctx.error("failed: got %d panics (%s)", panics, ctx).debug(128)
+    erro(ctx, "failed: got %d panics (%s)", panics, ctx).debug(128)
   }
   if len(dontCheckErrors) > 0 && dontCheckErrors[0] {
     // okay
   } else if errs = ctx.checkErrors(true); errs > 0 && panics == 0 {
-    ctx.warn("got %d errors (%s)", ctx.totalErrors(), ctx).debug(16)
+    warn(ctx, "got %d errors (%s)", ctx.totalErrors(), ctx).debug(16)
     if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.totalErrors()) }
   }
   return
@@ -747,10 +755,10 @@ func CommandLine() {
     var w *bufio.Writer
     var d = filepath.Join(context.workdir, "benchmarks")
     if err := os.MkdirAll(d, os.FileMode(0777)); err != nil {
-      context.error("%v", err).at(context.Position()).debug(1)
+      erro(context, "%v", err).at(context.Position()).debug(1)
       return
     } else if f, err := ioutil.TempFile(d, "*.log"); err != nil {
-      context.error("%v", err).at(context.Position()).debug(1)
+      erro(context, "%v", err).at(context.Position()).debug(1)
       return
     } else {
       w = bufio.NewWriter(f)
@@ -818,9 +826,9 @@ func CommandLine() {
   context.globe = NewGlobe(context, "smart")
 
   if err := context.load(); err != nil {
-    context.error("loading work failed: %v", err).at(context.Position())
+    erro(context, "loading work failed: %v", err).at(context.Position())
   } else if context.checkErrors(true) > 0 {
-    context.prompt("loading work got %d errors\n", context.totalErrors())
+    prompt(context, "loading work got %d errors\n", context.totalErrors())
   } else if options.help {
     context.help()
   } else if options.printFlags {
@@ -828,13 +836,13 @@ func CommandLine() {
   } else if options.printConfig {
     context.helpConfig()
   } else if numUpdatedPlugins > 0 { // see buildPlugin
-    context.prompt("plugins updated, please relaunch.\n")
+    prompt(context, "plugins updated, please relaunch.\n")
   } else if options.configure {
     context.configure()
   } else if result, err := context.run(); err != nil {
-    context.error("run work failed: %v", err).at(context.Position())
+    erro(context, "run work failed: %v", err).at(context.Position())
   } else if context.checkErrors(true) > 0 {
-    context.prompt("run work got %d errors\n", context.totalErrors())
+    prompt(context, "run work got %d errors\n", context.totalErrors())
   } else if result != nil {
     var ( s string; err error )
     for i, v := range result {

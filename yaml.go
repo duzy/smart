@@ -31,14 +31,14 @@ func DecodeYAML(ctx Context, source string, ws bool) (result Value, err error) {
 type yaml struct { whitespace bool }
 func (p *yaml) Evaluate(ctx Context, args ...Value) (result Value, err error) {
         var source string
-        if source, err = multiline(ctx, ctx.Program().recipes...); err != nil {
-                ctx.error("%v", err).debug(1)
+        if source, err = multiline(ctx, ctx.program().recipes...); err != nil {
+                erro(ctx, "%v", err).debug(1)
                 return
         } else if result, err = DecodeYAML(ctx, source, p.whitespace); err == nil {
                 result = &YAML{ result }
         } else {
                 result = &YAML{ MakeNone(ctx.Position()) }
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
         }
         return
 }

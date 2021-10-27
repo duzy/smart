@@ -77,11 +77,11 @@ func (ctx *defaultContext) configure() {
     // Remove all existing configuration.sm files
     for _, s := range configuration.clean {
         if _, e := os.Stat(s); e != nil {
-            if false { ctx.prompt("%v\n", e).debug(1) }
+            if false { prompt(ctx, "%v\n", e).debug(1) }
         } else if e = os.Remove(s); e == nil {
-            ctx.prompt("Remove %s\n", s)
+            prompt(ctx, "Remove %s\n", s)
         } else if true {
-            ctx.prompt("Remove: %s\n", e).debug(1)
+            prompt(ctx, "Remove: %s\n", e).debug(1)
         }
     }
 
@@ -94,18 +94,18 @@ func (ctx *defaultContext) configure() {
             defs = make(map[string]*Def) // reset defs for p
             var f, e = p.openConfiguration(ctx)
             if e != nil {
-                ctx.error("%v", e).debug(1)
+                erro(ctx, "%v", e).debug(1)
                 return
             } else if f != nil {
                 if writer != nil {
                     if e = writer.Flush(); e != nil {
-                        ctx.error("%v", e).debug(1)
+                        erro(ctx, "%v", e).debug(1)
                         return
                     }
                 }
                 if file != nil {
                     if e = file.Close(); e != nil {
-                        ctx.error("%v", e).debug(1)
+                        erro(ctx, "%v", e).debug(1)
                         return
                     }
                 }
@@ -114,26 +114,26 @@ func (ctx *defaultContext) configure() {
             file, writer = f, bufio.NewWriter(f)
             fmt.Fprintf(writer, "# %s (%s) configuration\n", p.spec, p.relPath)
 
-            ctx.prompt("Project %s …… (%s)\n", p.spec, p.relPath)
+            prompt(ctx, "Project %s …… (%s)\n", p.spec, p.relPath)
             project = p
         }
 
         if val, brks := entry.Execute(ctx); len(brks) > 0 {
             for _, brk := range brks {
                 if brk.what == breakErro {
-                    ctx.error("execute '%v' failed: %v", entry, brk.error).debug(1)
+                    erro(ctx, "execute '%v' failed: %v", entry, brk.error).debug(1)
                 }
             }
         } else if entry.String() == "-check-file" {
-            ctx.warn("configure %v: %v", entry, val).debug(1)
+            warn(ctx, "configure %v: %v", entry, val).debug(1)
         }
 
         if s, e := entry.Target().Strval(ctx); e != nil {
-            ctx.error("strval '%v' fail: %v", entry, e).debug(1)
+            erro(ctx, "strval '%v' fail: %v", entry, e).debug(1)
         } else if def := project.scope.FindDef(s); def != nil {
             if d, ok := defs[s]; ok && d != nil {
                 /*if d.value.cmp(def.value) != cmpEqual {
-                    ctx.error("'%s' already configured: %v", d.name, d.value).at(entry.Position())
+                    erro(ctx, "'%s' already configured: %v", d.name, d.value).at(entry.Position())
                     return
                 }*/
               continue
@@ -147,15 +147,15 @@ func (ctx *defaultContext) configure() {
                 fmt.Fprintf(writer, "%v = %v\n", def.name, vs)
             }
         } else {
-            ctx.error("`%s` unconfigured", s).debug(1)
+            erro(ctx, "`%s` unconfigured", s).debug(1)
         }
     }
     if err != nil {
-        ctx.prompt("configure failed: %v\n", err).debug(1)
+        prompt(ctx, "configure failed: %v\n", err).debug(1)
         return
     }
     if n := ctx.checkErrors(true); n > 0 {
-        ctx.warn("configuration got %d errors", ctx.totalErrors()).debug(1)
+        warn(ctx, "configuration got %d errors", ctx.totalErrors()).debug(1)
         if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.totalErrors()) }
         //return
     }
@@ -166,19 +166,19 @@ func (ctx *defaultContext) configure() {
 func (p *Project) openConfiguration(ctx Context, ) (file *os.File, err error) {
     // defer setclosure(setclosure(cloctx.unshift(p.scope)))
     if f := p.configuration(ctx); f == nil {
-        ctx.error("nil configuration file for %v", p).at(p.position).debug(1)
+        erro(ctx, "nil configuration file for %v", p).at(p.position).debug(1)
     } else if s := f.fullname(); s == "" {
-        ctx.error("empty configuration file name: %v", f).at(p.position).debug(1)
+        erro(ctx, "empty configuration file name: %v", f).at(p.position).debug(1)
     } else if err = os.MkdirAll(filepath.Dir(s), os.FileMode(0755)); err != nil {
-        ctx.error("make path %s failed: %v", filepath.Dir(s), err).at(p.position).debug(1)
+        erro(ctx, "make path %s failed: %v", filepath.Dir(s), err).at(p.position).debug(1)
     } else if file, err = os.OpenFile(s, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600)); err != nil {
-        ctx.error("open configuration %s failed: %v", s, err).at(p.position).debug(1)
+        erro(ctx, "open configuration %s failed: %v", s, err).at(p.position).debug(1)
     }
     return
 }
 
 func configPrintf(ctx Context, str string, args... interface{}) {
-    ctx.prompt(str, args...) //ctx.prompt( str, args...)
+    prompt(ctx, str, args...) //prompt(ctx,  str, args...)
 }
 
 func configMessageDone(ctx Context, str string, args... interface{}) {
@@ -200,7 +200,7 @@ func configureBoolValue(ctx Context) (result bool, err error) {
     if isNil(value) {
         return
     } else if res, err = value.expand(ctx, expandPlainValue); err != nil {
-        ctx.error("expand value failed: %v", err).debug(1)
+        erro(ctx, "expand value failed: %v", err).debug(1)
         return
     } else if !isNil(res) && res != value {
         value = res
@@ -210,7 +210,7 @@ func configureBoolValue(ctx Context) (result bool, err error) {
         if v == nil {
             continue
         } else if a, err = v.True(ctx); err != nil {
-            ctx.error("%v", err).debug(1)
+            erro(ctx, "%v", err).debug(1)
             return
         } else if i == 0 {
             result = a
@@ -227,7 +227,7 @@ func configureBoolValue(ctx Context) (result bool, err error) {
 func configureBool(ctx Context, fields map[string]Value, params ...Value) (result Value, err error) {
     var val bool
     if val, err = configureBoolValue(ctx); err != nil {
-        ctx.error("configure bool value failed: %v", err).debug(1)
+        erro(ctx, "configure bool value failed: %v", err).debug(1)
     } else {
         result = MakeBoolean(ctx.Position(), val)
     }
@@ -239,7 +239,7 @@ func configureBool(ctx Context, fields map[string]Value, params ...Value) (resul
 func configureAnswer(ctx Context, fields map[string]Value, params ...Value) (result Value, err error) {
     var val bool
     if val, err = configureBoolValue(ctx); err != nil {
-        ctx.error("configure bool value failed: %v", err).debug(1)
+        erro(ctx, "configure bool value failed: %v", err).debug(1)
     } else {
         result = MakeAnswer(ctx.Position(), val)
     }
@@ -252,14 +252,14 @@ func configureOption(ctx Context, fields map[string]Value, args ...Value) (resul
     if false { if target, _ := ctx.autoGet("@"); strings.HasPrefix(target.String(), "HAVE_TERMINFO") {
         defer func() {
             var v, _ = ctx.autoGet("-")
-            ctx.info("%v: hyphen = %v, result = %v", target, v, result)
-            ctx.info("%v", ctx).debug(6)
+            info(ctx, "%v: hyphen = %v, result = %v", target, v, result)
+            info(ctx, "%v", ctx).debug(6)
         } ()
     }}
     if result, _ = ctx.autoGet("-"); !isNil(result) {
         var res Value
         if res, err = result.expand(ctx, expandPlainValue); err != nil {
-            ctx.error("expand configure option failed: %v", err).debug(1)
+            erro(ctx, "expand configure option failed: %v", err).debug(1)
         } else if !isNil(res) && res != result {
             result = res
         }
@@ -285,11 +285,11 @@ func configurePackage(ctx Context, fields map[string]Value, args ...Value) (resu
                 case "", "smart": optType = packageSmart
                 case "pkgconfig": optType = packageConfig
                 default:      optType = packageUnknown
-                    ctx.error("package: unknown type %v", val)
+                    erro(ctx, "package: unknown type %v", val)
                     return
                 }
             default:
-                ctx.prompt("%v: package: `%v` unknown option", key)
+                prompt(ctx, "%v: package: `%v` unknown option", key)
             }
         default:
             var name string
@@ -306,7 +306,7 @@ func configurePackage(ctx Context, fields map[string]Value, args ...Value) (resu
             // case packageConfig:
             //     if info, err = loadPackageConfigInfo(pos, name); err != nil { return }
             case packageUnknown:
-                ctx.prompt("%v: package `%v`: unknown type\n", name)
+                prompt(ctx, "%v: package `%v`: unknown type\n", name)
             }
             if info != nil {
                 configuration.packages[name] = info
@@ -339,17 +339,17 @@ func executeConfigureEntry(ctx Context, opts *modifierConfigureOpts, entryName s
     if options.traceConfig { defer un(trace(t_config, fmt.Sprintf("executeConfigureEntry(%s %v)", entryName, ctx))) }
 
     var entry Entry
-    if t := ctx.traversal(); t == nil {
-        ctx.error("needs traversal context to configure: %v", ctx).debug(1)
+    if program := ctx.program(); program == nil {
+        erro(ctx, " needs program context to configure: %v", ctx).debug(1)
         return
-    } else if t.program.project.configure == nil {
-        ctx.error("%v: .configure not provided for %v (%s)", t.program.project, target, entryName).debug(1)
+    } else if program.project.configure == nil {
+        erro(ctx, " %v: .configure not provided for %v (%s)", program.project, target, entryName).debug(1)
         return
-    } else if entry, err = t.program.project.configure.resolveEntry(ctx, "-"+entryName, false); err != nil {
-        ctx.error("resolve entry '%v' failed: %v", entryName, err).debug(1)
+    } else if entry, err = program.project.configure.resolveEntry(ctx, "-"+entryName, false); err != nil {
+        erro(ctx, " resolve entry '%v' failed: %v", entryName, err).debug(1)
         return
     } else if entry == nil {
-        ctx.error("unknown configuration action `%v`, no such entry", entryName).debug(1)
+        erro(ctx, " unknown configuration action `%v`, no such entry", entryName).debug(1)
         return
     }
 
@@ -363,13 +363,13 @@ func executeConfigureEntry(ctx Context, opts *modifierConfigureOpts, entryName s
         verbose = opts.verbose
     )
     if paramsOrig, err = parseOpts(ctx, &commonOpts, paramsOrig...); err != nil {
-        ctx.error("parse opts failed: %v", err).debug(1)
+        erro(ctx, " parse opts failed: %v", err).debug(1)
         return
     }
     if false && entryName == "library-c" && strings.HasPrefix(target.String(), "HAVE_TERMINFO") {
         defer func() {
-            ctx.info("%s: target = %v, result = %v", entryName, target, result)
-            ctx.info("%s: %v", entryName, ctx).debug(6)
+            info(ctx, "%s: target = %v, result = %v", entryName, target, result)
+            info(ctx, "%s: %v", entryName, ctx).debug(6)
         } ()
     }
 
@@ -382,7 +382,7 @@ func executeConfigureEntry(ctx Context, opts *modifierConfigureOpts, entryName s
 
     for _, par := range prog.params {
         switch par.name {
-        case "LANG":   params = append(params, MakePair(pos, MakeBareword(pos, "LANG"),   MakeString(pos, ctx.Program().language)))
+        case "LANG":   params = append(params, MakePair(pos, MakeBareword(pos, "LANG"),   MakeString(pos, ctx.program().language)))
         case "TARGET": params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
         case "VALUE":  params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"),  hyphenVal))
         }
@@ -395,10 +395,10 @@ ForInParams:
             ok bool
         )
         if pair, ok = a.(*Pair); !ok {
-            ctx.error("unsupported parameter %v (%T)", a, a).of(a).debug(1)
+            erro(ctx, " unsupported parameter %v (%T)", a, a).of(a).debug(1)
             return
         } else if key, err = pair.Key.Strval(ctx); err != nil {
-            ctx.error("stringify key '%v' failed: %v", pair.Key, err).of(pair.Key).debug(1)
+            erro(ctx, " stringify key '%v' failed: %v", pair.Key, err).of(pair.Key).debug(1)
             return
         }
         for _, par := range prog.params {
@@ -411,15 +411,15 @@ ForInParams:
             }
         }
         if key == "INFO" {
-            if false && verbose { ctx.prompt("%s", pair.Value) }
+            if false && verbose { prompt(ctx, "%s", pair.Value) }
         } else if true {
             var params []string
             for _, p := range prog.params { params = append(params, p.name) }
 
             var at, _ = ctx.autoGet("@")
             ctx = positional(ctx, a.Position())
-            ctx.warn("ignored param: %T %v; target: %T %v", a, a, at, at)
-            ctx.warn("%v params = %v", at, params).at(prog.position).debug(16)
+            warn(ctx, "ignored param: %T %v; target: %T %v", a, a, at, at)
+            warn(ctx, "%v params = %v", at, params).at(prog.position).debug(16)
             return
         }
     }
@@ -429,32 +429,39 @@ ForInParams:
         t.configuration = true
     }
 
+    var reses []Value
     var brks breakers
-    if result, brks = prog.execute(ctx, entry, params); ctx.checkErrors(true) > 0 {
-        ctx.warn(`configure '%s' got %d error(s)`, entryName, ctx.totalErrors()).debug(1)
+    if reses, brks = entry.execute(ctx, params...); ctx.checkErrors(true) > 0 {
+        warn(ctx, `configure '%s' got %d error(s)`, entryName, ctx.totalErrors()).debug(1)
         if options.failOnErrors { fail(pos, "fail by %d errors", ctx.totalErrors()) }
-    } else if !isNil(result) && result == hyphenVal {
-        ctx.warn(`%v: configure yields value the same as input will be ignored: %v`, entry, result).debug(1)
+    } else if n := len(reses); n != 1 {
+        if n == 0 {
+            erro(ctx, `configure "%s" has no results'`).debug(1)
+        } else {
+            erro(ctx, `configure "%s" has multiple results (%d)'`, n).debug(1)
+        }
+    } else if result = reses[0]; !isNil(result) && result == hyphenVal {
+        warn(ctx, `%v: configure yields value the same as input will be ignored: %v`, entry, result).debug(1)
         result = nil // simply discard the result as it's the same as the input (hyphen) value
     }
     if false && entryName == "library-c" && strings.HasPrefix(target.String(), "HAVE_TERMINFO") {
-        ctx.info("%v: config = %s", entry, entryName).at(prog.Position())
-        ctx.info("%v: config = %s", entry, entryName).at(entry.Position())
-        ctx.info("%v: target = %v", entry, target)
-        ctx.info("%v: - = %v", entry, hyphenVal)
-        ctx.info("%v: params = %v", entry, prog.params)
-        ctx.info("%v: params = %v", entry, paramsOrig)
-        ctx.info("%v: params = %v", entry, params)
-        ctx.info("%v: result = %v", entry, result)
-        ctx.info("%v: %v", entry, ctx).debug(16)
+        info(ctx, "%v: config = %s", entry, entryName).at(prog.Position())
+        info(ctx, "%v: config = %s", entry, entryName).at(entry.Position())
+        info(ctx, "%v: target = %v", entry, target)
+        info(ctx, "%v: - = %v", entry, hyphenVal)
+        info(ctx, "%v: params = %v", entry, prog.params)
+        info(ctx, "%v: params = %v", entry, paramsOrig)
+        info(ctx, "%v: params = %v", entry, params)
+        info(ctx, "%v: result = %v", entry, result)
+        info(ctx, "%v: %v", entry, ctx).debug(16)
     }
     if brks = brks.not(breakDone); brks.has() {
         for i, brk := range brks {
             switch brk.what {
-            case breakUnkn: ctx.error("broken configuration %v for unknown reason", entry).debug(16)
-            case breakErro: ctx.error("%d: %v", i, brk.error).debug(1)
-            case breakFail: ctx.error("%d: %v", i, brk.message).debug(1)
-            default: ctx.error("%d: %v", i, brk.what).debug(16)
+            case breakUnkn: erro(ctx, " broken configuration %v for unknown reason", entry).debug(16)
+            case breakErro: erro(ctx, " %d: %v", i, brk.error).debug(1)
+            case breakFail: erro(ctx, " %d: %v", i, brk.message).debug(1)
+            default: erro(ctx, " %d: %v", i, brk.what).debug(16)
             }
         }
     }
@@ -472,10 +479,10 @@ func configureDo(ctx Context, opts *modifierConfigureOpts, target Value, name Va
         infos []Value
     )
     if strName, err = name.Strval(ctx); err != nil {
-        ctx.error("stringify '%v' failed: %v", name, err).debug(1)
+        erro(ctx, " stringify '%v' failed: %v", name, err).debug(1)
         return
     } else if strName == "" {
-        ctx.error("empty configure name: %v (%T)", name, name).debug(1)
+        erro(ctx, " empty configure name: %v (%T)", name, name).debug(1)
         return
     }
 
@@ -483,7 +490,7 @@ ForArgs:
     for _, arg := range args {
         var elems []Value
         if elems, err = expandmerge2(ctx, expandPlainValue, arg); err != nil {
-            ctx.error("merge list elements '%v' failed: %v", arg, err).of(arg).debug(1)
+            erro(ctx, " merge list elements '%v' failed: %v", arg, err).of(arg).debug(1)
             return
         }
         for _, elem := range elems {
@@ -497,7 +504,7 @@ ForArgs:
                 infos = append(infos, tv)
                 continue ForArgs
             default:
-                ctx.error("parameter '%v' of %T is unsupported", tv, tv).of(arg).debug(1)
+                erro(ctx, " parameter '%v' of %T is unsupported", tv, tv).of(arg).debug(1)
                 return
             }
         }
@@ -516,7 +523,7 @@ ForArgs:
             configMessageDone(ctx, "… <none>")
         } else if  s, e := result.Strval(ctx); e != nil {
             configMessageDone(ctx, "… (%v)", e)
-            ctx.error("stringify configure result '%v' failed: %v", result, e).debug(1)
+            erro(ctx, " stringify configure result '%v' failed: %v", result, e).debug(1)
         } else {
             if s == "" { s = fmt.Sprintf("? (%s)", result) }
             configMessageDone(ctx, "… %v", s)
@@ -529,7 +536,7 @@ ForArgs:
         var msg string
         for _, info := range infos {
             if s, e := info.Strval(ctx); e == nil { msg += s } else {
-                ctx.error("strval configure message failed: %v", e).debug(1)
+                erro(ctx, " strval configure message failed: %v", e).debug(1)
                 return
             }
         }
@@ -544,7 +551,7 @@ ForArgs:
     if config, ok := configurationOps[strName]; ok {
         params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
         if result, err = config(ctx, nil, params...); err != nil {
-            ctx.error("configure '%s' failed: %v", strName, err).debug(1)
+            erro(ctx, " configure '%s' failed: %v", strName, err).debug(1)
         } else {
             if options.traceConfig {
                 t_config.tracef("configured: %v, result = %v (%s)", configured, result, typeof(result))
@@ -552,7 +559,7 @@ ForArgs:
             configured = true
         }
     } else if configured, result, err = executeConfigureEntry(ctx, opts, strName, target, params...); err != nil {
-        ctx.error("configure exec '%v' failed: %v", name, err).debug(1)
+        erro(ctx, " configure exec '%v' failed: %v", name, err).debug(1)
     }
     if configured && options.traceConfig {
         t_config.tracef("configured: %v, result = %v (%s)", configured, result, typeof(result))
@@ -579,16 +586,16 @@ func modifierConfigure(ctx Context, args ...Value) (result Value, _ breakers) {
 
     var ( pos = ctx.Position(); opts modifierConfigureOpts; err error )
     if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-        ctx.error("merge configure args failed: %v", err).debug(1)
+        erro(ctx, " merge configure args failed: %v", err).debug(1)
         return
     } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-        ctx.error("parse configure opts failed: %v", err).debug(1)
+        erro(ctx, " parse configure opts failed: %v", err).debug(1)
         return
     }
 
-    var program = ctx.Program()
+    var program = ctx.program()
     if program == nil {
-        ctx.error("needs traversal context to configure: %v", ctx).debug(1)
+        erro(ctx, " needs traversal context to configure: %v", ctx).debug(1)
         return
     }
 
@@ -597,36 +604,36 @@ func modifierConfigure(ctx Context, args ...Value) (result Value, _ breakers) {
             if o := program.project.scope.Lookup(dotConfigure); !isNil(o) {
                 if d, ok := o.(*Def); ok && !isNil(d.value) && !isNone(d.value) {
                     if val, err := d.value.True(ctx); err != nil {
-                        ctx.error("truthify '%v' failed: %v", d.value, err)
-                        ctx.error("value '%v' from here", d.value).of(d.value)
-                        ctx.error("define for '%s' here", d.name).of(d).debug(1)
+                        erro(ctx, " truthify '%v' failed: %v", d.value, err)
+                        erro(ctx, " value '%v' from here", d.value).of(d.value)
+                        erro(ctx, " define for '%s' here", d.name).of(d).debug(1)
                     } else if val {
                         program.project.configure = program.project
                         if opts.verbose {
-                            ctx.info("self-configure project enabled: %v", ctx.Project()).debug(1)
+                            info(ctx, "self-configure project enabled: %v", ctx.Project()).debug(1)
                         }
                     }
                 }
             }
         }
         if program.project.configure == nil {
-            ctx.error("%v: .configure not provided", program.project).debug(1)
+            erro(ctx, " %v: .configure not provided", program.project).debug(1)
             return
         }
     }
 
     var target, found = ctx.autoGet("@")
     if !found || isNil(target) || isNone(target) {
-        ctx.error("target is nil: %s", ctx).debug(1)
+        erro(ctx, " target is nil: %s", ctx).debug(1)
         return
     }
 
     var name string
     if name, err = target.Strval(ctx); err != nil {
-        ctx.error("stringify target '%v' failed: %v", target, err).of(target).debug(1)
+        erro(ctx, " stringify target '%v' failed: %v", target, err).of(target).debug(1)
         return
     } else if len(program.project.bases) == 0 {
-        ctx.warn("%v: project has no bases (should have at least .configure)", name).of(target).debug(1)
+        warn(ctx, "%v: project has no bases (should have at least .configure)", name).of(target).debug(1)
     }
 
     var def *Def
@@ -636,7 +643,7 @@ func modifierConfigure(ctx Context, args ...Value) (result Value, _ breakers) {
         if def == nil && alt != nil { def, _ = alt.(*Def) }
     }
     if def == nil {
-        ctx.error("cannot define configuration `%s`", name).debug(1)
+        erro(ctx, " cannot define configuration `%s`", name).debug(1)
         return
     } else {
         result = def
@@ -654,7 +661,7 @@ func modifierConfigure(ctx Context, args ...Value) (result Value, _ breakers) {
     var value Value
     if len(args) == 0 { // Empty configuration: (configure)
         if value, _ = ctx.autoGet("-"); value == nil {
-            ctx.error("`%v` not configured (%v)", target, value).debug(1)
+            erro(ctx, " `%v` not configured (%v)", target, value).debug(1)
             return
         } else if value == def || value.refs(ctx, def) {
             return
@@ -671,20 +678,20 @@ func modifierConfigure(ctx Context, args ...Value) (result Value, _ breakers) {
             err = def.set(ctx, DefConfig, MakeString(pos, s))
         }
         if err != nil {
-            ctx.error("set config '%s' value failed: %v", def.name, err).of(def).debug(1)
+            erro(ctx, " set config '%s' value failed: %v", def.name, err).of(def).debug(1)
         }
         return
     } else if err = def.set(ctx, DefConfig, nil); err != nil {
-        ctx.error("set config '%s' value failed: %v", def.name, err).of(def).debug(1)
+        erro(ctx, " set config '%s' value failed: %v", def.name, err).of(def).debug(1)
         return
     }
 
     if false && strings.HasPrefix(name, "HAVE_TERMINFO") {
         defer func() {
-            ctx.warn("value = %s", value)
-            ctx.warn("result = %s", result)
-            ctx.warn("%v: %p, %v", def.OwnerProject(), def, def)
-            ctx.warn("%v", ctx).debug(12)
+            warn(ctx, "value = %s", value)
+            warn(ctx, "result = %s", result)
+            warn(ctx, "%v: %p, %v", def.OwnerProject(), def, def)
+            warn(ctx, "%v", ctx).debug(12)
         } ()
     }
 
@@ -697,40 +704,40 @@ ForConfig:
         switch arg := a.(type) {
         case *Argumented:
             if flag, okay := arg.value.(*Flag); !okay {
-                ctx.error("`%v` is unsupported value (%T)", arg.value, arg.value).of(a).debug(1)
+                erro(ctx, " `%v` is unsupported value (%T)", arg.value, arg.value).of(a).debug(1)
                 return
             } else {
                 name, para = flag.name, arg.args
             }
         case *Flag:
             if isNil(arg.name) || isNone(arg.name) {
-                ctx.error("`%v` is unsupported flag (%T)", arg.name, arg.name).of(a).debug(1)
+                erro(ctx, " `%v` is unsupported flag (%T)", arg.name, arg.name).of(a).debug(1)
                 return
             } else {
                 name = arg.name
             }
         default:
-            ctx.error("`%v` is unsupported (%T)", a, a).of(a).debug(1)
+            erro(ctx, " `%v` is unsupported (%T)", a, a).of(a).debug(1)
             return
         }
         if name == nil {
-            ctx.error("unknown configure `%v` (%T)", a, a).of(a).debug(1)
+            erro(ctx, " unknown configure `%v` (%T)", a, a).of(a).debug(1)
             return
         }
 
         configured, value, err = configureDo(ctx, &opts, target, name, para)
         if err != nil {
-            ctx.error("configure error: %v", err).debug(1)
+            erro(ctx, " configure error: %v", err).debug(1)
             return
         } else if !configured {
-            ctx.error("%s not configured for %v", name, target).debug(1)
+            erro(ctx, " %s not configured for %v", name, target).debug(1)
             return
         } else if v := value; v == nil {
             value = MakeNil(a.Position())
         } else if isNil(v) || isNone(v) || isUndef(v) {
             // noop
         } else if v, err = value.expand(ctx, expandPlainValue); err != nil {
-            ctx.error("configured with value error: %v", err).of(a).debug(1)
+            erro(ctx, " configured with value error: %v", err).of(a).debug(1)
             return
         } else if !isNil(v) && v != value {
             value = v
@@ -740,11 +747,11 @@ ForConfig:
             // Value is the Def, does nothing!
         } else if opts.accumulate {
             if err = def.append(ctx, value); err != nil {
-                ctx.error("value accumulate error: %v", err).of(a).debug(1)
+                erro(ctx, " value accumulate error: %v", err).of(a).debug(1)
                 return
             }
         } else if err = def.set(ctx, DefConfig, value); err != nil {
-            ctx.error("set config value error: %v", err).of(a).debug(1)
+            erro(ctx, " set config value error: %v", err).of(a).debug(1)
             return
         }
 
@@ -754,7 +761,7 @@ ForConfig:
         }
     }
     if !configured && err == nil {
-        ctx.error("`%v` not configured", target).debug(1)
+        erro(ctx, " `%v` not configured", target).debug(1)
     }
     return
 }
@@ -817,61 +824,61 @@ func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ breakers
         err error
     )
     if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-        ctx.error("merge configure-file args failed: %v", err).debug(1)
+        erro(ctx, " merge configure-file args failed: %v", err).debug(1)
         return
     } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-        ctx.error("parse configure-file opts failed: %v", err).debug(1)
+        erro(ctx, " parse configure-file opts failed: %v", err).debug(1)
         return
     }
 
     if target, found := ctx.autoGet("@"); !found || isNil(target) {
-        ctx.error("target '@' is not defined").debug(1)
+        erro(ctx, " target '@' is not defined").debug(1)
         return
     } else if file, _ = target.(*File); file == nil {
         var ( s string; okay bool )
         if s, err = target.Strval(ctx); err != nil {
-            ctx.error("strval target '%v' failed: %v", target, err).debug(1)
+            erro(ctx, " strval target '%v' failed: %v", target, err).debug(1)
             return
         }
 
-        for _, p := range ctx.closureProjects() {
+        for _, p := range closureProjects(ctx) {
             if file = p.FindFile(ctx, s); file != nil { project = p
                 if opts.verbose && opts.debug {
-                    ctx.info("%v: file %v\n", p, file).debug(1)
+                    info(ctx, "%v: file %v\n", p, file).debug(1)
                 }
                 break
             }
         }
 
         if err != nil {
-            ctx.error("find file '%s' failed: ", s, err).debug(1)
+            erro(ctx, " find file '%s' failed: ", s, err).debug(1)
             return
         } else if !okay {
-            ctx.error("target '%s' is not a file", s).debug(1)
+            erro(ctx, " target '%s' is not a file", s).debug(1)
             return
         }
     }
 
     if file == nil {
-        ctx.error("no file target").debug(1)
+        erro(ctx, " no file target").debug(1)
         return
     } else if filename, _ = fullname(ctx, file); filename == "" {
-        ctx.error("`%v` has empty filename", file).debug(1)
+        erro(ctx, " `%v` has empty filename", file).debug(1)
         return
     } else if !filepath.IsAbs(filename) {
         // FIXES: match file map to have the full filename.
-        for _, p := range ctx.closureProjects() {
+        for _, p := range closureProjects(ctx) {
             if f := p.FindFile(ctx, filename); f != nil {
                 var prev Value
                 file, filename, project = f, f.fullname(), p
                 if prev, _ = ctx.autoSet("@", file); opts.debug {
-                    ctx.info("configure-file: %v: %s->%s (prev=%v)", p, f, filename, prev).debug(1)
+                    info(ctx, "configure-file: %v: %s->%s (prev=%v)", p, f, filename, prev).debug(1)
                 }
                 break
             }
         }
         if err != nil {
-            ctx.error("locate file '%v' failed: %v", filename, err).debug(1)
+            erro(ctx, " locate file '%v' failed: %v", filename, err).debug(1)
             return
         }
     }
@@ -879,7 +886,7 @@ func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ breakers
     if project == nil { project = ctx.Project() }
     if opts.debug && file != nil {
         var tv, _ = ctx.autoGet("@")
-        ctx.info("configure-file: %v: %v (%s) (%v, %v)", project, tv, file.fullname(), ctx.Project(), ctx).debug(1)
+        info(ctx, "configure-file: %v: %v (%s) (%v, %v)", project, tv, file.fullname(), ctx.Project(), ctx).debug(1)
     }
 
     // Check previously configured files, we only configure once unless
@@ -892,7 +899,7 @@ func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ breakers
     }
     //if closure == nil { closure = ctx.closcop }
     defer func(s string, c *Scope) {
-        if err == nil { configuredFiles[s] = c } else { ctx.error("%v", err) }
+        if err == nil { configuredFiles[s] = c } else { erro(ctx, " %v", err) }
     } (filename, closure)
 
     var data bytes.Buffer
@@ -902,17 +909,17 @@ func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ breakers
     for _, arg := range args {
         var str string
         if str, err = arg.Strval(ctx); err != nil {
-            ctx.error("%v", err).debug(1)
+            erro(ctx, " %v", err).debug(1)
             return
         }
         if str == "" { continue }
         if err = configure(ctx, &data, ctx.Project(), str); err != nil {
-            ctx.error("%v", err).debug(1)
+            erro(ctx, " %v", err).debug(1)
             return
         }
     }
     if data.Len() == 0 {
-        ctx.error("no input data").debug(1)
+        erro(ctx, " no input data").debug(1)
         return
     }
 
@@ -925,12 +932,12 @@ func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ breakers
                 status = fmt.Sprintf("outdated (%s)", filename)
             }
             printEnteringDirectory(ctx)
-            ctx.prompt("update %v …… %s (in %v)\n", trimPromptString(filename), status, time.Now().Sub(st)).debug(opts.debug, 6)
+            prompt(ctx, "update %v …… %s (in %v)\n", trimPromptString(filename), status, time.Now().Sub(st)).debug(opts.debug, 6)
         } (time.Now())
     }
     if file.info != nil {
         if same, err = crc64CheckFileModeContent(ctx, filename, data.Bytes(), opts.mode); err != nil {
-            ctx.error("crc64 checksum failed: %v", err).debug(1)
+            erro(ctx, " crc64 checksum failed: %v", err).debug(1)
             return
         } else if same {
             var tt = file.info.ModTime()
@@ -944,13 +951,13 @@ func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ breakers
         }
     } else if dir := filepath.Dir(filename); opts.makePath && dir != "." && dir != PathSep {
         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
-            ctx.error("%v", err).debug(1)
+            erro(ctx, " %v", err).debug(1)
             return
         }
     }
 
     if err = ioutil.WriteFile(filename, data.Bytes(), opts.mode); err != nil {
-        ctx.error("%v", err).debug(1)
+        erro(ctx, " %v", err).debug(1)
         return
     } else if file.info != nil { result = file } else {
         if file.info, err = os.Stat(filename); err == nil {
@@ -984,10 +991,10 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ b
         err error
     )
     if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-        ctx.error("merge args failed: %v", err).debug(1)
+        erro(ctx, " merge args failed: %v", err).debug(1)
         return
     } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-        ctx.error("parse opts failed: %v", err).debug(1)
+        erro(ctx, " parse opts failed: %v", err).debug(1)
         return
     }
 
@@ -1012,22 +1019,22 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ b
 
     var outFile string
     if target, _ := ctx.autoGet("@"); isNil(target) {
-        ctx.error("target '@' is undefined").debug(1)
+        erro(ctx, " target '@' is undefined").debug(1)
         return
     }  else if outFile, err = target.Strval(ctx); err != nil {
-        ctx.error("strval '%v' failed: %v", target, err).debug(1)
+        erro(ctx, " strval '%v' failed: %v", target, err).debug(1)
         return
     }
     if opts.makePath {
         if err = os.MkdirAll(filepath.Dir(outFile), os.FileMode(0755)); err != nil {
-            ctx.error("make path failed: %v", err).debug(1)
+            erro(ctx, " make path failed: %v", err).debug(1)
             return
         }
     }
 
     var ( fil *os.File; out *bufio.Writer )
     if fil, err = os.OpenFile(outFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, opts.mode); err != nil {
-        ctx.error("open file failed: %v", err).debug(1)
+        erro(ctx, " open file failed: %v", err).debug(1)
         return
     } else { out = bufio.NewWriter(fil) }
     defer func() {
@@ -1039,7 +1046,7 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ b
     if value, _ := ctx.autoGet("^"); isNil(value) {
         // ...
     } else if depends, err = expandmerge2(ctx, expandPlainValue, value); err != nil {
-        ctx.error("merge depends failed: %v", err).debug(1)
+        erro(ctx, " merge depends failed: %v", err).debug(1)
         return
     }
 
@@ -1050,12 +1057,12 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ b
         switch d := depend.(type) {
         case *File:
             if a, err = filterValues(ctx, pats, filterOpts, false, d); err != nil {
-                ctx.error("filter values failed: %v", err).debug(1)
+                erro(ctx, " filter values failed: %v", err).debug(1)
             } else { sources = append(sources, a...) }
         case *Path:
             var s string
             if s, err = d.Strval(ctx); err != nil {
-                ctx.error("strval '%v' failed: %v", d, err).debug(1)
+                erro(ctx, " strval '%v' failed: %v", d, err).debug(1)
                 return
             }
             err = walkFiles(ctx, s, pats, func(file *File, err error) error {
@@ -1065,7 +1072,7 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ b
         default:
             var s string
             if s, err = d.Strval(ctx); err != nil {
-                ctx.error("strval '%v' failed: %v", d, err).debug(1)
+                erro(ctx, " strval '%v' failed: %v", d, err).debug(1)
                 return
             }
 
@@ -1073,7 +1080,7 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ b
             name := filepath.Base(s)
             file := stat(ctx, name, "", dir)
             if file == nil {
-                ctx.error("extract-configuration: `%s` file not found", name).debug(1)
+                erro(ctx, " extract-configuration: `%s` file not found", name).debug(1)
                 return
             } else if file.info.IsDir() {
                 err = walkFiles(ctx, s, pats, func(file *File, err error) error {
@@ -1081,7 +1088,7 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ b
                     return err
                 })
             } else if a, err = filterValues(ctx, pats, filterOpts, false, d); err != nil {
-                ctx.error("filter values failed: %v", err).debug(1)
+                erro(ctx, " filter values failed: %v", err).debug(1)
                 return
             } else {
                 sources = append(sources, a...)
@@ -1101,7 +1108,7 @@ ForSources:
             }
         }
         if f, err = os.Open(s); err != nil {
-            ctx.prompt("%v: (configure) %v: %v\n", pos, source, err)
+            prompt(ctx, "%v: (configure) %v: %v\n", pos, source, err)
             continue ForSources
         }
         scanner := bufio.NewScanner(f)

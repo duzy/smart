@@ -349,7 +349,7 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
 func (p *ExecBuffer) startDockerDaemon(pos Position, ctx Context, container *Project, sock string) (err error) {
   var c = exec.Command("dockerd") //c.Stdout, c.Stderr = stdout, stderr
   if err = c.Run(); err != nil {
-    if p.report { ctx.error("dokcer daemon not running (at %s)", sock).at(pos).debug(1) }
+    if p.report { erro(ctx, "dokcer daemon not running (at %s)", sock).at(pos).debug(1) }
   } else {
     // TODO: start docker daemon
   }
@@ -359,7 +359,7 @@ func (p *ExecBuffer) startDockerDaemon(pos Position, ctx Context, container *Pro
 func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
   var ctx = p.res.ctx
   if p == nil {
-    ctx.error("nil exec buffer").at(pos).debug(1)
+    erro(ctx, "nil exec buffer").at(pos).debug(1)
     return
   }
   var (
@@ -367,8 +367,8 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
     lpos Position = pos
     reportIncludedFrom = func() (res bool) {
       if p.includedFrom.pos1.IsValid() && p.includedFrom.pos2.IsValid() {
-        ctx.error("… included from here").at(p.includedFrom.pos1)
-        ctx.error("… reported here").at(p.includedFrom.pos2).debug(4)
+        erro(ctx, "… included from here").at(p.includedFrom.pos1)
+        erro(ctx, "… reported here").at(p.includedFrom.pos2).debug(4)
         p.includedFrom.pos1 = Position{}
         p.includedFrom.pos2 = Position{}
         res = true
@@ -383,18 +383,18 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
     switch m.i {
     case rxNotTTYDevice_i:
       if p.report {
-        ctx.error("Needs TTY (input device)").at(lpos).debug(1)
+        erro(ctx, "Needs TTY (input device)").at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxDockerDaemonNotRunning_i:
       if err = p.startDockerDaemon(lpos, ctx, container, v[1].string); err != nil {
-        ctx.error("start container failed: %v", err).at(pos).debug(1)
+        erro(ctx, "start container failed: %v", err).at(pos).debug(1)
         p.res.errs += 1
       }
     case rxNoContainer_i:
       if name := v[1].string; p.res.skips(name) {
         if p.report {
-          ctx.error("container not running: %v", name).at(lpos).debug(1)
+          erro(ctx, "container not running: %v", name).at(lpos).debug(1)
           p.res.errs += 1
         }
       } else {
@@ -402,12 +402,12 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       }
     case rxContainerNotRunning_i:
       if p.report {
-        ctx.error("Container not running (%v)", v[1].string).at(lpos).debug(1)
+        erro(ctx, "Container not running (%v)", v[1].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxNoNetwork_i:
       if p.report {
-        ctx.error("Network not found (%v)", v[1].string).at(lpos).debug(1)
+        erro(ctx, "Network not found (%v)", v[1].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxIncludedFrom2_i:
@@ -427,34 +427,46 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         p.errorPos = convPosition(v[1].string, v[2].string, v[3].string)
         lpos.Column = v[4].col
         if s := v[5].string; s != "" {
-          ctx.error("%s: %s", v[4].string, s).at(p.errorPos)
+          erro(ctx, "%s: %s", v[4].string, s).at(p.errorPos)
         } else {
-          ctx.error("%s", v[4].string).at(p.errorPos)
+          erro(ctx, "%s", v[4].string).at(p.errorPos)
         }
-        if !reportIncludedFrom() { ctx.error("…reported here").at(lpos).debug(1) }
+        if !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
         p.res.errs += 1
       }
     case rxFileNotFound_i:
       if p.report {
         p.errorPos = convPosition(v[1].string, v[2].string, v[3].string)
         lpos.Column = v[4].col
-        ctx.error("'%s' file not found", v[4].string).at(p.errorPos)
-        if !reportIncludedFrom() { ctx.error("…reported here").at(lpos).debug(1) }
+        erro(ctx, "'%s' file not found", v[4].string).at(p.errorPos)
+        if !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
         p.res.errs += 1
       }
     case rxArNoSuchFile_i:
       if p.report {
-        ctx.error("'%v' file not found (as '%s')", filepath.Base(v[1].string), v[1]).at(lpos).debug(1)
+        erro(ctx, "'%v' file not found (as '%s')", filepath.Base(v[1].string), v[1]).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxArNoArchiveMembers_i:
       if p.report {
-        ctx.error("%s", v[0].string).at(lpos).debug(1)
+        if true {
+          var obj = closureResolveObject(ctx, lpos, "objects")
+          erro(ctx, "%s", v[0].string).at(lpos)
+          erro(ctx, "%s", obj).at(lpos)
+          if !isNil(obj) {
+            if val, _ := obj.expand(ctx.closure().programCtx(), expandPlainValue); !isNil(val) {
+              erro(ctx, "%s -> %v", obj.Name(), val).at(lpos)
+            }
+          }
+          erro(ctx, "%v", ctx).debug(16)
+        } else {
+          erro(ctx, "%s", v[0].string).at(lpos).debug(1)
+        }
         p.res.errs += 1
       }
     case rxBashNoSuchFile_i:
       if p.report {
-        ctx.error("%v: no such command", v[1].string).at(lpos).debug(1)
+        erro(ctx, "%v: no such command", v[1].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxClangNoSuchFile_i:
@@ -462,7 +474,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         var vs string
         if s := v[1].string; s != "" { vs = "-" + s }
         lpos.Column = v[2].col + 1
-        ctx.error("clang%s: no such source file: %s", vs, v[2].string).at(lpos).debug(1)
+        erro(ctx, "clang%s: no such source file: %s", vs, v[2].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxClangError_i:
@@ -470,58 +482,58 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         var vs string
         if s := v[1].string; s != "" { vs = "-" + s }
         lpos.Column = v[2].col + 1
-        ctx.error("clang%s: %s", vs, v[2].string).at(lpos).debug(1)
+        erro(ctx, "clang%s: %s", vs, v[2].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxCmdError_i:
       if p.report {
         lpos.Column = v[2].col + 1
-        ctx.error("%s", v[2].string).at(lpos).debug(1)
+        erro(ctx, "%s", v[2].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxCmdWarning_i:
       if p.report {
         lpos.Column = v[2].col + 1
-        ctx.warn("%s: %s", v[1].string, v[2].string).at(lpos).debug(1)
+        warn(ctx, "%s: %s", v[1].string, v[2].string).at(lpos).debug(1)
         p.res.warns += 1
       }
     case rxLdLibNotFound_i:
       if p.report {
         lpos.Column = v[2].col + 1
         if false {
-          ctx.error("%s: library not found: %s", v[1].string, v[2].string).at(lpos).debug(1)
+          erro(ctx, "%s: library not found: %s", v[1].string, v[2].string).at(lpos).debug(1)
         } else {
-          ctx.error("%s", v[0].string).at(lpos).debug(1)
+          erro(ctx, "%s", v[0].string).at(lpos).debug(1)
         }
         p.res.errs += 1
       }
     case rxCouldnotParseObj_i:
       if p.report {
         lpos.Column = v[3].col
-        ctx.error("%s", v[3].string).at(lpos).debug(1)
+        erro(ctx, "%s", v[3].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxTooManyPosArgs_i:
       if p.report {
-        ctx.error("%s: too many positional arguments", v[1].string).at(lpos).debug(1)
+        erro(ctx, "%s: too many positional arguments", v[1].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxUndefinedReference_i:
       if p.report {
-        ctx.error("Undefined reference '%s'", v[1].string).at(lpos).debug(1)
+        erro(ctx, "Undefined reference '%s'", v[1].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxShellCmdNotFound_i:
       if p.report {
         lpos.Column = v[2].col
-        ctx.error("%s: command not found", v[2].string).at(lpos).debug(1)
+        erro(ctx, "%s: command not found", v[2].string).at(lpos).debug(1)
         p.res.errs += 1
       }
     case rxIgnoringDuplicateDirectory_i:
       if p.report {
         var ( dir = v[1].string; done bool )
         lpos.Column = v[1].col + 1
-        if false { ctx.info("ignoring duplicate directory: %s", dir).at(lpos).debug(1) }
+        if false { info(ctx, "ignoring duplicate directory: %s", dir).at(lpos).debug(1) }
         for _, rec := range p.res.ignoringDuplicateDirectory {
           if rec.dir == dir { rec.num += 1; done = true }
         }
@@ -533,7 +545,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
     case rxExitStatus_i:
       if s := v[1].string; s != "0" /*&& p.report*/ {
         // FIXME: the 'exit status' report is not working
-        ctx.error("abnormal exist status %s", s).at(lpos).debug(1)
+        erro(ctx, "abnormal exist status %s", s).at(lpos).debug(1)
         p.res.errs += 1
       }
     }
@@ -594,7 +606,7 @@ func (p *ExecResult) String() string {
 
 func (p *ExecResult) runContainerAndRetry(ctx Context) (status int, err error) {
   if p.container == nil {
-    ctx.error("no container").at(p.position).debug(1)
+    erro(ctx, "no container").at(p.position).debug(1)
     return
   } else if maxRetries < p.num {
     fmt.Fprintf(p.sh.Stderr, "\n---- Retried %d times\n", p.num)
@@ -609,11 +621,11 @@ func (p *ExecResult) runContainerAndRetry(ctx Context) (status int, err error) {
   fmt.Fprintf(sh.Stderr, "\n---- Run container '%s'\n", name)
   if run, _ := p.container.resolveEntry(ctx, "run", false); run != nil {
     if _, brks := run.execute(p.ctx); brks.has() {
-      ctx.error("%d breakers", len(brks)).at(p.position).debug(1)
+      erro(ctx, "%d breakers", len(brks)).at(p.position).debug(1)
       return
     } //else { p.t.group.Wait() }
   } else {
-    ctx.error("%s⇒run undefined", p.container).debug(1)
+    erro(ctx, "%s⇒run undefined", p.container).debug(1)
     return
   }
 
@@ -682,15 +694,15 @@ func (p *ExecResult) ensureContainerRunning(ctx Context, containerName string) (
   if err = cmd.Run(); err == nil && foundID == "" {
     if run, _ := p.container.resolveEntry(ctx, "run", false); run != nil {
       if _, brks := run.execute(p.ctx); brks.has() {
-        ctx.error("%d breakers", len(brks)).at(p.position).debug(1)
+        erro(ctx, "%d breakers", len(brks)).at(p.position).debug(1)
         return
       } //else { p.t.group.Wait() }
     } else {
-      ctx.error("%s⇒run undefined", p.container).debug(1)
+      erro(ctx, "%s⇒run undefined", p.container).debug(1)
       return
     }
   } else if err != nil {
-    ctx.error("%v", err).at(p.container.position).debug(1)
+    erro(ctx, "%v", err).at(p.container.position).debug(1)
   }
   return
 }
@@ -706,7 +718,7 @@ func (p *ExecResult) run(ctx Context) (status int, err error) {
   if err = p.sh.Run(); err == nil {
     return
   } else if ee, ok := err.(*exec.ExitError); !ok {
-    ctx.error("exec failed: %v", err).debug(1)
+    erro(ctx, "exec failed: %v", err).debug(1)
     return
   } else if status = ee.ExitCode(); status == 0 {
     return // success!
@@ -760,13 +772,13 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     cmd = p.cmd
   )
   if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-    ctx.error("merge args failed: %v", err).debug(1)
+    erro(ctx, "merge args failed: %v", err).debug(1)
     return
   } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-    ctx.error("parse opts failed: %v", err).debug(1)
+    erro(ctx, "parse opts failed: %v", err).debug(1)
     return
   } else if opts.deprecated {
-    ctx.error("deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug(1)
+    erro(ctx, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug(1)
     return
   } else if !opts.prompt {
     opts.prompt = opts.promStr != ""
@@ -779,25 +791,30 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
 
   var (
     t = ctx.traversal()
+    program = ctx.program()
     target = getTargetValue(ctx)
     targetName string
   )
+  if program == nil {
+    erro(ctx, "needs program context to exec: %v", ctx).debug(16)
+    return
+  }
   if targetName, err = fullnameOrStrval(ctx, target); err != nil {
-    ctx.error("stringify target '%v' failed: %v", target, err).of(target).debug(1)
+    erro(ctx, "stringify target '%v' failed: %v", target, err).of(target).debug(1)
     return
   } else if t.configuration {
     // does nothing
   } else if opts.wait {
     // good to work without (stamp) or (wait) with the -wait flag
-  } else if ms := t.program.getModifiers(ctx, "stamp"); len(ms) > 0 {
+  } else if ms := program.getModifiers(ctx, "stamp"); len(ms) > 0 {
     switch target.(type) {
     case *Barefile, *File, *Path:
-      ctx.warn("use (shell -stamp) instead of stamp modifier (%T %v)", target, target).at(ms[0].position).debug(1)
+      warn(ctx, "use (shell -stamp) instead of stamp modifier (%T %v)", target, target).at(ms[0].position).debug(1)
     }
-  } else if ms := t.program.getModifiers(ctx, "wait"); len(ms) > 0 {
+  } else if ms := program.getModifiers(ctx, "wait"); len(ms) > 0 {
     // should be good to work
   } else if !opts.stamp && !opts.silent {
-    ctx.warn("add -stamp to (shell)").debug(1)
+    warn(ctx, "add -stamp to (shell)").debug(1)
   }
 
   var start = time.Now()
@@ -807,13 +824,13 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     var s string
     if p.contained && i == 0 {
       if s, err = v.Strval(ctx); err != nil {
-        ctx.error("strval '%v' failed: %v", v, err).of(v).debug(1)
+        erro(ctx, "strval '%v' failed: %v", v, err).of(v).debug(1)
         return
       } else if s == "shell" {
         cmd = defaultShell
       }
     } else if s, err = v.Strval(ctx); err != nil {
-      ctx.error("strval '%v' failed: %v", v, err).of(v).debug(1)
+      erro(ctx, "strval '%v' failed: %v", v, err).of(v).debug(1)
       return
     } else if s = strings.TrimSpace(s); s != "" {
       aa = append(aa, s)
@@ -822,16 +839,16 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
 
   var container *Project
   if p.contained {
-    if t.program.project.name == dotContainer {
-      container = t.program.project
-    } else if _, containerSym := t.program.project.scope.Find(dotContainer); containerSym != nil {
+    if program.project.name == dotContainer {
+      container = program.project
+    } else if _, containerSym := program.project.scope.Find(dotContainer); containerSym != nil {
       if pn, _ := containerSym.(*ProjectName); pn != nil {
         container = pn.NamedProject()
       }
     }
 
     if container == nil {
-      ctx.error("container unavailable (in %s)", t.program.project.name).debug(1)
+      erro(ctx, "container unavailable (in %s)", program.project.name).debug(1)
       return
     }
 
@@ -855,24 +872,24 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
 
     var containerName string
     if containerName , err = strval("container"); err != nil {
-      ctx.error("strval .container.container failed: %v", err).debug(1)
+      erro(ctx, "strval .container.container failed: %v", err).debug(1)
       return
     } else if containerName == "" {
-      ctx.error(".container.name undefined").debug(1)
+      erro(ctx, ".container.name undefined").debug(1)
       return
     }
 
     var containerImage string
     if containerImage, err = strval("image"); err != nil {
-      ctx.error("strval .container.image failed: %v", err).debug(1)
+      erro(ctx, "strval .container.image failed: %v", err).debug(1)
       return
     } else if containerImage == "" {
-      ctx.error(".container.image undefined").debug(1)
+      erro(ctx, ".container.image undefined").debug(1)
       return
     }
 
     if options.verbose {
-      ctx.prompt("%v: container=%v, image=%v\n", container, containerName, containerImage)
+      prompt(ctx, "%v: container=%v, image=%v\n", container, containerName, containerImage)
     }
 
     aa = append(aa, "exec", containerName, cmd)
@@ -882,24 +899,24 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   var cwd string
   {
     var (
-      cc = positional(ctx, t.program.position)
+      cc = positional(ctx, program.position)
       o Object
       v Value
     )
-    if _, o = t.program.scope.Find("CWD"); isNil(o) {
-      if _, o = t.program.scope.Find("/"); isNil(o) {
-        ctx.error("'CWD' and '/' is undefined").debug(1)
+    if _, o = program.scope.Find("CWD"); isNil(o) {
+      if _, o = program.scope.Find("/"); isNil(o) {
+        erro(ctx, "'CWD' and '/' is undefined").debug(1)
         return
       }
     }
     if v = o.(*Def).Call(cc); isNil(v) || isNone(v) {
-      ctx.error("CWD is <nil>").debug(1)
+      erro(ctx, "CWD is <nil>").debug(1)
       return
     } else if cwd, err = v.Strval(ctx); err != nil {
-      ctx.error("strval '%v' failed: %v", v, err).debug(1)
+      erro(ctx, "strval '%v' failed: %v", v, err).debug(1)
       return
     } else if cwd == "" {
-      ctx.error("CWD is empty").debug(1)
+      erro(ctx, "CWD is empty").debug(1)
       return
     }
   }
@@ -909,11 +926,11 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   // Because the current work directory is not
   // thread safe.
   var dir = cwd
-  if t.program.changedWD != "" {
-    if filepath.IsAbs(t.program.changedWD) {
-      dir = t.program.changedWD
+  if program.changedWD != "" {
+    if filepath.IsAbs(program.changedWD) {
+      dir = program.changedWD
     } else {
-      dir = filepath.Join(t.program.project.absPath, t.program.changedWD)
+      dir = filepath.Join(program.project.absPath, program.changedWD)
     }
   }
 
@@ -921,25 +938,25 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     var s string
     if s = filepath.Dir(targetName); s != "" && s != "." && s != "/" {
       if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
-        ctx.error("make path '%s' for target failed: %v", s, err).of(target).debug(1)
+        erro(ctx, "make path '%s' for target failed: %v", s, err).of(target).debug(1)
         return
       }
     }
   }
 
   var envars []*Pair // disclosed values
-  if def, _ := t.program.scope.Lookup(TheShellEnvarsDef).(*Def); def != nil {
+  if def, _ := program.scope.Lookup(TheShellEnvarsDef).(*Def); def != nil {
     if l, _ := def.value.(*List); l != nil {
       for _, v := range l.Elems {
         var t Value
         if t, err = v.expand(ctx, expandClosure); err != nil {
-          ctx.error("expand value '%v' failed: %v", v, err).of(v).debug(1)
+          erro(ctx, "expand value '%v' failed: %v", v, err).of(v).debug(1)
           return
         } else if isNil(t) { t = v }
         if p, ok := t.(*Pair); ok {
           envars = append(envars, p)
         } else {
-          ctx.error("env expecting pairs: %T", t).of(t).debug(1)
+          erro(ctx, "env expecting pairs: %T", t).of(t).debug(1)
           return
         }
       }
@@ -955,15 +972,15 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     w = expandPlainValue
   )
   if opts.fullname { w |= expandFullName }
-  if recipes, err = expandmerge2(ctx, w, t.program.recipes...); err != nil {
-    ctx.error("merge recipes failed: %v", err).debug(1)
+  if recipes, err = expandmerge2(ctx, w, program.recipes...); err != nil {
+    erro(ctx, "merge recipes failed: %v", err).debug(1)
     return
   }
   for _, recipe := range recipes {
     var str string
     if !recipePos.IsValid() { recipePos = recipe.Position() }
     if str, err = recipe.Strval(ctx); err != nil {
-      ctx.error("strval recipe failed: %v", err).of(recipe).debug(1)
+      erro(ctx, "strval recipe failed: %v", err).of(recipe).debug(1)
       return
     } else if str = strings.TrimRightFunc(str, unicode.IsSpace); str == "" {
       source += "\n" // an empty line
@@ -987,7 +1004,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     source = ""
   }
   if len(recipes) > 0 && len(sources) == 0 {
-    ctx.error("empty recipes: %v", recipes).debug(1)
+    erro(ctx, "empty recipes: %v", recipes).debug(1)
     return;
   }
 
@@ -996,11 +1013,11 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   for i, p := range envars {
     var k, v string
     if k, err = p.Key.Strval(ctx); err != nil {
-      ctx.error("strval '%v' failed: %v", p.Key, err).of(p.Key).debug(1)
+      erro(ctx, "strval '%v' failed: %v", p.Key, err).of(p.Key).debug(1)
       return
     }
     if v, err = p.Value.Strval(ctx); err != nil {
-      ctx.error("strval '%v' failed: %v", p.Value, err).of(p.Value).debug(1)
+      erro(ctx, "strval '%v' failed: %v", p.Value, err).of(p.Value).debug(1)
       return
     }
     if i > 0 { envstr += " && " }
@@ -1018,10 +1035,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   if log == nil || log.filename == "" {
     // no log required
   } else if err = os.MkdirAll(filepath.Dir(log.filename), os.FileMode(0755)); err != nil {
-    ctx.error("%v", err).at(t.program.position).debug(1)
+    erro(ctx, "%v", err).at(program.position).debug(1)
     return
   } else if logFile, err = os.Create(log.filename); err != nil {
-    ctx.error("%v", err).at(t.program.position).debug(1)
+    erro(ctx, "%v", err).at(program.position).debug(1)
     return
   } else {
     cmdline := strings.Join(sources, "\n")
@@ -1037,10 +1054,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   if ctx.checkErrors(true) > 0 {
     if str := trimPromptString(targetName); filepath.IsAbs(targetName) {
       var pos Position; pos.Filename, pos.Line = targetName, 1
-      ctx.warn("got %d error(s)", ctx.totalErrors())
-      ctx.warn("cancel execution for %s", str).at(pos).debug(1)
+      warn(ctx, "got %d error(s)", ctx.totalErrors())
+      warn(ctx, "cancel execution for %s", str).at(pos).debug(1)
     } else {
-      ctx.warn("got %d error(s), cancel execution for %s", ctx.totalErrors(), str).debug(1)
+      warn(ctx, "got %d error(s), cancel execution for %s", ctx.totalErrors(), str).debug(1)
     }
     if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.totalErrors()) }
     return
@@ -1049,9 +1066,9 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   ///////////
   if false {
     defer func() {
-      ctx.info("%v, status=%v", target, exeres.Status)
-      ctx.info("%v: %v", target, recipes)
-      ctx.info("%v: %v", target, sources).debug(6)
+      info(ctx, "%v, status=%v", target, exeres.Status)
+      info(ctx, "%v: %v", target, recipes)
+      info(ctx, "%v: %v", target, sources).debug(6)
     } ()
   }
 
@@ -1076,9 +1093,9 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       var files []*File
       if files, err = target.stamp(t); err != nil {
         if pe, ok := err.(*fs.PathError); ok {
-          ctx.error("stamp %v: not found", trimPromptString(pe.Path)).debug(6)
+          erro(ctx, "stamp %v: not found", trimPromptString(pe.Path)).debug(6)
         } else {
-          ctx.error("%v", err).debug(6)
+          erro(ctx, "%v", err).debug(6)
         }
         return
       } else if opts.report {
@@ -1089,10 +1106,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     if err == nil {
       // Good!
     } else if t.configuration {
-      if false { ctx.info("configure failed: %v", err).debug(1) }
+      if false { info(ctx, "configure failed: %v", err).debug(1) }
       err = nil
     } else {
-      ctx.error("shell: %v", err).debug(1)
+      erro(ctx, "shell: %v", err).debug(1)
       return
     }
 
@@ -1111,7 +1128,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
           st += err.Error()
         }
       }
-      ctx.prompt("%s%s (%v, stdout=%d bytes, stderr=%d bytes)\n", ps, st, time.Now().Sub(start),
+      prompt(ctx, "%s%s (%v, stdout=%d bytes, stderr=%d bytes)\n", ps, st, time.Now().Sub(start),
         exeres.Stdout.wrote, exeres.Stderr.wrote)
     }
   } ()
@@ -1124,10 +1141,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       var s string = src
       s = strings.Replace(s, "\n", "\\n", -1)
       s = strings.Replace(s, "\\\\n", "\\\n", -1)
-      ctx.prompt("%s\n", s)//.debug(1)
+      prompt(ctx, "%s\n", s)//.debug(1)
     }
     if src = strings.TrimSpace(src); src == "" { continue }
-    if dir != "" && !opts.noCD /*&& t.program.changedWD == ""*/ {
+    if dir != "" && !opts.noCD /*&& program.changedWD == ""*/ {
       if strings.HasPrefix(src, "#") {
         src = fmt.Sprintf("cd '%s' %s", dir, src)
       } else {
@@ -1149,11 +1166,11 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       ///fmt.Fprintf(stderr, "run.2: %v\n", targetName)
     }
 
-    //if err = lockCD(dir, 25*time.Millisecond); err != nil { ctx.error("%v", err); return }
+    //if err = lockCD(dir, 25*time.Millisecond); err != nil { erro(ctx, "%v", err); return }
     //if s, e := os.Getwd(); e == nil { assert(s == dir, "wrong work directory (%s != %s)", s, dir) }
     for {
       if err = lockCD(dir, 25*time.Millisecond); err != nil {
-        ctx.error("%v", err).debug(1)
+        erro(ctx, "%v", err).debug(1)
         return
       } else if s, _ := os.Getwd(); s == dir { break }
     }
@@ -1174,9 +1191,9 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     if p.opt != "" { exeres.sh.Args = append(exeres.sh.Args, p.opt) }
     if src   != "" { exeres.sh.Args = append(exeres.sh.Args, src) }
     if opts.debug {
-      ctx.warn("%v: %v", t.entry, target).at(t.program.position)
-      ctx.warn("context: %v", t)
-      ctx.warn("exec:\n%v", exeres.sh).debug(1)
+      warn(ctx, "%v: %v", ctx.entry(), target).at(program.position)
+      warn(ctx, "context: %v", t)
+      warn(ctx, "exec:\n%v", exeres.sh).debug(1)
     }
 
     exeres.Stdout.report = !opts.silent
@@ -1184,65 +1201,66 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     if exeres.Status, err = exeres.run(positional(ctx, pos)); err != nil {
       if !opts.silent || opts.debug {
         if exeres.Stderr.log != nil {
-          var pos Position
-          pos.Filename = log.filename
-          pos.Line = exeres.Stderr.log.lines
-          ctx.error("%v: %s", target, err).debug(1)
+          var lpos Position
+          lpos.Filename = log.filename
+          lpos.Line = exeres.Stderr.log.lines
+          erro(ctx, "%v: %s", target, err).at(lpos)
+          erro(ctx, "%v: %s", target, ctx).debug(1)
         }
         if exeres.errs > 0 { exeres.errs += 1 // err != nil
           if cc, _ := t.inner().(*closureContext); cc != nil {
             if exeres.warns > 0 {
-              ctx.error("exec: got %d errors and %d warnings", exeres.errs, exeres.warns)
+              erro(ctx, "exec: got %d errors and %d warnings", exeres.errs, exeres.warns)
             } else {
-              ctx.error("exec: got %d errors", exeres.errs)
+              erro(ctx, "exec: got %d errors", exeres.errs)
             }
-            ctx.error("%v", t).at(t.Position())
+            erro(ctx, "%v", t).at(t.Position())
             if caller != nil {
-              ctx.error("%v", cc).at(cc.Position())
-              ctx.error("%v", caller).at(caller.Position()).debug(16)
+              erro(ctx, "%v", cc).at(cc.Position())
+              erro(ctx, "%v", caller).at(caller.Position()).debug(16)
             } else {
-              ctx.error("%v", cc).at(cc.Position()).debug(16)
+              erro(ctx, "%v", cc).at(cc.Position()).debug(16)
             }
           } else {
-            ctx.error("… requested here").debug(16)
+            erro(ctx, "… requested here").debug(16)
           }
         } else if exeres.warns > 0 {
           if cc, _ := t.inner().(*closureContext); cc != nil {
-            t.warn("exec: got %d warnings", exeres.warns)
-            t.warn("… requested here").at(cc.Position()).debug(16)
+            warn(t, "exec: got %d warnings", exeres.warns)
+            warn(t, "… requested here").at(cc.Position()).debug(16)
           } else {
-            t.warn("… requested here").debug(16)
+            warn(t, "… requested here").debug(16)
           }
         } else if cc, _ := t.inner().(*closureContext); cc != nil {
-          ctx.error("%v: %v (%T, status=%v)", target, err, err, exeres.Status)
-          ctx.error("… requested here").at(cc.Position()).debug(16)
+          erro(ctx, "%v: %v (%T, status=%v)", target, err, err, exeres.Status)
+          erro(ctx, "… requested here").at(cc.Position()).debug(16)
         } else if caller != nil {
-          ctx.error("%v: %v (%T, status=%v)", target, err, err, exeres.Status)
-          ctx.error("… requested here").at(caller.Position()).debug(16)
+          erro(ctx, "%v: %v (%T, status=%v)", target, err, err, exeres.Status)
+          erro(ctx, "… requested here").at(caller.Position()).debug(16)
         } else {
-          ctx.error("%v: %v (%T, status=%v)", target, err, err, exeres.Status).debug(16)
+          erro(ctx, "%v: %v (%T, status=%v)", target, err, err, exeres.Status).debug(16)
         }
       }
     }
     if len(exeres.ignoringDuplicateDirectory) > 0 {
       var idds int
       for _, rec := range exeres.ignoringDuplicateDirectory {                idds += rec.num
-        ctx.info(`ignoring duplicate directory "%v" (%d)`, rec.dir, rec.num).at(rec.position)
+        info(ctx, `ignoring duplicate directory "%v" (%d)`, rec.dir, rec.num).at(rec.position)
       }
       if idds > 0 && !opts.silent {
         if true {
-          ctx.info("%v: ignoring duplicate directories: %v", target, idds).debug(1)
+          info(ctx, "%v: ignoring duplicate directories: %v", target, idds).debug(1)
         } else {
           var t, _ = ctx.autoGet("@")
-          ctx.info("%v: ignoring duplicate directories: %v", target, idds)
-          ctx.info("%v: %v", target, t)
-          ctx.info("%v: %v", target, ctx).debug(16)
+          info(ctx, "%v: ignoring duplicate directories: %v", target, idds)
+          info(ctx, "%v: %v", target, t)
+          info(ctx, "%v: %v", target, ctx).debug(16)
         }
       }
       if opts.silent { err = nil }
     }
     if exeres.Status != 0 && (!opts.silent || opts.debug) {
-      ctx.error("abnormal exec exit status %d", exeres.Status).debug(1)
+      erro(ctx, "abnormal exec exit status %d", exeres.Status).debug(1)
       err = &exitstatus{ exeres.Status } // convert to exitstatus
       break
     }

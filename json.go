@@ -78,7 +78,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                                 }
                                 if k := stack[x-1].Get(0); k == nil {
                                         if s, err = k.Strval(ctx); err != nil {
-                                                ctx.error("%v", err).debug(1)
+                                                erro(ctx, "%v", err).debug(1)
                                                 return
                                         } else if s != JsonObject {
                                                 err = ErrorIllJson; break LoopJSON
@@ -92,7 +92,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                                 }
                                 if k := stack[x-1].Get(0); k == nil {
                                         if s, err = k.Strval(ctx); err != nil {
-                                                ctx.error("%v", err).debug(1)
+                                                erro(ctx, "%v", err).debug(1)
                                                 return
                                         } else if s != JsonArray {
                                                 err = ErrorIllJson; break LoopJSON
@@ -114,7 +114,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                         if k := node.Get(0); k != nil {
                                 var kind string
                                 if kind, err = k.Strval(ctx); err != nil {
-                                        ctx.error("%v", err).debug(1)
+                                        erro(ctx, "%v", err).debug(1)
                                         return
                                 } else if kind == JsonArray {
                                         node.Append(sv); continue
@@ -168,7 +168,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                 if node != nil && value != nil {
                         if k := node.Get(0); k != nil {
                                 if s, err = k.Strval(ctx); err != nil {
-                                        ctx.error("%v", err).debug(1)
+                                        erro(ctx, "%v", err).debug(1)
                                         return
                                 } else if s != JsonArray {
                                         err = ErrorIllJson; break LoopJSON
@@ -196,13 +196,17 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
 type json struct {}
 
 func (_ *json) Evaluate(ctx Context, args ...Value) (result Value, err error) {
-        var t = ctx.traversal()
+        var program = ctx.program()
+        if program == nil {
+                erro(ctx, `needs program context to evaluate: %v`, ctx).debug(16)
+                return
+        }
         var source string
-        if source, err = multiline(ctx, t.program.recipes...); err != nil { return }
+        if source, err = multiline(ctx, program.recipes...); err != nil { return }
         if result, err = DecodeJSON(ctx, source); err == nil {
                 result = &JSON{ result }
         } else {
-                result = &JSON{ MakeNone(t.program.position) }
+                result = &JSON{ MakeNone(program.position) }
         }
         return
 }

@@ -8,6 +8,7 @@ package smart
 
 import (
     //"strconv"
+    "strings"
     "sync"
     "time"
     "fmt"
@@ -16,11 +17,96 @@ import (
 type dependPatternUnfit struct {}
 func (*dependPatternUnfit) Error() string { return "pattern unfit" }
 
+type spawnProgramContext struct { programContext }
+func (sc *spawnProgramContext) String() string { return fmt.Sprintf("spawn-program{%s}", sc.Context) }
+
 type programContext struct {
     autoContext
+    prog *Program
+    params []string // $0, $1, $2, ...
+    mutex sync.Mutex
 }
 
-func (pc *programContext) String() string { return fmt.Sprintf("program{%s}", pc.autoContext.String()) }
+func (pc *programContext) inner() Context { return &pc.autoContext }
+func (pc *programContext) String() string {
+    var s = strings.TrimPrefix(pc.prog.scope.comment, "rule ")
+    return fmt.Sprintf("program{%s,%s}", s, pc.autoContext.String())
+}
+func (pc *programContext) programCtx() *programContext { return pc }
+func (pc *programContext) program() *Program { return pc.prog }
+func (pc *programContext) Project() *Project {
+    if cc, ok := pc.Context.(*closureContext); ok && true {
+        return cc.Project()
+    } else if pc.prog != nil {
+        return pc.prog.project
+    }
+    return pc.autoContext.Project()
+}
+func (pc *programContext) Scope() *Scope {
+    if pc.prog != nil { return pc.prog.scope }
+    return pc.autoContext.Scope()
+}
+func (pc *programContext) Position() Position {
+    if pc.prog != nil { return pc.prog.position }
+    return pc.autoContext.Position()
+}
+func (pc *programContext) spawn() Context {
+    pc.mutex.Lock(); defer pc.mutex.Unlock()
+
+    var dc = diagContext{ Context: pc.Context }
+    switch t := dc.Context.(type) {
+    case *closureContext, *traverseContext: dc.Context = t.spawn()
+    default: erro(pc, "program needs to spawn %v", dc.Context).debug(1)
+    }
+
+    if false {
+        var child = &spawnProgramContext{programContext{autoContext{
+            Context: &dc, defs: make(autoDefMap) }, pc.prog, pc.params, sync.Mutex{} }}
+        for _, s := range append(pc.params, "@", "<", ">", "^", "|", "~", "?", "-", "*") {
+            if val, found := pc.autoGet(s); found { child.autoSet(s, val) }
+        }
+        return child
+    } else {
+        return &spawnProgramContext{programContext{autoContext{
+            Context: &dc, defs: pc.defs.clone() }, pc.prog, pc.params, sync.Mutex{} }}
+    }
+}
+
+func (pc *programContext) closureScopes() (scopes []*Scope) {
+    if cc, ok := pc.Context.(*closureContext); ok {
+        if true {
+            scopes = cc.closureScopes()
+        } else if up := cc.programCtx(); up != nil {
+            scopes = up.closureScopes()
+        }
+    } else if true {
+        // fallthrough
+    } else if cc = pc.closure(); cc != nil {
+        scopes = cc.closureScopes()
+    }
+    //pc.info("program.closure: %v %v", scopes, pc.prog.scope).debug(1)
+    if pc.prog != nil { scopes = append(scopes, pc.prog.scope) }
+    return
+}
+/*func (pc *programContext) closureProjects() (projects []*Project) {
+    projects = pc.Context.closureProjects()
+
+    var prog = pc.prog != nil && pc.prog.project != nil
+    if project := pc.Context.Project(); project != nil && prog {
+        if prog = prog && pc.prog.project != project && !project.hasBase(pc.prog.project); prog {
+            for _, proj := range projects {
+                if proj == project || project.hasBase(proj) {
+                    pc.info("closure discard: %v, %v, %v", project, pc.prog.project, proj)
+                    pc.info("closure discard: %v", pc).debug(1)
+                    prog = false
+                    break
+                }
+            }
+        }
+    }
+    if prog { projects = append(projects, pc.prog.project) }
+    return
+}*/
 
 type Program struct {
     position Position
@@ -51,18 +137,18 @@ func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err 
 
     var value Value
     if value, err = i.Evaluate(ctx, params...); err != nil {
-        ctx.error("evaluation failed: %v", err).debug(6)
+        erro(ctx, "evaluation failed: %v", err).debug(6)
         return
     } else if isNil(value) {
         // disgard nil value
     } else if prev, ok := ctx.autoSet("-", value); !ok {
-        ctx.error("set buffer value failed: %v -> %v", prev, value)
-        ctx.error("set buffer value failed: %v", ctx).debug(1)
+        erro(ctx, "set buffer value failed: %v -> %v", prev, value)
+        erro(ctx, "set buffer value failed: %v", ctx).debug(1)
         return
     }
 
     if _, _, err = updateRecipesHash(ctx); err != nil {
-        ctx.error("update recipes hash failed: %v", err).debug(1)
+        erro(ctx, "update recipes hash failed: %v", err).debug(1)
     } else {
         var t = ctx.traversal()
         t.interpreted = append(t.interpreted, i)
@@ -76,7 +162,7 @@ func (prog *Program) getModifiers(ctx Context, name string) (ms []*modifier) {
         if !ok { continue }
         for _, m := range g.modifiers {
             if s, e := m.name.Strval(ctx); e != nil {
-                ctx.error("get modifier name '%v' failed: %v", m.name, e).of(m.name).debug(1)
+                erro(ctx, "get modifier name '%v' failed: %v", m.name, e).of(m.name).debug(1)
                 return
             } else if s == name {
                 ms = append(ms, m)
@@ -96,13 +182,13 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
         err error
     )
     if args, err = expandmerge2(ctx, expandPlainValue, m.name); err != nil {
-        ctx.error("expand modifier name '%v' failed: %v", m.name, err).of(m.name).debug(1)
+        erro(ctx, "expand modifier name '%v' failed: %v", m.name, err).of(m.name).debug(1)
         return
     } else if n := len(args); n == 0 {
-        ctx.error("modifier name '%v' is empty", m.name).of(m.name).debug(1)
+        erro(ctx, "modifier name '%v' is empty", m.name).of(m.name).debug(1)
         return
     } else if name, err = args[0].Strval(ctx); err != nil {
-        ctx.error("strval '%v' failed: %v", args[0], err).of(args[0]).debug(1)
+        erro(ctx, "strval '%v' failed: %v", args[0], err).of(args[0]).debug(1)
         return
     } else {
         args = append(args[1:], m.args...)
@@ -116,12 +202,8 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
             // Evaluate for configure modifier
             if i, ok := dialects["eval"]; ok && i != nil {
                 if err = prog.interpret(ctx, i, args); err != nil {
-                    ctx.error("interpret failed: %v", err).at(m.position).debug(1)
+                    erro(ctx, "interpret failed: %v", err).at(m.position).debug(1)
                     return
-                }
-                if false && t.entry.String() == "HAVE_TERMINFO" {
-                    var v, _ = ctx.autoGet("-")
-                    ctx.info("eval %v -> %T %v", t.entry, v, v).debug(6)
                 }
             }
         }
@@ -129,40 +211,44 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
             if tb := brks.not(breakCase, breakNext, breakDone); tb.has() {
                 for _, brk := range brks {
                     switch brk.what {
-                    case breakFail: ctx.error("broken modifier %v with failure: %v", name, brk.message).at(brk.pos)
-                    case breakErro: ctx.error("broken modifier %v with error: %v", name, brk.error).at(brk.pos)
-                    default: ctx.error("broken modifier %v (%v)", name, brk.what).at(brk.pos)
+                    case breakFail: erro(ctx, "broken modifier %v with failure: %v", name, brk.message).at(brk.pos)
+                    case breakErro: erro(ctx, "broken modifier %v with error: %v", name, brk.error).at(brk.pos)
+                    default: erro(ctx, "broken modifier %v (%v)", name, brk.what).at(brk.pos)
                     }
                 }
-                ctx.error("borken modifier %s %v", name, args).at(m.position).debug(6)
+                erro(ctx, "borken modifier %s %v", name, args).at(m.position).debug(6)
             }
         } else if hyphen, found := ctx.autoGet("-"); !found || isNil(value) || value == hyphen {
             // does nothing
         } else if ctx.autoSet("-", value); false {
-            ctx.error("setting buffer value failed: %v", value).at(m.position).debug(1)
+            erro(ctx, "setting buffer value failed: %v", value).at(m.position).debug(1)
         }
     } else if i, _ := dialects[name]; i != nil {
         if err = prog.interpret(ctx, i, args); err != nil {
-            ctx.error("interpret '%s' failed: %v", name, err).at(m.position).debug(1)
+            erro(ctx, "interpret '%s' failed: %v", name, err).at(m.position).debug(1)
         }
     } else {
-        ctx.error("unknown modifier '%s'", name).at(m.position).debug(1)
+        erro(ctx, "unknown modifier '%s'", name).at(m.position).debug(1)
     }
     return
 }
 
 const maxRecursion  = 16 //32 //64
 
-func (prog *Program) execute(cc Context, entry Entry, args []Value) (result Value, brks breakers) {
-    if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.execute(%s)", entry.Target()))) }
+func (prog *Program) execute(cc Context) (result Value, brks breakers) {
+    if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.execute(%s)", cc.entry()))) }
     if optionEnableBenchspots { defer bench(spot("Program.execute")) }
 
-    var pos = cc.Position()
+    var (
+        args  = cc.arguments()
+        entry = cc.entry()
+        pos   = cc.Position()
+    )
     if !pos.IsValid() { pos = entry.Position() }
     if cc != nil && cc.checkErrors(true) > 0 {
         var errs = cc.totalErrors()
         var s string; if errs > 1 { s = "(s)" }
-        cc.warn(`cancel execution for "%v" due to %d error%s`, entry, errs, s).debug(16)
+        warn(cc, `cancel execution for "%v" due to %d error%s`, entry, errs, s).debug(16)
         if options.failOnErrors { fail(pos, "fail by %d error%s", errs, s) }
         return
     }
@@ -170,61 +256,73 @@ func (prog *Program) execute(cc Context, entry Entry, args []Value) (result Valu
     assert(prog.project == prog.scope.project, "mismatched scope/project")
 
     var (
-        _t_ = traverseContext{
+        t = traverseContext{
             Context: cc,
             configuration: prog.configure || (cc != nil && cc.traversal().configuration),
             execRec: make(map[Value]int),
             start: time.Now(),
-            program: prog,
-            entry: entry,
             print: true,
         }
-        pc = programContext{autoContext{ Context:&_t_, defs:make(autoDefMap) }}
+        pc = programContext{autoContext{ Context:&t, defs:make(autoDefMap) }, prog, nil, sync.Mutex{} }
         ctx Context = &pc
+        target Value
         err error
     )
-    defer func() {
-        if ctx.checkErrors(true) > 0  {
-            var errs = ctx.totalErrors()
-            if !_t_.configuration && cc != nil {
-                if errs == 1 {
-                    err = fmt.Errorf("execution yields an error for %v", entry)
-                } else {
-                    err = fmt.Errorf("execution yields %d errors for %v", errs, entry)
-                }
-                brks.add(pos, breakErro).error = err
+    defer func() { if ctx.checkErrors(true) > 0  {
+        var errs = ctx.totalErrors()
+        if !t.configuration && cc != nil {
+            if errs == 1 {
+                err = fmt.Errorf("execution yields an error for %v", entry)
+            } else {
+                err = fmt.Errorf("execution yields %d errors for %v", errs, entry)
             }
-            ctx.warn("execution got %d errors", errs).debug(1)
-            if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", errs) }
+            brks.add(pos, breakErro).error = err
         }
-    } ()
+        warn(ctx, "execution got %d errors: %v", errs, ctx).debug(16)
+        if options.failOnErrors { fail(prog.position, "fail by %d errors", errs) }
+    } } ()
     if cc != nil {
         var recursion int
-        for c := cc.traversal(); c != nil; c = c.caller() { if c.program == prog { recursion += 1 }}
+        for c := cc.traversal(); c != nil; c = c.caller() { if c.program() == prog { recursion += 1 }}
         if recursion >= maxRecursion {
-            ctx.error("exceeds max recursion: %v", entry.Target()).debug(1)
+            erro(ctx, "exceeds max recursion: %v", entry.Target()).debug(1)
             for c := cc.traversal(); c != nil; c = c.caller() {
                 var n int
                 for next := c.caller(); next != nil; next = next.caller() {
-                    if next.program == c.program { n += 1; c = next } else { break }
+                    if next.program() == c.program() { n += 1; c = next } else { break }
                 }
-                var ct, _ = c.autoGet("@")
-                if n > 0 {
-                    ctx.error("%v (repeats %d times)", ct, n).at(c.program.position)
+                if ct, _ := c.autoGet("@"); n > 0 {
+                    erro(ctx, "%v (repeats %d times)", ct, n).at(c.program().position)
                 } else {
-                    ctx.error("%v", ct).at(c.program.position)
+                    erro(ctx, "%v", ct).at(c.program().position)
                 }
             }
-            ctx.error("too many recursion (%d) (%v)", recursion, entry.Target()).debug(1)
+            erro(ctx, "too many recursion (%d) (%v)", recursion, entry.Target()).debug(1)
             return
         }
-        if options.traceTraversalNestIndent { _t_.traceLevel = cc.traversal().traceLevel }
-        if _t_.stems = cc.traversal().stems; _t_.stems != nil { ctx.autoSet("*", MakeString(pos, _t_.stems[0])) }
+        if options.traceTraversalNestIndent { t.traceLevel = cc.traversal().traceLevel }
+        if t.stems = cc.traversal().stems; t.stems != nil { ctx.autoSet("*", MakeString(pos, t.stems[0])) }
     }
-    if _t_.params, err = ctx.autoArgs(_t_.program.params, args); err != nil {
-        ctx.error("auto args failed: %v", err).debug(1)
+    if pc.params, err = pc.autoArgs(prog.params, args); err != nil {
+        erro(ctx, "auto args failed: %v", err).debug(1)
         return
     }
+    // Select the right target value before setting parameters,
+    // because the target could be overrided by parameters.
+    switch target = entry.Target(); a := target.(type) {
+    case *Flag: t.print = false // Flag target (-foo) turns off printing automatically
+    case *File: //alreadyUpdated = a.info != nil && a.updated
+    default:
+        var s string
+        if s, err = a.Strval(ctx); err != nil {
+            erro(ctx, "strval '%v' failed: %v", a, err).debug(1)
+            return
+        } else if file := prog.project.FindFile(ctx, s); file != nil {
+            //alreadyUpdated = file.info != nil && file.updated
+            target = file
+        }
+    }
+    ctx.autoSet("@", target)
 
     // Note: must enter work directory (cd) before setting cloctx
     var (
@@ -233,18 +331,18 @@ func (prog *Program) execute(cc Context, entry Entry, args []Value) (result Valu
     )
     if len(cd.stack) > 0 { enterBack = cd.stack[0] }
     if err = enter(ctx, prog.project.absPath); err != nil {
-        ctx.error("enter project '%v' failed: %v", prog.project, err).debug(1)
+        erro(ctx, "enter project '%v' failed: %v", prog.project, err).debug(1)
         return
     }
     defer func(swd string) {
         if e := leave(ctx, prog, enterBack); e != nil {
             // NOTE: err could be breakCase, breakDone, etc.
             if err == nil { err = e } else {
-                ctx.error("leave project '%v' failed: %v", prog.project, err).debug(1)
+                erro(ctx, "leave project '%v' failed: %v", prog.project, err).debug(1)
             }
         }
         if prog.project.changedWD = swd; err != nil {
-            ctx.error("execution failed: %v", err).debug(6)
+            erro(ctx, "execution failed: %v", err).debug(6)
             return
         }
 
@@ -259,73 +357,40 @@ func (prog *Program) execute(cc Context, entry Entry, args []Value) (result Valu
             result = defaultVal
         }
 
-        if cc != nil && cc.Program() != nil && !isNil(result) {
-            cc.Program().defaultVal = result
-        }
+        if cc != nil { if p := cc.program(); p != nil && !isNil(result) { p.defaultVal = result }}
     } (prog.project.changedWD)
 
-    // Select the right target value before setting parameters,
-    // because the target could be overrided by parameters.
-    switch a := _t_.entry.Target().(type) {
-    case *Flag:
-        ctx.autoSet("@", a)
-        ctx.traversal().print = false // Flag target (-foo) turns off printing automatically
-    case *File:
-        ctx.autoSet("@", a)
-        //alreadyUpdated = a.info != nil && a.updated
-    default:
-        var name string
-        if name, err = a.Strval(ctx); err != nil {
-            ctx.error("strval '%v' failed: %v", a, err).debug(1)
-            return
-        } else if file := prog.project.FindFile(ctx, name); file != nil {
-            //alreadyUpdated = file.info != nil && file.updated
-            a = file
-        }
-        ctx.autoSet("@", a)
-    }
     if alreadyUpdated {
-        var target, _ = ctx.autoGet("@")
-        if options.traceTraversal { _t_.tracef("Program.execute: '%v' already updated (%v)", target, _t_.targets) }
-        if options.verbose { ctx.info("'%v' already updated", target) }
-        if false { ctx.warn("'%v' already updated", target).debug(1) }
+        if options.traceTraversal { t.tracef("Program.execute: '%v' already updated (%v)", target, t.targets) }
+        if options.verbose { info(ctx, "'%v' already updated", target) }
+        if false { warn(ctx, "'%v' already updated", target).debug(1) }
         if false { return }
     }
 
-    if _t_.print && _t_.entry.Class() == UseRuleEntry { _t_.print = false }
-    if _t_.print && prog.configure { _t_.print = false }
-    cd.stack[0].silent = !_t_.print
-    return prog.exec(ctx)
-}
+    if t.print && entry.Class() == UseRuleEntry { t.print = false }
+    if t.print && prog.configure { t.print = false }
+    cd.stack[0].silent = !t.print
 
-func (prog *Program) exec(ctx Context) (result Value, brks breakers) {
-    if optionEnableBenchmarks { defer bench(mark("traversal.exec")) }
-    if optionEnableBenchspots { defer bench(spot("traversal.exec")) }
-
-    var t = ctx.traversal()
-    var target, _ = ctx.autoGet("@")
     if options.traceExec {
         var d = t.depth()
         var s = fmt.Sprintf("%s: %v (%p, exec.depth=%d)", typeof(target), target, target, d)
         defer un(trace(t_exec, s))
     }
 
-    t.execRec[target] += 1
-    if false { if t.execRec[target] > 1 {
+    if t.execRec[target] += 1; false { if t.execRec[target] > 1 {
         if options.traceExec { t_exec.trace(fmt.Sprintf("exec: %v", target)) }
         return
     }}
-
-    var pos = prog.position
 
     // Update normal prerequisites
     if brks = traverseNormal(ctx); brks.has() {
         return
     } else if errs := ctx.checkErrors(true); errs > 0 {
-        brks.add(pos, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", ctx.totalErrors())
-        ctx.warn("%d errors while traversing prerequisites for %v", errs, target).debug(8)
-        callstack(ctx, -1, "call stack for %v:", target)
-        if options.failOnErrors { fail(pos, "fail by %d errors", ctx.totalErrors()) }
+        brks.add(prog.position, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", ctx.totalErrors())
+        warn(ctx, "%d errors while traversing prerequisites for %v", errs, target).debug(8)
+        if callstack(ctx, -1, "call stack for %v:", target); options.failOnErrors {
+            fail(prog.position, "fail by %d errors", ctx.totalErrors())
+        }
         return
     }
 
@@ -333,22 +398,22 @@ func (prog *Program) exec(ctx Context) (result Value, brks breakers) {
     if brks = traverseOrderOnly(ctx); brks.has() {
         return
     } else if errs := ctx.checkErrors(true); errs > 0 {
-        brks.add(pos, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", errs)
-        ctx.warn("%d errors while traversing prerequisites for %v", errs, target).debug(8)
-        callstack(ctx, -1, "call stack for %v:", target)
-        if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.totalErrors()) }
+        brks.add(prog.position, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", errs)
+        warn(ctx, "%d errors while traversing prerequisites for %v", errs, target).debug(8)
+        if callstack(ctx, -1, "call stack for %v:", target); options.failOnErrors {
+            fail(prog.position, "fail by %d errors", ctx.totalErrors())
+        }
         return
     }
 
-    var value, _ = ctx.autoGet("-")
-    if len(t.interpreted) == 0 && len(prog.recipes) > 0 && (isNil(value) || isNone(value)) {
-        // Using the default statements interpreter.
+    if h, ok := ctx.autoGet("-"); len(t.interpreted) == 0 && len(prog.recipes) > 0 && (!ok || isNil(h) || isNone(h)) {
+        // Using the default statements interpreter (aka. evaluation).
         if i, ok := dialects["eval"]; ok && i != nil {
             if err := prog.interpret(ctx, i, nil); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
             }
         } else {
-            ctx.error("no default dialect").debug(1)
+            erro(ctx, "no default dialect").debug(1)
         }
     }
     return
@@ -358,26 +423,24 @@ func traversePrerequisites(ctx Context, prerequisites []Value) (brks breakers) {
     // IMPORTANT: don't expand the args here. The prerequisites like
     // '$(or &@,...)' have to be expanded when it's used (e.g. compare).
     var t = ctx.traversal()
+    var entry = ctx.entry()
     var target, _ = ctx.autoGet("@")
     if true {
-        //var entryName = t.entry.Name()
-        //var infos = t.configuration //entryName == "llvm-ar"
+        var infos = false //entryName == "llvm-ar"
         for _, prerequisite := range prerequisites {
-            /*var prestr = prerequisite.String()
-            if infos || (entryName == "program" && prestr == "$(requirement)") {
+            if infos && (entry.Name() == "program" && prerequisite.String() == "$(requirement)") {
                 if d, _ := prerequisite.(*delegate); d != nil {
-                    t.info("%v: %T %v, %v", entryName, d.x, d.x, d.x.(*Def).origin).at(ctx.Position())
+                    info(t, "%v: %T %v, %v", entry, d.x, d.x, d.x.(*Def).origin).at(ctx.Position())
                 }
                 var val, _ = prerequisite.expand(ctx, expandPlainValue)
-                t.info("%v: %T %v -> %T %v", entryName, prerequisite, prerequisite, val, val).at(ctx.Position())
-                t.info("%v: args = %v", entryName, t.args).at(ctx.Position())
-                t.info("%v: %v", entryName, ctx).at(ctx.Position())
-                t.info("%v: %v", entryName, t).at(ctx.Position()).debug(1)
-            }*/
+                info(t, "%v: %T %v -> %T %v", entry, prerequisite, prerequisite, val, val).at(ctx.Position())
+                info(t, "%v: %v", entry, ctx).at(ctx.Position())
+                info(t, "%v: %v", entry, t).at(ctx.Position()).debug(1)
+            }
             if brks = prerequisite.traverse(ctx); brks.has() {
                 var tb = brks.not(breakNext, breakCase, breakDone)
                 if len(tb) > 0 && len(t.stems) > 0 && false {
-                    t.warn("broken traversal: %v (target = %v, stems = %v)", tb[0].what, target, t.stems).debug(1)
+                    warn(t, "broken traversal: %v (target = %v, stems = %v)", tb[0].what, target, t.stems).debug(1)
                 }
                 break
             }
@@ -401,7 +464,7 @@ func traversePrerequisites(ctx Context, prerequisites []Value) (brks breakers) {
         if wg.Wait(); brks.has() {
             var tb = brks.not(breakNext, breakCase, breakDone)
             if len(tb) > 0 && len(t.stems) > 0 && false {
-                t.warn("broken traversal: %v (target = %v, stems = %v)", tb[0].what, target, t.stems).debug(1)
+                warn(t, "broken traversal: %v (target = %v, stems = %v)", tb[0].what, target, t.stems).debug(1)
             }
         }
     }
@@ -421,7 +484,7 @@ func traverseNormal(ctx Context) (brks breakers) {
         }
     } (t.target0, t.targetx, t.targets)*/
     t.target0, t.targetN, t.targetX = "<", ">", "^"
-    return traversePrerequisites(ctx, t.program.depends)
+    return traversePrerequisites(ctx, ctx.program().depends)
     /*if n := len(t.targets); n > 0 {
         t.autoSet("<", t.targets[0])
         t.autoSet(">", t.targets[n-1])
@@ -441,7 +504,7 @@ func traverseOrderOnly(ctx Context) (brks breakers) {
         t.target0, t.targetx, t.targets = t0, tx, ta
     } (t.target0, t.targetx, t.targets)*/
     t.target0, t.targetN, t.targetX = "", "", "|"
-    return traversePrerequisites(ctx, t.program.ordered)
+    return traversePrerequisites(ctx, ctx.program().ordered)
 }
 
 // DEPRECATED

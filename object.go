@@ -157,7 +157,7 @@ func (p *ProjectName) Call(ctx Context, a... Value) (value Value) {
         var pos = p.position
         if !pos.IsValid() { pos = ctx.Position() }
         if p.project == nil {
-                ctx.error("nil project '%s'", p.name).at(pos).debug(1)
+                erro(ctx, "nil project '%s'", p.name).at(pos).debug(1)
         } else {
                 value = MakeString(pos, p.project.name)
         }
@@ -271,35 +271,53 @@ func (o Origin) String() (s string) {
         return
 }
 
-type (
-        autoDefMap map[string]*Def
-        autoContext struct {
-                Context
-                defs autoDefMap // autos
-        }
-)
-func (cc *autoContext) inner() Context { return cc.Context }
-func (cc *autoContext) String() string { return fmt.Sprintf("auto{%s}", cc.Context) }
-func (cc *autoContext) closureResolveAuto(scope *Scope, name string) (obj Object, found bool) {
-        if cc/*.Context*/.Scope() == scope {
-                obj, found = cc.defs[name]
-        } else {
-                obj, found = cc.Context.closureResolveAuto(scope, name)
-        }
-        if false && name == "@" {
-                cc.info("%v -> %v, %v", name, obj, cc.Scope() == scope)
-                cc.info("%v -> %v", name, cc.defs)
-                cc.info("%v -> %v", name, scope)
-                cc.info("%v -> %v", name, cc).debug(16)
+type autoDefMap map[string]*Def
+func (am autoDefMap) clone() (res autoDefMap) {
+        res = make(autoDefMap)
+        for s, d := range am {
+                def := new(Def)
+                d.mutex.Lock()
+                def.knownobject = d.knownobject
+                def.value = d.value
+                d.mutex.Unlock()
+                res[s] = def
         }
         return
 }
-func (cc *autoContext) autoGet(name string) (res Value, found bool) {
-        var ( ic Context )
-        if def, ok := cc.defs[name]; ok /*&& !isNil(def.value) && !isNone(def.value)*/ {
+
+type autoContext struct {
+        Context
+        defs autoDefMap // autos
+        //mutex sync.RWMutex
+}
+func (ac *autoContext) inner() Context { return ac.Context }
+func (ac *autoContext) String() string { return fmt.Sprintf("auto{%s}", ac.Context) }
+func (ac *autoContext) closureResolveAuto(name string) (obj Object, found bool) {
+        if cc, ok := ac.Context.(*closureContext); ok {
+                obj, found = cc.closureResolveAuto(name)
+        } else if /*ac.Scope() == scope*/true {
+                //ac.mutex.Lock()
+                obj, found = ac.defs[name]
+                //ac.mutex.Unlock()
+        }
+        if false && name == "@" {
+                info(ac, "%v -> %v, %v", name, obj, ac.Scope())
+                info(ac, "%v -> %v", name, ac.defs)
+                info(ac, "%v -> %v", name, ac).debug(16)
+        }
+        return
+}
+func (ac *autoContext) autoGet(name string) (res Value, found bool) {
+        //ac.mutex.RLock()
+        var (
+                def, ok = ac.defs[name]
+                ic Context
+        )
+        //ac.mutex.RUnlock()
+        if ok /*&& !isNil(def.value) && !isNone(def.value)*/ {
                 res, found = def.value, ok
-        } else if ic = cc.inner(); ic == nil {
-                cc.warn("missing: %v in %v", name, cc).debug(32)
+        } else if ic = ac.inner(); ic == nil {
+                warn(ac, "missing: %v in %v", name, ac).debug(32)
         } else if res, found = ic.autoGet(name); expandArgumented || found || isNil(res) || isNone(res) {
                 // Done!
         } else if false {
@@ -307,8 +325,8 @@ func (cc *autoContext) autoGet(name string) (res Value, found bool) {
                         if d, ok := res.(*delegate); !ok || d.name(false) != name {
                                 break
                         } else if val, err := res.expand(ic, expandDelegate); err != nil {
-                                cc.error(`expand "%v" failed: %v`, res, err)
-                                cc.error(`expand "%v": %v`, ic).debug(6)
+                                erro(ac, `expand "%v" failed: %v`, res, err)
+                                erro(ac, `expand "%v": %v`, ic).debug(6)
                                 return
                         } else if !(isNil(val) || isNone(val)) { res = val }
                 }
@@ -317,78 +335,81 @@ func (cc *autoContext) autoGet(name string) (res Value, found bool) {
                         if d, ok := res.(*delegate); !ok || d.name(false) != name {
                                 break
                         } else if val, err := res.expand(ic, expandDelegate); err != nil {
-                                cc.error(`expand "%v" failed: %v`, res, err)
-                                cc.error(`expand "%v": %v`, ic).debug(6)
+                                erro(ac, `expand "%v" failed: %v`, res, err)
+                                erro(ac, `expand "%v": %v`, ic).debug(6)
                                 return
                         } else if !(isNil(val) || isNone(val)) { res = val }
                 }
         }
         if false && name == "@" && res != nil && (strings.HasSuffix(res.String(), "Unwind-EHABI.o") || strings.HasSuffix(res.String(), "-libunwind.a")) {
-                if t := cc.traversal(); t != nil && t.entry != nil {
-                        cc.warn("%v: %T %v", name, res, res)
-                        cc.warn("%v: %v", name, t.entry)
-                        cc.warn("%v: %v", name, ic)
-                        cc.warn("%v: %v", name, cc).debug(6)
-                        if cc.checkErrors(true) > 0 { return }
+                if ac.entry() != nil {
+                        warn(ac, "%v: %T %v", name, res, res)
+                        warn(ac, "%v: %v", name, ac.entry())
+                        warn(ac, "%v: %v", name, ic)
+                        warn(ac, "%v: %v", name, ac).debug(6)
+                        if ac.checkErrors(true) > 0 { return }
                 }
         }
         return
 }
 
-func (cc *autoContext) autoSet(name string, val Value) (res Value, okay bool) {
-        var def, ok = cc.defs[name]
+func (ac *autoContext) autoSet(name string, val Value) (res Value, okay bool) {
+        //ac.mutex.RLock()
+        var def, ok = ac.defs[name]
+        //ac.mutex.RUnlock()
         if ok && def != nil { res = def.value } else {
-                var scope = cc.Scope()
-                def = &Def{
-                        knownobject: knownobject{
-                                objbase{ scope: scope, owner: scope.project }, name,
-                        },
-                }
-                cc.defs[name] = def
+                var scope = ac.Scope()
+                def = &Def{knownobject:knownobject{objbase{scope:scope, owner:scope.project}, name}}
+                def.position = val.Position()
+                //ac.mutex.Lock()
+                ac.defs[name] = def
+                //ac.mutex.Unlock()
         }
         if false && name == "@" {
-                cc.info("%v -> %v -> %v", name, def.value, val)
-                cc.info("%v -> %v", name, cc).debug(16)
+                info(ac, "%v -> %v -> %v", name, def.value, val)
+                info(ac, "%v -> %v", name, ac).debug(16)
         }
-        if t := cc.traversal(); false && (name == "-") && t != nil && t.entry != nil && t.entry.String() == "-compiles-c" {
-                cc.warn("set: %s %v", name, cc)
-                cc.warn("set: %s %v", name, def.value)
-                cc.warn("set: %s %T %v", name, val, val).debug(16)
-                if cc.checkErrors(true) > 0 { return }
+        if entry := ac.entry(); false && (name == "-") && entry != nil && entry.String() == "-compiles-c" {
+                warn(ac, "set: %s %v", name, ac)
+                warn(ac, "set: %s %v", name, def.value)
+                warn(ac, "set: %s %T %v", name, val, val).debug(16)
+                if ac.checkErrors(true) > 0 { return }
         }
+        def.mutex.Lock()
         def.value = val
-        cc.defs[name] = def
+        def.mutex.Unlock()
         okay = true
         return
 }
 
-func (cc *autoContext) autoArgs(params []*Def, args []Value) (names []string, err error) {
+func (ac *autoContext) autoArgs(params []*Def, args []Value) (names []string, err error) {
         var (
                 argnum int // setup named/number parameters ($1, $2, etc.)
                 name string
         )
         for _, a := range args {
-                //<!IMPORTANT: Don't translate Flag, Flag values are valid
-                //         regular arguments. Pair values are special.
+                //<!IMPORTANT: Don't translate Flag, Flag values are valid regular arguments.
+                //             Pair values are special.
                 if l, ok := a.(*List); ok && l.Len() == 1 { a = l.Elems[0] }
                 if p, ok := a.(*Pair); ok {
-                        if name, err = p.Key.Strval(cc); err != nil {
-                                cc.error("strval '%v' failed: %v", p.Key, err).of(p.Key).debug(1)
+                        if name, err = p.Key.Strval(ac); err != nil {
+                                erro(ac, "strval '%v' failed: %v", p.Key, err).of(p.Key).debug(1)
                                 return
                         } else {
                                 a = p.Value
                         }
                 } else if argnum < len(params) {
-                        if name = params[argnum].name; false && name == "requirement" {
-                                cc.info("%s => %v", name, a).at(cc.Position())
-                                cc.info("%s: %v", name, cc).at(cc.Position()).debug(8)
+                        if name = params[argnum].name; false && name == "table" {
+                                warn(ac, "%s => %v", name, a)
+                                warn(ac, "%s: %v", name, ac).debug(16)
+                                if false { callstack(ac, 8, "%s: %v", name, ac) }
                         }
                 } else {
                         name = strconv.Itoa(argnum+1)
                 }
                 argnum += 1
-                if cc.autoSet(name, a); false {
-                        cc.error("arg '%s': %v", name, err).of(a).debug(1)
+                if ac.autoSet(name, a); false {
+                        erro(ac, "arg '%s': %v", name, err).of(a).debug(1)
                         return
                 } else {
                         names = append(names, name)
@@ -523,7 +544,7 @@ func (d *Def) expand(ctx Context, w expandwhat) (res Value, err error) {
         if isNil(value0) || isNone(value0) {
                 return // does nothing
         } else if value1, err = value0.expand(ctx, w); err != nil {
-                ctx.error("expand '%v' failed: %v", value0, err).of(value0).debug(1)
+                erro(ctx, "expand '%v' failed: %v", value0, err).of(value0).debug(1)
                 return
         } else if w&expandDef == 0 {
                 if !isNil(value1) && value1 != value0 {
@@ -532,7 +553,7 @@ func (d *Def) expand(ctx Context, w expandwhat) (res Value, err error) {
         } else if isNil(value1) {
                 res = value0
         } else if value2, err = value1.expand(ctx, w); err != nil {
-                ctx.error("expand '%v' failed: %v", value1, err).of(value0).debug(1)
+                erro(ctx, "expand '%v' failed: %v", value1, err).of(value0).debug(1)
         } else if isNil(value2) {
                 res = value1
         } else {
@@ -591,7 +612,7 @@ func (d *Def) set(ctx Context, origin Origin, value Value) (err error) {
                 var pos = ctx.Position()
                 if !pos.IsValid() { pos = d.position }
                 if ctx.autoSet(d.name, value); false {
-                        ctx.warn("setting auto '%s' failed (value=%v)", d.name, value).at(pos).debug(6)
+                        warn(ctx, "setting auto '%s' failed (value=%v)", d.name, value).at(pos).debug(6)
                 }
                 return
         } else if origin != DefExpand1 && !isNil(value) && value.refs(ctx, d) {
@@ -601,9 +622,9 @@ func (d *Def) set(ctx Context, origin Origin, value Value) (err error) {
                 val = d.value
                 d.mutex.Unlock()
                 if !pos.IsValid() && val != nil { pos = val.Position() }
-                ctx.error("value refers to assigning Def '%s': %v (%T)", d.name, value, value).at(pos).debug(1)
-                if options.verbose { ctx.prompt("set %s (%v): %v\n", origin, d.name, value) }
-                if options.debug { ctx.info("from here").at(pos).debug(1) }
+                erro(ctx, "value refers to assigning Def '%s': %v (%T)", d.name, value, value).at(pos).debug(1)
+                if options.verbose { prompt(ctx, "set %s (%v): %v\n", origin, d.name, value) }
+                if options.debug { info(ctx, "from here").at(pos).debug(1) }
                 return
         } else if origin != DefExecute && isNil(value) {
                 value = MakeNone(d.position)
@@ -613,7 +634,7 @@ func (d *Def) set(ctx Context, origin Origin, value Value) (err error) {
         switch d.origin = origin; d.origin {
         case DefExpand1: // expands delegates
                 if elems, _, err = expandall2(ctx, expandDelegate, value); err != nil {
-                        ctx.error("%v: expand value '%v' failed: %v", d.origin, value, err).of(value)
+                        erro(ctx, "%v: expand value '%v' failed: %v", d.origin, value, err).of(value)
                         return
                 } else {
                         var val = MakeListOrScalar(value.Position(), elems)
@@ -621,13 +642,13 @@ func (d *Def) set(ctx Context, origin Origin, value Value) (err error) {
                         d.value = val
                         d.mutex.Unlock()
                         if false && d.name == "..." {
-                                ctx.info("%v", value).at(d.position)
-                                ctx.info("%v", val).at(d.position).debug(1)
+                                info(ctx, "%v", value).at(d.position)
+                                info(ctx, "%v", val).at(d.position).debug(1)
                         }
                 }
         case DefExpand2: // expands delegates and closures
                 if elems, _, err = expandall2(ctx, expandPlainValue/*|expandArgs*/, value); err != nil {
-                        ctx.error("%v: expand value '%v' failed: %v", d.origin, value, err).of(value)
+                        erro(ctx, "%v: expand value '%v' failed: %v", d.origin, value, err).of(value)
                         return
                 } else {
                         var val = MakeListOrScalar(value.Position(), elems)
@@ -635,14 +656,14 @@ func (d *Def) set(ctx Context, origin Origin, value Value) (err error) {
                         d.value = val
                         d.mutex.Unlock()
                         if false && d.name == "..." {
-                                ctx.info("%v", value).at(d.position)
-                                ctx.info("%v", val).at(d.position).debug(1)
+                                info(ctx, "%v", value).at(d.position)
+                                info(ctx, "%v", val).at(d.position).debug(1)
                         }
                 }
                 /*
         case DefExecute:
                 if err = d.execute(); err != nil {
-                        ctx.error("%v: stringify value '%v' failed: %v", d.origin, value, err).of(value).
+                        erro(ctx, "%v: stringify value '%v' failed: %v", d.origin, value, err).of(value).
                                 debug(1)
                         return
                 }*/
@@ -664,7 +685,7 @@ func (d *Def) append(ctx Context, va... Value) (err error) {
 
         for _, value := range va {
                 if !isNil(value) && value.refs(ctx, d) {
-                        ctx.info("%v: append recursive variable '%s'", d.owner, d.name).at(pos).debug(6)
+                        info(ctx, "%v: append recursive variable '%s'", d.owner, d.name).at(pos).debug(6)
                         return
                 }
         }
@@ -702,9 +723,9 @@ func (d *Def) call(ctx Context, a... Value) (res Value) {
                 case *delegate: if v.x == d { return d.value }
                 case *closure:
                         if v.x == d {
-                                ctx.warn(`self refs: "%v" -> %T %v`, d, value, value)
-                                ctx.warn("project %v, %v", d.OwnerProject(), d.scope)
-                                ctx.warn("%v: %v", ctx.Project(), ctx).debug(10)
+                                warn(ctx, `self refs: "%v" -> %T %v`, d, value, value)
+                                warn(ctx, "project %v, %v", d.OwnerProject(), d.scope)
+                                warn(ctx, "%v: %v", ctx.Project(), ctx).debug(10)
                                 return d.value
                         }
                 }
@@ -719,9 +740,9 @@ func (d *Def) call(ctx Context, a... Value) (res Value) {
                         defs = value.defs(ctx, d.name)
                         if len(defs) > 0 { refs = defs[0] == d }
                 }
-                ctx.info("%v -> %T %v %v, %v, %v", d, value, value, a, refs, defs)
-                ctx.info("%v %v", d.OwnerProject(), d.scope)
-                ctx.info("%v %v", ctx.Project(), ctx).debug(1)
+                info(ctx, "%v -> %T %v %v, %v, %v", d, value, value, a, refs, defs)
+                info(ctx, "%v %v", d.OwnerProject(), d.scope)
+                info(ctx, "%v %v", ctx.Project(), ctx).debug(1)
         }
 
         if isNil(value) {
@@ -730,9 +751,9 @@ func (d *Def) call(ctx Context, a... Value) (res Value) {
                 d.mutex.Unlock()
         } else if defs := value.defs(ctx, d.name); len(defs) > 0 {
                 for _, def := range defs { if def == d {
-                        ctx.warn(`self refs: "%v" -> %T %v -> %v`, d, value, value, defs)
-                        ctx.warn("project %v, %v", d.OwnerProject(), d.scope)
-                        ctx.warn("%v: %v", ctx.Project(), ctx).debug(10)
+                        warn(ctx, `self refs: "%v" -> %T %v -> %v`, d, value, value, defs)
+                        warn(ctx, "project %v, %v", d.OwnerProject(), d.scope)
+                        warn(ctx, "%v: %v", ctx.Project(), ctx).debug(10)
                         return d.value
                 }}
         }
@@ -741,26 +762,26 @@ func (d *Def) call(ctx Context, a... Value) (res Value) {
                 return value
         }
 
-        var cc = autoContext{ Context:ctx, defs:make(autoDefMap) }
-        cc.autoArgs(nil, a)
+        var ac = autoContext{ Context:ctx, defs:make(autoDefMap) }
+        ac.autoArgs(nil, a)
 
-        if res, err = value.expand(&cc, w); err != nil {
-                ctx.error("expand def value failed: %v", err).debug(1)
+        if res, err = value.expand(&ac, w); err != nil {
+                erro(ctx, "expand def value failed: %v", err).debug(1)
         } else if isNil(res) {
-                if value.expandible(&cc, w) {
+                if value.expandible(&ac, w) {
                         if l, ok := value.(*List); ok {
                                 var infoList func(*List)
                                 infoList = func(l *List) {
                                         for _, v := range l.Elems {
                                                 if l2, ok := v.(*List); ok { infoList(l2) } else {
-                                                        ctx.info("%v: %T %v %v", d.name, v, v, v.expandible(&cc, w))
+                                                        info(ctx, "%v: %T %v %v", d.name, v, v, v.expandible(&ac, w))
                                                 }
                                         }
                                 }
                                 infoList(l)
                         }
-                        ctx.warn("%v: expand incomplete (w=%016b): %T %v", d.name, w, value, value)
-                        ctx.warn("%v: %v", d.name, ctx).debug(16)
+                        warn(ctx, "%v: expand incomplete (w=%016b): %T %v", d.name, w, value, value)
+                        warn(ctx, "%v: %v", d.name, ctx).debug(16)
                 }
                 res = value
         }
@@ -780,14 +801,14 @@ func (d *Def) execute(ctx Context, a... Value) (res Value) {
         if !pos.IsValid() { pos = d.position }
         d.mutex.Unlock()
         if origin != DefExecute {
-                ctx.error("%v: non-execute def: %v", origin, value).debug(1)
+                erro(ctx, "%v: non-execute def: %v", origin, value).debug(1)
         } else if isNil(value) || isNone(value) {
                 // does nothing
         } else if cmd, err = value.Strval(ctx); err != nil {
-                ctx.error("%v: strval '%v' failed: %v", origin, value, err).debug(1)
+                erro(ctx, "%v: strval '%v' failed: %v", origin, value, err).debug(1)
                 res = MakeNone(pos)
         } else if cmd == "" {
-                ctx.warn("%v: empty command (value=%v)", origin, value).debug(1)
+                warn(ctx, "%v: empty command (value=%v)", origin, value).debug(1)
                 res = MakeNone(pos)
         } else {
                 // TODO: possibility to run command in the specified container
@@ -795,7 +816,7 @@ func (d *Def) execute(ctx Context, a... Value) (res Value) {
                 var sh = exec.Command("sh", "-c", cmd)
                 sh.Stdout, sh.Stderr = &stdout, &stderr
                 if err = sh.Run(); err != nil {
-                        ctx.error("%v: execute command failed: %v", origin, err).debug(1)
+                        erro(ctx, "%v: execute command failed: %v", origin, err).debug(1)
                         res = MakeNone(pos)
                 } else {
                         res = MakeString(pos, strings.TrimSpace(stdout.String()))
@@ -849,7 +870,7 @@ func (d *Def) DiscloseValue(ctx Context) (res Value, err error) {
         if isNil(value) {
                 // does nothing
         } else if res, err = value.expand(ctx, expandClosure); err != nil {
-                ctx.error("expand '%v' failed: %v", value, err).at(pos).debug(1)
+                erro(ctx, "expand '%v' failed: %v", value, err).at(pos).debug(1)
         } else if isNil(res) {
                 res = value
         }
@@ -869,7 +890,7 @@ func (d *Def) Get(ctx Context, name string) (res Value, err error) {
                 }
         default:
                 err = fmt.Errorf("no such property `%s' (Def)", name)
-                ctx.error("%v", err).at(d.position).debug(1)
+                erro(ctx, "%v", err).at(d.position).debug(1)
         }
         return
 }
@@ -926,9 +947,9 @@ func (p *undetermined) expandible(ctx Context, w expandwhat) bool {
 func (p *undetermined) expand(ctx Context, w expandwhat) (res Value, err error) {
         var i, v Value
         if i, err = p.identifier.expand(ctx, w); err != nil {
-                ctx.error("expand '%v' failed: %v", p.identifier, err).of(p.identifier).debug(1)
+                erro(ctx, "expand '%v' failed: %v", p.identifier, err).of(p.identifier).debug(1)
         } else if v, err = p.value.expand(ctx, w); err != nil {
-                ctx.error("expand '%v' failed: %v", p.value, err).of(p.value).debug(1)
+                erro(ctx, "expand '%v' failed: %v", p.value, err).of(p.value).debug(1)
         } else if (!isNil(i) && i != p.identifier) || (!isNil(v) && v != p.value) {
                 if isNil(i) { i = p.identifier }
                 if isNil(v) { v = p.value }
@@ -1010,14 +1031,13 @@ func (c RuleEntryClass) String() string {
 }
 
 type entryContext struct {
-        autoContext
-        entry *RuleEntry
+        Context
+        ent *RuleEntry
 }
-func (cc *entryContext) inner() Context { return &cc.autoContext }
-func (cc *entryContext) String() string { return fmt.Sprintf("entry{%s,%s}", cc.entry, cc.autoContext.String()) }
-func (cc *entryContext) Project() *Project { return cc.entry.programs[0].project }
-func (cc *entryContext) Position() Position { return cc.entry.position }
-func (cc *entryContext) Entry() Entry { return cc.entry }
+func (ec *entryContext) entry() Entry { return ec.ent }
+func (ec *entryContext) inner() Context { return ec.Context }
+func (ec *entryContext) String() string { return fmt.Sprintf("entry{%s,%s}", ec.ent, ec.Context) }
+func (ec *entryContext) Position() Position { return ec.ent.position }
 
 type Entry interface{
         Object
@@ -1073,7 +1093,7 @@ func (entry *RuleEntry) Strval(ctx Context) (string, error) { return entry.targe
 func (entry *RuleEntry) Execute(ctx Context, a ...Value) (result []Value, brks breakers) {
         switch entry.class {
         case PercRuleEntry, GlobRuleEntry, RegexpRuleEntry, PathPattRuleEntry:
-                ctx.error("executing pattern entry '%v'", entry.target).debug(1)
+                erro(ctx, "executing pattern entry '%v'", entry.target).debug(1)
                 return
         }
         var t = traverseContext{
@@ -1084,42 +1104,40 @@ func (entry *RuleEntry) Execute(ctx Context, a ...Value) (result []Value, brks b
         return entry.execute(&t, a...)
 }
 func (entry *RuleEntry) execute(cc Context, a... Value) (result []Value, brks breakers) {
-        //var ac = autoContext{ Context:cc, defs:make(autoDefMap) }
-        var ec = entryContext{autoContext{ Context:cc, defs:make(autoDefMap) }, entry}
+        var ec = entryContext{ cc, entry }
+        if len(a) == 0 { cc = &ec } else { cc = &argumentedContext{ &ec, a } }
         for _, program := range entry.programs {
                 var pos = program.position
                 if !pos.IsValid() { pos = entry.Position() }
 
-                var (
-                        ctx = positional(&ec, pos)
-                        res Value
-                )
-                res, brks = program.execute(ctx, entry, a)
+                var res Value
+                var ctx = positional(cc, pos)
+                res, brks = program.execute(ctx)
                 result = append(result, res)
                 if tb := brks.of(breakFail, breakErro); tb.has() {
                         brks = brks.not(breakFail, breakErro)
                         for _, brk := range brks {
                                 switch brk.what {
-                                case breakFail: ctx.error("execution failed: %v", brk.message).debug(1)
-                                case breakErro: ctx.error("execution error: %v", brk.error).debug(1)
-                                default: ctx.error("breaker: %v", brk.what).debug(1)
+                                case breakFail: erro(ctx, "execution failed: %v", brk.message).debug(1)
+                                case breakErro: erro(ctx, "execution error: %v", brk.error).debug(1)
+                                default: erro(ctx, "breaker: %v", brk.what).debug(1)
                                 }
                         }
                 } else if tb = brks.of(breakCase, breakDone); tb.has() {
                         brks = brks.not(breakCase, breakDone)
                         for _, brk := range brks {
-                                ctx.error("breaker: %v", brk.what).debug(1)
+                                erro(ctx, "breaker: %v", brk.what).debug(1)
                         }
                         break
                 } else if tb = brks.of(breakNext); tb.has() {
                         brks = brks.not(breakNext)
                         for _, brk := range brks {
-                                ctx.error("breaker: %v", brk.what).debug(1)
+                                erro(ctx, "breaker: %v", brk.what).debug(1)
                         }
                         continue
                 } else if brks.has() {
                         for _, brk := range brks {
-                                ctx.error("unknown breaker: %v", brk.what).debug(1)
+                                erro(ctx, "unknown breaker: %v", brk.what).debug(1)
                         }
                         break
                 }
@@ -1193,13 +1211,13 @@ func (entry *RuleEntry) expandible(ctx Context, w expandwhat) (res bool) {
 func (entry *RuleEntry) expand(ctx Context, w expandwhat) (res Value, err error) {
         if entry == nil {
                 // happens from some &{xxx} exprs
-                ctx.error("expand nil entry (w=%016b)", w).debug(1)
+                erro(ctx, "expand nil entry (w=%016b)", w).debug(1)
                 return
         }
 
         var target Value
         if target, err = entry.target.expand(ctx, w); err != nil {
-                ctx.error("expand '%v' failed: %v", entry.target, err).at(entry.position).debug(1)
+                erro(ctx, "expand '%v' failed: %v", entry.target, err).at(entry.position).debug(1)
                 return
         } else if !isNil(target) && target != entry.target {
                 // TODO: test if programs are needed to be disclosed??
@@ -1218,6 +1236,7 @@ func (entry *RuleEntry) traverse(cc Context) (brks breakers) {
         if optionEnableBenchspots { defer bench(spot("RuleEntry.traverse")) }
         var t = cc.traversal()
         var target, _ = cc.autoGet("@")
+        if cc.entry() != entry { cc = &entryContext{ cc, entry } }
 ForPrograms:
         for _, prog := range entry.programs {
                 var (
@@ -1228,10 +1247,10 @@ ForPrograms:
 
                 var ctx = positional(cc, pos)
                 if brks = brks.not(breakNext); len(brks) > 0 {
-                        ctx.warn("broken traversal %v: %v (stems = %v)", entry, brks[0].what, t.stems).debug(6)
+                        warn(ctx, "broken traversal %v: %v (stems = %v)", entry, brks[0].what, t.stems).debug(6)
                         return
-                } else if res, brks = prog.execute(ctx, entry, t.argumented); false && brks.has() {
-                        ctx.warn("entry: %v %d, %v, %v, %v", entry, len(entry.programs), t.stems, target, brks[0].what).debug(breakDone > 0, 6)
+                } else if res, brks = prog.execute(ctx/*, entry, ctx.arguments()*/); false && brks.has() {
+                        warn(ctx, "entry: %v %d, %v, %v, %v", entry, len(entry.programs), t.stems, target, brks[0].what).debug(breakDone > 0, 6)
                 } else if !isNil(res) {
                         // TODO: deal with res
                 }
@@ -1251,7 +1270,7 @@ ForPrograms:
                                 brks.append(brk)
                                 continue ForPrograms
                         default:
-                                ctx.warn("broken traversal %v: %v", entry, brk.what).debug(6)
+                                warn(ctx, "broken traversal %v: %v", entry, brk.what).debug(6)
                                 break ForPrograms
                         }
                 }
@@ -1319,7 +1338,7 @@ type PatternEntry struct { RuleEntry }
 func (p *PatternEntry) expand(ctx Context, w expandwhat) (res Value, err error) {
         var ent Value
         if ent, err = p.RuleEntry.expand(ctx, w); err != nil {
-                ctx.error("expand '%v' failed: %v", p.RuleEntry, err).at(p.position).debug(1)
+                erro(ctx, "expand '%v' failed: %v", p.RuleEntry, err).at(p.position).debug(1)
         } else if !isNil(ent) && ent != &p.RuleEntry {
                 res = &PatternEntry{ *ent.(*RuleEntry) }
         }
@@ -1345,7 +1364,7 @@ func (p *stemmed) String() (s string) {
 func (p *stemmed) expand(ctx Context, w expandwhat) (res Value, err error) {
         var v Value
         if v, err = p.PatternEntry.expand(ctx, w); err != nil {
-                ctx.error("expand '%v' failed: %v", p.PatternEntry, err).at(p.position).debug(1)
+                erro(ctx, "expand '%v' failed: %v", p.PatternEntry, err).at(p.position).debug(1)
                 return
         } else if !isNil(v) && v != &p.PatternEntry {
                 res = &stemmed{*v.(*PatternEntry), p.Stems}
@@ -1364,7 +1383,7 @@ func (p *stemmed) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (p *stemmed) traverse(ctx Context) (brks breakers) {
-        ctx.error("cant traverse stemmed entry directly: %v", p).at(p.position).debug(1)
+        erro(ctx, "cant traverse stemmed entry directly: %v", p).at(p.position).debug(1)
         brks.add(p.position, breakErro).error = fmt.Errorf("traversing stemmed entry: %v", p)
         return
 }

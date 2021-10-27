@@ -316,7 +316,7 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                 var t = opt[:]
                 for i := strings.IndexRune(t, ','); i >= 0; {
                         if j := strings.IndexAny(t[i+1:], "; "); j == 0 {
-                                ctx.error("illform option tag: %s", t).at(pos).debug(1)
+                                erro(ctx, "illform option tag: %s", t).at(pos).debug(1)
                                 return
                         } else if j > 0 {
                                 s, l = t[:i], t[i+1:i+1+j]
@@ -330,13 +330,13 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                         }
                 }
                 if len(short) != len(long) || len(short) == 0 || len(long) == 0 {
-                        ctx.error("illform option tag: %s", tag).at(pos).debug(1)
+                        erro(ctx, "illform option tag: %s", tag).at(pos).debug(1)
                         return
                 }
         }
-        if false { ctx.info("%v -> %v %v\n", tag, short, long).at(pos).debug(1) }
+        if false { info(ctx, "%v -> %v %v\n", tag, short, long).at(pos).debug(1) }
         if len(short) != len(long) {
-                ctx.error("short and long option names not matching: %v, %v", short, long).at(pos).debug(1)
+                erro(ctx, "short and long option names not matching: %v, %v", short, long).at(pos).debug(1)
                 return
         }
 
@@ -345,23 +345,23 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                 switch val.Kind() {
                 case reflect.Bool:
                         if t, e := v.True(ctx); e == nil { val.SetBool(t) } else {
-                                ctx.error("truthify '%v' failed: %v", v, e).of(v).debug(1)
+                                erro(ctx, "truthify '%v' failed: %v", v, e).of(v).debug(1)
                         }
                 case reflect.Float32, reflect.Float64:
                         if t, e := v.Float(ctx); e == nil { val.SetFloat(t) } else {
-                                ctx.error("floatify '%v' failed: %v", v, e).of(v).debug(1)
+                                erro(ctx, "floatify '%v' failed: %v", v, e).of(v).debug(1)
                         }
                 case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
                         if t, e := v.Integer(ctx); e == nil { val.SetInt(t) } else {
-                                ctx.error("integify '%v' failed: %v", v, e).of(v).debug(1)
+                                erro(ctx, "integify '%v' failed: %v", v, e).of(v).debug(1)
                         }
                 case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
                         if t, e := v.Integer(ctx); e == nil { val.SetUint(uint64(t)) } else {
-                                ctx.error("integify '%v' failed: %v", v, e).of(v).debug(1)
+                                erro(ctx, "integify '%v' failed: %v", v, e).of(v).debug(1)
                         }
                  case reflect.String:
                         if t, e := v.Strval(ctx); e == nil { val.SetString(t) } else {
-                                ctx.error("stringify '%v' failed: %v", v, e).of(v).debug(1)
+                                erro(ctx, "stringify '%v' failed: %v", v, e).of(v).debug(1)
                         }
                 case reflect.Slice:
                         if tp := reflect.New(val.Type().Elem()); tp.Kind() == reflect.Ptr {
@@ -371,72 +371,72 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                         }
                 case reflect.Interface: switch val.Type().String() {
                 case "smart.Value": val.Set(reflect.ValueOf(v))
-                default: ctx.error("option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).
+                default: erro(ctx, "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).
                         of(v).debug(1)
                 }
                 case reflect.Ptr: switch val.Type().Elem().String() {
                 case "smart.optFullname":
                         var x Value
                         if x, err = v.expand(ctx, expandPlainValue|expandFullName); err != nil {
-                                ctx.error("expand option '%v' failed: %v", v, err).of(v).debug(1)
+                                erro(ctx, "expand option '%v' failed: %v", v, err).of(v).debug(1)
                                 return
                         } else if isNil(x) { x = v } else if isNone(x) {
-                                ctx.error("expecting file value: %T %v", v, v).of(v).debug(1)
+                                erro(ctx, "expecting file value: %T %v", v, v).of(v).debug(1)
                                 return
                         }
                         if _, s, ok, err = asOptFullname(ctx, nil, x); err != nil {
-                                ctx.error("fullname '%v' failed: %v", x, err).of(x).debug(1)
+                                erro(ctx, "fullname '%v' failed: %v", x, err).of(x).debug(1)
                         } else if ok && s != "" {
                                 val.Set(reflect.ValueOf(&optFullname{ s, x }))
                         } else {
                                 var tv, _ = ctx.autoGet("@")
-                                ctx.error("not a file: %v -> %v -> %s (%T, @=%v)", v, x, s, ctx, tv).of(v).debug(16)
+                                erro(ctx, "not a file: %v -> %v -> %s (%T, @=%v)", v, x, s, ctx, tv).of(v).debug(16)
                         }
                         if false {
                                 vi := val.Interface().(*optFullname)
-                                ctx.warn("%v %v %v", /*current().of(v)*/ctx.Project(), v, vi.string).debug(true,1)
+                                warn(ctx, "%v %v %v", /*current().of(v)*/ctx.Project(), v, vi.string).debug(true,1)
                         }
                 case "smart.File":
                         var x Value
                         if x, err = v.expand(ctx, expandPlainValue); err != nil {
-                                ctx.error("expand option '%v' failed: %v", v, err).of(v).debug(1)
+                                erro(ctx, "expand option '%v' failed: %v", v, err).of(v).debug(1)
                                 return
                         } else if isNil(x) { x = v } else if isNone(x) {
-                                ctx.error("expecting file value: %T %v", v, v).of(v).debug(1)
+                                erro(ctx, "expecting file value: %T %v", v, v).of(v).debug(1)
                                 return
                         }
                         if file, ok := x.(*File); ok {
                                 val.Set(reflect.ValueOf(file))
                         } else if s, e := x.Strval(ctx); e != nil {
-                                ctx.error("strval '%v' failed: %v", x, e).of(x).debug(1)
+                                erro(ctx, "strval '%v' failed: %v", x, e).of(x).debug(1)
                         } else if proj := /*current()*/ctx.Project(); proj == nil {
-                                ctx.error("no current project to find file '%v'", s).of(x).debug(1)
+                                erro(ctx, "no current project to find file '%v'", s).of(x).debug(1)
                         } else if file = proj.FindFile(ctx, s); file != nil {
                                 val.Set(reflect.ValueOf(file))
                         } else {
-                                ctx.error("'%s' is not a file", s).of(v).debug(1)
+                                erro(ctx, "'%s' is not a file", s).of(v).debug(1)
                         }
                 case "regexp.Regexp":
                         if s, e := v.Strval(ctx); e != nil {
-                                ctx.error("stringify '%v' failed: %v", v, e).of(v).debug(1)
+                                erro(ctx, "stringify '%v' failed: %v", v, e).of(v).debug(1)
                         } else if rx, e := regexp.Compile(s); e != nil {
-                                ctx.error("compile regexp '%v' failed: %v", v, e).of(v).debug(1)
+                                erro(ctx, "compile regexp '%v' failed: %v", v, e).of(v).debug(1)
                         } else {
                                 val.Set(reflect.ValueOf(rx))
                         }
                 default:
-                        ctx.error("option type unsupported: %T %v -> %v, %v", v, v, val.Elem().Kind(), val.Type().Elem()).
+                        erro(ctx, "option type unsupported: %T %v -> %v, %v", v, v, val.Elem().Kind(), val.Type().Elem()).
                                 of(v).debug(1)
                 }
                 default: switch val.Type().String() {
                 case "fs.FileMode": // aka. reflect.Uint32
                         if t, e := v.Integer(ctx); e == nil { val.SetUint(uint64(t)) } else {
-                                ctx.error("integify '%v' failed: %v", v, e).of(v).debug(1)
+                                erro(ctx, "integify '%v' failed: %v", v, e).of(v).debug(1)
                         }
                 case "regex.Regex": // aka. reflect.Ptr
-                        ctx.error("TODO: regexp: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).of(v).debug(1)
+                        erro(ctx, "TODO: regexp: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).of(v).debug(1)
                 default:
-                        ctx.error("option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).of(v).debug(1)
+                        erro(ctx, "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).of(v).debug(1)
                 }}
         }
 ForArgs:
@@ -466,7 +466,7 @@ ForArgs:
                 rest = append(rest, arg)
         }
         if false && len(args) > 0 {
-                ctx.info("%v,%v: %v %v %v", short, long, field.Kind(), field, rest).at(pos)
+                info(ctx, "%v,%v: %v %v %v", short, long, field.Kind(), field, rest).at(pos)
         }
         return
 }
@@ -475,17 +475,17 @@ func parseOpts(ctx Context, iOpts interface{}, args... Value) (rest []Value, err
         var pos = ctx.Position()
         rest = args // NOTE: set the returning args first of all!
         if opts := reflect.ValueOf(iOpts); opts.Kind() != reflect.Ptr {
-                ctx.error("opts must be ptr: %v", opts.Kind()).at(pos).debug(1)
+                erro(ctx, "opts must be ptr: %v", opts.Kind()).at(pos).debug(1)
         } else if opts = opts.Elem(); opts.Kind() == reflect.Struct {
                 var otyp = opts.Type()
-                if false { ctx.info("opts: %v, %v", opts.Kind(), otyp).at(pos) }
+                if false { info(ctx, "opts: %v, %v", opts.Kind(), otyp).at(pos) }
                 for i := 0; i < otyp.NumField(); i += 1 {
                         var ft = otyp.Field(i)
                         var fv = opts.Field(i)
                         rest, err = parseOpt(ctx, ft.Tag, fv, rest...)
                 }
         } else {
-                ctx.error("opts is not ptr of struct: %v", opts.Kind()).at(pos).debug(1)
+                erro(ctx, "opts is not ptr of struct: %v", opts.Kind()).at(pos).debug(1)
         }
         return
 }
@@ -536,7 +536,7 @@ func builtinTypeOf(ctx Context, args... Value) (res Value) {
 func builtinDefined(ctx Context, args... Value) (res Value) {
         var ( pos = ctx.Position(); elems []Value; err error )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("merge args failed: %v", err).at(pos).debug(1)
+                erro(ctx, "merge args failed: %v", err).at(pos).debug(1)
                 return
         }
         for _, arg := range args {
@@ -562,10 +562,10 @@ func builtinPosition(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("position: %v", err).debug(1)
+                erro(ctx, "position: %v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                ctx.error("position: %v", err).debug(1)
+                erro(ctx, "position: %v", err).debug(1)
                 return
         }
 
@@ -598,10 +598,10 @@ func builtinDate(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("merge args failed: %v", err).debug(1)
+                erro(ctx, "merge args failed: %v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
-                ctx.error("parse opts failed: %v", err).debug(1)
+                erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
         }
 
@@ -624,11 +624,11 @@ func builtinError(ctx Context, args... Value) (res Value) {
                 if v, err = a.Strval(ctx); err == nil {
                         fmt.Fprintf(&s, "%s", v)
                 } else {
-                        ctx.error("error: %v: %v", a, err).of(a).debug(1)
+                        erro(ctx, "error: %v: %v", a, err).of(a).debug(1)
                         return
                 }
         }
-        ctx.error("%s", s).debug(1)
+        erro(ctx, "%s", s).debug(1)
         return
 }
 
@@ -643,11 +643,11 @@ func builtinWarning(ctx Context, args... Value) (res Value) {
                 if v, err = a.Strval(ctx); err == nil {
                         fmt.Fprintf(&s, "%s", v)
                 } else {
-                        ctx.error("warning: %v: %v", a, err).of(a).debug(1)
+                        erro(ctx, "warning: %v: %v", a, err).of(a).debug(1)
                         return
                 }
         }
-        ctx.warn("%s", s).debug(1)
+        warn(ctx, "%s", s).debug(1)
         return
 }
 
@@ -660,9 +660,9 @@ func builtinAssert(ctx Context, args... Value) Value {
         }
         for _, a := range vals {
                 if v, e := a.True(ctx); e != nil {
-                        ctx.error("assert: error: %v", e).of(a).debug(1)
+                        erro(ctx, "assert: error: %v", e).of(a).debug(1)
                 } else if !v {
-                        ctx.error("assertion failed: %v", a).of(a).debug(1)
+                        erro(ctx, "assertion failed: %v", a).of(a).debug(1)
                 }
         }
         return nil
@@ -674,7 +674,7 @@ func builtinDefor(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("merge args failed: %v", err).debug(1)
+                erro(ctx, "merge args failed: %v", err).debug(1)
                 return
         }
         for _, a := range args {
@@ -689,14 +689,14 @@ func builtinDefor(ctx Context, args... Value) (res Value) {
 
 func builtinOr(ctx Context, args... Value) (res Value) {
         for _, a := range args {
-                if false { if t := ctx.traversal(); t != nil && t.entry != nil && t.entry.String() == "HAVE_TERMINFO" {
+                if false { if entry := ctx.entry(); entry != nil && entry.String() == "HAVE_TERMINFO" {
                         v, _ := a.expand(ctx, expandPlainValue)
                         b, _ := a.True(ctx)
                         i, _ := v.True(ctx)
-                        ctx.info("or: %T %v -> %T %v -> %v, %v", a, a, v, v, b, i).of(a).debug(1)
+                        info(ctx, "or: %T %v -> %T %v -> %v, %v", a, a, v, v, b, i).of(a).debug(1)
                 }}
                 if v, e := a.True(ctx); e != nil {
-                        ctx.error("or: error: %v", e).of(a).debug(1)
+                        erro(ctx, "or: error: %v", e).of(a).debug(1)
                         break
                 } else if v {
                         res = a
@@ -709,7 +709,7 @@ func builtinOr(ctx Context, args... Value) (res Value) {
 func builtinAnd(ctx Context, args... Value) (res Value) {
         for _, a := range args {
                 if v, e := a.True(ctx); e != nil {
-                        ctx.error("and: error: %v", e).of(a).debug(1)
+                        erro(ctx, "and: error: %v", e).of(a).debug(1)
                         break
                 } else if v {
                         res = a
@@ -729,7 +729,7 @@ func builtinNot(ctx Context, args... Value) (res Value) {
         )
         for _, a := range args {
                 if t, e = a.True(ctx); e != nil {
-                        ctx.error("not: error: %v", e)
+                        erro(ctx, "not: error: %v", e)
                         return
                 } else if t {
                         res = MakeBoolean(ctx.Position(), false)
@@ -742,7 +742,7 @@ func builtinNot(ctx Context, args... Value) (res Value) {
 
 func builtinNotEqual(ctx Context, args... Value) (res Value) {
         if n := len(args); n != 2 {
-                ctx.error("wrong number of arguments, try: $(not-equal <value-list>,<regexp-list>)")
+                erro(ctx, "wrong number of arguments, try: $(not-equal <value-list>,<regexp-list>)")
         } else if args[0].cmp(ctx, args[1]) != cmpEqual {
                 res = MakeBoolean(ctx.Position(), true)
         }
@@ -751,7 +751,7 @@ func builtinNotEqual(ctx Context, args... Value) (res Value) {
 
 func builtinEqual(ctx Context, args... Value) (res Value) {
         if n := len(args); n != 2 {
-                ctx.error("wrong number of arguments, try: $(equal <value-list>,<regexp-list>)")
+                erro(ctx, "wrong number of arguments, try: $(equal <value-list>,<regexp-list>)")
         } else if cmp := args[0].cmp(ctx, args[1]); cmp == cmpEqual {
                 res = MakeBoolean(ctx.Position(), true)
         }
@@ -760,7 +760,7 @@ func builtinEqual(ctx Context, args... Value) (res Value) {
 
 func builtinGreater(ctx Context, args... Value) (res Value) {
         if n := len(args); n != 2 {
-                ctx.error("wrong number of arguments, try: $(greater <value-list>,<regexp-list>)")
+                erro(ctx, "wrong number of arguments, try: $(greater <value-list>,<regexp-list>)")
         } else if cmp := args[0].cmp(ctx, args[1]); cmp == cmpGreater {
                 res = MakeBoolean(ctx.Position(), true)
         }
@@ -769,7 +769,7 @@ func builtinGreater(ctx Context, args... Value) (res Value) {
 
 func builtinLess(ctx Context, args... Value) (res Value) {
         if n := len(args); n != 2 {
-                ctx.error("wrong number of arguments, try: $(less <value-list>,<regexp-list>)")
+                erro(ctx, "wrong number of arguments, try: $(less <value-list>,<regexp-list>)")
         } else if cmp := args[0].cmp(ctx, args[1]); cmp == cmpSmaller {
                 res = MakeBoolean(ctx.Position(), true)
         }
@@ -787,16 +787,16 @@ func builtinMatch(ctx Context, args... Value) (res Value) {
                 err error
         )
         if n := len(args); n < 2 {
-                ctx.error("wrong arguments, try: $(match <regexp-list>,<value-list>,...)").debug(1)
+                erro(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list>,...)").debug(1)
                 return
         } else if patList, err = expandmerge2(ctx, expandPlainValue, args[0]); err != nil {
-                ctx.error("expand '%v' failed: %v", args[0], err).debug(1)
+                erro(ctx, "expand '%v' failed: %v", args[0], err).debug(1)
                 return
         } else if patList, err = parseOpts(ctx, &opts, patList...); err != nil {
-                ctx.error("parse opts failed: %v", err).debug(1)
+                erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
         } else if valList, err = expandmerge2(ctx, expandPlainValue, args[1:]...); err != nil {
-                ctx.error("expand value list failed: %v", err).debug(1)
+                erro(ctx, "expand value list failed: %v", err).debug(1)
                 return
         }
 
@@ -808,7 +808,7 @@ ForValList:
                 }
                 var str string
                 if str, err = val.Strval(ctx); err != nil {
-                        ctx.error("strval '%v' failed: %v", val, err).of(val).debug(1)
+                        erro(ctx, "strval '%v' failed: %v", val, err).of(val).debug(1)
                         return
                 }
                 for _, rx := range opts.regexps {
@@ -835,7 +835,7 @@ func builtinBranchIf(ctx Context, args... Value) (res Value) {
                         t bool
                 )
                 if t, err = args[0].True(ctx); err != nil {
-                        ctx.error("truthify if condition failed: %v", err).debug(1)
+                        erro(ctx, "truthify if condition failed: %v", err).debug(1)
                 } else if t { 
                         res = args[1]
                 } else if n > 1 {
@@ -853,20 +853,20 @@ func builtinBranchIfEq(ctx Context, args... Value) (res Value) {
                         err error
                 )
                 if a, err = args[0].expand(ctx, expandPlainValue); err != nil {
-                        ctx.error("expand '%v' failed: %v", args[0], err).debug(1)
+                        erro(ctx, "expand '%v' failed: %v", args[0], err).debug(1)
                         return
                 } else if isNil(a) { a = args[0] }
                 if b, err = args[1].expand(ctx, expandDelegate); err != nil {
-                        ctx.error("expand '%v' failed: %v", args[1], err).debug(1)
+                        erro(ctx, "expand '%v' failed: %v", args[1], err).debug(1)
                         return
                 } else if isNil(b) { b = args[1] }
 
                 if s1, err = a.Strval(ctx); err != nil {
-                        ctx.error("strval '%v' failed: %v", a, err).debug(1)
+                        erro(ctx, "strval '%v' failed: %v", a, err).debug(1)
                         return
                 }
                 if s2, err = b.Strval(ctx); err != nil {
-                        ctx.error("strval '%v' failed: %v", b, err).debug(1)
+                        erro(ctx, "strval '%v' failed: %v", b, err).debug(1)
                         return
                 }
                 if s1 == s2 {
@@ -886,20 +886,20 @@ func builtinBranchIfNE(ctx Context, args... Value) (res Value) {
                         err error
                 )
                 if a, err = args[0].expand(ctx, expandPlainValue); err != nil {
-                        ctx.error("expand '%v' failed: %v", args[0], err).debug(1)
+                        erro(ctx, "expand '%v' failed: %v", args[0], err).debug(1)
                         return
                 } else if isNil(a) { a = args[0] }
                 if b, err = args[1].expand(ctx, expandDelegate); err != nil {
-                        ctx.error("expand '%v' failed: %v", args[1], err).debug(1)
+                        erro(ctx, "expand '%v' failed: %v", args[1], err).debug(1)
                         return
                 } else if isNil(b) { b = args[1] }
 
                 if s1, err = a.Strval(ctx); err != nil {
-                        ctx.error("strval '%v' failed: %v", a, err).debug(1)
+                        erro(ctx, "strval '%v' failed: %v", a, err).debug(1)
                         return
                 }
                 if s2, err = b.Strval(ctx); err != nil {
-                        ctx.error("strval '%v' failed: %v", b, err).debug(1)
+                        erro(ctx, "strval '%v' failed: %v", b, err).debug(1)
                         return
                 }
                 if s1 != s2 {
@@ -913,11 +913,11 @@ func builtinBranchIfNE(ctx Context, args... Value) (res Value) {
 
 func builtinFor(ctx Context, args... Value) (res Value) {
         if n := len(args); n < 2 {
-                ctx.error("not enough arguments, try: $(foreach <list>,<template>)")
+                erro(ctx, "not enough arguments, try: $(foreach <list>,<template>)")
         } else {
                 var ( defs []*Def ; vals, values []Value; err error )
                 if values, err = expandmerge2(ctx, expandPlainValue, args[0]); err != nil {
-                        ctx.error("merge '%v' failed: %v", args[0], err).debug(1)
+                        erro(ctx, "merge '%v' failed: %v", args[0], err).debug(1)
                         return
                 }
 
@@ -940,7 +940,7 @@ func builtinFor(ctx Context, args... Value) (res Value) {
                 var list []Value
                 for _, a := range args[1:] {
                         if values, err = expandmerge2(ctx, expandPlainValue, a); err != nil {
-                                ctx.error("merge '%v' failed: %v", a, err)
+                                erro(ctx, "merge '%v' failed: %v", a, err)
                                 return
                         }
                         if len(values) == 0 {
@@ -958,7 +958,7 @@ func builtinFor(ctx Context, args... Value) (res Value) {
 
 func builtinForEach(ctx Context, args... Value) (res Value) {
         if n := len(args); n < 2 {
-                ctx.error("not enough arguments ($(foreach <list>,<template>)): %v", n).debug(1)
+                erro(ctx, "not enough arguments ($(foreach <list>,<template>)): %v", n).debug(1)
                 return
         }
 
@@ -969,7 +969,7 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
                 err error
         )
         if values, err = expandmerge2(ctx, expandPlainValue, args[0]); err != nil {
-                ctx.error("merge arg0 failed: %v", err).debug(1)
+                erro(ctx, "merge arg0 failed: %v", err).debug(1)
                 return
         }
 
@@ -985,11 +985,11 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
                 for _, a := range args[1:] {
                         var v Value
                         if v, err = a.expand(&cc, expandPlainValue|expandPairVal); err != nil {
-                                ctx.error("expand '%v' failed: %v", a, err).of(a).debug(1)
+                                erro(ctx, "expand '%v' failed: %v", a, err).of(a).debug(1)
                                 return
                         } else if isNil(v) { v = a }
                         if true && len(v.defs(&cc, "_")) > 0 {
-                                ctx.error("'_' in '%v' not expanded: %v", a, v).of(a).debug(true, 1)
+                                erro(ctx, "'_' in '%v' not expanded: %v", a, v).of(a).debug(true, 1)
                                 return
                         }
                         if isNil(v) || isUndef(v) || isNone(v) {
@@ -1022,7 +1022,7 @@ func builtinEnv(ctx Context, args... Value) (res Value) {
         )
         for _, a := range args {
                 if val, err = a.expand(ctx, expandDelegate); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
                 if val == nil {
@@ -1032,7 +1032,7 @@ func builtinEnv(ctx Context, args... Value) (res Value) {
                                 vals = append(vals, MakeString(pos, os.Getenv(s)))
                         }
                 } else {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
         }
@@ -1056,7 +1056,7 @@ func builtinValue(ctx Context, args... Value) (res Value) {
         for _, a := range args {
                 var s string
                 if s, err = a.Strval(ctx); err != nil {
-                        ctx.error("strval '%v' failed: %v", a, err).debug(1)
+                        erro(ctx, "strval '%v' failed: %v", a, err).debug(1)
                         return
                 }
                 if def := scope.FindDef(s); def != nil {
@@ -1071,19 +1071,19 @@ func builtinValue(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         }
         for _, a := range args {
                 var ( name string; val Value/*; scope *Scope*/ )
                 if name, err = a.Strval(ctx); err != nil {
-                        ctx.error("strval '%v' failed: %v", a, err).at(a.Position()).debug(1)
+                        erro(ctx, "strval '%v' failed: %v", a, err).at(a.Position()).debug(1)
                         return
                 } else if opts.closure {
-                        val = ctx.closureGet(name)
+                        val = closureGet(ctx, name)
                 } /*else if scope = ctx.closureScope(); scope == nil {
                         scope = ctx.loaderScope()
                 }
@@ -1113,14 +1113,14 @@ func builtinShell(ctx Context, args... Value) (res Value) {
         for _, a := range args {
                 var ( bufout, buferr bytes.Buffer; s string )
                 if s, err = a.Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
                 sh := exec.Command("sh", "-c", s)
                 sh.Stdout, sh.Stderr = &bufout, &buferr
                 if err = sh.Run(); err != nil {
                         s = strings.TrimSpace(buferr.String())
-                        ctx.error("%s", err).debug(1)
+                        erro(ctx, "%s", err).debug(1)
                         return
                 }
                 val := MakeString(pos, strings.TrimSpace(bufout.String()))
@@ -1143,10 +1143,10 @@ func builtinServeHttp(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         } else if va, err = parseOpts(ctx, &opts, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         }
 
@@ -1165,7 +1165,7 @@ func builtinServeHttp(ctx Context, args... Value) (res Value) {
         for _, a := range va {
                 var s string
                 if s, err = a.Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
                 fmt.Fprintf(stderr, "%s: serving files %v ...\n", pos, s)
@@ -1173,15 +1173,15 @@ func builtinServeHttp(ctx Context, args... Value) (res Value) {
         }
 
         if err = server.ListenAndServe(); err == http.ErrServerClosed {
-                if false { ctx.info("http server closed") }// Requested /quit
+                if false { info(ctx, "http server closed") }// Requested /quit
         } else if err != nil {
-                ctx.error("%s", err).debug(1)
+                erro(ctx, "%s", err).debug(1)
         }
         return
 }
 
 func builtinServeHttps(ctx Context, args... Value) (res Value) {
-        ctx.error("'serve-https' is unimplemented yet").at(ctx.Position()).debug(1)
+        erro(ctx, "'serve-https' is unimplemented yet").at(ctx.Position()).debug(1)
         return
 }
 
@@ -1198,7 +1198,7 @@ func builtinPrint(ctx Context, args... Value) (res Value) {
                 } else if s, err = EscapedString(ctx, a); err == nil {
                         if s != "" { fmt.Printf("%s", s) }
                 } else {
-                        ctx.error("%s", err).debug(1)
+                        erro(ctx, "%s", err).debug(1)
                         break
                 }
         }
@@ -1214,7 +1214,7 @@ func builtinPrintl(ctx Context, args... Value) (res Value) {
                 var s string
                 if 0 < i && i < x { fmt.Printf(" ") }
                 if s, err = EscapedString(ctx, a); err != nil {
-                        ctx.error("%s", err)
+                        erro(ctx, "%s", err)
                         return
                 }
                 fmt.Printf("%s", s)
@@ -1244,19 +1244,19 @@ func builtinAppend(ctx Context, args... Value) (result Value) {
                 err error
         )
         if len(args) < 2 {
-                ctx.error("insufficient number of arguments: %v", args).debug(1)
+                erro(ctx, "insufficient number of arguments: %v", args).debug(1)
                 return
         } else if vars, err = expandmerge2(ctx, expandPlainValue, args[0]); err != nil {
-                ctx.error("%s", err).of(args[0]).debug(1)
+                erro(ctx, "%s", err).of(args[0]).debug(1)
                 return
         } else if vars, err = parseOpts(ctx, &opts, vars...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         } else if list, err = expandmerge2(ctx, expandPlainValue, args[1:]...); err != nil {
-                ctx.error("%s", err).of(args[1]).debug(1)
+                erro(ctx, "%s", err).of(args[1]).debug(1)
                 return
         } else if len(list) == 0 {
-                ctx.warn("append no values").debug(1)
+                warn(ctx, "append no values").debug(1)
                 return
         }
 
@@ -1264,10 +1264,10 @@ func builtinAppend(ctx Context, args... Value) (result Value) {
         for _, a := range vars {
                 var name string
                 if name, err = a.Strval(ctx); err != nil {
-                        ctx.error("%s", err).of(a).debug(1)
+                        erro(ctx, "%s", err).of(a).debug(1)
                         break
                 } else if name == "" {
-                        ctx.error("name '%v' is empty", a).of(a).debug(1)
+                        erro(ctx, "name '%v' is empty", a).of(a).debug(1)
                         break
                 }
                 /*
@@ -1275,7 +1275,7 @@ func builtinAppend(ctx Context, args... Value) (result Value) {
                 if def == nil {
                         var obj Object
                         if obj, err = cloctx[0].project.resolveObject(ctx, name); err != nil {
-                                ctx.error("%v", err).of(a).debug(1)
+                                erro(ctx, "%v", err).of(a).debug(1)
                                 break
                         } else if def, _ = obj.(*Def); def == nil {
                         }
@@ -1286,17 +1286,17 @@ func builtinAppend(ctx Context, args... Value) (result Value) {
                         }
                 }
                 if def == nil {
-                        ctx.error("'%s' (%v) is undefined (%v)", name, a, cloctx).debug(1)
+                        erro(ctx, "'%s' (%v) is undefined (%v)", name, a, cloctx).debug(1)
                         break
                 } else if err = def.append(ctx, list...); err != nil {
-                        ctx.error("%s", err).debug(1)
+                        erro(ctx, "%s", err).debug(1)
                         break
                 } */
-                if val := ctx.closureGet(name); !isNil(val) {
+                if val := closureGet(ctx, name); !isNil(val) {
                         list = append(merge(val), list...)
                 }
                 if val := MakeListOrScalar(pos, list); opts.closure {
-                        ctx.closureSet(name, val)
+                        closureSet(ctx, name, val)
                 } else {
                         ctx.autoSet(name, val)
                 }
@@ -1311,7 +1311,7 @@ func builtinPlus(ctx Context, args... Value) (result Value) {
         )
         for _, a := range args {
                 if v, err = a.Integer(ctx); err != nil {
-                        ctx.error("%s", err).of(a).debug(1)
+                        erro(ctx, "%s", err).of(a).debug(1)
                         return
                 }
                 num += v
@@ -1326,7 +1326,7 @@ func builtinMinus(ctx Context, args... Value) (result Value) {
         )
         for i, a := range args {
                 if v, err = a.Integer(ctx); err != nil {
-                        ctx.error("%s", err).of(a).debug(1)
+                        erro(ctx, "%s", err).of(a).debug(1)
                         return
                 } else if i == 0 {
                         num = v
@@ -1347,13 +1347,13 @@ func builtinUnique(ctx Context, args... Value) (res Value) {
         )
         if options.benchBuiltins {
                 defer func(t time.Time) {
-                        ctx.info("(%8s) unique", time.Now().Sub(t))
+                        info(ctx, "(%8s) unique", time.Now().Sub(t))
                 } (time.Now())
         }
         if len(args) > 0 {
                 var a []Value
                 if a, err = parseOpts(ctx, &opts, merge(args[0])...); err != nil {
-                        ctx.error("%v", err).of(args[0]).debug(1)
+                        erro(ctx, "%v", err).of(args[0]).debug(1)
                         return
                 }
                 args = append(a, args[1:]...)
@@ -1362,13 +1362,13 @@ func builtinUnique(ctx Context, args... Value) (res Value) {
                 args = merge(args...)
         } else if true {
                 if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
         } else {
                 var x = expandDelegate | expandPathStr | expandPairVal
                 if args, err = expandmerge2(ctx, x, args...); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
         }
@@ -1387,12 +1387,12 @@ ForArgs:
                 if false {
                         var s1, s2 string
                         if s1, err = a.Strval(ctx); err != nil {
-                                ctx.error("%v", err).of(a).debug(1)
+                                erro(ctx, "%v", err).of(a).debug(1)
                                 return
                         }
                         for _, v := range list {
                                 if s2, err = v.Strval(ctx); err != nil {
-                                        ctx.error("%v", err).of(v).debug(1)
+                                        erro(ctx, "%v", err).of(v).debug(1)
                                         return
                                 }
                                 if s1 == s2 { continue ForArgs }
@@ -1415,22 +1415,22 @@ func builtinJoin(ctx Context, args... Value) (res Value) {
                 )
                 if l < 2 {
                         if vals, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                                ctx.error("%v", err).debug(1)
+                                erro(ctx, "%v", err).debug(1)
                                 return
                         }
                 } else {
                         if vals, err = expandmerge2(ctx, expandPlainValue, args[:l-1]...); err != nil {
-                                ctx.error("%v", err).debug(1)
+                                erro(ctx, "%v", err).debug(1)
                                 return
                         } else if sep, err = args[l-1].Strval(ctx); err != nil {
-                                ctx.error("%v", err).debug(1)
+                                erro(ctx, "%v", err).debug(1)
                                 return
                         }
                 }
                 for _, a := range vals {
                         var v string
                         if v, err = a.Strval(ctx); err != nil {
-                                ctx.error("%v", err).debug(1)
+                                erro(ctx, "%v", err).debug(1)
                                 return
                         }
                         if v != "" { fields = append(fields, v) }
@@ -1443,7 +1443,7 @@ func builtinJoin(ctx Context, args... Value) (res Value) {
 func builtinQuote(ctx Context, args... Value) (res Value) {
         var err error
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         }
         if l := len(args); l > 0 {
@@ -1453,7 +1453,7 @@ func builtinQuote(ctx Context, args... Value) (res Value) {
                 )
                 for _, a := range args {
                         if v, err = a.Strval(ctx); err != nil {
-                                ctx.error("%v", err)
+                                erro(ctx, "%v", err)
                                 return
                         } else if v != "" { fields = append(fields, v) }
                 }
@@ -1470,13 +1470,13 @@ func builtinQuoteJoin(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         }
 
         if l := len(args); l > 1 {
                 if sep, err = args[l-1].Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
                 args = args[:l-1]
@@ -1486,7 +1486,7 @@ func builtinQuoteJoin(ctx Context, args... Value) (res Value) {
                 var v string
                 for _, a := range args {
                         if v, err = a.Strval(ctx); err != nil {
-                                ctx.error("%v", err).debug(1)
+                                erro(ctx, "%v", err).debug(1)
                                 return
                         } else if v != "" { fields = append(fields, v) }
                 }
@@ -1502,14 +1502,14 @@ func builtinSplitString(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         } else if l := len(args); l > 0 {
                 var fields []Value
                 for _, a := range args {
                         var s string
                         if s, err = a.Strval(ctx); err != nil {
-                                ctx.error("%v", err).debug(1)
+                                erro(ctx, "%v", err).debug(1)
                                 return
                         } else if s != "" {
                                 fields = append(fields, MakeString(a.Position(), s))
@@ -1567,17 +1567,17 @@ func builtinSplitQuoteJoin(ctx Context, args... Value) (res Value) {
         )
         if l := len(args); l > 1 {
                 if sep, err = args[l-1].Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
                 args = args[:l-1]
         }
         if res = builtinSplitQuote(ctx, args...); !isNil(res) {
                 if res, err = joinstrings(ctx, res, sep); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                 }
         } else {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
         }
         return
 }
@@ -1589,7 +1589,7 @@ func builtinSplitJoinQuote(ctx Context, args... Value) (res Value) {
         )
         if l := len(args); l > 1 {
                 if sep, err = args[l-1].Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
                 args = args[:l-1]
@@ -1603,7 +1603,7 @@ func builtinSplitJoinQuote(ctx Context, args... Value) (res Value) {
                         }
                 }
         }
-        if err != nil { ctx.error("%v", err).debug(1) }
+        if err != nil { erro(ctx, "%v", err).debug(1) }
         return
 }
 
@@ -1617,17 +1617,17 @@ func builtinField(ctx Context, args... Value) (res Value) {
                         err error
                 )
                 if i, err = args[0].Integer(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
                 if s, err = args[1].Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
                 if l > 2 {
                         var v string
                         if v, err = args[2].Strval(ctx); err != nil {
-                                ctx.error("%v", err).debug(1)
+                                erro(ctx, "%v", err).debug(1)
                                 return
                         }
                         fields = strings.Split(s, v)
@@ -1656,17 +1656,17 @@ func builtinUsee(ctx Context, args... Value) (result Value) {
                 err error
         )
         if proj == nil {
-                ctx.error("unknown current context").debug(1)
+                erro(ctx, "unknown current context").debug(1)
                 return
         }
 
         for _, arg := range args {
                 var ( s string; v Value )
                 if s, err = arg.Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 } else if v, err = proj.using.Get(ctx, s); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 } else {
                         list = append(list, v)
@@ -1687,7 +1687,7 @@ func builtinPath(ctx Context, args... Value) (result Value) {
         for _, a := range args {
                 var s string
                 if s, err = a.Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
                 list = append(list, MakePathStr(pos, s))
@@ -1705,7 +1705,7 @@ func builtinString(ctx Context, args... Value) (result Value) {
                 var v string
                 if i > 0 { s.WriteString(" ") }
                 if v, err = a.Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
                 s.WriteString(v)
@@ -1722,7 +1722,7 @@ func filterValues(ctx Context, pats []Value, opts builtinFilterOpts, neg bool, v
         var filter = func(v Value) Value {
                 for _, pat := range pats {
                         if info { if full, s, stems := pat.match(ctx, v); full || s != "" {
-                                ctx.warn("pat=%v (%T) value=%v (%T) => full=%v result=%v stems=%v", pat, pat, v, v, full, s, stems).of(pat).debug(true, 1)
+                                warn(ctx, "pat=%v (%T) value=%v (%T) => full=%v result=%v stems=%v", pat, pat, v, v, full, s, stems).of(pat).debug(true, 1)
                         }}
                         if full, s, stems := pat.match(ctx, v); full {
                                 if neg { v = nil } else if opts.stem {
@@ -1735,7 +1735,7 @@ func filterValues(ctx Context, pats []Value, opts builtinFilterOpts, neg bool, v
                 if neg { return v } else { return nil }
         }
         if values, err = mergeresult(Reveal(ctx, values...)); err != nil {
-                ctx.error("%v", err).of(values[0]).debug(1)
+                erro(ctx, "%v", err).of(values[0]).debug(1)
                 return
         }
         for _, v := range values {
@@ -1755,13 +1755,13 @@ func filterValues1(ctx Context, neg bool, args... Value) (res Value) {
                         vals []Value
                 )
                 if pats, err = expandmerge2(ctx, expandPlainValue, args[0]); err != nil {
-                        ctx.error("merge patterns '%v' failed: %v", args[0], err).debug(1)
+                        erro(ctx, "merge patterns '%v' failed: %v", args[0], err).debug(1)
                         return
                 } else if pats, err = parseOpts(ctx, &opts, pats...); err != nil {
-                        ctx.error("parse opts failed: %v", err).debug(1)
+                        erro(ctx, "parse opts failed: %v", err).debug(1)
                         return
                 } else if vals, err = expandmerge2(ctx, expandPlainValue, args[1:]...); err != nil {
-                        ctx.error("merge values failed: %v", err).debug(1)
+                        erro(ctx, "merge values failed: %v", err).debug(1)
                         return
                 }
                 if vals, err = filterValues(ctx, pats, opts, neg, vals...); err == nil {
@@ -1787,7 +1787,7 @@ func builtinFilterOut(ctx Context, args... Value) (res Value) {
 func builtinSubstring(ctx Context, args... Value) (res Value) {
         var ( pos = ctx.Position(); err error )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("merge args failed: %v", err).debug(1)
+                erro(ctx, "merge args failed: %v", err).debug(1)
                 return
         }
 
@@ -1795,7 +1795,7 @@ func builtinSubstring(ctx Context, args... Value) (res Value) {
         if n := len(args); n > 1 {
                 var ( i1, i2 int )
                 if i1, err = intVal(ctx, args[0], -1); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 } else {
                         args = args[1:]
@@ -1804,13 +1804,13 @@ func builtinSubstring(ctx Context, args... Value) (res Value) {
                         if _, ok := err.(*strconv.NumError); ok {
                                 err = nil // ignore
                         } else {
-                                ctx.error("%v", err).of(args[0]).debug(1)
+                                erro(ctx, "%v", err).of(args[0]).debug(1)
                                 return
                         }
                 } else { args = args[1:] }
 
                 if i1 < -1 && i2 < -1 {
-                        ctx.error("wrong indices (%d, %d)", i1, i2).debug(1)
+                        erro(ctx, "wrong indices (%d, %d)", i1, i2).debug(1)
                         return
                 } else if i1 > i2 { t := i1; i1 = i2; i2 = t } // swap the wrong order
                 
@@ -1821,7 +1821,7 @@ func builtinSubstring(ctx Context, args... Value) (res Value) {
                 for _, arg := range args {
                         var s string
                         if s, err = arg.Strval(ctx); err != nil {
-                                ctx.error("strval '%v' failed: %v", arg, err).debug(1)
+                                erro(ctx, "strval '%v' failed: %v", arg, err).debug(1)
                                 return
                         }
                         if i := len(s); i <= a { s = "" } else
@@ -1839,20 +1839,20 @@ func builtinSubst(ctx Context, args... Value) (res Value) {
         if nargs := len(args); nargs > 2 {
                 var ( a []Value; s, s1, s2 string )
                 if s1, err = args[0].Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
                 if s2, err = args[1].Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
                 if a, err = expandmerge2(ctx, expandDelegate, args[2:]...); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
                 for _, arg := range a {
                         if s, err = arg.Strval(ctx); err != nil {
-                                ctx.error("%v", err).debug(1)
+                                erro(ctx, "%v", err).debug(1)
                                 return
                         }
                         list = append(list, MakeString(pos, strings.Replace(s, s1, s2, -1)))
@@ -1883,16 +1883,16 @@ func builtinPatsubst(ctx Context, args... Value) (res Value) {
                 err error
         )
         if proj == nil {
-                ctx.error("unknown current context").debug(1)
+                erro(ctx, "unknown current context").debug(1)
                 return
         } else if len(args) < 3 {
-                ctx.error("not enough arguments").debug(1)
+                erro(ctx, "not enough arguments").debug(1)
                 return
         } else if arg0, err = expandmerge2(ctx, expandPlainValue, args[0]); err != nil {
-                ctx.error("merge args failed: %v", err).debug(1)
+                erro(ctx, "merge args failed: %v", err).debug(1)
                 return
         } else if arg0, err = parseOpts(ctx, &opts, arg0...) ; err != nil {
-                ctx.error("parse opts failed: %v", err).debug(1)
+                erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
         }
 
@@ -1903,21 +1903,21 @@ func builtinPatsubst(ctx Context, args... Value) (res Value) {
         var srcPats, dstPats, sources []Value
         if len(arg0) > 0 {
                 srcPats = arg0
-                if dstPats, err = expandmerge2(ctx, expandPlainValue, args[1])    ; err != nil { ctx.error("%v", err); return }
-                if sources, err = expandmerge2(ctx, expandPlainValue, args[2:]...); err != nil { ctx.error("%v", err); return }
+                if dstPats, err = expandmerge2(ctx, expandPlainValue, args[1])    ; err != nil { erro(ctx, "%v", err); return }
+                if sources, err = expandmerge2(ctx, expandPlainValue, args[2:]...); err != nil { erro(ctx, "%v", err); return }
                 if infos {
-                        ctx.info("src: %v", srcPats)
-                        ctx.info("dst: %v", dstPats)
-                        ctx.info("%v", sources).debug(1)
+                        info(ctx, "src: %v", srcPats)
+                        info(ctx, "dst: %v", dstPats)
+                        info(ctx, "%v", sources).debug(1)
                 }
         } else {
-                if srcPats, err = expandmerge2(ctx, expandPlainValue, args[1])    ; err != nil { ctx.error("%v", err); return }
-                if dstPats, err = expandmerge2(ctx, expandPlainValue, args[2])    ; err != nil { ctx.error("%v", err); return }
-                if sources, err = expandmerge2(ctx, expandPlainValue, args[3:]...); err != nil { ctx.error("%v", err); return }
+                if srcPats, err = expandmerge2(ctx, expandPlainValue, args[1])    ; err != nil { erro(ctx, "%v", err); return }
+                if dstPats, err = expandmerge2(ctx, expandPlainValue, args[2])    ; err != nil { erro(ctx, "%v", err); return }
+                if sources, err = expandmerge2(ctx, expandPlainValue, args[3:]...); err != nil { erro(ctx, "%v", err); return }
                 if infos {
-                        ctx.info("src: %v", srcPats)
-                        ctx.info("dst: %v", dstPats)
-                        ctx.info("%v", sources).debug(1)
+                        info(ctx, "src: %v", srcPats)
+                        info(ctx, "dst: %v", dstPats)
+                        info(ctx, "%v", sources).debug(1)
                 }
         }
 
@@ -1935,13 +1935,13 @@ ForSources:
                         if file, ok := src.(*File); ok {
                                 source = file
                         } else if s, err = src.Strval(ctx); err != nil {
-                                ctx.error("strval '%v' failed: %v", src, err).of(src)
-                                ctx.error("called from here", src).debug(1)
+                                erro(ctx, "strval '%v' failed: %v", src, err).of(src)
+                                erro(ctx, "called from here", src).debug(1)
                                 return
                         } else if file = proj.FindFile(ctx, s); file != nil {
                                 if (opts.full || opts.fullfiles) && !filepath.IsAbs(file.name) {
                                         if !file.change("", "", file.fullname()) {
-                                                ctx.warn("changing fullname failed: %v", file).debug(1)
+                                                warn(ctx, "changing fullname failed: %v", file).debug(1)
                                         }
                                 }
                                 source = file
@@ -1949,16 +1949,16 @@ ForSources:
                 } else if opts.full {
                         var ( s string; ok bool )
                         if _, s, ok, err = asOptFullname(ctx, proj, src); err != nil {
-                                ctx.error("fullname '%v' failed: %v", src, err).of(src)
-                                ctx.error("called from here", src).debug(1)
+                                erro(ctx, "fullname '%v' failed: %v", src, err).of(src)
+                                erro(ctx, "called from here", src).debug(1)
                                 return
                         } else if s == "" {
-                                ctx.error("fullname '%v' is empty", src).of(src)
-                                ctx.error("called from here", src).debug(1)
+                                erro(ctx, "fullname '%v' is empty", src).of(src)
+                                erro(ctx, "called from here", src).debug(1)
                                 return
                         } else if !ok {
-                                ctx.error("fullname '%v' failed", src).of(src)
-                                ctx.error("called from here", src).debug(1)
+                                erro(ctx, "fullname '%v' failed", src).of(src)
+                                erro(ctx, "called from here", src).debug(1)
                                 return
                         } else {
                                 source = s
@@ -1971,7 +1971,7 @@ ForSources:
                         if matched, str, stems = elem.match(ctx, source); matched {
                                 break ForSrcPats
                         } else if infos {
-                                ctx.info("source=%v (%T) elem=%v (%T) str=%s stems=%v",
+                                info(ctx, "source=%v (%T) elem=%v (%T) str=%s stems=%v",
                                         source, source, elem, elem, str, stems).debug(true,1)
                         }
                 }
@@ -2014,7 +2014,7 @@ ForSources:
                                                 assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (proj.absPath=%s, pre=%s)", file.name, name, proj.absPath, pre))
                                         } /* else if match.Paths != nil {
                                                 var ( path = match.Paths[0] ; sub string )
-                                                if sub, err = path.Strval(); err != nil { ctx.error("%v", err); return }
+                                                if sub, err = path.Strval(); err != nil { erro(ctx, "%v", err); return }
                                                 if filepath.IsAbs(sub) {
                                                         file = stat(name, "", sub, nil)
                                                 } else {
@@ -2051,7 +2051,7 @@ func builtinTrimSpace(ctx Context, args... Value) (res Value) {
 func builtinTitle(ctx Context, args... Value) (res Value) {
         var ( pos = ctx.Position(); err error )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("merge args failed: %v", err).debug(1)
+                erro(ctx, "merge args failed: %v", err).debug(1)
                 return
         }
 
@@ -2061,7 +2061,7 @@ func builtinTitle(ctx Context, args... Value) (res Value) {
         )
         for _, a := range args {
                 if s, err = a.Strval(ctx); err != nil {
-                        ctx.error("stringify '%v' failed: %v", a, err).of(a).debug(1)
+                        erro(ctx, "stringify '%v' failed: %v", a, err).of(a).debug(1)
                         return
                 } else if s != "" {
                         list = append(list, MakeString(a.Position(), strings.Title(s)))
@@ -2080,13 +2080,13 @@ func builtinUpperCase(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("merge args failed: %v", err).debug(1)
+                erro(ctx, "merge args failed: %v", err).debug(1)
                 return
         }
 
         for _, a := range args {
                 if s, err = a.Strval(ctx); err != nil {
-                        ctx.error("stringify '%v' failed: %v", a, err).of(a).debug(1)
+                        erro(ctx, "stringify '%v' failed: %v", a, err).of(a).debug(1)
                         return
                 } else if s != "" {
                         list = append(list, MakeString(a.Position(), strings.ToUpper(s)))
@@ -2105,13 +2105,13 @@ func builtinLowerCase(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("merge args failed: %v", err).debug(1)
+                erro(ctx, "merge args failed: %v", err).debug(1)
                 return
         }
 
         for _, a := range args {
                 if s, err = a.Strval(ctx); err != nil {
-                        ctx.error("stringify '%v' failed: %v", a, err).of(a).debug(1)
+                        erro(ctx, "stringify '%v' failed: %v", a, err).of(a).debug(1)
                         return
                 } else if s != "" {
                         list = append(list, MakeString(a.Position(), strings.ToLower(s)))
@@ -2130,14 +2130,14 @@ func builtinTrim(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         }
 
         var pos = ctx.Position()
         for i, a := range args {
                 if s, err = a.Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 } else if s != "" {
                         if i == 0 {
@@ -2162,13 +2162,13 @@ func builtinTrimLeft(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         }
 
         for i, a := range args {
                 if s, err = a.Strval(ctx); err != nil {
-                        ctx.error("%v", err).at(a.Position()).debug(1)
+                        erro(ctx, "%v", err).at(a.Position()).debug(1)
                         return
                 } else if s != "" {
                         if i == 0 {
@@ -2193,13 +2193,13 @@ func builtinTrimRight(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         }
 
         for i, a := range args {
                 if s, err = a.Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 } else if s != "" {
                         if i == 0 {
@@ -2228,13 +2228,13 @@ func builtinTrimPrefix(ctx Context, args... Value) (res Value) {
         )
         if len(args) == 0 { return } else
         if prefixs, err = expandmerge2(ctx, expandPlainValue, args[0]); err != nil {
-                ctx.error("merge args '%v' failed: %v", args[0], err).of(args[0]).debug(1)
+                erro(ctx, "merge args '%v' failed: %v", args[0], err).of(args[0]).debug(1)
                 return
         }
         if len(args) == 1 {
                 if len(prefixs) > 1 { values = prefixs[1:] }
         } else if values, err = expandmerge2(ctx, expandPlainValue, args[1:]...); err != nil {
-                ctx.error("merge args '%v' failed: %v", args[1:], err).of(args[1]).debug(1)
+                erro(ctx, "merge args '%v' failed: %v", args[1:], err).of(args[1]).debug(1)
                 return
         }
         if len(values) == 0 { return } else if len(prefixs) == 0 {
@@ -2247,13 +2247,13 @@ func builtinTrimPrefix(ctx Context, args... Value) (res Value) {
                         s string
                 )
                 if s, err = value.Strval(ctx); err != nil {
-                        ctx.error("strval '%v' failed: %v", value, err).of(value).debug(1)
+                        erro(ctx, "strval '%v' failed: %v", value, err).of(value).debug(1)
                         return
                 }
         ForPrefix:
                 for _, prefix := range prefixs {
                         var full, cutset, stems = prefix.match(ctx, value)
-                        if info { ctx.warn("prefix=%v (%T); value=%v (%T) -> full=%v cutset=%v stems=%v", prefix, prefix, value, value, full, cutset, stems).of(prefix).debug(true, 1) }
+                        if info { warn(ctx, "prefix=%v (%T); value=%v (%T) -> full=%v cutset=%v stems=%v", prefix, prefix, value, value, full, cutset, stems).of(prefix).debug(true, 1) }
                         if s != "" && (cutset == "" || strings.HasPrefix(s, cutset)) {
                                 if cutset == "" {
                                         s = strings.TrimLeftFunc(s, unicode.IsSpace)
@@ -2264,7 +2264,7 @@ func builtinTrimPrefix(ctx Context, args... Value) (res Value) {
                                 break ForPrefix
                         }
                 }
-                if info { ctx.warn("list=%v trimmed=%v", list, s).debug(true, 1) }
+                if info { warn(ctx, "list=%v trimmed=%v", list, s).debug(true, 1) }
                 if s != "" { list = append(list, MakeString(pos, s)) }
         }
         if err == nil { res = MakeListOrScalar(ctx.Position(), list) }
@@ -2278,13 +2278,13 @@ func builtinTrimSuffix(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         }
 
         for i, a := range args {
                 if s, err = a.Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 } else if s != "" {
                         if i == 0 {
@@ -2308,14 +2308,14 @@ func builtinTrimExt(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         }
 
         for i, a := range args {
                 var ext, s string
                 if s, err = a.Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 } else if s != "" {
                         if i == 0 && len(args) > 1 {
@@ -2343,7 +2343,7 @@ func builtinIndent(ctx Context, args... Value) (res Value) {
                 if v, ok := Scalar(args[0]).(*Int); ok {
                         args, s = args[1:], strings.Repeat(" ", int(v.int64))
                 } else {
-                        ctx.error("requires integer argument (first|last)")
+                        erro(ctx, "requires integer argument (first|last)")
                         return
                 }
         }
@@ -2353,7 +2353,7 @@ func builtinIndent(ctx Context, args... Value) (res Value) {
                         v string
                 )
                 if v, err = a.Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
                 for _, line := range strings.Split(v, "\n") {
@@ -2387,19 +2387,19 @@ func builtinContains(ctx Context, args... Value) (res Value) {
                 err error
         )
         if len(args) < 2 {
-                ctx.error("unexpected number of arguments, try $(contains a b c1 -or c2, v1 v2 …)").debug(1)
+                erro(ctx, "unexpected number of arguments, try $(contains a b c1 -or c2, v1 v2 …)").debug(1)
                 return
         }
 
         if vals, err = expandmerge2(ctx, expandPlainValue, args[0]); err != nil {
-                ctx.error("expand args failed: %v", err).debug(1)
+                erro(ctx, "expand args failed: %v", err).debug(1)
                 return
         } else if vals, err = parseOpts(ctx, &opts, vals...); err != nil {
-                ctx.error("parse opts failed: %v", err).debug(1)
+                erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
         }
         if list, err = expandmerge2(ctx, expandPlainValue, args[1:]...); err != nil {
-                ctx.error("expand args failed: %v", err).debug(1)
+                erro(ctx, "expand args failed: %v", err).debug(1)
                 return
         }
 
@@ -2410,13 +2410,13 @@ func builtinContains(ctx Context, args... Value) (res Value) {
                 default: va = []Value{ val }
                 case *Flag:
                         if s, err = v.name.Strval(ctx); err != nil {
-                                ctx.error("strval '%v' failed: %v", v.name, err).debug(1)
+                                erro(ctx, "strval '%v' failed: %v", v.name, err).debug(1)
                                 return
                         } else if s == "or" { va, x = append(va, val), x-1; continue }
                 case *Pair: // FIXME: -or=(c1 c2 c3)
                         if f, ok := v.Key.(*Flag); !ok {va = []Value{ val }} else {
                                 if s, err = f.name.Strval(ctx); err != nil {
-                                        ctx.error("strval '%v' failed: %v", f.name, err).debug(1)
+                                        erro(ctx, "strval '%v' failed: %v", f.name, err).debug(1)
                                         return
                                 } else if s == "or" { va, x = append(va, v.Value), x-1; continue }
                         }
@@ -2428,11 +2428,11 @@ func builtinContains(ctx Context, args... Value) (res Value) {
                                 if opts.string {
                                         var r string
                                         if r, err = v.Strval(ctx); err != nil {
-                                                ctx.error("strval '%v' failed: %v", v, err).debug(1)
+                                                erro(ctx, "strval '%v' failed: %v", v, err).debug(1)
                                                 return
                                         }
                                         if s, err = a.Strval(ctx); err != nil {
-                                                ctx.error("strval '%v' failed: %v", a, err).debug(1)
+                                                erro(ctx, "strval '%v' failed: %v", a, err).debug(1)
                                                 return
                                         }
                                         if r != s { continue ForList }
@@ -2443,7 +2443,7 @@ func builtinContains(ctx Context, args... Value) (res Value) {
                 va = nil
         }
         if opts.verbose {
-                ctx.info("%v contains %v: %v (%v, %v)\n", list, vals, (n==x), n, x).debug(opts.debug)
+                info(ctx, "%v contains %v: %v (%v, %v)\n", list, vals, (n==x), n, x).debug(opts.debug)
         }
         res = MakeBoolean(ctx.Position(), (n == x))
         return
@@ -2487,7 +2487,7 @@ func builtinEncodeBase64(ctx Context, args... Value) (res Value) {
                 for _, a := range args {
                         var ( s string; err error )
                         if s, err = a.Strval(ctx); err != nil {
-                                ctx.error("strval '%v' failed: %v", a, err).debug(1)
+                                erro(ctx, "strval '%v' failed: %v", a, err).debug(1)
                                 return
                         }
                         enc.Write([]byte(s))
@@ -2508,10 +2508,10 @@ func builtinDecodeBase64(ctx Context, args... Value) (res Value) {
                                 err error
                         )
                         if s, err = a.Strval(ctx); err != nil {
-                                ctx.error("strval '%v' failed: %v", a, err).debug(1)
+                                erro(ctx, "strval '%v' failed: %v", a, err).debug(1)
                                 return
                         } else if dat, err = base64.StdEncoding.DecodeString(s); err != nil {
-                                ctx.error("decode '%s' failed: %v", s, err).debug(1)
+                                erro(ctx, "decode '%s' failed: %v", s, err).debug(1)
                                 return
                         } else {
                                 list = append(list, MakeString(a.Position(), string(dat)))
@@ -2535,7 +2535,7 @@ func asFile(a Value) (f *File) {
 
 func fullname(ctx Context, a Value) (s string, ok bool) {
         if v, err := a.expand(ctx, expandFullName); err != nil {
-                ctx.error("expand fullname failed: %v", err).of(a).debug(1)
+                erro(ctx, "expand fullname failed: %v", err).of(a).debug(1)
         } else {
                 if isNil(v) { v = a }
                 s, ok = fullname1(v)
@@ -2568,9 +2568,9 @@ func asOptFullname(ctx Context, proj *Project, val Value) (rp *Project, s string
         if s, ok = fullname(ctx, val); ok {
                 // done
         } else if proj == nil {
-                ctx.error("no current project to find file '%v'", val).of(val).debug(1)
+                erro(ctx, "no current project to find file '%v'", val).of(val).debug(1)
         } else if s, e = val.Strval(ctx); e != nil {
-                ctx.error("strval '%v' failed: %v", val, e).of(val).debug(1)
+                erro(ctx, "strval '%v' failed: %v", val, e).of(val).debug(1)
         } else if filepath.IsAbs(s) {
                 ok = true
         } else if file := proj.FindFile(ctx, s); file != nil {
@@ -2593,23 +2593,23 @@ func builtinFullName(ctx Context, args... Value) (res Value) {
                 ok bool
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("merge args failed: %v", err).debug(1)
+                erro(ctx, "merge args failed: %v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
-                ctx.error("parse opts failed: %v", err).debug(1)
+                erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
         }
 
         for _, a := range args {
                 if opts.debug > 0 {
                         if f, ok := a.(*File); ok {
-                                ctx.warn("dir=%v sub=%v name=%v", f.dir, f.sub, f.name).debug(opts.debug)
+                                warn(ctx, "dir=%v sub=%v name=%v", f.dir, f.sub, f.name).debug(opts.debug)
                         } else {
-                                ctx.warn("%T %v", a, a).debug(opts.debug,1)
+                                warn(ctx, "%T %v", a, a).debug(opts.debug,1)
                         }
                 }
                 if proj, s, ok, err = asOptFullname(ctx, proj, a); err != nil {
-                        ctx.error("fullname '%v' failed: %v", a, err).debug(1)
+                        erro(ctx, "fullname '%v' failed: %v", a, err).debug(1)
                         break
                 } else if ok || s != "" {
                         l = append(l, MakeString(a.Position(), s))
@@ -2632,10 +2632,10 @@ func builtinBase(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("merge args failed: %v", err).debug(1)
+                erro(ctx, "merge args failed: %v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
-                ctx.error("parse opts failed: %v", err).debug(1)
+                erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
         }
 
@@ -2643,7 +2643,7 @@ func builtinBase(ctx Context, args... Value) (res Value) {
         for _, a := range args {
                 var s string
                 if s, err = fullnameOrStrval(ctx, a); err != nil {
-                        ctx.error("fullname '%v' failed : %v", a, err).debug(1)
+                        erro(ctx, "fullname '%v' failed : %v", a, err).debug(1)
                         return
                 }
                 l = append(l, MakeString(pos, filepath.Base(s)))
@@ -2661,7 +2661,7 @@ func dirx(ctx Context, n int, args... Value) (res Value) {
         )
         for _, a := range args {
                 if s, err = fullnameOrStrval(ctx, a); err != nil {
-                        ctx.error("fullname '%v' failed : %v", a, err).debug(1)
+                        erro(ctx, "fullname '%v' failed : %v", a, err).debug(1)
                         return
                 }
                 s = filepath.Dir(s)
@@ -2683,7 +2683,7 @@ func undirx(ctx Context, n int, args... Value) (res Value) {
         )
         for _, a := range args {
                 if s, err = fullnameOrStrval(ctx, a); err != nil {
-                        ctx.error("fullname '%v' failed : %v", a, err).debug(1)
+                        erro(ctx, "fullname '%v' failed : %v", a, err).debug(1)
                         return
                 }
                 v := strings.Split(s, PathSep)
@@ -2711,10 +2711,10 @@ func builtinDir(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("merge args failed: %v", err).debug(1)
+                erro(ctx, "merge args failed: %v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
-                ctx.error("parse opts failed: %v", err).debug(1)
+                erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
         }
 
@@ -2723,13 +2723,13 @@ func builtinDir(ctx Context, args... Value) (res Value) {
                 var s string
                 if opts.fullname {
                         if proj, s, _, err = asOptFullname(ctx, proj, a); err != nil {
-                                ctx.error("fullname '%v' failed: %v", a, err).debug(1)
+                                erro(ctx, "fullname '%v' failed: %v", a, err).debug(1)
                                 break
                         }
                 }
                 if !opts.fullname || s == "" {
                         if s, err = a.Strval(ctx); err != nil {
-                                ctx.error("strval '%v' failed: %v", a, err).debug(1)
+                                erro(ctx, "strval '%v' failed: %v", a, err).debug(1)
                                 return
                         }
                 }
@@ -2779,7 +2779,7 @@ func builtinDirs(ctx Context, args... Value) (res Value) {
                 } else if v, ok := Scalar(args[x-1]).(*Int); ok {
                         args, n = args[:x-1], int(v.int64)
                 } else {
-                        ctx.error("require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1]).debug(1)
+                        erro(ctx, "require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1]).debug(1)
                         return
                 }
         }
@@ -2831,7 +2831,7 @@ func builtinUndirs(ctx Context, args... Value) (res Value) {
                 } else if v, ok := Scalar(args[x-1]).(*Int); ok {
                         args, n = args[:x-1], int(v.int64)
                 } else {
-                        ctx.error("require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1]).debug(1)
+                        erro(ctx, "require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1]).debug(1)
                         return
                 }
         }
@@ -2850,7 +2850,7 @@ func builtinDirChop(ctx Context, args... Value) (res Value) {
                 } else if v, ok := Scalar(args[x-1]).(*Int); ok {
                         args, n = args[:x-1], int(v.int64)
                 } else {
-                        ctx.error("require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1]).debug(1)
+                        erro(ctx, "require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1]).debug(1)
                         return
 
                 }
@@ -2858,7 +2858,7 @@ func builtinDirChop(ctx Context, args... Value) (res Value) {
         for _, a := range args {
                 var s string
                 if s, err = a.Strval(ctx); err != nil {
-                        ctx.error("strval '%v' failed: %v", err).of(a).debug(1)
+                        erro(ctx, "strval '%v' failed: %v", err).of(a).debug(1)
                         return
                 }
                 var v = strings.Split(s, PathSep)
@@ -2887,7 +2887,7 @@ func builtinRelativeDir(ctx Context, args... Value) (res Value) {
         )
         for i, a := range args {
                 if s, err = a.Strval(ctx); err != nil {
-                        ctx.error("%v", err)
+                        erro(ctx, "%v", err)
                         return
                 }
                 if i == 0 {
@@ -2895,7 +2895,7 @@ func builtinRelativeDir(ctx Context, args... Value) (res Value) {
                 } else if s, err = filepath.Rel(t, s); err == nil {
                         l = append(l, MakeString(a.Position(), s))
                 } else {
-                        ctx.error("%v", err)
+                        erro(ctx, "%v", err)
                         return
                 }
         }
@@ -2913,32 +2913,32 @@ func builtinMkdir(ctx Context, args... Value) (res Value) {
                 )
                 switch t := a.(type) {
                 case *Pair: // mkdir name => perm name => perm
-                        if name, err = t.Key.Strval(ctx); err != nil { ctx.error("%v", err); return }
-                        if perm, err = permVal(ctx, t.Value,0600); err != nil { ctx.error("%v", err); return }
+                        if name, err = t.Key.Strval(ctx); err != nil { erro(ctx, "%v", err); return }
+                        if perm, err = permVal(ctx, t.Value,0600); err != nil { erro(ctx, "%v", err); return }
                 case *Group: // mkdir (name perm) (name perm)
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(ctx); err != nil { ctx.error("%v", err); return }
-                                if perm, err = permVal(ctx, t.Get(1),0600); err != nil { ctx.error("%v", err); return }
+                                if name, err = t.Get(0).Strval(ctx); err != nil { erro(ctx, "%v", err); return }
+                                if perm, err = permVal(ctx, t.Get(1),0600); err != nil { erro(ctx, "%v", err); return }
                         } else {
-                                ctx.error("Wrong size of list `%v'", t)
+                                erro(ctx, "Wrong size of list `%v'", t)
                                 break
                         }
                 case *List: // mkdir name perm, name perm, ...
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(ctx); err != nil { ctx.error("%v", err); return }
-                                if perm, err = permVal(ctx, t.Get(1),0600); err != nil { ctx.error("%v", err); return }
+                                if name, err = t.Get(0).Strval(ctx); err != nil { erro(ctx, "%v", err); return }
+                                if perm, err = permVal(ctx, t.Get(1),0600); err != nil { erro(ctx, "%v", err); return }
                         } else {
-                                ctx.error("Wrong size of list `%v'", t)
+                                erro(ctx, "Wrong size of list `%v'", t)
                                 break
                         }
                 default: // mkdir name perm, name perm, ...
-                        if name, err = args[i].Strval(ctx); err != nil { ctx.error("%v", err); return }
+                        if name, err = args[i].Strval(ctx); err != nil { erro(ctx, "%v", err); return }
                         if i+1 < nargs {
-                                if perm, err = permVal(ctx, args[i+1],0600); err != nil { ctx.error("%v", err); return }
+                                if perm, err = permVal(ctx, args[i+1],0600); err != nil { erro(ctx, "%v", err); return }
                                 i += 1
                         }
                 }
-                if err = os.Mkdir(name, perm); err != nil { ctx.error("%v", err); break }
+                if err = os.Mkdir(name, perm); err != nil { erro(ctx, "%v", err); break }
         }
         return
 }
@@ -2953,32 +2953,32 @@ func builtinMkdirAll(ctx Context, args... Value) (res Value) {
                 )
                 switch t := a.(type) {
                 case *Pair: // mkdir name => perm name => perm
-                        if name, err = t.Key.Strval(ctx); err != nil { ctx.error("%v", err).of(t.Key); return }
-                        if perm, err = permVal(ctx, t.Value,0600); err != nil { ctx.error("%v", err).of(t.Value); return }
+                        if name, err = t.Key.Strval(ctx); err != nil { erro(ctx, "%v", err).of(t.Key); return }
+                        if perm, err = permVal(ctx, t.Value,0600); err != nil { erro(ctx, "%v", err).of(t.Value); return }
                 case *Group: // mkdir (name perm) (name perm)
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(ctx); err != nil { ctx.error("%v", err).of(t.Get(0)); return }
-                                if perm, err = permVal(ctx, t.Get(1),0600); err != nil { ctx.error("%v", err).of(t.Get(1)); return }
+                                if name, err = t.Get(0).Strval(ctx); err != nil { erro(ctx, "%v", err).of(t.Get(0)); return }
+                                if perm, err = permVal(ctx, t.Get(1),0600); err != nil { erro(ctx, "%v", err).of(t.Get(1)); return }
                         } else {
-                                ctx.error("Wrong size of list `%v'", t);
+                                erro(ctx, "Wrong size of list `%v'", t);
                                 break
                         }
                 case *List: // mkdir name perm, name perm, ...
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(ctx); err != nil { ctx.error("%v", err).of(t.Get(0)); return }
-                                if perm, err = permVal(ctx, t.Get(1),0600); err != nil { ctx.error("%v", err).of(t.Get(1)); return }
+                                if name, err = t.Get(0).Strval(ctx); err != nil { erro(ctx, "%v", err).of(t.Get(0)); return }
+                                if perm, err = permVal(ctx, t.Get(1),0600); err != nil { erro(ctx, "%v", err).of(t.Get(1)); return }
                         } else {
-                                ctx.error("Wrong size of list `%v'", t);
+                                erro(ctx, "Wrong size of list `%v'", t);
                                 break
                         }
                 default: // mkdir name perm, name perm, ...
-                        if name, err = args[i].Strval(ctx); err != nil { ctx.error("%v", err).of(args[i]); return }
+                        if name, err = args[i].Strval(ctx); err != nil { erro(ctx, "%v", err).of(args[i]); return }
                         if i+1 < nargs {
-                                if perm, err = permVal(ctx, args[i+1],0600); err != nil { ctx.error("%v", err).of(args[i+1]); return }
+                                if perm, err = permVal(ctx, args[i+1],0600); err != nil { erro(ctx, "%v", err).of(args[i+1]); return }
                                 i += 1
                         }
                 }
-                if err = os.MkdirAll(name, perm); err != nil { ctx.error("%v", err); break }
+                if err = os.MkdirAll(name, perm); err != nil { erro(ctx, "%v", err); break }
         }
         return
 }
@@ -2986,10 +2986,10 @@ func builtinMkdirAll(ctx Context, args... Value) (res Value) {
 func builtinChdir(ctx Context, args... Value) (res Value) {
         if len(args) == 1 {
                 var ( str string; err error )
-                if str, err = args[0].Strval(ctx); err != nil { ctx.error("%v", err).of(args[0]); return }
-                if err = lockCD(str, 0); err != nil { ctx.error("%v", err) }
+                if str, err = args[0].Strval(ctx); err != nil { erro(ctx, "%v", err).of(args[0]); return }
+                if err = lockCD(str, 0); err != nil { erro(ctx, "%v", err) }
         } else {
-                ctx.error("wrong number of arguments: %v", len(args))
+                erro(ctx, "wrong number of arguments: %v", len(args))
         }
         return
 }
@@ -3006,36 +3006,36 @@ func builtinRename(ctx Context, args... Value) (res Value) {
                 )
                 switch t := a.(type) {
                 case *Pair: // rename oldname=newname
-                        if oldname, err = t.Key.Strval(ctx);   err != nil { ctx.error("%v", err).of(t.Key); return }
-                        if newname, err = t.Value.Strval(ctx); err != nil { ctx.error("%v", err).of(t.Value); return }
+                        if oldname, err = t.Key.Strval(ctx);   err != nil { erro(ctx, "%v", err).of(t.Key); return }
+                        if newname, err = t.Value.Strval(ctx); err != nil { erro(ctx, "%v", err).of(t.Value); return }
                 case *Group: // rename (oldname newname) (old new)
                         if t.Len() == 2 {
-                                if oldname, err = t.Get(0).Strval(ctx); err != nil { ctx.error("%v", err).of(t.Get(0)); return }
-                                if newname, err = t.Get(1).Strval(ctx); err != nil { ctx.error("%v", err).of(t.Get(1)); return }
+                                if oldname, err = t.Get(0).Strval(ctx); err != nil { erro(ctx, "%v", err).of(t.Get(0)); return }
+                                if newname, err = t.Get(1).Strval(ctx); err != nil { erro(ctx, "%v", err).of(t.Get(1)); return }
                         } else {
-                                ctx.error("wrong size of group `%v'", t).of(t)
+                                erro(ctx, "wrong size of group `%v'", t).of(t)
                                 break
                         }
                 case *List: // rename oldname newname, old new, ...
                         if t.Len() == 2 {
-                                if oldname, err = t.Get(0).Strval(ctx); err != nil { ctx.error("%v", err).of(t.Get(0)); return }
-                                if newname, err = t.Get(1).Strval(ctx); err != nil { ctx.error("%v", err).of(t.Get(1)); return }
+                                if oldname, err = t.Get(0).Strval(ctx); err != nil { erro(ctx, "%v", err).of(t.Get(0)); return }
+                                if newname, err = t.Get(1).Strval(ctx); err != nil { erro(ctx, "%v", err).of(t.Get(1)); return }
                         } else {
-                                ctx.error("wrong size of list `%v'", t).of(t)
+                                erro(ctx, "wrong size of list `%v'", t).of(t)
                                 break
                         }
                 default: // rename newname oldname  newname oldname ...
                         if i+1 < nargs {
-                                if oldname, err = args[i+0].Strval(ctx); err != nil { ctx.error("%v", err).of(args[i+0]); return }
-                                if newname, err = args[i+1].Strval(ctx); err != nil { ctx.error("%v", err).of(args[i+1]); return }
+                                if oldname, err = args[i+0].Strval(ctx); err != nil { erro(ctx, "%v", err).of(args[i+0]); return }
+                                if newname, err = args[i+1].Strval(ctx); err != nil { erro(ctx, "%v", err).of(args[i+1]); return }
                                 i += 1
                         } else {
-                                ctx.error("Wrong arguments `%v'", args).of(t)
+                                erro(ctx, "Wrong arguments `%v'", args).of(t)
                                 break
                         }
                 }
                 if err = os.Rename(oldname, newname); err != nil {
-                        ctx.error("%v", err).at(ctx.Position()).debug(1)
+                        erro(ctx, "%v", err).at(ctx.Position()).debug(1)
                         break
                 }
         }
@@ -3057,10 +3057,10 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                 ok bool
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("merge args failed: %v", err)
+                erro(ctx, "merge args failed: %v", err)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
-                ctx.error("parse opts failed: %v", err)
+                erro(ctx, "parse opts failed: %v", err)
                 return
         }
 
@@ -3068,42 +3068,42 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                 if isNil(a) || isNone(a) {
                         // ignore
                 } else if a.patterned(ctx) {
-                        if str, err = a.Strval(ctx); err != nil { ctx.error("%v", err).of(a).debug(true, 1); return }
-                        if names, err = filepath.Glob(str); err != nil { ctx.error("%v", err).of(a).debug(true, 1); return }
+                        if str, err = a.Strval(ctx); err != nil { erro(ctx, "%v", err).of(a).debug(true, 1); return }
+                        if names, err = filepath.Glob(str); err != nil { erro(ctx, "%v", err).of(a).debug(true, 1); return }
                         for _, s := range names {
-                                if opts.verbose { ctx.prompt("remove %s\n", s) }
-                                if opts.debug   { ctx.info("remove %s", s).debug(1) }
+                                if opts.verbose { prompt(ctx, "remove %s\n", s) }
+                                if opts.debug   { info(ctx, "remove %s", s).debug(1) }
                                 if opts.all {
                                         err = os.RemoveAll(s)
                                 } else {
                                         err = os.Remove(s)
                                 }
                                 if err != nil {
-                                        ctx.error("remove failed: %v", err).of(a)
+                                        erro(ctx, "remove failed: %v", err).of(a)
                                         return
                                 }
                         }
                 } else if proj, str, ok, err = asOptFullname(ctx, proj, a); err != nil {
-                        ctx.error("fullname '%v' failed: %v", a, err).of(a)
-                        ctx.error("internal stack:").debug(16)
+                        erro(ctx, "fullname '%v' failed: %v", a, err).of(a)
+                        erro(ctx, "internal stack:").debug(16)
                         return
                 } else if !ok || str == "" {
-                        ctx.error("remove failed: %v (%T)", a, a).of(a)
-                        ctx.error("remove failed: %v", str).of(a)
-                        ctx.error("internal stack:").debug(16)
+                        erro(ctx, "remove failed: %v (%T)", a, a).of(a)
+                        erro(ctx, "remove failed: %v", str).of(a)
+                        erro(ctx, "internal stack:").debug(16)
                         break
                 } else {
-                        if opts.verbose { ctx.prompt("remove %s\n", str) }
-                        if opts.debug   { ctx.info("remove %s", str).debug(1) }
+                        if opts.verbose { prompt(ctx, "remove %s\n", str) }
+                        if opts.debug   { info(ctx, "remove %s", str).debug(1) }
                         if opts.all {
                                 err = os.RemoveAll(str)
                         } else {
                                 err = os.Remove(str)
                         }
                         if err != nil {
-                                ctx.error("%v", err)
-                                ctx.error("source: %v (%T)", a, a).of(a)
-                                ctx.error("source: %v", str).of(a).debug(1)
+                                erro(ctx, "%v", err)
+                                erro(ctx, "source: %v (%T)", a, a).of(a)
+                                erro(ctx, "source: %v", str).of(a).debug(1)
                                 return
                         }
                 }
@@ -3125,40 +3125,40 @@ func builtinRemoveAll(ctx Context, args... Value) (res Value) {
                 ok bool
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         }
 
         for _, a := range args {
                 if a.patterned(ctx) {
                         if str, err = a.Strval(ctx); err != nil {
-                                ctx.error("%v", err).of(a).debug(1)
+                                erro(ctx, "%v", err).of(a).debug(1)
                                 return
                         } else if names, err = filepath.Glob(str); err != nil {
-                                ctx.error("%v", err).of(a).debug(1)
+                                erro(ctx, "%v", err).of(a).debug(1)
                                 return
                         }
                         for _, s := range names {
-                                if opts.verbose { ctx.info("remove %s", s).at(a.Position()) }
+                                if opts.verbose { info(ctx, "remove %s", s).at(a.Position()) }
                                 if err = os.RemoveAll(s); err != nil {
-                                        ctx.error("%v", err).of(a).debug(1)
+                                        erro(ctx, "%v", err).of(a).debug(1)
                                         return
                                 }
                         }
                 } else if proj, str, ok, err = asOptFullname(ctx, proj, a); err != nil {
-                        ctx.error("remove failed: %v", err).of(a).debug(1)
+                        erro(ctx, "remove failed: %v", err).of(a).debug(1)
                         return
                 } else if !ok || str == "" {
-                        ctx.error("%v is not a file", a).of(a).debug(1)
+                        erro(ctx, "%v is not a file", a).of(a).debug(1)
                         break
                 } else {
-                        if opts.verbose { ctx.info("remove %s", str) }
-                        if opts.debug   { ctx.info("remove %s", str).debug(1) }
+                        if opts.verbose { info(ctx, "remove %s", str) }
+                        if opts.debug   { info(ctx, "remove %s", str).debug(1) }
                         if err = os.RemoveAll(str); err != nil {
-                                ctx.error("remove failed: %v", err).of(a).debug(1)
+                                erro(ctx, "remove failed: %v", err).of(a).debug(1)
                                 return
                         }
                 }
@@ -3177,40 +3177,40 @@ func builtinTruncate(ctx Context, args... Value) (res Value) {
                 switch t := a.(type) {
                 case *Pair: // truncate name => size old => new
                         if name, err = t.Key.Strval(ctx); err != nil {
-                                ctx.error("%v", err).debug(1)
+                                erro(ctx, "%v", err).debug(1)
                                 return
                         } else if size, err = t.Value.Integer(ctx); err != nil {
-                                ctx.error("%v", err).debug(1)
+                                erro(ctx, "%v", err).debug(1)
                                 return
                         }
                 case *Group: // truncate (name size) (old new)
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(ctx); err != nil { ctx.error("%v", err).debug(1); return }
-                                if size, err = t.Get(1).Integer(ctx); err != nil { ctx.error("%v", err).debug(1); return }
+                                if name, err = t.Get(0).Strval(ctx); err != nil { erro(ctx, "%v", err).debug(1); return }
+                                if size, err = t.Get(1).Integer(ctx); err != nil { erro(ctx, "%v", err).debug(1); return }
                         } else {
-                                ctx.error("Wrong size of group `%v'", t).debug(1)
+                                erro(ctx, "Wrong size of group `%v'", t).debug(1)
                                 break
                         }
                 case *List: // truncate name size, old new, ...
                         if t.Len() == 2 {
-                                if name, err = t.Get(0).Strval(ctx); err != nil { ctx.error("%v", err).debug(1); return }
-                                if size, err = t.Get(1).Integer(ctx); err != nil { ctx.error("%v", err).debug(1); return }
+                                if name, err = t.Get(0).Strval(ctx); err != nil { erro(ctx, "%v", err).debug(1); return }
+                                if size, err = t.Get(1).Integer(ctx); err != nil { erro(ctx, "%v", err).debug(1); return }
                         } else {
-                                ctx.error("Wrong size of list `%v'", t).debug(1)
+                                erro(ctx, "Wrong size of list `%v'", t).debug(1)
                                 break
                         }
                 default: // truncate name size  name size ...
                         if i+1 < nargs {
-                                if name, err = args[i+0].Strval(ctx); err != nil { ctx.error("%v", err).debug(1); return }
-                                if size, err = args[i+1].Integer(ctx); err != nil { ctx.error("%v", err).debug(1); return }
+                                if name, err = args[i+0].Strval(ctx); err != nil { erro(ctx, "%v", err).debug(1); return }
+                                if size, err = args[i+1].Integer(ctx); err != nil { erro(ctx, "%v", err).debug(1); return }
                                 i += 1
                         } else {
-                                ctx.error("Wrong arguments `%v'", args).debug(1)
+                                erro(ctx, "Wrong arguments `%v'", args).debug(1)
                                 break
                         }
                 }
                 if err = os.Truncate(name, size); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         break
                 }
         }
@@ -3226,10 +3226,10 @@ func builtinLink(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         }
         for i, nargs := 0, len(args); i < nargs; i += 1 {
@@ -3239,28 +3239,28 @@ func builtinLink(ctx Context, args... Value) (res Value) {
                 )
                 switch t := a.(type) {
                 case *Pair: // link oldname => newname old => new
-                        if oldname, err = t.Key.Strval(ctx); err != nil { ctx.error("%v", err); return }
-                        if newname, err = t.Value.Strval(ctx); err != nil { ctx.error("%v", err); return }
+                        if oldname, err = t.Key.Strval(ctx); err != nil { erro(ctx, "%v", err); return }
+                        if newname, err = t.Value.Strval(ctx); err != nil { erro(ctx, "%v", err); return }
                 case *Group: // link (oldname newname) (old new)
                         if t.Len() == 2 {
-                                if oldname, err = t.Get(0).Strval(ctx); err != nil { ctx.error("%v", err); return }
-                                if newname, err = t.Get(1).Strval(ctx); err != nil { ctx.error("%v", err); return }
+                                if oldname, err = t.Get(0).Strval(ctx); err != nil { erro(ctx, "%v", err); return }
+                                if newname, err = t.Get(1).Strval(ctx); err != nil { erro(ctx, "%v", err); return }
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
                                 break
                         }
                 case *List: // link oldname newname, old new, ...
                         if t.Len() == 2 {
-                                if oldname, err = t.Get(0).Strval(ctx); err != nil { ctx.error("%v", err); return }
-                                if newname, err = t.Get(1).Strval(ctx); err != nil { ctx.error("%v", err); return }
+                                if oldname, err = t.Get(0).Strval(ctx); err != nil { erro(ctx, "%v", err); return }
+                                if newname, err = t.Get(1).Strval(ctx); err != nil { erro(ctx, "%v", err); return }
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
                                 break
                         }
                 default: // link oldname newname  oldname newname ...
                         if i+1 < nargs {
-                                if oldname, err = args[i+0].Strval(ctx); err != nil { ctx.error("%v", err); return }
-                                if newname, err = args[i+1].Strval(ctx); err != nil { ctx.error("%v", err); return }
+                                if oldname, err = args[i+0].Strval(ctx); err != nil { erro(ctx, "%v", err); return }
+                                if newname, err = args[i+1].Strval(ctx); err != nil { erro(ctx, "%v", err); return }
                                 i += 1
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong arguments `%v'", args))
@@ -3268,7 +3268,7 @@ func builtinLink(ctx Context, args... Value) (res Value) {
                         }
                 }
                 if err = os.Link(oldname, newname); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         break
                 }
         }
@@ -3292,10 +3292,10 @@ func builtinSymlink(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         }
 ForArgs:
@@ -3306,13 +3306,13 @@ ForArgs:
                         oldNameVal, newNameVal = t.Key, t.Value
                 case *Group: // symlink (oldname newname) (oldname newname)...
                         if t.Len() != 2 {
-                                ctx.error("expects two values of group").of(t).debug(1)
+                                erro(ctx, "expects two values of group").of(t).debug(1)
                                 return
                         }
                         oldNameVal, newNameVal = t.Get(0), t.Get(1)
                 case *List: // symlink oldname newname, old new, ...
                         if t.Len() != 2 {
-                                ctx.error("expects two values of list").of(t).debug(1)
+                                erro(ctx, "expects two values of list").of(t).debug(1)
                                 return
                         }
                         oldNameVal, newNameVal = t.Get(0), t.Get(1)
@@ -3322,72 +3322,72 @@ ForArgs:
                                 oldNameVal, newNameVal = args[i+0], args[i+1]
                                 i += 1
                         } else {
-                                ctx.error("expects pair of names (%v)", args[i]).of(args[i]).debug(1)
+                                erro(ctx, "expects pair of names (%v)", args[i]).of(args[i]).debug(1)
                                 return
                         }
                 }
 
                 var oldname, newname string
                 if oldname, err = oldNameVal.Strval(ctx); err != nil {
-                        ctx.error("%v", err).of(oldNameVal).debug(1)
+                        erro(ctx, "%v", err).of(oldNameVal).debug(1)
                         return
                 }
                 if newname, err = newNameVal.Strval(ctx); err != nil {
-                        ctx.error("%v", err).of(newNameVal).debug(1)
+                        erro(ctx, "%v", err).of(newNameVal).debug(1)
                         return
                 }
 
                 if newname == "" {
-                        ctx.error("empty new filename").debug(1)
+                        erro(ctx, "empty new filename").debug(1)
                         return
                 }
                 if oldname == "" {
-                        ctx.error("empty old filename (%v)", ).debug(1)
+                        erro(ctx, "empty old filename (%v)", ).debug(1)
                         return
                 }
 
                 if opts.force {
                         if err = os.Remove(newname); err != nil {
-                                ctx.error("%v", err).debug(1)
+                                erro(ctx, "%v", err).debug(1)
                                 err = nil //return
                         }
                 } else if opts.update {
                         var s string
                         if s, err = os.Readlink(newname); err != nil {
-                                ctx.error("%v", err).debug(1)
+                                erro(ctx, "%v", err).debug(1)
                                 err = nil //continue ForArgs
                         } else if s == newname {
                                 continue ForArgs
                         } else if err = os.Remove(newname); err != nil {
-                                ctx.error("%v", err).debug(1)
+                                erro(ctx, "%v", err).debug(1)
                                 err = nil //return
                         }
                 }
                 if opts.verbose {
                         var d = filepath.Base(newname)
                         var s = filepath.Base(oldname)
-                        ctx.prompt("Symlink %s -> %s …", d, s)
+                        prompt(ctx, "Symlink %s -> %s …", d, s)
                 }
                 if opts.relative {
                         var dir = filepath.Dir(newname)
                         oldname, err = filepath.Rel(dir, oldname)
                         if err != nil {
-                                if opts.verbose { ctx.prompt("symlink: %s\n", err) }
-                                ctx.error("%v", err).debug(1)
+                                if opts.verbose { prompt(ctx, "symlink: %s\n", err) }
+                                erro(ctx, "%v", err).debug(1)
                                 return
                         }
                 }
                 if dir := filepath.Dir(newname); opts.path && dir != "." && dir != PathSep {
                         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
-                                ctx.error("%v", err).debug(1)
+                                erro(ctx, "%v", err).debug(1)
                                 return
                         }
                 }
                 if err = os.Symlink(oldname, newname); err != nil {
-                        if opts.verbose { ctx.prompt("… %s\n", err) }
+                        if opts.verbose { prompt(ctx, "… %s\n", err) }
                         break
                 } else if opts.verbose {
-                        ctx.prompt("… ok\n")
+                        prompt(ctx, "… ok\n")
                 }
         }
         return
@@ -3405,13 +3405,13 @@ func builtinStat(ctx Context, args... Value) (res Value) {
                 err error
         )
         if proj == nil {
-                ctx.error("unknown current context").debug(1)
+                erro(ctx, "unknown current context").debug(1)
                 return
         } else if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         }
 
@@ -3441,7 +3441,7 @@ func builtinStat(ctx Context, args... Value) (res Value) {
                         s string
                 )
                 if s, err = a.Strval(ctx); err != nil {
-                        ctx.error("strval '%v' failed: %v", a, err).debug(1)
+                        erro(ctx, "strval '%v' failed: %v", a, err).debug(1)
                         return
                 }
                 if filepath.IsAbs(s) {
@@ -3452,9 +3452,9 @@ func builtinStat(ctx Context, args... Value) (res Value) {
                 if file == nil { file = proj.FindFile(ctx, s) }
                 if file != nil { check(file) }
                 if false && strings.Contains(s, "polly") {
-                        ctx.warn("%v: %v", proj, file)
-                        ctx.warn("%v: %v (%T)", proj, a, a)
-                        ctx.warn("%v: %v", proj, ctx).debug(1)
+                        warn(ctx, "%v: %v", proj, file)
+                        warn(ctx, "%v: %v (%T)", proj, a, a)
+                        warn(ctx, "%v: %v", proj, ctx).debug(1)
                 }
         }
 
@@ -3475,13 +3475,13 @@ func builtinStat(ctx Context, args... Value) (res Value) {
 /*func builtinFileSource(ctx Context, args... Value) (res Value) {
         var ( pos = ctx.Position(); err error )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("expand args failed: %v", err).debug(1)
+                erro(ctx, "expand args failed: %v", err).debug(1)
                 return
         }
 
         var proj = ctx.Project()//current()
         if proj == nil {
-                ctx.error("unknown current context").debug(1)
+                erro(ctx, "unknown current context").debug(1)
                 return
         }
 
@@ -3489,7 +3489,7 @@ func builtinStat(ctx Context, args... Value) (res Value) {
         for _, a := range args {
                 var str string
                 if str, err = a.Strval(ctx); err != nil {
-                        ctx.error("strval '%v' failed: %v", err).debug(1)
+                        erro(ctx, "strval '%v' failed: %v", err).debug(1)
                         return
                 }
                 if file := proj.FindFile(ctx, str); file != nil {
@@ -3512,31 +3512,49 @@ func builtinFile(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("expand args failed: %v", err).debug(1)
+                erro(ctx, "expand args failed: %v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                ctx.error("parse opts failed: %v", err).debug(1)
+                erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
         }
 
         var (
-                proj = ctx.Project()
+                proj *Project
                 list []Value
         )
+        if opts.caller && false {
+                // program -> closure -> traversal -> ...
+                if false {
+                        proj = ctx.closure().Project()
+                } else {
+                        proj = ctx.traversal().Project()
+                }
+        } else {
+                proj = ctx.Project()
+        }
         for _, a := range args {
                 var str string
                 if file, ok := a.(*File); ok {
                         list = append(list, file)
                         if file.exists() { continue }
-                        if opts.report { ctx.info("%v is no such file", a).debug(1) }
+                        if opts.report { info(ctx, "%v is no such file", a).debug(1) }
                 } else if str, err = a.Strval(ctx); err != nil {
-                        ctx.error("strval '%v' failed: %v", err).debug(1)
+                        erro(ctx, "strval '%v' failed: %v", err).debug(1)
                         return
                 } else if file = proj.FindFile(ctx, str); file != nil {
                         list = append(list, file)
-                        if opts.report { ctx.info("%v is no such file", a).debug(1) }
+                        if opts.report { info(ctx, "%v is no such file", a).debug(1) }
                 } else {
-                        ctx.error("%v is not a file in %v (%v)", a, proj, args).debug(1)
+                        if true {
+                                var v, _ = ctx.autoGet("options")
+                                var w, _ = ctx.autoGet("table")
+                                erro(ctx, `%v: options = %T %v`, proj, v, v)
+                                erro(ctx, `%v: table = %T %v`, proj, w, w)
+                        }
+                        erro(ctx, `%v: "%v" is not a file (%T: %v)`, proj, str, a, a).of(a)
+                        erro(ctx, "%v: %v", proj, ctx).debug(32)
+                        callstack(ctx, 3, "%v: missing file '%v'", proj, str)
                 }
         }
 
@@ -3556,16 +3574,16 @@ func builtinGlob(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("expand args failed: %v", err).debug(1)
+                erro(ctx, "expand args failed: %v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                ctx.error("parse opts failed: %v", err).debug(1)
+                erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
         }
 
         var cwd string // TODO: get current work directory
         if proj = ctx.Project(); proj == nil {
-                ctx.error("unknown current cntext").debug(1)
+                erro(ctx, "unknown current cntext").debug(1)
                 return
         }
 
@@ -3574,13 +3592,13 @@ func builtinGlob(ctx Context, args... Value) (res Value) {
         for _, a := range args {
                 var ( str string; names []string )
                 if str, err = a.Strval(ctx); err != nil {
-                        ctx.error("strval '%v' failed: %v", err).debug(1)
+                        erro(ctx, "strval '%v' failed: %v", err).debug(1)
                         return
                 } else if !filepath.IsAbs(str) {
                         str = filepath.Join(cwd, str)
                 } 
                 if names, err = filepath.Glob(str); err != nil {
-                        ctx.error("glob '%v' failed: %v", str, err).debug(1)
+                        erro(ctx, "glob '%v' failed: %v", str, err).debug(1)
                         return
                 }
                 for _, name := range names {
@@ -3605,20 +3623,20 @@ func builtinWildcard(ctx Context, args... Value) (res Value) {
                 err error
         )
         if proj == nil {
-                ctx.error("unknown most derived context").debug(1)
+                erro(ctx, "unknown most derived context").debug(1)
                 return
         }
 
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("merge args failed: %v", err).debug(1)
+                erro(ctx, "merge args failed: %v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                ctx.error("parse opts failed: %v", err).debug(1)
+                erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
         } else if files, err = proj.wildcard(ctx, opts, args...); err == nil {
                 res = MakeListOrScalar(ctx.Position(), values(files))
         } else {
-                ctx.error("wildcard failed: %v", err).debug(1)
+                erro(ctx, "wildcard failed: %v", err).debug(1)
         }
         return
 }
@@ -3632,7 +3650,7 @@ func builtinReadDir(ctx Context, args... Value) (res Value) {
                         err error
                 )
                 if str, err = a.Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
                 if fis, err = ioutil.ReadDir(str); err == nil {
@@ -3664,11 +3682,11 @@ func builtinReadFile(ctx Context, args... Value) (res Value) {
                 l []Value
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("merge args failed: %v", err).debug(1)
+                erro(ctx, "merge args failed: %v", err).debug(1)
                 return
         }
         if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
-                ctx.error("parse opts failed: %v", err).debug(1)
+                erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
         }
         var pos = ctx.Position()
@@ -3682,13 +3700,13 @@ func builtinReadFile(ctx Context, args... Value) (res Value) {
                 )
                 if !apos.IsValid() { apos = pos }
                 if proj, str, ok, err = asOptFullname(ctx, proj, a); err != nil {
-                        ctx.error("fullname '%v' failed: %v", a, err).debug(1)
+                        erro(ctx, "fullname '%v' failed: %v", a, err).debug(1)
                         break
                 } else if !ok || str == "" {
-                        ctx.error("%v is not a file", a).at(apos).debug(1)
+                        erro(ctx, "%v is not a file", a).at(apos).debug(1)
                         break
                 } else if s, err = ioutil.ReadFile(str); err != nil {
-                        ctx.error("read file failed: %v", err).at(apos).debug(1)
+                        erro(ctx, "read file failed: %v", err).at(apos).debug(1)
                         break
                 } else {
                         if opts.trim { s = bytes.TrimFunc(s, unicode.IsSpace) } else
@@ -3716,10 +3734,10 @@ func builtinWriteFile(ctx Context, args... Value) (res Value) {
         )
         if len(args) > 0 {
                 if va, err = expandmerge2(ctx, expandPlainValue, args[1]); err != nil {
-                        ctx.error("merge args failed: %v", err)
+                        erro(ctx, "merge args failed: %v", err)
                         return
                 } else if va, err = parseOpts(ctx, &opts, va...) ; err != nil {
-                        ctx.error("parse opts failed: %v", err)
+                        erro(ctx, "parse opts failed: %v", err)
                         return
                 }
                 args = append(va, args[1:]...)
@@ -3733,44 +3751,44 @@ ForArgs:
                 )
                 switch t := a.(type) {
                 case *Pair: // write-file name=text name=text
-                        if name, err = t.Key.Strval(ctx); err != nil { ctx.error("%v", err); return }
-                        if data, err = t.Value.Strval(ctx); err != nil { ctx.error("%v", err); return }
+                        if name, err = t.Key.Strval(ctx); err != nil { erro(ctx, "%v", err); return }
+                        if data, err = t.Value.Strval(ctx); err != nil { erro(ctx, "%v", err); return }
                 case *Group: // write-file (name text) (name text 0660)
                         if n := t.Len(); n < 4 && n > 0 {
-                                if name, err = t.Get(0).Strval(ctx); err != nil { ctx.error("%v", err); return }
-                                if n > 1 { if data, err = t.Get(1).Strval(ctx); err != nil { ctx.error("%v", err); return }}
-                                if n > 2 { if perm, err = permVal(ctx, t.Get(2),0600); err != nil { ctx.error("%v", err); return }}
+                                if name, err = t.Get(0).Strval(ctx); err != nil { erro(ctx, "%v", err); return }
+                                if n > 1 { if data, err = t.Get(1).Strval(ctx); err != nil { erro(ctx, "%v", err); return }}
+                                if n > 2 { if perm, err = permVal(ctx, t.Get(2),0600); err != nil { erro(ctx, "%v", err); return }}
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
                                 break
                         }
                 case *List: // write-file name text, name text 0660, ...
                         if n := t.Len(); n < 4 && n > 0 {
-                                if name, err = t.Get(0).Strval(ctx); err != nil { ctx.error("%v", err); return }
-                                if n > 1 { if data, err = t.Get(1).Strval(ctx); err != nil { ctx.error("%v", err); return }}
-                                if n > 2 { if perm, err = permVal(ctx, t.Get(2),0600); err != nil { ctx.error("%v", err); return }}
+                                if name, err = t.Get(0).Strval(ctx); err != nil { erro(ctx, "%v", err); return }
+                                if n > 1 { if data, err = t.Get(1).Strval(ctx); err != nil { erro(ctx, "%v", err); return }}
+                                if n > 2 { if perm, err = permVal(ctx, t.Get(2),0600); err != nil { erro(ctx, "%v", err); return }}
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
                                 break
                         }
                 default: // write-file name text 0660  name text 0660 ...
-                        if name, err = args[i].Strval(ctx); err != nil { ctx.error("%v", err); return }
+                        if name, err = args[i].Strval(ctx); err != nil { erro(ctx, "%v", err); return }
                         if i+1 < len(args) {
-                                if data, err = args[i+1].Strval(ctx); err != nil { ctx.error("%v", err); return }
+                                if data, err = args[i+1].Strval(ctx); err != nil { erro(ctx, "%v", err); return }
                                 i += 1
                         }
                         if i+1 < len(args) {
-                                if perm, err = permVal(ctx, args[i+1],0600); err != nil { ctx.error("%v", err); return }
+                                if perm, err = permVal(ctx, args[i+1],0600); err != nil { erro(ctx, "%v", err); return }
                                 i += 1
                         }
                 }
                 if name == "" {
                         continue ForArgs
                 } else if dir := filepath.Dir(name); opts.path && dir != "." && dir != PathSep {
-                        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { ctx.error("%v", err); return }
+                        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { erro(ctx, "%v", err); return }
                 }
                 if err = ioutil.WriteFile(name, []byte(data), perm); err != nil {
-                        ctx.error("%v", err); break
+                        erro(ctx, "%v", err); break
                 }
         }
         return
@@ -3779,13 +3797,13 @@ ForArgs:
 func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Time) (err error) {
         var filename, _ = fullname(ctx, file)
         if  filename == "" {
-                ctx.error("touch: file fullname of '%v' is empty", file, err).of(file).debug(1)
+                erro(ctx, "touch: file fullname of '%v' is empty", file, err).of(file).debug(1)
                 return
         }
 
         if dir := filepath.Dir(filename); optPath && dir != "." && dir != PathSep {
                 if err = os.MkdirAll(dir, os.FileMode(optMode|0733)); err != nil {
-                        ctx.error("touch: %v", err).of(file).debug(1)
+                        erro(ctx, "touch: %v", err).of(file).debug(1)
                         return
                 }
         }
@@ -3805,19 +3823,19 @@ func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Tim
                 var f *os.File
                 if m = mode; m == 0 { m = os.FileMode(0600); mode = m }
                 if f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, m&os.ModePerm); err != nil {
-                        ctx.error("touch: %v", err).of(file).debug(1)
+                        erro(ctx, "touch: %v", err).of(file).debug(1)
                 } else if err = f.Close(); err != nil {
-                        ctx.error("touch: %v", err).of(file).debug(1)
+                        erro(ctx, "touch: %v", err).of(file).debug(1)
                 }
         }
         if err == nil {
                 if err = os.Chtimes(filename, at, mt); err != nil {
-                        ctx.error("touch: %v", err).of(file).debug(1)
+                        erro(ctx, "touch: %v", err).of(file).debug(1)
                 }
         }
         if err == nil && mode != 0 && m != 0 && mode != m {
                 if err = os.Chmod(filename, mode); err != nil {
-                        ctx.error("touch: %v", err).of(file).debug(1)
+                        erro(ctx, "touch: %v", err).of(file).debug(1)
                 }
         }
         return
@@ -3835,15 +3853,15 @@ func builtinTouchFile(ctx Context, args... Value) (res Value) {
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         }
         for i := 0; i < len(args); i += 1 {
                 if err = touch(ctx, args[i], uint32(opts.mode), opts.path); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         break
                 }
         }
@@ -3860,10 +3878,10 @@ func builtinGrep(ctx Context, args... Value) (res Value) {
                 err error
         )
         if len(args) != 2 {
-                ctx.error("wants exactly 2 args, e.g. $(grep -1 '^example$',$(file))").debug(1)
+                erro(ctx, "wants exactly 2 args, e.g. $(grep -1 '^example$',$(file))").debug(1)
                 return
         } else if vals, err = expandmerge2(ctx, expandPlainValue, args[0]); err != nil {
-                 ctx.error("%v", err).debug(1)
+                 erro(ctx, "%v", err).debug(1)
                  return
         }
         for _, a := range vals {
@@ -3873,22 +3891,22 @@ func builtinGrep(ctx Context, args... Value) (res Value) {
                         } else if i.int64 < 0{
                                 linesNeg = append(linesNeg, int(i.int64))
                         } else {
-                                ctx.error("zero line number").of(a).debug(1)
+                                erro(ctx, "zero line number").of(a).debug(1)
                                 return
                         }
                 } else if s, e := a.Strval(ctx); e != nil {
-                        ctx.error("%v", e).of(a); return
+                        erro(ctx, "%v", e).of(a); return
                 } else if s == "" {
-                        ctx.error("empty regexp").of(a); return
+                        erro(ctx, "empty regexp").of(a); return
                 } else if r, e := regexp.Compile(s); e != nil {
-                        ctx.error("%v", e).of(a); return
+                        erro(ctx, "%v", e).of(a); return
                 } else {
                         rxs = append(rxs, r)
                 }
         }
 
         if vals, err = expandmerge2(ctx, expandPlainValue, args[1:]...); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         }
 
@@ -3897,11 +3915,11 @@ func builtinGrep(ctx Context, args... Value) (res Value) {
                 var file *os.File
                 var filename string
                 if filename, err = a.Strval(ctx); err != nil {
-                        ctx.error("%v", err).of(a).debug(1)
+                        erro(ctx, "%v", err).of(a).debug(1)
                         return
                 }
                 if file, err = os.Open(filename); err != nil {
-                        ctx.error("%v", err).of(a).debug(1)
+                        erro(ctx, "%v", err).of(a).debug(1)
                         return
                 }
                 defer file.Close()
@@ -3988,7 +4006,7 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
 
                 var def *Def
                 if def, err = project.config(ctx, name); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 } else if def != nil {
                         var val = def.Call(ctx)
@@ -3998,21 +4016,21 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                         case *answer, *boolean:
                                 var v int64
                                 if v, err = t.Integer(ctx); err != nil {
-                                        ctx.error("%v", err).debug(1)
+                                        erro(ctx, "%v", err).debug(1)
                                         return
                                 }
                                 fmt.Fprintf(res, "%d", v)
                         case *Group:
                                 var v string
                                 if v, err = parseGroupValue(ctx, t).Strval(ctx); err != nil {
-                                        ctx.error("%v", err).debug(1)
+                                        erro(ctx, "%v", err).debug(1)
                                         return
                                 }
                                 fmt.Fprintf(res, "%s", v)
                         default:
                                 var v string
                                 if v, err = val.Strval(ctx); err != nil {
-                                        ctx.error("%v", err).debug(1)
+                                        erro(ctx, "%v", err).debug(1)
                                         return
                                 }
                                 fmt.Fprintf(res, "%s", v)
@@ -4027,12 +4045,12 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
 func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (err error) {
         var index = 0
         if str, err = project.configExpand(ctx, str); err != nil {
-                ctx.error("%v", err).debug(1)
+                erro(ctx, "%v", err).debug(1)
                 return
         }
         for _, m := range rxConfigure.FindAllStringSubmatchIndex(str, -1) {
                 if _, err = out.WriteString(str[index:m[0]]); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
                 index = m[1] // reset index immediately to keep forward
@@ -4044,12 +4062,12 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
                 var hasv = m[6] > m[0] && m[7] > m[6]
                 var def *Def
                 if def, err = project.config(ctx, name); err != nil {
-                        ctx.error("config '%s' failed: %v", name, err).debug(1)
+                        erro(ctx, "config '%s' failed: %v", name, err).debug(1)
                         return
                 } else if def == nil {
                         // ...
                 } else if t, err = def.True(ctx); err != nil {
-                        ctx.error("truthify '%v failed: %v", def, err).debug(1)
+                        erro(ctx, "truthify '%v failed: %v", def, err).debug(1)
                         return
                 }
                 //fmt.Fprintf(stderr, "%v: configure: %v %v %v\n", scope.comment, verb, name, def)
@@ -4068,13 +4086,13 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
                         } else if isNil(def.value) || isNone(def.value) {
                                 s = fmt.Sprintf("#undef %s /* %v */", name, def.value)
                         } else if va, _, err = expandall2(ctx, expandPlainValue, def.value); err != nil {
-                                ctx.error("expand '%v' failed: %v", def.value, err).of(def.value)
+                                erro(ctx, "expand '%v' failed: %v", def.value, err).of(def.value)
                                 return
                         } else if len(va) == 1 {
                                 switch v := va[0].(type) {
                                 case *answer, *boolean:
                                         if b, e := v.True(ctx); e != nil {
-                                                ctx.error("truthify '%v' failed: %v", v, e).of(def.value)
+                                                erro(ctx, "truthify '%v' failed: %v", v, e).of(def.value)
                                                 return
                                         } else if b {
                                                 s = fmt.Sprintf("#define %s 1 /* %T %v */", name, v, v)
@@ -4111,7 +4129,7 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
                         }
                 }
 
-                if _, err = out.WriteString(s); err != nil { ctx.error("%v", err); return }
+                if _, err = out.WriteString(s); err != nil { erro(ctx, "%v", err); return }
         }
         if index < len(str) { _, err = out.WriteString(str[index:]) }
         return

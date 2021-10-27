@@ -65,9 +65,9 @@ func tt(t tracer, ctx Context, i Value) tracer {
     // Note that t.args and t.arguments are different, they're
     // target execution args and argumented-prerequisite args.
     var a string
-	var tr = ctx.traversal()
-    if tar := tr.entry.Target(); len(tr.params) > 0 {
-        a = fmt.Sprintf("%s{%s}%s", typeof(tar), tar, tr.params)
+	var pc = ctx.programCtx()
+    if tar := ctx.entry().Target(); len(pc.params) > 0 {
+        a = fmt.Sprintf("%s{%s}%s", typeof(tar), tar, pc.params)
     } else {
         a = fmt.Sprintf("%s{%v}", typeof(tar), tar)
     }

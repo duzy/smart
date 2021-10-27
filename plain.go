@@ -46,19 +46,19 @@ type plain struct {}
 
 func (_ *plain) Evaluate(ctx Context, args ...Value) (result Value, err error) {
         var (
-                t = ctx.traversal()
+                program = ctx.program()
                 pos = ctx.Position()
                 str, name string
         )
         if len(args) > 0 {
                 if name, err = args[0].Strval(ctx); err != nil {
-                        t.error("%v", err).of(args[0]).debug(1)
+                        erro(ctx, "%v", err).of(args[0]).debug(1)
                         return
                 }
-                t.program.language = name
+                program.language = name
         }
-        if str, err = multiline(ctx, t.program.recipes...); err != nil {
-                t.error("%v", err).of(args[0]).debug(1)
+        if str, err = multiline(ctx, program.recipes...); err != nil {
+                erro(ctx, "%v", err).of(args[0]).debug(1)
                 return
         }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
@@ -74,7 +74,7 @@ func multiline(ctx Context, recipes... Value) (res string, err error) {
         )
         for n, recipe := range recipes {
                 if s, err = recipe.Strval(ctx); err != nil {
-                        ctx.error("%v", err).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         return
                 }
                 if fmt.Fprint(w, s); n < x { fmt.Fprint(w, "\n") }

@@ -35,8 +35,8 @@ func NewScope(pos Position, outer *Scope, project *Project, comment string) *Sco
 	}
 }
 
-func (s *Scope) inside(outer *Scope) bool {
-	return s.outer != nil && (s.outer == outer || s.outer.inside(outer))
+func (s *Scope) hasOuter(outer *Scope) bool {
+	return s.outer != nil && (s.outer == outer || s.outer.hasOuter(outer))
 }
 
 func (s *Scope) copyElems() (result map[string]Object) {

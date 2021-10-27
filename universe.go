@@ -46,7 +46,7 @@ func init() {
 
         var err error
         if _context.workdir, err = os.Getwd(); err != nil {
-                _context.error("%v", err).debug(6)
+                erro(&_context, "%v", err).debug(6)
                 return
         }
 

@@ -42,7 +42,7 @@ func (p *using) expandible(ctx Context, w expandwhat) (res bool) {
 func (p *using) expand(ctx Context, w expandwhat) (res Value, err error) {
         var ( params []Value; num int )
         if params, num, err = expandall2(ctx, w, p.params...); err != nil {
-                ctx.error("%v", err).at(p.position).debug(1)
+                erro(ctx, "%v", err).at(p.position).debug(1)
                 return
         } else if num > 0 {
                 return &using{p.valbase,p.project,params,p.opts}, nil
@@ -57,7 +57,7 @@ func (p *using) stat(ctx Context) (si *statinfo) {
         return
 }
 func (p *using) traverse(ctx Context) (_ breakers) {
-        ctx.error("cant traverse 'using' %v", p.project).at(p.position).debug(1)
+        erro(ctx, "cant traverse 'using' %v", p.project).at(p.position).debug(1)
         return
 }
 /*func (p *using) _traverse(pc *traversal) {
@@ -200,7 +200,7 @@ func (p *usinglist) expand(ctx Context, w expandwhat) (res Value, err error) {
         for _, elem := range p.list {
                 var v Value
                 if v, err = elem.expand(ctx, w); err != nil {
-                        ctx.error("%v", err).at(elem.position).debug(1)
+                        erro(ctx, "%v", err).at(elem.position).debug(1)
                         return
                 } else {
                         if !isNil(v) { v = elem } else if v != elem { num += 1 }
@@ -213,7 +213,7 @@ func (p *usinglist) expand(ctx Context, w expandwhat) (res Value, err error) {
         return
 }
 func (p *usinglist) traverse(ctx Context) (_ breakers) {
-        ctx.error("cant traverse 'usinglist'").at(p.list[0].position).debug(1)
+        erro(ctx, "cant traverse 'usinglist'").at(p.list[0].position).debug(1)
         return
 }
 /*func (p *usinglist) _traverse(pc *traversal) {
