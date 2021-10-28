@@ -1355,6 +1355,14 @@ func (p *PatternEntry) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 
+type stemmedContext struct {
+        Context
+        strs []string
+}
+func (sc *stemmedContext) inner() Context { return sc.Context }
+func (sc *stemmedContext) String() string { return fmt.Sprintf("stemmed{%s}", sc.Context) }
+func (sc *stemmedContext) stems() []string { return sc.strs }
+
 type stemmed struct { PatternEntry; Stems []string }
 
 func (p *stemmed) String() (s string) {
@@ -1392,33 +1400,26 @@ func (p *stemmed) string(ctx Context, targetVal Value, target string) (res break
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("stemmed.traverse(%v)", p))) }
         if optionEnableBenchspots { defer bench(spot("stemmed.traverse")) }
 
-        var t = ctx.traversal()
-        defer func(a Value, s []string) { p.target, t.stems = a, s } (p.target, t.stems)
-        t.stems = p.Stems // set stems for the traversal
-
-        if file := t.Project().FindFile(ctx, target); file != nil {
+        var sc = stemmedContext{ ctx, p.Stems }
+        if file := ctx.Project().FindFile(&sc, target); file != nil {
                 file.position = p.position
                 p.target = file
         } else {
                 p.target = targetVal
         }
-
-        return p.RuleEntry.traverse(ctx)
+        return p.RuleEntry.traverse(&sc)
 }
 func (p *stemmed) file(ctx Context, file *File) (res breakers) {
         if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("stemmed.file(%v)", p))) }
         if optionEnableBenchspots { defer bench(spot("stemmed.file")) }
 
-        var t = ctx.traversal()
-        defer func(a Value, s []string) { p.target, t.stems = a, s } (p.target, t.stems)
-        t.stems = p.Stems // set stems for the traversal
-
+        var sc = stemmedContext{ ctx, p.Stems }
         if file.info == nil && file.filemap == nil { // !isAbsOrRel()
-                if f := t.Project().FindFile(ctx, file.name); f != nil { *file = *f }
+                if f := ctx.Project().FindFile(&sc, file.name); f != nil { *file = *f }
                 //if file.info == nil { file.info, _ = os.Stat(file.name) }
         }
         file.position = p.position
         p.target = file
-        return p.RuleEntry.traverse(ctx)
+        return p.RuleEntry.traverse(&sc)
 }

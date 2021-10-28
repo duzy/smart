@@ -1201,10 +1201,14 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     if exeres.Status, err = exeres.run(positional(ctx, pos)); err != nil {
       if !opts.silent || opts.debug {
         if exeres.Stderr.log != nil {
+          var val1, _ = ctx.autoGet("@")
+          var val2 = closureResolveObject(ctx, pos, "@")
           var lpos Position
           lpos.Filename = log.filename
           lpos.Line = exeres.Stderr.log.lines
           erro(ctx, "%v: %s", target, err).at(lpos)
+          erro(ctx, "%v: %v", target, val1)
+          erro(ctx, "%v: %v", target, val2)
           erro(ctx, "%v: %s", target, ctx).debug(1)
         }
         if exeres.errs > 0 { exeres.errs += 1 // err != nil

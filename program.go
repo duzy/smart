@@ -301,7 +301,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             return
         }
         if options.traceTraversalNestIndent { t.traceLevel = cc.traversal().traceLevel }
-        if t.stems = cc.traversal().stems; t.stems != nil { ctx.autoSet("*", MakeString(pos, t.stems[0])) }
+        if stems := cc.stems(); stems != nil { ctx.autoSet("*", MakeString(pos, stems[0])) }
     }
     if pc.params, err = pc.autoArgs(prog.params, args); err != nil {
         erro(ctx, "auto args failed: %v", err).debug(1)
@@ -433,14 +433,13 @@ func traversePrerequisites(ctx Context, prerequisites []Value) (brks breakers) {
                     info(t, "%v: %T %v, %v", entry, d.x, d.x, d.x.(*Def).origin).at(ctx.Position())
                 }
                 var val, _ = prerequisite.expand(ctx, expandPlainValue)
-                info(t, "%v: %T %v -> %T %v", entry, prerequisite, prerequisite, val, val).at(ctx.Position())
-                info(t, "%v: %v", entry, ctx).at(ctx.Position())
-                info(t, "%v: %v", entry, t).at(ctx.Position()).debug(1)
+                info(ctx, "%v: %T %v -> %T %v", entry, prerequisite, prerequisite, val, val).at(ctx.Position())
+                info(ctx, "%v: %v", entry, ctx).at(ctx.Position()).debug(1)
             }
             if brks = prerequisite.traverse(ctx); brks.has() {
                 var tb = brks.not(breakNext, breakCase, breakDone)
-                if len(tb) > 0 && len(t.stems) > 0 && false {
-                    warn(t, "broken traversal: %v (target = %v, stems = %v)", tb[0].what, target, t.stems).debug(1)
+                if len(tb) > 0 && len(ctx.stems()) > 0 && false {
+                    warn(ctx, "broken traversal: %v (target = %v, stems = %v)", tb[0].what, target, ctx.stems()).debug(1)
                 }
                 break
             }
@@ -463,8 +462,8 @@ func traversePrerequisites(ctx Context, prerequisites []Value) (brks breakers) {
         }
         if wg.Wait(); brks.has() {
             var tb = brks.not(breakNext, breakCase, breakDone)
-            if len(tb) > 0 && len(t.stems) > 0 && false {
-                warn(t, "broken traversal: %v (target = %v, stems = %v)", tb[0].what, target, t.stems).debug(1)
+            if len(tb) > 0 && len(ctx.stems()) > 0 && false {
+                warn(ctx, "broken traversal: %v (target = %v, stems = %v)", tb[0].what, target, ctx.stems()).debug(1)
             }
         }
     }

@@ -379,243 +379,6 @@ ForScopes:
     }
     return
 }
-/*func (cc *closureContext) closureGet(name string) (res Value) {
-    var err error
-    if recursiveTraversalClosurePre {
-        if recursiveTraversalClosure {
-            if t := cc.traversal(); t != nil && false {
-                if _, ok := t.Context.(*closureContext); ok {
-                    if res = t.closureGet(name); res != nil { return }
-                }
-            } else if up := cc.programCtx(); up != nil {
-                if _, ok := up.Context.(*closureContext); ok {
-                    if res = up.closureGet(name); res != nil { return }
-                }
-            }
-        } else {
-            if c := cc.Context.closure(); c != nil {
-                if res = c.closureGet(name); res != nil { return }
-            }
-        }
-    }
-    for _, scope := range cc.closureScopes() {
-        if scope.project == nil {
-            if _, res = scope.Find(name); !isNil(res) { break }
-        } else {
-            var pos = cc.Position()
-            if !pos.IsValid() { pos = scope.position }
-            if !pos.IsValid() { pos = scope.project.position }
-            if scope != scope.project.scope {
-                if _, res = scope.Find(name); !isNil(res) { break  }
-            }
-            if res, err = scope.project.resolveObject(cc, name); err != nil {
-                erro(cc, "resolve '%s' failed: %v", name, err).debug(1)
-                break
-            } else if isNil(res) {
-                res, _ = cc.autoGet(name)
-            }
-        }
-        if !isNil(res) { break }
-    }
-    if recursiveTraversalClosurePost && isNil(res) {
-        if recursiveTraversalClosure {
-            if t := cc.traversal(); t != nil && false {
-                if _, ok := t.Context.(*closureContext); ok {
-                    if res = t.closureGet(name); res != nil { return }
-                }
-            } else if up := cc.programCtx(); up != nil {
-                if _, ok := up.Context.(*closureContext); ok {
-                    if res = up.closureGet(name); res != nil { return }
-                }
-            }
-        } else {
-            if c := cc.Context.closure(); c != nil {
-                if res = c.closureGet(name); res != nil { return }
-            }
-        }
-    }
-    return
-}
-func (cc *closureContext) closureSet(name string, val Value) (prev Value, okay bool) {
-    if recursiveTraversalClosurePre {
-        if recursiveTraversalClosure {
-            if t := cc.traversal(); t != nil && false {
-                if _, ok := t.Context.(*closureContext); ok {
-                    if prev, okay = t.closureSet(name, val); okay { return }
-                }
-            } else if up := cc.programCtx(); up != nil {
-                if _, ok := up.Context.(*closureContext); ok {
-                    if prev, okay = up.closureSet(name, val); okay { return }
-                }
-            }
-        } else {
-            if c := cc.Context.closure(); c != nil {
-                if prev, okay = c.closureSet(name, val); okay { return }
-            }
-        }
-    }
-    for _, scope := range cc.closureScopes() {
-        if def := scope.FindDef(name); def != nil {
-            prev = def.value
-            def.val(cc, val)
-            okay = true
-            break
-        }
-    }
-    if recursiveTraversalClosurePost && !okay {
-        if recursiveTraversalClosure {
-            if t := cc.traversal(); t != nil && false {
-                if _, ok := t.Context.(*closureContext); ok {
-                    if prev, okay = t.closureSet(name, val); okay { return }
-                }
-            } else if up := cc.programCtx(); up != nil {
-                if _, ok := up.Context.(*closureContext); ok {
-                    if prev, okay = up.closureSet(name, val); okay { return }
-                }
-            }
-        } else {
-            if c := cc.Context.closure(); c != nil {
-                if prev, okay = c.closureSet(name, val); okay { return }
-            }
-        }
-    }
-    return
-}
-func (cc *closureContext) closureResolveObject(pos Position, name string) (obj Object) {
-    var (
-        infos = true && strings.HasPrefix(name, "@")
-        scope *Scope
-        err error
-    )
-    if infos { defer func() {
-        var val Value
-        if obj != nil { val, _ = obj.expand(cc, expandPlainValue) }
-        warn(cc, "%v: name = %s", scope.project, name).at(scope.position)
-        warn(cc, "%v: %v", scope.project, scope).at(scope.position)
-        warn(cc, "%v: %v", scope.project, cc).at(scope.position)
-        warn(cc, "%s: %T, %v", scope.project, obj, obj).at(pos)
-        warn(cc, "%s: %T, %v", scope.project, val, val).at(pos).debug(24)
-    } () }
-    if recursiveTraversalClosurePre {
-        if recursiveTraversalClosure {
-            if t := cc.traversal(); t != nil && false {
-                if _, ok := t.Context.(*closureContext); ok {
-                    if obj = t.closureResolveObject(pos, name); obj != nil { return }
-                }
-            } else if up := cc.programCtx(); up != nil {
-                if _, ok := up.Context.(*closureContext); ok {
-                    if obj = up.closureResolveObject(pos, name); obj != nil { return }
-                }
-            }
-        } else {
-            if c := cc.Context.closure(); c != nil {
-                if obj = c.closureResolveObject(pos, name); obj != nil { return }
-            }
-        }
-    }
-    for _, scope = range cc.closureScopes() {
-        var ctx Context = positional(cc, scope.position)
-        if infos { warn(ctx, "%s", scope).debug(1) }
-        if scope.project == nil || scope != scope.project.scope {
-            if _, obj = scope.Find(name); isNil(obj) {
-                // fallthrough
-            } else if def, ok := obj.(*Def); ok && (def.origin == DefAuto || def.origin == DefArg) {
-                if o, ok := cc.closureResolveAuto(scope, name); ok && !isNil(o) { obj = o }
-                if infos {
-                    var proj = def.OwnerProject()
-                    val, _ := obj.expand(cc, expandPlainValue)
-                    va2, _ := cc.inner().autoGet(name)
-                    warn(ctx, "%v: %v %v => %T %v", proj, def.origin, def.name, def.value, def.value)
-                    warn(ctx, "%v: obj = %T %v", proj, obj, obj)
-                    warn(ctx, "%v: val = %T %v", proj, val, val)
-                    warn(ctx, "%v: va2 = %T %v", proj, va2, va2)
-                    warn(ctx, "%v: %v", proj, cc).debug(1)
-                }
-                break
-            } else {
-                if false && infos { warn(ctx, "%v: %v", obj.OwnerProject(), obj).debug(1) }
-                break // got the obj
-            }
-        }
-        if scope.project != nil {
-            if obj, err = scope.project.resolveObject(cc, name); err != nil {
-                erro(ctx, "resolve object '%s' in '%s' failed: %v", name, scope.project, err)
-                erro(ctx, "failed from here '%s' in '%s'", name, scope).at(pos).debug(1)
-                break
-            }
-        }
-        if isNil(obj) && false { obj = cc.Context.closureResolveObject(pos, name) }
-        if!isNil(obj) { if infos { warn(ctx, "%v", obj).debug(1) }; break }
-    }
-    if recursiveTraversalClosurePost && isNil(obj) {
-        if recursiveTraversalClosure {
-            if t := cc.traversal(); t != nil && false {
-                if _, ok := t.Context.(*closureContext); ok {
-                    if obj = t.closureResolveObject(pos, name); obj != nil { return }
-                }
-            } else if up := cc.programCtx(); up != nil {
-                if _, ok := up.Context.(*closureContext); ok {
-                    if obj = up.closureResolveObject(pos, name); obj != nil { return }
-                }
-            }
-        } else {
-            if c := cc.Context.closure(); c != nil {
-                if obj = c.closureResolveObject(pos, name); obj != nil { return }
-            }
-        }
-    }
-    return
-}
-func (cc *closureContext) closureResolveEntry(pos Position, name string) (entry Entry) {
-    var scope *Scope
-    if recursiveTraversalClosurePre {
-        if recursiveTraversalClosure {
-            if t := cc.traversal(); t != nil && false {
-                if _, ok := t.Context.(*closureContext); ok {
-                    if entry = t.closureResolveEntry(pos, name); entry != nil { return }
-                }
-            } else if up := cc.programCtx(); up != nil {
-                if _, ok := up.Context.(*closureContext); ok {
-                    if entry = up.closureResolveEntry(pos, name); entry != nil { return }
-                }
-            }
-        } else {
-            if c := cc.Context.closure(); c != nil {
-                if entry = c.closureResolveEntry(pos, name); entry != nil { return }
-            }
-        }
-    }
-    for _, scope = range cc.closureScopes() {
-        var err error
-        if project := scope.project; project == nil {
-            // none
-        } else if entry, err = project.resolveEntry(cc, name, false); err != nil {
-            erro(cc, "resolve entry '%s' in '%s' failed: %v", name, project, err).at(pos).debug(1)
-            break
-        } else if entry == nil && false {
-            entry = cc.Context.closureResolveEntry(pos, name)
-        }
-        if entry != nil { break }
-    }
-    if recursiveTraversalClosurePost && entry == nil {
-        if recursiveTraversalClosure {
-            if t := cc.traversal(); t != nil && false {
-                if _, ok := t.Context.(*closureContext); ok {
-                    if entry = t.closureResolveEntry(pos, name); entry != nil { return }
-                }
-            } else if up := cc.programCtx(); up != nil {
-                if _, ok := up.Context.(*closureContext); ok {
-                    if entry = up.closureResolveEntry(pos, name); entry != nil { return }
-                }
-            }
-        } else {
-            if c := cc.Context.closure(); c != nil {
-                if entry = c.closureResolveEntry(pos, name); entry != nil { return }
-            }
-        }
-    }
-    return
-}*/
 
 func closureGet(ctx Context, name string) (res Value) {
     var err error
@@ -781,7 +544,6 @@ type traverseContext struct {
     grepping bool
 
     updated []*updatedtarget // prerequisites newer than the target (from comparer) ($?)
-    stems   []string // set by StemmedEntry
 
     traceLevel int
 
@@ -824,7 +586,6 @@ func (t *traverseContext) spawn() Context {
         execRec: make(map[Value]int),
         start:   time.Now(),
         configuration: t.configuration,
-        stems:      t.stems,
         print:      t.print,
     }}
 }
@@ -1017,17 +778,16 @@ func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
 
     if ctx = positional(ctx, file.position); err != nil {
         callstack(ctx, -1, "%v: file(%v): error: %v", t.Project(), file, err).debug(1)
-    } else if !okay && len(t.stems) == 0 {
+    } else if !okay && len(ctx.stems()) == 0 {
         erro(ctx, "projects: %v", projects)
         erro(ctx, "missing: %v (%d concrete, %d stemmed)", file, len(concreteList), len(stemmedList))
         for _, concrete := range concreteList { erro(ctx, "concrete: %v", concrete).at(concrete.Position()) }
         for _, stemmed  := range stemmedList  { erro(ctx, "stemmed: %v", stemmed).at(stemmed.position) }
         erro(ctx, "arguments: %v", t.arguments())
-        erro(ctx, "%v", t)
         erro(ctx, "%v", ctx).debug(16)
         callstack(ctx, -1, "missing file %v required by %v (in %v)", file, targetVal, t.Project())
         brks.add(file.position, breakErro).error = fileNotFoundError{ t.Project(), file }
-    } else if !okay && len(t.stems) > 0 {
+    } else if !okay && len(ctx.stems()) > 0 {
         if false { brks.add(file.position, breakNext).scope = breakTrave }
     }
     return
@@ -1236,7 +996,7 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
 
     if err != nil {
         callstack(ctx, -1, "%v: target(%v), file=%v: error: %v", t.Project(), target, file, err).debug(1)
-    } else if !okay && !t.configuration && len(t.stems) == 0 {
+    } else if !okay && !t.configuration && len(ctx.stems()) == 0 {
         if file != nil {
             ctx = positional(ctx, file.position)
             erro(ctx, "projects: %v", projects)
@@ -1260,7 +1020,7 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
             callstack(ctx, -1, "traverse missing target '%v' for %v", target, ctx.Project()).debug(1)
             brks.add(pos, breakErro).error = targetNotFoundError{t.Project(), target}
         }
-    } else if !okay && len(t.stems) > 0 {
+    } else if !okay && len(ctx.stems()) > 0 {
         brks.add(pos, breakNext).scope = breakTrave
     }
     return
@@ -1268,26 +1028,25 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
 
 func traversePattern(ctx Context, pat Value) (brks breakers) {
     var (
-        t = ctx.traversal()
         pos = pat.Position()
         rest []string
         okay bool
         s string
     )
-    if s, rest = pat.stencil(ctx, t.stems); s == "" {
-        erro(ctx, "empty stencil: %v %v", pat, t.stems).at(pos).debug(1)
+    if s, rest = pat.stencil(ctx, ctx.stems()); s == "" {
+        erro(ctx, "empty stencil: %v %v", pat, ctx.stems()).at(pos).debug(1)
         return
     } else if len(rest) > 0 {
-        erro(ctx, "partial stencil: %v, %v, %v, %v", pat, s, rest, t.stems).at(pos).debug(1)
+        erro(ctx, "partial stencil: %v, %v, %v, %v", pat, s, rest, ctx.stems()).at(pos).debug(1)
         panic(s)
-    } else if file := t.Project().FindFile(ctx, s); file != nil {
+    } else if file := ctx.Project().FindFile(ctx, s); file != nil {
         file.position = pos
         okay, brks = traverseFile(ctx, file)
     } else {
         okay, brks = traverseString(ctx, pat, s)
     }
 
-    if !okay && len(t.stems) > 0 {
+    if !okay && len(ctx.stems()) > 0 {
         b := brks.add(pos, breakNext)
         b.scope = breakTrave
         b.value = pat
@@ -3021,7 +2780,7 @@ func (p *Path) stat(ctx Context) (si *statinfo) {
         err error
     )
     ctx = positional(ctx, p.position)
-    if pathname, err = p.pathname(ctx, ctx.traversal().stems); err != nil {
+    if pathname, err = p.pathname(ctx, ctx.stems()); err != nil {
         erro(ctx, "pathname error: %v", err)
     } else if pathname == "" {
         erro(ctx, "pathname is empty: %v", p)
@@ -3035,14 +2794,13 @@ func (p *Path) traverse(ctx Context) (brks breakers) {
     ctx = positional(ctx, p.position)
 
     var (
-        t = ctx.traversal()
         pathname string
         err error
     )
-    if p.patterned(ctx) && len(t.stems) == 0 {
+    if p.patterned(ctx) && len(ctx.stems()) == 0 {
         erro(ctx, "empty stems to traverse pattern: %v", p).at(p.position).debug(8)
         return
-    } else if pathname, err = p.pathname(ctx, t.stems); err == nil && pathname == "" {
+    } else if pathname, err = p.pathname(ctx, ctx.stems()); err == nil && pathname == "" {
         erro(ctx, "path matches no target: %v", p).at(p.position).debug(1)
         return
     } else if err != nil {
@@ -3054,7 +2812,7 @@ func (p *Path) traverse(ctx Context) (brks breakers) {
     // Stat the file by pathname.
     if file := stat(ctx, pathname, "", ""/*, nil*/); file != nil {
         file.traverse(ctx)
-    } else if okay, brks = traverseString(ctx, p, pathname); !okay && len(t.stems) > 0 {
+    } else if okay, brks = traverseString(ctx, p, pathname); !okay && len(ctx.stems()) > 0 {
         if false { brks.add(p.position, breakNext).scope = breakTrave }
     }
     return
