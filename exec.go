@@ -57,6 +57,7 @@ const (
   rxUndefinedReference_i
   rxShellCmdNotFound_i
   rxExitStatus_i
+  rxIgnoringNonExistentDirectory_i
   rxIgnoringDuplicateDirectory_i
 )
 var (
@@ -87,6 +88,7 @@ var (
   strUndefinedReference = `  +"(.+?)", referenced from:`
   strShellCmdNotFound = `(.+?): (.+?):( command)? not found`
   strExitStatus = `exit status (\-?[0-9]+)`
+  strIgnoringNonExistentDirectory = `ignoring nonexistent directory "(.*?)"`
   strIgnoringDuplicateDirectory = `ignoring duplicate directory "(.*?)"`
 
   rxNotTTYDevice = regexp.MustCompile(strNotTTYDevice)
@@ -111,6 +113,7 @@ var (
   rxUndefinedReference = regexp.MustCompile(strUndefinedReference)
   rxShellCmdNotFound = regexp.MustCompile(strShellCmdNotFound)
   rxExitStatus = regexp.MustCompile(strExitStatus)
+  rxIgnoringNonExistentDirectory = regexp.MustCompile(strIgnoringNonExistentDirectory)
   rxIgnoringDuplicateDirectory = regexp.MustCompile(strIgnoringDuplicateDirectory)
 
   knownerrors = []*regexp.Regexp{
@@ -136,6 +139,7 @@ var (
     rxUndefinedReference_i:     rxUndefinedReference,
     rxShellCmdNotFound_i:       rxShellCmdNotFound,
     rxExitStatus_i:             rxExitStatus,
+    rxIgnoringNonExistentDirectory_i: rxIgnoringNonExistentDirectory,
     rxIgnoringDuplicateDirectory_i: rxIgnoringDuplicateDirectory,
   }
 
@@ -528,6 +532,12 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         lpos.Column = v[2].col
         erro(ctx, "%s: command not found", v[2].string).at(lpos).debug(1)
         p.res.errs += 1
+      }
+    case rxIgnoringNonExistentDirectory_i:
+      if p.report {
+        var dir = v[1].string
+        lpos.Column = v[1].col + 1
+        if true { info(ctx, "ignoring nonexistent directory: %s", dir).at(lpos).debug(1) }
       }
     case rxIgnoringDuplicateDirectory_i:
       if p.report {
@@ -1201,15 +1211,19 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     if exeres.Status, err = exeres.run(positional(ctx, pos)); err != nil {
       if !opts.silent || opts.debug {
         if exeres.Stderr.log != nil {
-          var val1, _ = ctx.autoGet("@")
-          var val2 = closureResolveObject(ctx, pos, "@")
+          var val1 = closureResolveObject(ctx, pos, "<")
+          var val2, _ = ctx.autoGet("<")
+          var val3, _ = ctx.closure().autoGet("<")
+          var val4, _ = ctx.traversal().autoGet("<")
           var lpos Position
           lpos.Filename = log.filename
           lpos.Line = exeres.Stderr.log.lines
           erro(ctx, "%v: %s", target, err).at(lpos)
           erro(ctx, "%v: %v", target, val1)
           erro(ctx, "%v: %v", target, val2)
-          erro(ctx, "%v: %s", target, ctx).debug(1)
+          erro(ctx, "%v: %v", target, val3)
+          erro(ctx, "%v: %v", target, val4)
+          erro(ctx, "%v: %s", target, ctx).debug(24)
         }
         if exeres.errs > 0 { exeres.errs += 1 // err != nil
           if cc, _ := t.inner().(*closureContext); cc != nil {

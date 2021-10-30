@@ -595,11 +595,10 @@ func addTarget(ctx Context, target Value) {
         for _, t := range t.targets {
             if t == target || t.cmp(ctx, target) == cmpEqual { return }
         }
-        var n = len(t.targets)
-        t.targets = append(t.targets, target)
-        if t.targetX != "" { t.autoSet(t.targetX, MakeList(t.targets[0].Position(), t.targets...)) }
-        if t.target0 != "" && n == 0 { t.autoSet(t.target0, t.targets[0]) }
-        if t.targetN != "" { t.autoSet(t.targetN, t.targets[n]) }
+        var n = len(t.targets);  t.targets = append(t.targets, target)
+        if t.targetX != "" { ctx.autoSet(t.targetX, MakeList(t.targets[0].Position(), t.targets...)) }
+        if t.target0 != "" && n == 0 { ctx.autoSet(t.target0, t.targets[0]) }
+        if t.targetN != "" { ctx.autoSet(t.targetN, t.targets[n]) }
     }
 }
 

@@ -365,9 +365,11 @@ func (ac *autoContext) autoSet(name string, val Value) (res Value, okay bool) {
                 ac.defs[name] = def
                 //ac.mutex.Unlock()
         }
-        if false && name == "@" {
-                info(ac, "%v -> %v -> %v", name, def.value, val)
-                info(ac, "%v -> %v", name, ac).debug(16)
+        if false && name == "<" && ac.entry().String() == "cpp" {
+                var va2, _ = ac.Context.autoGet("<")
+                warn(ac, "%v -> %v -> %v", name, def.value, val)
+                warn(ac, "%v -> %v", name, va2)
+                warn(ac, "%v -> %v", name, ac).debug(16)
         }
         if entry := ac.entry(); false && (name == "-") && entry != nil && entry.String() == "-compiles-c" {
                 warn(ac, "set: %s %v", name, ac)

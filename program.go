@@ -28,6 +28,7 @@ type programContext struct {
 }
 
 func (pc *programContext) inner() Context { return &pc.autoContext }
+//XXX: func (pc *programContext) stems() []string { return nil }
 func (pc *programContext) String() string {
     var s = strings.TrimPrefix(pc.prog.scope.comment, "rule ")
     return fmt.Sprintf("program{%s,%s}", s, pc.autoContext.String())
@@ -88,25 +89,6 @@ func (pc *programContext) closureScopes() (scopes []*Scope) {
     if pc.prog != nil { scopes = append(scopes, pc.prog.scope) }
     return
 }
-/*func (pc *programContext) closureProjects() (projects []*Project) {
-    projects = pc.Context.closureProjects()
-
-    var prog = pc.prog != nil && pc.prog.project != nil
-    if project := pc.Context.Project(); project != nil && prog {
-        if prog = prog && pc.prog.project != project && !project.hasBase(pc.prog.project); prog {
-            for _, proj := range projects {
-                if proj == project || project.hasBase(proj) {
-                    pc.info("closure discard: %v, %v, %v", project, pc.prog.project, proj)
-                    pc.info("closure discard: %v", pc).debug(1)
-                    prog = false
-                    break
-                }
-            }
-        }
-    }
-    if prog { projects = append(projects, pc.prog.project) }
-    return
-}*/
 
 type Program struct {
     position Position
@@ -422,19 +404,20 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
 func traversePrerequisites(ctx Context, prerequisites []Value) (brks breakers) {
     // IMPORTANT: don't expand the args here. The prerequisites like
     // '$(or &@,...)' have to be expanded when it's used (e.g. compare).
-    var t = ctx.traversal()
-    var entry = ctx.entry()
     var target, _ = ctx.autoGet("@")
     if true {
-        var infos = false //entryName == "llvm-ar"
+        var infos = false && ctx.entry().String() == "cpp"
         for _, prerequisite := range prerequisites {
-            if infos && (entry.Name() == "program" && prerequisite.String() == "$(requirement)") {
-                if d, _ := prerequisite.(*delegate); d != nil {
-                    info(t, "%v: %T %v, %v", entry, d.x, d.x, d.x.(*Def).origin).at(ctx.Position())
-                }
+            if infos && prerequisite.String() == "$(proto)" {
+                var entry = ctx.entry()
                 var val, _ = prerequisite.expand(ctx, expandPlainValue)
-                info(ctx, "%v: %T %v -> %T %v", entry, prerequisite, prerequisite, val, val).at(ctx.Position())
-                info(ctx, "%v: %v", entry, ctx).at(ctx.Position()).debug(1)
+                var va2, _ = ctx.autoGet("<")
+                if d, _ := prerequisite.(*delegate); d != nil {
+                    warn(ctx, "%v: %T %v, %v", entry, d.x, d.x, d.x.(*Def).origin)
+                }
+                warn(ctx, "%v: %T %v -> %T %v", entry, prerequisite, prerequisite, val, val)
+                warn(ctx, "%v: %T %v", entry, va2, va2)
+                warn(ctx, "%v: %v", entry, ctx).debug(1)
             }
             if brks = prerequisite.traverse(ctx); brks.has() {
                 var tb = brks.not(breakNext, breakCase, breakDone)
@@ -443,22 +426,31 @@ func traversePrerequisites(ctx Context, prerequisites []Value) (brks breakers) {
                 }
                 break
             }
+            if infos && prerequisite.String() == "$(proto)" {
+                var entry = ctx.entry()
+                var va1, _ = ctx.autoGet("^")
+                var va2, _ = ctx.autoGet("<")
+                var va3, _ = ctx.traversal().autoGet("<")
+                warn(ctx, "%v: %T %v", entry, va1, va1)
+                warn(ctx, "%v: %T %v", entry, va2, va2)
+                warn(ctx, "%v: %T %v", entry, va3, va3)
+                warn(ctx, "%v: %v", entry, ctx).debug(1)
+            }
         }
     } else if num := len(prerequisites); num > 0 {
         var (
             mu sync.Mutex
             wg sync.WaitGroup
         )
-        wg.Add(num)
         for _, prerequisite := range prerequisites {
-            go func () {
+            wg.Add(1); go func (ctx Context) {
                 defer checkPanicsErrors(ctx)
                 defer wg.Done() // minus 1
                 if tb := prerequisite.traverse(ctx); tb.has() {
                     mu.Lock(); defer mu.Unlock()
                     brks = append(brks, tb...)
                 }
-            } ()
+            } (ctx.spawn())
         }
         if wg.Wait(); brks.has() {
             var tb = brks.not(breakNext, breakCase, breakDone)
