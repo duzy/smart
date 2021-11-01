@@ -56,6 +56,7 @@ var (
   rxCompilation = rx(`(.+?):(\d+):(\d+): error: (.+)(?: {2,}\n(.+))?`)
   rxIncludedFrom2 = rx(`In file included from (.+?):(\d+):`)
   rxIncludedFrom3 = rx(`In file included from (.+?):(\d+):(\d+):`)
+  rxProtoImportNotFound = rx(`^(.+?\.proto):(\d+):(\d+): Import "(.+?)" was not found or had errors.`)
   rxProtoNameNotDefined = rx(`^(.+?\.proto):(\d+):(\d+): "(.+?)" is not defined.`)
   rxProtoFileNotFound = rx(`^(.+?\.proto): File not found\.`)
   rxFatalErrorFileNotFound = rx(`(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`)
@@ -384,6 +385,14 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
     case rxProtoFileNotFound:
       if p.report {
         erro(ctx, "'%s' file not found", v[1].string).at(lpos)
+      }
+    case rxProtoImportNotFound:
+      if p.report {
+        p.errorPos = p.convPos(v[1].string, v[2].string, v[3].string)
+        lpos.Column = v[4].col
+        erro(ctx, "'%s' was not found or had errors", v[4].string).at(p.errorPos)
+        if !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
+        p.res.errs += 1
       }
     case rxProtoNameNotDefined:
       if p.report {
