@@ -565,11 +565,12 @@ func (t *traverseContext) caller() (caller *traverseContext) { return t.Context.
 
 func callstack(ctx Context, n int, s string, a ...interface{}) (point *diagPoint) {
     var pc = ctx.programCtx()
-    point = erro(ctx, s, a...)
-    point = erro(ctx, "from here for %v", ctx.entry()).at(pc.prog.position)
+    if s != "" { point = erro(ctx, s, a...) }
+    point = erro(ctx, "calls for %v:", ctx.Project()).at(ctx.Project().position)
+    point = erro(ctx, "%v in %v", ctx.entry(), ctx.entry().OwnerProject()).at(pc.prog.position)
     for last := pc.prog.position; pc != nil && n != 0; pc = pc.Context.programCtx() {
         if pos := pc.prog.position; !pos.SameLine(&last) {
-            point = erro(ctx, "and here for %v", pc.entry()).at(pos)
+            point = erro(ctx, "by %v in %v", pc.entry(), pc.entry().OwnerProject()).at(pos)
             last = pos
             n -= 1
         }

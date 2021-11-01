@@ -1222,18 +1222,17 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
           lpos.Line = exeres.Stderr.log.lines
 
           erro(ctx, "%v: %s", target, err).at(lpos)
-          erro(ctx, "%v", ctx.Project()).at(ctx.Project().position)
+          callstack(ctx, -1, "")
+
           erro(ctx, "%v: %T %s", target, target, targetName)
           if caller := ctx.traversal().caller(); caller != nil {
             var targetStr, _ = fullnameOrStrval(caller, target)
             erro(ctx, "%v: %T %s", target, target, targetStr)
             erro(ctx, "%v", target).of(target)
-            erro(ctx, "%v: %s", target, ctx)
             erro(caller, "%v: %s", target, caller).debug(42)
           } else {
             var targetStr, _ = fullnameOrStrval(ctx.closure(), target)
             erro(ctx, "%v: %T %s", target, target, targetStr)
-            erro(ctx, "%v", target).of(target)
             erro(ctx, "%v: %s", target, ctx).debug(24)
           }
         }
