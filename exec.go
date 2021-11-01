@@ -260,7 +260,7 @@ type knownMatch struct {
   v [][]knownMatchCap // groups of captures
 }
 
-type ignoringDuplicateDirectoryCounter struct {
+type ignoringDirectoryCounter struct {
   position Position
   dir string
   num int
@@ -535,20 +535,25 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       }
     case rxIgnoringNonExistentDirectory_i:
       if p.report {
-        var dir = v[1].string
-        lpos.Column = v[1].col + 1
-        if true { info(ctx, "ignoring nonexistent directory: %s", dir).at(lpos).debug(1) }
+        var ( dir = v[1].string; done bool );  lpos.Column = v[1].col + 1
+        if false { info(ctx, "ignoring nonexistent directory: %s", dir).at(lpos).debug(1) }
+        for _, rec := range p.res.ignoringNonExistentDirectory {
+          if rec.dir == dir { rec.num += 1; done = true }
+        }
+        if !done {
+          var rec = &ignoringDirectoryCounter{ lpos, dir, 1 }
+          p.res.ignoringNonExistentDirectory = append(p.res.ignoringDuplicateDirectory, rec)
+        }
       }
     case rxIgnoringDuplicateDirectory_i:
       if p.report {
-        var ( dir = v[1].string; done bool )
-        lpos.Column = v[1].col + 1
+        var ( dir = v[1].string; done bool );  lpos.Column = v[1].col + 1
         if false { info(ctx, "ignoring duplicate directory: %s", dir).at(lpos).debug(1) }
         for _, rec := range p.res.ignoringDuplicateDirectory {
           if rec.dir == dir { rec.num += 1; done = true }
         }
         if !done {
-          var rec = &ignoringDuplicateDirectoryCounter{ lpos, dir, 1 }
+          var rec = &ignoringDirectoryCounter{ lpos, dir, 1 }
           p.res.ignoringDuplicateDirectory = append(p.res.ignoringDuplicateDirectory, rec)
         }
       }
@@ -582,7 +587,8 @@ type ExecResult struct {
   sh *exec.Cmd
   container *Project
 
-  ignoringDuplicateDirectory []*ignoringDuplicateDirectoryCounter
+  ignoringDuplicateDirectory []*ignoringDirectoryCounter
+  ignoringNonExistentDirectory []*ignoringDirectoryCounter
 }
 func (p *ExecResult) cmp(ctx Context, v Value) (res cmpres) {
   if a, ok := v.(*ExecResult); ok {
@@ -1263,6 +1269,22 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
           erro(ctx, "… requested here").at(caller.Position()).debug(16)
         } else {
           erro(ctx, "%v: %v (%T, status=%v)", target, err, err, exeres.Status).debug(16)
+        }
+      }
+    }
+    if len(exeres.ignoringNonExistentDirectory) > 0 {
+      var inds int
+      for _, rec := range exeres.ignoringNonExistentDirectory {                inds += rec.num
+        info(ctx, `ignoring nonexistent directory "%v" (%d)`, rec.dir, rec.num).at(rec.position)
+      }
+      if inds > 0 && !opts.silent {
+        if true {
+          info(ctx, "%v: ignoring nonexistent directories: %v", target, inds).debug(1)
+        } else {
+          var t, _ = ctx.autoGet("@")
+          info(ctx, "%v: ignoring nonexistent directories: %v", target, inds)
+          info(ctx, "%v: %v", target, t)
+          info(ctx, "%v: %v", target, ctx).debug(16)
         }
       }
     }
