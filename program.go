@@ -257,7 +257,8 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             }
             brks.add(pos, breakErro).error = err
         }
-        warn(ctx, "execution got %d errors: %v", errs, ctx).debug(16)
+        warn(ctx, "execution yields %d errors: %v", errs, ctx).debug(16)
+        callstack(ctx, 8, "", diagWarn)
         if options.failOnErrors { fail(prog.position, "fail by %d errors", errs) }
     } } ()
     if cc != nil {

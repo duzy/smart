@@ -194,9 +194,10 @@ type knownMatch struct {
   v [][]knownMatchCap // groups of captures
 }
 
-type ignoringDirectoryCounter struct {
-  position Position
-  dir string
+type scannedExecError struct {
+  position, lpos Position
+  dt diagType
+  msg string
   num int
 }
 type ExecBuffer struct {
@@ -322,7 +323,18 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       }
       return
     }
+    addScannedError = func(dt diagType, pos Position, msg string) {
+      var done bool
+      for _, rec := range p.res.scannedErrors {
+        if rec.msg == msg { rec.num += 1; done = true }
+      }
+      if !done {
+        var e = &scannedExecError{ pos, lpos, dt, msg, 1 }
+        p.res.scannedErrors = append(p.res.scannedErrors, e)
+      }
+    }
   )
+
   if p.log != nil { lpos.Filename = p.log.filename }
   if     m != nil { lpos.Line, lpos.Column = m.l, 0 }
   for _, v := range m.v { // captures
@@ -384,23 +396,35 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       }
     case rxProtoFileNotFound:
       if p.report {
-        erro(ctx, "'%s' file not found", v[1].string).at(lpos)
+        var pos = lpos
+        lpos.Column = v[1].col
+        addScannedError(diagError, pos, fmt.Sprintf(`"%v" file not found`, v[1].string))
       }
     case rxProtoImportNotFound:
       if p.report {
-        p.errorPos = p.convPos(v[1].string, v[2].string, v[3].string)
-        lpos.Column = v[4].col
-        erro(ctx, "'%s' was not found or had errors", v[4].string).at(p.errorPos)
-        if !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
-        p.res.errs += 1
+        if false {
+          p.errorPos = p.convPos(v[1].string, v[2].string, v[3].string)
+          lpos.Column = v[4].col
+          erro(ctx, "'%s' was not found or had errors", v[4].string).at(p.errorPos)
+          if !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
+          p.res.errs += 1
+        } else {
+          var pos = p.convPos(v[1].string, v[2].string, v[3].string)
+          addScannedError(diagError, pos, fmt.Sprintf(`import "%v" not found`, v[4].string))
+        }
       }
     case rxProtoNameNotDefined:
       if p.report {
-        p.errorPos = p.convPos(v[1].string, v[2].string, v[3].string)
-        lpos.Column = v[4].col
-        erro(ctx, "'%s' is not defined", v[4].string).at(p.errorPos)
-        if !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
-        p.res.errs += 1
+        if false {
+          p.errorPos = p.convPos(v[1].string, v[2].string, v[3].string)
+          lpos.Column = v[4].col
+          erro(ctx, "'%s' is not defined", v[4].string).at(p.errorPos)
+          if !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
+          p.res.errs += 1
+        } else {
+          var pos = p.convPos(v[1].string, v[2].string, v[3].string)
+          addScannedError(diagError, pos, fmt.Sprintf(`"%v" is not defined`, v[4].string))
+        }
       }
     case rxFatalErrorFileNotFound:
       if p.report {
@@ -499,27 +523,15 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       }
     case rxIgnoringNonExistentDirectory:
       if p.report {
-        var ( dir = v[1].string; done bool );  lpos.Column = v[1].col + 1
+        var dir = v[1].string;  lpos.Column = v[1].col + 1
         if false { info(ctx, "ignoring nonexistent directory: %s", dir).at(lpos).debug(1) }
-        for _, rec := range p.res.ignoringNonExistentDirectory {
-          if rec.dir == dir { rec.num += 1; done = true }
-        }
-        if !done {
-          var rec = &ignoringDirectoryCounter{ lpos, dir, 1 }
-          p.res.ignoringNonExistentDirectory = append(p.res.ignoringDuplicateDirectory, rec)
-        }
+        addScannedError(diagInfo, lpos, fmt.Sprintf(`ignoring nonexistent directory "%v"`, dir))
       }
     case rxIgnoringDuplicateDirectory:
       if p.report {
-        var ( dir = v[1].string; done bool );  lpos.Column = v[1].col + 1
+        var dir = v[1].string;  lpos.Column = v[1].col + 1
         if false { info(ctx, "ignoring duplicate directory: %s", dir).at(lpos).debug(1) }
-        for _, rec := range p.res.ignoringDuplicateDirectory {
-          if rec.dir == dir { rec.num += 1; done = true }
-        }
-        if !done {
-          var rec = &ignoringDirectoryCounter{ lpos, dir, 1 }
-          p.res.ignoringDuplicateDirectory = append(p.res.ignoringDuplicateDirectory, rec)
-        }
+        addScannedError(diagInfo, lpos, fmt.Sprintf(`ignoring duplicate directory "%v"`, dir))
       }
     case rxExitStatus:
       if s := v[1].string; s != "0" /*&& p.report*/ {
@@ -551,8 +563,7 @@ type ExecResult struct {
   sh *exec.Cmd
   container *Project
 
-  ignoringDuplicateDirectory []*ignoringDirectoryCounter
-  ignoringNonExistentDirectory []*ignoringDirectoryCounter
+  scannedErrors []*scannedExecError
 }
 func (p *ExecResult) cmp(ctx Context, v Value) (res cmpres) {
   if a, ok := v.(*ExecResult); ok {
@@ -1180,100 +1191,100 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
 
     exeres.Stdout.report = !opts.silent
     exeres.Stderr.report = !opts.silent
-    if exeres.Status, err = exeres.run(positional(ctx, pos)); err != nil {
-      if !opts.silent || opts.debug {
-        if exeres.Stderr.log != nil {
-          var lpos Position
+    exeres.Status, err = exeres.run(positional(ctx, pos))
+    if !opts.silent && len(exeres.scannedErrors) > 0 {
+      var en, wn, in int
+      for _, rec := range exeres.scannedErrors {
+        switch rec.dt {
+        case diagError: en += rec.num
+        case diagWarn:  wn += rec.num
+        case diagInfo:  in += rec.num
+        }
+      }
+      for i, rec := range exeres.scannedErrors {
+        if i == 0 && !rec.position.Equals(&rec.lpos) { diag(ctx, rec.dt, rec.msg).at(rec.lpos) }
+        if rec.num > 1 {
+          diag(ctx, rec.dt, `%s (%d)`, rec.msg, rec.num).at(rec.position)
+        } else {
+          diag(ctx, rec.dt, rec.msg).at(rec.position)
+        }
+        if i == 5 && i < len(exeres.scannedErrors) {
+          diag(ctx, rec.dt, "%d more...", (en+wn+in)-(i+1)).at(rec.lpos)
+          break
+        }
+      }
+      if en > 0 {
+        var lpos Position
+        if log == nil { lpos = ctx.Position() } else {
           lpos.Filename = log.filename
-          lpos.Line = exeres.Stderr.log.lines
-
-          erro(ctx, "%v: %s", target, err).at(lpos)
-          callstack(ctx, -1, "")
-
-          erro(ctx, "%v: %T %s", target, target, targetName)
-          if caller := ctx.traversal().caller(); caller != nil {
-            var targetStr, _ = fullnameOrStrval(caller, target)
-            erro(ctx, "%v: %T %s", target, target, targetStr)
-            erro(ctx, "%v", target).of(target)
-            erro(caller, "%v: %s", target, caller).debug(42)
-          } else {
-            var targetStr, _ = fullnameOrStrval(ctx.closure(), target)
-            erro(ctx, "%v: %T %s", target, target, targetStr)
-            erro(ctx, "%v: %s", target, ctx).debug(24)
-          }
+          lpos.Line = exeres.Stderr.log.lines + 1
         }
-        if exeres.errs > 0 { exeres.errs += 1 // err != nil
-          if cc, _ := t.inner().(*closureContext); cc != nil {
-            if exeres.warns > 0 {
-              erro(ctx, "exec: got %d errors and %d warnings", exeres.errs, exeres.warns)
-            } else {
-              erro(ctx, "exec: got %d errors", exeres.errs)
-            }
-            erro(ctx, "%v", t).at(t.Position())
-            if caller != nil {
-              erro(ctx, "%v", cc).at(cc.Position())
-              erro(ctx, "%v", caller).at(caller.Position()).debug(16)
-            } else {
-              erro(ctx, "%v", cc).at(cc.Position()).debug(16)
-            }
-          } else {
-            erro(ctx, "… requested here").debug(16)
-          }
-        } else if exeres.warns > 0 {
-          if cc, _ := t.inner().(*closureContext); cc != nil {
-            warn(t, "exec: got %d warnings", exeres.warns)
-            warn(t, "… requested here").at(cc.Position()).debug(16)
-          } else {
-            warn(t, "… requested here").debug(16)
-          }
-        } else if cc, _ := t.inner().(*closureContext); cc != nil {
-          erro(ctx, "%v: %v (%T, status=%v)", target, err, err, exeres.Status)
-          erro(ctx, "… requested here").at(cc.Position()).debug(16)
-        } else if caller != nil {
-          erro(ctx, "%v: %v (%T, status=%v)", target, err, err, exeres.Status)
-          erro(ctx, "… requested here").at(caller.Position()).debug(16)
-        } else {
-          erro(ctx, "%v: %v (%T, status=%v)", target, err, err, exeres.Status).debug(16)
-        }
+        erro(ctx, "scanned %d known errors", en).at(lpos)
+        erro(ctx, "%v: execute failed (%d errors)", target, en).debug(1)
       }
     }
-    if len(exeres.ignoringNonExistentDirectory) > 0 {
-      var inds int
-      for _, rec := range exeres.ignoringNonExistentDirectory {                inds += rec.num
-        info(ctx, `ignoring nonexistent directory "%v" (%d)`, rec.dir, rec.num).at(rec.position)
-      }
-      if inds > 0 && !opts.silent {
-        if true {
-          info(ctx, "%v: ignoring nonexistent directories: %v", target, inds).debug(1)
+    if err != nil && (!opts.silent || opts.debug) {
+      if exeres.Stderr.log != nil {
+        var lpos Position
+        lpos.Filename = log.filename
+        lpos.Line = exeres.Stderr.log.lines
+
+        erro(ctx, "%v: %s", target, err).at(lpos)
+        callstack(ctx, 12, "")
+
+        erro(ctx, "%v: %T %s", target, target, targetName)
+        if caller := ctx.traversal().caller(); caller != nil {
+          var targetStr, _ = fullnameOrStrval(caller, target)
+          erro(ctx, "%v: %T %s", target, target, targetStr)
+          erro(ctx, "%v", target).of(target)
+          erro(caller, "%v: %s", target, caller).debug(42)
         } else {
-          var t, _ = ctx.autoGet("@")
-          info(ctx, "%v: ignoring nonexistent directories: %v", target, inds)
-          info(ctx, "%v: %v", target, t)
-          info(ctx, "%v: %v", target, ctx).debug(16)
+          var targetStr, _ = fullnameOrStrval(ctx.closure(), target)
+          erro(ctx, "%v: %T %s", target, target, targetStr)
+          erro(ctx, "%v: %s", target, ctx).debug(24)
         }
       }
-    }
-    if len(exeres.ignoringDuplicateDirectory) > 0 {
-      var idds int
-      for _, rec := range exeres.ignoringDuplicateDirectory {                idds += rec.num
-        info(ctx, `ignoring duplicate directory "%v" (%d)`, rec.dir, rec.num).at(rec.position)
-      }
-      if idds > 0 && !opts.silent {
-        if true {
-          info(ctx, "%v: ignoring duplicate directories: %v", target, idds).debug(1)
+      if exeres.errs > 0 { exeres.errs += 1 // err != nil
+        if cc, _ := t.inner().(*closureContext); cc != nil {
+          if exeres.warns > 0 {
+            erro(ctx, "exec: got %d errors and %d warnings", exeres.errs, exeres.warns)
+          } else {
+            erro(ctx, "exec: got %d errors", exeres.errs)
+          }
+          erro(ctx, "%v", t).at(t.Position())
+          if caller != nil {
+            erro(ctx, "%v", cc).at(cc.Position())
+            erro(ctx, "%v", caller).at(caller.Position()).debug(16)
+          } else {
+            erro(ctx, "%v", cc).at(cc.Position()).debug(16)
+          }
         } else {
-          var t, _ = ctx.autoGet("@")
-          info(ctx, "%v: ignoring duplicate directories: %v", target, idds)
-          info(ctx, "%v: %v", target, t)
-          info(ctx, "%v: %v", target, ctx).debug(16)
+          erro(ctx, "… requested here").debug(16)
         }
+      } else if exeres.warns > 0 {
+        if cc, _ := t.inner().(*closureContext); cc != nil {
+          warn(t, "exec: got %d warnings", exeres.warns)
+          warn(t, "… requested here").at(cc.Position()).debug(16)
+        } else {
+          warn(t, "… requested here").debug(16)
+        }
+      } else if cc, _ := t.inner().(*closureContext); cc != nil {
+        erro(ctx, "%v: %v (%T, status=%v)", target, err, err, exeres.Status)
+        erro(ctx, "… requested here").at(cc.Position()).debug(16)
+      } else if caller != nil {
+        erro(ctx, "%v: %v (%T, status=%v)", target, err, err, exeres.Status)
+        erro(ctx, "… requested here").at(caller.Position()).debug(16)
+      } else {
+        erro(ctx, "%v: %v (%T, status=%v)", target, err, err, exeres.Status).debug(16)
       }
-      if opts.silent { err = nil }
     }
     if exeres.Status != 0 && (!opts.silent || opts.debug) {
       erro(ctx, "abnormal exec exit status %d", exeres.Status).debug(1)
       err = &exitstatus{ exeres.Status } // convert to exitstatus
       break
+    } else if opts.silent {
+      info(ctx, "%v: %v", target, err).debug(1)
+      err = nil
     }
   }
 

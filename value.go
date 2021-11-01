@@ -572,6 +572,8 @@ func callstack(ctx Context, n int, s string, a ...interface{}) (point *diagPoint
         dt = diagError
     } else if v, ok := a[0].(diagType); ok {
         dt = v
+    } else {
+        dt = diagError
     }
     if s != "" { point = diag(ctx, dt, s, a...) }
     point = ctx.diag(dt, "calls for %v:", ctx.Project()).at(ctx.Project().position)
