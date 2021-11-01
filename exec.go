@@ -47,7 +47,7 @@ var (
 
   knownerrors []*regexp.Regexp
 
-  rxCompilationDefaultDirectory = rx(`-\*- mode: compilation; default-directory: "(.+?)" -\*-`)
+  //rxCompilationDefaultDirectory = rx(`\-\*\- mode: compilation; default\-directory: "(.+?)" \-\*\-`)
   rxNotTTYDevice = rx(`the input device is not a TTY`)
   rxNoContainer = rx(`Error.*: No such container: (.*)`)
   rxNoNetwork = rx(`Error.*: network (.*) not found\.`)
@@ -327,8 +327,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
   for _, v := range m.v { // captures
     if len(v) > 1 { lpos.Column = v[1].col }
     switch m.rx {
-    case rxCompilationDefaultDirectory:
-      p.defaultDirectory = v[1].string
+    //case rxCompilationDefaultDirectory: p.defaultDirectory = v[1].string
     case rxNotTTYDevice:
       if p.report {
         erro(ctx, "Needs TTY (input device)").at(lpos).debug(1)
@@ -1020,6 +1019,8 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   }
   exeres.Stdout.scanKnownErrors = opts.scanStdout
   exeres.Stderr.scanKnownErrors = opts.scanStderr
+  exeres.Stdout.defaultDirectory = dir
+  exeres.Stderr.defaultDirectory = dir
   exeres.Stdout.res = exeres
   exeres.Stderr.res = exeres
 
