@@ -34,114 +34,46 @@ const (
 type exitstatus struct { code int }
 func (e *exitstatus) Error() string { return fmt.Sprintf(exitstatusFmt, e.code) }
 
-const (
-  rxNotTTYDevice_i int = iota
-  rxNoContainer_i
-  rxNoNetwork_i
-  rxDockerDaemonNotRunning_i
-  rxContainerNotRunning_i
-  rxCompilation_i
-  rxIncludedFrom2_i
-  rxIncludedFrom3_i
-  rxFileNotFound_i
-  rxArNoSuchFile_i
-  rxArNoArchiveMembers_i
-  rxBashNoSuchFile_i
-  rxClangNoSuchFile_i
-  rxClangError_i
-  rxCmdError_i
-  rxCmdWarning_i
-  rxLdLibNotFound_i
-  rxCouldnotParseObj_i
-  rxTooManyPosArgs_i
-  rxUndefinedReference_i
-  rxShellCmdNotFound_i
-  rxExitStatus_i
-  rxIgnoringNonExistentDirectory_i
-  rxIgnoringDuplicateDirectory_i
-)
+func rx(s string) (res *regexp.Regexp) {
+  res = regexp.MustCompile(s)
+  knownerrors = append(knownerrors, res)
+  return
+}
+
 var (
   defaultShell = "bash"
 
   strErrorPreprocess = `#error (.+)`
 
-  strNotTTYDevice = `the input device is not a TTY`
-  strNoContainer = `Error.*: No such container: (.*)`
-  strNoNetwork = `Error.*: network (.*) not found\.`
-  strDockerDaemonNotRunning = `Cannot connect to the Docker daemon at (.*?)\. Is the docker daemon running\?`
-  strContainerNotRunning = `Error response from daemon: Container (.*?) is not running`
+  knownerrors []*regexp.Regexp
 
-  strCompilation = `(.+?):(\d+):(\d+): error: (.+)(?: {2,}\n(.+))?`
-  strIncludedFrom2 = `In file included from (.+?):(\d+):`
-  strIncludedFrom3 = `In file included from (.+?):(\d+):(\d+):`
-  strFileNotFound = `(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`
-  strArNoSuchFile = `ar: (.+?): No such file or directory`
-  strArNoArchiveMembers = `ar: no archive members specified`
-  strBashNoSuchFile = `bash: (.+?): No such file or directory`
-  strClangNoSuchFile = `clang(?:-(.+?))?: error: no such file or directory: '(.+?)'`
-  strClangError = `clang(?:-(.+?))?: error: (.+)(?: \(.+\))?`
-  strCmdError = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang): error: (.+)`
-  strCmdWarning = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang): warning: (.+)`
-  strLdLibNotFound = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): library not found for (.+)`
-  strCouldnotParseObj = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`
-  strTooManyPosArgs = `(.+?): Too many positional arguments specified!`
-  strUndefinedReference = `  +"(.+?)", referenced from:`
-  strShellCmdNotFound = `(.+?): (.+?):( command)? not found`
-  strExitStatus = `exit status (\-?[0-9]+)`
-  strIgnoringNonExistentDirectory = `ignoring nonexistent directory "(.*?)"`
-  strIgnoringDuplicateDirectory = `ignoring duplicate directory "(.*?)"`
-
-  rxNotTTYDevice = regexp.MustCompile(strNotTTYDevice)
-  rxNoContainer = regexp.MustCompile(strNoContainer)
-  rxNoNetwork = regexp.MustCompile(strNoNetwork)
-  rxDockerDaemonNotRunning = regexp.MustCompile(strDockerDaemonNotRunning)
-  rxContainerNotRunning = regexp.MustCompile(strContainerNotRunning)
-  rxCompilation = regexp.MustCompile(strCompilation)
-  rxIncludedFrom2 = regexp.MustCompile(strIncludedFrom2)
-  rxIncludedFrom3 = regexp.MustCompile(strIncludedFrom3)
-  rxFileNotFound = regexp.MustCompile(strFileNotFound)
-  rxArNoSuchFile = regexp.MustCompile(strArNoSuchFile)
-  rxArNoArchiveMembers = regexp.MustCompile(strArNoArchiveMembers)
-  rxBashNoSuchFile = regexp.MustCompile(strBashNoSuchFile)
-  rxClangNoSuchFile = regexp.MustCompile(strClangNoSuchFile)
-  rxClangError = regexp.MustCompile(strClangError)
-  rxCmdError = regexp.MustCompile(strCmdError)
-  rxCmdWarning = regexp.MustCompile(strCmdWarning)
-  rxLdLibNotFound = regexp.MustCompile(strLdLibNotFound)
-  rxCouldnotParseObj = regexp.MustCompile(strCouldnotParseObj)
-  rxTooManyPosArgs = regexp.MustCompile(strTooManyPosArgs)
-  rxUndefinedReference = regexp.MustCompile(strUndefinedReference)
-  rxShellCmdNotFound = regexp.MustCompile(strShellCmdNotFound)
-  rxExitStatus = regexp.MustCompile(strExitStatus)
-  rxIgnoringNonExistentDirectory = regexp.MustCompile(strIgnoringNonExistentDirectory)
-  rxIgnoringDuplicateDirectory = regexp.MustCompile(strIgnoringDuplicateDirectory)
-
-  knownerrors = []*regexp.Regexp{
-    rxNotTTYDevice_i:           rxNotTTYDevice,
-    rxNoContainer_i:            rxNoContainer,
-    rxNoNetwork_i:              rxNoNetwork,
-    rxCompilation_i:            rxCompilation,
-    rxIncludedFrom2_i:          rxIncludedFrom2,
-    rxIncludedFrom3_i:          rxIncludedFrom3,
-    rxFileNotFound_i:           rxFileNotFound,
-    rxArNoSuchFile_i:           rxArNoSuchFile,
-    rxArNoArchiveMembers_i:     rxArNoArchiveMembers,
-    rxBashNoSuchFile_i:         rxBashNoSuchFile,
-    rxClangNoSuchFile_i:        rxClangNoSuchFile,
-    rxClangError_i:             rxClangError,
-    rxCmdError_i:               rxCmdError,
-    rxCmdWarning_i:             rxCmdWarning,
-    rxLdLibNotFound_i:          rxLdLibNotFound,
-    rxDockerDaemonNotRunning_i: rxDockerDaemonNotRunning,
-    rxContainerNotRunning_i:    rxContainerNotRunning,
-    rxCouldnotParseObj_i:       rxCouldnotParseObj,
-    rxTooManyPosArgs_i:         rxTooManyPosArgs,
-    rxUndefinedReference_i:     rxUndefinedReference,
-    rxShellCmdNotFound_i:       rxShellCmdNotFound,
-    rxExitStatus_i:             rxExitStatus,
-    rxIgnoringNonExistentDirectory_i: rxIgnoringNonExistentDirectory,
-    rxIgnoringDuplicateDirectory_i: rxIgnoringDuplicateDirectory,
-  }
+  rxCompilationDefaultDirectory = rx(`-\*- mode: compilation; default-directory: "(.+?)" -\*-`)
+  rxNotTTYDevice = rx(`the input device is not a TTY`)
+  rxNoContainer = rx(`Error.*: No such container: (.*)`)
+  rxNoNetwork = rx(`Error.*: network (.*) not found\.`)
+  rxDockerDaemonNotRunning = rx(`Cannot connect to the Docker daemon at (.*?)\. Is the docker daemon running\?`)
+  rxContainerNotRunning = rx(`Error response from daemon: Container (.*?) is not running`)
+  rxCompilation = rx(`(.+?):(\d+):(\d+): error: (.+)(?: {2,}\n(.+))?`)
+  rxIncludedFrom2 = rx(`In file included from (.+?):(\d+):`)
+  rxIncludedFrom3 = rx(`In file included from (.+?):(\d+):(\d+):`)
+  rxProtoNameNotDefined = rx(`^(.+?\.proto):(\d+):(\d+): "(.+?)" is not defined.`)
+  rxProtoFileNotFound = rx(`^(.+?\.proto): File not found\.`)
+  rxFatalErrorFileNotFound = rx(`(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`)
+  rxArNoSuchFile = rx(`ar: (.+?): No such file or directory`)
+  rxArNoArchiveMembers = rx(`ar: no archive members specified`)
+  rxBashNoSuchFile = rx(`bash: (.+?): No such file or directory`)
+  rxClangNoSuchFile = rx(`clang(?:-(.+?))?: error: no such file or directory: '(.+?)'`)
+  rxClangError = rx(`clang(?:-(.+?))?: error: (.+)(?: \(.+\))?`)
+  rxCmdError = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang): error: (.+)`)
+  rxCmdWarning = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang): warning: (.+)`)
+  rxLdLibNotFound = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): library not found for (.+)`)
+  rxCouldnotParseObj = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`)
+  rxTooManyPosArgs = rx(`(.+?): Too many positional arguments specified!`)
+  rxUndefinedReference = rx(`  +"(.+?)", referenced from:`)
+  rxShellCmdNotFound = rx(`(.+?): (.+?):( command)? not found`)
+  rxExitStatus = rx(`exit status (\-?[0-9]+)`)
+  rxIgnoringNonExistentDirectory = rx(`ignoring nonexistent directory "(.*?)"`)
+  rxIgnoringDuplicateDirectory = rx(`ignoring duplicate directory "(.*?)"`)
 
   workingMutex = new(sync.Mutex)
   working atomic.Value // number of working executions
@@ -256,7 +188,8 @@ type knownMatchCap struct {
   col int
 }
 type knownMatch struct {
-  i, l int
+  rx *regexp.Regexp
+  l int
   v [][]knownMatchCap // groups of captures
 }
 
@@ -277,6 +210,7 @@ type ExecBuffer struct {
   scanKnownErrors bool
   errorPos Position
   errors []error
+  defaultDirectory string
   includedFrom struct { pos1, pos2 Position }
 }
 func (p *ExecBuffer) filter(s string) { p.filters = append(p.filters, s) }
@@ -325,7 +259,7 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
       l += 1
 
       var line = p.line.Bytes()
-      for i, rx := range knownerrors {
+      for _, rx := range knownerrors {
         if rx == nil { continue }
         if all := rx.FindAllSubmatch(line, -1); all != nil {
           var ( a [][]knownMatchCap; c int )
@@ -338,7 +272,7 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
             }
             a = append(a, v)
           }
-          if _, e := p.scan(p.res.position, &knownMatch{ i, l, a }); e != nil {
+          if _, e := p.scan(p.res.position, &knownMatch{ rx, l, a }); e != nil {
             p.errors = append(p.errors, e)
           }
         }
@@ -359,7 +293,15 @@ func (p *ExecBuffer) startDockerDaemon(pos Position, ctx Context, container *Pro
   }
   return
 }
-
+func (p *ExecBuffer) filepath(s string) string {
+  if p.defaultDirectory != "" && !filepath.IsAbs(s) {
+    s = filepath.Join(p.defaultDirectory, s)
+  }
+  return s
+}
+func (p *ExecBuffer) convPos(s1, s2, s3 string) Position {
+  return convPosition(p.filepath(s1), s2, s3)
+}
 func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
   var ctx = p.res.ctx
   if p == nil {
@@ -384,18 +326,20 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
   if     m != nil { lpos.Line, lpos.Column = m.l, 0 }
   for _, v := range m.v { // captures
     if len(v) > 1 { lpos.Column = v[1].col }
-    switch m.i {
-    case rxNotTTYDevice_i:
+    switch m.rx {
+    case rxCompilationDefaultDirectory:
+      p.defaultDirectory = v[1].string
+    case rxNotTTYDevice:
       if p.report {
         erro(ctx, "Needs TTY (input device)").at(lpos).debug(1)
         p.res.errs += 1
       }
-    case rxDockerDaemonNotRunning_i:
+    case rxDockerDaemonNotRunning:
       if err = p.startDockerDaemon(lpos, ctx, container, v[1].string); err != nil {
         erro(ctx, "start container failed: %v", err).at(pos).debug(1)
         p.res.errs += 1
       }
-    case rxNoContainer_i:
+    case rxNoContainer:
       if name := v[1].string; p.res.skips(name) {
         if p.report {
           erro(ctx, "container not running: %v", name).at(lpos).debug(1)
@@ -404,31 +348,31 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       } else {
         p.res.containerToRun = name
       }
-    case rxContainerNotRunning_i:
+    case rxContainerNotRunning:
       if p.report {
         erro(ctx, "Container not running (%v)", v[1].string).at(lpos).debug(1)
         p.res.errs += 1
       }
-    case rxNoNetwork_i:
+    case rxNoNetwork:
       if p.report {
         erro(ctx, "Network not found (%v)", v[1].string).at(lpos).debug(1)
         p.res.errs += 1
       }
-    case rxIncludedFrom2_i:
+    case rxIncludedFrom2:
       if p.report {
         lpos.Column = v[2].col + 1
-        p.includedFrom.pos1 = convPosition(v[1].string, v[2].string, "1")
+        p.includedFrom.pos1 = p.convPos(v[1].string, v[2].string, "1")
         p.includedFrom.pos2 = lpos
       }
-    case rxIncludedFrom3_i:
+    case rxIncludedFrom3:
       if p.report {
         lpos.Column = v[3].col + 1
-        p.includedFrom.pos1 = convPosition(v[1].string, v[2].string, v[3].string)
+        p.includedFrom.pos1 = p.convPos(v[1].string, v[2].string, v[3].string)
         p.includedFrom.pos2 = lpos
       }
-    case rxCompilation_i:
+    case rxCompilation:
       if p.report {
-        p.errorPos = convPosition(v[1].string, v[2].string, v[3].string)
+        p.errorPos = p.convPos(v[1].string, v[2].string, v[3].string)
         lpos.Column = v[4].col
         if s := v[5].string; s != "" {
           erro(ctx, "%s: %s", v[4].string, s).at(p.errorPos)
@@ -438,20 +382,32 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         if !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
         p.res.errs += 1
       }
-    case rxFileNotFound_i:
+    case rxProtoFileNotFound:
       if p.report {
-        p.errorPos = convPosition(v[1].string, v[2].string, v[3].string)
+        erro(ctx, "'%s' file not found", v[1].string).at(lpos)
+      }
+    case rxProtoNameNotDefined:
+      if p.report {
+        p.errorPos = p.convPos(v[1].string, v[2].string, v[3].string)
+        lpos.Column = v[4].col
+        erro(ctx, "'%s' is not defined", v[4].string).at(p.errorPos)
+        if !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
+        p.res.errs += 1
+      }
+    case rxFatalErrorFileNotFound:
+      if p.report {
+        p.errorPos = p.convPos(v[1].string, v[2].string, v[3].string)
         lpos.Column = v[4].col
         erro(ctx, "'%s' file not found", v[4].string).at(p.errorPos)
         if !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
         p.res.errs += 1
       }
-    case rxArNoSuchFile_i:
+    case rxArNoSuchFile:
       if p.report {
         erro(ctx, "'%v' file not found (as '%s')", filepath.Base(v[1].string), v[1]).at(lpos).debug(1)
         p.res.errs += 1
       }
-    case rxArNoArchiveMembers_i:
+    case rxArNoArchiveMembers:
       if p.report {
         if true {
           var obj = closureResolveObject(ctx, lpos, "objects")
@@ -468,12 +424,12 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         }
         p.res.errs += 1
       }
-    case rxBashNoSuchFile_i:
+    case rxBashNoSuchFile:
       if p.report {
         erro(ctx, "%v: no such command", v[1].string).at(lpos).debug(1)
         p.res.errs += 1
       }
-    case rxClangNoSuchFile_i:
+    case rxClangNoSuchFile:
       if p.report {
         var vs string
         if s := v[1].string; s != "" { vs = "-" + s }
@@ -481,7 +437,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         erro(ctx, "clang%s: no such source file: %s", vs, v[2].string).at(lpos).debug(1)
         p.res.errs += 1
       }
-    case rxClangError_i:
+    case rxClangError:
       if p.report {
         var vs string
         if s := v[1].string; s != "" { vs = "-" + s }
@@ -489,19 +445,19 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         erro(ctx, "clang%s: %s", vs, v[2].string).at(lpos).debug(1)
         p.res.errs += 1
       }
-    case rxCmdError_i:
+    case rxCmdError:
       if p.report {
         lpos.Column = v[2].col + 1
         erro(ctx, "%s", v[2].string).at(lpos).debug(1)
         p.res.errs += 1
       }
-    case rxCmdWarning_i:
+    case rxCmdWarning:
       if p.report {
         lpos.Column = v[2].col + 1
         warn(ctx, "%s: %s", v[1].string, v[2].string).at(lpos).debug(1)
         p.res.warns += 1
       }
-    case rxLdLibNotFound_i:
+    case rxLdLibNotFound:
       if p.report {
         lpos.Column = v[2].col + 1
         if false {
@@ -511,29 +467,29 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         }
         p.res.errs += 1
       }
-    case rxCouldnotParseObj_i:
+    case rxCouldnotParseObj:
       if p.report {
         lpos.Column = v[3].col
         erro(ctx, "%s", v[3].string).at(lpos).debug(1)
         p.res.errs += 1
       }
-    case rxTooManyPosArgs_i:
+    case rxTooManyPosArgs:
       if p.report {
         erro(ctx, "%s: too many positional arguments", v[1].string).at(lpos).debug(1)
         p.res.errs += 1
       }
-    case rxUndefinedReference_i:
+    case rxUndefinedReference:
       if p.report {
         erro(ctx, "Undefined reference '%s'", v[1].string).at(lpos).debug(1)
         p.res.errs += 1
       }
-    case rxShellCmdNotFound_i:
+    case rxShellCmdNotFound:
       if p.report {
         lpos.Column = v[2].col
         erro(ctx, "%s: command not found", v[2].string).at(lpos).debug(1)
         p.res.errs += 1
       }
-    case rxIgnoringNonExistentDirectory_i:
+    case rxIgnoringNonExistentDirectory:
       if p.report {
         var ( dir = v[1].string; done bool );  lpos.Column = v[1].col + 1
         if false { info(ctx, "ignoring nonexistent directory: %s", dir).at(lpos).debug(1) }
@@ -545,7 +501,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
           p.res.ignoringNonExistentDirectory = append(p.res.ignoringDuplicateDirectory, rec)
         }
       }
-    case rxIgnoringDuplicateDirectory_i:
+    case rxIgnoringDuplicateDirectory:
       if p.report {
         var ( dir = v[1].string; done bool );  lpos.Column = v[1].col + 1
         if false { info(ctx, "ignoring duplicate directory: %s", dir).at(lpos).debug(1) }
@@ -557,7 +513,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
           p.res.ignoringDuplicateDirectory = append(p.res.ignoringDuplicateDirectory, rec)
         }
       }
-    case rxExitStatus_i:
+    case rxExitStatus:
       if s := v[1].string; s != "0" /*&& p.report*/ {
         // FIXME: the 'exit status' report is not working
         erro(ctx, "abnormal exist status %s", s).at(lpos).debug(1)

@@ -564,13 +564,21 @@ func (t *traverseContext) traversal() *traverseContext { return t }
 func (t *traverseContext) caller() (caller *traverseContext) { return t.Context.traversal() }
 
 func callstack(ctx Context, n int, s string, a ...interface{}) (point *diagPoint) {
-    var pc = ctx.programCtx()
-    if s != "" { point = erro(ctx, s, a...) }
-    point = erro(ctx, "calls for %v:", ctx.Project()).at(ctx.Project().position)
-    point = erro(ctx, "%v in %v", ctx.entry(), ctx.entry().OwnerProject()).at(pc.prog.position)
+    var (
+        dt diagType
+        pc = ctx.programCtx()
+    )
+    if len(a) == 0 {
+        dt = diagError
+    } else if v, ok := a[0].(diagType); ok {
+        dt = v
+    }
+    if s != "" { point = diag(ctx, dt, s, a...) }
+    point = ctx.diag(dt, "calls for %v:", ctx.Project()).at(ctx.Project().position)
+    point = ctx.diag(dt, "%v in %v", ctx.entry(), ctx.entry().OwnerProject()).at(pc.prog.position)
     for last := pc.prog.position; pc != nil && n != 0; pc = pc.Context.programCtx() {
         if pos := pc.prog.position; !pos.SameLine(&last) {
-            point = erro(ctx, "by %v in %v", pc.entry(), pc.entry().OwnerProject()).at(pos)
+            point = ctx.diag(dt, "by %v in %v", pc.entry(), pc.entry().OwnerProject()).at(pos)
             last = pos
             n -= 1
         }
