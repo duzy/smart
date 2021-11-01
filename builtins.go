@@ -2564,7 +2564,7 @@ func fullnameOrStrval(ctx Context, a Value) (s string, err error) {
 
 // see optFullname and parseOpt
 func asOptFullname(ctx Context, proj *Project, val Value) (rp *Project, s string, ok bool, e error) {
-        if proj == nil { proj = /*current()*/ctx.Project() }
+        if proj == nil { proj = ctx.Project() }
         if s, ok = fullname(ctx, val); ok {
                 // done
         } else if proj == nil {
@@ -3617,7 +3617,7 @@ type wildcardOpts struct {
 }
 func builtinWildcard(ctx Context, args... Value) (res Value) {
         var (
-                proj = /*current()*/ctx.Project()
+                proj = ctx.Project()
                 opts wildcardOpts
                 files []*File
                 err error

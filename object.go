@@ -1409,6 +1409,14 @@ func (p *stemmed) string(ctx Context, targetVal Value, target string) (res break
         } else {
                 p.target = targetVal
         }
+        if false && strings.HasSuffix(target, "rpc/xla_service.pb.cc") {
+            var file1 = ctx.          Project().FindFile(ctx, target)
+            var file2 = ctx.closure().Project().FindFile(ctx, target)
+            warn(ctx, "%v", ctx.Project()).at(ctx.Project().position)
+            warn(ctx, "%v %s", file1, file1.fullname())
+            warn(ctx, "%v %s", file2, file2.fullname())
+            warn(ctx, "%v", ctx).debug(8)
+        }
         return p.RuleEntry.traverse(&sc)
 }
 func (p *stemmed) file(ctx Context, file *File) (res breakers) {

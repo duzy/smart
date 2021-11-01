@@ -109,13 +109,11 @@ func (prog *Program) Project() *Project { return prog.project }
 func (prog *Program) Scope() *Scope { return prog.scope }
 func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err error) {
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.interpret(%s)", typeof(i)))) }
-
     if pos := ctx.Position(); !pos.IsValid() && prog.position.IsValid() {
         ctx = positional(ctx, prog.position)
     }
 
-    // Wait for prerequisites before interpretion
-    wait(ctx)
+    wait(ctx) // wait for prerequisites before interpretion
 
     var value Value
     if value, err = i.Evaluate(ctx, params...); err != nil {
@@ -131,8 +129,7 @@ func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err 
 
     if _, _, err = updateRecipesHash(ctx); err != nil {
         erro(ctx, "update recipes hash failed: %v", err).debug(1)
-    } else {
-        var t = ctx.traversal()
+    } else if t := ctx.traversal(); t != nil {
         t.interpreted = append(t.interpreted, i)
     }
     return
