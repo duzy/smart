@@ -566,21 +566,22 @@ func (t *traverseContext) caller() (caller *traverseContext) { return t.Context.
 func callstack(ctx Context, n int, s string, a ...interface{}) (point *diagPoint) {
     var (
         dt diagType
+        proj = ctx.Project()
         pc = ctx.programCtx()
     )
     if len(a) == 0 {
         dt = diagError
     } else if v, ok := a[0].(diagType); ok {
-        dt = v
+        dt, a = v, a[1:]
     } else {
         dt = diagError
     }
     if s != "" { point = diag(ctx, dt, s, a...) }
-    point = ctx.diag(dt, "calls for %v:", ctx.Project()).at(ctx.Project().position)
-    point = ctx.diag(dt, "%v in %v", ctx.entry(), ctx.entry().OwnerProject()).at(pc.prog.position)
+    if false { point = ctx.diag(dt, "calls for %v:", proj).at(proj.position) }
+    point = ctx.diag(dt, "%v: %v in %v", proj, ctx.entry(), ctx.entry().OwnerProject()).at(pc.prog.position)
     for last := pc.prog.position; pc != nil && n != 0; pc = pc.Context.programCtx() {
         if pos := pc.prog.position; !pos.SameLine(&last) {
-            point = ctx.diag(dt, "by %v in %v", pc.entry(), pc.entry().OwnerProject()).at(pos)
+            point = ctx.diag(dt, "%v: by %v in %v", proj, pc.entry(), pc.entry().OwnerProject()).at(pos)
             last = pos
             n -= 1
         }
@@ -1563,8 +1564,9 @@ func (p *Argumented) traverse(ctx Context) (brks breakers) {
     //!< Arguments should be passed to program.execute as it is.
     var args []Value
     if expandArgumented {
+        const w = /*expandPlainValue*/expandDelegate
         for _, a := range p.args {
-            if val, err := a.expand(ctx, /*expandPlainValue*/expandDelegate); err != nil {
+            if val, err := a.expand(ctx, w); err != nil {
                 erro(ctx, `expand "%v" failed: %v`, a, err).debug(1)
             } else if !isNil(val) && val != a { a = val }
             args = append(args, a)
@@ -4893,11 +4895,11 @@ func (p *selection) traverse(ctx Context) (brks breakers) {
     if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     ctx = positional(ctx, p.position)
     if val, err := p.value(ctx); err != nil {
-        erro(ctx, "select value '%v' failed: %v", p, err).at(p.position).debug(1)
+        erro(ctx, "select value '%v' failed: %v", p, err).debug(1)
     } else if isNil(val) {
-        warn(ctx, "selected value '%v' is nil", p).at(p.position).debug(1)
+        warn(ctx, "selected value '%v' is nil", p).debug(1)
     } else if isNone(val) {
-        warn(ctx, "selected value '%v' is none", p).at(p.position).debug(1)
+        warn(ctx, "selected value '%v' is none", p).debug(1)
     } else {
         brks = val.traverse(ctx)
     }
@@ -5503,7 +5505,7 @@ func splitPathStr(pos Position, str string) (segments []Value) {
 func Refs(ctx Context, a Value, v Value) bool { return a.refs(ctx, v) }
 
 func Scalar(v Value) (res Value) {
-    if l, o := v.(*List); l != nil && o && l.Len() > 0 {
+    if l, ok := v.(*List); l != nil && ok && l.Len() == 1 {
         res = Scalar(l.Elems[0])
     } else {
         res = v

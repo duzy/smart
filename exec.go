@@ -64,8 +64,8 @@ var (
   rxArNoArchiveMembers = rx(`ar: no archive members specified`)
   rxBashNoSuchFile = rx(`bash: (.+?): No such file or directory`)
   rxClangNoSuchFile = rx(`clang(?:-(.+?))?: error: no such file or directory: '(.+?)'`)
-  rxClangError = rx(`clang(?:-(.+?))?: error: (.+)(?: \(.+\))?`)
-  rxCmdError = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang): error: (.+)`)
+  //XXX: rxClangError = rx(`clang(?:-(.+?))?: error: (.+)(?: \(.+\))?`)
+  rxCmdError = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang)(?:-(.+?))?: error: (.+)`)
   rxCmdWarning = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang): warning: (.+)`)
   rxLdLibNotFound = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): library not found for (.+)`)
   rxCouldnotParseObj = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`)
@@ -194,7 +194,7 @@ type knownMatch struct {
   v [][]knownMatchCap // groups of captures
 }
 
-type scannedExecError struct {
+type scannedExecDiag struct {
   position, lpos Position
   dt diagType
   msg string
@@ -323,14 +323,14 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       }
       return
     }
-    addScannedError = func(dt diagType, pos Position, msg string) {
+    addScannedDiag = func(dt diagType, pos Position, msg string) {
       var done bool
-      for _, rec := range p.res.scannedErrors {
+      for _, rec := range p.res.scannedDiags {
         if rec.msg == msg { rec.num += 1; done = true }
       }
       if !done {
-        var e = &scannedExecError{ pos, lpos, dt, msg, 1 }
-        p.res.scannedErrors = append(p.res.scannedErrors, e)
+        var e = &scannedExecDiag{ pos, lpos, dt, msg, 1 }
+        p.res.scannedDiags = append(p.res.scannedDiags, e)
       }
     }
   )
@@ -343,32 +343,27 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
     //case rxCompilationDefaultDirectory: p.defaultDirectory = v[1].string
     case rxNotTTYDevice:
       if p.report {
-        erro(ctx, "Needs TTY (input device)").at(lpos).debug(1)
-        p.res.errs += 1
+        addScannedDiag(diagError, lpos, fmt.Sprintf(`Needs TTY (input device)`))
       }
     case rxDockerDaemonNotRunning:
       if err = p.startDockerDaemon(lpos, ctx, container, v[1].string); err != nil {
-        erro(ctx, "start container failed: %v", err).at(pos).debug(1)
-        p.res.errs += 1
+        addScannedDiag(diagError, lpos, fmt.Sprintf("start container failed: %v", err))
       }
     case rxNoContainer:
       if name := v[1].string; p.res.skips(name) {
         if p.report {
-          erro(ctx, "container not running: %v", name).at(lpos).debug(1)
-          p.res.errs += 1
+          addScannedDiag(diagError, lpos, fmt.Sprintf("container not running: %v", name))
         }
       } else {
         p.res.containerToRun = name
       }
     case rxContainerNotRunning:
       if p.report {
-        erro(ctx, "Container not running (%v)", v[1].string).at(lpos).debug(1)
-        p.res.errs += 1
+        addScannedDiag(diagError, lpos, fmt.Sprintf("Container not running (%v)", v[1].string))
       }
     case rxNoNetwork:
       if p.report {
-        erro(ctx, "Network not found (%v)", v[1].string).at(lpos).debug(1)
-        p.res.errs += 1
+        addScannedDiag(diagError, lpos, fmt.Sprintf("Network not found (%v)", v[1].string))
       }
     case rxIncludedFrom2:
       if p.report {
@@ -387,61 +382,46 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         p.errorPos = p.convPos(v[1].string, v[2].string, v[3].string)
         lpos.Column = v[4].col
         if s := v[5].string; s != "" {
-          erro(ctx, "%s: %s", v[4].string, s).at(p.errorPos)
+          addScannedDiag(diagError, lpos, fmt.Sprintf("%s: %s", v[4].string, s))
         } else {
-          erro(ctx, "%s", v[4].string).at(p.errorPos)
+          addScannedDiag(diagError, lpos, fmt.Sprintf("%s", v[4].string))
         }
-        if !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
-        p.res.errs += 1
+        if false && !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
       }
     case rxProtoFileNotFound:
       if p.report {
         var pos = lpos
         lpos.Column = v[1].col
-        addScannedError(diagError, pos, fmt.Sprintf(`"%v" file not found`, v[1].string))
+        addScannedDiag(diagError, pos, fmt.Sprintf(`"%v" file not found`, v[1].string))
       }
     case rxProtoImportNotFound:
       if p.report {
-        if false {
-          p.errorPos = p.convPos(v[1].string, v[2].string, v[3].string)
-          lpos.Column = v[4].col
-          erro(ctx, "'%s' was not found or had errors", v[4].string).at(p.errorPos)
-          if !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
-          p.res.errs += 1
-        } else {
-          var pos = p.convPos(v[1].string, v[2].string, v[3].string)
-          addScannedError(diagError, pos, fmt.Sprintf(`import "%v" not found`, v[4].string))
-        }
+        lpos.Column = v[4].col
+        var pos = p.convPos(v[1].string, v[2].string, v[3].string)
+        addScannedDiag(diagError, pos, fmt.Sprintf(`Import "%v" not found or errors`, v[4].string))
+        if false && !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
       }
     case rxProtoNameNotDefined:
       if p.report {
-        if false {
-          p.errorPos = p.convPos(v[1].string, v[2].string, v[3].string)
-          lpos.Column = v[4].col
-          erro(ctx, "'%s' is not defined", v[4].string).at(p.errorPos)
-          if !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
-          p.res.errs += 1
-        } else {
-          var pos = p.convPos(v[1].string, v[2].string, v[3].string)
-          addScannedError(diagError, pos, fmt.Sprintf(`"%v" is not defined`, v[4].string))
-        }
+        lpos.Column = v[4].col
+        var pos = p.convPos(v[1].string, v[2].string, v[3].string)
+        addScannedDiag(diagError, pos, fmt.Sprintf(`"%v" is not defined`, v[4].string))
+        if false && !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
       }
     case rxFatalErrorFileNotFound:
       if p.report {
-        p.errorPos = p.convPos(v[1].string, v[2].string, v[3].string)
         lpos.Column = v[4].col
-        erro(ctx, "'%s' file not found", v[4].string).at(p.errorPos)
-        if !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
-        p.res.errs += 1
+        var pos = p.convPos(v[1].string, v[2].string, v[3].string)
+        addScannedDiag(diagError, pos, fmt.Sprintf(`"%v" file not found`, v[4].string))
+        if false && !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
       }
     case rxArNoSuchFile:
       if p.report {
-        erro(ctx, "'%v' file not found (as '%s')", filepath.Base(v[1].string), v[1]).at(lpos).debug(1)
-        p.res.errs += 1
+        addScannedDiag(diagError, lpos, fmt.Sprintf("'%v' file not found (as '%s')", filepath.Base(v[1].string), v[1]))
       }
     case rxArNoArchiveMembers:
       if p.report {
-        if true {
+        if false {
           var obj = closureResolveObject(ctx, lpos, "objects")
           erro(ctx, "%s", v[0].string).at(lpos)
           erro(ctx, "%s", obj).at(lpos)
@@ -452,92 +432,84 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
           }
           erro(ctx, "%v", ctx).debug(16)
         } else {
-          erro(ctx, "%s", v[0].string).at(lpos).debug(1)
+          addScannedDiag(diagError, lpos, v[0].string)
         }
-        p.res.errs += 1
       }
     case rxBashNoSuchFile:
       if p.report {
-        erro(ctx, "%v: no such command", v[1].string).at(lpos).debug(1)
-        p.res.errs += 1
+        addScannedDiag(diagError, lpos, fmt.Sprintf("%v: no such command", v[1].string))
       }
     case rxClangNoSuchFile:
       if p.report {
         var vs string
         if s := v[1].string; s != "" { vs = "-" + s }
         lpos.Column = v[2].col + 1
-        erro(ctx, "clang%s: no such source file: %s", vs, v[2].string).at(lpos).debug(1)
-        p.res.errs += 1
+        addScannedDiag(diagError, lpos, fmt.Sprintf("clang%s: no such source file: %s", vs, v[2].string))
       }
+      /*
     case rxClangError:
       if p.report {
         var vs string
         if s := v[1].string; s != "" { vs = "-" + s }
         lpos.Column = v[2].col + 1
-        erro(ctx, "clang%s: %s", vs, v[2].string).at(lpos).debug(1)
+        if false {
+          erro(ctx, "clang%s: %s", vs, v[2].string).at(lpos).debug(1)
+        } else {
+          addScannedDiag(diagError, lpos, fmt.Sprintf("clang%s: %s", vs, v[2].string))
+        }
         p.res.errs += 1
-      }
+      }*/
     case rxCmdError:
       if p.report {
-        lpos.Column = v[2].col + 1
-        erro(ctx, "%s", v[2].string).at(lpos).debug(1)
-        p.res.errs += 1
+        var cs, vs string; cs = v[1].string
+        if s := v[2].string; s != "" { vs = "-" + s }
+        lpos.Column = v[3].col + 1
+        addScannedDiag(diagError, lpos, fmt.Sprintf("%s%s: %s", cs, vs, v[3].string))
       }
     case rxCmdWarning:
       if p.report {
         lpos.Column = v[2].col + 1
-        warn(ctx, "%s: %s", v[1].string, v[2].string).at(lpos).debug(1)
-        p.res.warns += 1
+        addScannedDiag(diagWarn, lpos, fmt.Sprintf("%s: %s", v[1].string, v[2].string))
       }
     case rxLdLibNotFound:
       if p.report {
         lpos.Column = v[2].col + 1
-        if false {
-          erro(ctx, "%s: library not found: %s", v[1].string, v[2].string).at(lpos).debug(1)
-        } else {
-          erro(ctx, "%s", v[0].string).at(lpos).debug(1)
-        }
-        p.res.errs += 1
+        addScannedDiag(diagError, lpos, v[0].string)
       }
     case rxCouldnotParseObj:
       if p.report {
         lpos.Column = v[3].col
-        erro(ctx, "%s", v[3].string).at(lpos).debug(1)
-        p.res.errs += 1
+        addScannedDiag(diagError, lpos, v[3].string)
       }
     case rxTooManyPosArgs:
       if p.report {
-        erro(ctx, "%s: too many positional arguments", v[1].string).at(lpos).debug(1)
-        p.res.errs += 1
+        addScannedDiag(diagError, lpos, fmt.Sprintf("%s: too many positional arguments", v[1].string))
       }
     case rxUndefinedReference:
       if p.report {
-        erro(ctx, "Undefined reference '%s'", v[1].string).at(lpos).debug(1)
-        p.res.errs += 1
+        addScannedDiag(diagError, lpos, fmt.Sprintf("Undefined reference '%s'", v[1].string))
       }
     case rxShellCmdNotFound:
       if p.report {
         lpos.Column = v[2].col
-        erro(ctx, "%s: command not found", v[2].string).at(lpos).debug(1)
-        p.res.errs += 1
+        addScannedDiag(diagError, lpos, fmt.Sprintf("%s: command not found", v[2].string))
       }
     case rxIgnoringNonExistentDirectory:
       if p.report {
         var dir = v[1].string;  lpos.Column = v[1].col + 1
         if false { info(ctx, "ignoring nonexistent directory: %s", dir).at(lpos).debug(1) }
-        addScannedError(diagInfo, lpos, fmt.Sprintf(`ignoring nonexistent directory "%v"`, dir))
+        addScannedDiag(diagInfo, lpos, fmt.Sprintf(`ignoring nonexistent directory "%v"`, dir))
       }
     case rxIgnoringDuplicateDirectory:
       if p.report {
         var dir = v[1].string;  lpos.Column = v[1].col + 1
         if false { info(ctx, "ignoring duplicate directory: %s", dir).at(lpos).debug(1) }
-        addScannedError(diagInfo, lpos, fmt.Sprintf(`ignoring duplicate directory "%v"`, dir))
+        addScannedDiag(diagInfo, lpos, fmt.Sprintf(`ignoring duplicate directory "%v"`, dir))
       }
     case rxExitStatus:
       if s := v[1].string; s != "0" /*&& p.report*/ {
         // FIXME: the 'exit status' report is not working
-        erro(ctx, "abnormal exist status %s", s).at(lpos).debug(1)
-        p.res.errs += 1
+        addScannedDiag(diagError, lpos, fmt.Sprintf("abnormal exist status %s", s))
       }
     }
     if err != nil { break }
@@ -555,15 +527,13 @@ type ExecResult struct {
   retried map[string]bool // work with containerToRun
   containerToRun string   // work with retried
 
-  errs, warns int
-
   num int
   ctx Context
   x *executor
   sh *exec.Cmd
   container *Project
 
-  scannedErrors []*scannedExecError
+  scannedDiags []*scannedExecDiag
 }
 func (p *ExecResult) cmp(ctx Context, v Value) (res cmpres) {
   if a, ok := v.(*ExecResult); ok {
@@ -1099,7 +1069,6 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     if err == nil {
       // Good!
     } else if t.configuration {
-      if false { info(ctx, "configure failed: %v", err).debug(1) }
       err = nil
     } else {
       erro(ctx, "shell: %v", err).debug(1)
@@ -1111,7 +1080,6 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         ps = opts.promStr
         st = trimPromptString(targetName)
       )
-      if false && ps == "" { ps = "exec: " }
       if caller == nil {
         if st += " …… "; err == nil {
           st += "ok"
@@ -1192,105 +1160,64 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     exeres.Stdout.report = !opts.silent
     exeres.Stderr.report = !opts.silent
     exeres.Status, err = exeres.run(positional(ctx, pos))
-    if !opts.silent && len(exeres.scannedErrors) > 0 {
-      var en, wn, in int
-      for _, rec := range exeres.scannedErrors {
+    if (!opts.silent || opts.debug) && (len(exeres.scannedDiags) > 0 || exeres.Status != 0 || err != nil) {
+      var ( lpos Position; en, wn, in int )
+      for _, rec := range exeres.scannedDiags {
         switch rec.dt {
         case diagError: en += rec.num
         case diagWarn:  wn += rec.num
         case diagInfo:  in += rec.num
         }
       }
-      for i, rec := range exeres.scannedErrors {
-        if i == 0 && !rec.position.Equals(&rec.lpos) { diag(ctx, rec.dt, rec.msg).at(rec.lpos) }
-        if rec.num > 1 {
-          diag(ctx, rec.dt, `%s (%d)`, rec.msg, rec.num).at(rec.position)
-        } else {
-          diag(ctx, rec.dt, rec.msg).at(rec.position)
+      for i, rec := range exeres.scannedDiags {
+        if !lpos.IsValid() { lpos = rec.lpos }
+        if i == 0 && !rec.position.Equals(&rec.lpos) {
+          diag(ctx, rec.dt, rec.msg).at(rec.lpos)//.debug(1)
         }
-        if i == 5 && i < len(exeres.scannedErrors) {
-          diag(ctx, rec.dt, "%d more...", (en+wn+in)-(i+1)).at(rec.lpos)
+        if rec.num > 1 {
+          diag(ctx, rec.dt, `%s (%d)`, rec.msg, rec.num).at(rec.position)//.debug(1)
+        } else {
+          diag(ctx, rec.dt, rec.msg).at(rec.position)//.debug(1)
+        }
+        if i == 5 && i < len(exeres.scannedDiags) {
+          diag(ctx, rec.dt, "%d more...", (en+wn+in)-(i+1)).at(rec.lpos)//.debug(1)
           break
         }
       }
-      if en > 0 {
-        var lpos Position
-        if log == nil { lpos = ctx.Position() } else {
-          lpos.Filename = log.filename
-          lpos.Line = exeres.Stderr.log.lines + 1
-        }
-        erro(ctx, "scanned %d known errors", en).at(lpos)
-        erro(ctx, "%v: execute failed (%d errors)", target, en).debug(1)
-      }
-    }
-    if err != nil && (!opts.silent || opts.debug) {
-      if exeres.Stderr.log != nil {
-        var lpos Position
+      if !lpos.IsValid() && log != nil {
         lpos.Filename = log.filename
-        lpos.Line = exeres.Stderr.log.lines
-
-        erro(ctx, "%v: %s", target, err).at(lpos)
-        callstack(ctx, 12, "")
-
-        erro(ctx, "%v: %T %s", target, target, targetName)
-        if caller := ctx.traversal().caller(); caller != nil {
-          var targetStr, _ = fullnameOrStrval(caller, target)
-          erro(ctx, "%v: %T %s", target, target, targetStr)
-          erro(ctx, "%v", target).of(target)
-          erro(caller, "%v: %s", target, caller).debug(42)
-        } else {
-          var targetStr, _ = fullnameOrStrval(ctx.closure(), target)
-          erro(ctx, "%v: %T %s", target, target, targetStr)
-          erro(ctx, "%v: %s", target, ctx).debug(24)
-        }
-      }
-      if exeres.errs > 0 { exeres.errs += 1 // err != nil
-        if cc, _ := t.inner().(*closureContext); cc != nil {
-          if exeres.warns > 0 {
-            erro(ctx, "exec: got %d errors and %d warnings", exeres.errs, exeres.warns)
-          } else {
-            erro(ctx, "exec: got %d errors", exeres.errs)
-          }
-          erro(ctx, "%v", t).at(t.Position())
-          if caller != nil {
-            erro(ctx, "%v", cc).at(cc.Position())
-            erro(ctx, "%v", caller).at(caller.Position()).debug(16)
-          } else {
-            erro(ctx, "%v", cc).at(cc.Position()).debug(16)
-          }
-        } else {
-          erro(ctx, "… requested here").debug(16)
-        }
-      } else if exeres.warns > 0 {
-        if cc, _ := t.inner().(*closureContext); cc != nil {
-          warn(t, "exec: got %d warnings", exeres.warns)
-          warn(t, "… requested here").at(cc.Position()).debug(16)
-        } else {
-          warn(t, "… requested here").debug(16)
-        }
-      } else if cc, _ := t.inner().(*closureContext); cc != nil {
-        erro(ctx, "%v: %v (%T, status=%v)", target, err, err, exeres.Status)
-        erro(ctx, "… requested here").at(cc.Position()).debug(16)
-      } else if caller != nil {
-        erro(ctx, "%v: %v (%T, status=%v)", target, err, err, exeres.Status)
-        erro(ctx, "… requested here").at(caller.Position()).debug(16)
+        lpos.Line = exeres.Stderr.log.lines + 1
       } else {
-        erro(ctx, "%v: %v (%T, status=%v)", target, err, err, exeres.Status).debug(16)
+        lpos = ctx.Position()
       }
-    }
-    if exeres.Status != 0 && (!opts.silent || opts.debug) {
-      erro(ctx, "abnormal exec exit status %d", exeres.Status).debug(1)
-      err = &exitstatus{ exeres.Status } // convert to exitstatus
-      break
-    } else if opts.silent {
-      info(ctx, "%v: %v", target, err).debug(1)
-      err = nil
+      var str = ctx.entry().String()
+      if t := target.String(); str != t { str = fmt.Sprintf("%s(%s)", str, t) }
+      if exeres.Status != 0 { err = &exitstatus{ exeres.Status } // set or convert error
+        erro(ctx, "%v: abnormal exit status %d", str, exeres.Status).at(lpos)
+      } else if err != nil { if opts.silent { err = nil }
+        erro(ctx, "%v: %s", str, err).at(lpos)
+      }
+      if en > 0 {
+        erro(ctx, "%v: scanned %d known errors", str, en).at(lpos)
+        erro(ctx, "%v: execute failed (%d errors)", str, en)
+        erro(ctx, "%v: %v", str, ctx).debug(1)
+      } else if wn > 0 {
+        warn(ctx, "%v: scanned %d known warnings", str, wn).at(lpos)
+        warn(ctx, "%v: execute has %d warnings", str, wn)
+        warn(ctx, "%v: %v", str, ctx).debug(1)
+      } else if in > 0 {
+        info(ctx, "%v: scanned %d known messages", str, in).at(lpos)
+        info(ctx, "%v: execute has %d messages", str, in)
+        info(ctx, "%v: %v", str, ctx).debug(1)
+      } else if err != nil || exeres.Status != 0 {
+        erro(ctx, "%v: %v", str, ctx).debug(1)
+      }
+      if callstack(ctx, 16, "%v: failed:", str); exeres.Status != 0 || err != nil { break }
     }
   }
 
-  // The execution is performed asynchronously, the result can't
-  // be fetched immediately. Caller should do a t.wait(...) or
-  // exeres.wait() before using the result.
+  // The execution is performed asynchronously, the result can't be fetched immediately.
+  // Caller should do a t.wait(...) or exeres.wait() before using the result.
   result = exeres
   return
 }

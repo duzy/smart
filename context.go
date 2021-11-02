@@ -298,7 +298,7 @@ func (diag *diagContext) checkErrors(reset bool) (num int) {
     if len(d.stack) > 0 {
       fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(d.stack))
     }
-    if num > 22 {
+    if num > 49 {
       fmt.Fprintf(stderr, "%v: too many errors (%d)\n", pos, num)
       break
     }

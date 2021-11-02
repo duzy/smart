@@ -287,6 +287,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         erro(ctx, "auto args failed: %v", err).debug(1)
         return
     }
+
     // Select the right target value before setting parameters,
     // because the target could be overrided by parameters.
     switch target = entry.Target(); a := target.(type) {

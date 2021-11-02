@@ -384,16 +384,22 @@ func (ac *autoContext) autoSet(name string, val Value) (res Value, okay bool) {
         return
 }
 
-func (ac *autoContext) autoArgs(params []*Def, args []Value) (names []string, err error) {
+func (ac *autoContext) _autoArgs(params []*Def, args []Value) (names []string, err error) {
         var (
                 argnum int // setup named/number parameters ($1, $2, etc.)
-                name string
         )
         for _, a := range args {
+                var (
+                        id = strconv.Itoa(argnum+1)
+                        name string
+                )
                 //<!IMPORTANT: Don't translate Flag, Flag values are valid regular arguments.
                 //             Pair values are special.
-                if l, ok := a.(*List); ok && l.Len() == 1 { a = l.Elems[0] }
-                if p, ok := a.(*Pair); ok {
+                //if l, ok := a.(*List); ok && l.Len() == 1 { a = l.Elems[0] }
+                if a = Scalar(a); false && (isNil(a) || isNone(a)) {
+                        erro(ac, "%T '%v' is invalid scalar", a, a).of(a).debug(1)
+                        return
+                } else if p, ok := a.(*Pair); ok {
                         if name, err = p.Key.Strval(ac); err != nil {
                                 erro(ac, "strval '%v' failed: %v", p.Key, err).of(p.Key).debug(1)
                                 return
@@ -401,21 +407,81 @@ func (ac *autoContext) autoArgs(params []*Def, args []Value) (names []string, er
                                 a = p.Value
                         }
                 } else if argnum < len(params) {
-                        if name = params[argnum].name; false && name == "table" {
-                                warn(ac, "%s => %v", name, a)
-                                warn(ac, "%s: %v", name, ac).debug(16)
-                                if false { callstack(ac, 8, "%s: %v", name, ac) }
-                        }
+                        name = params[argnum].name
                 } else {
-                        name = strconv.Itoa(argnum+1)
+                        name = id
                 }
-                argnum += 1
-                if ac.autoSet(name, a); false {
-                        erro(ac, "arg '%s': %v", name, err).of(a).debug(1)
+                if true && name == "requirement" {
+                        warn(ac, "%s, %s => %v", id, name, a).debug(16)
+                        callstack(ac, 3, "%v", diagWarn, ac)
+                }
+                if _, ok := ac.autoSet(name, a); !ok {
+                        erro(ac, "arg '%s' not set ($%s)", name, id).of(a).debug(1)
                         return
-                } else {
-                        names = append(names, name)
+                } else if def, ok := ac.defs[name]; !ok || def == nil {
+                        erro(ac, "arg '%s' not set ($%s)", name, id).of(a).debug(1)
+                        return
+                } else if id != "" && id != name && false {
+                        ac.defs[id] = def // NOTE: set an alias or replace it
                 }
+                names = append(names, name)
+                argnum += 1
+        }
+        return
+}
+
+func (ac *autoContext) autoArgs(params []*Def, args []Value) (names []string, err error) {
+        var (
+                argnum int // setup named/number parameters ($1, $2, etc.)
+                namedParam = func(name string) (res bool) {
+                        for _, param := range params {
+                                if res = param.name == name; res { break }
+                        }
+                        return
+                }
+        )
+        for _, a := range args {
+                var (
+                        id = strconv.Itoa(argnum+1)
+                        name string
+                )
+                //<!IMPORTANT: Don't translate Flag, Flag values are valid regular arguments.
+                //             Pair values are special.
+                if a = Scalar(a); false && (isNil(a) || isNone(a)) {
+                        erro(ac, "%T '%v' is invalid scalar", a, a).of(a).debug(1)
+                        return
+                } else if p, ok := a.(*Pair); ok {
+                        var s string
+                        if s, err = p.Key.Strval(ac); err != nil {
+                                erro(ac, "strval '%v' failed: %v", p.Key, err).of(p.Key).debug(1)
+                                return
+                        } else if namedParam(name) {
+                                name, a = s, p.Value
+                        }
+                }
+                if name != "" {
+                        // Got the name!
+                } else if argnum < len(params) {
+                        name = params[argnum].name
+                } else {
+                        name = id
+                }
+                if false && name == "requirement" {
+                        warn(ac, "%v, %v", len(args), args)
+                        warn(ac, "%s, %s => %v", id, name, a).debug(16)
+                        callstack(ac, 3, "%v", diagWarn, ac)
+                }
+                if _, ok := ac.autoSet(name, a); !ok {
+                        erro(ac, "arg '%s' not set ($%s)", name, id).of(a).debug(1)
+                        return
+                } else if def, ok := ac.defs[name]; !ok || def == nil {
+                        erro(ac, "arg '%s' not set ($%s)", name, id).of(a).debug(1)
+                        return
+                } else if id != "" && id != name {
+                        ac.defs[id] = def // NOTE: set an alias or replace it
+                }
+                names = append(names, name)
+                argnum += 1
         }
         return
 }
@@ -1236,25 +1302,28 @@ func (entry *RuleEntry) traverse(cc Context) (brks breakers) {
         if options.traceTraversal   { defer un(tt(t_traverse, cc, entry.target)) }
         if optionEnableBenchmarks && false { defer bench(mark("RuleEntry.traverse")) }
         if optionEnableBenchspots { defer bench(spot("RuleEntry.traverse")) }
-        var t = cc.traversal()
-        var target, _ = cc.autoGet("@")
+        var (
+                entryPos = entry.Position()
+                target, okay = cc.autoGet("@")
+        )
+        if !okay || isNil(target) { erro(cc, "$@ is not defined: %v", cc).debug(1); return }
         if cc.entry() != entry { cc = &entryContext{ cc, entry } }
 ForPrograms:
         for _, prog := range entry.programs {
+                var pos = prog.position
+                if !pos.IsValid() { pos = entryPos }
+
                 var (
-                        pos = prog.position
+                        ctx = positional(cc, pos)
                         res Value
                 )
-                if !pos.IsValid() { pos = entry.Position() }
-
-                var ctx = positional(cc, pos)
                 if brks = brks.not(breakNext); len(brks) > 0 {
-                        warn(ctx, "broken traversal %v: %v (stems = %v)", entry, brks[0].what, t.stems).debug(6)
+                        warn(ctx, "broken traversal %v: %v (stems = %v)", entry, brks[0].what, ctx.stems()).debug(6)
                         return
-                } else if res, brks = prog.execute(ctx/*, entry, ctx.arguments()*/); false && brks.has() {
-                        warn(ctx, "entry: %v %d, %v, %v, %v", entry, len(entry.programs), t.stems, target, brks[0].what).debug(breakDone > 0, 6)
+                } else if res, brks = prog.execute(ctx); false && brks.has() {
+                        warn(ctx, "entry: %v %d, %v, %v, %v", entry, len(entry.programs), ctx.stems(), target, brks[0].what).debug(breakDone > 0, 6)
                 } else if !isNil(res) {
-                        // TODO: deal with res
+                        // TODO: deal with the result `res`
                 }
 
                 // Update traversal breakers
