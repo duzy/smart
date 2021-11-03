@@ -3553,8 +3553,7 @@ func builtinFile(ctx Context, args... Value) (res Value) {
                                 erro(ctx, `%v: table = %T %v`, proj, w, w)
                         }
                         erro(ctx, `%v: "%v" is not a file (%T: %v)`, proj, str, a, a).of(a)
-                        erro(ctx, "%v: %v", proj, ctx).debug(32)
-                        callstack(ctx, 3, "%v: missing file '%v'", proj, str)
+                        errostack(ctx, 3, "%v: %v", proj, ctx).debug(32)
                 }
         }
 

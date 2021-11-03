@@ -1055,10 +1055,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     if opts.stamp && !t.configuration {
       var files []*File
       if files, err = target.stamp(t); err != nil {
-        if pe, ok := err.(*fs.PathError); ok {
-          erro(ctx, "stamp %v: not found", trimPromptString(pe.Path)).debug(6)
+        if pe, ok := err.(*fs.PathError); ok { err = fmt.Errorf(`"%v" not found`, target)
+          prompt(ctx, "%v: not found, stamp \"%v\"\n", pe.Path, target).debug(6)
         } else {
-          erro(ctx, "%v", err).debug(6)
+          prompt(ctx, "%v: not found, \"%v\"\n", pe.Path, err).debug(6)
         }
         return
       } else if opts.report {
@@ -1197,22 +1197,23 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       } else if err != nil { if opts.silent { err = nil }
         erro(ctx, "%v: %s", str, err).at(lpos)
       }
+      const i = 16
       if en > 0 {
         erro(ctx, "%v: scanned %d known errors", str, en).at(lpos)
         erro(ctx, "%v: execute failed (%d errors)", str, en)
-        erro(ctx, "%v: %v", str, ctx).debug(1)
+        errostack(ctx, i, "%v: %v", str, ctx).debug(1)
       } else if wn > 0 {
         warn(ctx, "%v: scanned %d known warnings", str, wn).at(lpos)
         warn(ctx, "%v: execute has %d warnings", str, wn)
-        warn(ctx, "%v: %v", str, ctx).debug(1)
+        warnstack(ctx, i, "%v: %v", str, ctx).debug(1)
       } else if in > 0 {
         info(ctx, "%v: scanned %d known messages", str, in).at(lpos)
         info(ctx, "%v: execute has %d messages", str, in)
-        info(ctx, "%v: %v", str, ctx).debug(1)
+        infostack(ctx, i, "%v: %v", str, ctx).debug(1)
       } else if err != nil || exeres.Status != 0 {
-        erro(ctx, "%v: %v", str, ctx).debug(1)
+        errostack(ctx, i, "%v: %v", str, ctx).debug(1)
       }
-      if callstack(ctx, 16, "%v: failed:", str); exeres.Status != 0 || err != nil { break }
+      if exeres.Status != 0 || err != nil { break }
     }
   }
 

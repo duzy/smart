@@ -134,7 +134,7 @@ func getTargetValueString(ctx Context) (val Value, str string) {
 }
 
 var options = commandLineOpts{
-  debugPrompt: false,
+  debugPrompt: true,
   debugErrors: true,
   debugWarns : true,
   debugInfos : true,
@@ -296,6 +296,7 @@ func (diag *diagContext) checkErrors(reset bool) (num int) {
       num += 1
     }
     if len(d.stack) > 0 {
+      //if !strings.HasSuffix(msg, "\n") { fmt.Fprintf(stderr, "\n") }
       fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(d.stack))
     }
     if num > 49 {
@@ -717,7 +718,7 @@ func (ctx *defaultContext) load() (err error) {
       if p := ctx.loader.Project(); p != nil { name = p.name }
       fmt.Fprintf(stderr, "└·%s … (%s)\n", name, d)
     } else if d > 4999*time.Millisecond {
-      prompt(ctx, "warning: long load time: %s !\n", d).debug(1)
+      prompt(ctx, "%s: long load time: %s !!\n", base, d).debug(1)
     }
   } (time.Now())
   if options.verboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }

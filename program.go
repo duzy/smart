@@ -117,7 +117,7 @@ func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err 
 
     var value Value
     if value, err = i.Evaluate(ctx, params...); err != nil {
-        erro(ctx, "evaluation failed: %v", err).debug(6)
+        erro(ctx, "%s: %v", intername(i), err).debug(1)
         return
     } else if isNil(value) {
         // disgard nil value
@@ -181,7 +181,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
             // Evaluate for configure modifier
             if i, ok := dialects["eval"]; ok && i != nil {
                 if err = prog.interpret(ctx, i, args); err != nil {
-                    erro(ctx, "interpret failed: %v", err).at(m.position).debug(1)
+                    erro(ctx, "interpret failed: %v", err).debug(1)
                     return
                 }
             }
@@ -195,19 +195,19 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
                     default: erro(ctx, "broken modifier %v (%v)", name, brk.what).at(brk.pos)
                     }
                 }
-                erro(ctx, "borken modifier %s %v", name, args).at(m.position).debug(6)
+                erro(ctx, "borken modifier %s %v", name, args).debug(6)
             }
         } else if hyphen, found := ctx.autoGet("-"); !found || isNil(value) || value == hyphen {
             // does nothing
         } else if ctx.autoSet("-", value); false {
-            erro(ctx, "setting buffer value failed: %v", value).at(m.position).debug(1)
+            erro(ctx, "setting buffer value failed: %v", value).debug(1)
         }
     } else if i, _ := dialects[name]; i != nil {
         if err = prog.interpret(ctx, i, args); err != nil {
-            erro(ctx, "interpret '%s' failed: %v", name, err).at(m.position).debug(1)
+            erro(ctx, "%s: %v", name, err).debug(1)
         }
     } else {
-        erro(ctx, "unknown modifier '%s'", name).at(m.position).debug(1)
+        erro(ctx, "unknown modifier '%s'", name).debug(1)
     }
     return
 }
@@ -226,8 +226,9 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     if !pos.IsValid() { pos = entry.Position() }
     if cc != nil && cc.checkErrors(true) > 0 {
         var errs = cc.totalErrors()
-        var s string; if errs > 1 { s = "(s)" }
-        warn(cc, `cancel execution for "%v" due to %d error%s`, entry, errs, s).debug(16)
+        var s string; if errs > 1 { s = "s" }
+        warn(cc, `cancel execution for "%v" due to %d error%s`, entry, errs, s)
+        warnstack(cc, 5, `%v`, cc).debug(16)
         if options.failOnErrors { fail(pos, "fail by %d error%s", errs, s) }
         return
     }
@@ -257,8 +258,8 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             }
             brks.add(pos, breakErro).error = err
         }
-        warn(ctx, "execution yields %d errors: %v", errs, ctx).debug(16)
-        callstack(ctx, 8, "", diagWarn)
+        warn(ctx, `%d errors in execution "%s"`, errs, ctx.entry())
+        warnstack(ctx, 8, "%v", ctx).debug(16)
         if options.failOnErrors { fail(prog.position, "fail by %d errors", errs) }
     } } ()
     if cc != nil {
@@ -368,8 +369,8 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         return
     } else if errs := ctx.checkErrors(true); errs > 0 {
         brks.add(prog.position, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", ctx.totalErrors())
-        warn(ctx, "%d errors while traversing prerequisites for %v", errs, target).debug(8)
-        if callstack(ctx, -1, "call stack for %v:", target); options.failOnErrors {
+        warn(ctx, "%d errors while traversing prerequisites for %v", errs, target)
+        if warnstack(ctx, -1, "call stack for %v:", target).debug(8); options.failOnErrors {
             fail(prog.position, "fail by %d errors", ctx.totalErrors())
         }
         return
@@ -380,8 +381,8 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         return
     } else if errs := ctx.checkErrors(true); errs > 0 {
         brks.add(prog.position, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", errs)
-        warn(ctx, "%d errors while traversing prerequisites for %v", errs, target).debug(8)
-        if callstack(ctx, -1, "call stack for %v:", target); options.failOnErrors {
+        warn(ctx, "%d errors while traversing prerequisites for %v", errs, target)
+        if warnstack(ctx, -1, "call stack for %v:", target).debug(8); options.failOnErrors {
             fail(prog.position, "fail by %d errors", ctx.totalErrors())
         }
         return

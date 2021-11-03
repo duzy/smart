@@ -63,7 +63,8 @@ func (m *modifier) traverse(ctx Context) (brks breakers) {
         ctx = positional(ctx, m.position)
         if brks = ctx.program().modify(ctx, m); !brks.has() {
                 if n := ctx.countErrors(); n > 0 {
-                        brks.add(m.position, breakFail).message = fmt.Sprintf("%s: %d errors", m.name, n)
+                        var s = fmt.Sprintf("%s: modifier failed with %d errors", m.name, n)
+                        brks.add(m.position, breakFail).message = s
                 }
         } else if tb := brks.not(breakCase, breakNext, breakDone); tb.has() {
                 for _, brk := range tb {
@@ -117,11 +118,11 @@ func (g *modifiergroup) traverse(ctx Context) (brks breakers) {
                 } else if tb = brks.of(breakFail, breakErro); tb.has() {
                         for _, brk := range brks {
                                 switch brk.what {
-                                case breakFail: erro(ctx, "broken traversal for modifier %s with failure: %v", m.name, brk.message).at(brk.pos).debug(1)
-                                case breakErro: erro(ctx, "broken traversal for modifier %s with error: %v", m.name, brk.error).at(brk.pos).debug(1)
+                                case breakErro: erro(ctx, "%s: %v", m.name, brk.error).at(brk.pos).debug(1)
+                                case breakFail: erro(ctx, "%s", brk.message).at(brk.pos).debug(1)
                                 }
                         }
-                        erro(ctx, "broken traversal for modifier %s", m.name).at(m.position).debug(1)
+                        erro(ctx, "%s: broken", m.name).at(m.position).debug(1)
                         break
                 } else {
                         for _, brk := range brks {
@@ -498,12 +499,8 @@ func modifierClosure(ctx Context, args... Value) (result Value, brks breakers) {
                 return
         }
 
-        if opts.verbose {
-                info(ctx, "%v: %v", ctx.Project(), ctx).debug(1)
-        }
-        if opts.dump {
-                callstack(ctx, -1, "call trace:")
-        }
+        if opts.verbose { info(ctx, "%v: %v", ctx.Project(), ctx).debug(1) }
+        if opts.dump { infostack(ctx, -1, "%v: %v", ctx.Project(), ctx).debug(1) }
 
         var dir string // closure work directory
         if proj := ctx.Project(); proj == nil {
@@ -1654,8 +1651,8 @@ CorrectCC:
                         if true { prompt(ctx, "%s \\\n  %s\n%s\n----------\n%s.\n",
                                 cc.Path, strings.Join(ca, " \\\n  "), &stdout, &stderr) }
                         erro(ctx, "deps with %s failed: %v", filepath.Base(opts.cc), err)
-                        erro(ctx, "for project %v", ctx.Project()).at(ctx.Project().position).debug(6)
-                        callstack(ctx, -1, "deps with %s faled: %v", filepath.Base(opts.cc), err)
+                        erro(ctx, "for project %v", ctx.Project()).at(ctx.Project().position)
+                        errostack(ctx, -1, "deps with %s faled: %v", filepath.Base(opts.cc), err).debug(6)
                         return
                 }
                 stderr.Reset() // release buffers (optional)
@@ -2701,24 +2698,24 @@ func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
                 err = nil // discard the error
         } else if opts.error {
                 if opts.debug > 0 {
-                        callstack(ctx, -1, "%v", err).debug(opts.debug)
+                        errostack(ctx, -1, "%v", err).debug(1)
                 } else {
                         erro(ctx, "%v", err).debug(1)
                 }
                 brks.add(pos, breakErro).error = err
         } else if t.stems != nil {
                 if opts.debug > 0 {
-                        warn(ctx, "%v", err).debug(opts.debug)
-                        callstack(ctx, -1, "%v", err).debug(opts.debug)
+                        warn(ctx, "%v", err).debug(1)
+                        warnstack(ctx, -1, "%v", err).debug(1)
                 } else {
                         warn(ctx, "%v", err).debug(1)
                 }
                 brks.add(pos, breakNext).scope = breakTrave
                 err = nil // discard the error
         } else if pos.IsValid() {
-                callstack(ctx, -1, "failed: %v", err).debug(1)
+                errostack(ctx, -1, "failed: %v", err).debug(1)
         } else if targetPos := target.Position(); targetPos.IsValid() {
-                callstack(positional(ctx, targetPos), -1, "failed: %v", err).debug(1)
+                errostack(positional(ctx, targetPos), -1, "failed: %v", err).debug(1)
         } else {
                 // TODO: dump more diagnostics information here
         }
@@ -3344,8 +3341,8 @@ func modifierOnce(ctx Context, args... Value) (result Value, brks breakers) {
                 var n = onceTest(ctx, target)
                 if  n > 1 { brks.add(ctx.Position(), breakDone).message = fmt.Sprintf(`executed %d times`, n) }
                 if opts.debug {
-                        warn(ctx, "%T %v %p %v", target, target, target, n).debug(16)
-                        callstack(positional(ctx, target.Position()), -1, "%p %v %v", target, target, n)
+                        warn(ctx, "%T %v %p %v", target, target, target, n)
+                        warnstack(positional(ctx, target.Position()), -1, "%p %v %v", target, target, n).debug(16)
                 }
         }
         return

@@ -412,8 +412,8 @@ func (ac *autoContext) _autoArgs(params []*Def, args []Value) (names []string, e
                         name = id
                 }
                 if true && name == "requirement" {
-                        warn(ac, "%s, %s => %v", id, name, a).debug(16)
-                        callstack(ac, 3, "%v", diagWarn, ac)
+                        warn(ac, "%s, %s => %v", id, name, a)
+                        warnstack(ac, 3, "%v", diagWarn, ac).debug(16)
                 }
                 if _, ok := ac.autoSet(name, a); !ok {
                         erro(ac, "arg '%s' not set ($%s)", name, id).of(a).debug(1)
@@ -468,8 +468,8 @@ func (ac *autoContext) autoArgs(params []*Def, args []Value) (names []string, er
                 }
                 if false && name == "requirement" {
                         warn(ac, "%v, %v", len(args), args)
-                        warn(ac, "%s, %s => %v", id, name, a).debug(16)
-                        callstack(ac, 3, "%v", diagWarn, ac)
+                        warn(ac, "%s, %s => %v", id, name, a)
+                        warnstack(ac, 3, "%v", diagWarn, ac).debug(16)
                 }
                 if _, ok := ac.autoSet(name, a); !ok {
                         erro(ac, "arg '%s' not set ($%s)", name, id).of(a).debug(1)
