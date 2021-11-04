@@ -151,7 +151,6 @@ const (
 )
 
 var (
-  //goStackLine1 = regexp.MustCompile(`^(?:extbit\.io/smart\.)?(.+)(\(.*\))$`)
   goStackLine1 = regexp.MustCompile(`^(?:extbit\.io/)?(.+)(\(.*\))$`)
   goStackLine2 = regexp.MustCompile(`^	(.*?:\d+)(?: \+.*)?$`)
 )
@@ -252,6 +251,7 @@ type diagContext struct {
   Context
   sync.Mutex
   points []*diagPoint
+  nested [][]*diagPoint
   errs int
 }
 func (diag *diagContext) inner() Context { return diag.Context }
@@ -266,6 +266,10 @@ func (diag *diagContext) add(point *diagPoint) *diagPoint {
   diag.Lock(); defer diag.Unlock()
   diag.points = append(diag.points, point)
   return point
+}
+func (diag *diagContext) nest(points []*diagPoint) {
+  diag.Lock(); defer diag.Unlock()
+  diag.nested = append(diag.nested, points)
 }
 
 func (diag *diagContext) diag(dt diagType, f string, args ...interface{}) *diagPoint {
@@ -283,28 +287,36 @@ func (diag *diagContext) countErrors() (num int) {
 func (diag *diagContext) totalErrors() (num int) { return diag.errs }
 func (diag *diagContext) checkErrors(reset bool) (num int) {
   diag.Lock(); defer func() { diag.errs += num; diag.Unlock() } ()
-  for _, d := range diag.points {
-    var (
-      msg = d.message
-      pos = d.position.String()
-    )
-    switch d.dt {
-    case diagPrompt: if msg != "" { fmt.Fprintf(stderr, "%s",    msg) }
-    case diagInfo:  fmt.Fprintf(stderr, "%v:info: %s\n",    pos, msg)
-    case diagWarn:  fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
-    case diagError: fmt.Fprintf(stderr, "%v: %s\n",         pos, msg)
-      num += 1
+  for i, points := range append([][]*diagPoint{diag.points}, diag.nested...) {
+    var nested = i > 0 && len(points) > 0 && len(diag.nested) > 0
+    if nested { fmt.Fprintf(stderr, "\n#%d:\n", i) }
+    for _, d := range points {
+      var (
+        msg = d.message
+        pos = d.position.String()
+      )
+      switch d.dt {
+      case diagPrompt: if msg != "" { fmt.Fprintf(stderr, "%s",    msg) }
+      case diagInfo:  fmt.Fprintf(stderr, "%v:info: %s\n",    pos, msg)
+      case diagWarn:  fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
+      case diagError: fmt.Fprintf(stderr, "%v: %s\n",         pos, msg)
+        num += 1
+      }
+      if len(d.stack) > 0 {
+        //if !strings.HasSuffix(msg, "\n") { fmt.Fprintf(stderr, "\n") }
+        fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(d.stack))
+      }
+      if num > 49 {
+        fmt.Fprintf(stderr, "%v: too many errors (%d)\n", pos, num)
+        break
+      }
     }
-    if len(d.stack) > 0 {
-      //if !strings.HasSuffix(msg, "\n") { fmt.Fprintf(stderr, "\n") }
-      fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(d.stack))
-    }
-    if num > 49 {
-      fmt.Fprintf(stderr, "%v: too many errors (%d)\n", pos, num)
-      break
-    }
+    if nested { fmt.Fprintf(stderr, "#%d;\n\n", i) }
   }
-  if reset { diag.points = []*diagPoint{} }
+  if reset {
+    diag.points = []*diagPoint{}
+    diag.nested = [][]*diagPoint{}
+  }
   return
 }
 

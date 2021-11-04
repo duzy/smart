@@ -54,23 +54,14 @@ func (pc *programContext) Position() Position {
 func (pc *programContext) spawn() Context {
     pc.mutex.Lock(); defer pc.mutex.Unlock()
 
-    var dc = diagContext{ Context: pc.Context }
-    switch t := dc.Context.(type) {
-    case *closureContext, *traverseContext: dc.Context = t.spawn()
-    default: erro(pc, "program needs to spawn %v", dc.Context).debug(1)
+    var ctx = pc.Context
+    switch t := ctx.(type) {
+    case *closureContext, *traverseContext: ctx = t.spawn()
+    default: erro(pc, "program needs to spawn %v", ctx).debug(1)
     }
-
-    if false {
-        var child = &spawnProgramContext{programContext{autoContext{
-            Context: &dc, defs: make(autoDefMap) }, pc.prog, pc.params, sync.Mutex{} }}
-        for _, s := range append(pc.params, "@", "<", ">", "^", "|", "~", "?", "-", "*") {
-            if val, found := pc.autoGet(s); found { child.autoSet(s, val) }
-        }
-        return child
-    } else {
-        return &spawnProgramContext{programContext{autoContext{
-            Context: &dc, defs: pc.defs.clone() }, pc.prog, pc.params, sync.Mutex{} }}
-    }
+    return &spawnProgramContext{programContext{autoContext{
+        Context: ctx, defs: pc.defs.clone() }, pc.prog, pc.params, sync.Mutex{},
+    }}
 }
 
 func (pc *programContext) closureScopes() (scopes []*Scope) {

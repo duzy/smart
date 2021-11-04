@@ -571,21 +571,19 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
         proj = ctx.Project()
         pc = ctx.programCtx()
     )
-    /*if len(a) == 0 {
-        dt = diagError
-    } else if v, ok := a[0].(diagType); ok {
-        dt, a = v, a[1:]
-    } else {
-        dt = diagError
-    }*/
     if s != "" { point = diag(ctx, dt, s, a...) }
     if false { point = ctx.diag(dt, "calls for %v:", proj).at(proj.position) }
     point = ctx.diag(dt, "%v: %v in %v", proj, ctx.entry(), ctx.entry().OwnerProject()).at(pc.prog.position)
-    for last := pc.prog.position; pc != nil && n != 0; pc = pc.Context.programCtx() {
-        if pos := pc.prog.position; !pos.SameLine(&last) {
+    for last := pc.prog.position; pc != nil; pc = pc.Context.programCtx() {
+        var pos = pc.prog.position
+        if !pos.SameLine(&last) {
             point = ctx.diag(dt, "%v: by %v in %v", proj, pc.entry(), pc.entry().OwnerProject()).at(pos)
             last = pos
             n -= 1
+        }
+        if n == 0 {
+            if pc != nil { point = ctx.diag(dt, "%v: ...", proj).at(pos) }
+            break
         }
     }
     return
@@ -596,11 +594,11 @@ func (t *traverseContext) argumented() *argumentedContext { return nil }
 func (t *traverseContext) argumentedSet([]Value) []Value { return nil }
 func (t *traverseContext) spawn() Context {
     return &spawnTraverseContext{traverseContext{
-        Context: &diagContext{ Context: t.Context },
+        Context: t.Context,
+        print:   t.print,
+        configuration: t.configuration,
         execRec: make(map[Value]int),
         start:   time.Now(),
-        configuration: t.configuration,
-        print:      t.print,
     }}
 }
 func addTarget(ctx Context, target Value) {
@@ -3623,8 +3621,11 @@ func (p *File) traverse(ctx Context) (brks breakers) {
 
     ctx = positional(ctx, p.position)
 
-    var program = ctx.program()
-    var targetValue = getTargetValue(ctx)
+    var (
+        proj = ctx.Project()
+        program = ctx.program()
+        targetValue = getTargetValue(ctx)
+    )
     if isNil(targetValue) {
         erro(ctx, "target is <nil>").at(program.position).debug(1)
         return
@@ -3646,7 +3647,7 @@ func (p *File) traverse(ctx Context) (brks breakers) {
                 erro(ctx, "strval '%v' failed: %v", a, err).of(a).debug(1)
                 return
             }
-            if file := ctx.Project().FindFile(ctx, s); file != nil {
+            if file := proj.FindFile(ctx, s); file != nil {
                 targetValue = file
                 ctx.autoSet("@", file)
                 if options.traceTraversal { t.tracef("FIX: barecomp file: %v", p) }
@@ -3655,16 +3656,16 @@ func (p *File) traverse(ctx Context) (brks breakers) {
     }
 
     if _, brks = traverseFile(ctx, p); p.info == nil {
-        brks.add(p.position, breakErro).error = fileNotFoundError{ ctx.Project(), p }
+        brks.add(p.position, breakErro).error = fileNotFoundError{ proj, p }
         erro(ctx, "break: missing file %v (at %s)", p, p.fullname()).at(p.position)
         var pos Position
         if c := t.caller(); c != nil {
             pos = c.Position()
         } else {
-            pos = ctx.Project().position
+            pos = proj.position
         }
-        erro(ctx, "%v: %v", ctx.Project(), p)
-        erro(ctx, "%v: %v", ctx.Project(), ctx).at(pos).debug(16)
+        erro(ctx, "%v: %v", proj, p)
+        errostack(ctx, 5, "%v: %v", proj, ctx).at(pos).debug(16)
     } else if tb := brks.not(breakNext, breakCase, breakDone); len(tb) > 0 {
         for _, brk := range tb {
             switch brk.what {
@@ -3674,7 +3675,7 @@ func (p *File) traverse(ctx Context) (brks breakers) {
             }
         }
         erro(ctx, "broken traversal for file '%v' (at %s)", p, p.fullname()).at(p.position)
-        erro(ctx, "broken traversal for file '%v' from %v", p, ctx.Project()).at(ctx.Project().position).debug(1)
+        erro(ctx, "broken traversal for file '%v' from %v", p, proj).at(proj.position).debug(1)
     } else if false && brks.has() {
         erro(ctx, "broken traversal for file '%v' (at %s)", p, p.fullname()).at(p.position).debug(1)
     }

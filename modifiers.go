@@ -1435,23 +1435,33 @@ func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks
         const parallel = true
         var wg sync.WaitGroup
         var depFile = func(ctx Context, word string) {
+                var (
+                        dc = diagContext{ Context: ctx }
+                        proj = ctx.Project()
+                )
+                ctx = &dc
                 if parallel {
-                        defer checkPanicsErrors(ctx)
-                        defer wg.Done() // minus 1
+                        defer checkPanicsErrors(ctx, true/* don't call checkErrors */)
+                        defer func() {
+                                if len(dc.points) > 0 {
+                                        dc.inner().diagnostic().nest(dc.points)
+                                }
+                                wg.Done() // minus 1
+                        } ()
                 }
                 if i := strings.Index(word, " "); i > 0 {
                         warn(ctx, "ignore dep with spaces: %v", word).debug(1)
-                        //nxt = 1 //continue
                 } else if file := findDepFile(word); file == nil {
                         erro(ctx, "unknown dep '%v' for '%v'", word, firstWord)
                         erro(ctx, "from here: %s", word).at(dp)
                         if filepath.IsAbs(firstWord) {
-                                var wp Position; wp.Filename, wp.Line = firstWord, 1
+                                var wp Position
+                                wp.Filename, wp.Line = firstWord, 1
                                 erro(ctx, "in here: %v", word).at(wp)
                         }
-                        erro(ctx, "for project %v", ctx.Project()).at(ctx.Project().position).debug(6)
+                        erro(ctx, "for project %v", proj).at(proj.position).debug(6)
                 } else if ignored(file.fullname()) {
-                        //nxt = 1 //continue // dep is the target itself
+                        //continue // dep is the target itself
                 } else if brks = file.traverse(ctx); brks.has() {
                         for _, brk := range brks {
                                 switch brk.what {
@@ -1462,12 +1472,11 @@ func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks
                         }
                         erro(ctx, "missing dep '%v' for %v", file, target).at(dp)
                         erro(ctx, "broken traversal for dep '%v' from %v", file, target)
-                        erro(ctx, "from project %v (for %v)", ctx.Project(), file).at(ctx.Project().position).debug(6)
-                        //nxt = 2 //break ForLines
+                        erro(ctx, "from project %v (for %v)", proj, file).at(proj.position).debug(6)
                 } else {
                         addFile(file)
                 }
-                if n := ctx.countErrors(); n > 0 {
+                if n := dc.countErrors(); n > 0 {
                         erro(ctx, `%d errors for dep file "%s"`, n, word).debug(1)
                 }
                 return
@@ -1544,16 +1553,6 @@ func modifierDeps(ctx Context, args... Value) (result Value, brks breakers) {
                 opts modifierDepsOpts
                 err error
         )
-        /*info(ctx, "%v", ctx)
-        //info(ctx, "%v", ctx.inner())
-        //info(ctx, "%v", ctx.inner().inner())
-        for _, a := range args {
-                v1, _ := a.expand(ctx, expandPlainValue)
-                v2, _ := a.expand(ctx.inner().inner(), expandPlainValue)
-                info(ctx, "%T %v -> %v", a, a, v1)
-                info(ctx, "%T %v -> %v", a, a, v2)
-        }
-        info(ctx, "%T", ctx.Context).debug(1)*/
         if args, err = parseOpts(ctx, &opts, args...); err != nil {
                 erro(ctx, "parse deps args failed: %v", err).debug(1)
                 return
@@ -1632,8 +1631,10 @@ CorrectCC:
                 }
         }
 
-        var t = ctx.traversal()
-        var savedDepsFileName string
+        var (
+                proj = ctx.Project()
+                savedDepsFileName string
+        )
         if savedDepsFileName, files, brks = loadSavedDepsAndCheckOutdated(ctx, ca); brks.has() {
                 for _, brk := range brks {
                         erro(ctx, "borken loading saved deps: %v", brk.what).at(brk.pos).debug(1)
@@ -1648,10 +1649,9 @@ CorrectCC:
                 )
                 cc.Stdout, cc.Stderr = &stdout, &stderr
                 if err = cc.Run(); err != nil {
-                        if true { prompt(ctx, "%s \\\n  %s\n%s\n----------\n%s.\n",
-                                cc.Path, strings.Join(ca, " \\\n  "), &stdout, &stderr) }
+                        if true { prompt(ctx, "%s \\\n  %s\n%s\n----------\n%s.\n", cc.Path, strings.Join(ca, " \\\n  "), &stdout, &stderr) }
                         erro(ctx, "deps with %s failed: %v", filepath.Base(opts.cc), err)
-                        erro(ctx, "for project %v", ctx.Project()).at(ctx.Project().position)
+                        erro(ctx, "for project %v", proj).at(proj.position)
                         errostack(ctx, -1, "deps with %s faled: %v", filepath.Base(opts.cc), err).debug(6)
                         return
                 }
@@ -1670,7 +1670,10 @@ CorrectCC:
                 files, brks = parseDeps(ctx, savedDepsFileName, stdout.String())
                 stdout.Reset() // release buffers (optional)
         }
-        if len(files) > 0 { t.grepped = append(t.grepped, files...) }
+        if len(files) > 0 {
+                var t = ctx.traversal()
+                t.grepped = append(t.grepped, files...)
+        }
         return
 }
 
