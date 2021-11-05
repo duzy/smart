@@ -3086,11 +3086,12 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
         }
 
         for _, a := range args {
+                var ctx = positional(ctx, a.Position())
                 if isNil(a) || isNone(a) {
                         // ignore
                 } else if a.patterned(ctx) {
-                        if str, err = a.Strval(ctx); err != nil { erro(ctx, "%v", err).of(a).debug(true, 1); return }
-                        if names, err = filepath.Glob(str); err != nil { erro(ctx, "%v", err).of(a).debug(true, 1); return }
+                        if str, err = a.Strval(ctx); err != nil { erro(ctx, "%v", err).debug(true, 1); return }
+                        if names, err = filepath.Glob(str); err != nil { erro(ctx, "%v", err).debug(true, 1); return }
                         for _, s := range names {
                                 if opts.verbose { prompt(ctx, "remove %s\n", s) }
                                 if opts.debug   { info(ctx, "remove %s", s).debug(1) }
@@ -3100,17 +3101,17 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                                         err = os.Remove(s)
                                 }
                                 if err != nil {
-                                        erro(ctx, "remove failed: %v", err).of(a)
+                                        erro(ctx, "remove failed: %v", err)
                                         return
                                 }
                         }
                 } else if proj, str, ok, err = asOptFullname(ctx, proj, a); err != nil {
-                        erro(ctx, "fullname '%v' failed: %v", a, err).of(a)
+                        erro(ctx, "fullname '%v' failed: %v", a, err)
                         errostack(ctx, 3, "%v", ctx).debug(16)
                         return
                 } else if !ok || str == "" {
-                        erro(ctx, "remove failed: %v (%T)", a, a).of(a)
-                        erro(ctx, "remove failed: %v", str).of(a)
+                        erro(ctx, "remove failed: %v (%T)", a, a)
+                        erro(ctx, "remove failed: %v", str)
                         errostack(ctx, 3, "%v", ctx).debug(16)
                         break
                 } else {
@@ -3123,8 +3124,8 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                         }
                         if err != nil {
                                 erro(ctx, "%v", err)
-                                erro(ctx, "source: %v (%T)", a, a).of(a)
-                                erro(ctx, "source: %v", str).of(a).debug(1)
+                                erro(ctx, "source: %v (%T)", a, a)
+                                erro(ctx, "source: %v", str).debug(1)
                                 return
                         }
                 }
@@ -3154,32 +3155,33 @@ func builtinRemoveAll(ctx Context, args... Value) (res Value) {
         }
 
         for _, a := range args {
+                var ctx = positional(ctx, a.Position())
                 if a.patterned(ctx) {
                         if str, err = a.Strval(ctx); err != nil {
-                                erro(ctx, "%v", err).of(a).debug(1)
+                                erro(ctx, "%v", err).debug(1)
                                 return
                         } else if names, err = filepath.Glob(str); err != nil {
-                                erro(ctx, "%v", err).of(a).debug(1)
+                                erro(ctx, "%v", err).debug(1)
                                 return
                         }
                         for _, s := range names {
                                 if opts.verbose { info(ctx, "remove %s", s).at(a.Position()) }
                                 if err = os.RemoveAll(s); err != nil {
-                                        erro(ctx, "%v", err).of(a).debug(1)
+                                        erro(ctx, "%v", err).debug(1)
                                         return
                                 }
                         }
                 } else if proj, str, ok, err = asOptFullname(ctx, proj, a); err != nil {
-                        erro(ctx, "remove failed: %v", err).of(a).debug(1)
+                        erro(ctx, "remove failed: %v", err).debug(1)
                         return
                 } else if !ok || str == "" {
-                        erro(ctx, "%v is not a file", a).of(a).debug(1)
+                        erro(ctx, "%v is not a file", a).debug(1)
                         break
                 } else {
                         if opts.verbose { info(ctx, "remove %s", str) }
                         if opts.debug   { info(ctx, "remove %s", str).debug(1) }
                         if err = os.RemoveAll(str); err != nil {
-                                erro(ctx, "remove failed: %v", err).of(a).debug(1)
+                                erro(ctx, "remove failed: %v", err).debug(1)
                                 return
                         }
                 }
@@ -3555,6 +3557,7 @@ func builtinFile(ctx Context, args... Value) (res Value) {
                 proj = ctx.Project()
         }
         for _, a := range args {
+                var ctx = positional(ctx, a.Position())
                 var str string
                 if file, ok := a.(*File); ok {
                         list = append(list, file)
@@ -3573,7 +3576,7 @@ func builtinFile(ctx Context, args... Value) (res Value) {
                                 erro(ctx, `%v: options = %T %v`, proj, v, v)
                                 erro(ctx, `%v: table = %T %v`, proj, w, w)
                         }
-                        erro(ctx, `%v: "%v" is not a file (%T: %v)`, proj, str, a, a).of(a)
+                        erro(ctx, `%v: "%v" is not a file (%T: %v)`, proj, str, a, a)
                         errostack(ctx, 3, "%v: %v", proj, ctx).debug(32)
                 }
         }
@@ -3901,8 +3904,8 @@ func builtinGrep(ctx Context, args... Value) (res Value) {
                 erro(ctx, "wants exactly 2 args, e.g. $(grep -1 '^example$',$(file))").debug(1)
                 return
         } else if vals, err = expandmerge2(ctx, expandPlainValue, args[0]); err != nil {
-                 erro(ctx, "%v", err).debug(1)
-                 return
+                erro(ctx, "%v", err).debug(1)
+                return
         }
         for _, a := range vals {
                 if i, ok := a.(*Int); ok {
