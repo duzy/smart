@@ -497,13 +497,11 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
     case rxIgnoringNonExistentDirectory:
       if p.report {
         var dir = v[1].string;  lpos.Column = v[1].col + 1
-        if false { info(ctx, "ignoring nonexistent directory: %s", dir).at(lpos).debug(1) }
         addScannedDiag(diagInfo, lpos, fmt.Sprintf(`ignoring nonexistent directory "%v"`, dir))
       }
     case rxIgnoringDuplicateDirectory:
       if p.report {
         var dir = v[1].string;  lpos.Column = v[1].col + 1
-        if false { info(ctx, "ignoring duplicate directory: %s", dir).at(lpos).debug(1) }
         addScannedDiag(diagInfo, lpos, fmt.Sprintf(`ignoring duplicate directory "%v"`, dir))
       }
     case rxExitStatus:
@@ -695,6 +693,7 @@ type (
   executorOpts struct {
     deprecated bool `v,vo;w,ve;a,a;d,dump`
     debug  bool "d,debug"
+    infos  bool `sci,scan-infos`
     prompt bool `pm,prompt;m,msg`
     promStr string "c,cmd;m,msg"
     silent bool "s,silent" // silent errors
@@ -1170,6 +1169,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         }
       }
       for i, rec := range exeres.scannedDiags {
+        if !opts.infos && rec.dt == diagInfo { continue }
         if !lpos.IsValid() { lpos = rec.lpos }
         if i == 0 && !rec.position.Equals(&rec.lpos) {
           diag(ctx, rec.dt, rec.msg).at(rec.lpos)//.debug(1)
@@ -1206,7 +1206,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         warn(ctx, "%v: scanned %d known warnings", str, wn).at(lpos)
         warn(ctx, "%v: execute has %d warnings", str, wn)
         warnstack(ctx, i, "%v: %v", str, ctx).debug(1)
-      } else if in > 0 {
+      } else if in > 0 && opts.infos {
         info(ctx, "%v: scanned %d known messages", str, in).at(lpos)
         info(ctx, "%v: execute has %d messages", str, in)
         infostack(ctx, i, "%v: %v", str, ctx).debug(1)

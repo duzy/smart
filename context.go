@@ -81,12 +81,9 @@ type Context interface {
 
   closure() *closureContext
   closureScopes() []*Scope
-  //closureProjects() []*Project
-  //closureGet(string) Value
-  //closureSet(string, Value) (Value, bool)
-  //closureResolveObject(Position, string) Object
-  //closureResolveEntry(Position, string) Entry
   closureResolveAuto(string) (Object, bool)
+
+  colonResolve(string) (Object, bool)
 
   inner() Context
   spawn() Context
@@ -416,9 +413,7 @@ func (ctx *defaultContext) Position() (res Position) { res.Filename, res.Line = 
 func (ctx *defaultContext) WorkDir() string { return ctx.workdir }
 func (ctx *defaultContext) Globe() *Globe { return ctx.globe }
 func (ctx *defaultContext) String() string { return "default" }
-func (ctx *defaultContext) autoArgs(_ []*Def, _ []Value) ([]string, error) { return nil, nil }
-func (ctx *defaultContext) autoSet(_ string, _ Value) (Value, bool) { return nil, false }
-func (ctx *defaultContext) closureResolveAuto(name string) (obj Object, found bool) {
+func (ctx *defaultContext) colonResolve(name string) (obj Object, found bool) {
   switch g := ctx.globe; name {
   case "os"   : obj, found = g.os.self, true
   case "goals": obj, found = g.goals,   true
@@ -426,6 +421,9 @@ func (ctx *defaultContext) closureResolveAuto(name string) (obj Object, found bo
   }
   return
 }
+func (ctx *defaultContext) closureResolveAuto(name string) (obj Object, found bool) { return ctx.colonResolve(name) }
+func (ctx *defaultContext) autoArgs(_ []*Def, _ []Value) ([]string, error) { return nil, nil }
+func (ctx *defaultContext) autoSet(_ string, _ Value) (Value, bool) { return nil, false }
 func (ctx *defaultContext) autoGet(name string) (res Value, found bool) {
   var obj Object
   if obj, found = ctx.closureResolveAuto(name); found {
@@ -443,49 +441,6 @@ func (ctx *defaultContext) closureScopes() (scopes []*Scope) {
   }
   return
 }
-//func (ctx *defaultContext) closureProjects() []*Project { return nil }
-/*func (ctx *defaultContext) closureGet(name string) (res Value) {
-  if m := ctx.globe.main; m == nil {
-    // ...
-  } else if m.scope == nil {
-    // ...
-  } else if def := m.scope.FindDef(name); def != nil {
-    return def.Call(ctx)
-  }
-  res, _ = ctx.autoGet(name)
-  return
-}
-func (ctx *defaultContext) closureSet(name string, val Value) (Value, bool) {
-  if m := ctx.globe.main; m == nil {
-    // ...
-  } else if m.scope == nil {
-    // ...
-  } else if def := m.scope.FindDef(name); def != nil {
-    warn(ctx, "closure set in default context: %s -> %v", name, val).at(def.position).debug(1)
-    var prev = def.value
-    def.val(ctx, val)
-    return prev, true
-  }
-  return ctx.autoSet(name, val)
-}
-func (ctx *defaultContext) closureResolveObject(pos Position, name string) (obj Object) {
-  var err error
-  if m := ctx.globe.main; m == nil {
-    // ...
-  } else if obj, err = m.resolveObject(ctx, name); err != nil {
-    erro(ctx, "resolve closure object '%s' failed: %v", name, err).at(pos).debug(16)
-  }
-  return
-}
-func (ctx *defaultContext) closureResolveEntry(pos Position, name string) (entry Entry) {
-  var err error
-  if m := ctx.globe.main; m == nil {
-    // ...
-  } else if entry, err = m.resolveEntry(ctx, name, false); err != nil {
-    erro(ctx, "resolve closure entry '%s' failed: %v", err).at(pos).debug(16)
-  }
-  return
-}*/
 
 func (ctx *defaultContext) help()       { do_helpscreen(ctx) }
 func (ctx *defaultContext) helpFlags()  { print_flag_trace(ctx) }

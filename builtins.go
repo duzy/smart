@@ -3085,12 +3085,12 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                         }
                 } else if proj, str, ok, err = asOptFullname(ctx, proj, a); err != nil {
                         erro(ctx, "fullname '%v' failed: %v", a, err).of(a)
-                        erro(ctx, "internal stack:").debug(16)
+                        errostack(ctx, 3, "%v", ctx).debug(16)
                         return
                 } else if !ok || str == "" {
                         erro(ctx, "remove failed: %v (%T)", a, a).of(a)
                         erro(ctx, "remove failed: %v", str).of(a)
-                        erro(ctx, "internal stack:").debug(16)
+                        errostack(ctx, 3, "%v", ctx).debug(16)
                         break
                 } else {
                         if opts.verbose { prompt(ctx, "remove %s\n", str) }

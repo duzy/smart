@@ -572,18 +572,24 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
         pc = ctx.programCtx()
     )
     if s != "" { point = diag(ctx, dt, s, a...) }
-    if false { point = ctx.diag(dt, "calls for %v:", proj).at(proj.position) }
-    point = ctx.diag(dt, "%v: %v in %v", proj, ctx.entry(), ctx.entry().OwnerProject()).at(pc.prog.position)
-    for last := pc.prog.position; pc != nil; pc = pc.Context.programCtx() {
-        var pos = pc.prog.position
-        if !pos.SameLine(&last) {
-            point = ctx.diag(dt, "%v: by %v in %v", proj, pc.entry(), pc.entry().OwnerProject()).at(pos)
-            last = pos
-            n -= 1
-        }
-        if n == 0 {
-            if pc != nil { point = ctx.diag(dt, "%v: ...", proj).at(pos) }
-            break
+    if entry := ctx.entry(); entry == nil {
+        point = ctx.diag(dt, "in project %v:", proj)
+        if proj != nil { point.at(proj.position) }
+    } else if pc == nil {
+        point = ctx.diag(dt, "%v: %v in %v", proj, entry, entry.OwnerProject())
+    } else {
+        point = ctx.diag(dt, "%v: %v in %v", proj, entry, entry.OwnerProject()).at(pc.prog.position)
+        for last := pc.prog.position; pc != nil; pc = pc.Context.programCtx() {
+            var pos = pc.prog.position
+            if !pos.SameLine(&last) {
+                point = ctx.diag(dt, "%v: by %v in %v", proj, pc.entry(), pc.entry().OwnerProject()).at(pos)
+                last = pos
+                n -= 1
+            }
+            if n == 0 {
+                if pc != nil { point = ctx.diag(dt, "%v: ...", proj).at(pos) }
+                break
+            }
         }
     }
     return
@@ -4473,10 +4479,12 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (res Value, err error) {
     } else if t, ok := p.x.(*usinglist); ok {
         x = t
     } else if t, ok := p.x.(*selection); !ok || t == nil {
-        erro(ctx, "delegate unsupported value: %T %v", p.x, p.x).debug(1)
+        erro(ctx, "delegate unsupported object: %T %v", p.x, p.x)
+        errostack(ctx, 3, "%v", ctx).debug(16)
         return
     } else if isNil(t.o) {
-        erro(ctx, "%v: selection object is nil (w=%016b)", p, w).debug(16)
+        erro(ctx, "%v: selection object is nil (w=%016b)", p, w)
+        errostack(ctx, 3, "%v", ctx).debug(16)
         return
     } else {
         if n, ok := t.o.(*ProjectName); ok && n != nil && n.project != nil {
@@ -4485,10 +4493,12 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (res Value, err error) {
 
         var v Value
         if v, err = t.value(ctx); err != nil {
-            erro(ctx, "select value '%v' failed: %v", p.x, err).debug(1)
+            erro(ctx, "selected value '%v' failed: %v", p.x, err)
+            errostack(ctx, 3, "%v", ctx).debug(16)
             return
         } else if isNil(v) {
-            erro(ctx, "%v: selected value is nil (%T %v) (w=%016b)", p, t.o, t.o, w).debug(16)
+            erro(ctx, "%v: selected value is nil (%T %v) (w=%016b)", p, t.o, t.o, w)
+            errostack(ctx, 3, "%v", ctx).debug(16)
             return
         } else if t, ok := v.(Object); ok {
             x = t

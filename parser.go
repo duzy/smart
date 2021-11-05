@@ -416,15 +416,22 @@ func (p *parser) parseSelect(lhs Value) (res Value) {
 	position, tok := p.Position(), p.tok // the arrow '->' or '=>'
 	p._next() // skip '->' or '=>'
 
-	var proj = p.Project()
+	var (
+		proj = p.Project()
+		okay bool
+	)
 	switch t := lhs.(type) {
 	case *selection:
 		erro(p, "TODO: multiple selection: %v", lhs).at(position).debug(1)
 	case *Bareword:
         switch t.string {
-        case "goals", "os", "mode": lhs, _ = p.autoGet(t.string)
         case "usee": lhs = proj.using
         case "self": lhs = proj.self
+        case "goals", "os", "mode":
+			if lhs, okay = p.colonResolve(t.string); !okay {
+				erro(p, `"%s" not defined`, t.string).debug(1)
+				return
+			}
         default:
             if name, o, err := p.resolveObject(lhs); err != nil {
 				erro(p, "resolve '%v' failed: %v", lhs, err).at(lhs.Position())
@@ -1074,15 +1081,12 @@ func (p *parser) parseClosureDelegate() (result Value) {
 				return
 			}
 			switch str {
-			//case "goals", "os", "mode": resolved, _ = ctx.autoGet(str)
 			case "usee":  resolved = p.Project().using // TODO: move usee and self into ctx
 			case "self":  resolved = p.Project().self
-			default:
-				if val, has := ctx.autoGet(str); has { resolved = val } else {
-					erro(p, "unknown special property: %v", str, err).at(lPos).debug(1)
-					return
-				}
-			}
+			default: if o, found := ctx.colonResolve(str); found { resolved = o } else {
+				erro(p, "unknown special property: %v", str, err).at(lPos).debug(1)
+				return
+			}}
 			obj, okay = resolved, true
 			return
 		}
