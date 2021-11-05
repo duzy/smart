@@ -1188,46 +1188,67 @@ func builtinServeHttps(ctx Context, args... Value) (res Value) {
 func builtinPrint(ctx Context, args... Value) (res Value) {
         var (
                 x = len(args)
+                sb bytes.Buffer
                 err error
         )
         for i, a := range args {
                 var s string
-                if 0 < i && i < x { fmt.Printf(" ") }
+                if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
                 if a == nil {
                         continue
                 } else if s, err = EscapedString(ctx, a); err == nil {
-                        if s != "" { fmt.Printf("%s", s) }
+                        if s != "" { fmt.Fprintf(&sb, "%s", s) }
                 } else {
                         erro(ctx, "%s", err).debug(1)
                         break
                 }
         }
+        /*fmt.Printf(sb.String())*/prompt(ctx, sb.String())
         return
 }
 
 func builtinPrintl(ctx Context, args... Value) (res Value) {
         var (
                 x = len(args)
+                sb bytes.Buffer
                 err error
         )
         for i, a := range args {
                 var s string
-                if 0 < i && i < x { fmt.Printf(" ") }
+                if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
                 if s, err = EscapedString(ctx, a); err != nil {
                         erro(ctx, "%s", err)
                         return
                 }
-                fmt.Printf("%s", s)
+                fmt.Fprintf(&sb, "%s", s)
                 if i == x && !strings.HasSuffix(s, "\n") {
-                        fmt.Printf("\n")
+                        fmt.Fprintf(&sb, "\n")
                 }
         }
+        /*fmt.Printf(sb.String())*/prompt(ctx, sb.String())
         return
 }
 
 func builtinPrintln(ctx Context, args... Value) (res Value) {
-        builtinPrint(ctx, args...)
-        fmt.Printf("\n")
+        var (
+                x = len(args)
+                sb bytes.Buffer
+                err error
+        )
+        for i, a := range args {
+                var s string
+                if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
+                if a == nil {
+                        continue
+                } else if s, err = EscapedString(ctx, a); err == nil {
+                        if s != "" { fmt.Fprintf(&sb, "%s", s) }
+                } else {
+                        erro(ctx, "%s", err).debug(1)
+                        break
+                }
+        }
+        fmt.Fprintf(&sb, "\n")
+        /*fmt.Printf(sb.String())*/prompt(ctx, sb.String())
         return
 }
 

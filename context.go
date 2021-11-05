@@ -287,31 +287,38 @@ func (diag *diagContext) checkErrors(reset bool) (num int) {
   for i, points := range append([][]*diagPoint{diag.points}, diag.nested...) {
     var nested = i > 0 && len(points) > 0 && len(diag.nested) > 0
     if nested { fmt.Fprintf(stderr, "\n#%d:\n", i) }
-    for _, d := range points {
+    var lastPromptLn = -1
+    for j, d := range points {
       var (
         msg = d.message
         pos = d.position.String()
       )
-      switch d.dt {
-      case diagPrompt: if msg != "" { fmt.Fprintf(stderr, "%s",    msg) }
-      case diagInfo:  fmt.Fprintf(stderr, "%v:info: %s\n",    pos, msg)
-      case diagWarn:  fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
-      case diagError: fmt.Fprintf(stderr, "%v: %s\n",         pos, msg)
-        num += 1
+      if d.dt == diagPrompt {
+        if msg == "" {
+          // nothing needed to be done
+        } else if fmt.Fprintf(stderr, "%s", msg); strings.HasSuffix(msg, "\n") {
+          lastPromptLn = 1
+        } else {
+          lastPromptLn = 0
+        }
+      } else {
+        if false && lastPromptLn == 0 && j > 0 { fmt.Fprintf(stderr, "\n") }
+        switch lastPromptLn = -1; d.dt {
+        case diagError: fmt.Fprintf(stderr, "%v: %s\n",         pos, msg); num += 1
+        case diagInfo : fmt.Fprintf(stderr, "%v:info: %s\n",    pos, msg)
+        case diagWarn : fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
+        }
       }
       if len(d.stack) > 0 {
-        //if !strings.HasSuffix(msg, "\n") { fmt.Fprintf(stderr, "\n") }
+        if lastPromptLn == 0 { fmt.Fprintf(stderr, "\n") }
         fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(d.stack))
       }
-      if num > 49 {
-        fmt.Fprintf(stderr, "%v: too many errors (%d)\n", pos, num)
-        break
-      }
+      if num > 49 { fmt.Fprintf(stderr, "%v: too many errors (%d)\n", pos, num); break }
     }
     if nested { fmt.Fprintf(stderr, "#%d;\n\n", i) }
   }
   if reset {
-    diag.points = []*diagPoint{}
+    diag.points =   []*diagPoint{}
     diag.nested = [][]*diagPoint{}
   }
   return
