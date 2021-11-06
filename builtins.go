@@ -384,7 +384,7 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                                 erro(ctx, "expecting file value: %T %v", v, v).of(v).debug(1)
                                 return
                         }
-                        if _, s, ok, err = asOptFullname(ctx, nil, x); err != nil {
+                        if _, s, _, ok, err = asOptFullname(ctx, nil, x); err != nil {
                                 erro(ctx, "fullname '%v' failed: %v", x, err).of(x).debug(1)
                         } else if ok && s != "" {
                                 val.Set(reflect.ValueOf(&optFullname{ s, x }))
@@ -1969,7 +1969,7 @@ ForSources:
                         }
                 } else if opts.full {
                         var ( s string; ok bool )
-                        if _, s, ok, err = asOptFullname(ctx, proj, src); err != nil {
+                        if _, s, _, ok, err = asOptFullname(ctx, proj, src); err != nil {
                                 erro(ctx, "fullname '%v' failed: %v", src, err).of(src)
                                 erro(ctx, "called from here", src).debug(1)
                                 return
@@ -2584,7 +2584,7 @@ func fullnameOrStrval(ctx Context, a Value) (s string, err error) {
 }
 
 // see optFullname and parseOpt
-func asOptFullname(ctx Context, proj *Project, val Value) (rp *Project, s string, ok bool, e error) {
+func asOptFullname(ctx Context, proj *Project, val Value) (rp *Project, s string, file *File, ok bool, e error) {
         if proj == nil { proj = ctx.Project() }
         if s, ok = fullname(ctx, val); ok {
                 // done
@@ -2594,7 +2594,7 @@ func asOptFullname(ctx Context, proj *Project, val Value) (rp *Project, s string
                 erro(ctx, "strval '%v' failed: %v", val, e).of(val).debug(1)
         } else if filepath.IsAbs(s) {
                 ok = true
-        } else if file := proj.FindFile(ctx, s); file != nil {
+        } else if file = proj.FindFile(ctx, s); file != nil {
                 s, ok = file.fullname(), true
         }
         rp = proj
@@ -2629,7 +2629,7 @@ func builtinFullName(ctx Context, args... Value) (res Value) {
                                 warn(ctx, "%T %v", a, a).debug(opts.debug,1)
                         }
                 }
-                if proj, s, ok, err = asOptFullname(ctx, proj, a); err != nil {
+                if proj, s, _, ok, err = asOptFullname(ctx, proj, a); err != nil {
                         erro(ctx, "fullname '%v' failed: %v", a, err).debug(1)
                         break
                 } else if ok || s != "" {
@@ -2743,7 +2743,7 @@ func builtinDir(ctx Context, args... Value) (res Value) {
         for _, a := range args {
                 var s string
                 if opts.fullname {
-                        if proj, s, _, err = asOptFullname(ctx, proj, a); err != nil {
+                        if proj, s, _, _, err = asOptFullname(ctx, proj, a); err != nil {
                                 erro(ctx, "fullname '%v' failed: %v", a, err).debug(1)
                                 break
                         }
@@ -3086,7 +3086,10 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
         }
 
         for _, a := range args {
-                var ctx = positional(ctx, a.Position())
+                var (
+                        ctx = positional(ctx, a.Position())
+                        file *File
+                )
                 if isNil(a) || isNone(a) {
                         // ignore
                 } else if a.patterned(ctx) {
@@ -3105,18 +3108,23 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                                         return
                                 }
                         }
-                } else if proj, str, ok, err = asOptFullname(ctx, proj, a); err != nil {
+                } else if proj, str, file, ok, err = asOptFullname(ctx, proj, a); err != nil {
                         erro(ctx, "fullname '%v' failed: %v", a, err)
                         errostack(ctx, 3, "%v", ctx).debug(16)
                         return
                 } else if !ok || str == "" {
-                        erro(ctx, "remove failed: %v (%T)", a, a)
-                        erro(ctx, "remove failed: %v", str)
-                        errostack(ctx, 3, "%v", ctx).debug(16)
-                        break
+                        if opts.all {
+                                if opts.verbose { info(ctx, "%v: not a file: %s", proj, str).debug(1) }
+                                if opts.debug   { warn(ctx, "%v: not a file: %s", proj, str).debug(1) }
+                        } else {
+                                erro(ctx, "%v: not a file: %v (%T)", proj, a, a)
+                                erro(ctx, "%v: not a file: %v (%v)", proj, str, file)
+                                errostack(ctx, 3, "%v", ctx).debug(16)
+                                break
+                        }
                 } else {
                         if opts.verbose { prompt(ctx, "remove %s\n", str) }
-                        if opts.debug   { info(ctx, "remove %s", str).debug(1) }
+                        if opts.debug   { warn(ctx, "remove %s", str).debug(1) }
                         if opts.all {
                                 err = os.RemoveAll(str)
                         } else {
@@ -3171,7 +3179,7 @@ func builtinRemoveAll(ctx Context, args... Value) (res Value) {
                                         return
                                 }
                         }
-                } else if proj, str, ok, err = asOptFullname(ctx, proj, a); err != nil {
+                } else if proj, str, _, ok, err = asOptFullname(ctx, proj, a); err != nil {
                         erro(ctx, "remove failed: %v", err).debug(1)
                         return
                 } else if !ok || str == "" {
@@ -3722,7 +3730,7 @@ func builtinReadFile(ctx Context, args... Value) (res Value) {
                         ok bool
                 )
                 if !apos.IsValid() { apos = pos }
-                if proj, str, ok, err = asOptFullname(ctx, proj, a); err != nil {
+                if proj, str, _, ok, err = asOptFullname(ctx, proj, a); err != nil {
                         erro(ctx, "fullname '%v' failed: %v", a, err).debug(1)
                         break
                 } else if !ok || str == "" {
