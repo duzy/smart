@@ -360,7 +360,6 @@ func (ac *autoContext) autoSet(name string, val Value) (res Value, okay bool) {
         if ok && def != nil { res = def.value } else {
                 var scope = ac.Scope()
                 def = &Def{knownobject:knownobject{objbase{scope:scope, owner:scope.project}, name}}
-                def.position = val.Position()
                 //ac.mutex.Lock()
                 ac.defs[name] = def
                 //ac.mutex.Unlock()
@@ -377,7 +376,17 @@ func (ac *autoContext) autoSet(name string, val Value) (res Value, okay bool) {
                 warn(ac, "set: %s %T %v", name, val, val).debug(16)
                 if ac.checkErrors(true) > 0 { return }
         }
+
+        var pos Position
+        if isNil(val) {
+                if false { erro(ac, "%s: value is <nil>", name).debug(16) }
+                pos = ac.Position()
+        } else {
+                pos = val.Position()
+        }
+
         def.mutex.Lock()
+        def.position = pos
         def.value = val
         def.mutex.Unlock()
         okay = true
