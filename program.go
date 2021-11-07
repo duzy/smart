@@ -229,7 +229,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     var (
         t = traverseContext{
             Context: cc,
-            configuration: prog.configure || (cc != nil && cc.traversal().configuration),
+            //configuration: prog.configure || (cc != nil && cc.traversal().configuration),
             execRec: make(map[Value]int),
             start: time.Now(),
             print: true,
@@ -241,7 +241,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     )
     defer func() { if ctx.checkErrors(true) > 0  {
         var errs = ctx.totalErrors()
-        if !t.configuration && cc != nil {
+        if !ctx.configuration() && cc != nil {
             if errs == 1 {
                 err = fmt.Errorf("execution yields an error for %v", entry)
             } else {
@@ -250,7 +250,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             brks.add(pos, breakErro).error = err
         }
         warn(ctx, `%d errors in execution "%s"`, errs, ctx.entry())
-        warnstack(ctx, 8, "%v", ctx).debug(16)
+        warnstack(ctx, 8, "%v", ctx).debug(64)
         if options.failOnErrors { fail(prog.position, "fail by %d errors", errs) }
     } } ()
     if cc != nil {

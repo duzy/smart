@@ -762,7 +762,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   if targetName, err = fullnameOrStrval(ctx, target); err != nil {
     erro(ctx, "stringify target '%v' failed: %v", target, err).of(target).debug(1)
     return
-  } else if t.configuration {
+  } else if ctx.configuration() {
     // does nothing
   } else if opts.wait {
     // good to work without (stamp) or (wait) with the -wait flag
@@ -1051,7 +1051,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   } ()
 
   defer func() {
-    if opts.stamp && !t.configuration {
+    if opts.stamp && !ctx.configuration() {
       var files []*File
       if files, err = target.stamp(t); err != nil {
         if pe, ok := err.(*fs.PathError); ok { err = fmt.Errorf(`"%v" not found`, target)
@@ -1067,7 +1067,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
 
     if err == nil {
       // Good!
-    } else if t.configuration {
+    } else if ctx.configuration() {
       err = nil
     } else {
       erro(ctx, "shell: %v", err).debug(1)

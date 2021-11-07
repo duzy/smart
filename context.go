@@ -102,6 +102,8 @@ type Context interface {
   argumentedSet([]Value) []Value
   arguments() []Value
 
+  configuration() bool
+
   diagnostic() *diagContext
   diag(diagType, string, ...interface{}) *diagPoint
   checkErrors(bool) int
@@ -110,14 +112,14 @@ type Context interface {
 }
 
 func getTargetValue(ctx Context) (res Value) {
-    if target, ok := ctx.autoGet("@"); !ok || isNil(target) {
-        if false { erro(ctx, "target '%v' is nil", target) }
-    } else if vals, _, err := expandall2(ctx, expandPlainValue, target); err != nil {
-        erro(ctx, "expand target '%v' failed: %v", target, err).of(target)
-    } else if len(vals) == 1 { res = vals[0] } else {
-        erro(ctx, "target '%v' expaned to many: %v", target, res).of(target)
-    }
-    return
+  if target, ok := ctx.autoGet("@"); !ok || isNil(target) {
+    if false { erro(ctx, "target '%v' is nil", target) }
+  } else if vals, _, err := expandall2(ctx, expandPlainValue, target); err != nil {
+    erro(ctx, "expand target '%v' failed: %v", target, err).of(target)
+  } else if len(vals) == 1 { res = vals[0] } else {
+    erro(ctx, "target '%v' expaned to many: %v", target, res).of(target)
+  }
+  return
 }
 
 func getTargetValueString(ctx Context) (val Value, str string) {
@@ -420,6 +422,7 @@ func (ctx *defaultContext) Position() (res Position) { res.Filename, res.Line = 
 func (ctx *defaultContext) WorkDir() string { return ctx.workdir }
 func (ctx *defaultContext) Globe() *Globe { return ctx.globe }
 func (ctx *defaultContext) String() string { return "default" }
+func (ctx *defaultContext) configuration() bool { return false }
 func (ctx *defaultContext) colonResolve(name string) (obj Object, found bool) {
   switch g := ctx.globe; name {
   case "os"   : obj, found = g.os.self, true
@@ -430,7 +433,10 @@ func (ctx *defaultContext) colonResolve(name string) (obj Object, found bool) {
 }
 func (ctx *defaultContext) closureResolveAuto(name string) (obj Object, found bool) { return ctx.colonResolve(name) }
 func (ctx *defaultContext) autoArgs(_ []*Def, _ []Value) ([]string, error) { return nil, nil }
-func (ctx *defaultContext) autoSet(_ string, _ Value) (Value, bool) { return nil, false }
+func (ctx *defaultContext) autoSet(name string, val Value) (res Value, ok bool) {
+  erro(ctx, `setting auto "%v" in base context, value=%v`, val).debug(64)
+  return
+}
 func (ctx *defaultContext) autoGet(name string) (res Value, found bool) {
   var obj Object
   if obj, found = ctx.closureResolveAuto(name); found {

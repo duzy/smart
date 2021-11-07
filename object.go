@@ -464,8 +464,11 @@ func (ac *autoContext) autoArgs(params []*Def, args []Value) (names []string, er
                         if s, err = p.Key.Strval(ac); err != nil {
                                 erro(ac, "strval '%v' failed: %v", p.Key, err).of(p.Key).debug(1)
                                 return
-                        } else if namedParam(name) {
+                        } else if namedParam(s) {
                                 name, a = s, p.Value
+                        } else if false {
+                                for _, param := range params { warn(ac, "%v: %v", s, param) }
+                                warn(ac, "%s: %T %v", s, a, a).debug(1)
                         }
                 }
                 if name != "" {

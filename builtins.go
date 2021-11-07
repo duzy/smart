@@ -3114,8 +3114,7 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                         return
                 } else if !ok || str == "" {
                         if opts.all {
-                                if opts.verbose { info(ctx, "%v: not a file: %s", proj, str).debug(1) }
-                                if opts.debug   { warn(ctx, "%v: not a file: %s", proj, str).debug(1) }
+                                warn(ctx, "%v: not a file: %s", proj, str).debug(1)
                         } else {
                                 erro(ctx, "%v: not a file: %v (%T)", proj, a, a)
                                 erro(ctx, "%v: not a file: %v (%v)", proj, str, file)

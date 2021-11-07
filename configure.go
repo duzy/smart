@@ -331,6 +331,13 @@ func scanExitStatus(err error) (n, status int) {
     return
 }
 
+type configureContext struct {
+    Context
+}
+func (cc *configureContext) String() string { return fmt.Sprintf("configure{%s}", cc.Context) }
+func (cc *configureContext) inner() Context { return cc.Context }
+func (cc *configureContext) configuration() bool { return true }
+
 type commonConfigureOpts struct {
     silent bool `s,silent`
     noResetHyphen bool `r,reset` // reset hyphen value, aka. "-"
@@ -424,10 +431,7 @@ ForInParams:
         }
     }
 
-    if t := ctx.traversal(); true {
-        defer func(v bool) { t.configuration = v } (t.configuration)
-        t.configuration = true
-    }
+    ctx = &configureContext{ ctx }
 
     var reses []Value
     var brks breakers

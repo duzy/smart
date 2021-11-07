@@ -27,6 +27,7 @@ import (
 const (
     enable_assertions = true
     enable_grep_bench = true
+    positionalValueCtx = true
 )
 
 type (
@@ -549,8 +550,6 @@ type traverseContext struct {
 
     interpreted []interpreter
 
-    configuration bool
-
     print bool // printing work directories (Entering/Leaving)
 }
 func (t *traverseContext) inner() Context { return t.Context }
@@ -574,7 +573,13 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
     if s != "" { point = diag(ctx, dt, s, a...) }
     if entry := ctx.entry(); entry == nil {
         point = ctx.diag(dt, "in project %v:", proj)
-        if proj != nil { point.at(proj.position) }
+        if false && proj != nil { point.at(proj.position) }
+        for last, i := ctx.Position(), ctx.inner(); i != nil; i = i.inner() {
+            if pos := i.Position(); !pos.Equals(&last) {
+                point = ctx.diag(dt, "%v: from here", proj).at(pos)
+                last = pos
+            }
+        }
     } else if pc == nil {
         point = ctx.diag(dt, "%v: %v in %v", proj, entry, entry.OwnerProject())
     } else {
@@ -602,7 +607,7 @@ func (t *traverseContext) spawn() Context {
     return &spawnTraverseContext{traverseContext{
         Context: t.Context,
         print:   t.print,
-        configuration: t.configuration,
+        //configuration: t.configuration,
         execRec: make(map[Value]int),
         start:   time.Now(),
     }}
@@ -1013,7 +1018,7 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
 
     if err != nil {
         errostack(ctx, -1, "%v: target(%v), file=%v: error: %v", t.Project(), target, file, err).debug(1)
-    } else if !okay && !t.configuration && len(ctx.stems()) == 0 {
+    } else if !okay && !ctx.configuration() && len(ctx.stems()) == 0 {
         if file != nil {
             ctx = positional(ctx, file.position)
             erro(ctx, "projects: %v", projects)
@@ -1074,15 +1079,23 @@ func traversePattern(ctx Context, pat Value) (brks breakers) {
 func appendUpdated(ctx Context, updated *updatedtarget) {
     var program = ctx.program()
     var targetValue Value = getTargetValue(ctx)
-    if isNil(targetValue) {
+    if false && isNil(targetValue) {
         if program != nil {
-            erro(ctx, "target is <nil> for %v", ctx.entry()).at(program.position)
-            erro(ctx, "%v", ctx).debug(1)
+            targetValue = getTargetValue(ctx)
+        } else if entry := ctx.entry(); entry != nil {
+            targetValue = entry.Target()
+        }
+    }
+    if isNil(targetValue) {
+        if ctx.configuration() {
+            erro(ctx, "target is <nil> for configuration %v, operation will fail/panic", ctx.entry())
+        } else {
+            erro(ctx, "target is <nil> for %v, operation will fail/panic", ctx.entry())
+        }
+        errostack(ctx, 8, "%v", ctx).debug(64)
+        if program != nil {
             fail(program.position, "target is <nil>")
         } else {
-            var tv, _ = ctx.autoGet("@")
-            erro(ctx, "target is <nil> for %v", tv)
-            erro(ctx, "%v", ctx).debug(1)
             panic("target is <nil>")
         }
         return
@@ -1263,7 +1276,7 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
     } else if n := len(calleeErrs); n > 0 /*&& t.stems == nil*/ {
         var (
             numRealErrs = 0
-            targetPos = pos //target.Position()
+            targetPos = pos//target.Position()
             targetValuePos = target.Position()
         )
         for _, err := range calleeErrs {
@@ -1289,12 +1302,6 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
         if def, ok := v.(*Def); ok && target != v && target != def.value { // trace source Def in diagnostics
             erro(ctx, "waiting for def '%v': %v", def.name, def.value).of(def.value).debug(1)
         }
-        /*if c := t.closcop; c != nil {
-                erro(ctx, "waiting closured from %v", c.comment).at(c.position).debug(1)
-            }
-            if t.configuration {
-                erro(ctx, "%v: %v = %v", s, t, result).of(t.)
-            }*/
         return
     }
 
@@ -1314,7 +1321,7 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
     }
     if !optStampCurrentTarget {
         // done!
-    } else if files, err = target.stamp(t); err != nil {
+    } else if files, err = target.stamp(ctx); err != nil {
         if p := target.Position(); p.IsValid() { erro(ctx, "%v", err).at(p) }
         erro(ctx, "%v", err).at(pos).debug(1)
         return
@@ -2781,7 +2788,7 @@ func (p *Path) pathname(ctx Context, stems []string) (pathname string, err error
 }
 func (p *Path) stamp(ctx Context) (files []*File, err error) {
     var pathname string
-    ctx = positional(ctx, p.position)
+    if positionalValueCtx { ctx = positional(ctx, p.position) }
     if pathname, err = p.Strval(ctx); err == nil {
         if pathname == "" {
             erro(ctx, "no pathname for `%s`", p)
@@ -3522,7 +3529,7 @@ func (p *File) searchInMatchedPaths(ctx Context, proj *Project) (res bool) {
     return
 }
 func (p *File) stamp(ctx Context) (files []*File, err error) {
-    ctx = positional(ctx, p.position)
+    if positionalValueCtx { ctx = positional(ctx, p.position) }
 
     var fullname string
     if fullname = p.fullname(); fullname == "" {
@@ -3530,28 +3537,32 @@ func (p *File) stamp(ctx Context) (files []*File, err error) {
         return
     }
 
-    var program = ctx.program()
-    var targetValue = getTargetValue(ctx)
-    if isNil(targetValue) {
-        erro(ctx, "target is <nil>").at(program.position).debug(1)
-        return
-    }
-
-    //var oldModTime time.Time
-    //if p.info != nil { oldModTime = p.info.ModTime() }
     if p.info, err = os.Stat(fullname); err != nil {
         if false { erro(ctx, "%v", err).at(p.position).debug(1) }
     } else if p.info != nil {
         var newModTime = p.info.ModTime()
         ctx.Globe().stamp(fullname, newModTime)
-        // p.updated = newModTime.After(oldModTime)
         files = append(files, p)
 
-        var cmp = targetValue.cmp(ctx, p)
-        if c := ctx.traversal().caller(); cmp == cmpEqual && c != nil {
+        if target := getTargetValue(ctx); isNil(target) {
+            erro(ctx, "target is <nil>").at(ctx.program().position).debug(1)
+            return
+        } else if cmp := target.cmp(ctx, p); ctx.configuration() {
+            if false {
+                var t, _ = ctx.autoGet("@")
+                warn(ctx, "%v %T", t, t)
+                warn(ctx, "%v %T", target, target)
+                warn(ctx, "%v", p)
+                warn(ctx, "%v", fullname)
+                warn(ctx, "%v, %v", cmp, ctx).debug(1)
+            }
+        } else if c := ctx.traversal().caller(); cmp == cmpEqual && c != nil {
             // Add to caller context
-            appendUpdated(positional(c, ctx.Position()), newUpdatedTarget(p))
-            if false { targetValue, _ = c.autoGet("@") }
+            if positionalValueCtx {
+                appendUpdated(positional(c, ctx.Position()), newUpdatedTarget(p))
+            } else {
+                appendUpdated(ctx, newUpdatedTarget(p))
+            }
         } else {
             appendUpdated(ctx, newUpdatedTarget(p))
         }
@@ -4428,10 +4439,10 @@ func (p *delegate) expand(ctx Context, w expandwhat) (res Value, err error) {
         erro(ctx, "expand nil delegation: %v (w=%016b)", p, w).at(p.position).debug(64)
         return
     }
-    if false { if o, ok := p.x.(Object); ok && strings.HasPrefix(o.Name(), "HAVE_TERMINFO") {
+    if false { if o, ok := p.x.(Object); ok && strings.HasPrefix(o.Name(), "TARGET") {
         defer func() {
-            info(ctx, "%p %T %v -> %T %v", p.x, p.x, p.x, res, res)
-            info(ctx, "%v : %v", p.x, ctx).debug(6)
+            info(ctx, "%v : x = %T %v -> res = %T %v", p, p.x, p.x, res, res)
+            info(ctx, "%v : %v", p, ctx).debug(6)
         } ()
     }}
 

@@ -2675,6 +2675,7 @@ type modifierStampOpts struct {
 func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
         var (
                 opts modifierStampOpts
+                pos = ctx.Position()
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
@@ -2685,15 +2686,11 @@ func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
                 return
         }
 
-        // Wait for ExecResult (see also modifier (wait -exec))
-        const waitForExecResult = true
-        const stampCurrentTarget = true
-
-        // Wait for prerequisites
-        var pos = ctx.Position()
-        var t = ctx.traversal()
-        var target Value
-        if target, _, _, err = wait(ctx, opts.prompt, waitForExecResult, stampCurrentTarget); err == nil {
+        if target := getTargetValue(ctx); isNil(target) {
+                erro(ctx, "target is <nil>").debug(1)
+                return
+        } else if /*files*/_, err = target.stamp(ctx); err != nil {
+                erro(ctx, "stamp(%v): %v", target, err).debug(1)
                 return
         } else if opts.next {
                 if opts.verbose { warn(ctx, "%v", err).debug(1) }
@@ -2706,21 +2703,21 @@ func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
                         erro(ctx, "%v", err).debug(1)
                 }
                 brks.add(pos, breakErro).error = err
-        } else if t.stems != nil {
-                if opts.debug > 0 {
+        } else if stems := ctx.stems(); len(stems) == 0 {
+                if opts.debug > 0 && err != nil {
                         warn(ctx, "%v", err).debug(1)
                         warnstack(ctx, -1, "%v", err).debug(1)
-                } else {
+                } else if false && err != nil {
                         warn(ctx, "%v", err).debug(1)
                 }
                 brks.add(pos, breakNext).scope = breakTrave
                 err = nil // discard the error
         } else if pos.IsValid() {
                 errostack(ctx, -1, "failed: %v", err).debug(1)
-        } else if targetPos := target.Position(); targetPos.IsValid() {
-                errostack(positional(ctx, targetPos), -1, "failed: %v", err).debug(1)
+        } else if pos = target.Position(); pos.IsValid() {
+                errostack(positional(ctx, pos), -1, "failed: %v", err).debug(1)
         } else {
-                // TODO: dump more diagnostics information here
+                errostack(ctx, -1, "failed: %v", err).debug(1)
         }
 
         if err != nil {
