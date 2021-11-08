@@ -2582,6 +2582,7 @@ type modifierWaitOpts struct {
 func modifierWait(ctx Context, args... Value) (result Value, brks breakers) {
         var (
                 opts modifierWaitOpts
+                execRes *ExecResult
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
@@ -2593,7 +2594,6 @@ func modifierWait(ctx Context, args... Value) (result Value, brks breakers) {
         }
 
         var (
-                execRes *ExecResult
                 waitForExecResult = opts.stdout || opts.stderr || opts.status || opts.execRes
                 stampCurrentTarget = !opts.noTarget
                 target, _ = ctx.autoGet("@")
@@ -2616,6 +2616,7 @@ func modifierWait(ctx Context, args... Value) (result Value, brks breakers) {
                         v Value
                 )
                 if opts.stdout {
+                        // TODO: warn(ctx, "deprecated (wait -stdout), use (shell -stdout) instead; %v", execRes).debug(1)
                         if b := execRes.Stdout.Buf; b != nil { s = b.String() }
                         if opts.trim { s = strings.TrimSpace(s) }
                         switch opts.asType {
@@ -2626,6 +2627,7 @@ func modifierWait(ctx Context, args... Value) (result Value, brks breakers) {
                         a = append(a, v)
                 }
                 if opts.stderr {
+                        // TODO: warn(ctx, "deprecated (wait -stderr), use (shell -stderr) instead; %v", execRes).debug(1)
                         if b := execRes.Stderr.Buf; b != nil { s = b.String() }
                         if opts.trim { s = strings.TrimSpace(s) }
                         switch opts.asType {
@@ -2636,6 +2638,7 @@ func modifierWait(ctx Context, args... Value) (result Value, brks breakers) {
                         a = append(a, v)
                 }
                 if opts.status {
+                        // TODO: warn(ctx, "deprecated (wait -status), use (shell -status) instead; %v", execRes).debug(1)
                         a = append(a, MakeInt(pos,int64(execRes.Status)))
                 }
                 if len(a) > 0 { result = MakeListOrScalar(pos, a) }

@@ -1077,15 +1077,7 @@ func traversePattern(ctx Context, pat Value) (brks breakers) {
 }
 
 func appendUpdated(ctx Context, updated *updatedtarget) {
-    var program = ctx.program()
     var targetValue Value = getTargetValue(ctx)
-    if false && isNil(targetValue) {
-        if program != nil {
-            targetValue = getTargetValue(ctx)
-        } else if entry := ctx.entry(); entry != nil {
-            targetValue = entry.Target()
-        }
-    }
     if isNil(targetValue) {
         if ctx.configuration() {
             erro(ctx, "target is <nil> for configuration %v, operation will fail/panic", ctx.entry())
@@ -1093,8 +1085,8 @@ func appendUpdated(ctx Context, updated *updatedtarget) {
             erro(ctx, "target is <nil> for %v, operation will fail/panic", ctx.entry())
         }
         errostack(ctx, 8, "%v", ctx).debug(64)
-        if program != nil {
-            fail(program.position, "target is <nil>")
+        if p := ctx.program(); p != nil {
+            fail(p.position, "target is <nil>")
         } else {
             panic("target is <nil>")
         }
@@ -1104,17 +1096,20 @@ func appendUpdated(ctx Context, updated *updatedtarget) {
         if targetValue.cmp(ctx, updated.target) == cmpEqual { return }
     }
 
-    var t = ctx.traversal()
-    for _, u := range t.updated { // check if already added
-        if u.target == updated.target { return }
-        if u.target.cmp(ctx, updated.target) == cmpEqual { return }
+    if t := ctx.traversal(); t != nil {
+        for _, u := range t.updated { // check if already added
+            if u.target == updated.target { return }
+            if u.target.cmp(ctx, updated.target) == cmpEqual { return }
+        }
+        t.updated = append(t.updated, updated)
     }
-    t.updated = append(t.updated, updated)
-    for c := t.caller(); c != nil; c = c.caller() { // clear update loop
-        if ct, has := c.autoGet("@"); has && !isNil(ct) && ct == updated.target { return }
-    }
-    if c := t.caller(); c != nil {
-        appendUpdated(positional(c, ctx.Position()), newUpdatedTarget(targetValue, updated))
+    if pc := ctx.programCtx(); pc != nil {
+        for p := pc; p != nil; p = p.caller() { // clear update loop
+            if ct, has := p.autoGet("@"); has && !isNil(ct) && ct == updated.target { return }
+        }
+        if p := pc.caller(); p != nil {
+            appendUpdated(positional(p, ctx.Position()), newUpdatedTarget(targetValue, updated))
+        }
     }
 }
 
@@ -1256,15 +1251,16 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
 
     // Waiting for prerequisites
     var (
-        t = ctx.traversal()
         program = ctx.program()
         pos Position = ctx.Position()
         calleeErrs []error
     )
-    //t.group.Wait()
-    t.calleeErrsM.Lock()
-    calleeErrs = t.calleeErrs; t.calleeErrs = nil
-    t.calleeErrsM.Unlock()
+    if t := ctx.traversal(); t != nil {
+        //t.group.Wait()
+        t.calleeErrsM.Lock()
+        calleeErrs = t.calleeErrs; t.calleeErrs = nil
+        t.calleeErrsM.Unlock()
+    }
 
     if target = getTargetValue(ctx); isNil(target) {
         erro(ctx, "target is <nil>").at(program.position).debug(1)
@@ -1312,7 +1308,7 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
     )
     if optWaitForExecResult {
         // Waiting for command (shell/python/etc.) exec result
-        if bv, has := t.autoGet("-"); has && !isNil(bv) && !isNone(bv) {
+        if bv, has := ctx.autoGet("-"); has && !isNil(bv) && !isNone(bv) {
             var ok bool
             if execRes, ok = bv.(*ExecResult); ok {
                 //execRes.wg.Wait()
@@ -1326,7 +1322,7 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
         erro(ctx, "%v", err).at(pos).debug(1)
         return
     } else if optReportFileUpdates {
-        reportFileUpdates(ctx, t.start, files)
+        reportFileUpdates(ctx, ctx.traversal().start, files)
     }
     return
 }

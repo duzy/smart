@@ -28,6 +28,7 @@ type programContext struct {
 }
 
 func (pc *programContext) inner() Context { return &pc.autoContext }
+func (pc *programContext) caller() *programContext { return pc.Context.programCtx() }
 //XXX: func (pc *programContext) stems() []string { return nil }
 func (pc *programContext) String() string {
     var s = strings.TrimPrefix(pc.prog.scope.comment, "rule ")
@@ -229,7 +230,6 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     var (
         t = traverseContext{
             Context: cc,
-            //configuration: prog.configure || (cc != nil && cc.traversal().configuration),
             execRec: make(map[Value]int),
             start: time.Now(),
             print: true,

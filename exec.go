@@ -692,7 +692,7 @@ func (p *ExecResult) run(ctx Context) (status int, err error) {
 type (
   executorOpts struct {
     deprecated bool `v,vo;w,ve;a,a;d,dump`
-    debug  bool "d,debug"
+    debug  bool `d,debug`
     infos  bool `sci,scan-infos`
     prompt bool `pm,prompt;m,msg`
     promStr string "c,cmd;m,msg"
@@ -707,6 +707,9 @@ type (
     stamp  bool `st,stamp;sf,stamp-file`
     wait   bool `w,wait;wr,wait-result` // wait for execution finished
     report bool `r,report;rs,report-stamp;vs,verbose-stamp`
+    retStdout bool `ro,return-stdout;ro,result-stdout`
+    retStderr bool `ro,return-stderr;ro,result-stderr`
+    retStatus bool `ro,return-status;ro,result-status`
     fullname   bool `f,full;fn,fullname` // expand fullname
     scanStdout bool `so,scan-stdout;so,scan-out`
     scanStderr bool `se,scan-stderr;se,scan-err`
@@ -1219,6 +1222,14 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
 
   // The execution is performed asynchronously, the result can't be fetched immediately.
   // Caller should do a t.wait(...) or exeres.wait() before using the result.
-  result = exeres
+  var res []Value
+  // TODO: if opts.retStdout { res = append(res, ) }
+  // TODO: if opts.retStderr { res = append(res, ) }
+  // TODO: if opts.retStatus { res = append(res, ) }
+  if len(res) == 0 {
+    result = exeres
+  } else {
+    result = MakeListOrScalar(pos, res)
+  }
   return
 }
