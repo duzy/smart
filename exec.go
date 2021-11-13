@@ -27,12 +27,12 @@ import (
 
 // Note that it's is also used with Sscanf.
 const (
-  exitstatusFmt = "exit status %d"
+  fmtExitStatus = "exit status %d"
   maxPromptStr = 48
 )
 
 type exitstatus struct { code int }
-func (e *exitstatus) Error() string { return fmt.Sprintf(exitstatusFmt, e.code) }
+func (e *exitstatus) Error() string { return fmt.Sprintf(fmtExitStatus, e.code) }
 
 func rx(s string) (res *regexp.Regexp) {
   res = regexp.MustCompile(s)

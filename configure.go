@@ -326,7 +326,7 @@ func scanExitStatus(err error) (n, status int) {
             if n, status = scanExitStatus(t); n == 1 { return }
         }
     default:
-        n, _ = fmt.Sscanf(err.Error(), exitstatusFmt, &status)
+        n, _ = fmt.Sscanf(err.Error(), fmtExitStatus, &status)
     }
     return
 }

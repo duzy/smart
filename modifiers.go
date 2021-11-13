@@ -1581,6 +1581,37 @@ func loadSavedDepsAndCheckOutdated(ctx Context, args []string) (savedDepsFileNam
         return
 }
 
+func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
+        if false { fmt.Fprintf(stderr, "dep: %s\n", dep) }
+        if proj := ctx.Project(); proj == nil {
+                erro(ctx, "%s: no current project for dep", dep)
+                errostack(ctx, 5, "%s: %v", dep, ctx).debug(10)
+        } else if file := proj.FindFile(ctx, dep); file == nil {
+                erro(ctx, "%s: no current project for dep", dep)
+                errostack(ctx, 5, "%s: %v", dep, ctx).debug(10)
+        } else if brks = file.traverse(ctx); !brks.has() {
+                res = true
+        }
+        return
+}
+
+func traverseMissingDeps(ctx Context, errBytes []byte) (res bool, brks breakers) {
+        for _, rx := range knownerrors {
+                var all [][][]byte = rx.FindAllSubmatch(errBytes, -1)
+                if all != nil { if rx == rxFatalErrorFileNotFound {
+                        for _, m := range all {
+                                if false { fmt.Fprintf(stderr, "%s\n", m[0]) }
+                                if res, brks = traverseMissingDep(ctx, string(m[4])); !res || brks.has() {
+                                        return
+                                }
+                        }
+                } else {
+                        res = false; return
+                }}
+        }
+        return
+}
+
 type modifierDepsOpts struct {
         debug bool `d,debug`
         verbose bool `v,verbose`
@@ -1696,9 +1727,18 @@ CorrectCC:
                         stdout bytes.Buffer
                         stderr bytes.Buffer
                 )
+        retryCC:
                 cc.Stdout, cc.Stderr = &stdout, &stderr
                 if err = cc.Run(); err != nil {
-                        if true { prompt(ctx, "%s \\\n  %s\n%s\n----------\n%s.\n", cc.Path, strings.Join(ca, " \\\n  "), &stdout, &stderr) }
+                        var okay bool
+                        if okay, brks = traverseMissingDeps(ctx, stderr.Bytes()); okay {
+                                cc = exec.Command(opts.cc, ca...)
+                                stdout.Reset()
+                                stderr.Reset()
+                                goto retryCC
+                        }
+                        prompt(ctx, "%s \\\n  %s\n----------\n%s\n----------\n%s----------\n",
+                                cc.Path, strings.Join(ca, " \\\n  "), &stdout, &stderr)
                         erro(ctx, "deps with %s failed: %v", filepath.Base(opts.cc), err)
                         erro(ctx, "for project %v", proj).at(proj.position)
                         errostack(ctx, -1, "deps with %s faled: %v", filepath.Base(opts.cc), err).debug(6)
