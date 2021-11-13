@@ -58,6 +58,9 @@ func (e pathNotFoundError) Error() string {
 }
 
 func (e fileNotFoundError) Error() string {
-    var s = trimPromptString(e.file.fullname())
-    return fmt.Sprintf("%s: %v not found at %s", e.project.name, e.file.name, s)
+    if s := e.file.fullname(); e.file.name == s { // e.project.name
+        return fmt.Sprintf(`"%v" not found`, e.file.name)
+    } else {
+        return fmt.Sprintf(`"%v" not found at %s`, e.file.name, trimPromptString(s))
+    }
 }

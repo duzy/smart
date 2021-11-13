@@ -41,6 +41,9 @@ type commandLineOpts struct {
   verboseLoads    bool `vl,verbose-loading` // optionVerboseLoading
   verboseParse    bool `vp,verbose-parsing` // optionVerboseParsing
   verboseUsing    bool `vu,verbose-using`   // optionVerboseUsing
+  cleanDotCache   bool `cc,clean-cache;rc,rm-cache`
+  cleanDotDeps    bool `cd,clean-deps;rd,rm-deps`
+  cleanDotGrep    bool `cg,clean-grep;rg,rm-grep`
   configure       bool `g,configure`          // optionConfigure
   reconfigure     bool `r,reconfigure`        // optionReconfig
   noExec          bool `ne,no-exec;ne,no-execute`  // optionNoExec
@@ -459,23 +462,24 @@ func (ctx *defaultContext) help()       { do_helpscreen(ctx) }
 func (ctx *defaultContext) helpFlags()  { print_flag_trace(ctx) }
 func (ctx *defaultContext) helpConfig() { print_configuration(ctx) }
 
-func (ctx *defaultContext) run() (result []Value, breakers []*breaker) {
+func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
   if options.traceLaunch { defer un(trace(t_launch, "defaultContext.run")) }
 
-  var main = ctx.globe.main
+  var main = dc.globe.main
   if main == nil {
-    fmt.Fprintf(stderr, "no targets to update `%v`", ctx.globe.goals)
+    fmt.Fprintf(stderr, "no targets to update `%v`", dc.globe.goals)
     return
   }
 
-  //defer setclosure(setclosure(cloctx.unshift(main.scope)))
+  var ctx Context = &closureContext{dc, []*Scope{main.scope}}
+  removeTempDirs(ctx)
 
   var done bool
-  for _, flag := range ctx.globe.flags {
+  for _, flag := range dc.globe.flags {
     var ( s string; err error )
     if s, err = flag.name.Strval(ctx); err != nil { return }
-    var args, _ = ctx.globe.args[flag]
-    var entries, _ = ctx.globe.flagEntries[s]
+    var args, _ = dc.globe.args[flag]
+    var entries, _ = dc.globe.flagEntries[s]
     for _, entry := range entries {
       var ( res []Value; brks []*breaker )
       if res, brks = entry.Execute(positional(ctx, entry.Position()), args...); len(brks) > 0 {
@@ -492,7 +496,7 @@ func (ctx *defaultContext) run() (result []Value, breakers []*breaker) {
   if done { return }
 
   var goals []Value
-  for _, goal := range merge(ctx.globe.goals.value) {
+  for _, goal := range merge(dc.globe.goals.value) {
     switch t := goal.(type) {
     case *None: // just ignore
     case *Bareword:
@@ -525,8 +529,8 @@ func (ctx *defaultContext) run() (result []Value, breakers []*breaker) {
     }
   }
   for _, goal := range goals {
-    var args, _ = ctx.globe.args[goal]
-    result = append(result, ctx.update(goal, args)...)
+    var args, _ = dc.globe.args[goal]
+    result = append(result, dc.update(goal, args)...)
     updated += 1
   }
   return

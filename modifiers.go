@@ -112,23 +112,31 @@ func (g *modifiergroup) traverse(ctx Context) (brks breakers) {
         if options.traceTraversal { defer un(tt(t_traverse, ctx, g)) }
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("modifiergroup.traverse(%s)", g))) }
         for _, m := range g.modifiers {
+                var ctx = positional(ctx, m.position)
                 if brks = m.traverse(ctx); !brks.has() { continue }
                 if tb := brks.of(breakNext, breakCase, breakDone); tb.has() {
                         break
                 } else if tb = brks.of(breakFail, breakErro); tb.has() {
                         for _, brk := range brks {
                                 switch brk.what {
-                                case breakErro: erro(ctx, "%s: %v", m.name, brk.error).at(brk.pos).debug(1)
-                                case breakFail: erro(ctx, "%s", brk.message).at(brk.pos).debug(1)
+                                case breakErro: erro(ctx, "%s: %v", m.name, brk.error).at(brk.pos)
+                                case breakFail: erro(ctx, "%s: %v", m.name, brk.message).at(brk.pos)
+                                default: erro(ctx, "%s: %v", m.name, brk.what).at(brk.pos)
                                 }
                         }
-                        erro(ctx, "%s: broken", m.name).at(m.position).debug(1)
+                        erro(ctx, "%s: broken unexpectedly", m.name)
+                        errostack(ctx, 5, "%v: %v", m.name, ctx).debug(16)
                         break
                 } else {
                         for _, brk := range brks {
-                                erro(ctx, "%s: broken %v", m.name, brk.what).at(brk.pos)
+                                switch brk.what {
+                                case breakErro: erro(ctx, "%s: %v", m.name, brk.error).at(brk.pos)
+                                case breakFail: erro(ctx, "%s: %v", m.name, brk.message).at(brk.pos)
+                                default: erro(ctx, "%s: %v", m.name, brk.what).at(brk.pos)
+                                }
                         }
-                        erro(ctx, "%s: broken unexpectedly", m.name).at(m.position).debug(1)
+                        erro(ctx, "%s: broken unexpectedly", m.name)
+                        errostack(ctx, 5, "%v: %v", m.name, ctx).debug(16)
                         break
                 }
         }
@@ -981,15 +989,47 @@ func tempFile(ctx Context, prefix, hashee0 string, hasheeN... interface{}) (file
                 erro(ctx, "hashing failed: %v", err).debug(1)
         } else if nameSum := nameHash.Sum(nil); len(nameSum) != sha256.Size {
                 erro(ctx, "hash sum invalid: %v", len(nameSum)).debug(1)
+        } else if project := ctx.Project(); project == nil {
+                erro(ctx, "current project is nil: %v", ctx).debug(1)
         } else {
                 // Make names like .deps/00/da/bef0cc203d80fa25e0e2d3760518ee1b16bd641f99b9059468cfbbe8f096
-                file = ctx.Project().matchTempFile(ctx, filepath.Join(prefix, // e.g. ".deps", ".grep"
+                // .deps/??/??/????????????????????????????????????????????????????????????
+                // .grep/??/??/????????????????????????????????????????????????????????????
+                // .cache/??/??/????????????????????????????????????????????????????????????
+                file = project.matchTempFile(ctx, filepath.Join(prefix, // e.g. ".deps", ".grep"
                         fmt.Sprintf("%x", nameSum[ :1]),
                         fmt.Sprintf("%x", nameSum[1:2]),
                         fmt.Sprintf("%x", nameSum[2: ]),
                 ))
         }
         return
+}
+
+func removeTempDirs(ctx Context, cleanDirs ...string) {
+        if len(cleanDirs) == 0 {
+                if options.cleanDotCache { cleanDirs = append(cleanDirs, ".cache") }
+                if options.cleanDotDeps  { cleanDirs = append(cleanDirs, ".deps") }
+                if options.cleanDotGrep  { cleanDirs = append(cleanDirs, ".grep") }
+        }
+        for _, dir := range cleanDirs {
+                if file, err := tempFile(ctx, dir, ""); err != nil {
+                        erro(ctx, "%v", err).debug(1)
+                        return
+                } else if s := file.fullname(); s == "" {
+                        erro(ctx, `"%v" has no fullname`, file).debug(1)
+                        return
+                } else if s = filepath.Dir(filepath.Dir(filepath.Dir(s))); s == "" {
+                        erro(ctx, `"%v" is invalid temp dir`, file.fullname()).debug(1)
+                        return
+                } else if err = os.RemoveAll(s); err != nil {
+                        erro(ctx, "%v", err).debug(1)
+                        return
+                } else if false {
+                        info(ctx, "%s: removed %v", ctx.Project(), s).debug(1)
+                } else {
+                        prompt(ctx, "%s: removed %v", ctx.Project(), s)
+                }
+        }
 }
 
 func getSavedDepsFileName(ctx Context, targetFullName string, strs []string) (filename string, err error) {
@@ -1400,89 +1440,90 @@ ForTarget:
 }
 
 func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks breakers) {
+        const parallel = true
         var (
-                target, _ = ctx.autoGet("@")
+                target, targetValid = ctx.autoGet("@")
                 targetFullName string
                 filesMux sync.Mutex
                 firstWord string
-                dp Position
                 err error
         )
-        if targetFullName, err = fullnameOrStrval(ctx, target); err != nil {
-                erro(ctx, "fullname '%v' failed: %v", target, err).debug(1)
+        if !targetValid {
+                erro(ctx, "no target: %v", target, ctx).debug(1)
                 return
-        } else { dp.Filename = savedDepsFileName }
+        } else if targetFullName, err = fullnameOrStrval(ctx, target); err != nil {
+                erro(ctx, `fullname "%v" failed: %v`, target, err).debug(1)
+                return
+        }
 
-        findDepFile := func(name string) (file *File) {
+        var proj = ctx.Project()
+        var findDepFile = func(name string) (file *File) {
                 if filepath.IsAbs(name) {
                         file = stat(ctx, name, "", "", nil)
-                } else if file = ctx.Project().FindFile(ctx, name); file != nil && file.exists() {
+                } else if file = proj.FindFile(ctx, name); file != nil && file.exists() {
                         // good!
                 } else {
                         // fail!
                 }
                 return
         }
-        ignored := func(fullname string) (res bool) {
+        var ignored = func(fullname string) (res bool) {
                 if fullname == targetFullName { return true }
                 return
         }
-        addFile := func(file *File) {
+        var addFile = func(file *File) {
                 filesMux.Lock(); defer filesMux.Unlock()
                 files = append(files, file)
         }
 
-        const parallel = true
-        var wg sync.WaitGroup
-        var depFile = func(ctx Context, word string) {
-                var (
-                        dc = diagContext{ Context: ctx }
-                        proj = ctx.Project()
-                )
-                ctx = &dc
+        var jobs sync.WaitGroup
+        var depFile = func(ctx Context, depPos Position, word string) {
+                var dc = diagContext{ Context: ctx }; ctx = &dc
                 if parallel {
                         defer checkPanicsErrors(ctx, true/* don't call checkErrors */)
                         defer func() {
                                 if len(dc.points) > 0 {
                                         dc.inner().diagnostic().nest(dc.points)
                                 }
-                                wg.Done() // minus 1
+                                jobs.Done() // minus 1
                         } ()
                 }
                 if i := strings.Index(word, " "); i > 0 {
-                        warn(ctx, "ignore dep with spaces: %v", word).debug(1)
+                        warn(ctx, "ignore dep with spaces: %v", word)//.debug(1)
                 } else if file := findDepFile(word); file == nil {
                         erro(ctx, "unknown dep '%v' for '%v'", word, firstWord)
-                        erro(ctx, "from here: %s", word).at(dp)
+                        erro(ctx, "from here: %s", word).at(depPos)
                         if filepath.IsAbs(firstWord) {
                                 var wp Position
                                 wp.Filename, wp.Line = firstWord, 1
                                 erro(ctx, "in here: %v", word).at(wp)
                         }
-                        erro(ctx, "for project %v", proj).at(proj.position).debug(6)
+                        erro(ctx, "for project %v", proj).at(proj.position)//.debug(6)
                 } else if ignored(file.fullname()) {
                         //continue // dep is the target itself
                 } else if brks = file.traverse(ctx); brks.has() {
+                        erro(ctx, `%v: missing "%v"`, target, file).at(depPos)
                         for _, brk := range brks {
                                 switch brk.what {
-                                case breakFail: erro(ctx, "broken traversal for dep '%v' failed: %v", file, brk.message).at(brk.pos)
-                                case breakErro: erro(ctx, "broken traversal for dep '%v' with error: %v", file, brk.error).at(brk.pos)
-                                default: erro(ctx, "broken traversal for dep '%v': %v (%v)", file, brk.message, brk.what).at(brk.pos)
+                                case breakFail: erro(ctx, `%v: broken for "%s": %v`, proj, target, brk.message).at(brk.pos)
+                                case breakErro: erro(ctx, `%v: broken for "%s", error: %v`, proj, target, brk.error).at(brk.pos)
+                                default: erro(ctx, `%v: broken for "%s": %v (%v)`, proj, target, brk.message, brk.what).at(brk.pos)
                                 }
                         }
-                        erro(ctx, "missing dep '%v' for %v", file, target).at(dp)
-                        erro(ctx, "broken traversal for dep '%v' from %v", file, target)
-                        erro(ctx, "from project %v (for %v)", proj, file).at(proj.position).debug(6)
                 } else {
                         addFile(file)
                 }
                 if n := dc.countErrors(); n > 0 {
-                        erro(ctx, `%d errors for dep file "%s"`, n, word).debug(1)
+                        var s = trimPromptString(target.String())
+                        err = fmt.Errorf(`dep "%v" error`, word)
+                        erro(ctx, `%v: %d errors for "%s", dep "%s"`, proj, n, s, word)
+                        errostack(ctx, 5, `%v: %v`, ctx).debug(6)
                 }
                 return
         }
 
         var wordRecs = make(map[string]int)
+        var depPos Position; depPos.Filename = savedDepsFileName
         for l, line := range strings.Split(deps, "\n") {
                 var words = line
                 if i := strings.Index(words, ":"); i > 0 { words = strings.TrimSpace(words[i+1:]) }
@@ -1490,19 +1531,23 @@ func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks
                         continue // empty line
                 }
                 for _, word := range strings.Fields(words) {
-                        dp.Line, dp.Column = l + 1, strings.Index(line, word) + 1
+                        depPos.Line, depPos.Column = l + 1, strings.Index(line, word) + 1
                         if /*l == 1 && w == 0 &&*/firstWord == "" { firstWord = word }
                         if wordRecs[word] += 1; wordRecs[word] == 1 {
                                 if parallel {
                                         if false { info(ctx, "spawn %v", ctx) }
-                                        wg.Add(1); go depFile(ctx.spawn(), word)
+                                        jobs.Add(1); go depFile(ctx.spawn(), depPos, word)
                                 } else {
-                                        depFile(ctx, word)
+                                        depFile(ctx, depPos, word)
                                 }
                         }
                 }
         }
-        wg.Wait()
+        if jobs.Wait(); err != nil {
+                erro(ctx, `%v: "%v", %s`, proj, target, err)
+                erro(ctx, `%v: "%v", deps "%v"`, proj, target, savedDepsFileName)
+                errostack(ctx, 3, "%v", ctx).debug(10)
+        }
         return
 }
 
@@ -1637,9 +1682,13 @@ CorrectCC:
         )
         if savedDepsFileName, files, brks = loadSavedDepsAndCheckOutdated(ctx, ca); brks.has() {
                 for _, brk := range brks {
-                        erro(ctx, "borken loading saved deps: %v", brk.what).at(brk.pos).debug(1)
+                        switch brk.what {
+                        case breakErro: erro(ctx, "borken loading saved deps: %v", brk.error).at(brk.pos)
+                        case breakFail: erro(ctx, "borken loading saved deps: %v", brk.message).at(brk.pos)
+                        default: erro(ctx, "borken loading saved deps: %v", brk.what).at(brk.pos)
+                        }
                 }
-                erro(ctx, "broken loading saved deps").debug(1)
+                erro(ctx, "broken loading saved deps (%d brks)", len(brks)).debug(1)
                 return
         } else if len(files) == 0 {
                 var (
@@ -1670,8 +1719,7 @@ CorrectCC:
                 files, brks = parseDeps(ctx, savedDepsFileName, stdout.String())
                 stdout.Reset() // release buffers (optional)
         }
-        if len(files) > 0 {
-                var t = ctx.traversal()
+        if t := ctx.traversal(); t != nil && len(files) > 0 {
                 t.grepped = append(t.grepped, files...)
         }
         return

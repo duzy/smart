@@ -165,8 +165,8 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
         args = append(args[1:], m.args...)
     }
 
-    var t = ctx.traversal()
     if f, ok := modifiers[name]; ok {
+        var t = ctx.traversal()
         var value Value //, _ = ctx.autoGet("-")
         // Special modifier processing (implicit interpretation) before (configure)
         if len(t.interpreted) == 0 && len(prog.recipes) > 0 && name == "configure" /*&& (isNil(value) || isNone(value))*/ {
@@ -182,12 +182,12 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
             if tb := brks.not(breakCase, breakNext, breakDone); tb.has() {
                 for _, brk := range brks {
                     switch brk.what {
-                    case breakFail: erro(ctx, "broken modifier %v with failure: %v", name, brk.message).at(brk.pos)
-                    case breakErro: erro(ctx, "broken modifier %v with error: %v", name, brk.error).at(brk.pos)
-                    default: erro(ctx, "broken modifier %v (%v)", name, brk.what).at(brk.pos)
+                    case breakFail: erro(ctx, "%s: broken modifier with failure: %v", name, brk.message).at(brk.pos)
+                    case breakErro: erro(ctx, "%s: broken modifier with error: %v", name, brk.error).at(brk.pos)
+                    default: erro(ctx, "%s: broken modifier (%v)", name, brk.what).at(brk.pos)
                     }
                 }
-                erro(ctx, "borken modifier %s %v", name, args).debug(6)
+                erro(ctx, "%s: borken modifier (%d brks), args = %v", name, len(brks), args).debug(6)
             }
         } else if hyphen, found := ctx.autoGet("-"); !found || isNil(value) || value == hyphen {
             // does nothing
@@ -250,7 +250,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             brks.add(pos, breakErro).error = err
         }
         warn(ctx, `%d errors in execution "%s"`, errs, ctx.entry())
-        warnstack(ctx, 8, "%v", ctx).debug(64)
+        warnstack(ctx, 8, "%v", ctx).debug(10)
         if options.failOnErrors { fail(prog.position, "fail by %d errors", errs) }
     } } ()
     if cc != nil {
@@ -467,15 +467,6 @@ func traverseNormal(ctx Context) (brks breakers) {
     } (t.target0, t.targetx, t.targets)*/
     t.target0, t.targetN, t.targetX = "<", ">", "^"
     return traversePrerequisites(ctx, ctx.program().depends)
-    /*if n := len(t.targets); n > 0 {
-        t.autoSet("<", t.targets[0])
-        t.autoSet(">", t.targets[n-1])
-        if n == 1 {
-            t.autoSet("^", t.targets[0])
-        } else {
-            t.autoSet("^", MakeList(t.targets[0].Position(), t.targets))
-        }
-    }*/
 }
 
 func traverseOrderOnly(ctx Context) (brks breakers) {

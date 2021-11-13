@@ -581,13 +581,13 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
             }
         }
     } else if pc == nil {
-        point = ctx.diag(dt, "%v: %v in %v", proj, entry, entry.OwnerProject())
+        point = ctx.diag(dt, "%v: %v", proj, entry)
     } else {
-        point = ctx.diag(dt, "%v: %v in %v", proj, entry, entry.OwnerProject()).at(pc.prog.position)
+        point = ctx.diag(dt, "%v: %v", proj, entry).at(pc.prog.position)
         for last := pc.prog.position; pc != nil; pc = pc.Context.programCtx() {
             var pos = pc.prog.position
             if !pos.SameLine(&last) {
-                point = ctx.diag(dt, "%v: by %v in %v", proj, pc.entry(), pc.entry().OwnerProject()).at(pos)
+                point = ctx.diag(dt, "%v: %v", proj, pc.entry()).at(pos)
                 last = pos
                 n -= 1
             }
@@ -770,9 +770,9 @@ func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
                 }
             }
             if brks.has() {
-                erro(ctx, "broken traversal for stemmed file entry %v in %v (%d more)", entry, proj, len(brks)).at(entry.position).debug(1)
+                erro(ctx, "broken traversal for stemmed file entry %v in %v (%d more)", entry, proj, len(brks)).at(entry.position).debug(6)
             } else {
-                erro(ctx, "broken traversal for stemmed file entry %v in %v", entry, proj).at(entry.position).debug(1)
+                erro(ctx, "broken traversal for stemmed file entry %v in %v", entry, proj).at(entry.position).debug(6)
             }
             brks = brks.not(breakFail, breakErro)
             return
@@ -786,7 +786,7 @@ func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
                 erro(ctx, "broken traversal for stemmed file entry %v (%v)", file, brk.what).at(brk.pos)
             }
             erro(ctx, "broken traversal for stemmed file entry %v", entry).at(entry.position)
-            errostack(positional(ctx, entry.position), -1, "broken traversal for stemmed file %v:", file).debug(1)
+            errostack(positional(ctx, entry.position), -1, "broken traversal for stemmed file %v:", file).debug(6)
             return
         } else if okay { break }
     }
@@ -805,8 +805,8 @@ func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
         erro(ctx, "missing: %v (%d concrete, %d stemmed)", file, len(concreteList), len(stemmedList))
         for _, concrete := range concreteList { erro(ctx, "concrete: %v", concrete).at(concrete.Position()) }
         for _, stemmed  := range stemmedList  { erro(ctx, "stemmed: %v", stemmed).at(stemmed.position) }
-        erro(ctx, "arguments: %v", t.arguments())
-        erro(ctx, "missing file %v required by %v (in %v)", file, targetVal, t.Project())
+        if a := t.arguments(); len(a) > 0 { erro(ctx, "arguments: %v", a) }
+        erro(ctx, "%v: missing file %v required by %v", t.Project(), file, targetVal)
         errostack(ctx, -1, "%v", ctx).debug(16)
         brks.add(file.position, breakErro).error = fileNotFoundError{ t.Project(), file }
     } else if !okay && len(ctx.stems()) > 0 {
@@ -3670,27 +3670,33 @@ func (p *File) traverse(ctx Context) (brks breakers) {
 
     if _, brks = traverseFile(ctx, p); p.info == nil {
         brks.add(p.position, breakErro).error = fileNotFoundError{ proj, p }
-        erro(ctx, "break: missing file %v (at %s)", p, p.fullname()).at(p.position)
-        var pos Position
-        if c := t.caller(); c != nil {
-            pos = c.Position()
+        if s1, s2 := p.String(), p.fullname(); s1 == s2 {
+            erro(ctx, `%v: missing file "%s"`, proj, s1)
         } else {
-            pos = proj.position
+            erro(ctx, `%v: missing file "%s" (at "%s")`, proj, s1, s2)
         }
-        erro(ctx, "%v: %v", proj, p)
-        errostack(ctx, 5, "%v: %v", proj, ctx).at(pos).debug(16)
+        errostack(ctx, 5, "%v: %v", proj, ctx).debug(6)
     } else if tb := brks.not(breakNext, breakCase, breakDone); len(tb) > 0 {
+        if s1, s2 := p.String(), p.fullname(); s1 == s2 {
+            erro(ctx, "%v: missing file %s", proj, s1)
+        } else {
+            erro(ctx, "%v: missing file %s (at %s)", proj, s1, s2)
+        }
         for _, brk := range tb {
             switch brk.what {
-            case breakFail: erro(ctx, "broken traversal for file %v: %v", p, brk.message).at(brk.pos)
-            case breakErro: erro(ctx, "broken traversal for file %v with error: %v", p, brk.error).at(brk.pos)
-            default: erro(ctx, "broken traversal for file %v (%v)", p, brk.what).at(brk.pos)
+            case breakFail: erro(ctx, "broken for file %v: %v", p, brk.message).at(brk.pos)
+            case breakErro: erro(ctx, "broken for file %v: %v", p, brk.error).at(brk.pos)
+            default: erro(ctx, "broken for file %v (%v)", p, brk.what).at(brk.pos)
             }
         }
-        erro(ctx, "broken traversal for file '%v' (at %s)", p, p.fullname()).at(p.position)
-        erro(ctx, "broken traversal for file '%v' from %v", p, proj).at(proj.position).debug(1)
+        errostack(ctx, 5, "%v: %v", proj, ctx).debug(6)
     } else if false && brks.has() {
-        erro(ctx, "broken traversal for file '%v' (at %s)", p, p.fullname()).at(p.position).debug(1)
+        if s1, s2 := p.String(), p.fullname(); s1 == s2 {
+            erro(ctx, "%v: missing file %s", proj, s1)
+        } else {
+            erro(ctx, "%v: missing file %s (at %s)", proj, s1, s2)
+        }
+        errostack(ctx, 5, "%v: %v", proj, ctx).debug(6)
     }
     return
 }
