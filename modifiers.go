@@ -1598,15 +1598,16 @@ func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
 func traverseMissingDeps(ctx Context, errBytes []byte) (res bool, brks breakers) {
         for _, rx := range knownerrors {
                 var all [][][]byte = rx.FindAllSubmatch(errBytes, -1)
-                if all != nil { if rx == rxFatalErrorFileNotFound {
-                        for _, m := range all {
+                if all != nil { for _, m := range all {
+                        if rx == rxFatalErrorFileNotFound {
                                 if false { fmt.Fprintf(stderr, "%s\n", m[0]) }
+                                if true { prompt(ctx, "%s\n", m[0]).debug(10) }
                                 if res, brks = traverseMissingDep(ctx, string(m[4])); !res || brks.has() {
                                         return
                                 }
+                        } else {
+                                prompt(ctx, "%s\n", m[0])/*.debug(1)*/
                         }
-                } else {
-                        res = false; return
                 }}
         }
         return
