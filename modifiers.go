@@ -59,7 +59,8 @@ func (_ *modifier) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (m *modifier) traverse(ctx Context) (brks breakers) {
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("modifier.traverse(%s)", m))) }
-        if options.traceTraversal   { defer un(tt(t_traverse, ctx, m)) }
+        if options.traceTraversal { defer un(tt(t_traverse, ctx, m)) }
+        var proj = ctx.Project()
         ctx = positional(ctx, m.position)
         if brks = ctx.program().modify(ctx, m); !brks.has() {
                 if n := ctx.countErrors(); n > 0 {
@@ -67,14 +68,15 @@ func (m *modifier) traverse(ctx Context) (brks breakers) {
                         brks.add(m.position, breakFail).message = s
                 }
         } else if tb := brks.not(breakCase, breakNext, breakDone); tb.has() {
+                prompt(ctx, "%v: %s modify failed for %s\n", ctx.entry(), m.name, proj)
                 for _, brk := range tb {
                         switch brk.what {
-                        case breakFail: erro(ctx, "broken traversal for modifier %v failed: %v", m.name, brk.message).at(brk.pos)
-                        case breakErro: erro(ctx, "broken traversal for modifier %v with error: %v", m.name, brk.error).at(brk.pos)
-                        default: erro(ctx, "broken traversal for modifier %v (%v)", m.name, brk.what).at(brk.pos)
+                        case breakFail: erro(ctx, "%v: broken traversal for modifier %v failed: %v", proj, m.name, brk.message).at(brk.pos)
+                        case breakErro: erro(ctx, "%v: broken traversal for modifier %v with error: %v", proj, m.name, brk.error).at(brk.pos)
+                        default: erro(ctx, "%v: broken traversal for modifier %v (%v)", proj, m.name, brk.what).at(brk.pos)
                         }
                 }
-                erro(ctx, "broken traversal for modifier %v in %v", m.name, ctx.Project()).debug(1)
+                errostack(ctx, 3, "%v: %v: %v", proj, m.name, ctx).debug(6)
         }
         return
 }
@@ -112,31 +114,23 @@ func (g *modifiergroup) traverse(ctx Context) (brks breakers) {
         if options.traceTraversal { defer un(tt(t_traverse, ctx, g)) }
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("modifiergroup.traverse(%s)", g))) }
         for _, m := range g.modifiers {
-                var ctx = positional(ctx, m.position)
+                var (
+                        proj = ctx.Project()
+                        ctx = positional(ctx, m.position)
+                )
                 if brks = m.traverse(ctx); !brks.has() { continue }
                 if tb := brks.of(breakNext, breakCase, breakDone); tb.has() {
                         break
-                } else if tb = brks.of(breakFail, breakErro); tb.has() {
-                        for _, brk := range brks {
-                                switch brk.what {
-                                case breakErro: erro(ctx, "%s: %v", m.name, brk.error).at(brk.pos)
-                                case breakFail: erro(ctx, "%s: %v", m.name, brk.message).at(brk.pos)
-                                default: erro(ctx, "%s: %v", m.name, brk.what).at(brk.pos)
-                                }
-                        }
-                        erro(ctx, "%s: broken unexpectedly", m.name)
-                        errostack(ctx, 5, "%v: %v", m.name, ctx).debug(16)
-                        break
                 } else {
+                        prompt(ctx, "%v: traverse %s failed for %s\n", ctx.entry(), m.name, proj)
                         for _, brk := range brks {
                                 switch brk.what {
-                                case breakErro: erro(ctx, "%s: %v", m.name, brk.error).at(brk.pos)
-                                case breakFail: erro(ctx, "%s: %v", m.name, brk.message).at(brk.pos)
-                                default: erro(ctx, "%s: %v", m.name, brk.what).at(brk.pos)
+                                case breakErro: erro(ctx, "%v: %s: %v", proj, m.name, brk.error).at(brk.pos)
+                                case breakFail: erro(ctx, "%v: %s: %v", proj, m.name, brk.message).at(brk.pos)
+                                default: erro(ctx, "%v: %s: %v", proj, m.name, brk.what).at(brk.pos)
                                 }
                         }
-                        erro(ctx, "%s: broken unexpectedly", m.name)
-                        errostack(ctx, 5, "%v: %v", m.name, ctx).debug(16)
+                        errostack(ctx, 3, "%v: %v: %v", proj, m.name, ctx).debug(6)
                         break
                 }
         }
@@ -1027,7 +1021,7 @@ func removeTempDirs(ctx Context, cleanDirs ...string) {
                 } else if false {
                         info(ctx, "%s: removed %v", ctx.Project(), s).debug(1)
                 } else {
-                        prompt(ctx, "%s: removed %v", ctx.Project(), s)
+                        prompt(ctx, "%s: removed %v\n", ctx.Project(), s)
                 }
         }
 }
@@ -1419,7 +1413,7 @@ ForTarget:
                                         }
                                 }
                                 erro(ctx, "broken traversal for grepped %v from %v", val, target)
-                                erro(ctx, "from project %v (for %v)", ctx.Project(), val).at(ctx.Project().position).debug(1)
+                                errostack(ctx, 5, "%v", ctx).debug(16)
                                 break ForTarget
                         }
                 }
@@ -1510,6 +1504,7 @@ func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks
                                 default: erro(ctx, `%v: broken for "%s": %v (%v)`, proj, target, brk.message, brk.what).at(brk.pos)
                                 }
                         }
+                        errostack(ctx, 5, "%v: %v", proj, ctx).debug(16)
                 } else {
                         addFile(file)
                 }
@@ -1582,30 +1577,42 @@ func loadSavedDepsAndCheckOutdated(ctx Context, args []string) (savedDepsFileNam
 }
 
 func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
-        if false { fmt.Fprintf(stderr, "dep: %s\n", dep) }
         if proj := ctx.Project(); proj == nil {
                 erro(ctx, "%s: no current project for dep", dep)
                 errostack(ctx, 5, "%s: %v", dep, ctx).debug(10)
         } else if file := proj.FindFile(ctx, dep); file == nil {
                 erro(ctx, "%s: no current project for dep", dep)
                 errostack(ctx, 5, "%s: %v", dep, ctx).debug(10)
-        } else if brks = file.traverse(ctx); !brks.has() {
+        } else if brks = file.traverse(ctx); brks.has() {
+                prompt(ctx, "%s: traverse file failed for %v\n", file.fullname(), proj)
+                for _, brk := range brks {
+                        switch brk.what {
+                        case breakErro: erro(ctx, "%v: borken loading saved deps: %v", proj, brk.error).at(brk.pos)
+                        case breakFail: erro(ctx, "%v: borken loading saved deps: %v", proj, brk.message).at(brk.pos)
+                        default: erro(ctx, "%v: borken loading saved deps: %v", proj, brk.what).at(brk.pos)
+                        }
+                }
+                errostack(ctx, 3, "%v: %v", proj, ctx).debug(8)
+        } else {
                 res = true
         }
         return
 }
 
 func traverseMissingDeps(ctx Context, errBytes []byte) (res bool, brks breakers) {
+        const promptErrors bool = false
+        const promptBeforeTraverse bool = promptErrors && true
+        const promptOnTraverseFail bool = promptErrors && !promptBeforeTraverse
         for _, rx := range knownerrors {
                 var all [][][]byte = rx.FindAllSubmatch(errBytes, -1)
                 if all != nil { for _, m := range all {
                         if rx == rxFatalErrorFileNotFound {
-                                if false { fmt.Fprintf(stderr, "%s\n", m[0]) }
-                                if true { prompt(ctx, "%s\n", m[0]).debug(10) }
+                                if promptBeforeTraverse { prompt(ctx, "%s\n", m[0]).debug(6) }
                                 if res, brks = traverseMissingDep(ctx, string(m[4])); !res || brks.has() {
+                                        if promptOnTraverseFail { prompt(ctx, "%s\n", m[0]).debug(6) }
                                         return
                                 }
-                        } else {
+                        } else if promptErrors {
                                 prompt(ctx, "%s\n", m[0])/*.debug(1)*/
                         }
                 }}
@@ -1720,29 +1727,32 @@ CorrectCC:
                         default: erro(ctx, "borken loading saved deps: %v", brk.what).at(brk.pos)
                         }
                 }
-                erro(ctx, "broken loading saved deps (%d brks)", len(brks)).debug(1)
+                errostack(ctx, 5, "%v: %v", proj, ctx).debug(16)
                 return
         } else if len(files) == 0 {
                 var (
                         cc = exec.Command(opts.cc, ca...)
                         stdout bytes.Buffer
                         stderr bytes.Buffer
+                        retried bool
                 )
         retryCC:
                 cc.Stdout, cc.Stderr = &stdout, &stderr
                 if err = cc.Run(); err != nil {
-                        var okay bool
-                        if okay, brks = traverseMissingDeps(ctx, stderr.Bytes()); okay {
-                                cc = exec.Command(opts.cc, ca...)
+                        if okay := false; retried {
+                                /* noop */
+                        } else if okay, brks = traverseMissingDeps(ctx, stderr.Bytes()); okay && !brks.has() {
+                                info(ctx, "retry deps command").debug(1)
+                                cc, retried = exec.Command(opts.cc, ca...), true
                                 stdout.Reset()
                                 stderr.Reset()
                                 goto retryCC
                         }
-                        prompt(ctx, "%s \\\n  %s\n----------\n%s\n----------\n%s----------\n",
-                                cc.Path, strings.Join(ca, " \\\n  "), &stdout, &stderr)
-                        erro(ctx, "deps with %s failed: %v", filepath.Base(opts.cc), err)
-                        erro(ctx, "for project %v", proj).at(proj.position)
-                        errostack(ctx, -1, "deps with %s faled: %v", filepath.Base(opts.cc), err).debug(6)
+                        var ( a = strings.Join(ca, " \\\n  "); c = filepath.Base(opts.cc) )
+                        prompt(ctx, "%v: command '%s' failed:\n", proj, opts.cc)
+                        prompt(ctx, "%s \\\n  %s\n----------\n", cc.Path, a)
+                        prompt(ctx, "%s\n----------\n%s----------\n", &stdout, &stderr)
+                        errostack(ctx, 3, "%s: deps with %s failed: %v", proj, c, err).debug(8)
                         return
                 }
                 stderr.Reset() // release buffers (optional)

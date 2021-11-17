@@ -180,14 +180,16 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
         }
         if value, brks = f(positional(ctx, m.position), args...); brks.has() {
             if tb := brks.not(breakCase, breakNext, breakDone); tb.has() {
+                var proj = ctx.Project()
+                prompt(ctx, "%v: %s failed for %s\n", ctx.entry(), name, proj)
                 for _, brk := range brks {
                     switch brk.what {
-                    case breakFail: erro(ctx, "%s: broken modifier with failure: %v", name, brk.message).at(brk.pos)
-                    case breakErro: erro(ctx, "%s: broken modifier with error: %v", name, brk.error).at(brk.pos)
-                    default: erro(ctx, "%s: broken modifier (%v)", name, brk.what).at(brk.pos)
+                    case breakFail: erro(ctx, "%v: %s: broken modifier with failure: %v", proj, name, brk.message).at(brk.pos)
+                    case breakErro: erro(ctx, "%v: %s: broken modifier with error: %v", proj, name, brk.error).at(brk.pos)
+                    default: erro(ctx, "%v: %s: broken modifier (%v)", proj, name, brk.what).at(brk.pos)
                     }
                 }
-                erro(ctx, "%s: borken modifier (%d brks), args = %v", name, len(brks), args).debug(6)
+                errostack(ctx, 3, "%v: %v: %v", proj, name, ctx).debug(6)
             }
         } else if hyphen, found := ctx.autoGet("-"); !found || isNil(value) || value == hyphen {
             // does nothing
@@ -219,6 +221,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     if cc != nil && cc.checkErrors(true) > 0 {
         var errs = cc.totalErrors()
         var s string; if errs > 1 { s = "s" }
+        prompt(cc, "%v: execution canceled with %d errors for '%s'\n", entry, errs, prog.project)
         warn(cc, `cancel execution for "%v" due to %d error%s`, entry, errs, s)
         warnstack(cc, 5, `%v`, cc).debug(16)
         if options.failOnErrors { fail(pos, "fail by %d error%s", errs, s) }
@@ -249,7 +252,8 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             }
             brks.add(pos, breakErro).error = err
         }
-        warn(ctx, `%d errors in execution "%s"`, errs, ctx.entry())
+        prompt(ctx, "%v: execution failed with %d errors for '%s'\n", entry, errs, prog.project)
+        warn(ctx, `%d errors in execution "%s"`, errs, entry)
         warnstack(ctx, 8, "%v", ctx).debug(10)
         if options.failOnErrors { fail(prog.position, "fail by %d errors", errs) }
     } } ()
@@ -360,8 +364,9 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         return
     } else if errs := ctx.checkErrors(true); errs > 0 {
         brks.add(prog.position, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", ctx.totalErrors())
+        prompt(ctx, "%v: execute '%s' failed\n", ctx.Project(), entry)
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, target)
-        if warnstack(ctx, -1, "call stack for %v:", target).debug(8); options.failOnErrors {
+        if warnstack(ctx, 6, "call stack for %v:", target).debug(8); options.failOnErrors {
             fail(prog.position, "fail by %d errors", ctx.totalErrors())
         }
         return
@@ -372,6 +377,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         return
     } else if errs := ctx.checkErrors(true); errs > 0 {
         brks.add(prog.position, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", errs)
+        prompt(ctx, "%v: execute '%s' failed\n", ctx.Project(), entry)
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, target)
         if warnstack(ctx, -1, "call stack for %v:", target).debug(8); options.failOnErrors {
             fail(prog.position, "fail by %d errors", ctx.totalErrors())

@@ -61,6 +61,6 @@ func (e fileNotFoundError) Error() string {
     if s := e.file.fullname(); e.file.name == s { // e.project.name
         return fmt.Sprintf(`"%v" not found`, e.file.name)
     } else {
-        return fmt.Sprintf(`"%v" not found at %s`, e.file.name, trimPromptString(s))
+        return fmt.Sprintf(`"%v" not found (at %s)`, e.file.name, s) //trimPromptString(s)
     }
 }
