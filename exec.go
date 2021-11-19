@@ -1171,6 +1171,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         case diagInfo:  in += rec.num
         }
       }
+      prompt(ctx, "%v: exec failed (status=%d); %v\n", target, exeres.Status, err)
       for i, rec := range exeres.scannedDiags {
         if !opts.infos && rec.dt == diagInfo { continue }
         if !lpos.IsValid() { lpos = rec.lpos }

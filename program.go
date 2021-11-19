@@ -64,7 +64,7 @@ func (pc *programContext) spawn() Context {
         Context: ctx, defs: pc.defs.clone() }, pc.prog, pc.params, sync.Mutex{},
     }}
 }
-
+func (pc *programContext) modifyDepsCtx() *modifierDepsContext { return nil }
 func (pc *programContext) closureScopes() (scopes []*Scope) {
     if cc, ok := pc.Context.(*closureContext); ok {
         if true {
@@ -252,9 +252,9 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             }
             brks.add(pos, breakErro).error = err
         }
-        prompt(ctx, "%v: execution failed with %d errors for '%s'\n", entry, errs, prog.project)
+        prompt(ctx, "%v: execution failed with %d errors, project %s\n", entry, errs, prog.project)
         warn(ctx, `%d errors in execution "%s"`, errs, entry)
-        warnstack(ctx, 8, "%v", ctx).debug(10)
+        warnstack(ctx, 8, "%v: %v", prog.project, ctx).debug(10)
         if options.failOnErrors { fail(prog.position, "fail by %d errors", errs) }
     } } ()
     if cc != nil {
@@ -364,7 +364,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         return
     } else if errs := ctx.checkErrors(true); errs > 0 {
         brks.add(prog.position, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", ctx.totalErrors())
-        prompt(ctx, "%v: execute '%s' failed\n", ctx.Project(), entry)
+        prompt(ctx, "%v: execute failed, project %s\n", entry, ctx.Project())
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, target)
         if warnstack(ctx, 6, "call stack for %v:", target).debug(8); options.failOnErrors {
             fail(prog.position, "fail by %d errors", ctx.totalErrors())
@@ -377,7 +377,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         return
     } else if errs := ctx.checkErrors(true); errs > 0 {
         brks.add(prog.position, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", errs)
-        prompt(ctx, "%v: execute '%s' failed\n", ctx.Project(), entry)
+        prompt(ctx, "%v: execute failed, project %s\n", entry, ctx.Project())
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, target)
         if warnstack(ctx, -1, "call stack for %v:", target).debug(8); options.failOnErrors {
             fail(prog.position, "fail by %d errors", ctx.totalErrors())

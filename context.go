@@ -112,6 +112,8 @@ type Context interface {
   checkErrors(bool) int
   countErrors() int
   totalErrors() int
+
+  modifyDepsCtx() *modifierDepsContext
 }
 
 func getTargetValue(ctx Context) (res Value) {
@@ -422,6 +424,7 @@ func (ctx *defaultContext) Project() *Project { return ctx.globe.main }
 func (ctx *defaultContext) program() *Program { return nil }
 func (ctx *defaultContext) programCtx() *programContext { return nil }
 func (ctx *defaultContext) Position() (res Position) { res.Filename, res.Line = ctx.workdir, 1; return }
+func (ctx *defaultContext) modifyDepsCtx() *modifierDepsContext { return nil }
 func (ctx *defaultContext) WorkDir() string { return ctx.workdir }
 func (ctx *defaultContext) Globe() *Globe { return ctx.globe }
 func (ctx *defaultContext) String() string { return "default" }
