@@ -1171,7 +1171,9 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         case diagInfo:  in += rec.num
         }
       }
-      prompt(ctx, "%v: exec failed (status=%d); %v\n", target, exeres.Status, err)
+      if en > 0 || wn > 0 || exeres.Status != 0 || err != nil {
+        prompt(ctx, "%v: exec failed (status=%d; err=%v)\n", targetName, exeres.Status, err)
+      }
       for i, rec := range exeres.scannedDiags {
         if !opts.infos && rec.dt == diagInfo { continue }
         if !lpos.IsValid() { lpos = rec.lpos }
@@ -1194,8 +1196,9 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       } else {
         lpos = ctx.Position()
       }
-      var str = ctx.entry().String()
-      if t := target.String(); str != t { str = fmt.Sprintf("%s(%s)", str, t) }
+      //var str = ctx.entry().String()
+      //if t := target.String(); str != t { str = fmt.Sprintf("%s(%s)", str, t) }
+      var str = entryStr(ctx, ctx.entry())
       if exeres.Status != 0 { err = &exitstatus{ exeres.Status } // set or convert error
         erro(ctx, "%v: abnormal exit status %d", str, exeres.Status).at(lpos)
       } else if err != nil { if opts.silent { err = nil }

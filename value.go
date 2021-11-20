@@ -562,16 +562,26 @@ func (t *traverseContext) tracef(s string, a ...interface{}) { printIndentDots(t
 func (t *traverseContext) traversal() *traverseContext { return t }
 func (t *traverseContext) caller() (caller *traverseContext) { return t.Context.traversal() }
 
+func entryStr(ctx Context, entry Entry) (str string) {
+    str = entry.String()
+    if target, found := ctx.autoGet("@"); !found || isNil(target) {
+        // ...
+    } else if s := target.String(); s != str {
+        str = fmt.Sprintf("%s(%s)", str, s)
+    }
+    return
+}
+
 func infostack(ctx Context, n int, s string, a ...interface{}) *diagPoint { return callstack(ctx, n, diagInfo , s, a...) }
 func errostack(ctx Context, n int, s string, a ...interface{}) *diagPoint { return callstack(ctx, n, diagError, s, a...) }
 func warnstack(ctx Context, n int, s string, a ...interface{}) *diagPoint { return callstack(ctx, n, diagWarn , s, a...) }
 func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (point *diagPoint) {
     var (
         proj = ctx.Project()
-        pc = ctx.programCtx()
+        entry = ctx.entry()
     )
     if s != "" { point = diag(ctx, dt, s, a...) }
-    if entry := ctx.entry(); entry == nil {
+    if entry == nil {
         point = ctx.diag(dt, "in project %v:", proj)
         if false && proj != nil { point.at(proj.position) }
         for last, i := ctx.Position(), ctx.inner(); i != nil; i = i.inner() {
@@ -580,14 +590,15 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
                 last = pos
             }
         }
-    } else if pc == nil {
-        point = ctx.diag(dt, "%v: %v", proj, entry)
+        return
+    } else if pc := ctx.programCtx(); pc == nil {
+        point = ctx.diag(dt, "%v: %v", proj, entryStr(ctx, entry))
     } else {
-        point = ctx.diag(dt, "%v: %v", proj, entry).at(pc.prog.position)
+        point = ctx.diag(dt, "%v: %v", proj, entryStr(ctx, entry)).at(pc.prog.position)
         for last := pc.prog.position; pc != nil; pc = pc.Context.programCtx() {
             var pos = pc.prog.position
             if !pos.SameLine(&last) {
-                point = ctx.diag(dt, "%v: %v", proj, pc.entry()).at(pos)
+                point = ctx.diag(dt, "%v: %v", proj, entryStr(pc, pc.entry())).at(pos)
                 last = pos
                 n -= 1
             }
