@@ -64,7 +64,7 @@ func (pc *programContext) spawn() Context {
         Context: ctx, defs: pc.defs.clone() }, pc.prog, pc.params, sync.Mutex{},
     }}
 }
-func (pc *programContext) modifyDepsCtx() *modifierDepsContext { return nil }
+func (pc *programContext) mustExists() bool { return false }
 func (pc *programContext) closureScopes() (scopes []*Scope) {
     if cc, ok := pc.Context.(*closureContext); ok {
         if true {
@@ -109,18 +109,35 @@ func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err 
 
     var value Value
     if value, err = i.Evaluate(ctx, params...); err != nil {
-        erro(ctx, "%s: %v", intername(i), err).debug(1)
+        var (
+            _, ent, _ = entryStr(ctx, ctx.entry())
+            nam = intername(i)
+        )
+        prompt(ctx, "%v: %s\n", ent, nam)
+        erro(ctx, "%s: %v", nam, err)
+        errostack(ctx, 3, "%v", ctx).debug(1)
         return
     } else if isNil(value) {
         // disgard nil value
     } else if prev, ok := ctx.autoSet("-", value); !ok {
+        var (
+            _, ent, _ = entryStr(ctx, ctx.entry())
+            nam = intername(i)
+        )
+        prompt(ctx, "%v: %s\n", ent, nam)
         erro(ctx, "set buffer value failed: %v -> %v", prev, value)
-        erro(ctx, "set buffer value failed: %v", ctx).debug(1)
+        errostack(ctx, 3, "%v", ctx).debug(1)
         return
     }
 
     if _, _, err = updateRecipesHash(ctx); err != nil {
-        erro(ctx, "update recipes hash failed: %v", err).debug(1)
+        var (
+            _, ent, _ = entryStr(ctx, ctx.entry())
+            nam = intername(i)
+        )
+        prompt(ctx, "%v: %s\n", ent, nam)
+        erro(ctx, "update recipes hash failed: %v", err)
+        errostack(ctx, 3, "%v", ctx).debug(1)
     } else if t := ctx.traversal(); t != nil {
         t.interpreted = append(t.interpreted, i)
     }
@@ -165,6 +182,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
         args = append(args[1:], m.args...)
     }
 
+    var proj = ctx.Project()
     if f, ok := modifiers[name]; ok {
         var t = ctx.traversal()
         var value Value //, _ = ctx.autoGet("-")
@@ -173,15 +191,18 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
             // Evaluate for configure modifier
             if i, ok := dialects["eval"]; ok && i != nil {
                 if err = prog.interpret(ctx, i, args); err != nil {
-                    erro(ctx, "interpret failed: %v", err).debug(1)
+                    var _, ent, _ = entryStr(ctx, ctx.entry())
+                    prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
+                    erro(ctx, "interpret failed: %v", err)
+                    errostack(ctx, 3, "%v", ctx).debug(1)
                     return
                 }
             }
         }
         if value, brks = f(positional(ctx, m.position), args...); brks.has() {
             if tb := brks.not(breakCase, breakNext, breakDone); tb.has() {
-                var proj = ctx.Project()
-                prompt(ctx, "%v: %s failed for %s\n", ctx.entry(), name, proj)
+                var _, ent, _ = entryStr(ctx, ctx.entry())
+                prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
                 for _, brk := range brks {
                     switch brk.what {
                     case breakFail: erro(ctx, "%v: %s: broken modifier with failure: %v", proj, name, brk.message).at(brk.pos)
@@ -194,14 +215,22 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
         } else if hyphen, found := ctx.autoGet("-"); !found || isNil(value) || value == hyphen {
             // does nothing
         } else if ctx.autoSet("-", value); false {
+            var _, ent, _ = entryStr(ctx, ctx.entry())
+            prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
             erro(ctx, "setting buffer value failed: %v", value).debug(1)
         }
     } else if i, _ := dialects[name]; i != nil {
         if err = prog.interpret(ctx, i, args); err != nil {
-            erro(ctx, "%s: %v", name, err).debug(1)
+            var _, ent, _ = entryStr(ctx, ctx.entry())
+            prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
+            erro(ctx, "%s: %v", name, err)
+            errostack(ctx, 3, "%v", ctx).debug(1)
         }
     } else {
-        erro(ctx, "unknown modifier '%s'", name).debug(1)
+        var _, ent, _ = entryStr(ctx, ctx.entry())
+        prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
+        erro(ctx, "unknown modifier '%s'", name)
+        errostack(ctx, 3, "%v", ctx).debug(1)
     }
     return
 }
@@ -243,17 +272,18 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         err error
     )
     defer func() { if ctx.checkErrors(true) > 0  {
+        var str, ent, _ = entryStr(ctx, entry)
         var errs = ctx.totalErrors()
         if !ctx.configuration() && cc != nil {
             if errs == 1 {
-                err = fmt.Errorf("execution yields an error for %v", entry)
+                err = fmt.Errorf("execution yields an error for %v", str)
             } else {
-                err = fmt.Errorf("execution yields %d errors for %v", errs, entry)
+                err = fmt.Errorf("execution yields %d errors for %v", errs, str)
             }
             brks.add(pos, breakErro).error = err
         }
-        prompt(ctx, "%v: execution failed with %d errors, project %s\n", entry, errs, prog.project)
-        warn(ctx, `%d errors in execution "%s"`, errs, entry)
+        prompt(ctx, "%v: execution failed with %d errors, project %s\n", ent, errs, prog.project)
+        warn(ctx, `%d errors in execution "%s"`, errs, str)
         warnstack(ctx, 8, "%v: %v", prog.project, ctx).debug(10)
         if options.failOnErrors { fail(prog.position, "fail by %d errors", errs) }
     } } ()

@@ -53,7 +53,8 @@ var (
   rxNoNetwork = rx(`Error.*: network (.*) not found\.`)
   rxDockerDaemonNotRunning = rx(`Cannot connect to the Docker daemon at (.*?)\. Is the docker daemon running\?`)
   rxContainerNotRunning = rx(`Error response from daemon: Container (.*?) is not running`)
-  rxCompilation = rx(`(.+?):(\d+):(\d+): error: (.+)(?: {2,}\n(.+))?`)
+  rxCompilationError = rx(`(.+?):(\d+):(\d+): error: (.+)(?: {2,}\n(.+))?`)
+  rxCompilationWarning = rx(`(.+?):(\d+):(\d+): warning: (.+)`)
   rxIncludedFrom2 = rx(`In file included from (.+?):(\d+):`)
   rxIncludedFrom3 = rx(`In file included from (.+?):(\d+):(\d+):`)
   rxProtoImportNotFound = rx(`^(.+?\.proto):(\d+):(\d+): Import "(.+?)" was not found or had errors.`)
@@ -377,16 +378,23 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         p.includedFrom.pos1 = p.convPos(v[1].string, v[2].string, v[3].string)
         p.includedFrom.pos2 = lpos
       }
-    case rxCompilation:
+    case rxCompilationError:
       if p.report {
         p.errorPos = p.convPos(v[1].string, v[2].string, v[3].string)
-        lpos.Column = v[4].col
+        lpos.Column = v[4].col + 1
         if s := v[5].string; s != "" {
           addScannedDiag(diagError, lpos, fmt.Sprintf("%s: %s", v[4].string, s))
         } else {
           addScannedDiag(diagError, lpos, fmt.Sprintf("%s", v[4].string))
         }
         if false && !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
+      }
+    case rxCompilationWarning:
+      if p.report {
+        //p.warnPos = p.convPos(v[1].string, v[2].string, v[3].string)
+        lpos.Column = v[4].col + 1
+        addScannedDiag(diagWarn, lpos, fmt.Sprintf("%s", v[4].string))
+        if false && !reportIncludedFrom() { warn(ctx, "…reported here").at(lpos).debug(1) }
       }
     case rxProtoFileNotFound:
       if p.report {
@@ -1185,7 +1193,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         } else {
           diag(ctx, rec.dt, rec.msg).at(rec.position)//.debug(1)
         }
-        if i == 5 && i < len(exeres.scannedDiags) {
+        if i == 8 && i < len(exeres.scannedDiags) {
           diag(ctx, rec.dt, "%d more...", (en+wn+in)-(i+1)).at(rec.lpos)//.debug(1)
           break
         }
@@ -1196,29 +1204,26 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       } else {
         lpos = ctx.Position()
       }
-      //var str = ctx.entry().String()
-      //if t := target.String(); str != t { str = fmt.Sprintf("%s(%s)", str, t) }
-      var str = entryStr(ctx, ctx.entry())
+      var str, _, _ = entryStr(ctx, ctx.entry())
       if exeres.Status != 0 { err = &exitstatus{ exeres.Status } // set or convert error
         erro(ctx, "%v: abnormal exit status %d", str, exeres.Status).at(lpos)
       } else if err != nil { if opts.silent { err = nil }
         erro(ctx, "%v: %s", str, err).at(lpos)
       }
-      const i = 16
       if en > 0 {
         erro(ctx, "%v: scanned %d known errors", str, en).at(lpos)
         erro(ctx, "%v: execute failed (%d errors)", str, en)
-        errostack(ctx, i, "%v: %v", str, ctx).debug(1)
+        errostack(ctx, 16, "%v: %v", str, ctx).debug(6)
       } else if wn > 0 {
         warn(ctx, "%v: scanned %d known warnings", str, wn).at(lpos)
         warn(ctx, "%v: execute has %d warnings", str, wn)
-        warnstack(ctx, i, "%v: %v", str, ctx).debug(1)
+        warnstack(ctx, 3, "%v: %v", str, ctx).debug(1)
       } else if in > 0 && opts.infos {
         info(ctx, "%v: scanned %d known messages", str, in).at(lpos)
         info(ctx, "%v: execute has %d messages", str, in)
-        infostack(ctx, i, "%v: %v", str, ctx).debug(1)
+        infostack(ctx, 8, "%v: %v", str, ctx).debug(1)
       } else if err != nil || exeres.Status != 0 {
-        errostack(ctx, i, "%v: %v", str, ctx).debug(1)
+        errostack(ctx, 18, "%v: %v", str, ctx).debug(6)
       }
       if exeres.Status != 0 || err != nil { break }
     }

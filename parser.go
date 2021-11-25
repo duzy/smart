@@ -1007,6 +1007,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 				warn(p, "nil: %v (tok=%v%v, resolved=%T %v)", name, tok, lTok, resolved, resolved).at(name.Position()).debug(6)
 			}
 		} () }
+		var proj = p.Project()
 		var err error
 		switch lTok {
 		case token.LPAREN:
@@ -1014,7 +1015,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 				if sel == nil {
 					erro(p, "nil selection: %v", name).at(name.Position()).debug(1)
 				} else if o, err := sel.object(ctx); err == nil && o.DeclScope().comment == usecomment {
-					obj, okay = unresolved(p.Project(), name), true
+					obj, okay = unresolved(proj, name), true
 				} else if err != nil {
 					erro(p, "`%v` invalid delegate selection", name).of(sel).debug(1)
 				} else if isNil(o) {
@@ -1041,12 +1042,14 @@ func (p *parser) parseClosureDelegate() (result Value) {
 					okay = true
 					return
 				} else if tok.IsClosure() || refdef(ctx, name, defany) || name.expandible(ctx, expandClosure) {
-					obj, okay = unresolved(p.Project(), name), true // recursive delegation or closure
+					obj, okay = unresolved(proj, name), true // recursive delegation or closure
 					return
 				} else if name.expandible(ctx, expandPlainValue) {
-					erro(p, "resolved '%v' (aka. %s) is nil (project=%v, %T)", name, str, p.Project(), ctx).of(name).debug(16)
+					erro(p, "%v: resolved '%v' (aka. %s) is nil", proj, name, str).of(name)
+					errostack(p, 5, "%v: %v", proj, ctx).of(name).debug(16)
 				} else {
-					erro(p, "resolved '%v' is nil (project=%v, %T)", name, p.Project(), ctx).of(name).debug(16)
+					erro(p, "%v: resolved '%v' is nil", proj, name).of(name)
+					errostack(p, 5, "%v: %v", proj, ctx).of(name).debug(16)
 				}
 			} else if sel, ok = resolved.(*selection); ok && sel != nil {
 				obj, okay = sel, true
@@ -1066,9 +1069,9 @@ func (p *parser) parseClosureDelegate() (result Value) {
 			} else if isNil(resolved) {
 				if name.expandible(ctx, expandPlainValue) {
 					s, _ := name.Strval(ctx)
-					erro(p, "resolved '%v' (aka. %s) is nil (project=%v)", name, s, p.Project()).of(name).debug(1)
+					erro(p, "resolved '%v' (aka. %s) is nil (project=%v)", name, s, proj).of(name).debug(1)
 				} else {
-					erro(p, "resolved '%v' is nil (project=%v)", name, p.Project()).of(name).debug(1)
+					erro(p, "resolved '%v' is nil (project=%v)", name, proj).of(name).debug(1)
 				}
 			} else if exe, _ := resolved.(Executer); exe == nil {
 				erro(p, "resolved '%v' of '%T' is not Executer", name, resolved).at(lPos).debug(1)
@@ -1081,8 +1084,8 @@ func (p *parser) parseClosureDelegate() (result Value) {
 				return
 			}
 			switch str {
-			case "usee":  resolved = p.Project().using // TODO: move usee and self into ctx
-			case "self":  resolved = p.Project().self
+			case "usee":  resolved = proj.using // TODO: move usee and self into ctx
+			case "self":  resolved = proj.self
 			default: if o, found := ctx.colonResolve(str); found { resolved = o } else {
 				erro(p, "unknown special property: %v", str, err).at(lPos).debug(1)
 				return

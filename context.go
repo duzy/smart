@@ -41,9 +41,10 @@ type commandLineOpts struct {
   verboseLoads    bool `vl,verbose-loading` // optionVerboseLoading
   verboseParse    bool `vp,verbose-parsing` // optionVerboseParsing
   verboseUsing    bool `vu,verbose-using`   // optionVerboseUsing
-  cleanDotCache   bool `cc,clean-cache;rc,rm-cache`
-  cleanDotDeps    bool `cd,clean-deps;rd,rm-deps`
-  cleanDotGrep    bool `cg,clean-grep;rg,rm-grep`
+  cleanDotCache   bool `cc,clean-cache;cc,clear-cache;rc,rm-cache`
+  cleanDotDeps    bool `cd,clean-deps;cd,clear-deps;rd,rm-deps`
+  cleanDotGrep    bool `cg,clean-grep;cg,clear-grep;rg,rm-grep`
+  cleanTmpDirs    bool `ct,clean-temp;ct,clear-temp;rt,rm-temp`
   configure       bool `g,configure`          // optionConfigure
   reconfigure     bool `r,reconfigure`        // optionReconfig
   noExec          bool `ne,no-exec;ne,no-execute`  // optionNoExec
@@ -113,7 +114,7 @@ type Context interface {
   countErrors() int
   totalErrors() int
 
-  modifyDepsCtx() *modifierDepsContext
+  mustExists() bool
 }
 
 func getTargetValue(ctx Context) (res Value) {
@@ -424,7 +425,7 @@ func (ctx *defaultContext) Project() *Project { return ctx.globe.main }
 func (ctx *defaultContext) program() *Program { return nil }
 func (ctx *defaultContext) programCtx() *programContext { return nil }
 func (ctx *defaultContext) Position() (res Position) { res.Filename, res.Line = ctx.workdir, 1; return }
-func (ctx *defaultContext) modifyDepsCtx() *modifierDepsContext { return nil }
+func (ctx *defaultContext) mustExists() bool { return false }
 func (ctx *defaultContext) WorkDir() string { return ctx.workdir }
 func (ctx *defaultContext) Globe() *Globe { return ctx.globe }
 func (ctx *defaultContext) String() string { return "default" }
@@ -780,29 +781,25 @@ func CommandLine() {
   globalPaths = append(modulesPaths, globalPaths...)
   for _, s := range modulesPaths {
     searchFile := filepath.Join(s, ".search")
-    if fi, _ := os.Stat(searchFile); fi == nil {
-      continue
-    }
-    file, err := os.Open(searchFile)
-    if err != nil { fmt.Fprintf(stderr, "%v", err); return }
-    defer file.Close()
-    r := bufio.NewReader(file)
-    for err == nil {
-      var line string
+    if fi, _ := os.Stat(searchFile); fi == nil { continue }
+    var file, err = os.Open(searchFile)
+    if err != nil { fmt.Fprintf(stderr, "%v", err); return } else { defer file.Close() }
+    for r := bufio.NewReader(file); err == nil; {
+      var ( fi os.FileInfo; line string )
       if line, err = r.ReadString('\n'); err != nil {
-        if err != io.EOF { fmt.Fprintf(stderr, "%v", err) }
-        break
+        if err != io.EOF { fmt.Fprintf(stderr, "%v", err) } else { err = nil
+          if line == "" { break } }
       } else {
         line = strings.TrimSpace(line)
       }
-      if strings.HasPrefix(line, "#") {
-        continue
+      if strings.HasPrefix(line, "#") { continue } else {
+        line = filepath.Clean(filepath.Join(s, line))
       }
-      line = filepath.Clean(filepath.Join(s, line))
-      if fi, err := os.Stat(line); err == nil && fi.IsDir() {
+      if fi, err = os.Stat(line); err == nil && fi.IsDir() {
         globalPaths = append(globalPaths, line)
       }
     }
+    if err != nil { fmt.Fprintf(stderr, "%v: %v", file, err); return }
   }
 
   if context.countErrors() > 0 { return }

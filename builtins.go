@@ -2323,13 +2323,21 @@ func builtinTrimSuffix(ctx Context, args... Value) (res Value) {
         return
 }
 
+type builtinTrimExtOpts struct {
+        all bool `a,all`
+        ext []string `e,ext`
+}
 func builtinTrimExt(ctx Context, args... Value) (res Value) {
         var (
+                opts builtinTrimExtOpts
                 list []Value
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
                 erro(ctx, "%v", err).debug(1)
+                return
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+                erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
         }
 
@@ -2342,7 +2350,11 @@ func builtinTrimExt(ctx Context, args... Value) (res Value) {
                         if i == 0 && len(args) > 1 {
                                 ext = s
                         } else if ext == "" {
-                                list = append(list, MakeString(a.Position(), strings.TrimSuffix(s, filepath.Ext(s))))
+                                for ext = filepath.Ext(s); ext != ""; {
+                                        s = strings.TrimSuffix(s, ext)
+                                        if opts.all { ext = filepath.Ext(s) } else { break }
+                                }
+                                list = append(list, MakeString(a.Position(), s))
                         } else if ext == filepath.Ext(s) {
                                 list = append(list, MakeString(a.Position(), strings.TrimRight(s, ext)))
                         }
@@ -2592,6 +2604,8 @@ func asOptFullname(ctx Context, proj *Project, val Value) (rp *Project, s string
                 erro(ctx, "no current project to find file '%v'", val).of(val).debug(1)
         } else if s, e = val.Strval(ctx); e != nil {
                 erro(ctx, "strval '%v' failed: %v", val, e).of(val).debug(1)
+        } else if s == "" {
+                // ...
         } else if filepath.IsAbs(s) {
                 ok = true
         } else if file = proj.FindFile(ctx, s); file != nil {
@@ -3090,7 +3104,7 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                         ctx = positional(ctx, a.Position())
                         file *File
                 )
-                if isNil(a) || isNone(a) {
+                if isNil(a) || isNone(a) || isUndef(a) || isEmpty(a) {
                         // ignore
                 } else if a.patterned(ctx) {
                         if str, err = a.Strval(ctx); err != nil { erro(ctx, "%v", err).debug(true, 1); return }
@@ -3114,7 +3128,7 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                         return
                 } else if !ok || str == "" {
                         if opts.all {
-                                warn(ctx, "%v: not a file: %s", proj, str).debug(1)
+                                warn(ctx, "%v: not a file: %s (%T)", proj, str, a).debug(1)
                         } else {
                                 erro(ctx, "%v: not a file: %v (%T)", proj, a, a)
                                 erro(ctx, "%v: not a file: %v (%v)", proj, str, file)
