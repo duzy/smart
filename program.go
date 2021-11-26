@@ -272,8 +272,10 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         err error
     )
     defer func() { if ctx.checkErrors(true) > 0  {
-        var str, ent, _ = entryStr(ctx, entry)
-        var errs = ctx.totalErrors()
+        var (
+            str, ent, tar = entryStr(ctx, entry)
+            errs = ctx.totalErrors()
+        )
         if !ctx.configuration() && cc != nil {
             if errs == 1 {
                 err = fmt.Errorf("execution yields an error for %v", str)
@@ -282,7 +284,11 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             }
             brks.add(pos, breakErro).error = err
         }
-        prompt(ctx, "%v: execution failed with %d errors, project %s\n", ent, errs, prog.project)
+        if tar != "" {
+            prompt(ctx, "%v: %s, execution failed with %d errors, project %s\n", ent, tar, errs, prog.project)
+        } else {
+            prompt(ctx, "%v: execution failed with %d errors, project %s\n", ent, errs, prog.project)
+        }
         warn(ctx, `%d errors in execution "%s"`, errs, str)
         warnstack(ctx, 8, "%v: %v", prog.project, ctx).debug(10)
         if options.failOnErrors { fail(prog.position, "fail by %d errors", errs) }

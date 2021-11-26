@@ -56,6 +56,7 @@ const (
     expandArgedArgs // foo($(args))      -> foo(...)
     expandDef       // foo=...           -> ...
     expandFullName  // foobar.c          -> /path/to/foobar.c    TODO
+    expandPatterned // %.proto           -> example.proto (if ctx.stems() == [example])
     expandPathStr   // "/path/to"/foo    -> /path/to/foo
     expandPairVal   // foo=$(bar)        -> foo=...
     expandPlainValue = expandClosure | expandDelegate | expandSelection | expandDef | expandPathStr | expandArgedArgs
@@ -828,7 +829,7 @@ func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
         for i, stemmed  := range stemmedList  { erro(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position) }
         if a := t.arguments(); len(a) > 0 { erro(ctx, "arguments: %v", a) }
         erro(ctx, "%v: missing file %v required by %v", proj, file, targetVal)
-        errostack(ctx, 15, "%v: %v", proj, ctx).debug(8)
+        errostack(ctx, 15, "%v: %v", proj, ctx).debug(12)
     } else if !okay && len(ctx.stems()) > 0 {
         if false { brks.add(file.position, breakNext).scope = breakTrave }
     }
@@ -1603,11 +1604,22 @@ func (p *Argumented) traverse(ctx Context) (brks breakers) {
     var args []Value
     if expandArgumented {
         // NOTE: expand here to avoid args being expanded in the wrong context
-        const w = expandPlainValue|expandPairVal//|expandFullName
+        const w = expandPlainValue|expandPairVal|expandPatterned//|expandFullName
         for _, a := range p.args {
             if val, err := a.expand(ctx, w); err != nil {
                 erro(ctx, `expand "%v" failed: %v`, a, err).debug(1)
             } else if !isNil(val) && val != a { a = val }
+            if true && a.patterned(ctx) { if stems := ctx.stems(); len(stems) > 0 {
+                // TODO: deal with expandPatterned instead of stenciling here:
+                if str, rest := a.stencil(ctx, stems); len(rest) > 0 {
+                    erro(ctx, "partial stencil: %v, %v, %v, %v", a, str, rest, stems).of(a).debug(1)
+                    panic(str)
+                } else if file := ctx.Project().FindFile(ctx, str); file != nil {
+                    a = file
+                } else {
+                    a = MakeString(a.Position(), str)
+                }
+            }}
             args = append(args, a)
         }
     } else {
@@ -4117,21 +4129,33 @@ func (p *List) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 
-func (p *List) patterned(ctx Context) bool {
-    // TODO: apply to each element:
-    /*for _, elem := range p.Elems {
-        if elem.patterned() { return true }
-    }*/
-    return false
+func (p *List) patterned(ctx Context) (res bool) {
+    if len(p.Elems) == 1 { res = p.Elems[0].patterned(ctx) } else {
+        /* FIXME: apply to each element??
+        for _, elem := range p.Elems {
+          if elem.patterned() { return true }
+        }*/
+    }
+    return
 }
 
 func (p *List) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
-    // TODO: match each element
+    if len(p.Elems) == 1 { full, s, stems = p.Elems[0].match(ctx, i) } else {
+        /* FIXME: apply to each element??
+        for _, elem := range p.Elems {
+          ...
+        }*/
+    }
     return
 }
 
 func (p *List) stencil(ctx Context, stems []string) (s string, rest []string) {
-    // TODO: stencil each element
+    if len(p.Elems) == 1 { s, rest = p.Elems[0].stencil(ctx, stems) } else {
+        /* FIXME: apply to each element??
+        for _, elem := range p.Elems {
+          ...
+        }*/
+    }
     return
 }
 
