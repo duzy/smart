@@ -63,7 +63,7 @@ var (
   rxFatalErrorFileNotFound = rx(`(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`)
   rxArNoSuchFile = rx(`ar: (.+?): No such file or directory`)
   rxArNoArchiveMembers = rx(`ar: no archive members specified`)
-  rxBashNoSuchFile = rx(`bash: (.+?): No such file or directory`)
+  rxBashNoSuchFile = rx(`bash: line ([0-9]+?): (.+?): No such file or directory`)
   rxClangNoSuchFile = rx(`clang(?:-(.+?))?: error: no such file or directory: '(.+?)'`)
   //XXX: rxClangError = rx(`clang(?:-(.+?))?: error: (.+)(?: \(.+\))?`)
   rxCmdError = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang)(?:-(.+?))?: error: (.+)`)
@@ -117,9 +117,10 @@ func releaseWork(num int) {
   working.Store(num - 1)
 }
 
-func trimPromptString(str string) (s string) {
+func trimPromptString(str string) string { return trimPromptStringX(str, maxPromptStr) }
+func trimPromptStringX(str string, x int) (s string) {
   var segs = strings.Split(str, PathSep)
-  if len(segs) == 0 {
+  if len(segs) <= 1 {
     if n, m := len(str), maxPromptStr; n > m {
       s = "…" + str[n-m:]
     } else {
@@ -131,7 +132,7 @@ func trimPromptString(str string) (s string) {
   var i, n int
   for i = len(segs)-1; i >= 0; i -= 1 {
     n += len(segs[i]) + 1
-    if n > maxPromptStr {
+    if n > x {
       var j = i - 1
       if j < 0 { j = i }
       segs[j] = "…"
@@ -445,7 +446,8 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       }
     case rxBashNoSuchFile:
       if p.report {
-        addScannedDiag(diagError, lpos, fmt.Sprintf("%v: no such command", v[1].string))
+        lpos.Column = v[2].col + 1
+        addScannedDiag(diagError, lpos, fmt.Sprintf("no command '%v'", v[2].string))
       }
     case rxClangNoSuchFile:
       if p.report {
@@ -787,6 +789,11 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   } else if !opts.stamp && !opts.silent {
     warn(ctx, "add -stamp to (shell)").debug(1)
   }
+  defer func() {
+    if strings.HasSuffix(targetName, "external.google.tensorflow.prototext") {
+      warn(ctx, "%v", target).debug(6)
+    }
+  } ()
 
   var start = time.Now()
   var exeres = &ExecResult{valbase:valbase{pos}, ctx:ctx, x:p}

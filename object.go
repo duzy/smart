@@ -1320,6 +1320,12 @@ func (entry *RuleEntry) traverse(cc Context) (brks breakers) {
         )
         if !okay || isNil(target) { erro(cc, "$@ is not defined: %v", cc).debug(1); return }
         if cc.entry() != entry { cc = &entryContext{ cc, entry } }
+        defer func() {
+                var s, _ = target.Strval(cc)
+                if strings.HasSuffix(s, "external.google.tensorflow.prototext") {
+                        warn(cc, "%v", target).at(entry.position).debug(6)
+                }
+        } ()
 ForPrograms:
         for _, prog := range entry.programs {
                 var pos = prog.position

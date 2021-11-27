@@ -64,6 +64,7 @@ func (pc *programContext) spawn() Context {
         Context: ctx, defs: pc.defs.clone() }, pc.prog, pc.params, sync.Mutex{},
     }}
 }
+func (pc *programContext) appendCallerUpdated() bool { return true }
 func (pc *programContext) mustExists() bool { return false }
 func (pc *programContext) closureScopes() (scopes []*Scope) {
     if cc, ok := pc.Context.(*closureContext); ok {
@@ -276,6 +277,9 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             str, ent, tar = entryStr(ctx, entry)
             errs = ctx.totalErrors()
         )
+        if strings.HasSuffix(tar, "external.google.tensorflow.prototext") {
+            warn(cc, "%v", target).at(entry.Position()).debug(6)
+        }
         if !ctx.configuration() && cc != nil {
             if errs == 1 {
                 err = fmt.Errorf("execution yields an error for %v", str)

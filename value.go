@@ -504,11 +504,12 @@ type updatedtarget struct {
     prerequisites []*updatedtarget
 }
 
-func (p *updatedtarget) String() string {
-    if len(p.prerequisites) > 0 {
-        return fmt.Sprintf("%v→%v", p.target, p.prerequisites)
+func (p *updatedtarget) String() (s string) {
+    if false { s = p.target.String() } else {
+        s = trimPromptStringX(p.target.String(), maxPromptStr/3)
     }
-    return p.target.String()
+    if len(p.prerequisites) > 0 { s = fmt.Sprintf("%v→%v", s, p.prerequisites) }
+    return
 }
 
 func newUpdatedTarget(target Value, prerequisites ...*updatedtarget) *updatedtarget {
@@ -857,6 +858,7 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
         return
     }
 
+    var infos = target == "external.google.tensorflow.prototext"
     var (
         pos Position = ctx.Position()
         concreteEntries = make(map[Entry]bool)
@@ -865,6 +867,12 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
         err error
     )
     defer func() {
+        if false && infos { infostack(ctx, 3, "%v; %v", file, projects).debug(2) }
+        if false && infos { info(ctx, "%v; %v", file, projects).debug(6) }
+        if true && infos {
+            info(ctx, "%v: %v", file, projects)
+            infostack(ctx, 3, "%v: %v", file, ctx).debug(6)
+        }
         // Note that the file maybe not traversed yet at this point. But we
         // still have to check mod-time.
         if file != nil {
@@ -893,7 +901,7 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
         if entry, err = project.resolveEntry(ctx, target, t.grepping); err != nil {
             prompt(ctx, "%s: traverse entry failed, project %v\n", target, project)
             erro(ctx, "%s: resolve entry failed: %v", target, err).at(pos)
-            errostack(ctx, 3, "%s: resolve entry failed: %v", target, err).debug(6)
+            errostack(ctx, 3, "%s: resolve entry failed: %v", target, err).debug(10)
             return
         } else if entry == nil {
             continue
@@ -903,16 +911,29 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
         }
     }
 
-    for _, entry := range concreteList {
+    for i, entry := range concreteList {
         var project = entry.OwnerProject()
         if entry != nil && currentTargetValue != entry {
+            if false && infos {
+                warn(ctx, "%v: %T %v", entry, currentTargetValue, currentTargetValue)
+                warn(ctx, "%v: %T %v", entry, entry.Target(), entry.Target())
+                warn(ctx, "%v: %v", entry, ctx).debug(1)
+            }
             if w, ok := currentTargetValue.(*Bareword); ok && w.string == target {
                 continue // target resolve to itself, does nothing
             } else if brks = entry.traverse(ctx); !brks.has() {
+                if infos {
+                    warn(ctx, "%v: %d. %v", entry, i, project).at(entry.Position())
+                    warn(ctx, "%v: %d. %v", entry, i, project).debug(10)
+                }
                 file, _ = entry.Target().(*File)
                 okay = true
                 return
             } else if tb := brks.of(breakFail, breakErro); len(tb) > 0 {
+                if infos {
+                    warn(ctx, "%v: %d. %v", entry, i, project).at(entry.Position())
+                    warn(ctx, "%v: %d. %v", entry, i, project).debug(10)
+                }
                 var str, ent, _ = entryStr(ctx, entry)
                 prompt(ctx, "%s: traverse entry failed, project %v\n", ent, project)
                 brks = brks.not(breakFail, breakErro);
@@ -926,6 +947,10 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
                 errostack(ctx, 3, "%v: %v: %v", str, entry.OwnerProject(), ctx).at(pos).debug(6)
                 return
             } else if tb = brks.of(breakNext); len(tb) > 0 {
+                if infos {
+                    warn(ctx, "%v: %d. %v", entry, i, project).at(entry.Position())
+                    warn(ctx, "%v: %d. %v", entry, i, project).debug(10)
+                }
                 if brks = brks.not(breakNext); brks.has() {
                     prompt(ctx, "%s: traverse entry failed, project %v\n", entry, project)
                     erro(ctx, "next with broken traversal for %v (entry=%v, next=%v)", target, entry, tb[0].value).at(entry.Position()).debug(1)
@@ -933,10 +958,18 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
                 }
                 continue
             } else if tb = brks.of(breakCase, breakDone); len(tb) > 0 {
+                if infos {
+                    warn(ctx, "%v: %d. %v", entry, i, project).at(entry.Position())
+                    warn(ctx, "%v: %d. %v", entry, i, project).debug(10)
+                }
                 brks, okay = brks.not(breakCase, breakDone), true // reset breakers
                 break
             }
             if brks.has() {
+                if infos {
+                    warn(ctx, "%v: %d. %v", entry, i, project).at(entry.Position())
+                    warn(ctx, "%v: %d. %v", entry, i, project).debug(10)
+                }
                 var str, ent, _ = entryStr(ctx, entry)
                 prompt(ctx, "%s: traverse entry failed, project %v\n", ent, project)
                 for _, brk := range brks {
@@ -959,7 +992,7 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
             erro(ctx, "%s: resolve object '%s' failed: %v", target, err).at(pos)
             errostack(ctx, 3, "%v: %v: %v", target, project, ctx).debug(6)
             return
-        } else if isNil(obj) || isUndef(obj) || isNone(obj) {
+        } else if isNil(obj) || isUndef(obj) || isNone(obj) || isEmpty(obj) {
             // does nothing here and keep trying FindFile
         } else if brks = obj.traverse(ctx); brks.has() {
             prompt(ctx, "%v: traverse failed, project %s\n", target, project)
@@ -1131,16 +1164,19 @@ func appendUpdated(ctx Context, updated *updatedtarget) {
             if u.target == updated.target { return }
             if u.target.cmp(ctx, updated.target) == cmpEqual { return }
         }
+        if false { if s, _ := targetValue.Strval(ctx); strings.HasSuffix(s, ".o") {
+            warn(ctx, "%v %v %v %v", s, updated, ctx.appendCallerUpdated(), ctx).debug(16)
+        }}
         t.updated = append(t.updated, updated)
     }
-    if pc := ctx.programCtx(); pc != nil {
+    if ctx.appendCallerUpdated() { if pc := ctx.programCtx(); pc != nil {
         for p := pc; p != nil; p = p.caller() { // clear update loop
             if ct, has := p.autoGet("@"); has && !isNil(ct) && ct == updated.target { return }
         }
         if p := pc.caller(); p != nil {
             appendUpdated(positional(p, ctx.Position()), newUpdatedTarget(targetValue, updated))
         }
-    }
+    }}
 }
 
 func removeUpdated(ctx Context, target Value) (removed []*updatedtarget) {
@@ -1251,7 +1287,7 @@ func updateRecipesHash(ctx Context) (k, v HashBytes, err error) {
     return
 }
 
-func isRecipesDirty(ctx Context) (dirty bool, err error) {
+func isRecipesOutdated(ctx Context) (outdated bool, err error) {
     var k, v HashBytes
     if program := ctx.program(); program == nil {
         erro(ctx, "no program in context %v", ctx).debug(1)
@@ -1270,7 +1306,7 @@ func isRecipesDirty(ctx Context) (dirty bool, err error) {
         if n, e := fmt.Fscanf(f, "%x", &h); e != nil {
             err = e
         } else if n == 1 {
-            dirty = !bytes.Equal(v[:], h)
+            outdated = !bytes.Equal(v[:], h)
         }
     }
     return
@@ -3413,25 +3449,25 @@ func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
         assert(filepath.IsAbs(fullname), "`%s` is not abs {%s %s %s}", fullname, name, sub, dir)
         if filepath.IsAbs(name) && sub != "-" {
             if dir != "" {
-                erro(ctx, "dirty dir: dir  = %s", dir).at(pos)
-                erro(ctx, "dirty dir: sub  = %s", sub).at(pos)
-                erro(ctx, "dirty dir: name = %s", name).at(pos)
-                erro(ctx, "dirty dir: full = %s", fullname).at(pos).debug(16)
+                erro(ctx, "outdated dir: dir  = %s", dir).at(pos)
+                erro(ctx, "outdated dir: sub  = %s", sub).at(pos)
+                erro(ctx, "outdated dir: name = %s", name).at(pos)
+                erro(ctx, "outdated dir: full = %s", fullname).at(pos).debug(16)
                 assert(false, "dir is not empty for abs name: %s", name)
             }
             if sub != "" {
-                erro(ctx, "dirty sub: dir  = %s", dir).at(pos)
-                erro(ctx, "dirty sub: sub  = %s", sub).at(pos)
-                erro(ctx, "dirty sub: name = %s", name).at(pos)
-                erro(ctx, "dirty sub: full = %s", fullname).at(pos).debug(16)
+                erro(ctx, "outdated sub: dir  = %s", dir).at(pos)
+                erro(ctx, "outdated sub: sub  = %s", sub).at(pos)
+                erro(ctx, "outdated sub: name = %s", name).at(pos)
+                erro(ctx, "outdated sub: full = %s", fullname).at(pos).debug(16)
                 assert(false, "sub is not empty for abs name: %s", name)
             }
             if s := filepath.Clean(name); fullname != s && strings.Contains(name, "//")/* skips /../ */ {
-                erro(ctx, "dirty fullname: dir  = %s", dir).at(pos)
-                erro(ctx, "dirty fullname: sub  = %s", sub).at(pos)
-                erro(ctx, "dirty fullname: name = %s", name).at(pos)
-                erro(ctx, "dirty fullname: clean = %s", s).at(pos)
-                erro(ctx, "dirty fullname: full  = %s", fullname).at(pos).debug(16)
+                erro(ctx, "outdated fullname: dir  = %s", dir).at(pos)
+                erro(ctx, "outdated fullname: sub  = %s", sub).at(pos)
+                erro(ctx, "outdated fullname: name = %s", name).at(pos)
+                erro(ctx, "outdated fullname: clean = %s", s).at(pos)
+                erro(ctx, "outdated fullname: full  = %s", fullname).at(pos).debug(16)
                 assert(false, "fullname is not clean: %s", name)
             }
         } else if filepath.IsAbs(sub) {

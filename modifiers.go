@@ -197,7 +197,8 @@ var (
         }
 
         init_predictors = map[string]PredictionFunc{
-                `dirty`:            predictionDirty,
+                `dirty`:            predictionOutdated,
+                `outdated`:         predictionOutdated,
                 `no-loop`:          predictionNoLoop,
                 `target-1st-visit`: predictionTarget1stVisit,
                 `target-max-visit`: predictionTargetMaxVisit,
@@ -289,7 +290,7 @@ type modifierDebugOpts struct {
         info []Value `i,info`
         warn []Value `w,warn`
         error []Value `e,err;er,error`
-        checkDirty bool `d,dirty;cd,checkdirty;cd,check-dirty`
+        checkOutdated bool `d,dirty;cd,checkdirty;cd,check-dirty;co,check-outdated`
 }
 func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
         var (
@@ -336,7 +337,7 @@ func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
         if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.error) == 0 {
                 warn(ctx, "debug: %v %v", target, depends).at(pos).debug(1)
         }
-        if opts.checkDirty && !isNil(target) {
+        if opts.checkOutdated && !isNil(target) {
                 var tt = target.stat(ctx).mod()
                 if tt.IsZero() {
                         info(ctx, "target not exists: %v", target).at(pos).debug(1)
@@ -1435,6 +1436,10 @@ ForTarget:
         return
 }
 
+type depContext struct { diagContext }
+func (ctx *depContext) String() string { return fmt.Sprintf("dep{%s}", ctx.diagContext.String()) }
+func (ctx *depContext) appendCallerUpdated() bool { return false }
+
 func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks breakers) {
         const parallel = true
         var (
@@ -1474,18 +1479,19 @@ func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks
 
         var jobs sync.WaitGroup
         var depFile = func(ctx Context, depPos Position, word string) {
-                var dc = diagContext{ Context: ctx }; ctx = &dc
+                var dc = depContext{diagContext{ Context: ctx }}; ctx = &dc
                 if parallel {
                         defer checkPanicsErrors(ctx, true/* don't call checkErrors */)
                         defer func() {
-                                if len(dc.points) > 0 {
-                                        dc.inner().diagnostic().nest(dc.points)
-                                }
+                                if len(dc.points) > 0 { dc.inner().diagnostic().nest(dc.points) }
                                 jobs.Done() // minus 1
                         } ()
                 }
+                if false && strings.HasSuffix(word, "libunwind_ext.h") {
+                        warn(ctx, "%v: %v, %v", target, word, ctx).debug(6)
+                }
                 if i := strings.Index(word, " "); i > 0 {
-                        warn(ctx, "ignore dep with spaces: %v", word)//.debug(1)
+                        warn(ctx, "ignore dep with spaces: %v", word).debug(1)
                 } else if file := findDepFile(word); file == nil {
                         erro(ctx, "unknown dep '%v' for '%v'", word, firstWord)
                         erro(ctx, "from here: %s", word).at(depPos)
@@ -1631,6 +1637,8 @@ func traverseMissingDeps(ctx Context, errBytes []byte) (res bool, brks breakers)
 
 type modifierDepsContext struct { Context }
 func (mdc *modifierDepsContext) String() string { return fmt.Sprintf("deps{%s}", mdc.Context) }
+func (mdc *modifierDepsContext) spawn() Context { return &modifierDepsContext{mdc.Context.spawn()} }
+//func (mdc *modifierDepsContext) appendCallerUpdated() bool { return false }
 func (mdc *modifierDepsContext) mustExists() bool { return true }
 
 type modifierDepsOpts struct {
@@ -1732,6 +1740,7 @@ CorrectCC:
                 proj = ctx.Project()
                 savedDepsFileName string
         )
+        ctx = &modifierDepsContext{ ctx }
         if savedDepsFileName, files, brks = loadSavedDepsAndCheckOutdated(ctx, ca); brks.has() {
                 for _, brk := range brks {
                         switch brk.what {
@@ -1749,7 +1758,6 @@ CorrectCC:
                         stderr bytes.Buffer
                         retried bool
                 )
-                ctx = &modifierDepsContext{ ctx }
         retryCC:
                 cc.Stdout, cc.Stderr = &stdout, &stderr
                 if err = cc.Run(); err != nil {
@@ -3056,14 +3064,14 @@ func modifierCase(ctx Context, args... Value) (result Value, brks breakers) {
         return
 }
 
-type predictionDirtyOpts struct {
+type predictionOutdatedOpts struct {
         checksum bool "c,checksum;c,crc"
         debug bool "d,debug"
         verbose bool "v,verbose"
         silent bool "s,silent"
 }
-func predictionDirty(ctx Context, args... Value) (result Value, err error) {
-        var opts predictionDirtyOpts
+func predictionOutdated(ctx Context, args... Value) (result Value, err error) {
+        var opts predictionOutdatedOpts
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
                 erro(ctx, "merge args failed: %v", err).debug(1)
                 return
@@ -3077,7 +3085,7 @@ func predictionDirty(ctx Context, args... Value) (result Value, err error) {
                 target Value
                 targetFullname string
                 reason string
-                dirty bool
+                outdated bool
         )
         // Wait for prerequisites only
         if target, _, _, err = wait(ctx); err != nil {
@@ -3086,17 +3094,28 @@ func predictionDirty(ctx Context, args... Value) (result Value, err error) {
         } else if targetFullname, err = fullnameOrStrval(ctx, target); err != nil {
                 erro(ctx, "strval '%v' failed: %v", target, err).debug(1)
                 return
-        } else if dirty = !exists(ctx, target); dirty {
+        } else if outdated = !exists(ctx, target); outdated {
                 reason = "target not exists"
-        } else if dirty = len(t.updated) > 0; dirty {
-                reason = fmt.Sprintf("%v updated", len(t.updated))
-        } else if dirty, err = isRecipesDirty(ctx); err != nil {
-                erro(ctx, "isRecipesDirty: %v", err).debug(1)
+        } else if outdated = len(t.updated) > 0; outdated {
+                reason = fmt.Sprintf("%v updated: ", len(t.updated))
+                for i, v := range t.updated {
+                        if i > 0 { reason += "," }
+                        if false && len(reason) > maxPromptStr {
+                                reason += "…"
+                                break
+                        } else {
+                                reason += v.String()
+                        }
+                }
+        } else if outdated, err = isRecipesOutdated(ctx); err != nil {
+                erro(ctx, "isRecipesOutdated: %v", err).debug(1)
                 return
-        } else if dirty {
+        } else if outdated {
                 reason = "recipes changed"
         } else if !opts.checksum {
                 // does nothing
+        } else if true {
+                erro(ctx, "FIXME: check target checksum against the saved one").debug(1)
         } else if depend0, _ := ctx.autoGet("<"); !(isNil(depend0) || isNone(depend0)) {
                 var ( file2 string; same bool )
                 if file2, err = fullnameOrStrval(ctx, depend0); err != nil {
@@ -3105,7 +3124,7 @@ func predictionDirty(ctx Context, args... Value) (result Value, err error) {
                 } else if same, err = crc64CompareFileChecksum(ctx, targetFullname, file2); err != nil {
                         erro(ctx, "crc64 checksum failed: %v", err).debug(1)
                         return
-                } else if dirty = !same; dirty {
+                } else if outdated = !same; outdated {
                         reason = "content changed"
                 }
         }
@@ -3114,39 +3133,28 @@ func predictionDirty(ctx Context, args... Value) (result Value, err error) {
                 var a = typeof(target)
                 var e = exists(ctx, target)
                 var s, _ = target.Strval(ctx)
-                erro(ctx, "type=%s target=%s (exists=%v, dirty=%v, updated=%v)", a, s, e, dirty, t.updated).debug(1)
+                erro(ctx, "type=%s target=%s (exists=%v, outdated=%v, updated=%v)", a, s, e, outdated, t.updated).debug(1)
         }
         if opts.verbose {
                 var ( m, s string )
-                if dirty { m = "dirty" } else { m = "noop" }
-                s = time.Now().Sub(t.start).String()
-                if len(t.updated) > 0 { //s = fmt.Sprintf(", %v", t.updated)
-                        s += "; "
-                        for i, v := range t.updated {
-                                if i > 0 { s += " " }
-                                if len(s) > maxPromptStr {
-                                        s += "…"
-                                        break
-                                } else { s += trimPromptString(v.String()) }
-                        }
-                } else if reason != "" {
-                        s += "; " + strings.TrimSpace(strings.TrimPrefix(reason, "dirty:"))
+                if outdated { m = "outdated" } else { m = "updated" }
+                if s = time.Now().Sub(t.start).String(); reason != "" {
+                        s += "; " + strings.TrimSpace(strings.TrimPrefix(reason, "outdated:"))
                 }
-                var n = len(t.targets) + len(t.grepped)
-                if false {
-                        prompt(ctx, "stamp %s …… %s (%d files in %s)\n", target, m, n, s).debug(opts.debug, 1)
-                } else {
-                        prompt(ctx, "%s …… %s (%d files in %s)\n", trimPromptString(targetFullname), m, n, s).debug(opts.debug, 1)
-                }
+                var (
+                        ts = trimPromptString(targetFullname)
+                        n = len(t.targets) + len(t.grepped)
+                )
+                prompt(ctx, "%s …… %s (%d files in %s)\n", ts, m, n, s).debug(opts.debug, 6)
         }
 
         if options.traceTraversal {
-                t_traverse.tracef("dirty: %v (updated=%v, exists=%v, target=%v)", dirty, len(t.updated), exists(ctx, target), target)
-                if len(t.updated) > 0 { t_traverse.tracef("dirty: updated=%v", t.updated) }
+                t_traverse.tracef("outdated: %v (updated=%v, exists=%v, target=%v)", outdated, len(t.updated), exists(ctx, target), target)
+                if len(t.updated) > 0 { t_traverse.tracef("outdated: updated=%v", t.updated) }
         }
 
         if opts.silent { reason = "" }
-        result = MakePrediction(ctx.Position(), dirty, reason)
+        result = MakePrediction(ctx.Position(), outdated, reason)
         return
 }
 

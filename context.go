@@ -114,6 +114,7 @@ type Context interface {
   countErrors() int
   totalErrors() int
 
+  appendCallerUpdated() bool
   mustExists() bool
 }
 
@@ -122,7 +123,7 @@ func getTargetValue(ctx Context) (res Value) {
     if false { erro(ctx, "target '%v' is nil", target) }
   } else if vals, _, err := expandall2(ctx, expandPlainValue, target); err != nil {
     erro(ctx, "expand target '%v' failed: %v", target, err).of(target)
-  } else if len(vals) == 1 { res = vals[0] } else {
+  } else if len(vals) == 1 { res = Scalar(vals[0]) } else {
     erro(ctx, "target '%v' expaned to many: %v", target, res).of(target)
   }
   return
@@ -425,6 +426,7 @@ func (ctx *defaultContext) Project() *Project { return ctx.globe.main }
 func (ctx *defaultContext) program() *Program { return nil }
 func (ctx *defaultContext) programCtx() *programContext { return nil }
 func (ctx *defaultContext) Position() (res Position) { res.Filename, res.Line = ctx.workdir, 1; return }
+func (ctx *defaultContext) appendCallerUpdated() bool { return false }
 func (ctx *defaultContext) mustExists() bool { return false }
 func (ctx *defaultContext) WorkDir() string { return ctx.workdir }
 func (ctx *defaultContext) Globe() *Globe { return ctx.globe }
