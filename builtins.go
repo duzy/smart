@@ -4020,7 +4020,7 @@ func builtinGrep(ctx Context, args... Value) (res Value) {
 }
 
 var (
-        rsConfigRef = `\$\{([^\s\}]+)\}|@([^\s\@]+)@`
+        rsConfigRef = `[$%]\{([^\s\}]+)\}|@([^\s\@]+)@`
         rsConfigure = `^[\t ]*#[\t ]*(define|undef|smartdefine|smartdefine01|cmakedefine|cmakedefine01)[\t ]+([A-Za-z0-9_]+)(?:[\t ]+([^\n]*))?$`
         rxConfigure = regexp.MustCompile(fmt.Sprintf(`(?m:%s)`, rsConfigure))
         rxConfigRef = regexp.MustCompile(rsConfigRef)

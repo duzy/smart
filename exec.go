@@ -447,7 +447,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
     case rxBashNoSuchFile:
       if p.report {
         lpos.Column = v[2].col + 1
-        addScannedDiag(diagError, lpos, fmt.Sprintf("no command '%v'", v[2].string))
+        addScannedDiag(diagError, lpos, fmt.Sprintf("no such command '%v'", v[2].string))
       }
     case rxClangNoSuchFile:
       if p.report {
@@ -739,6 +739,13 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     defer un(trace(t_exec, fmt.Sprintf("executor(%s %v)", typeof(t), t)))
   }
 
+  /*for i := ctx; i != nil; i = i.inner() {
+    if e := getTargetValue(i); e != nil && e.String() == "external.google.tensorflow.prototext" {
+      defer func() { warn(i, "%v: %v", e, i.program().depends).debug(10) } ()
+      break
+    }
+  }*/
+
   var (
     opts = executorOpts{ scanStderr: true }
     pos = ctx.Position()
@@ -789,11 +796,9 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   } else if !opts.stamp && !opts.silent {
     warn(ctx, "add -stamp to (shell)").debug(1)
   }
-  defer func() {
-    if strings.HasSuffix(targetName, "external.google.tensorflow.prototext") {
-      warn(ctx, "%v", target).debug(6)
-    }
-  } ()
+  if strings.HasSuffix(targetName, "external.google.tensorflow.prototext") {
+    defer func() { warn(ctx, "%v", target).debug(10) } ()
+  }
 
   var start = time.Now()
   var exeres = &ExecResult{valbase:valbase{pos}, ctx:ctx, x:p}
@@ -1223,8 +1228,12 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         errostack(ctx, 16, "%v: %v", str, ctx).debug(6)
       } else if wn > 0 {
         warn(ctx, "%v: scanned %d known warnings", str, wn).at(lpos)
-        warn(ctx, "%v: execute has %d warnings", str, wn)
-        warnstack(ctx, 3, "%v: %v", str, ctx).debug(1)
+        if false {
+          warn(ctx, "%v: execute has %d warnings", str, wn)
+          warnstack(ctx, 3, "%v: %v", str, ctx).debug(1)
+        } else {
+          warn(ctx, "%v: execute has %d warnings", str, wn).debug(1)
+        }
       } else if in > 0 && opts.infos {
         info(ctx, "%v: scanned %d known messages", str, in).at(lpos)
         info(ctx, "%v: execute has %d messages", str, in)

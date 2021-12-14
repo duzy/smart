@@ -1597,9 +1597,9 @@ func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
                 prompt(ctx, "%s: traverse file failed, project %v\n", file.fullname(), proj)
                 for _, brk := range brks {
                         switch brk.what {
-                        case breakErro: erro(ctx, "%v: borken loading saved deps: %v", proj, brk.error).at(brk.pos)
-                        case breakFail: erro(ctx, "%v: borken loading saved deps: %v", proj, brk.message).at(brk.pos)
-                        default: erro(ctx, "%v: borken loading saved deps: %v", proj, brk.what).at(brk.pos)
+                        case breakErro: erro(ctx, "%v: missing deps: %v", proj, brk.error).at(brk.pos)
+                        case breakFail: erro(ctx, "%v: missing deps: %v", proj, brk.message).at(brk.pos)
+                        default       : erro(ctx, "%v: missing deps: %v", proj, brk.what).at(brk.pos)
                         }
                 }
                 errostack(ctx, 5, "%v: %v", proj, ctx).debug(8)
@@ -1770,7 +1770,7 @@ CorrectCC:
                                 stderr.Reset()
                                 goto retryCC
                         }
-                        prompt(ctx, "%v: command '%s' failed:\n", proj, opts.cc)
+                        prompt(ctx, "%v: failed command '%s':\n", proj, opts.cc)
                         prompt(ctx, "%s \\\n  %s\n----------\n", cc.Path, strings.Join(ca, " \\\n  "))
                         prompt(ctx, "%s\n----------\n%s----------\n", &stdout, &stderr)
                         erro(ctx, "%s: %s deps failed: %v", proj, filepath.Base(opts.cc), err)
@@ -2844,12 +2844,10 @@ func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
                 errostack(ctx, -1, "failed: %v", err).debug(1)
         }
 
-        if err != nil {
-                if pe, ok := err.(*fs.PathError); ok {
-                        erro(ctx, "stamp %s: %v", trimPromptString(pe.Path), pe.Err)
-                        err = pe.Err
-                }
-        }
+        if err != nil { if pe, ok := err.(*fs.PathError); ok {
+                erro(ctx, "stamp %s: %v", trimPromptString(pe.Path), pe.Err)
+                err = pe.Err
+        }}
         return
 }
 
