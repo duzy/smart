@@ -260,6 +260,7 @@ func (o Origin) String() (s string) {
         case DefExpand1: s = "Expand1"
         case DefExpand2: s = "Expand2"
         case DefExecute: s = "Execute"
+        case DefExecuted: s = "Executed"
         case DefArg:     s = "Arg"
         case DefAuto:    s = "Auto"
         case DefConfDir: s = "ConfDir"
@@ -896,7 +897,8 @@ func (d *Def) execute(ctx Context, a... Value) (res Value) {
                 var sh = exec.Command("sh", "-c", cmd)
                 sh.Stdout, sh.Stderr = &stdout, &stderr
                 if err = sh.Run(); err != nil {
-                        erro(ctx, "%v: execute command failed: %v", origin, err).debug(1)
+                        erro(ctx, "%v: execute command failed: %v", origin, err)
+                        erro(ctx, "%v: execute command: %s", origin, cmd).debug(2)
                         res = MakeNone(pos)
                 } else {
                         res = MakeString(pos, strings.TrimSpace(stdout.String()))

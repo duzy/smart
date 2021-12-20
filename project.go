@@ -386,7 +386,7 @@ func (p *Project) myFilemaps(ctx Context) (filemap []*FileMap) {
   return _filemap_
 }
 
-func (p *Project) filemaps(ctx Context, using bool) (filemaps []*FileMap) {
+func (p *Project) filemaps(ctx Context, baseFiles, using bool) (filemaps []*FileMap) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.filemaps")) }
 
   var uniqueAppend = func(a *FileMap) {
@@ -413,8 +413,10 @@ func (p *Project) filemaps(ctx Context, using bool) (filemaps []*FileMap) {
   }
 
   for _, m := range p.myFilemaps(ctx) { uniqueAppend(m) }
-  for _, base := range p.bases {
-    for _, m := range base.filemaps(ctx, /*using*/false) { uniqueAppend(m) }
+  if baseFiles {
+    for _, base := range p.bases {
+      for _, m := range base.filemaps(ctx, true, false) { uniqueAppend(m) }
+    }
   }
   if using {
     // takes a big longer time to map usee filemaps, but acceptable
@@ -432,7 +434,7 @@ func (p *Project) filemaps(ctx Context, using bool) (filemaps []*FileMap) {
 
 func (p *Project) wildcard(ctx Context, opts wildcardOpts, patterns ...Value) (files []*File, err error) {
   var pos = ctx.Position()
-  var filemaps = p.filemaps(ctx, false)
+  var filemaps = p.filemaps(ctx, !opts.noBaseFiles, false)
 ForPatterns:
   for _, pat := range patterns {
     var (
@@ -517,6 +519,10 @@ ForPatterns:
               if enable_assertions {
                 assert(file != nil, "`%s` missing (%s)", s, name)
               }
+              if false && p.name == "external.google.tensorflow.core.platform" && strings.HasPrefix(name, "tensorflow/stream_executor") {
+                warn(ctx, "%v: %v", str, name)
+                warn(ctx, "%v", ctx).debug(1)
+              }
             }
           } else if ok := pattern.patterned(ctx); !ok && opts.includeMissing {
             // If the filemap is not a pattern (e.g. foobar.cpp), we include it in the returning files
@@ -551,7 +557,7 @@ func (p *Project) matchFile(ctx Context, name string) (file *File) {
   var first *File
 
 ForFilemaps:
-  for _, filemap := range p.filemaps(ctx, true) {
+  for _, filemap := range p.filemaps(ctx, true, true) {
     // Match the represented file name.
     var matched, pre = filemap.Match(ctx, name)
     if !matched { continue ForFilemaps }
@@ -615,7 +621,7 @@ func (p *Project) configuration(ctx Context) (file *File) {
 func (p *Project) FindFile(ctx Context, name string) (file *File) { return p.matchFile(ctx, name) }
 func (p *Project) isFileName(ctx Context, s string) (res bool) {
   if len(s) > 0 {
-    for _, filemap := range p.filemaps(ctx, true) {
+    for _, filemap := range p.filemaps(ctx, true, true) {
       if res, _ = filemap.Match(ctx, s); res { break }
     }
   }

@@ -1592,7 +1592,7 @@ func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
         } else if file := proj.FindFile(ctx, dep); file == nil {
                 prompt(ctx, "%s: traverse file failed, project %v\n", dep, proj)
                 erro(ctx, "%s: dep is not a file in project %v", dep, proj)
-                errostack(ctx, 5, "%s: %v", dep, ctx).debug(10)
+                errostack(ctx, -1, "%s: %v", dep, ctx).debug(10)
         } else if brks = file.traverse(ctx); brks.has() {
                 prompt(ctx, "%s: traverse file failed, project %v\n", file.fullname(), proj)
                 for _, brk := range brks {

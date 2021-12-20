@@ -385,12 +385,14 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                                 return
                         }
                         if _, s, _, ok, err = asOptFullname(ctx, nil, x); err != nil {
-                                erro(ctx, "fullname '%v' failed: %v", x, err).of(x).debug(1)
+                                erro(ctx, "fullname '%v' failed: %v", x, err).of(x)
+                                errostack(ctx, 5, "%v", ctx).debug(16)
                         } else if ok && s != "" {
                                 val.Set(reflect.ValueOf(&optFullname{ s, x }))
                         } else {
                                 var tv, _ = ctx.autoGet("@")
-                                erro(ctx, "not a file: %v -> %v -> %s (%T, @=%v)", v, x, s, ctx, tv).of(v).debug(16)
+                                erro(ctx, "not a file: %v -> %v -> %s (@=%T %v)", v, x, s, tv, tv).of(v)
+                                errostack(ctx, 5, "%v", ctx).debug(16)
                         }
                         if false {
                                 vi := val.Interface().(*optFullname)
@@ -1888,6 +1890,7 @@ type builtinPatsubstOpts struct {
         fullfiles bool `ff,fullfile;ff,fullfiles`
         files bool `f,file;fs,files`
         cleanPath bool `c,clean;c,cleanpath`
+        noBaseFiles bool `nb,no-base;nb,no-bases`
         noFileMap bool `n,no-filemap`
 }
 
@@ -1946,7 +1949,7 @@ func builtinPatsubst(ctx Context, args... Value) (res Value) {
         //defer setclosure(setclosure(cloctx.unshift(proj.scope)))
 
         var filemaps []*FileMap
-        if !opts.noFileMap { filemaps = proj.filemaps(ctx, false) }
+        if !opts.noFileMap { filemaps = proj.filemaps(ctx, !opts.noBaseFiles, false) }
 
 ForSources:
         for _, src := range sources {
@@ -3657,6 +3660,7 @@ func builtinGlob(ctx Context, args... Value) (res Value) {
 type wildcardOpts struct {
         includeMissing bool `im,includemissing;m,include-missing`
         errorMissing bool `em,errormissing;e,error-missing`
+        noBaseFiles bool `nb,no-base;nb,no-bases`
         verbose bool `v,verbose`
 }
 func builtinWildcard(ctx Context, args... Value) (res Value) {
@@ -3681,6 +3685,10 @@ func builtinWildcard(ctx Context, args... Value) (res Value) {
                 res = MakeListOrScalar(ctx.Position(), values(files))
         } else {
                 erro(ctx, "wildcard failed: %v", err).debug(1)
+        }
+        if false && proj.name == "external.google.tensorflow.core.platform" {
+                warn(ctx, "%v", files)
+                warn(ctx, "%v", ctx).debug(1)
         }
         return
 }

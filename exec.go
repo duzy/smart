@@ -755,7 +755,8 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     erro(ctx, "merge args failed: %v", err).debug(1)
     return
   } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-    erro(ctx, "parse opts failed: %v", err).debug(1)
+    erro(ctx, "parse opts failed: %v", err)
+    errostack(ctx, 5, "%v", ctx).debug(1)
     return
   } else if opts.deprecated {
     erro(ctx, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug(1)
