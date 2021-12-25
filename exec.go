@@ -426,7 +426,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       }
     case rxArNoSuchFile:
       if p.report {
-        addScannedDiag(diagError, lpos, fmt.Sprintf("'%v' file not found (as '%s')", filepath.Base(v[1].string), v[1]))
+        addScannedDiag(diagError, lpos, fmt.Sprintf("'%v' file not found (as '%v')", filepath.Base(v[1].string), v[1].string))
       }
     case rxArNoArchiveMembers:
       if p.report {
@@ -1079,10 +1079,12 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       var files []*File
       if files, err = target.stamp(t); err != nil {
         if pe, ok := err.(*fs.PathError); ok { err = fmt.Errorf(`"%v" not found`, target)
-          prompt(ctx, "%v: not found, stamp \"%v\"\n", pe.Path, target).debug(6)
+          prompt(ctx, "%v: not found, stamp \"%v\"\n", pe.Path, target)
         } else {
-          prompt(ctx, "%v: not found, \"%v\"\n", pe.Path, err).debug(6)
+          prompt(ctx, "%v: not found, \"%v\"\n", pe.Path, err)
         }
+        erro(ctx, `stamp "%v" failed`, target).debug(6)
+        if /*opts.fail*/true { fail(target.Position(), `"%v" not generated`, target) }
         return
       } else if opts.report {
         reportFileUpdates(ctx, t.start, files)

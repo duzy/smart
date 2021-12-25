@@ -1530,7 +1530,10 @@ type useOpts struct {
 func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int) {
 	var props = p.parseDirectiveSpec()
 	p.imports = append(p.imports, &usespec{ props })
-	if generic.dontOperate { return }
+	if generic.dontOperate {
+		// TODO: maybe give some information
+		return
+	}
 
 	var (
 		ctx = positional(p, p.Position())
@@ -1600,16 +1603,30 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
 	var wg sync.WaitGroup
     for _, specName := range specNames {
 		if false {
-			p.loadUseSpecName(opts, specVal, specName, &specOpts, params)
+			p.loadUseSpecName(opts, specVal, specName, &specOpts, params...)
 		} else {
+			var dc = diagContext{ Context: ctx } // redefine ctx
 			wg.Add(1); go func() {
-				defer checkPanicsErrors(ctx, true)
-				defer wg.Done()
-				p.loadUseSpecName(opts, specVal, specName, &specOpts, params)
+				defer checkPanicsErrors(&dc, true)
+				defer func() {
+					if len(dc.points) > 0 { dc.inner().diagnostic().nest(dc.points) }
+					wg.Done()
+				} ()
+				p.loadUseSpecName(opts, specVal, specName, &specOpts, params...)
 			} ()
 		}
     }
 	wg.Wait()
+
+	if errs := ctx.checkErrors(true); errs > 0 {
+		var (
+			pos = p.Position()
+			proj = p.Project()
+		)
+        prompt(ctx, "%s: use %v failed; %d errors\n", proj, specNames, errs)
+		erro(p, "%v errors: use %v", errs, specNames).at(pos).debug(6)
+		if true { fail(pos, "%s: use %v failed; %d errors", proj, specNames, errs) }
+	}
 
     if false && err == nil {
         var using Object
@@ -1643,16 +1660,59 @@ func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ 
 	}
 }
 
+func (p *parser) importFileMaps(ctx Context, paths ...Value) {
+	var (
+		imptOpts = importoptions{}
+		specOpts = importspecoptions{ unuse: true }
+		projects []*Project
+		projMutx sync.Mutex
+		wg sync.WaitGroup
+	)
+	for _, val := range paths {
+		var (
+			ctx = positional(p, val.Position())
+			name, err = val.Strval(ctx)
+		)
+        if err != nil {
+          erro(ctx, "strval '%v' failed: %v", val, err).debug(1)
+          return
+        }
+		if false { // FIXME: parellel loading failed
+			wg.Add(1); go func() {
+				defer checkPanicsErrors(ctx, true)
+				defer wg.Done()
+				var loaded = p.loadUseSpecName(imptOpts, val, name, &specOpts)
+				projMutx.Lock()
+				projects = append(projects, loaded)
+				projMutx.Unlock()
+			} ()
+		} else {
+			var loaded = p.loadUseSpecName(imptOpts, val, name, &specOpts)
+			projects = append(projects, loaded)
+		}
+	}
+	wg.Wait()
+	for _, proj := range projects {
+		var filemaps = p.Project()._filemap_
+		for _, fm := range proj.filemaps(ctx, false, false) {
+			if fm.public { filemaps = appendFilemapUniquely(ctx, filemaps, fm) }
+		}
+		p.Project()._filemap_ = filemaps
+	}
+}
+
+type filesOpts struct {
+	public bool `p,pub;p,public`
+}
 func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ int) {
 	defer p.setbits(p.setbit(parsingFilesSpec))
-	var (
-		props = p.parseDirectiveSpec()
-		path Value
-	)
+	var props = p.parseDirectiveSpec()
 	if len(props) != 1 {
-		erro(p, "too many files properties: %v", props).at(p.Position())
+		erro(p, "too many files properties: %v", props).at(p.Position()).debug(1)
 		return
 	}
+
+	var path Value
 	if p.tok == token.SELECT_PROG1 {
 		p.next(true) // step forward with spaces skipped
 		if p.tok == token.LINEND || p.lineComment != nil {
@@ -1661,46 +1721,64 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 		path = p.parseExpr(false)
 	}
 	if p.skipSpaces(); p.lineComment != nil {
-		//fmt.Fprintf(stderr, "%v: %v %v %v\n", p.file.Position(p.pos), p.tok, p.lineComment, spec.Comment)
 		//spec.Comment = p.lineComment
 	}
 	if generic.dontOperate {
 		// TODO: maybe give some information
 		return
 	}
+
 	var (
-		val = props[0]
+		ctx = positional(p, p.Position())
+		opts filesOpts
 		pats []Value
+		err error
+		val = props[0]
 	)
-	if g, ok := val.(*Group); ok {
+	if _, err = parseOpts(ctx, &opts, generic.options...); err != nil {
+		erro(p, "parse use opts failed: %v", err).at(p.Position()).debug(1)
+		return
+	} else if g, ok := val.(*Group); ok {
 		pats = g.Elems
 	} else {
 		pats = []Value{ val }
 	}
 	if path == nil {
 		var paths = []Value{ MakeString(val.Position(), p.Project().absPath) }
-		for _, k := range pats { p.Project().mapfile(k, paths) }
+		for _, pat := range pats { p.Project().mapfile(ctx, opts, pat, paths) }
 	} else {
-		var ctx = positional(p, p.Position())
 		var patsNew []Value
 		for _, pat := range pats {
 			if pat.expandible(ctx, expandClosure) {
 				patsNew = append(patsNew, pat)
+			} else if v, err := expandmerge2(ctx, expandPlainValue, pat); err != nil {
+				erro(p, "merge value '%v' failed: %v", pat, err).of(pat)
 			} else {
-				if v, err := expandmerge2(ctx, expandPlainValue, pat); err != nil {
-					erro(p, "merge value '%v' failed: %v", pat, err).of(pat)
-				} else {
-					patsNew = append(patsNew, v...)
-				}
+				patsNew = append(patsNew, v...)
 			}
 		}
+
 		var paths []Value
 		if g, ok := path.(*Group); ok {
 			paths = g.Elems
 		} else {
 			paths = []Value{ path }
 		}
-		for _, k := range patsNew { p.Project().mapfile(k, paths) }
+
+		if len(patsNew) == 1 { if f, ok := patsNew[0].(*Flag); ok {
+			var name, err = f.name.Strval(ctx)
+			if err != nil {
+				erro(ctx, "strval '%v' failed: %v", f.name, err).of(f.name).debug(1)
+				return
+			}
+			switch name {
+			case "import": p.importFileMaps(ctx, paths...); return
+			default:
+				erro(ctx, "invalid files flag: %v").of(f.name).debug(1)
+				return
+			}
+		}}
+		for _, k := range patsNew { p.Project().mapfile(ctx, opts, k, paths) }
 	}
 }
 
@@ -2840,7 +2918,7 @@ func (p *parser) parseFile() *parsedFile {
 			erro(p, "strval '%v' failed: %v", ident, err).at(ident.Position()).debug(1)
 			return nil
 		} else if linfo.loadee != nil && identStr != linfo.loadee.name {
-			warn(p, "declare multiple project in the same directory").at(ident.position).debug(1)
+			warn(p, "%s: declare multiple project in the same directory", p.Project()).at(ident.position).debug(24)
 		} else if identStr == "_" && p.mode&DeclarationErrors != 0 {
 			erro(p, "package name '_' is preserved").at(ident.Position()).debug(1)
 			return nil

@@ -625,7 +625,6 @@ func (t *traverseContext) spawn() Context {
     return &spawnTraverseContext{traverseContext{
         Context: t.Context,
         print:   t.print,
-        //configuration: t.configuration,
         execRec: make(map[Value]int),
         start:   time.Now(),
     }}
@@ -690,30 +689,6 @@ func traverseAny(ctx Context, i interface{}) {
     return
 }
 
-// DEPRECATED
-func traverseFileStub(ctx Context, p *Project, file *File, stub *filestub) (okay bool, brks  breakers) {
-    var t = ctx.traversal()
-    if optionEnableBenchspots { defer bench(spot("traversal.filestub")) }
-
-    /// Searching entries from the most derived project.
-    var ( entry Entry; err error )
-    if entry, err = p.resolveEntry(ctx, stub.name, t.grepping); err != nil {
-        erro(ctx, "resolve entry failed: %v", err).of(stub.filemap.pattern).debug(1)
-        return
-    } else if entry != nil {
-        entry.traverse(ctx)
-        return
-    }
-
-    /// Searching patterns from the most derived project.
-    for _, entry := range p.resolvePatterns(ctx, stub) {
-        brks = entry.file(ctx, file);
-        okay = !brks.has()
-        break
-    }
-    return
-}
-
 func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
     if options.traceTraversal { ctx.traversal().tracef("traversal.file: %s", file) }
     if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.file(%v)", file))) }
@@ -728,12 +703,15 @@ func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
         erro(ctx, "target is <nil>").at(program.position).debug(1)
         return
     }
+
     ctx = positional(ctx, file.position)
 
     var (
+        t = ctx.traversal()
         projects = closureProjects(ctx)
         concreteEntries = make(map[Entry]bool)
         concreteList []Entry
+        stemmedList []*stemmed
         err error
     )
     defer func() {
@@ -750,8 +728,14 @@ func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
         // Add to the $^ or $| list
         addTarget(ctx, file)
     } ()
+    // Try import filemap projects first! See also `files (-import ...)`
+    if file.filemap != nil { if proj := file.filemap.project; proj != nil {
+        for _, p := range projects { if p == proj { goto afterFilemapProject } }
+        projects = append(projects, proj)
+    afterFilemapProject:
+    }}
 
-    var t = ctx.traversal()
+checkFileEntries:
     for _, project := range projects {
         var entry Entry
         if entry, err = project.resolveEntry(ctx, file.name, t.grepping); err != nil {
@@ -775,7 +759,6 @@ func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
         }
     }
 
-    var stemmedList []*stemmed
     for _, project := range projects {
         stemmedList = append(stemmedList, project.resolvePatterns(ctx, file.name)...)
     }
@@ -822,6 +805,15 @@ func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
         prompt(ctx, "%v: traverse failed, project %s\n", file.fullname(), proj)
         errostack(ctx, 5, "%v: file(%v): error: %v", proj, file, err).debug(8)
     } else if !okay && (len(ctx.stems()) == 0 || ctx.mustExists()) {
+        if filemap := file.filemap; filemap != nil && filemap.project != nil {
+            //warn(ctx, "%v: %v, %v, %v -> %v", proj, file.dir, file.sub, file.name, file.fullname()).debug(1)
+            var s = filepath.Join(filepath.Base(filepath.Join(file.dir, file.sub)), file.name)
+            if f := filemap.project.FindFile(ctx, s); f != nil && f.fullname() == file.fullname() {
+                if true { warn(ctx, "%v: %v -> %v", proj, file.name, f).debug(1) }
+                file, projects = f, []*Project{ filemap.project }
+                goto checkFileEntries
+            }
+        }
         brks.add(file.position, breakErro).error = fileNotFoundError{ proj, file }
         prompt(ctx, "%v: traverse failed, project %s\n", file.fullname(), proj)
         erro(ctx, "%v: projects: %v", proj, projects)
@@ -859,6 +851,7 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
     }
 
     var (
+        t = ctx.traversal()
         pos Position = ctx.Position()
         concreteEntries = make(map[Entry]bool)
         concreteList []Entry
@@ -888,7 +881,6 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
         }
     } ()
 
-    var t = ctx.traversal()
     for _, project := range projects {
         var entry Entry
         if entry, err = project.resolveEntry(ctx, target, t.grepping); err != nil {
@@ -1011,32 +1003,7 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
     for _, project := range projects {
         if file = project.FindFile(ctx, target); file != nil {
             file.position = pos // Change the position for tracing
-            if false {
-                var names = make(map[string]bool)
-                for stub := file.filestub; true; stub = stub.other {
-                    names[stub.name] = true // mark to avoid trying many times
-                    if okay, brks = traverseFileStub(ctx, project, file, stub); brks.has() { return }
-                    if okay { file.filestub = stub; return }
-                    if stub.other == file.filestub { break }
-                }
-
-                // Try other names
-                var name string
-                for s, i := file.name, strings.LastIndex(file.name, PathSep); s != "" && i >= 0; i = strings.LastIndex(s, PathSep) {
-                    if i == 0 { name = file.fullname() } else { name = filepath.Join(s[i+1:], name) }
-                    s = s[:i] // strip off the prefix
-
-                    if _, tried := names[name]; tried { continue }
-                    names[name] = true // mark to avoid duplication
-
-                    var sub = filepath.Join(file.sub, s)
-                    var stub = &filestub{ file.dir, sub, name, file.filemap, file.filestub.other }
-                    file.filestub.other = stub
-
-                    if okay, brks = traverseFileStub(ctx, project, file, stub); brks.has() { return }
-                    if okay { file.filestub = stub; break }
-                }
-            } else if okay, brks = traverseFile(ctx, file); brks.has() {
+            if okay, brks = traverseFile(ctx, file); brks.has() {
                 return
             }
 
@@ -1063,7 +1030,7 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
             ctx = positional(ctx, file.position)
         } else {
             brks.add(pos, breakErro).error = targetNotFoundError{proj, target}
-            ctx = positional(ctx, targetVal.Position())
+            if targetVal != nil { ctx = positional(ctx, targetVal.Position()) }
         }
         prompt(ctx, "%s: traverse failed, project %s\n", target, proj)
         erro(ctx, "%v: projects: %v", proj, projects)
@@ -3669,12 +3636,12 @@ func (p *File) stat(ctx Context) (si *statinfo) {
     return
 }
 func (p *File) isSysFile() (res bool) {
-    if p.filemap != nil && len(p.filemap.Paths) == 1 {
+    if p.filemap != nil && len(p.filemap.paths) == 1 {
         // system files defined by:
         //     files (
         //       (foo.xxx) ⇒ -
         //     )
-        if f, ok := p.filemap.Paths[0].(*Flag); ok {
+        if f, ok := p.filemap.paths[0].(*Flag); ok {
             res = isNone(f.name) || isNil(f.name)
         }
     }

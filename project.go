@@ -23,7 +23,8 @@ const PathSep = string(filepath.Separator)
 type FileMap struct {
   project *Project
   pattern Value
-  Paths []Value
+  paths []Value
+  public bool
 }
 
 func (filemap *FileMap) String() string { return filemap.pattern.String() }
@@ -32,10 +33,10 @@ func (filemap *FileMap) Patterns(ctx Context) (pats []Value) {
     var err error
     if pats, err = expandmerge2(ctx, expandPlainValue, filemap.pattern); err != nil {
       erro(ctx, "merge pattern '%v' failed: %v", filemap.pattern, err).of(filemap.pattern)
-    } else if pats, _, err = expandall2(ctx, expandPlainValue, pats...); err != nil {
+    }/* else if pats, _, err = expandall2(ctx, expandPlainValue, pats...); err != nil {
       // Do a second expand to ensure converted closures are expanded
       erro(ctx, "sencond expand patterns '%v' failed: %v", pats, err).of(filemap.pattern)
-    }
+    }*/
   } else {
     pats = append(pats, filemap.pattern)
   }
@@ -70,11 +71,11 @@ func (filemap *FileMap) match(ctx Context, pattern Value, filename string) (matc
 
 func (filemap *FileMap) stat(ctx Context, base, pre, name string) (file *File) {
   var pos = filemap.pattern.Position(); if false { ctx = positional(ctx, pos) }
-  if base = filepath.Clean(base); len(filemap.Paths) == 0 {
+  if base = filepath.Clean(base); len(filemap.paths) == 0 {
     file = stat(ctx, name, "", base, nil) // simply stat file name if no paths
     return
   } else if pre != "" { pre = filepath.Clean(pre) }
-  for _, path := range filemap.Paths {
+  for _, path := range filemap.paths {
     if isNil(path) {
       erro(ctx, "nil path: base=%s)", base).at(pos)
       erro(ctx, "nil path: pre=%s",   pre).at(pos)
@@ -323,34 +324,31 @@ type Project struct {
   opts projectDeclOpts
 }
 
+func (p *Project) AbsPath() string { return p.absPath }
+func (p *Project) RelPath() string { return p.relPath }
+func (p *Project) Spec() string { return p.spec }
 func (p *Project) String() string { return p.name }
+func (p *Project) Name() string { return p.name }
+func (p *Project) Scope() *Scope { return p.scope }
+func (p *Project) Bases() []*Project { return p.bases }
 
 func (p *Project) NewScope(pos Position, comment string) *Scope {
   return NewScope(pos, p.scope, p, comment)
 }
 
-func (p *Project) AbsPath() string { return p.absPath }
-func (p *Project) RelPath() string { return p.relPath }
-func (p *Project) Spec() string { return p.spec }
-func (p *Project) Name() string { return p.name }
-func (p *Project) Scope() *Scope { return p.scope }
-func (p *Project) Bases() []*Project { return p.bases }
-//func (p *Project) Chain(bases ...*Project) {
-//  for _, base := range bases { p.bases = append(p.bases, base) }
-//}
-
-func (p *Project) mapfile(pat Value, paths []Value) {
+func (p *Project) mapfile(ctx Context, opts filesOpts, pat Value, paths []Value) {
   // List order is significant, duplication is acceptable.
-  p._filemap_ = append(p._filemap_, &FileMap{ p, pat, paths })
+  p._filemap_ = append(p._filemap_, &FileMap{ p, pat, paths, opts.public })
 }
+
 func (p *Project) myFilemaps(ctx Context) (filemap []*FileMap) {
-  if true { return p._filemap_ }
+  return p._filemap_
 
   var _filemap_ []*FileMap
   if len(_filemap_) == 0 && len(p._files_) > 0 {
     var mapfile = func (pat Value, paths []Value) {
       // List order is significant, duplication is acceptable.
-      _filemap_ = append(_filemap_, &FileMap{ p, pat, paths })
+      _filemap_ = append(_filemap_, &FileMap{ p, pat, paths, false })
     }
     for _, spec := range p._files_ {
       switch v := spec.(type) {
@@ -386,55 +384,75 @@ func (p *Project) myFilemaps(ctx Context) (filemap []*FileMap) {
   return _filemap_
 }
 
-func (p *Project) filemaps(ctx Context, baseFiles, using bool) (filemaps []*FileMap) {
+func appendFilemapUniquely(ctx Context, filemaps []*FileMap, a *FileMap) (result []*FileMap) {
+  var numDuplicated int
+  for _, m := range filemaps {
+    if a == m || (a.pattern == m.pattern && &a.paths == &m.paths) {
+      result = filemaps
+      return
+    } else if a.pattern == m.pattern && len(a.paths) == len(m.paths) {
+      var same = true // initially assumes all paths are identical
+      for i, ap := range a.paths {
+        if ap != m.paths[i] { same = false; break }
+      }
+      if same {
+        result = filemaps
+        return
+      } else {
+        warn(ctx, "files might be duplicated: %v (paths=%v),", a, a.paths).of(a.pattern)
+        warn(ctx, "                     with: %v (paths=%v)" , m, m.paths).of(m.pattern)
+        warn(ctx, "          differred paths: %v", a.paths[0]).of(a.paths[0])
+        warn(ctx, "                      and: %v", m.paths[0]).of(m.paths[0])
+        numDuplicated += 1
+      }
+    }
+  }
+  if numDuplicated > 0 { erro(ctx, "duplicated files: %v", a.pattern).of(a.pattern) }
+  result = append(filemaps, a)
+  return
+}
+
+func (p *Project) filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*FileMap) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.filemaps")) }
 
   var uniqueAppend = func(a *FileMap) {
-    var numDuplicated int
-    for _, m := range filemaps {
-      if a == m || (a.pattern == m.pattern && &a.Paths == &m.Paths) { return } else
-      if a.pattern == m.pattern && len(a.Paths) == len(m.Paths) {
-
-        var same = true // initially assumes all paths are identical
-        for i, ap := range a.Paths {
-          if ap != m.Paths[i] { same = false; break }
-        }
-        if same { return } else {
-          warn(ctx, "files might be duplicated: %v (paths=%v),", a, a.Paths).of(a.pattern)
-          warn(ctx, "                     with: %v (paths=%v)" , m, m.Paths).of(m.pattern)
-          warn(ctx, "          differred paths: %v", a.Paths[0]).of(a.Paths[0])
-          warn(ctx, "                      and: %v", m.Paths[0]).of(m.Paths[0])
-          numDuplicated += 1
-        }
-      }
-    }
-    if numDuplicated > 0 { erro(ctx, "duplicated files: %v", a.pattern).of(a.pattern) }
-    filemaps = append(filemaps, a)
+    filemaps = appendFilemapUniquely(ctx, filemaps, a)
   }
 
   for _, m := range p.myFilemaps(ctx) { uniqueAppend(m) }
-  if baseFiles {
-    for _, base := range p.bases {
-      for _, m := range base.filemaps(ctx, true, false) { uniqueAppend(m) }
-    }
-  }
-  if using {
+  if baseFiles || true/* FIXME: make it optional */ { for _, base := range p.bases {
+    for _, m := range base.filemaps(ctx, true, usedFiles) { uniqueAppend(m) }
+  }}
+  if usedFiles && false/* FIXME: performance */ {
     // takes a big longer time to map usee filemaps, but acceptable
-    var appendUsingList func(*Project)
+    var (
+      appendUsingList func(*Project)
+      appendUsedFiles func(*Project)
+    )
     appendUsingList = func(p *Project) {
-      for _, m := range p.myFilemaps(ctx) { uniqueAppend(m) }
+      var fms []*FileMap
+      if true {
+        fms = p.myFilemaps(ctx)
+      } else {
+        // FIXME: this is the expensive way, really slow!
+        fms = p.filemaps(ctx, /*baseFiles*/false, usedFiles)
+      }
+      for _, m := range fms { uniqueAppend(m) }
+      appendUsedFiles(p)
+    }
+    appendUsedFiles = func(p *Project) {
       for _, u := range p.using.list {
-        if u.opts.noFiles { appendUsingList(u.project) }
+        if !u.opts.noFiles { appendUsingList(u.project) }
       }
     }
-    appendUsingList(p)
+    appendUsedFiles(p)
   }
   return
 }
 
 func (p *Project) wildcard(ctx Context, opts wildcardOpts, patterns ...Value) (files []*File, err error) {
   var pos = ctx.Position()
-  var filemaps = p.filemaps(ctx, !opts.noBaseFiles, false)
+  var filemaps = p.filemaps(ctx, opts.baseFiles, opts.usedFiles)
 ForPatterns:
   for _, pat := range patterns {
     var (
@@ -488,7 +506,7 @@ ForPatterns:
         }
 
         // Check against paths for non-abs/rel patterns.
-        for _, path := range fm.Paths {
+        for _, path := range fm.paths {
           var sub string
           if sub, err = path.Strval(ctx); err != nil {
             break ForPatterns
@@ -532,7 +550,7 @@ ForPatterns:
             // Append this non-existed/missing file.
             file := stat(ctx, name, sub, prefix, nil)
             files = append(files, file)
-          } else if ok && !path.expandible(ctx, expandClosure) && len(fm.Paths) == 1 {
+          } else if ok && !path.expandible(ctx, expandClosure) && len(fm.paths) == 1 {
             // Just report that the pattern matches no files in the
             // file system (if only one path specified).
             if false {
@@ -557,20 +575,14 @@ func (p *Project) matchFile(ctx Context, name string) (file *File) {
   var first *File
 
 ForFilemaps:
-  for _, filemap := range p.filemaps(ctx, true, true) {
+  for _, filemap := range p.filemaps(ctx, true, /*true*/false) {
     // Match the represented file name.
     var matched, pre = filemap.Match(ctx, name)
     if !matched { continue ForFilemaps }
-    if p.changedWD != "" { file = filemap.stat(ctx, p.changedWD, pre, name) }
-    if file == nil       { file = filemap.stat(ctx, p.absPath,   pre, name) }
-    if false {
-      var ( s1, s2 string; pos = filemap.pattern.Position() )
-      if file  != nil { s1 =  file.fullname() }
-      if first != nil { s2 = first.fullname() }
-      erro(ctx, "%s: name=%s (file=%v, exists=%v, first=%v, cwd=%s, filemap=%v, patterns=%v, pre=%v)\n",
-        p, name, s1, file.exists(), s2, p.changedWD, filemap.pattern, filemap.Patterns(ctx), pre).
-        at(pos).debug(1)
-    }
+
+    var proj = filemap.project
+    if proj.changedWD != "" { file = filemap.stat(ctx, proj.changedWD, pre, name) }
+    if file == nil          { file = filemap.stat(ctx, proj.absPath,   pre, name) }
     if file != nil {
       if file.filemap == nil { file.filemap = filemap }
       if pre != "" { /* FIXME: file.change(...pre) */ }
@@ -585,7 +597,7 @@ ForFilemaps:
     // matched files. The current project have the highest
     // priority to match.
     for _, fm := range p.myFilemaps(ctx) {
-      if filemap == fm { break ForFilemaps }
+      if fm.project == p && filemap == fm { break ForFilemaps }
     }
   }
   if first != file && !file.exists() { file = first }
@@ -618,7 +630,11 @@ func (p *Project) configuration(ctx Context) (file *File) {
   return
 }
 
-func (p *Project) FindFile(ctx Context, name string) (file *File) { return p.matchFile(ctx, name) }
+func (p *Project) FindFile(ctx Context, name string) (file *File) {
+  file = p.matchFile(ctx, name)
+  return
+}
+
 func (p *Project) isFileName(ctx Context, s string) (res bool) {
   if len(s) > 0 {
     for _, filemap := range p.filemaps(ctx, true, true) {
@@ -629,9 +645,7 @@ func (p *Project) isFileName(ctx Context, s string) (res bool) {
 }
 
 func (p *Project) DefaultEntry() (entry Entry) {
-  if len(p.concrete) > 0 {
-    entry = p.concrete[0]
-  }
+  if len(p.concrete) > 0 { entry = p.concrete[0] }
   return
 }
 

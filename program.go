@@ -114,7 +114,7 @@ func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err 
             _, ent, _ = entryStr(ctx, ctx.entry())
             nam = intername(i)
         )
-        prompt(ctx, "%v: %s\n", ent, nam)
+        prompt(ctx, "%v: interpret '%s' recipes failed\n", ent, nam)
         erro(ctx, "%s: %v", nam, err)
         errostack(ctx, 3, "%v", ctx).debug(1)
         return
@@ -215,6 +215,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
                     }
                 }
                 errostack(ctx, 3, "%v: %v: %v", proj, name, ctx).debug(6)
+                fail(m.Position(), "%s failed for project %s", name, proj)
             }
         } else if hyphen, found := ctx.autoGet("-"); !found || isNil(value) || value == hyphen {
             // does nothing
@@ -229,6 +230,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
             prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
             erro(ctx, "%s: %v", name, err)
             errostack(ctx, 3, "%v", ctx).debug(1)
+            fail(m.Position(), "%s failed for project %s", name, proj)
         }
     } else {
         var _, ent, _ = entryStr(ctx, ctx.entry())

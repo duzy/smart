@@ -879,9 +879,9 @@ func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name str
 
         // System files are not treated as missing nor collected
         // for further updating, just discard them immediately.
-        if !sys && file != nil && file.filemap != nil && len(file.filemap.Paths) == 1 {
+        if !sys && file != nil && file.filemap != nil && len(file.filemap.paths) == 1 {
                 // system files defined by `files ((foo.xxx) ⇒ -)`
-                if f, ok := file.filemap.Paths[0].(*Flag); ok {
+                if f, ok := file.filemap.paths[0].(*Flag); ok {
                         sys = isNone(f.name) || isNil(f.name)
                 }
         }
@@ -1477,7 +1477,11 @@ func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks
                 files = append(files, file)
         }
 
-        var jobs sync.WaitGroup
+        var (
+                missing = make(map[string]Position)
+                missMux sync.Mutex
+                jobs sync.WaitGroup
+        )
         var depFile = func(ctx Context, depPos Position, word string) {
                 var dc = depContext{diagContext{ Context: ctx }}; ctx = &dc
                 if parallel {
@@ -1486,9 +1490,6 @@ func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks
                                 if len(dc.points) > 0 { dc.inner().diagnostic().nest(dc.points) }
                                 jobs.Done() // minus 1
                         } ()
-                }
-                if false && strings.HasSuffix(word, "libunwind_ext.h") {
-                        warn(ctx, "%v: %v, %v", target, word, ctx).debug(6)
                 }
                 if i := strings.Index(word, " "); i > 0 {
                         warn(ctx, "ignore dep with spaces: %v", word).debug(1)
@@ -1518,15 +1519,19 @@ func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks
                 }
                 if n := dc.countErrors(); n > 0 {
                         var s = trimPromptString(target.String())
-                        err = fmt.Errorf(`dep "%v" error`, word)
                         erro(ctx, `%v: %d errors for "%s", dep "%s"`, proj, n, s, word)
                         errostack(ctx, 5, `%v: %v`, ctx).debug(6)
+                        missMux.Lock()
+                        missing[word] = depPos
+                        missMux.Unlock()
                 }
                 return
         }
 
+        var depPos Position
+        depPos.Filename = savedDepsFileName
+
         var wordRecs = make(map[string]int)
-        var depPos Position; depPos.Filename = savedDepsFileName
         for l, line := range strings.Split(deps, "\n") {
                 var words = line
                 if i := strings.Index(words, ":"); i > 0 { words = strings.TrimSpace(words[i+1:]) }
@@ -1546,9 +1551,9 @@ func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks
                         }
                 }
         }
-        if jobs.Wait(); err != nil {
-                erro(ctx, `%v: "%v", %s`, proj, target, err)
-                erro(ctx, `%v: "%v", deps "%v"`, proj, target, savedDepsFileName)
+        if jobs.Wait(); len(missing) > 0 {
+                for s, p := range missing { erro(ctx, `missing "%v"`, s).at(p) }
+                erro(ctx, `%v: "%v" missing %d deps in "%v"`, proj, target, len(missing), savedDepsFileName)
                 errostack(ctx, 3, "%v", ctx).debug(10)
         }
         return
@@ -1585,16 +1590,24 @@ func loadSavedDepsAndCheckOutdated(ctx Context, args []string) (savedDepsFileNam
 }
 
 func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
-        if proj := ctx.Project(); proj == nil {
+        var (
+                okay bool
+                fullname = dep
+                proj = ctx.Project()
+        )
+        if proj == nil {
                 prompt(ctx, "%s: traverse file failed, project %v\n", dep, proj)
                 erro(ctx, "%s: no current project for dep", dep)
                 errostack(ctx, 5, "%s: %v", dep, ctx).debug(10)
+                return
         } else if file := proj.FindFile(ctx, dep); file == nil {
-                prompt(ctx, "%s: traverse file failed, project %v\n", dep, proj)
-                erro(ctx, "%s: dep is not a file in project %v", dep, proj)
-                errostack(ctx, -1, "%s: %v", dep, ctx).debug(10)
-        } else if brks = file.traverse(ctx); brks.has() {
-                prompt(ctx, "%s: traverse file failed, project %v\n", file.fullname(), proj)
+                okay, brks = traverseString(ctx, nil, dep)
+        } else {
+                okay, brks = traverseFile(ctx, file)
+                fullname = file.fullname()
+        }
+        if brks.has() {
+                prompt(ctx, "%s: traverse file failed, project %v\n", fullname, proj)
                 for _, brk := range brks {
                         switch brk.what {
                         case breakErro: erro(ctx, "%v: missing deps: %v", proj, brk.error).at(brk.pos)
@@ -1602,14 +1615,14 @@ func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
                         default       : erro(ctx, "%v: missing deps: %v", proj, brk.what).at(brk.pos)
                         }
                 }
-                errostack(ctx, 5, "%v: %v", proj, ctx).debug(8)
+                errostack(ctx, 5, "%v: %v", proj, ctx).debug(10)
         } else {
-                res = true
+                res = okay
         }
         return
 }
 
-func traverseMissingDeps(ctx Context, errBytes []byte) (res bool, brks breakers) {
+func traverseMissingDeps(ctx Context, lastTry string, errBytes []byte) (res bool, tried string, brks breakers) {
         const promptErrors bool = false
         const promptBeforeTraverse bool = promptErrors && true
         for _, rx := range knownerrors {
@@ -1617,7 +1630,9 @@ func traverseMissingDeps(ctx Context, errBytes []byte) (res bool, brks breakers)
                 if all != nil { for _, m := range all {
                         if rx == rxFatalErrorFileNotFound {
                                 if promptBeforeTraverse { prompt(ctx, "%s\n", m[0]).debug(6) }
-                                if res, brks = traverseMissingDep(ctx, string(m[4])); !res || brks.has() {
+                                if dep := string(m[4]); dep == lastTry {
+                                        return false, "", nil
+                                } else if res, brks = traverseMissingDep(ctx, dep); !res || brks.has() {
                                         var (
                                                 s, l, c = string(m[1]), string(m[2]), string(m[3])
                                                 pos = convPosition(s, l, c)
@@ -1626,7 +1641,7 @@ func traverseMissingDeps(ctx Context, errBytes []byte) (res bool, brks breakers)
                                         prompt(ctx, "%s\n", m[0]) // prompt the entire error line
                                         erro(ctx, "%v", ctx).at(pos).debug(1)
                                         return
-                                }
+                                } else if tried == "" { tried = dep }
                         } else if promptErrors {
                                 prompt(ctx, "%s\n", m[0])/*.debug(1)*/
                         }
@@ -1756,16 +1771,18 @@ CorrectCC:
                         cc = exec.Command(opts.cc, ca...)
                         stdout bytes.Buffer
                         stderr bytes.Buffer
-                        retried bool
+                        retried string
                 )
         retryCC:
                 cc.Stdout, cc.Stderr = &stdout, &stderr
                 if err = cc.Run(); err != nil {
-                        if okay := false; retried {
-                                /* noop */
-                        } else if okay, brks = traverseMissingDeps(ctx, stderr.Bytes()); okay && !brks.has() {
-                                info(ctx, "retry deps command").debug(1)
-                                cc, retried = exec.Command(opts.cc, ca...), true
+                        var okay = false
+                        if okay, retried, brks = traverseMissingDeps(ctx, retried, stderr.Bytes()); okay && !brks.has() {
+                                if false {
+                                        var target, _ = ctx.autoGet("@")
+                                        warn(ctx, "%v: retry deps '%s'", target).debug(1)
+                                }
+                                cc = exec.Command(opts.cc, ca...)
                                 stdout.Reset()
                                 stderr.Reset()
                                 goto retryCC

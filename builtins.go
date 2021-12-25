@@ -1890,7 +1890,8 @@ type builtinPatsubstOpts struct {
         fullfiles bool `ff,fullfile;ff,fullfiles`
         files bool `f,file;fs,files`
         cleanPath bool `c,clean;c,cleanpath`
-        noBaseFiles bool `nb,no-base;nb,no-bases`
+        baseFiles bool `b,base;b,bases;bf,base-files`
+        usedFiles bool `u,used;u,using;uf,used-files`
         noFileMap bool `n,no-filemap`
 }
 
@@ -1949,7 +1950,7 @@ func builtinPatsubst(ctx Context, args... Value) (res Value) {
         //defer setclosure(setclosure(cloctx.unshift(proj.scope)))
 
         var filemaps []*FileMap
-        if !opts.noFileMap { filemaps = proj.filemaps(ctx, !opts.noBaseFiles, false) }
+        if !opts.noFileMap { filemaps = proj.filemaps(ctx, opts.baseFiles, opts.usedFiles) }
 
 ForSources:
         for _, src := range sources {
@@ -3660,7 +3661,8 @@ func builtinGlob(ctx Context, args... Value) (res Value) {
 type wildcardOpts struct {
         includeMissing bool `im,includemissing;m,include-missing`
         errorMissing bool `em,errormissing;e,error-missing`
-        noBaseFiles bool `nb,no-base;nb,no-bases`
+        baseFiles bool `b,base;b,bases;bf,base-files`
+        usedFiles bool `u,used;u,using;uf,used-files`
         verbose bool `v,verbose`
 }
 func builtinWildcard(ctx Context, args... Value) (res Value) {

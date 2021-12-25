@@ -263,9 +263,9 @@ func (l *loader) searchSpecPath(linfo *loadinfo, specName string) (absPath strin
 
 type genericoptions struct {
     keyword token.Token
-    verbose bool // TODO: verbose operation
     dontOperate bool
     options []Value
+    verbose bool // TODO: verbose operation
 }
 
 type useoptions struct {
@@ -283,7 +283,7 @@ type importspecoptions struct {
     noFiles bool
 }
 func (l *loader) Position() Position { return l.parser.Position() }
-func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName string, specOpts *importspecoptions, params []Value) {
+func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName string, specOpts *importspecoptions, params ...Value) (loaded *Project) {
     var (
         linfo = l.loads[len(l.loads)-1]
         position = specVal.Position()
@@ -292,7 +292,6 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
         isDir bool
         err error
     )
-
     if absPath, isDir, err = l.searchSpecPath(linfo, specName); err != nil {
         erro(ctx, "no such package `%v`", specName).of(specVal).debug(1)
         return
@@ -301,7 +300,8 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
         return
     }
 
-    var loaded, loadedValid = l.loaded[absPath]
+    var loadedValid bool
+    loaded, loadedValid = l.loaded[absPath]
 
     // Checking circular loads. See also Project.loopImportPath()!
     var breakUseLoop bool
@@ -326,9 +326,9 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
             }
 
             if breakUseLoop = (loopBreakers != nil); !breakUseLoop {
-                erro(ctx, "loop detected: %s", s).of(specVal).debug(1)
+                erro(ctx, "%s: loop detected: %s", l.project, s).of(specVal).debug(10)
             } else if options.verboseImport || options.verboseUsing || options.verboseLoads {
-                prompt(ctx, "%s: loop detected: %v\n", l.project, s).debug(1)
+                prompt(ctx, "%s: loop detected: %v\n", l.project, s).debug(10)
             }
         }
     }
@@ -394,7 +394,7 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
         } (time.Now())
     }
 
-    if loadedValid && !specOpts.reuse {
+    if loadedValid && !(specOpts.unuse || specOpts.reuse) {
         var ( proj *Project ; res, isb bool )
         if proj, res, isb, err = l.project.hasLoaded(ctx, loaded, breakUseLoop); err != nil {
             erro(ctx, "`%s`: %s", specName, err).of(specVal).debug(1)
@@ -403,7 +403,7 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
             erro(ctx, "`%s` is a base (%s)", specName, proj.name).of(specVal).debug(1)
             return
         } else if res {
-            erro(ctx, "'%s' already imported by '%s'", specName, proj.name).of(specVal).debug(1)
+            erro(ctx, "'%s' already imported by '%s'", specName, proj.name).of(specVal).debug(16)
             return
         }
     }
@@ -433,14 +433,14 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
             return
         }
     }
-    if breakUseLoop { /*return*/ }
+    if specOpts.unuse { return }
 
     // Check against the current load list before appending loaded.
     for _, lp := range l.project.loads {
         var ( proj *Project ; res, isb bool )
 
         if loaded == lp {
-            erro(ctx, "using `%s` multiple times", specName).of(specVal).debug(1)
+            erro(ctx, "using `%s` multiple times", specName).of(specVal).debug(10)
             return
         }
 
@@ -469,12 +469,10 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
             warn(ctx, "`%s` has already been imported by `%s` (from %s)", loaded, lp, proj).at(position).debug(1)
         }
     }
-
-    if specOpts.unuse || breakUseLoop { return } else {
+    if breakUseLoop { return } else {
         // The project load list is different from using list.
         l.project.loads = append(l.project.loads, loaded)
     }
-
 
     var useopts = opts.useoptions
     if specOpts.reuse {
@@ -1887,7 +1885,7 @@ ListLoop:
                     d = erro(ctx, "%d diagnostic errors parsing file '%s'", n, s).at(pos)
                     d = erro(ctx, "parsing failed: %v", err).at(pos)
                 }
-                warn(ctx, "parse dir '%s' got %d errors", filepath.Base(path), ctx.totalErrors()).debug(1)
+                warn(ctx, "parse dir '%s' got %d errors", filepath.Base(path), ctx.totalErrors()).debug(10)
                 if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.totalErrors()) }
             } else if err != nil {
                 d = erro(ctx, "parse file failed: %v", err).at(pos)
