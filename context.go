@@ -579,7 +579,13 @@ func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
     }
     return true
   }
+
   if collect(main, merge(dc.globe.goals.value)) {
+    if len(goals) == 0 {
+      if entry := main.DefaultEntry(); entry != nil {
+        goals = append(goals, entry)
+      }
+    }
     for _, goal := range goals {
       var args, _ = dc.globe.args[goal]
       result = append(result, dc.update(goal, args)...)
