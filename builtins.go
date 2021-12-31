@@ -1901,7 +1901,7 @@ type builtinPatsubstOpts struct {
 //   $(var:suffix=replacement)
 func builtinPatsubst(ctx Context, args... Value) (res Value) {
         var (
-                proj = ctx.Project() //current()
+                proj = ctx.Project()
                 opts builtinPatsubstOpts
                 list []Value
                 arg0 []Value

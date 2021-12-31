@@ -47,7 +47,7 @@ const (
     existenceConfirmed
     existenceNegated
 )
-const expandArgumented = true
+const expandArgumentedTraverse = true
 const (
     expandDelegate expandwhat = 1<<iota // $(...)  ->  ......
     expandClosure   // &(...)            ->  $(...)
@@ -55,7 +55,7 @@ const (
     expandArgs      // $(foo $(x),$(y))  -> $(foo ...,...)
     expandArgedArgs // foo($(args))      -> foo(...)
     expandDef       // foo=...           -> ...
-    expandFullName  // foobar.c          -> /path/to/foobar.c    TODO
+    expandFullName  // foobar.c          -> /path/to/foobar.c
     expandPatterned // %.proto           -> example.proto (if ctx.stems() == [example])
     expandPathStr   // "/path/to"/foo    -> /path/to/foo
     expandPairVal   // foo=$(bar)        -> foo=...
@@ -1573,19 +1573,20 @@ func (p *Argumented) traverse(ctx Context) (brks breakers) {
     //!< IMPORTANT! - Don't merge-expand arguments here!
     //!< Arguments should be passed to program.execute as it is.
     var args []Value
-    if expandArgumented {
+    if expandArgumentedTraverse {
+        var proj = ctx.Project()
         // NOTE: expand here to avoid args being expanded in the wrong context
         const w = expandPlainValue|expandPairVal|expandPatterned//|expandFullName
         for _, a := range p.args {
             if val, err := a.expand(ctx, w); err != nil {
                 erro(ctx, `expand "%v" failed: %v`, a, err).debug(1)
             } else if !isNil(val) && val != a { a = val }
+            // TODO: deal with pattern args using expandPatterned instead of stenciling:
             if true && a.patterned(ctx) { if stems := ctx.stems(); len(stems) > 0 {
-                // TODO: deal with expandPatterned instead of stenciling here:
                 if str, rest := a.stencil(ctx, stems); len(rest) > 0 {
                     erro(ctx, "partial stencil: %v, %v, %v, %v", a, str, rest, stems).of(a).debug(1)
                     panic(str)
-                } else if file := ctx.Project().FindFile(ctx, str); file != nil {
+                } else if file := proj.FindFile(ctx, str); file != nil {
                     a = file
                 } else {
                     a = MakeString(a.Position(), str)
@@ -1593,6 +1594,9 @@ func (p *Argumented) traverse(ctx Context) (brks breakers) {
             }}
             args = append(args, a)
         }
+        /*if s := p.value.String(); s == "archive" || s == "program" {
+            warn(ctx, "%v: %v -> %v", proj, p.args, args).debug(1)
+        }*/
     } else {
         args = p.args
     }
@@ -4063,10 +4067,19 @@ func (p *List) expand(ctx Context, w expandwhat) (res Value, err error) {
     return
 }
 func (p *List) traverse(ctx Context) (brks breakers) {
-    if len(p.Elems) == 0 { return }
-    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
-    for _, v := range p.Elems {
-        if brks = v.traverse(ctx); brks.has() { break }
+    if len(p.Elems) > 0 {
+        if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
+        for _, elem := range p.Elems {
+            if brks = elem.traverse(ctx); brks.has() {
+                if false {
+                    for _, b := range brks {
+                        warn(ctx, "%T %v; %v; %v", elem, elem, b.what, p)
+                        warn(ctx, "%v; %v", ctx.stems(), ctx).debug(1)
+                    }
+                }
+                break
+            }
+        }
     }
     return
 }
@@ -4377,16 +4390,18 @@ func (p *delegate) defs(ctx Context, s ...string) (res []*Def) {
 func (p *delegate) traverse(ctx Context) (brks breakers) {
     if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     ctx = positional(ctx, p.position)
-    if val, err := p.expand(ctx, expandPlainValue); err != nil { if true {
+    if val, err := p.expand(ctx, expandPlainValue); err != nil {
         erro(ctx, "expand '%v' failed: %v", p, err).at(p.position)
         errostack(ctx, -1, "expand '%v' failed", p).debug(16)
-    }} else if isNil(val) { if true {
+    } else if isNil(val) {
         warn(ctx, "delegate '%v' expands to nil", p).at(p.position)
         warnstack(ctx, -1, "delegate '%v' expands to <nil>", p).debug(16)
-    }} else if isNone(val) { if false {
-        warn(ctx, "delegate '%v' expands to none", p).at(p.position)
-        warnstack(ctx, -1, "delegate '%v' expands to <none>", p).debug(16)
-    }} else if brks = val.traverse(ctx); len(brks) > 0 {
+    } else if isNone(val) {
+        if false {
+            warn(ctx, "delegate '%v' expands to none", p).at(p.position)
+            warnstack(ctx, -1, "delegate '%v' expands to <none>", p).debug(16)
+        }
+    } else if brks = val.traverse(ctx); len(brks) > 0 {
         if brks = brks.not(breakCase, breakNext, breakDone); len(brks) > 0 {
             if true {for _, brk := range brks { warn(ctx, "%v; %v -> %T %v", brk.what, p, val, val).debug(8) }}
         }
@@ -5457,7 +5472,7 @@ func values(args ...interface{}) (elems []Value) {
 // Merge lists recursively into a single list. Previously called Join.
 func merge(args... Value) (elems []Value) {
     for _, arg := range args {
-        if l, _ := arg.(*List); l != nil {
+        if l, o := arg.(*List); o && l != nil {
             elems = append(elems, merge(l.Elems...)...)
         } else {
             elems = append(elems, arg)

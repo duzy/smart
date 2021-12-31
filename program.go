@@ -480,31 +480,15 @@ func traversePrerequisites(ctx Context, prerequisites []Value) (brks breakers) {
     // IMPORTANT: don't expand the args here. The prerequisites like
     // '$(or &@,...)' have to be expanded when it's used (e.g. compare).
     if true {
-        var entry = ctx.entry()
-        var infos = false && entry.String() == "program"
-        /*if s := "external.google.tensorflow.prototext"; entry.String() == s {
-            defer func() {
-                var target, _ = ctx.autoGet("@")
-                warn(ctx, "%v: %v", entry, target).debug(10)
-            } ()
-            infos = true
-        } else if entry.String() == "program" && true {
-            for i := ctx.inner(); i != nil; i = i.inner() {
-                if e := i.entry(); e != nil && e.String() == s {
-                    defer func() {
-                        for _, brk := range brks { warn(ctx, "%v", brk.what) }
-                        warn(ctx, "%v: %v (%d)", entry, e, len(brks)).debug(30)
-                    } ()
-                    infos = true
-                    break
-                }
-            }
-        }*/
+        var ( entry = ctx.entry(); es = entry.String() )
+        var infos = false && (es == "archive" || es == "program" || es == "shared")
         for _, prerequisite := range prerequisites {
-            if infos && false {
-                var target, _ = ctx.autoGet("@")
-                warn(ctx, "%v: %v; %T %v", entry, target, prerequisite, prerequisite)
-                warn(ctx, "%v: %v", entry, ctx).debug(6)
+            if infos && prerequisite.String() == "$(requirement)" {
+                if target, _ := ctx.autoGet("@"); target.String() != "" {
+                    var s, _ = prerequisite.Strval(ctx)
+                    warn(ctx, "%v(%v): %T %v -> %v", entry, target, prerequisite, prerequisite, s)
+                    warn(ctx, "%v: %v", entry, ctx).debug(1)
+                }
             }
             if brks = prerequisite.traverse(ctx); brks.has() {
                 var tb = brks.not(breakNext, breakCase, breakDone)

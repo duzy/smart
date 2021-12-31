@@ -2178,6 +2178,7 @@ func (p *parser) parseModifiersExpr() *modifiergroup {
 
 	var (
 		posLp = p.positionAt(p.expect(token.LBRACK))
+		hasParameters bool // ((foo bar))
 		elems []*modifier
 	)
 
@@ -2215,6 +2216,7 @@ ForModifiersExpr:
 			}
 			goto checkNameAndAdd
 		case *Group: // parameters: ((foo bar))
+			hasParameters = true
 			p.parseModifyParams(n.Elems)
 			continue ForModifiersExpr
 		case *delegate, *closure, *Barecomp, *String:
@@ -2267,13 +2269,11 @@ ForModifiersExpr:
 	}
 	p.skipSpaces()
 	/*rpos := */p.expect(token.RBRACK)
-	if len(elems) == 0 {
-		erro(p, "empty modifier group").at(posLp).
-			debug(1)
+	if len(elems) == 0 && !hasParameters {
+		erro(p, "empty modifier group").at(posLp).debug(1)
 	}
 	if p.tok == token.COLON {
-		erro(p, "unexpected colon after modifer").at(posLp).
-			debug(1)
+		erro(p, "unexpected colon after modifer").at(posLp).debug(1)
 	}
     return &modifiergroup{ valbase: valbase{posLp}, modifiers: elems }
 }

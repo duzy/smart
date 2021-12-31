@@ -76,6 +76,7 @@ type Globe struct {
         scope  *Scope
 	os     *Project
         main   *Project
+        projects    map[string]*Project // all projects
 
         args        map[Value][]Value
         flagEntries map[string][]Entry

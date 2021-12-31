@@ -1228,7 +1228,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       if en > 0 {
         erro(ctx, "%v: scanned %d known errors", str, en).at(lpos)
         erro(ctx, "%v: execute failed (%d errors)", str, en)
-        errostack(ctx, 16, "%v: %v", str, ctx).debug(6)
+        errostack(ctx, 32, "%v: %v", str, ctx).debug(6)
       } else if wn > 0 {
         warn(ctx, "%v: scanned %d known warnings", str, wn).at(lpos)
         if false {

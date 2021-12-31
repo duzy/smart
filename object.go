@@ -319,7 +319,7 @@ func (ac *autoContext) autoGet(name string) (res Value, found bool) {
                 res, found = def.value, ok
         } else if ic = ac.inner(); ic == nil {
                 warn(ac, "missing: %v in %v", name, ac).debug(32)
-        } else if res, found = ic.autoGet(name); expandArgumented || found || isNil(res) || isNone(res) {
+        } else if res, found = ic.autoGet(name); expandArgumentedTraverse || found || isNil(res) || isNone(res) {
                 // Done!
         } else if false {
                 for /*ic = ic.inner()*/; ic != nil; ic = ic.inner() {
@@ -1120,6 +1120,12 @@ func (ec *entryContext) entry() Entry { return ec.ent }
 func (ec *entryContext) inner() Context { return ec.Context }
 func (ec *entryContext) String() string { return fmt.Sprintf("entry{%s,%s}", ec.ent, ec.Context) }
 func (ec *entryContext) Position() Position { return ec.ent.position }
+func (ec *entryContext) stems() (stems []string) {
+        if sc, ok := ec.Context.(*stemmedContext); ok {
+                stems = sc.strs // only if the inner is stemmed
+        }
+        return
+}
 
 type Entry interface{
         Object

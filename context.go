@@ -473,7 +473,7 @@ func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
 
   var main = dc.globe.main
   if main == nil {
-    fmt.Fprintf(stderr, "no targets to update `%v`", dc.globe.goals)
+    erro(dc, "no targets to update `%v`", dc.globe.goals)
     return
   }
 
@@ -501,43 +501,90 @@ func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
   }
   if done { return }
 
-  var goals []Value
-  for _, goal := range merge(dc.globe.goals.value) {
-    switch t := goal.(type) {
-    case *None: // just ignore
-    case *Bareword:
-      if entry, err := main.resolveEntry(ctx, t.string, false); err != nil {
-        fmt.Fprintf(stderr, "%s\n", err)
-      } else if entry == nil {
-        fmt.Fprintf(stderr, "no such entry `%s`\n", t)
-      } else {
-        goals = append(goals, entry)
-      }
-    case *delegate:
-      if s, err := t.Strval(ctx); err != nil {
-        fmt.Fprintf(stderr, "%s\n", err)
-      } else if entry, err := main.resolveEntry(ctx, s, false); err != nil {
-        fmt.Fprintf(stderr, "%s\n", err)
-      } else if entry == nil {
-        fmt.Fprintf(stderr, "no such entry `%s` (via `%v`)\n", s, t)
-      } else {
-        goals = append(goals, entry)
-      }
-    default:
-      fmt.Fprintf(stderr, "unknown target (%s): %v\n", typeof(goal), goal)
-    }
-  }
-
   var updated int
-  if len(goals) == 0 {
-    if entry := main.DefaultEntry(); entry != nil {
-      goals = append(goals, main.DefaultEntry())
+  var goals []Value
+  var collect func(proj *Project, vals []Value) bool
+  collect = func(proj *Project, vals []Value) bool {
+    if len(vals) == 0 {
+      if entry := proj.DefaultEntry(); entry != nil {
+        goals = append(goals, entry)
+      } else {
+        // NOTE: ignored project
+      }
+      return true
     }
+    for _, goal := range vals {
+      switch t := goal.(type) {
+      case *None: // just ignore
+      case *Bareword:
+        if entry, err := proj.resolveEntry(ctx, t.string, false); err != nil {
+          erro(ctx, "resolve '%s': %s", t.string, err).debug(1)
+          return false
+        } else if entry == nil {
+          erro(ctx, "no such entry `%s`", t.string).debug(1)
+          return false
+        } else {
+          goals = append(goals, entry)
+        }
+      case *delegate:
+        if s, err := t.Strval(ctx); err != nil {
+          erro(ctx, "strval '%v' failed: %s", t, err).debug(1)
+          return false
+        } else if entry, err := proj.resolveEntry(ctx, s, false); err != nil {
+          erro(ctx, "resolve entry '%s' failed: %s", s, err).debug(1)
+          return false
+        } else if entry == nil {
+          erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug(1)
+          return false
+        } else {
+          goals = append(goals, entry)
+        }
+      case *Flag:
+        if s, err := t.Strval(ctx); err != nil {
+          erro(ctx, "strval '%v' failed: %s", t, err).debug(1)
+          return false
+        } else if entry, err := proj.resolveEntry(ctx, s, false); err != nil {
+          erro(ctx, "resolve entry '%s' failed: %s", s, err).debug(1)
+          return false
+        } else if entry == nil {
+          erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug(1)
+          return false
+        } else {
+          goals = append(goals, entry)
+        }
+      case *Argumented:
+        if s, err := t.value.Strval(ctx); err != nil {
+          erro(ctx, "strval '%v' failed: %s", t.value, err).debug(1)
+          return false
+        } else {
+          // For examples:
+          //     project-name(-clean)
+          //     project/spec(-clean)
+          //     xxxx()
+          var ( args = merge(t.args...); found int )
+          for _, p := range dc.globe.projects {
+            if p.name == s || p.spec == s { found += 1
+              if !collect(p, args) { return false }
+            }
+          }
+          if found == 0 {
+            erro(ctx, `"%s" not loaded: %v`, s, args).debug(1)
+            return false
+          }
+        }
+      default:
+        erro(ctx, "%v: unknown target: %v (%s)", proj, goal, typeof(goal)).debug(1)
+        return false
+      }
+    }
+    return true
   }
-  for _, goal := range goals {
-    var args, _ = dc.globe.args[goal]
-    result = append(result, dc.update(goal, args)...)
-    updated += 1
+  if collect(main, merge(dc.globe.goals.value)) {
+    for _, goal := range goals {
+      var args, _ = dc.globe.args[goal]
+      result = append(result, dc.update(goal, args)...)
+      updated += 1
+    }
   }
   return
 }
@@ -627,7 +674,10 @@ func joinTmpPath(ctx Context, base, rel string) string {
 // load loads smart files, making it as individual func to avoid being abused by loaders.
 func (ctx *defaultContext) load() (err error) {
   if options.traceLaunch { defer un(trace(t_launch, "defaultContext.load")) }
-  defer func(l *loader) { ctx.loader = l } (ctx.loader)
+  defer func(prevLoader *loader) {
+    ctx.globe.projects = ctx.loader.loaded
+    ctx.loader = prevLoader
+  } (ctx.loader)
 
   var (
     base, _ = os.Getwd()
@@ -686,7 +736,7 @@ func (ctx *defaultContext) load() (err error) {
       if f, ok := t.value.(*Flag); ok {
         ctx.globe.flags = append(ctx.globe.flags, f)
       } else {
-        ctx.globe.goals.append(ctx, t.value)
+        ctx.globe.goals.append(ctx, t/*.value*/)
       }
     default:
       ctx.globe.goals.append(ctx, t)
@@ -835,7 +885,9 @@ func CommandLine() {
   } else if result != nil {
     var ( s string; err error )
     for i, v := range result {
-      if isNil(v) { continue } else if i > 0 { fmt.Fprintf(stderr, ", ") }
+      if isNil(v) { continue } else if i > 0 && s != "" {
+        fmt.Fprintf(stderr, ", ")
+      }
       if s, err = v.Strval(context); err != nil {
         fmt.Fprintf(stderr, "%s [%s]", v, err)
       } else {
