@@ -780,7 +780,11 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     erro(ctx, "needs program context to exec: %v", ctx).debug(16)
     return
   }
-  if targetName, err = fullnameOrStrval(ctx, target); err != nil {
+  if _, ok := target.(*Flag); ok {
+    // no stamp required for Flags
+  } else if _, ok = target.(*File); !ok {
+    // no stamp required for non-file targets
+  } else if targetName, err = fullnameOrStrval(ctx, target); err != nil {
     erro(ctx, "stringify target '%v' failed: %v", target, err).of(target).debug(1)
     return
   } else if ctx.configuration() {
@@ -795,7 +799,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   } else if ms := program.getModifiers(ctx, "wait"); len(ms) > 0 {
     // should be good to work
   } else if !opts.stamp && !opts.silent {
-    warn(ctx, "add -stamp to (shell)").debug(1)
+    warn(ctx, "add -stamp to (shell); target=%v (%T)", target, target).debug(1)
   }
   if strings.HasSuffix(targetName, "external.google.tensorflow.prototext") {
     defer func() { warn(ctx, "%v", target).debug(10) } ()
@@ -1060,7 +1064,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
 
   var caller = ctx.traversal().caller()
   defer func() {
-    if log.writer != nil { log.writer.Flush() }
+    if log != nil && log.writer != nil { log.writer.Flush() }
     if logFile != nil { logFile.Close() }
     if false && log.filename != "" && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
       os.Remove(log.filename)
