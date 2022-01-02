@@ -219,6 +219,8 @@ type ExecBuffer struct {
 }
 func (p *ExecBuffer) filter(s string) { p.filters = append(p.filters, s) }
 func (p *ExecBuffer) Write(b []byte) (n int, err error) {
+  if p.wrote == 0 { p.res.onFirstWrote() }
+
   for _, s := range p.filters {
     if bytes.Equal(b, []byte(s)) { // string(b) == s
       return len(b), nil
@@ -535,6 +537,8 @@ type ExecResult struct {
   retried map[string]bool // work with containerToRun
   containerToRun string   // work with retried
 
+  printEnteringOnFirstWrote bool
+
   num int
   ctx Context
   x *executor
@@ -571,6 +575,17 @@ func (p *ExecResult) String() string {
   if p.Stderr.Buf != nil { fmt.Fprintf(&s, " stdout=%S", p.Stderr.Buf) }
   fmt.Fprintf(&s, ")")
   return s.String()
+}
+
+func (p *ExecResult) onFirstWrote() {
+  if p.printEnteringOnFirstWrote {
+    printEnteringDirectory(p.ctx)
+
+    // Call checkErrors to ensure printEnteringDirectory works immediately
+    if errs := p.ctx.checkErrors(true); errs > 0 {
+      warn(p.ctx, "exec: encountered %d errors", errs).debug(1)
+    }
+  }
 }
 
 func (p *ExecResult) runContainerAndRetry(ctx Context) (status int, err error) {
@@ -1165,7 +1180,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       } else if s, _ := os.Getwd(); s == dir { break }
     }
     if !opts.silent || opts.prompt || opts.verboseSrc {
-      printEnteringDirectory(t)
+      exeres.printEnteringOnFirstWrote = true
     }
 
     exeres.container = container
