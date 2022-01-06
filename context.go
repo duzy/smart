@@ -850,7 +850,11 @@ func CommandLine() {
       } else {
         line = strings.TrimSpace(line)
       }
-      if strings.HasPrefix(line, "#") { continue } else {
+      if strings.HasPrefix(line, "#") {
+        continue
+      } else if filepath.IsAbs(line) {
+        line = filepath.Clean(line)
+      } else {
         line = filepath.Clean(filepath.Join(s, line))
       }
       if fi, err = os.Stat(line); err == nil && fi.IsDir() {
