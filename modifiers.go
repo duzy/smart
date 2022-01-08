@@ -1743,10 +1743,16 @@ CorrectCC:
                         erro(ctx, "strval '%v' failed: %v", err).debug(1)
                         return
                 } else { s = strings.TrimSpace(s) }
+                if strings.Contains(s, "-v -fPIC -fvisibility-inlines-hidden") {
+                        v, _ := a.expand(ctx, expandPlainValue)
+                        warn(ctx, "%T %v", a, a)
+                        warn(ctx, "%T %v", v, v).debug(1)
+                }
                 switch s {
                 case "", "-M", "-MM", "-MG", "-MD", "-MV", "-MP", "-Os", "-O1", "-O2", "-O3",
-                     "-c", "-shared", "-static", "-fPIC", "-fcxx-modules",
-                     "-fvisibility-inlines-hidden": break // discard unused args
+                        "-c", "-shared", "-static", "-fPIC", "-fvisibility-inlines-hidden",
+                        "-fcxx-modules", "-fmodules", "-fmodules-ts":
+                        break // discard unused args
                 default: ca = append(ca, s)
                 }
         }

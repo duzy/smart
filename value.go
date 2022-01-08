@@ -4687,7 +4687,8 @@ func (p *closure) expand(ctx Context, w expandwhat) (res Value, err error) {
 
     var val Value
     if w&expandClosure == 0 {
-        if val, err = p.x.expand(ctx, w); err != nil {
+        // Can't expand Def here as closure still need it
+        if val, err = p.x.expand(ctx, w&^expandDef); err != nil {
             erro(ctx, "expand '%v' failed: %v", p.x, err).of(p.x).debug(1)
             return
         } else if isNil(val) { val = p.x }
@@ -4749,7 +4750,7 @@ func (p *closure) disclose(ctx Context, w expandwhat) (res Value, err error) {
 
     var name string
     if isNil(x) {
-        erro(ctx, "closure non-object: %v (%T)", p.x, p.x).of(p.x).debug(1)
+        erro(ctx, "closure non-object: %T %v", p.x, p.x).of(p.x).debug(1)
         return
     } else if name = x.Name(); name == "" {
         erro(ctx, "empty closure name: %T %v -> %T %v", p.x, p.x, x, x).of(p.x).debug(1)

@@ -622,8 +622,10 @@ func (d *Def) expand(ctx Context, w expandwhat) (res Value, err error) {
                 d.mutex.Unlock()
         }
 
-        if isNil(value0) || isNone(value0) {
+        if isNil(value0) {
                 return // does nothing
+        } else if isNone(value0) {
+                if w&expandDef != 0 { res = value0 }
         } else if value1, err = value0.expand(ctx, w); err != nil {
                 erro(ctx, "expand '%v' failed: %v", value0, err).of(value0).debug(1)
                 return
