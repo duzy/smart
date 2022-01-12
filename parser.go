@@ -1064,7 +1064,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 				return
 			}
 		case token.LBRACE:
-			if resolved, err = p.resolveEntry(name); err != nil {
+			if resolved, err = p.resolveEntries(name); err != nil {
 				erro(p, "finding rule entry '%v' failed: %v", name, err).at(lPos).debug(1)
 			} else if isNil(resolved) {
 				if name.expandible(ctx, expandPlainValue) {

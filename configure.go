@@ -345,18 +345,18 @@ type commonConfigureOpts struct {
 func executeConfigureEntry(ctx Context, opts *modifierConfigureOpts, entryName string, target Value, paramsOrig ...Value) (configured bool, result Value, err error) {
     if options.traceConfig { defer un(trace(t_config, fmt.Sprintf("executeConfigureEntry(%s %v)", entryName, ctx))) }
 
-    var entry Entry
+    var entries *ResolveEntries
     if program := ctx.program(); program == nil {
-        erro(ctx, " needs program context to configure: %v", ctx).debug(1)
+        erro(ctx, "needs program context to configure: %v", ctx).debug(1)
         return
     } else if program.project.configure == nil {
-        erro(ctx, " %v: .configure not provided for %v (%s)", program.project, target, entryName).debug(1)
+        erro(ctx, "%v: .configure not provided for %v (%s)", program.project, target, entryName).debug(1)
         return
-    } else if entry, err = program.project.configure.resolveEntry(ctx, "-"+entryName, false); err != nil {
-        erro(ctx, " resolve entry '%v' failed: %v", entryName, err).debug(1)
+    } else if entries, err = program.project.configure.resolveEntries(ctx, "-"+entryName, false, false); err != nil {
+        erro(ctx, "resolve entry '%v' failed: %v", entryName, err).debug(1)
         return
-    } else if entry == nil {
-        erro(ctx, " unknown configuration action `%v`, no such entry", entryName).debug(1)
+    } else if entries == nil {
+        erro(ctx, "unknown configuration action `%v`, no such entry", entryName).debug(1)
         return
     }
 
@@ -364,20 +364,12 @@ func executeConfigureEntry(ctx Context, opts *modifierConfigureOpts, entryName s
         commonOpts commonConfigureOpts
         params []Value
         pos = ctx.Position()
-        programs = entry.Programs()
-        prog = programs[0]
         hyphenVal, /*hyphenFound*/_ = ctx.autoGet("-")
         verbose = opts.verbose
     )
     if paramsOrig, err = parseOpts(ctx, &commonOpts, paramsOrig...); err != nil {
-        erro(ctx, " parse opts failed: %v", err).debug(1)
+        erro(ctx, "parse opts failed: %v", err).debug(1)
         return
-    }
-    if false && entryName == "library-c" && strings.HasPrefix(target.String(), "HAVE_TERMINFO") {
-        defer func() {
-            info(ctx, "%s: target = %v, result = %v", entryName, target, result)
-            info(ctx, "%s: %v", entryName, ctx).debug(6)
-        } ()
     }
 
     // Reset the result/output def '-'?
@@ -387,6 +379,10 @@ func executeConfigureEntry(ctx Context, opts *modifierConfigureOpts, entryName s
     // verbose mode is on if silent flag was not set
     if !verbose && !commonOpts.silent { verbose = !commonOpts.silent }
 
+    var (
+        programs = entries.Programs()
+        prog = programs[0]
+    )
     for _, par := range prog.params {
         switch par.name {
         case "LANG":   params = append(params, MakePair(pos, MakeBareword(pos, "LANG"),   MakeString(pos, ctx.program().language)))
@@ -433,39 +429,32 @@ ForInParams:
 
     ctx = &configureContext{ ctx }
 
-    var reses []Value
-    var brks breakers
-    if reses, brks = entry.execute(ctx, params...); ctx.checkErrors(true) > 0 {
-        warn(ctx, `configure '%s' got %d error(s)`, entryName, ctx.totalErrors()).debug(1)
-        if options.failOnErrors { fail(pos, "fail by %d errors", ctx.totalErrors()) }
-    } else if n := len(reses); n != 1 {
-        if n == 0 {
-            erro(ctx, `configure "%s" has no results'`).debug(1)
-        } else {
-            erro(ctx, `configure "%s" has multiple results (%d)'`, n).debug(1)
+    var (
+        reses []Value
+        brks breakers
+    )
+    for _, entry := range entries.all {
+        if reses, brks = entry.execute(ctx, params...); ctx.checkErrors(true) > 0 {
+            warn(ctx, `configure '%s' got %d error(s)`, entryName, ctx.totalErrors()).debug(1)
+            if options.failOnErrors { fail(pos, "fail by %d errors", ctx.totalErrors()) }
+        } else if n := len(reses); n != 1 {
+            if n == 0 {
+                erro(ctx, `configure "%s" has no results'`).debug(1)
+            } else {
+                erro(ctx, `configure "%s" has multiple results (%d)'`, n).debug(1)
+            }
+        } else if result = reses[0]; !isNil(result) && result == hyphenVal {
+            warn(ctx, `%v: configure yields value the same as input will be ignored: %v`, entry, result).debug(1)
+            result = nil // simply discard the result as it's the same as the input (hyphen) value
         }
-    } else if result = reses[0]; !isNil(result) && result == hyphenVal {
-        warn(ctx, `%v: configure yields value the same as input will be ignored: %v`, entry, result).debug(1)
-        result = nil // simply discard the result as it's the same as the input (hyphen) value
-    }
-    if false && entryName == "library-c" && strings.HasPrefix(target.String(), "HAVE_TERMINFO") {
-        info(ctx, "%v: config = %s", entry, entryName).at(prog.Position())
-        info(ctx, "%v: config = %s", entry, entryName).at(entry.Position())
-        info(ctx, "%v: target = %v", entry, target)
-        info(ctx, "%v: - = %v", entry, hyphenVal)
-        info(ctx, "%v: params = %v", entry, prog.params)
-        info(ctx, "%v: params = %v", entry, paramsOrig)
-        info(ctx, "%v: params = %v", entry, params)
-        info(ctx, "%v: result = %v", entry, result)
-        info(ctx, "%v: %v", entry, ctx).debug(16)
-    }
-    if brks = brks.not(breakDone); brks.has() {
-        for i, brk := range brks {
-            switch brk.what {
-            case breakUnkn: erro(ctx, " broken configuration %v for unknown reason", entry).debug(16)
-            case breakErro: erro(ctx, " %d: %v", i, brk.error).debug(1)
-            case breakFail: erro(ctx, " %d: %v", i, brk.message).debug(1)
-            default: erro(ctx, " %d: %v", i, brk.what).debug(16)
+        if brks = brks.not(breakDone); brks.has() {
+            for i, brk := range brks {
+                switch brk.what {
+                case breakUnkn: erro(ctx, " broken configuration %v for unknown reason", entry).debug(16)
+                case breakErro: erro(ctx, " %d: %v", i, brk.error).debug(1)
+                case breakFail: erro(ctx, " %d: %v", i, brk.message).debug(1)
+                default: erro(ctx, " %d: %v", i, brk.what).debug(16)
+                }
             }
         }
     }
@@ -822,6 +811,7 @@ type modifierConfigureFileOpts struct {
 func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ breakers) {
     var (
         opts = modifierConfigureFileOpts{ mode: os.FileMode(0600) }
+        closured []*Project
         project *Project
         filename string
         file *File
@@ -833,19 +823,18 @@ func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ breakers
     } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
         erro(ctx, " parse configure-file opts failed: %v", err).debug(1)
         return
-    }
-
-    if target, found := ctx.autoGet("@"); !found || isNil(target) {
+    } else if target, found := ctx.autoGet("@"); !found || isNil(target) {
         erro(ctx, " target '@' is not defined").debug(1)
         return
     } else if file, _ = target.(*File); file == nil {
-        var ( s string; okay bool )
+        var s string
         if s, err = target.Strval(ctx); err != nil {
             erro(ctx, " strval target '%v' failed: %v", target, err).debug(1)
             return
         }
 
-        for _, p := range closureProjects(ctx) {
+        if closured == nil { closured = closureProjects(ctx) }
+        for _, p := range closured {
             if file = p.FindFile(ctx, s); file != nil { project = p
                 if opts.verbose && opts.debug {
                     info(ctx, "%v: file %v\n", p, file).debug(1)
@@ -855,10 +844,14 @@ func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ breakers
         }
 
         if err != nil {
-            erro(ctx, " find file '%s' failed: ", s, err).debug(1)
+            prompt(ctx, "%v: configure-file failed (%v)\n", s, file)
+            erro(ctx, "find file '%s' failed: %v", s, err)
+            errostack(ctx, 8, "find file '%s' failed", s).debug(16)
             return
-        } else if !okay {
-            erro(ctx, " target '%s' is not a file", s).debug(1)
+        } else if file == nil {
+            prompt(ctx, "%v: configure-file failed\n", s)
+            erro(ctx, "%v: %v", s, closured)
+            errostack(ctx, 8, "target '%s' is not a file", s).debug(16)
             return
         }
     }
@@ -870,8 +863,9 @@ func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ breakers
         erro(ctx, " `%v` has empty filename", file).debug(1)
         return
     } else if !filepath.IsAbs(filename) {
+        if closured == nil { closured = closureProjects(ctx) }
         // FIXES: match file map to have the full filename.
-        for _, p := range closureProjects(ctx) {
+        for _, p := range closured {
             if f := p.FindFile(ctx, filename); f != nil {
                 var prev Value
                 file, filename, project = f, f.fullname(), p

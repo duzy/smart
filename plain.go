@@ -31,13 +31,19 @@ func (p *Plain) Strval(_ Context) (string, error) { return p.Value, nil }
 func (p *Plain) True(_ Context) (bool, error) { return strings.TrimSpace(p.Value) != "", nil }
 func (p *Plain) Integer(_ Context) (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
 func (p *Plain) Float(_ Context) (float64, error) { return strconv.ParseFloat(p.Value, 64) }
-func (p *Plain) expand(_ Context, _ expandwhat) (Value, error) { return p, nil }
-func (p *Plain) cmp(_ Context, v Value) (res cmpres) {
+func (p *Plain) expand(_ Context, _ expandwhat) (val Value, err error) {
+        val = MakeString(p.position, p.Value)
+        return
+}
+func (p *Plain) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*Plain); ok {
-                assert(ok, "value is not Plain")
                 if p.Name == a.Name && p.Value == a.Value {
                         res = cmpEqual
                 }
+        } else if s, err := v.Strval(ctx); err != nil {
+                erro(ctx, `strval "%v" failed: %v`, v, err).debug(1)
+        } else if s == p.Value {
+                res = cmpEqual
         }
         return
 }
@@ -60,6 +66,8 @@ func (_ *plain) Evaluate(ctx Context, args ...Value) (result Value, err error) {
         if str, err = multiline(ctx, program.recipes...); err != nil {
                 erro(ctx, "%v", err).of(args[0]).debug(1)
                 return
+        } else if len(program.recipes) > 0 {
+                pos = program.recipes[0].Position()
         }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
         result = &Plain{valbase{pos},name,str}

@@ -33,10 +33,10 @@ func (filemap *FileMap) Patterns(ctx Context) (pats []Value) {
     var err error
     if pats, err = expandmerge2(ctx, expandPlainValue, filemap.pattern); err != nil {
       erro(ctx, "merge pattern '%v' failed: %v", filemap.pattern, err).of(filemap.pattern)
-    }/* else if pats, _, err = expandall2(ctx, expandPlainValue, pats...); err != nil {
-      // Do a second expand to ensure converted closures are expanded
+    } else if pats, _, err = expandall2(ctx, expandPlainValue, pats...); err != nil {
+      // NOTE: do a second expand to ensure converted closures are expanded
       erro(ctx, "sencond expand patterns '%v' failed: %v", pats, err).of(filemap.pattern)
-    }*/
+    }
   } else {
     pats = append(pats, filemap.pattern)
   }
@@ -45,19 +45,6 @@ func (filemap *FileMap) Patterns(ctx Context) (pats []Value) {
 
 // Match split filename into list and match each part with the pattern correspondingly.
 func (filemap *FileMap) Match(ctx Context, filename string) (matched bool, pre string) {
-  /*if filemap.Pattern.expandible(ctx, expandClosure) {
-    if pats, err := expandmerge2(ctx, expandPlainValue, filemap.Pattern); err != nil {
-      fmt.Fprintf(stderr, "%v: %v\n", filemap.Pattern.Position(), filemap.Pattern)
-    } else {
-      for _, pat := range pats {
-        if matched, pre = filemap.match(pat, filename); matched {
-          return
-        }
-      }
-    }
-  } else {
-    matched, pre = filemap.match(filemap.Pattern, filename)
-  }*/
   for _, pat := range filemap.Patterns(ctx) {
     if matched, pre = filemap.match(ctx, pat, filename); matched { break }
   }
@@ -577,7 +564,7 @@ func (p *Project) matchFile(ctx Context, name string) (file *File) {
 ForFilemaps:
   for _, filemap := range p.filemaps(ctx, true, /*true*/false) {
     // Match the represented file name.
-    var matched, pre = filemap.Match(ctx, name)
+    var matched, pre = filemap.Match(ctx, name) // TODO: performance
     if !matched { continue ForFilemaps }
 
     var proj = filemap.project
@@ -668,45 +655,61 @@ func (p *Project) resolveObject(ctx Context, s string) (obj Object, err error) {
   return
 }
 
-func (p *Project) resolveEntry(ctx Context, s string, matchFullSuffix bool) (entry Entry, err error) {
+func (p *Project) resolveEntries(ctx Context, s string, matchFullSuffix, alwaysResolveBases bool) (entries *ResolveEntries, err error) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.resolveEntry")) }
   if optionEnableBenchspots { defer bench(spot("Project.resolveEntry")) }
-  for _, rec := range p.concrete {
-    switch target := rec.Target().(type) {
+  var add = func(a ...Entry) {
+    if len(a) > 0 {
+      if entries == nil { entries = new(ResolveEntries) }
+      entries.add(a[0])
+      entries.all = append(entries.all, a[1:]...)
+    }
+  }
+  for _, entry := range p.concrete {
+    switch target := entry.Target().(type) {
     case *File:
       if target.name == s {
-        return rec, nil
+        add(entry)
       } else if filepath.IsAbs(s) && s == target.fullname() {
-        return rec, nil // fullname matched
+        add(entry)
       } else if !matchFullSuffix {
         // not matching
       } else if strings.HasSuffix(target.fullname(), PathSep+filepath.Clean(s)) {
-        if false { warn(ctx, "TODO: %v: %s <-> %v %v", p, s, target, target.fullname()).at(rec.Position()).debug(8) }
-        return rec, nil
+        add(entry)
       }
     default:
       var sv string
       if sv, err = target.Strval(ctx); err != nil {
         erro(ctx, "strval '%v' failed: %v", target, err).at(target.Position()).debug(1)
         return
-      } else if sv == s { return rec, nil }
+      } else if sv == s {
+        add(entry)
+      }
     }
   }
-  for _, base := range p.bases {
-    if entry, err = base.resolveEntry(ctx, s, matchFullSuffix); err != nil {
-      erro(ctx, "resolve entry '%v' failed: %v", s, err).at(base.position)
-      erro(ctx, "resolve entry '%v' failed (%s)", s, ctx).debug(1)
-      break
-    } else if entry != nil { break }
+  if alwaysResolveBases || entries == nil {
+    for _, base := range p.bases {
+      var ents *ResolveEntries
+      if ents, err = base.resolveEntries(ctx, s, matchFullSuffix, alwaysResolveBases); err != nil {
+        erro(ctx, "resolve entry '%v' failed: %v", s, err).at(base.position)
+        erro(ctx, "resolve entry '%v' failed (%s)", s, ctx).debug(1)
+        return
+      } else if ents != nil {
+        add(ents.all...)
+        break
+      }
+    }
   }
-  if err == nil && entry == nil {
-    if true { /* FAST */ } else { /* SLOW */
-      for _, using := range p.using.list {
-        if entry, err = using.project.resolveEntry(ctx, s, matchFullSuffix); err != nil {
-          erro(ctx, "resolve entry '%v' failed: %v", s, err).at(using.position)
-          erro(ctx, "resolve entry '%v' failed (%s)", s, ctx).debug(1)
-          break
-        } else if entry != nil { break }
+  if true { /* FAST */ } else if err == nil && entries == nil { /* SLOW */
+    for _, using := range p.using.list {
+      var ents *ResolveEntries
+      if ents, err = using.project.resolveEntries(ctx, s, matchFullSuffix, alwaysResolveBases); err != nil {
+        erro(ctx, "resolve entry '%v' failed: %v", s, err).at(using.position)
+        erro(ctx, "resolve entry '%v' failed (%s)", s, ctx).debug(1)
+        break
+      } else if ents != nil {
+        add(ents.all...)
+        break
       }
     }
   }

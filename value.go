@@ -473,19 +473,21 @@ func closureResolveObject(ctx Context, pos Position, name string) (obj Object) {
     return
 }
 
-func closureResolveEntry(ctx Context, pos Position, name string) (entry Entry) {
-    var scope *Scope
+func closureResolveEntry(ctx Context, pos Position, name string) (entries *ResolveEntries) {
+    var (
+        scope *Scope
+        err error
+    )
     for _, scope = range ctx.closureScopes() {
-        var err error
         if project := scope.project; project == nil {
             // none
-        } else if entry, err = project.resolveEntry(ctx, name, false); err != nil {
+        } else if entries, err = project.resolveEntries(ctx, name, false, /*true*/false); err != nil {
             erro(ctx, "resolve entry '%s' in '%s' failed: %v", name, project, err).at(pos).debug(1)
             break
-        } else if entry == nil && false {
-            entry = closureResolveEntry(ctx.inner(), pos, name)
+        } else if entries == nil && false {
+            entries = closureResolveEntry(ctx.inner(), pos, name)
         }
-        if entry != nil { break }
+        if entries != nil { break }
     }
     return
 }
@@ -731,23 +733,26 @@ func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
     // Try import filemap projects first! See also `files (-import ...)`
     if file.filemap != nil { if proj := file.filemap.project; proj != nil {
         for _, p := range projects { if p == proj { goto afterFilemapProject } }
-        projects = append(projects, proj)
-    afterFilemapProject:
+        projects = append(projects, proj);               afterFilemapProject:
     }}
 
 checkFileEntries:
     for _, project := range projects {
-        var entry Entry
-        if entry, err = project.resolveEntry(ctx, file.name, t.grepping); err != nil {
+        var entries *ResolveEntries
+        if entries, err = project.resolveEntries(ctx, file.name, t.grepping, false); err != nil {
             prompt(ctx, "%v: traverse failed, project %s\n", file.fullname(), proj)
             erro(ctx, "resolve entry '%v' failed: %v", file.name, err).at(file.position)
             errostack(positional(ctx, file.position), -1, "%v:", file.name).debug(1)
             return
-        } else if entry == nil {
+        } else if entries == nil {
             continue
-        } else if _, ok := concreteEntries[entry]; !ok {
-            concreteList = append(concreteList, entry)
-            concreteEntries[entry] = true
+        } else {
+            for _, entry := range entries.all {
+                if _, ok := concreteEntries[entry]; !ok {
+                    concreteList = append(concreteList, entry)
+                    concreteEntries[entry] = true
+                }
+            }
         }
     }
     for _, entry := range concreteList {
@@ -802,8 +807,8 @@ checkFileEntries:
     }
 
     if ctx = positional(ctx, file.position); err != nil {
-        prompt(ctx, "%v: traverse failed, project %s\n", file.fullname(), proj)
-        errostack(ctx, 5, "%v: file(%v): error: %v", proj, file, err).debug(8)
+        prompt(ctx, "%v: traverse file failed; projects %v, %v\n", file.fullname(), proj, projects)
+        errostack(ctx, 5, "%v, %v: error: %v", proj, file, err).debug(8)
     } else if !okay && (len(ctx.stems()) == 0 || ctx.mustExists()) {
         if filemap := file.filemap; filemap != nil && filemap.project != nil {
             //warn(ctx, "%v: %v, %v, %v -> %v", proj, file.dir, file.sub, file.name, file.fullname()).debug(1)
@@ -814,15 +819,14 @@ checkFileEntries:
                 goto checkFileEntries
             }
         }
-        brks.add(file.position, breakErro).error = fileNotFoundError{ proj, file }
-        prompt(ctx, "%v: traverse failed, project %s\n", file.fullname(), proj)
-        erro(ctx, "%v: projects: %v", proj, projects)
-        erro(ctx, "%v: missing: %v", proj, file)
-        for i, concrete := range concreteList { erro(ctx, "concrete: %d. %v", i, concrete).at(concrete.Position()) }
+        prompt(ctx, "%v: traverse file failed; projects %v, %v\n", file.fullname(), proj, projects)
+        for i, concrete := range concreteList { erro(ctx, "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs())).at(concrete.Position()) }
         for i, stemmed  := range stemmedList  { erro(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position) }
-        if a := t.arguments(); len(a) > 0 { erro(ctx, "arguments: %v", a) }
-        erro(ctx, "%v: missing file %v required by %v", proj, file, targetVal)
-        errostack(ctx, 15, "%v: %v", proj, ctx).debug(12)
+        for i, brk := range brks { erro(ctx, "%v, %v: %d. %v", proj, file, i, brk.what) }
+        if args := t.arguments(); len(args) > 0 { erro(ctx, "%v, %v: arguments %v", proj, file, args) }
+        erro(ctx, "%v: %v required by %v", proj, file, targetVal) //proj.concrete
+        errostack(ctx, 15, "%v", ctx).debug(12)
+        brks.add(file.position, breakErro).error = fileNotFoundError{ proj, file }
     } else if !okay && len(ctx.stems()) > 0 {
         if false { brks.add(file.position, breakNext).scope = breakTrave }
     }
@@ -882,17 +886,21 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
     } ()
 
     for _, project := range projects {
-        var entry Entry
-        if entry, err = project.resolveEntry(ctx, target, t.grepping); err != nil {
+        var entries *ResolveEntries
+        if entries, err = project.resolveEntries(ctx, target, t.grepping, false); err != nil {
             prompt(ctx, "%s: traverse entry failed, project %v\n", target, project)
             erro(ctx, "%s: resolve entry failed: %v", target, err).at(pos)
             errostack(ctx, 3, "%s: resolve entry failed: %v", target, err).debug(10)
             return
-        } else if entry == nil {
+        } else if entries == nil {
             continue
-        } else if _, ok := concreteEntries[entry]; !ok {
-            concreteList = append(concreteList, entry)
-            concreteEntries[entry] = true
+        } else {
+            for _, entry := range entries.all {
+                if _, ok := concreteEntries[entry]; !ok {
+                    concreteList = append(concreteList, entry)
+                    concreteEntries[entry] = true
+                }
+            }
         }
     }
 
@@ -4927,13 +4935,13 @@ func (p *selection) value(ctx Context) (v Value, err error) {
         }*/
         if s, err = p.s.Strval(ctx); err == nil {
             if pn, ok := o.(*ProjectName); ok && (p.t == token.SELECT_PROG1 || p.t == token.SELECT_PROG2) {
-                var entry Entry
-                if entry, err = pn.project.resolveEntry(ctx, s, false); err != nil {
+                var entries *ResolveEntries
+                if entries, err = pn.project.resolveEntries(ctx, s, false, false); err != nil {
                     return
-                } else if entry == nil {
+                } else if entries == nil {
                     erro(ctx, "selection.value: no entry `%s` (%+v)", s, p.String()).at(p.position)
                 } else {
-                    v = entry
+                    v = entries
                 }
             } else if v, err = o.Get(ctx, s); err != nil {
                 erro(ctx, "%v", err).at(p.position)

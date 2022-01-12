@@ -517,40 +517,46 @@ func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
       switch t := goal.(type) {
       case *None: // just ignore
       case *Bareword:
-        if entry, err := proj.resolveEntry(ctx, t.string, false); err != nil {
+        if entries, err := proj.resolveEntries(ctx, t.string, false, true); err != nil {
           erro(ctx, "resolve '%s': %s", t.string, err).debug(1)
           return false
-        } else if entry == nil {
+        } else if entries == nil {
           erro(ctx, "no such entry `%s`", t.string).debug(1)
           return false
         } else {
-          goals = append(goals, entry)
+          for _, entry := range entries.all {
+            goals = append(goals, entry)
+          }
         }
       case *delegate:
         if s, err := t.Strval(ctx); err != nil {
           erro(ctx, "strval '%v' failed: %s", t, err).debug(1)
           return false
-        } else if entry, err := proj.resolveEntry(ctx, s, false); err != nil {
+        } else if entries, err := proj.resolveEntries(ctx, s, false, true); err != nil {
           erro(ctx, "resolve entry '%s' failed: %s", s, err).debug(1)
           return false
-        } else if entry == nil {
+        } else if entries == nil {
           erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug(1)
           return false
         } else {
-          goals = append(goals, entry)
+          for _, entry := range entries.all {
+            goals = append(goals, entry)
+          }
         }
       case *Flag:
         if s, err := t.Strval(ctx); err != nil {
           erro(ctx, "strval '%v' failed: %s", t, err).debug(1)
           return false
-        } else if entry, err := proj.resolveEntry(ctx, s, false); err != nil {
+        } else if entries, err := proj.resolveEntries(ctx, s, false, true); err != nil {
           erro(ctx, "resolve entry '%s' failed: %s", s, err).debug(1)
           return false
-        } else if entry == nil {
+        } else if entries == nil {
           erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug(1)
           return false
         } else {
-          goals = append(goals, entry)
+          for _, entry := range entries.all {
+            goals = append(goals, entry)
+          }
         }
       case *Argumented:
         if s, err := t.value.Strval(ctx); err != nil {

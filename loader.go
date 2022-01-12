@@ -1514,7 +1514,7 @@ func (l *loader) resolveObject(value Value) (name string, result Value, err erro
     return
 }
 
-func (l *loader) resolveEntry(target Value) (entry Entry, err error) {
+func (l *loader) resolveEntries(target Value) (entries *ResolveEntries, err error) {
     var (
         pos = l.Position()
         ctx = positional(l, pos)
@@ -1523,7 +1523,7 @@ func (l *loader) resolveEntry(target Value) (entry Entry, err error) {
     if name, err = target.Strval(ctx); err != nil {
         erro(ctx, "strval '%v' failed: %v", target, err).at(pos).debug(1)
         return
-    } else if entry, err = l.project.resolveEntry(ctx, name, false); err != nil {
+    } else if entries, err = l.project.resolveEntries(ctx, name, false, false); err != nil {
         erro(ctx, "resolve entry '%v' failed: %v", name, err).at(pos).debug(1)
         return
     }

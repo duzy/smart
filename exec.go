@@ -603,11 +603,13 @@ func (p *ExecResult) runContainerAndRetry(ctx Context) (status int, err error) {
   )
 
   fmt.Fprintf(sh.Stderr, "\n---- Run container '%s'\n", name)
-  if run, _ := p.container.resolveEntry(ctx, "run", false); run != nil {
-    if _, brks := run.execute(p.ctx); brks.has() {
-      erro(ctx, "%d breakers", len(brks)).at(p.position).debug(1)
-      return
-    } //else { p.t.group.Wait() }
+  if entries, _ := p.container.resolveEntries(ctx, "run", false, false); entries != nil {
+    for _, run := range entries.all {
+      if _, brks := run.execute(p.ctx); brks.has() {
+        erro(ctx, "%d breakers", len(brks)).at(p.position).debug(1)
+        return
+      } //else { p.t.group.Wait() }
+    }
   } else {
     erro(ctx, "%s⇒run undefined", p.container).debug(1)
     return
@@ -676,11 +678,13 @@ func (p *ExecResult) ensureContainerRunning(ctx Context, containerName string) (
   } (stderrR)
 
   if err = cmd.Run(); err == nil && foundID == "" {
-    if run, _ := p.container.resolveEntry(ctx, "run", false); run != nil {
-      if _, brks := run.execute(p.ctx); brks.has() {
-        erro(ctx, "%d breakers", len(brks)).at(p.position).debug(1)
-        return
-      } //else { p.t.group.Wait() }
+    if entries, _ := p.container.resolveEntries(ctx, "run", false, false); entries != nil {
+      for _, run := range entries.all {
+        if _, brks := run.execute(p.ctx); brks.has() {
+          erro(ctx, "%d breakers", len(brks)).at(p.position).debug(1)
+          return
+        } //else { p.t.group.Wait() }
+      }
     } else {
       erro(ctx, "%s⇒run undefined", p.container).debug(1)
       return

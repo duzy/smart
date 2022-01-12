@@ -1129,7 +1129,7 @@ func (ec *entryContext) stems() (stems []string) {
         return
 }
 
-type Entry interface{
+type Entry interface {
         Object
         Executer
         Class() RuleEntryClass
@@ -1139,6 +1139,26 @@ type Entry interface{
 
         option(Context) (bool, []Value)
         execute(Context, ...Value) ([]Value, breakers)
+}
+
+type ResolveEntries struct {
+        Entry
+        all []Entry
+}
+func (p *ResolveEntries) String() string { return fmt.Sprintf("%s(in %d)", p.Entry, len(p.all)) }
+func (p *ResolveEntries) add(entry Entry) {
+        if p.Entry == nil { p.Entry = entry }
+        p.all = append(p.all, entry)
+}
+func (p *ResolveEntries) join(o *ResolveEntries) {
+        if p.Entry == nil { p.Entry = o.Entry }
+        p.all = append(p.all, o.all...)
+}
+func (p *ResolveEntries) Programs() (programs []*Program) {
+        for _, entry := range p.all {
+               programs = append(programs, entry.Programs()...)
+        }
+        return
 }
 
 // RuleEntry represents a declared rule entry.
@@ -1331,7 +1351,7 @@ func (entry *RuleEntry) traverse(cc Context) (brks breakers) {
         if !okay || isNil(target) { erro(cc, "$@ is not defined: %v", cc).debug(1); return }
         if cc.entry() != entry { cc = &entryContext{ cc, entry } }
 ForPrograms:
-        for _, prog := range entry.programs {
+        for i, prog := range entry.programs {
                 var pos = prog.position
                 if !pos.IsValid() { pos = entryPos }
 
@@ -1343,9 +1363,14 @@ ForPrograms:
                         warn(ctx, "broken traversal %v: %v (stems = %v)", entry, brks[0].what, ctx.stems()).debug(6)
                         return
                 } else if res, brks = prog.execute(ctx); false && brks.has() {
-                        warn(ctx, "entry: %v %d, %v, %v, %v", entry, len(entry.programs), ctx.stems(), target, brks[0].what).debug(breakDone > 0, 6)
+                        warn(ctx, "entry: %d. %v %d, %v, %v, %v", entry, i, len(entry.programs), ctx.stems(), target, brks[0].what).debug(breakDone > 0, 6)
                 } else if !isNil(res) {
                         // TODO: deal with the result `res`
+                }
+                if false && entry.String() == "isl/stdint.h" {
+                        var s string
+                        if len(brks) > 0 { s = fmt.Sprintf(" (%s)", brks[0].what) }
+                        warn(ctx, "%v: %v. %d%s", entry, i, len(brks), s).at(prog.position).debug(1)
                 }
 
                 // Update traversal breakers
@@ -1353,9 +1378,12 @@ ForPrograms:
                 for _, brk := range prevBrks {
                         // NOTE: see traversal.file and traversal.target for further processing
                         switch brk.what {
-                        case breakCase, breakDone:
+                        case /*breakCase,*/breakDone:
                                 // FIXME: ctx.breakers = append(ctx.breakers, brk)
                                 break ForPrograms // case selected or execution fully done
+                        case breakCase:
+                                brks.append(brk)
+                                break ForPrograms
                         case breakFail, breakErro:
                                 brks.append(brk)
                                 break ForPrograms
