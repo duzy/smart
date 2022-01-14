@@ -1098,20 +1098,35 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   } ()
 
   defer func() {
-    if opts.stamp && !ctx.configuration() {
-      var files []*File
-      if files, err = target.stamp(t); err != nil {
-        if pe, ok := err.(*fs.PathError); ok { err = fmt.Errorf(`"%v" not found`, target)
-          prompt(ctx, "%v: not found, stamp \"%v\"\n", pe.Path, target)
+    if !opts.stamp || ctx.configuration() {
+      // no stamp for target files
+    } else if err != nil {
+      var files, _ = target.delete(ctx)
+      prompt(ctx, "%v: %v (won't stamp)\n", target, err)
+      for _, file := range files {
+        var fullname = file.fullname()
+        if s := file.String(); s == fullname {
+          erro(ctx, `%v: deleted`, s)
         } else {
-          prompt(ctx, "%v: not found, \"%v\"\n", pe.Path, err)
+          erro(ctx, `%v: deleted "%v"`, s, fullname)
         }
-        erro(ctx, `stamp "%v" failed`, target).debug(6)
-        if /*opts.fail*/true { fail(target.Position(), `"%v" not generated`, target) }
-        return
-      } else if opts.report {
-        reportFileUpdates(ctx, t.start, files)
+        if file.exists() { _ = os.Remove(fullname) }
       }
+      errostack(ctx, 3, `%v: %v`, target, ctx).debug(6)
+      if /*opts.fail*/true { fail(target.Position(), `"%v" deleted`, target) }
+      return
+    } else if files, err := target.stamp(t); err != nil {
+      if pe, ok := err.(*fs.PathError); ok { err = fmt.Errorf(`"%v" not found`, target)
+        prompt(ctx, "%v: not found, stamp \"%v\"\n", pe.Path, target)
+      } else {
+        prompt(ctx, "%v: not found, \"%v\"\n", pe.Path, err)
+      }
+      erro(ctx, `stamp "%v" failed`, target)
+      errostack(ctx, 6, `%v: %v`, target, ctx).debug(10)
+      if /*opts.fail*/true { fail(target.Position(), `"%v" not generated`, target) }
+      return
+    } else if opts.report {
+      reportFileUpdates(ctx, t.start, files)
     }
 
     if err == nil {
@@ -1231,8 +1246,8 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         } else {
           diag(ctx, rec.dt, rec.msg).at(rec.position)//.debug(1)
         }
-        if i == 8 && i < len(exeres.scannedDiags) {
-          diag(ctx, rec.dt, "%d more...", (en+wn+in)-(i+1)).at(rec.lpos)//.debug(1)
+        if n := (en+wn+in)-(i+1); i == 8 && 0 < n {
+          diag(ctx, rec.dt, "%d more...", n).at(rec.lpos)//.debug(1)
           break
         }
       }

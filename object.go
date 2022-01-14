@@ -1045,6 +1045,7 @@ func (p *undetermined) traverse(ctx Context) (brks breakers) { return }
 func (p *undetermined) exists() existence { return existenceMatterless }
 func (p *undetermined) stat(ctx Context) (si *statinfo) { return }
 func (p *undetermined) stamp(ctx Context) (files []*File, err error) { return }
+func (p *undetermined) delete(ctx Context) (files []*File, err error) { return }
 func (p *undetermined) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*undetermined); ok {
                 assert(ok, "value is not undetermined")
@@ -1197,8 +1198,11 @@ func (entry *RuleEntry) Name() string {
 func (entry *RuleEntry) True(ctx Context) (bool, error) { return entry.target.True(ctx) }
 func (entry *RuleEntry) Float(_ Context) (float64, error) { return 0, nil }
 func (entry *RuleEntry) Integer(_ Context) (int64, error) { return 0, nil }
-func (entry *RuleEntry) String() string { return entry.target.String() }
 func (entry *RuleEntry) Strval(ctx Context) (string, error) { return entry.target.Strval(ctx) }
+func (entry *RuleEntry) String() string {
+        if entry.target == nil { return "<nil entry>" }
+        return entry.target.String()
+}
 // RuleEntry.Execute executes the rule program only if the target is outdated.
 func (entry *RuleEntry) Execute(ctx Context, a ...Value) (result []Value, brks breakers) {
         switch entry.class {
@@ -1339,6 +1343,7 @@ func (entry *RuleEntry) expand(ctx Context, w expandwhat) (res Value, err error)
         }
         return
 }
+func (entry *RuleEntry) delete(ctx Context) (files []*File, err error) { return entry.target.delete(ctx) }
 func (entry *RuleEntry) stamp(ctx Context) (files []*File, err error) { return entry.target.stamp(ctx) }
 func (entry *RuleEntry) traverse(cc Context) (brks breakers) {
         if options.traceTraversal   { defer un(tt(t_traverse, cc, entry.target)) }
@@ -1521,20 +1526,20 @@ func (p *stemmed) string(ctx Context, targetVal Value, target string) (res break
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("stemmed.traverse(%v)", p))) }
         if optionEnableBenchspots { defer bench(spot("stemmed.traverse")) }
 
+        var realTarget Value
         var sc = stemmedContext{ ctx, p.Stems }
         if file := ctx.Project().FindFile(&sc, target); file != nil {
                 file.position = p.position
-                p.target = file
+                realTarget = file
         } else {
-                p.target = targetVal
+                realTarget = targetVal
         }
-        if false && strings.HasSuffix(target, "rpc/xla_service.pb.cc") {
-            var file1 = ctx.          Project().FindFile(ctx, target)
-            var file2 = ctx.closure().Project().FindFile(ctx, target)
-            warn(ctx, "%v", ctx.Project()).at(ctx.Project().position)
-            warn(ctx, "%v %s", file1, file1.fullname())
-            warn(ctx, "%v %s", file2, file2.fullname())
-            warn(ctx, "%v", ctx).debug(8)
+        if isNil(realTarget) {
+                erro(ctx, "%v: %v, %v: nil target", ctx.Project(), targetVal, target)
+                errostack(ctx, 8, "%v", ctx).debug(20)
+                return
+        } else {
+                p.target = realTarget
         }
         return p.RuleEntry.traverse(&sc)
 }

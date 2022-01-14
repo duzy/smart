@@ -219,11 +219,16 @@ func globMatch(ctx Context, patval Value, filename string) (matched bool, pre st
     return
   }
 
-  pattern, err := patval.Strval(ctx)
+  var pattern, err = patval.Strval(ctx)
   if err != nil { return false, "" }
 
   list0 := strings.Split(filepath.Clean(pattern ), PathSep)
   list1 := strings.Split(filepath.Clean(filename), PathSep)
+  if false && strings.HasSuffix(filename, "isl/stdint.h") {
+    defer func() {
+      if matched { warn(ctx, "%v %v; %v %v", patval, filename, list0, list1).debug(8) }
+    } ()
+  }
   if len(list0) == 0 {
     // FIXME: match any?
   } else if len(list0) == len(list1) { // foo/*.o  <->  src/foo.o
@@ -236,9 +241,13 @@ func globMatch(ctx Context, patval Value, filename string) (matched bool, pre st
         matched = (pat == list1[i])
       }
     }
-  } else if len(list0) == 1 && len(list1) > 1 { // *.o|foo.o  <->  src/foo.o
-    // Matching the last component of filename and returns
-    // the prefix if matched.
+  } else if true {
+    if false && strings.HasSuffix(filename, "isl/stdint.h") {
+      warn(ctx, "%v %v; %v %v", patval, filename, list0, list1).debug(1)
+    }
+  } else if false && len(list0) == 1 && len(list1) > 1 { // *.o|foo.o  <->  src/foo.o
+    // NOTE: partially matching only the last parts is logically incorrect!
+    //       for example of this wrong match: stdint.h  <->  isl/stdint.h
     list1_tail := list1[len(list1)-1]
     if true /*hasGlobMeta(list0[0])*/ {
       matched, _ = filepath.Match(list0[0], list1_tail)
@@ -407,7 +416,7 @@ func (p *Project) filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*
   }
 
   for _, m := range p.myFilemaps(ctx) { uniqueAppend(m) }
-  if baseFiles || true/* FIXME: make it optional */ { for _, base := range p.bases {
+  if baseFiles { for _, base := range p.bases {
     for _, m := range base.filemaps(ctx, true, usedFiles) { uniqueAppend(m) }
   }}
   if usedFiles && false/* FIXME: performance */ {
@@ -422,7 +431,7 @@ func (p *Project) filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*
         fms = p.myFilemaps(ctx)
       } else {
         // FIXME: this is the expensive way, really slow!
-        fms = p.filemaps(ctx, /*baseFiles*/false, usedFiles)
+        fms = p.filemaps(ctx, baseFiles, usedFiles)
       }
       for _, m := range fms { uniqueAppend(m) }
       appendUsedFiles(p)
@@ -555,14 +564,14 @@ ForPatterns:
   return
 }
 
-func (p *Project) matchFile(ctx Context, name string) (file *File) {
+func (p *Project) matchFile(ctx Context, name string, baseFiles bool) (file *File) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.FindFile")) }
   if optionEnableBenchspots { defer bench(spot("Project.FindFile")) }
 
   var first *File
 
 ForFilemaps:
-  for _, filemap := range p.filemaps(ctx, true, /*true*/false) {
+  for _, filemap := range p.filemaps(ctx, /*true*/baseFiles, false) {
     // Match the represented file name.
     var matched, pre = filemap.Match(ctx, name) // TODO: performance
     if !matched { continue ForFilemaps }
@@ -593,7 +602,7 @@ ForFilemaps:
 
 func (p *Project) matchTempFile(ctx Context, name string) (file *File) {
   var pos = ctx.Position()
-  if file = p.matchFile(ctx, name); file != nil {
+  if file = p.matchFile(ctx, name, true); file != nil {
     // good
   } else if ctd := p.scope.FindDef("CTD"); ctd == nil {
     erro(ctx, "%v: CTD is not defined for temp file: %v", p, name).at(pos).debug(1)
@@ -618,8 +627,7 @@ func (p *Project) configuration(ctx Context) (file *File) {
 }
 
 func (p *Project) FindFile(ctx Context, name string) (file *File) {
-  file = p.matchFile(ctx, name)
-  return
+  return p.matchFile(ctx, name, true)
 }
 
 func (p *Project) isFileName(ctx Context, s string) (res bool) {
@@ -670,11 +678,14 @@ func (p *Project) resolveEntries(ctx Context, s string, matchFullSuffix, alwaysR
     case *File:
       if target.name == s {
         add(entry)
-      } else if filepath.IsAbs(s) && s == target.fullname() {
+      } else if fullname := target.fullname(); filepath.IsAbs(s) && s == fullname {
         add(entry)
       } else if !matchFullSuffix {
         // not matching
-      } else if strings.HasSuffix(target.fullname(), PathSep+filepath.Clean(s)) {
+      } else if strings.HasSuffix(fullname, PathSep+filepath.Clean(s)) {
+        if s == "isl/stdint.h" {
+          warn(ctx, "%v: %v, %v, %v", p, target.fullname(), target.name, s)
+        }
         add(entry)
       }
     default:

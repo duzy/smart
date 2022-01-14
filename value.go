@@ -1391,6 +1391,9 @@ type Value interface {
     // Stamp the value if it's a file (aka. update FileInfo).
     stamp(Context) ([]*File, error)
 
+    // Delete the file (if it is).
+    delete(Context) ([]*File, error)
+
     traverse(Context) breakers
 }
 
@@ -1431,6 +1434,7 @@ func (_ *valbase) match(_ Context, i interface{}) (full bool, s string, stems []
 func (_ *valbase) stencil(_ Context, stems []string) (s string, rest []string) { return }
 func (_ *valbase) stat(ctx Context) (si *statinfo) { return }
 func (_ *valbase) stamp(ctx Context) (file []*File, err error) { return }
+func (_ *valbase) delete(ctx Context) (file []*File, err error) { return }
 func (_ *valbase) traverse(ctx Context) (brks breakers) { return }
 func (_ *valbase) _match(ctx Context, p Value, i interface{}) (full bool, s string, stems []string) {
     var ( v string; e error )
@@ -1531,6 +1535,7 @@ func (p *Argumented) stencil(ctx Context, stems []string) (s string, rest []stri
     return
 }
 
+func (p *Argumented) delete(ctx Context) ([]*File, error) { return p.value.delete(ctx) }
 func (p *Argumented) stamp(ctx Context) ([]*File, error) { return p.value.stamp(ctx) }
 func (p *Argumented) stat(ctx Context) (si *statinfo) {
     // FIXME: p.value might be not the real target (depending on the arguments)
@@ -1701,6 +1706,10 @@ func (p *Any) stencil(ctx Context, stems []string) (s string, rest []string) {
     } else if v, ok := p.value.(Value); ok {
         s, rest = v.stencil(ctx, stems)
     }
+    return
+}
+func (p *Any) delete(ctx Context) (files []*File, err error) {
+    if a, ok := p.value.(Value); ok { files, err = a.delete(ctx) }
     return
 }
 func (p *Any) stamp(ctx Context) (files []*File, err error) {
@@ -2691,6 +2700,10 @@ func (p *Barefile) traverse(ctx Context) (brks breakers) {
     }
     return
 }
+func (p *Barefile) delete(ctx Context) (files []*File, err error) {
+    if p.File != nil { files, err = p.File.delete(ctx) }
+    return
+}
 func (p *Barefile) stamp(ctx Context) (files []*File, err error) {
     if p.File != nil { files, err = p.File.stamp(ctx) }
     return
@@ -2819,6 +2832,20 @@ func (p *Path) pathname(ctx Context, stems []string) (pathname string, err error
         }
     } else if pathname, rest = p.stencil(ctx, stems); len(rest) > 0 {
         //err = errorf(p.position, "partial match: %v", rest)
+    }
+    return
+}
+func (p *Path) delete(ctx Context) (files []*File, err error) {
+    var pathname string
+    if positionalValueCtx { ctx = positional(ctx, p.position) }
+    if pathname, err = p.Strval(ctx); err == nil {
+        if pathname == "" {
+            erro(ctx, "no pathname for `%s`", p)
+        } else if file := stat(ctx,pathname,"","",nil); file != nil {
+            if files, err = file.delete(ctx); err != nil {
+                erro(ctx, "stamp: %v (%v)", err, file)
+            }
+        }
     }
     return
 }
@@ -2966,16 +2993,6 @@ func (p *Path) match1(ctx Context, str string) (full bool, result string, stems 
     }
 
     const infos = false
-    //var infos = strings.Contains(p.String(), "...") && strings.Contains(str, "...")
-    //var ps, _ = p.Strval(ctx)
-    //var infos = strings.Contains(ps, "...") || strings.Contains(str, "...")
-    //var infos = strings.Contains(ps, "%") && strings.Contains(str, "%")
-    //var infos = strings.Contains(str, "/Volumes/workspace/external/google/tensorflow/tensorflow/core/util")
-    //var infos = strings.Contains(p.String(), "/Volumes/workspace/external/google/tensorflow/%%util")
-    //var infos = false ||
-    //    strings.HasPrefix(p.String(), "/Volumes/workspace/.out/x86_64-apple-darwin-extbit/bootstrap/lib/python") ||
-    //    strings.HasPrefix(str, "/Volumes/workspace/.out/x86_64-apple-darwin-extbit/bootstrap/lib/python")
-    //var infos = strings.HasSuffix(p.String(), "/%%.py") && strings.HasSuffix(str, "__future__.py")
     var (
         lenSegs = len(segs)
         lenSrcs = len(srcs)
@@ -3564,6 +3581,24 @@ func (p *File) searchInMatchedPaths(ctx Context, proj *Project) (res bool) {
     }
     return
 }
+func (p *File) delete(ctx Context) (files []*File, err error) {
+    if positionalValueCtx { ctx = positional(ctx, p.position) }
+
+    var fullname string
+    if fullname = p.fullname(); fullname == "" {
+        erro(ctx, "file `%s` has no fullname", p).of(p).debug(1)
+        return
+    }
+
+    if err = os.Remove(fullname); err != nil {
+        erro(ctx, "%v", err).at(p.position).debug(1)
+    } else {
+        // TODO: ctx.Globe().delete(fullname)
+        files = append(files, p)
+    }
+    p.info = nil
+    return
+}
 func (p *File) stamp(ctx Context) (files []*File, err error) {
     if positionalValueCtx { ctx = positional(ctx, p.position) }
 
@@ -4108,6 +4143,14 @@ func (p *List) stat(ctx Context) (si *statinfo) {
     }
     return
 }
+func (p *List) delete(ctx Context) (files []*File, err error) {
+    for _, elem := range p.Elems {
+        var a []*File
+        if a, err = elem.delete(ctx); err != nil { break }
+        files = append(files, a...)
+    }
+    return
+}
 func (p *List) stamp(ctx Context) (files []*File, err error) {
     for _, elem := range p.Elems {
         var a []*File
@@ -4171,6 +4214,7 @@ func (p *Group) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v)
 func (p *Group) defs(ctx Context, s ...string) []*Def { return p.elements.defs(ctx, s...) }
 func (p *Group) stat(ctx Context) (si *statinfo) { return }
 func (p *Group) stamp(ctx Context) (files []*File, err error) { return }
+func (p *Group) delete(ctx Context) (files []*File, err error) { return }
 func (p *Group) elemStr(ctx Context, o Object, k elemkind) string {
     var strs []string
     for _, elem := range p.Elems {
@@ -4623,6 +4667,10 @@ func (p *delegate) stamp(ctx Context) (file []*File, err error) {
     erro(ctx, "cant stamp delegate %v, must expand it first", p).at(p.position).debug(16)
     return
 }
+func (p *delegate) delete(ctx Context) (file []*File, err error) {
+    erro(ctx, "cant delete delegate %v, must expand it first", p).at(p.position).debug(16)
+    return
+}
 func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*delegate); ok {
         // NOTE: don't compare the expanded value!!
@@ -4838,6 +4886,10 @@ func (p *closure) stamp(ctx Context) (file []*File, err error) {
     erro(ctx, "cant stamp closure %v, must expand it first", p).at(p.position).debug(16)
     return
 }
+func (p *closure) delete(ctx Context) (file []*File, err error) {
+    erro(ctx, "cant stamp closure %v, must expand it first", p).at(p.position).debug(16)
+    return
+}
 func (p *closure) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*closure); ok {
         // NOTE: don't compare the expanded value!!
@@ -5004,6 +5056,10 @@ func (p *selection) stat(ctx Context) (si *statinfo) {
     return
 }
 func (p *selection) stamp(ctx Context) (file []*File, err error) {
+    erro(ctx, "cant stamp selection %v, must expand it first", p).at(p.position).debug(1)
+    return
+}
+func (p *selection) delete(ctx Context) (file []*File, err error) {
     erro(ctx, "cant stamp selection %v, must expand it first", p).at(p.position).debug(1)
     return
 }

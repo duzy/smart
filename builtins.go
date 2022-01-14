@@ -1922,7 +1922,6 @@ func builtinPatsubst(ctx Context, args... Value) (res Value) {
         }
 
         const infos = false
-        //var infos = proj.name == "headers"
 
         // TODO: support flags -name and -full for name-only and full-name-only matching
         var srcPats, dstPats, sources []Value

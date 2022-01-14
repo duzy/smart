@@ -84,6 +84,12 @@ func (p *using) stamp(ctx Context) (files []*File, err error) {
         }
         return
 }
+func (p *using) delete(ctx Context) (files []*File, err error) {
+        if entry := p.project.DefaultEntry(); entry != nil {
+                files, err = entry.delete(ctx)
+        }
+        return
+}
 func (p *using) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*using); ok {
                 assert(ok, "value is not using")
@@ -161,6 +167,14 @@ func (p *usinglist) stamp(ctx Context) (files []*File, err error) {
         for _, elem := range p.list {
                 var a []*File
                 if a, err = elem.stamp(ctx); err != nil { break }
+                files = append(files, a...)
+        }
+        return
+}
+func (p *usinglist) delete(ctx Context) (files []*File, err error) {
+        for _, elem := range p.list {
+                var a []*File
+                if a, err = elem.delete(ctx); err != nil { break }
                 files = append(files, a...)
         }
         return

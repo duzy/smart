@@ -345,7 +345,11 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     case *File: //alreadyUpdated = a.info != nil && a.updated
     default:
         var s string
-        if s, err = a.Strval(ctx); err != nil {
+        if isNil(a) {
+            erro(ctx, "%v: nil entry target", target)
+            errostack(ctx, 8, "%v", ctx).debug(20)
+            return
+        } else if s, err = a.Strval(ctx); err != nil {
             erro(ctx, "strval '%v' failed: %v", a, err).debug(1)
             return
         } else if file := prog.project.FindFile(ctx, s); file != nil {

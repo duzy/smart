@@ -466,7 +466,8 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
         } else if isb {
             warn(ctx, "`%s` is already base of `%s` (%s)", loaded, lp, proj).at(position).debug(1)
         } else if res && !loaded.opts.multiUseAllowed {
-            warn(ctx, "`%s` has already been imported by `%s` (from %s)", loaded, lp, proj).at(position).debug(1)
+            warn(ctx, "`%s` has already been imported by `%s` (from %s)", loaded, lp, proj).at(position)
+            warnstack(ctx, 8, "`%s` has already been imported by `%s` (from %s)", loaded, lp, proj).debug(1)
         }
     }
     if breakUseLoop { return } else {
