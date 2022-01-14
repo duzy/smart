@@ -44,15 +44,15 @@ func (filemap *FileMap) Patterns(ctx Context) (pats []Value) {
 }
 
 // Match split filename into list and match each part with the pattern correspondingly.
-func (filemap *FileMap) Match(ctx Context, filename string) (matched bool, pre string) {
+func (filemap *FileMap) Match(ctx Context, str string) (matched bool, pre string) {
   for _, pat := range filemap.Patterns(ctx) {
-    if matched, pre = filemap.match(ctx, pat, filename); matched { break }
+    if matched, pre = filemap.match(ctx, pat, str); matched { break }
   }
   return
 }
 
-func (filemap *FileMap) match(ctx Context, pattern Value, filename string) (matched bool, pre string) {
-  if matched, pre = globMatch(ctx, pattern, filename); matched { return }
+func (filemap *FileMap) match(ctx Context, pattern Value, str string) (matched bool, pre string) {
+  if matched, pre = globMatch(ctx, pattern, str, true); matched { return }
   return
 }
 
@@ -211,51 +211,43 @@ func hasGlobMeta(path string) bool {
 // all components are compared. If the pattern has only one component,
 // the last filename component is compared with the pattern, and the prefix
 // components are returned in 'pre'.
-func globMatch(ctx Context, patval Value, filename string) (matched bool, pre string) {
-  switch patval.(type) {
+func globMatch(ctx Context, patVal Value, filename string, tailMatch bool) (matched bool, pre string) {
+  switch patVal.(type) {
   default: // good to go!
   case *List:
-    erro(ctx, "invalid glob matching pattern: %v (%T)", patval, patval).of(patval)
+    erro(ctx, "invalid glob matching pattern: %v", patVal).of(patVal).debug(8)
     return
   }
 
-  var pattern, err = patval.Strval(ctx)
+  var patStr, err = patVal.Strval(ctx)
   if err != nil { return false, "" }
-
-  var list0 = strings.Split(filepath.Clean(pattern), PathSep)
-  if len(list0) == 0 {
-    // FIXME: match any?
-    return
-  } else if true && len(list0) == 1 { // *.o  <->  src/foo.o
-    matched, _ = filepath.Match(list0[0], filename)
-    if false && strings.HasSuffix(list0[0], ".cpp") && strings.HasPrefix(filename, "ryu/") {
-      warn(ctx, "%v %v; %v", patval, filename, matched).debug(4)
-    }
-    if matched { return }
+  if false && strings.HasSuffix(patStr, ".cpp") && strings.HasPrefix(filename, "ryu/") {
+    defer func() {
+      var v, _ = filepath.Match(patStr, filename)
+      if matched { warn(ctx, "%T %v %v; %v %v; %v", patVal, patVal, filename, matched, pre, v).of(patVal).debug(12) }
+    } ()
   }
 
-  var list1 = strings.Split(filepath.Clean(filename), PathSep)
-  if len(list0) == len(list1) { // src/*.o  <->  src/foo.o
-    // Matching all components
-    for i, pat := range list0 {
-      if true /*hasGlobMeta(pat)*/ {
-        matched, _ = filepath.Match(pat, list1[i])
-        if !matched { return }
-      } else {
-        matched = (pat == list1[i])
+  var patList = strings.Split(filepath.Clean(patStr), PathSep)
+  if len(patList) == 0 {
+    return // FIXME: match any?
+  }
+
+  var list = strings.Split(filepath.Clean(filename), PathSep)
+  if len(patList) == len(list) { // src/*.o  <->  src/foo.o
+    for i, pat := range patList { // Matching all components
+      if matched, _ = filepath.Match(pat, list[i]); !matched { return }
+    }
+  } else if len(patList) == 1 && len(list) > 1 { // *.o|foo.o  <->  src/foo.o
+    // NOTE: partially matching only the last part is logically incorrect!
+    //       for example of this wrong match: stdint.h <-> isl/stdint.h
+    if tailMatch {
+      if matched, _ = filepath.Match(patList[0], list[len(list)-1]); matched {
+        pre = filepath.Join(list[:len(list)-1]...)
+        return
       }
-    }
-  } else if false && len(list0) == 1 && len(list1) > 1 { // *.o|foo.o  <->  src/foo.o
-    // NOTE: partially matching only the last parts is logically incorrect!
-    //       for example of this wrong match: stdint.h  <->  isl/stdint.h
-    list1_tail := list1[len(list1)-1]
-    if true /*hasGlobMeta(list0[0])*/ {
-      matched, _ = filepath.Match(list0[0], list1_tail)
-    } else {
-      matched = (list0[0] == list1_tail)
-    }
-    if matched {
-      pre = filepath.Join(list1[:len(list1)-1]...)
+    } else if matched, _ = filepath.Match(patList[0], filename); matched {
+      return
     }
   }
   return
@@ -459,7 +451,9 @@ ForPatterns:
   ForFilemaps:
     for _, fm := range filemaps {
       for _, pattern := range fm.Patterns(ctx) {
-        if matched, _, _ = pattern.match(ctx, pat); !matched {
+        /*if !pattern.patterned(ctx) {
+          // mapping regular file path
+        } else */if matched, _, _ = pattern.match(ctx, pat); !matched {
           // Flip glob matching order.
           if patPatterned { if matched, _, _ = pat.match(ctx, pattern); matched {
             breakAbsRel = true // using the arg glob
@@ -468,8 +462,8 @@ ForPatterns:
           continue ForFilemaps; afterMatchedPattern:
         }
 
-        var names []string // glob returned file names
         var str string
+        var names []string // glob returned file names
         if str, err = pattern.Strval(ctx); err != nil {
           erro(ctx, "strval '%v' failed: %v", pattern, err).debug(1)
           return

@@ -5402,19 +5402,9 @@ func (p *GlobPattern) match(ctx Context, i interface{}) (full bool, result strin
     default:
         unreachable("glob.match: %T %v", i, i)
     }
-    if false {
-        var pat string
-        if pat, e = p.Strval(ctx); e != nil {
-            erro(ctx, "strval '%v' failed: %v", p, e).at(p.position)
-        } else if full, e = filepath.Match(pat, s); e != nil {
-            erro(ctx, "glob match '%s' failed: %v", pat, e).at(p.position)
-        } else if full {
-            result = s
-            // FIXME: calculate stems from matching
-        }
-    } else if matched, pre := globMatch(ctx, p, s); matched && pre == "" {
-        result, full = s, true
-        // FIXME: calculate stems from matching
+    if matched, pre := globMatch(ctx, p, s, true); matched {
+        result, full = s, true // FIXME: calculate stems from matching
+        if pre != "" { /*full = false*/ }
     }
     return
 }
