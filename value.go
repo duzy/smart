@@ -3590,13 +3590,15 @@ func (p *File) delete(ctx Context) (files []*File, err error) {
         return
     }
 
-    if err = os.Remove(fullname); err != nil {
+    if p.info == nil {
+        // ignore
+    } else if err = os.Remove(fullname); err != nil {
         erro(ctx, "%v", err).at(p.position).debug(1)
     } else {
         // TODO: ctx.Globe().delete(fullname)
         files = append(files, p)
+        p.info = nil
     }
-    p.info = nil
     return
 }
 func (p *File) stamp(ctx Context) (files []*File, err error) {
@@ -5387,10 +5389,10 @@ func (p *GlobPattern) expand(ctx Context, w expandwhat) (res Value, err error) {
 func (p *GlobPattern) patterned(ctx Context) bool { return true }
 func (p *GlobPattern) match(ctx Context, i interface{}) (full bool, result string, stems []string) {
     if optionEnableBenchspots { defer bench(spot("GlobPattern.match")) }
-    var ( pat, s string; e error )
+    var ( s string; e error )
     switch t := i.(type) {
-    case string: s = t
-    case *File: s = t.name
+    case string:    s = t
+    case *File:     s = t.name
     case *filestub: s = t.name
     case Value:
         if s, e = t.Strval(ctx); e != nil {
@@ -5400,12 +5402,18 @@ func (p *GlobPattern) match(ctx Context, i interface{}) (full bool, result strin
     default:
         unreachable("glob.match: %T %v", i, i)
     }
-    if pat, e = p.Strval(ctx); e != nil {
-        erro(ctx, "strval '%v' failed: %v", p, e).at(p.position)
-    } else if full, e = filepath.Match(pat, s); e != nil {
-        erro(ctx, "glob match '%s' failed: %v", pat, e).at(p.position)
-    } else if full {
-        result = s
+    if false {
+        var pat string
+        if pat, e = p.Strval(ctx); e != nil {
+            erro(ctx, "strval '%v' failed: %v", p, e).at(p.position)
+        } else if full, e = filepath.Match(pat, s); e != nil {
+            erro(ctx, "glob match '%s' failed: %v", pat, e).at(p.position)
+        } else if full {
+            result = s
+            // FIXME: calculate stems from matching
+        }
+    } else if matched, pre := globMatch(ctx, p, s); matched && pre == "" {
+        result, full = s, true
         // FIXME: calculate stems from matching
     }
     return

@@ -222,16 +222,20 @@ func globMatch(ctx Context, patval Value, filename string) (matched bool, pre st
   var pattern, err = patval.Strval(ctx)
   if err != nil { return false, "" }
 
-  list0 := strings.Split(filepath.Clean(pattern ), PathSep)
-  list1 := strings.Split(filepath.Clean(filename), PathSep)
-  if false && strings.HasSuffix(filename, "isl/stdint.h") {
-    defer func() {
-      if matched { warn(ctx, "%v %v; %v %v", patval, filename, list0, list1).debug(8) }
-    } ()
-  }
+  var list0 = strings.Split(filepath.Clean(pattern), PathSep)
   if len(list0) == 0 {
     // FIXME: match any?
-  } else if len(list0) == len(list1) { // foo/*.o  <->  src/foo.o
+    return
+  } else if true && len(list0) == 1 { // *.o  <->  src/foo.o
+    matched, _ = filepath.Match(list0[0], filename)
+    if false && strings.HasSuffix(list0[0], ".cpp") && strings.HasPrefix(filename, "ryu/") {
+      warn(ctx, "%v %v; %v", patval, filename, matched).debug(4)
+    }
+    if matched { return }
+  }
+
+  var list1 = strings.Split(filepath.Clean(filename), PathSep)
+  if len(list0) == len(list1) { // src/*.o  <->  src/foo.o
     // Matching all components
     for i, pat := range list0 {
       if true /*hasGlobMeta(pat)*/ {
@@ -240,10 +244,6 @@ func globMatch(ctx Context, patval Value, filename string) (matched bool, pre st
       } else {
         matched = (pat == list1[i])
       }
-    }
-  } else if true {
-    if false && strings.HasSuffix(filename, "isl/stdint.h") {
-      warn(ctx, "%v %v; %v %v", patval, filename, list0, list1).debug(1)
     }
   } else if false && len(list0) == 1 && len(list1) > 1 { // *.o|foo.o  <->  src/foo.o
     // NOTE: partially matching only the last parts is logically incorrect!
@@ -452,37 +452,31 @@ func (p *Project) wildcard(ctx Context, opts wildcardOpts, patterns ...Value) (f
 ForPatterns:
   for _, pat := range patterns {
     var (
+      patPatterned = pat.patterned(ctx)
       breakAbsRel bool
       matched bool
-      patStr string
     )
-    if patStr, err = pat.Strval(ctx); err != nil {
-      erro(ctx, "strval '%v' failed: %v", pat, err).at(pos).debug(1)
-      break ForPatterns
-    }
-    // The 'patStr' could be GlobPattern or just regular file/path names. PercPattern is not supported yet.
   ForFilemaps:
     for _, fm := range filemaps {
       for _, pattern := range fm.Patterns(ctx) {
-        var pre string // <pre>/*.xxx
-        var str = patStr
-        if matched, pre = globMatch(ctx, pattern, patStr); !matched {
+        if matched, _, _ = pattern.match(ctx, pat); !matched {
           // Flip glob matching order.
-          if _, yes := pat.(*GlobPattern); !yes {
-            continue ForFilemaps
-          } else if str, err = pattern.Strval(ctx); err != nil {
-            break ForPatterns
-          } else if matched, pre = globMatch(ctx, pat, str); !matched {
-            continue ForFilemaps
-          } else {
-            // using the arg glob
-            breakAbsRel = true
-          }
+          if patPatterned { if matched, _, _ = pat.match(ctx, pattern); matched {
+            breakAbsRel = true // using the arg glob
+            goto afterMatchedPattern
+          }}
+          continue ForFilemaps; afterMatchedPattern:
         }
 
-        if pre != "" { /* FIXME: ... */ }
-
-        var names []string
+        var names []string // glob returned file names
+        var str string
+        if str, err = pattern.Strval(ctx); err != nil {
+          erro(ctx, "strval '%v' failed: %v", pattern, err).debug(1)
+          return
+        } else if str == "" {
+          erro(ctx, "empty pattern: %v", pattern).debug(1)
+          return
+        }
 
         // Absolute or relative files are not related to the paths.
         if filepath.IsAbs(str) || strings.HasPrefix(str, "./") || strings.HasPrefix(str, "../") {
@@ -521,7 +515,6 @@ ForPatterns:
                 warn(ctx, "sub = %s", sub).at(pos)
                 warn(ctx, "pat = %s", pat).at(pos)
                 warn(ctx, "pattern = %v", pattern).at(pos)
-                warn(ctx, "pre = %s", pre).at(pos)
                 warn(ctx, "str = %s", str).at(pos)
                 warn(ctx, "subfile = %s", subfile).at(pos)
                 warn(ctx, "prefix = %s", prefix).at(pos)

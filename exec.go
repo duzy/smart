@@ -1110,7 +1110,6 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         } else {
           erro(ctx, `%v: deleted "%v"`, s, fullname)
         }
-        if file.exists() { _ = os.Remove(fullname) }
       }
       errostack(ctx, 3, `%v: %v`, target, ctx).debug(6)
       if /*opts.fail*/true { fail(target.Position(), `"%v" deleted`, target) }
