@@ -1744,6 +1744,19 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 		pats = []Value{ val }
 	}
 	if path == nil {
+		if len(pats) == 1 { if a, ok := pats[0].(*Argumented); ok { if f, ok := a.value.(*Flag); ok {
+			var name, err = f.name.Strval(ctx) // -import(paths...)
+			if err != nil {
+				erro(ctx, "strval '%v' failed: %v", f.name, err).of(f.name).debug(1)
+				return
+			}
+			switch name {
+			case "import": p.importFileMaps(ctx, a.args...); return
+			default:
+				erro(ctx, "invalid files flag: %v").of(f.name).debug(1)
+				return
+			}
+		}}}
 		var paths = []Value{ MakeString(val.Position(), p.Project().absPath) }
 		for _, pat := range pats { p.Project().mapfile(ctx, opts, pat, paths) }
 	} else {
@@ -1766,7 +1779,7 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 		}
 
 		if len(patsNew) == 1 { if f, ok := patsNew[0].(*Flag); ok {
-			var name, err = f.name.Strval(ctx)
+			var name, err = f.name.Strval(ctx) // -import => (paths...)
 			if err != nil {
 				erro(ctx, "strval '%v' failed: %v", f.name, err).of(f.name).debug(1)
 				return

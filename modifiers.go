@@ -118,13 +118,12 @@ func (g *modifiergroup) traverse(ctx Context) (brks breakers) {
                         proj = ctx.Project()
                         ctx = positional(ctx, m.position)
                 )
-                if brks = m.traverse(ctx); !brks.has() { continue }
-                if tb := brks.of(breakNext, breakCase, breakDone); tb.has() {
-                        break
-                } else {
+                if brks = m.traverse(ctx); !brks.has() {
+                        continue // no breaks
+                } else if tb := brks.not(breakCase, breakDone, breakNext); tb.has() {
                         var _, ent, _ = entryStr(ctx, ctx.entry())
                         prompt(ctx, "%v: traverse %s failed, project %s\n", ent, m.name, proj)
-                        for _, brk := range brks {
+                        for _, brk := range tb {
                                 switch brk.what {
                                 case breakErro: erro(ctx, "%v: %s: %v", proj, m.name, brk.error).at(brk.pos)
                                 case breakFail: erro(ctx, "%v: %s: %v", proj, m.name, brk.message).at(brk.pos)
@@ -133,6 +132,10 @@ func (g *modifiergroup) traverse(ctx Context) (brks breakers) {
                         }
                         errostack(ctx, 3, "%v: %v: %v", proj, m.name, ctx).debug(6)
                         break
+                } else if tb = brks.of(breakCase); tb.has() {
+                        continue // case selected
+                } else if tb = brks.of(breakDone, breakNext); tb.has() {
+                        break // done or try next rule entry
                 }
         }
         return
@@ -1592,27 +1595,29 @@ func loadSavedDepsAndCheckOutdated(ctx Context, args []string) (savedDepsFileNam
 func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
         var (
                 okay bool
-                fullname = dep
+                fullname string
                 proj = ctx.Project()
         )
         if proj == nil {
-                prompt(ctx, "%s: traverse file failed, project %v\n", dep, proj)
+                prompt(ctx, "%s: traverse dep failed, project %v\n", dep, proj)
                 erro(ctx, "%s: no current project for dep", dep)
                 errostack(ctx, 5, "%s: %v", dep, ctx).debug(10)
                 return
         } else if file := proj.FindFile(ctx, dep); file == nil {
                 okay, brks = traverseString(ctx, nil, dep)
+                fullname = dep
         } else {
                 okay, brks = traverseFile(ctx, file)
+                okay = okay && file.exists()
                 fullname = file.fullname()
         }
-        if brks.has() {
-                prompt(ctx, "%s: traverse file failed, project %v\n", fullname, proj)
+        if /*brks = brks.not(breakCase, breakNext, breakDone);*/ brks.has() {
+                prompt(ctx, "%s: traverse dep failed (okay=%v), project %v\n", fullname, okay, proj)
                 for _, brk := range brks {
                         switch brk.what {
-                        case breakErro: erro(ctx, "%v: missing deps: %v", proj, brk.error).at(brk.pos)
-                        case breakFail: erro(ctx, "%v: missing deps: %v", proj, brk.message).at(brk.pos)
-                        default       : erro(ctx, "%v: missing deps: %v", proj, brk.what).at(brk.pos)
+                        case breakErro: erro(ctx, "%v: missing %v: %v", proj, dep, brk.error  ).at(brk.pos)
+                        case breakFail: erro(ctx, "%v: missing %v: %v", proj, dep, brk.message).at(brk.pos)
+                        default       : erro(ctx, "%v: missing %v: %v", proj, dep, brk.what   ).at(brk.pos)
                         }
                 }
                 errostack(ctx, 5, "%v: %v", proj, ctx).debug(10)

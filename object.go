@@ -1372,11 +1372,6 @@ ForPrograms:
                 } else if !isNil(res) {
                         // TODO: deal with the result `res`
                 }
-                if false && entry.String() == "isl/stdint.h" {
-                        var s string
-                        if len(brks) > 0 { s = fmt.Sprintf(" (%s)", brks[0].what) }
-                        warn(ctx, "%v: %v. %d%s", entry, i, len(brks), s).at(prog.position).debug(1)
-                }
 
                 // Update traversal breakers
                 var prevBrks = brks; brks = nil

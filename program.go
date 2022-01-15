@@ -200,14 +200,11 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
                 }
             }
         }
-        // if t, _ := ctx.autoGet("@"); (name == "shell" || name == "cond") && ctx.entry().String() == "program" {
-        //     warn(ctx, "%v: %v, %v", ctx.entry(), t, m).debug(1)
-        // }
         if value, brks = f(positional(ctx, m.position), args...); brks.has() {
             if tb := brks.not(breakCase, breakNext, breakDone); tb.has() {
                 var _, ent, _ = entryStr(ctx, ctx.entry())
                 prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
-                for _, brk := range brks {
+                for _, brk := range tb {
                     switch brk.what {
                     case breakFail: erro(ctx, "%v: %s: broken modifier with failure: %v", proj, name, brk.message).at(brk.pos)
                     case breakErro: erro(ctx, "%v: %s: broken modifier with error: %v", proj, name, brk.error).at(brk.pos)
@@ -423,7 +420,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     if brks = traverseNormal(ctx); brks.has() {
         if tb := brks.not(breakCase, breakNext, breakDone); tb.has() {
             prompt(ctx, "%v: execute failed, project %s\n", entry, proj)
-            for _, brk := range brks {
+            for _, brk := range tb {
                 switch brk.what {
                 case breakFail: erro(ctx, `%v: broken for "%s": %v`, proj, target, brk.message).at(brk.pos)
                 case breakErro: erro(ctx, `%v: broken for "%s", error: %v`, proj, target, brk.error).at(brk.pos)

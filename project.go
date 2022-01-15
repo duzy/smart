@@ -221,10 +221,12 @@ func globMatch(ctx Context, patVal Value, filename string, tailMatch bool) (matc
 
   var patStr, err = patVal.Strval(ctx)
   if err != nil { return false, "" }
-  if false && strings.HasSuffix(patStr, ".cpp") && strings.HasPrefix(filename, "ryu/") {
+  if false && strings.HasSuffix(filename, "isl/stdint.h") {
     defer func() {
-      var v, _ = filepath.Match(patStr, filename)
-      if matched { warn(ctx, "%T %v %v; %v %v; %v", patVal, patVal, filename, matched, pre, v).of(patVal).debug(12) }
+      if matched {
+        prompt(ctx, "%v: %v (%v)\n", filename, patVal, ctx.Project())
+        warnstack(ctx, 6, "%T %v %v; %v", patVal, patVal, filename, pre).of(patVal).debug(24)
+      }
     } ()
   }
 
@@ -403,13 +405,13 @@ func appendFilemapUniquely(ctx Context, filemaps []*FileMap, a *FileMap) (result
 func (p *Project) filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*FileMap) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.filemaps")) }
 
-  var uniqueAppend = func(a *FileMap) {
+  var appendUnique = func(a *FileMap) {
     filemaps = appendFilemapUniquely(ctx, filemaps, a)
   }
 
-  for _, m := range p.myFilemaps(ctx) { uniqueAppend(m) }
+  for _, m := range p.myFilemaps(ctx) { appendUnique(m) }
   if baseFiles { for _, base := range p.bases {
-    for _, m := range base.filemaps(ctx, true, usedFiles) { uniqueAppend(m) }
+    for _, m := range base.filemaps(ctx, true, usedFiles) { appendUnique(m) }
   }}
   if usedFiles && false/* FIXME: performance */ {
     // takes a big longer time to map usee filemaps, but acceptable
@@ -425,7 +427,7 @@ func (p *Project) filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*
         // FIXME: this is the expensive way, really slow!
         fms = p.filemaps(ctx, baseFiles, usedFiles)
       }
-      for _, m := range fms { uniqueAppend(m) }
+      for _, m := range fms { appendUnique(m) }
       appendUsedFiles(p)
     }
     appendUsedFiles = func(p *Project) {
@@ -562,6 +564,9 @@ ForFilemaps:
     // Match the represented file name.
     var matched, pre = filemap.Match(ctx, name) // TODO: performance
     if !matched { continue ForFilemaps }
+    if false && strings.HasSuffix(name, "isl/stdint.h") {
+      warn(ctx, "%v: %T %v; %v; %v", p, filemap.pattern, filemap, name, matched).of(filemap.pattern).debug(1)
+    }
 
     var proj = filemap.project
     if proj.changedWD != "" { file = filemap.stat(ctx, proj.changedWD, pre, name) }
@@ -670,9 +675,6 @@ func (p *Project) resolveEntries(ctx Context, s string, matchFullSuffix, alwaysR
       } else if !matchFullSuffix {
         // not matching
       } else if strings.HasSuffix(fullname, PathSep+filepath.Clean(s)) {
-        if s == "isl/stdint.h" {
-          warn(ctx, "%v: %v, %v, %v", p, target.fullname(), target.name, s)
-        }
         add(entry)
       }
     default:
