@@ -3401,7 +3401,9 @@ ForArgs:
                 } else if opts.update {
                         var s string
                         if s, err = os.Readlink(newname); err != nil {
-                                erro(ctx, "%v", err).debug(1)
+                                prompt(ctx, "%v: readlink failed", newname)
+                                erro(ctx, "%v", err)
+                                errostack(ctx, 6, "%v", ctx).debug(8)
                                 err = nil //continue ForArgs
                         } else if s == newname {
                                 continue ForArgs

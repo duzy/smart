@@ -3146,7 +3146,7 @@ SegsLoop:
             erro(ctx, "incorrect result: str=%s res=%v stems=%v full=%v result=%v", str, res, stems, full, result).at(p.position).debug(1)
         }
         if p.patterned(ctx) && full && len(stems) == 0 {
-            erro(ctx, "incorrect result: path=%v, str=%s, res=%v result=%v", p, str, res, result).at(p.position).debug(1)
+            erro(ctx, "incorrect match result: path=%v, str=%s, res=%v result=%v", p, str, res, result).at(p.position).debug(1)
         }
     }
     return

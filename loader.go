@@ -1834,18 +1834,28 @@ func (l *loader) ParseDir(pos Position, path string, filter func(os.FileInfo) bo
 ListLoop:
     for _, d := range list {
         var (
-            filename, mo = filepath.Join(path, d.Name()), d.Mode()
+            name, mo = d.Name(), d.Mode()
+            filename = filepath.Join(path, name)
             linked, linkPath = "", path
+            skip = (name == "")
         )
+        if!skip { skip =   strings.HasPrefix(name, ".#") }
+        if!skip { skip = !(strings.HasSuffix(name, ".smart") || strings.HasSuffix(name, ".sm")) }
+        if skip { continue ListLoop }
         for fn := filename; mo&os.ModeSymlink != 0; {
             if s, err := os.Readlink(fn); err != nil {
-                erro(ctx, "readlink: %v", err).at(pos).debug(1)
+                prompt(ctx, "%s: readlink failed\n", fn)
+                warn(ctx, "%v", err).at(pos)
+                warnstack(ctx, 6, "%v", ctx).debug(6)
                 continue ListLoop
             } else {
-                rel := !filepath.IsAbs(s)
-                if rel { s = filepath.Join(linkPath, s) }
-                if fi, err := os.Lstat(s); err != nil {
-                    erro(ctx, "lstat: %v", err).at(pos).debug(1)
+                var linkName = s
+                var rel = !filepath.IsAbs(linkName)
+                if rel { linkName = filepath.Join(linkPath, linkName) }
+                if fi, err := os.Lstat(linkName); err != nil {
+                    prompt(ctx, "%s: lstat %s\n", fn, s)
+                    warn(ctx, "%v", err).at(pos)
+                    warnstack(ctx, 6, "%v", ctx).debug(6)
                     continue ListLoop
                 } else {
                     if rel { linkPath = filepath.Dir(s) }
@@ -1853,13 +1863,6 @@ ListLoop:
                     linked = fn
                 }
             }
-        }
-
-        var name = d.Name()
-        if name != "" {
-            var skip = strings.HasPrefix(name, ".#")
-            skip = skip || !(strings.HasSuffix(name, ".smart") || strings.HasSuffix(name, ".sm"))
-            if skip { continue ListLoop }
         }
         /*if (name == "configure.smart" || name == "configure.sm") && (linked != "" || mo.IsDir()) {
             //hasConfDir = true // TODO: remove ConfigDir feature
