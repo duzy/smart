@@ -3328,6 +3328,7 @@ foo: foobar
 */
 type builtinSymlinkOpts struct {
         path bool `p,path`
+        full bool `fn,fullname;full,fullname`
         force bool `f,force`
         update bool `u,update`
         relative bool `r,relative;l,rel`
@@ -3342,6 +3343,11 @@ func builtinSymlink(ctx Context, args... Value) (res Value) {
                 erro(ctx, "%v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        } else if !opts.full {
+                // okay
+        } else if args, err = expandmerge1(ctx, expandFullName, args...); err != nil {
                 erro(ctx, "%v", err).debug(1)
                 return
         }
@@ -3385,34 +3391,40 @@ ForArgs:
                 }
 
                 if newname == "" {
-                        erro(ctx, "empty new filename").debug(1)
+                        erro(ctx, "empty new filename").of(newNameVal).debug(1)
                         return
                 }
                 if oldname == "" {
-                        erro(ctx, "empty old filename (%v)", ).debug(1)
+                        erro(ctx, "empty old filename (%v)", ).of(oldNameVal).debug(1)
                         return
                 }
 
                 if opts.force {
                         if err = os.Remove(newname); err != nil {
-                                erro(ctx, "%v", err).debug(1)
+                                erro(ctx, "%v", err).of(newNameVal).debug(1)
                                 err = nil //return
                         }
                 } else if opts.update {
                         var s string
                         if s, err = os.Readlink(newname); err != nil {
-                                prompt(ctx, "%v: readlink failed", newname)
-                                erro(ctx, "%v", err)
-                                errostack(ctx, 6, "%v", ctx).debug(8)
+                                if false {
+                                        prompt(ctx, "%v: readlink failed (%T)\n", newname, err)
+                                        erro(ctx, "%v", err).of(newNameVal)
+                                        errostack(ctx, 6, "%v", ctx).of(newNameVal).debug(8)
+                                }
                                 err = nil //continue ForArgs
                         } else if s == newname {
                                 continue ForArgs
                         } else if err = os.Remove(newname); err != nil {
-                                erro(ctx, "%v", err).debug(1)
+                                if true {
+                                        prompt(ctx, "%v: remove old symlink failed (%T)\n", newname, err)
+                                        erro(ctx, "%v", err).of(newNameVal)
+                                        errostack(ctx, 6, "%v", ctx).of(newNameVal).debug(8)
+                                }
                                 err = nil //return
                         }
                 }
-                if opts.verbose {
+                if false && opts.verbose {
                         var d = filepath.Base(newname)
                         var s = filepath.Base(oldname)
                         prompt(ctx, "Symlink %s -> %s …", d, s)
@@ -3422,13 +3434,13 @@ ForArgs:
                         oldname, err = filepath.Rel(dir, oldname)
                         if err != nil {
                                 if opts.verbose { prompt(ctx, "symlink: %s\n", err) }
-                                erro(ctx, "%v", err).debug(1)
+                                erro(ctx, "%v", err).of(newNameVal).debug(1)
                                 return
                         }
                 }
                 if dir := filepath.Dir(newname); opts.path && dir != "." && dir != PathSep {
                         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
-                                erro(ctx, "%v", err).debug(1)
+                                erro(ctx, "%v", err).of(newNameVal).debug(1)
                                 return
                         }
                 }
@@ -3436,7 +3448,9 @@ ForArgs:
                         if opts.verbose { prompt(ctx, "… %s\n", err) }
                         break
                 } else if opts.verbose {
-                        prompt(ctx, "… ok\n")
+                        var d = filepath.Base(newname)
+                        var s = filepath.Base(oldname)
+                        prompt(ctx, "Symlink %s -> %s …… ok\n", d, s)
                 }
         }
         return

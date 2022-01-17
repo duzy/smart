@@ -2502,27 +2502,27 @@ func (p *parser) parseSpecialRuleClause() Value {
 	switch name {
 	case "user":
 		if true {
-			erro(p, ":user: rules are deprecated, use using.* instead!")
-			return nil
-		}
+			// Example usage of using.*:
+			//    using.* ::= cflags(-unique) ldlibs(-unique -reverse)
+			erro(p, ":user: rules are deprecated, use using.* instead!").debug(1)
+		} else {
+			var options []Value
+			var pos = p.expect(token.BAREWORD) // USE
+			var bits = p.setbit(parsingSpecialRule)
+			// Options are *Flag or *Pair of a Flag.
+			for p.tok == token.MINUS {
+				opt := p.parseExpr(false)
+				options = append(options, opt)
+			}
+			p.setbits(bits) // restore bits
+			if p.tok.IsRuleDelim() {
+				return p.parseRuleEntry(specialRuleUse, options, []Value{
+					MakeBareword(p.positionAt(pos), name),
+				})
+			}
 
-		// TODO: code cleaning
-		var options []Value
-		var pos = p.expect(token.BAREWORD) // USE
-		var bits = p.setbit(parsingSpecialRule)
-		// Options are *Flag or *Pair of a Flag.
-		for p.tok == token.MINUS {
-			opt := p.parseExpr(false)
-			options = append(options, opt)
+			erro(p, "expecting special rule terminator ':'")
 		}
-		p.setbits(bits) // restore bits
-		if p.tok.IsRuleDelim() {
-			return p.parseRuleEntry(specialRuleUse, options, []Value{
-				MakeBareword(p.positionAt(pos), name),
-			})
-		}
-
-		erro(p, "expecting special rule terminator ':'")
 		return nil
 	default:
 		erro(p, "unknown special rule")

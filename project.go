@@ -126,13 +126,6 @@ func (filemap *FileMap) stat(ctx Context, base, pre, name string) (file *File) {
       }
     } else if !filepath.IsAbs(name) { dir = base }
 
-    if false && strings.HasSuffix(name, "/...") {
-      warn(ctx, "dir  = %v", dir).at(pos)
-      warn(ctx, "sub  = %v", sub).at(pos)
-      warn(ctx, "name = %v", name).at(pos)
-      warn(ctx, "%v", ctx).debug(6)
-    }
-
     if file = stat(ctx, name, sub, dir, nil); file != nil {
       break
     }
@@ -221,7 +214,7 @@ func globMatch(ctx Context, patVal Value, filename string, tailMatch bool) (matc
 
   var patStr, err = patVal.Strval(ctx)
   if err != nil { return false, "" }
-  if false && strings.HasSuffix(filename, "isl/stdint.h") {
+  if false && strings.HasSuffix(filename, "...") {
     defer func() {
       if matched {
         prompt(ctx, "%v: %v (%v)\n", filename, patVal, ctx.Project())
@@ -441,7 +434,6 @@ func (p *Project) filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*
 }
 
 func (p *Project) wildcard(ctx Context, opts wildcardOpts, patterns ...Value) (files []*File, err error) {
-  var pos = ctx.Position()
   var filemaps = p.filemaps(ctx, opts.baseFiles, opts.usedFiles)
 ForPatterns:
   for _, pat := range patterns {
@@ -507,24 +499,11 @@ ForPatterns:
           prefix := strings.TrimSuffix(subfile, str)
           if len(names) > 0 {
             for _, s := range names {
-              if false && s == "..." {
-                warn(ctx, "sub = %s", sub).at(pos)
-                warn(ctx, "pat = %s", pat).at(pos)
-                warn(ctx, "pattern = %v", pattern).at(pos)
-                warn(ctx, "str = %s", str).at(pos)
-                warn(ctx, "subfile = %s", subfile).at(pos)
-                warn(ctx, "prefix = %s", prefix).at(pos)
-                warn(ctx, "name = %s", s).at(pos).debug(16)
-              }
               name := strings.TrimPrefix(s, prefix)
               file := stat(ctx, name, sub, prefix)
               files = append(files, file)
               if enable_assertions {
                 assert(file != nil, "`%s` missing (%s)", s, name)
-              }
-              if false && p.name == "external.google.tensorflow.core.platform" && strings.HasPrefix(name, "tensorflow/stream_executor") {
-                warn(ctx, "%v: %v", str, name)
-                warn(ctx, "%v", ctx).debug(1)
               }
             }
           } else if ok := pattern.patterned(ctx); !ok && opts.includeMissing {
@@ -564,7 +543,7 @@ ForFilemaps:
     // Match the represented file name.
     var matched, pre = filemap.Match(ctx, name) // TODO: performance
     if !matched { continue ForFilemaps }
-    if false && strings.HasSuffix(name, "isl/stdint.h") {
+    if false && strings.HasSuffix(name, "...") {
       warn(ctx, "%v: %T %v; %v; %v", p, filemap.pattern, filemap, name, matched).of(filemap.pattern).debug(1)
     }
 
@@ -719,10 +698,9 @@ func (p *Project) resolveEntries(ctx Context, s string, matchFullSuffix, alwaysR
 func (p *Project) resolvePatterns(ctx Context, i interface{}) (res []*stemmed) {
   if optionEnableBenchmarks && false { defer bench(mark("Project.resolvePatterns")) }
   if optionEnableBenchspots { defer bench(spot("Project.resolvePatterns")) }
-  res   = p._resolvePatterns1(ctx, i)
-  if v := p._resolvePatterns2(ctx, i); len(v) > 0 { res = append(res, v...) }
-  if true { /* FAST */ } else /* SLOW */
-  if v := p._resolvePatterns3(ctx, i); len(v) > 0 { res = append(res, v...) }
+  if true  { res = append(res, p._resolvePatterns1(ctx, i)...) }
+  if true  { res = append(res, p._resolvePatterns2(ctx, i)...) }
+  if false { res = append(res, p._resolvePatterns3(ctx, i)...)/* heavy work, VERY SLOW! */ }
   return
 }
 
@@ -762,12 +740,6 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
     }
   } ()
 
-  var strval string
-  if strval, err = fullnameOrStrval(ctx, target); err != nil {
-    erro(ctx, "fullname or strval '%s' failed: %v", target, err).debug(1)
-    return
-  }
-
   // The 'use' rule entries.
   var closured = target.expandible(ctx, expandClosure)
   if special == specialRuleUse && !closured {
@@ -793,65 +765,25 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
   }
 
   var name string
-  if name, err = fullnameOrStrval(ctx, target); err != nil {
-    return
-  } else if name == "" {
-    err = fmt.Errorf("name '%v' already taken as `%T'", name)
-    return
-  }
-
-  // Looking for pattern rule entries.
-  switch t := target.(type) {
-  case *PercPattern:
-    assert(t != nil, "nil PercPattern")
+  if target.patterned(ctx) {
+    var class = PatternRuleEntry
+    if _, ok := target.(*Path); ok {
+      class = PathPattRuleEntry
+    }
     var pattern = &PatternEntry{RuleEntry{
       position: target.Position(),
-      class: PercRuleEntry,
+      class: class,
       target: target,
     }}
     p.patterns = append(p.patterns, pattern)
     entry = pattern //&pattern.RuleEntry
     return
-  case *GlobPattern:
-    assert(t != nil, "nil GlobPattern")
-    entry = &RuleEntry{
-      position: target.Position(),
-      class: GlobRuleEntry,
-      target: target,
-    }
-    panic("TODO: GlobPattern target")
-  case *RegexpPattern:
-    assert(t != nil, "nil RegexpRuleEntry")
-    entry = &RuleEntry{
-      position: target.Position(),
-      class: RegexpRuleEntry,
-      target: target,
-    }
-    panic("TODO: RegexpPattern target")
-  case *Path:
-    var isPathPattern bool
-  ForPathElements:
-    for _, elem := range t.Elems {
-      switch elem.(type) {
-      case *PercPattern:
-        isPathPattern = true
-        break ForPathElements
-      case *GlobPattern:
-        panic("TODO: GlobPattern path target")
-      case *RegexpPattern:
-        panic("TODO: RegexpPattern path target")
-      }
-    }
-    if isPathPattern {
-      var pattern = &PatternEntry{RuleEntry{
-        position: target.Position(),
-        class: PathPattRuleEntry,
-        target: target,
-      }}
-      p.patterns = append(p.patterns, pattern)
-      entry = &pattern.RuleEntry
-      return
-    }
+  } else if name, err = fullnameOrStrval(ctx, target); err != nil {
+    erro(ctx, "fullname/strval failed: %v", err).of(target).debug(1)
+    return
+  } else if name == "" {
+    erro(ctx, "empty target name: %v", target).of(target).debug(1)
+    return
   }
 
   // Looking for concrete rule entries.
@@ -862,7 +794,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
     }
     if sv, err = fullnameOrStrval(ctx, rec); err != nil {
       return
-    } else if sv == strval {
+    } else if sv == name {
       entry = rec; break
     }
   }

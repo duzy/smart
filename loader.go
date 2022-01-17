@@ -637,20 +637,20 @@ func (l *loader) loadPlugin(pos Position) (err error) {
 func (l *loader) convertBarefiles(targets []Value) []Value {
     var ctx Context = l
     for i, target := range targets {
-        var pos = target.Position()
+        if target.patterned(ctx) { continue }
         switch t := target.(type) {
         case *Bareword:
             if file := l.project.FindFile(ctx, t.string); file != nil {
                 targets[i] = &Barefile{ Name:target, File:file }
-                file.position = pos
+                file.position = target.Position()
             }
         case *Barecomp:
             if t.expandible(ctx, expandClosure) || refdef(ctx, t, DefArg) { break }
             if s, err := t.Strval(ctx); err != nil {
-                erro(ctx, "strval '%v' failed: %v", t, err).at(pos)
+                erro(ctx, "strval '%v' failed: %v", t, err).of(target)
             } else if file := l.project.FindFile(ctx, s); file != nil {
                 targets[i] = &Barefile{ Name:target, File:file }
-                file.position = pos
+                file.position = target.Position()
             }
         case *Argumented:
             vals := l.convertBarefiles(append([]Value{t.value}, t.args...))
@@ -912,9 +912,10 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
         } else if name, err = /*fullnameOrStrval(ctx, target)*/target.Strval(ctx); err != nil {
             erro(ctx, "strval target '%v' failed: %v", target, err).of(target).debug(1)
             return
-        } else if true {// it should work too if not checking against files
+        } else if true && !target.patterned(ctx) {
+            // NOTE: it should work too if not checking against files
             switch target.(type) {
-            case *File, *Path, *PercPattern, *GlobPattern, *RegexpPattern:
+            case *File, *Path, *Barefile, *PercPattern, *GlobPattern, *RegexpPattern:
             default:
                 if file := l.project.FindFile(ctx, name); file != nil {
                     file.position = target.Position()

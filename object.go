@@ -1091,18 +1091,14 @@ type RuleEntryClass int
 
 const (
         GeneralRuleEntry RuleEntryClass = iota
-        PercRuleEntry
-        GlobRuleEntry
-        RegexpRuleEntry
+        PatternRuleEntry
         PathPattRuleEntry
         UseRuleEntry
 )
 
 var namesForRuleEntryClass = []string{
         GeneralRuleEntry:  "GeneralRuleEntry",
-        PercRuleEntry:     "PercRuleEntry",
-        GlobRuleEntry:     "GlobRuleEntry",
-        RegexpRuleEntry:   "RegexpRuleEntry",
+        PatternRuleEntry:  "PatternRuleEntry",
         PathPattRuleEntry: "PathPattRuleEntry",
         UseRuleEntry:      "UseRuleEntry",
 }
@@ -1206,7 +1202,7 @@ func (entry *RuleEntry) String() string {
 // RuleEntry.Execute executes the rule program only if the target is outdated.
 func (entry *RuleEntry) Execute(ctx Context, a ...Value) (result []Value, brks breakers) {
         switch entry.class {
-        case PercRuleEntry, GlobRuleEntry, RegexpRuleEntry, PathPattRuleEntry:
+        case PatternRuleEntry, PathPattRuleEntry:
                 erro(ctx, "executing pattern entry '%v'", entry.target).debug(1)
                 return
         }

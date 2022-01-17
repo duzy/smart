@@ -824,7 +824,7 @@ checkFileEntries:
         for i, stemmed  := range stemmedList  { erro(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position) }
         for i, brk := range brks { erro(ctx, "%v, %v: %d. %v", proj, file, i, brk.what) }
         if args := t.arguments(); len(args) > 0 { erro(ctx, "%v, %v: arguments %v", proj, file, args) }
-        erro(ctx, "%v: %v required by %v", proj, file, targetVal) //proj.concrete
+        erro(ctx, "%v: no rules for %v, required by %v", proj, file, targetVal) //proj.concrete
         errostack(ctx, 15, "%v", ctx).debug(12)
         brks.add(file.position, breakErro).error = fileNotFoundError{ proj, file }
     } else if !okay && len(ctx.stems()) > 0 {
@@ -1447,10 +1447,11 @@ func (_ *valbase) _match(ctx Context, p Value, i interface{}) (full bool, s stri
                 erro(ctx, "strval '%v' error: %v", t, e).of(t).debug(1)
                 return
             }
+        default:
+            erro(ctx, "%T: matching unsupported value: %T %v", p, i, i).of(p).debug(1)
+            return
         }
-        if strings.HasPrefix(is, v) {
-            s, full = v, (len(v) == len(is))
-        }
+        if strings.HasPrefix(is, v) { s, full = v, (len(v) == len(is)) }
     } else {
         erro(ctx, "strval '%v' error: %v", p, e).of(p).debug(1)
     }
@@ -2611,11 +2612,55 @@ func (p *Barecomp) patterned(ctx Context) (res bool) {
     return
 }
 func (p *Barecomp) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
-    full, s, stems = p._match(ctx, p, i)
+    if false {
+        full, s, stems = p._match(ctx, p, i)
+        if false && strings.HasPrefix(p.String(), "llvm.tools.") && strings.HasPrefix(fmt.Sprintf("%s", i), "llvm.tools.") {
+            for n, elem := range p.Elems {
+                var a, b, c = elem.match(ctx, i)
+                warn(ctx, "%d %v: %v %v %v; %v %v %v", n, elem, a, b, c, full, s, stems).debug(1)
+            }
+        }
+    } else {
+        var is string
+        switch t := i.(type) {
+        case string: is = t
+        case Value:
+            var e error
+            if is, e = t.Strval(ctx); e != nil {
+                erro(ctx, "strval '%v' error: %v", t, e).of(t).debug(1)
+                return
+            }
+        default:
+            erro(ctx, "%T: matching unsupported value: %T %v", p, i, i).of(p).debug(1)
+            return
+        }
+        for _, elem := range p.Elems {
+            var _, t, ss = elem.match(ctx, is)
+            if t == "" { break } else {
+                stems = append(stems, ss...)
+                is = is[len(t):]
+                s += t
+            }
+        }
+        if is == "" { full = true }
+        if false && strings.HasPrefix(p.String(), "llvm.tools.") && strings.HasPrefix(fmt.Sprintf("%s", i), "llvm.tools.") {
+            warn(ctx, "%v: %v %v %v; %s", p, full, s, stems, is).debug(1)
+        }
+    }
     return
 }
 func (p *Barecomp) stencil(ctx Context, stems []string) (s string, rest []string) {
-    s, rest = p._stencil(ctx, p, stems)
+    if false { s, rest = p._stencil(ctx, p, stems) } else {
+        rest = stems
+        for _, elem := range p.Elems {
+            var t string
+            t, rest = elem.stencil(ctx, rest)
+            s += t
+        }
+        if strings.HasPrefix(p.String(), "llvm.tools.") && s != "" {
+            warn(ctx, "%v: %v %v %v; %s", p, stems, s, rest).debug(1)
+        }
+    }
     return
 }
 func (p *Barecomp) Combine(ctx Context, x Value) {
@@ -2716,6 +2761,7 @@ func (p *Barefile) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Barefile); ok { res = p.Name.cmp(ctx, a.Name) }
     return
 }
+func (p *Barefile) patterned(ctx Context) bool { return p.Name.patterned(ctx) }
 func (p *Barefile) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
     if p.File != nil {
         full, s, stems = p.File.match(ctx, i)

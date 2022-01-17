@@ -693,7 +693,7 @@ func parseDependList(ctx Context, dependList *List) (depends *List, brks breaker
                         }
                 case *RuleEntry:
                         switch d.class {
-                        case GeneralRuleEntry, PercRuleEntry, GlobRuleEntry, RegexpRuleEntry, PathPattRuleEntry:
+                        case GeneralRuleEntry, PatternRuleEntry, PathPattRuleEntry:
                                 depends.Append(d)
                         default:
                                 erro(ctx, "unsupported entry depend `%v' (%v)", d, d.class).debug(1)
@@ -2839,30 +2839,38 @@ func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
         }
 
         if target := getTargetValue(ctx); isNil(target) {
-                erro(ctx, "target is <nil>").debug(1)
+                prompt(ctx, "%v\n", ctx.Project())
+                erro(ctx, "stamp(%v) failed", target)
+                errostack(ctx, 6, "%v", ctx).debug(12)
                 return
         } else if /*files*/_, err = target.stamp(ctx); err != nil {
-                erro(ctx, "stamp(%v): %v", target, err).debug(1)
+                prompt(ctx, "%v: %v: %v\n", ctx.Project(), target, err)
+                erro(ctx, "failed stamp(%v)", target)
+                errostack(ctx, 6, "%v", ctx).debug(12)
                 return
         } else if opts.next {
                 if opts.verbose { warn(ctx, "%v", err).debug(1) }
                 brks.add(pos, breakNext).scope = breakTrave
                 err = nil // discard the error
         } else if opts.error {
-                if opts.debug > 0 {
-                        errostack(ctx, -1, "%v", err).debug(1)
-                } else {
-                        erro(ctx, "%v", err).debug(1)
-                }
                 brks.add(pos, breakErro).error = err
+                if false {
+                        prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err)
+                        erro(ctx, "stamp(%v) error")
+                        errostack(ctx, -1, "%v", ctx).debug(1)
+                } else {
+                        prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err)
+                        warn(ctx, "stamp(%v) error")
+                        warnstack(ctx, -1, "%v", ctx).debug(1)
+                }
         } else if stems := ctx.stems(); len(stems) == 0 {
+                brks.add(pos, breakNext).scope = breakTrave
                 if opts.debug > 0 && err != nil {
                         warn(ctx, "%v", err).debug(1)
                         warnstack(ctx, -1, "%v", err).debug(1)
                 } else if false && err != nil {
                         warn(ctx, "%v", err).debug(1)
                 }
-                brks.add(pos, breakNext).scope = breakTrave
                 err = nil // discard the error
         } else if pos.IsValid() {
                 errostack(ctx, -1, "failed: %v", err).debug(1)
