@@ -814,7 +814,7 @@ checkFileEntries:
             //warn(ctx, "%v: %v, %v, %v -> %v", proj, file.dir, file.sub, file.name, file.fullname()).debug(1)
             var s = filepath.Join(filepath.Base(filepath.Join(file.dir, file.sub)), file.name)
             if f := filemap.project.FindFile(ctx, s); f != nil && f.fullname() == file.fullname() {
-                if true { warn(ctx, "%v: %v -> %v", proj, file.name, f).debug(1) }
+                if true { warn(ctx, "%v: %v -> %v (%s)", proj, file.name, f, s).debug(1) }
                 file, projects = f, []*Project{ filemap.project }
                 goto checkFileEntries
             }

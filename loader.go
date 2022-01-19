@@ -262,28 +262,152 @@ func (l *loader) searchSpecPath(linfo *loadinfo, specName string) (absPath strin
 }
 
 type genericoptions struct {
-    keyword token.Token
-    dontOperate bool
-    options []Value
+    keyword token.Token // e.g. use, files, eval, etc.
+    dontOperate bool // e.g. -cond(false)
+    options []Value // general options
     verbose bool // TODO: verbose operation
 }
 
-type useoptions struct {
-    allowReuse bool
-    noFiles bool
+type useOpts struct {
+    noVars bool `nv,novars;nv,no-vars` // aka. -nouse, -unuse
+	noFiles bool `nf,nofiles;nf,no-files` // FIXME: not applied, remove it or rename to '-files'
+	reuse bool `r,reuse;ru,reusing`
 }
 
-type importoptions struct {
-    useoptions
+type applyUseOpts struct {
+	unique bool `u,unique;uni,unique`
+	reverse bool `r,reverse;rev,reverse`
 }
+func parseUseNameOpts(ctx Context, nameVal Value) (name string, opts applyUseOpts) {
+    var err error
+    if arged, ok := nameVal.(*Argumented); ok {
+        var args []Value
+		nameVal, args = arged.value, arged.args
+		if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
+			erro(ctx, "%v", err).debug(1)
+			return
+		} else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+			erro(ctx, "%v", err).debug(1)
+			return
+		}
+		for _, arg := range args {
+			erro(ctx, "unknown arg: %v", arg).of(arg).debug(1)
+			return
+		}
+	}
+	if name, err = nameVal.Strval(ctx); err != nil {
+		erro(ctx, "strval '%v' failed: %v", nameVal, err).debug(1)
+	}
+    return
+}
+func applyUseeVar(ctx Context, userProj, useeProj *Project, nameVal Value) {
+    var name, opts = parseUseNameOpts(ctx, nameVal)
+    if name == "" {
+		erro(ctx, "%v: parse use name opts '%v' failed", userProj, nameVal)
+        return
+    }
 
-type importspecoptions struct {
-    unuse bool
-    reuse bool
-    noFiles bool
+	var (
+        position = ctx.Position()
+		def, alt = userProj.scope.define(ctx, DefVoid, name, MakeNone(position))
+	)
+	if def == nil && !isNil(alt) { def, _ = alt.(*Def) }
+	if def == nil {
+		erro(ctx, `%v: "%s" is undefined'`, userProj, name).of(nameVal).debug(1)
+		return
+    } else {
+        for _, base := range userProj.bases {
+            if obj, err := base.resolveObject(ctx, name); err != nil {
+                erro(ctx, "resolve '%s' failed: %v", name, err).debug(1)
+            } else if !isNil(obj) && !isNone(obj) {
+                def.append(ctx, obj)
+            }
+        }
+    }
+
+	if v, e := userProj.using.Get(ctx, name/* NOTE: gets `using.%s` */); e != nil {
+		erro(ctx, "%v: %v (using.%s)", userProj, e, name)
+	} else if e = def.append(ctx, v); e != nil {
+		erro(ctx, "append using value: %v (from %v)", e, userProj.scope).debug(1)
+	} else if opts.unique && opts.reverse {
+		def.value = builtinUnique(closureWith(ctx, position, userProj.scope), MakeFlag(position, "r"), def.value)
+	} else if opts.unique {
+		def.value = builtinUnique(closureWith(ctx, position, userProj.scope), def.value)
+	}
+	if false && name == "ldlibs" && strings.HasPrefix(userProj.name, "lld.") {
+		info(ctx, "%v, %v: %v", userProj, useeProj, def)
+		info(ctx, "%v, %v: %v", userProj, useeProj, ctx).debug(10)
+	}
+}
+func applyUsingVar(ctx Context, userProj, useeProj *Project, nameVal Value) {
+    var name, opts = parseUseNameOpts(ctx, nameVal)
+    if name == "" {
+		erro(ctx, "%v: parse use name opts '%v' failed", userProj, nameVal)
+        return
+    }
+
+    var (
+        position = ctx.Position()
+        usingName = fmt.Sprintf("using.%s", name)
+        def, alt = userProj.scope.define(ctx, DefVoid, usingName, MakeNone(position))
+        err error
+    )
+    if def != nil && isNil(alt)/* aka. new define */ {
+        for _, base := range userProj.bases {
+            if obj, err := base.resolveObject(ctx, usingName); err != nil {
+                erro(ctx, "resolve '%s' failed: %v", usingName, err).debug(1)
+            } else if !isNil(obj) && !isNone(obj) {
+                def.append(ctx, obj)
+            }
+        }
+    } else if def == nil && !isNil(alt) {
+        def, _ = alt.(*Def)
+    }
+    if def == nil {
+        erro(ctx, `%v: "%s" is undefined'`, userProj, name).of(nameVal).debug(1)
+        return
+    }
+
+    if o := useeProj.scope.Lookup(usingName); isNil(o) || isNone(o) {
+        // does nothing
+    } else if err = def.append(ctx, o); err != nil {
+        erro(ctx, "append '%v' failed: %v (from %v)", name, err, useeProj.scope).debug(1)
+    } else if opts.unique && opts.reverse {
+        def.value = builtinUnique(closureWith(ctx, position, useeProj.scope), MakeFlag(position, "r"), def.value)
+    } else if opts.unique {
+        def.value = builtinUnique(closureWith(ctx, position, useeProj.scope), def.value)
+    }
+    if false && name == "ldlibs" && (strings.HasPrefix(userProj.name, "lld.") || strings.HasPrefix(useeProj.name, "lld.")) {
+        info(ctx, "%v: %v: %v", userProj, useeProj, def)
+        info(ctx, "%v: %v: %v", userProj, useeProj, ctx).debug(10)
+    }
+}
+func applyUseeVars(ctx Context, userProj, useeProj *Project) {
+    var usingSpec Value
+    if o, e := useeProj.resolveObject(ctx, "using.*"); e != nil {
+        erro(ctx, "resolve using.* failed: %v", e).debug(1)
+    } else if def, _ := o.(*Def); def != nil {
+        usingSpec = def.value
+    }
+    if !isNil(usingSpec) && !isNone(usingSpec) {
+        // NOTE: apply vars like 'cflags', 'cxxflags', ...
+        for _, name := range merge(usingSpec) { applyUseeVar(ctx, userProj, useeProj, name) }
+    }
+}
+func applyUsingVars(ctx Context, userProj, useeProj *Project) {
+    var usingSpec Value
+    if o, e := userProj.resolveObject(ctx, "using.*"); e != nil {
+        erro(ctx, "resolve using.* failed: %v", e).at(ctx.Position()).debug(1)
+    } else if def, _ := o.(*Def); def != nil {
+        usingSpec = def.value
+    }
+    if !isNil(usingSpec) && !isNone(usingSpec) {
+        // NOTE: apply vars like 'using.cflags', 'using.cxxflags', ...
+        for _, value := range merge(usingSpec) { applyUsingVar(ctx, userProj, useeProj, value) }
+    }
 }
 func (l *loader) Position() Position { return l.parser.Position() }
-func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName string, specOpts *importspecoptions, params ...Value) (loaded *Project) {
+func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, params ...Value) (loaded *Project) {
     var (
         linfo = l.loads[len(l.loads)-1]
         position = specVal.Position()
@@ -379,7 +503,7 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
             defer func(s string) { l.vs = s } (l.vs)
             l.vs += "│"
         }
-        if specOpts.reuse {
+        if opts.reuse {
             fmt.Fprintf(stderr, "%s├┬→\"%s\" (reuse, %s)\n", l.vs, specName, absPath)
         } else {
             fmt.Fprintf(stderr, "%s├┬→\"%s\" (%s)\n", l.vs, specName, absPath)
@@ -394,7 +518,7 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
         } (time.Now())
     }
 
-    if loadedValid && !(specOpts.unuse || specOpts.reuse) {
+    if loadedValid && !(opts.noVars || opts.reuse) {
         var ( proj *Project ; res, isb bool )
         if proj, res, isb, err = l.project.hasLoaded(ctx, loaded, breakUseLoop); err != nil {
             erro(ctx, "`%s`: %s", specName, err).of(specVal).debug(1)
@@ -433,7 +557,7 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
             return
         }
     }
-    if specOpts.unuse { return }
+    if opts.noVars { return }
 
     // Check against the current load list before appending loaded.
     for _, lp := range l.project.loads {
@@ -475,89 +599,15 @@ func (l *loader) loadUseSpecName(opts importoptions, specVal Value, specName str
         l.project.loads = append(l.project.loads, loaded)
     }
 
-    var useopts = opts.useoptions
-    if specOpts.reuse {
-        // override reuse option
-        useopts.allowReuse = true
-    }
-    if specOpts.noFiles {
-        useopts.noFiles = true
-    }
-
     if options.verboseImport {
         defer func(t time.Time) {
             var d = time.Now().Sub(t)//*time.Millisecond // µs, ms, s ┼
             fmt.Fprintf(stderr, "%s├┤ %s:import(%s) (%s)\n", l.vs, l.project, specName, d)
         } (time.Now())
     }
-
-    if err = l.useProject(position, loaded, params, useopts); err == nil && !specOpts.unuse {
-        var using Value
-        if o, e := l.project.resolveObject(ctx, "using.*"); e != nil {
-            erro(ctx, "resolve using.* failed: %v", e).at(ctx.Position()).debug(1)
-        } else if !isNil(o) {
-            if def, ok := o.(*Def); ok && !isNil(def) { using = def.value }
-        }
-        if isNil(using) || isNone(using) {
-            // fallthrough
-        } else { for _, value := range merge(using) { // NOTE: see also applyUseeVar(...)
-            var (
-                opts applyUseeOpts
-                name string
-                args []Value
-            )
-            if arged, ok := value.(*Argumented); ok {
-                value, args = arged.value, arged.args
-                if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                    erro(ctx, "%v", err).at(position).debug(1)
-                    return
-                } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                    erro(ctx, "%v", err).at(position).debug(1)
-                    return
-                }
-                for _, arg := range args {
-                    erro(ctx, "unknown arg: %v", arg).at(arg.Position()).debug(1)
-                    return
-                }
-            }
-            if name, err = value.Strval(ctx); err != nil {
-                erro(ctx, "strval usee '%v' failed: %v", value, err).at(position)
-                return
-            }
-
-            var (
-                usingName = fmt.Sprintf("using.%s", name)
-                def, alt = l.project.scope.define(ctx, DefVoid, usingName, MakeNone(position))
-            )
-            if def == nil && alt != nil { def, _ = alt.(*Def) } else
-            if def != nil && alt == nil { // if it's new Def (first time being defined)
-                for _, base := range l.project.bases {
-                    if obj, err := base.resolveObject(ctx, usingName); err != nil {
-                        erro(ctx, "resolve '%s' failed: %v", usingName, err).at(position).debug(1)
-                    } else if isNil(obj) || isNone(obj) {
-                        continue
-                    } else {
-                        def.append(ctx, obj)
-                    }
-                }
-            }
-            if def == nil {
-                erro(ctx, `%v: "%s" is undefined'`, l.project, name).at(value.Position()).debug(1)
-                return
-            } else if o := loaded.scope.Lookup(usingName); isNil(o) || isNone(o) {
-                // does nothing
-            } else if err = def.append(ctx, o); err != nil {
-                erro(ctx, "append '%v' failed: %v (from %v)", name, err, l.Scope()).at(position)
-            } else if opts.unique && opts.reverse {
-                def.value = builtinUnique(closureWith(ctx, position, l.Scope()), MakeFlag(position, "r"), def.value)
-            } else if opts.unique {
-                def.value = builtinUnique(closureWith(ctx, position, l.Scope()), def.value)
-            }
-            if false && name == "ldlibs" && (l.project.name == "llvm.utils.TableGen" || loaded.name == "llvm.utils.TableGen") {
-                info(ctx, "%v: %v: %v", l.project, loaded, def)
-                info(ctx, "%v: %v: %v", l.project, loaded, ctx).debug(10)
-            }
-        }}
+    if err = l.addUsing(position, loaded, params, opts); err == nil && !opts.noVars {
+        applyUseeVars(ctx, l.project, loaded)  // aka. ABC += $(using.ABC)
+        applyUsingVars(ctx, l.project, loaded) // aka. using.ABC += $(using.ABC)
     }
     return
 }
@@ -660,7 +710,7 @@ func (l *loader) convertBarefiles(targets []Value) []Value {
     return targets
 }
 
-func (l *loader) useProject(position Position, usee *Project, params []Value, opts useoptions) (err error) {
+func (l *loader) addUsing(position Position, usee *Project, params []Value, opts useOpts) (err error) {
     if options.verboseUsing && options.verboseImport && options.benchImport {
         defer func(t time.Time) {
             var d = time.Now().Sub(t)
@@ -672,7 +722,7 @@ func (l *loader) useProject(position Position, usee *Project, params []Value, op
             fmt.Fprintf(stderr, "using(%8s) %s ⇒ %v\n", d, l.project, l.project.using)
         } (time.Now())
     }
-    if err = l.useProject2(position, usee, params, opts); err != nil {
+    if err = l.addUsing2(position, usee, params, opts); err != nil {
         if p, ok := err.(*scanner.Error); ok {
             erro(l, "%v", p.Brief()).at(position)
         } else {
@@ -690,14 +740,10 @@ func (l *loader) usePath() (s string) {
     return
 }
 
-func (l *loader) useProject2(position Position, usee *Project, params []Value, opts useoptions) (err error) {
+func (l *loader) addUsing2(position Position, usee *Project, params []Value, opts useOpts) (err error) {
     if usee == l.project {
         erro(l, "'%v' use loop (%s)", usee.name, l.usePath()).at(position)
         return
-    } else if false {
-        for _, using := range l.project.using.list {
-            if using.project == usee { return }
-        }
     } else if l.project.isUsingDirectly(usee) {
         return
     }
@@ -720,8 +766,7 @@ func (l *loader) useProject2(position Position, usee *Project, params []Value, o
 
     // Add to the project using list, so that the use path is correct.
     l.project.using.append(positional(l, position), usee, params, opts)
-
-    return // :user: rules are deprecated!
+    return
 }
 
 func iterateArgumentedIdentElems(ctx Context, elems, stems []Value, f func(elems, stems []Value)) {
@@ -1211,9 +1256,9 @@ func (l *loader) loadDotContainer(ident *Barecomp, identStr string, file *File) 
         } else {
             if options.verboseLoads { prompt(l, "smart: %v (%v)\n", name, file.fullname()) }
 
-            var opts useoptions
-            // TODO: parse the useoptions
-            l.useProject(position, loaded, nil, opts)
+            var opts useOpts
+            // TODO: parse the useOpts
+            l.addUsing(position, loaded, nil, opts)
 
             result = true
         }

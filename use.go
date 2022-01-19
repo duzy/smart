@@ -18,7 +18,7 @@ type using struct {
         valbase
         project *Project
         params []Value
-        opts useoptions
+        opts useOpts
 }
 
 func (p *using) refs(ctx Context, v Value) bool {
@@ -238,7 +238,7 @@ func (p *usinglist) traverse(ctx Context) (_ breakers) {
         return
 }*/
 func (p *usinglist) rescope(ctx Context, scope *Scope) { panic("rescoping using list") }
-func (p *usinglist) append(ctx Context, proj *Project, params []Value, opts useoptions) {
+func (p *usinglist) append(ctx Context, proj *Project, params []Value, opts useOpts) {
         for _, elem := range p.list {
                 if elem.project == proj {
                         return
@@ -250,14 +250,11 @@ func (p *usinglist) append(ctx Context, proj *Project, params []Value, opts useo
 func (p *usinglist) Get(ctx Context, name string) (result Value, err error) {
         var list []Value
         for _, usee := range p.list {
-                // Lookup only the project specific exported names. Don't use
-                // scope.Find(...) invocation!
-                obj := usee.project.scope.Lookup("using."+name)
-                if !isNil(obj) { list = append(list, obj) }
+                if usee.opts.noVars { continue }
+                if obj := usee.project.scope.Lookup("using."+name); !isNil(obj) {
+                        list = append(list, obj)
+                }
         }
-        /*if list == nil && err == nil {
-                err = fmt.Errorf("no such property `%s` (%v)", name, p)
-        }*/
         if err != nil {
                 // failed
         } else if len(list) > 0 {

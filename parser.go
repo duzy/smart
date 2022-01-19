@@ -1464,8 +1464,7 @@ func isValidImport(lit string) bool {
 	return s != ""
 }
 
-// replaces parseUseProps
-func (p *parser) parseUseSpecProps(props []Value) (opts importspecoptions, params []Value, err error) {
+func (p *parser) _parseUseSpecProps(props []Value) (opts useOpts, params []Value, err error) {
     // Supported parameter forms:
     //      -param
     //      -param(value)
@@ -1481,7 +1480,7 @@ func (p *parser) parseUseSpecProps(props []Value) (opts importspecoptions, param
                 return
             }
             switch s {
-            case "nouse", "unuse": opts.unuse = true
+            //case "nouse", "unuse": opts.unuse = true
             case "reuse": opts.reuse = true
             default: params = append(params, prop)
             }
@@ -1523,44 +1522,33 @@ func (p *parser) parseUseSpecProps(props []Value) (opts importspecoptions, param
     return
 }
 
-type useOpts struct {
-	reuse bool `r,reuse;r,reusing`
-	noFiles bool `n,nofiles;nf,no-files`
-}
 func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int) {
 	var props = p.parseDirectiveSpec()
-	p.imports = append(p.imports, &usespec{ props })
-	if generic.dontOperate {
+	if p.imports = append(p.imports, &usespec{ props }); generic.dontOperate {
 		// TODO: maybe give some information
 		return
 	}
 
 	var (
 		ctx = positional(p, p.Position())
-		uo useOpts
-		opts importoptions // allowReuse noFiles
+		args = append(generic.options, props[1:]...)
+		specVal = props[0]
+        specNames []string
+		opts useOpts
 		err error
 	)
-	if _, err = parseOpts(ctx, &uo, generic.options...); err != nil {
-		erro(p, "parse use opts failed: %v", err).at(p.Position()).debug(1)
-		return
-	} else {
-		opts.allowReuse = uo.reuse
-		opts.noFiles = uo.noFiles
-	}
-
-	var (
-        specOpts importspecoptions
-        specNames []string
-		specVal = props[0]
-        params []Value
-	)
-	if specOpts, params, err = p.parseUseSpecProps(props[1:]); err != nil {
-		erro(p, "use opts error: %v", err).of(specVal).debug(1)
+	if args, err = parseOpts(ctx, &opts, args...); err != nil {
+		erro(ctx, "parse use opts failed: %v", err).debug(1)
 		return
 	}
+	for _, a := range args {
+		if _, ok := a.(*Flag); ok || true {
+			erro(ctx, "unkown use opts: %T %v", a, a).of(a).debug(1)
+			return
+		}
+	}
 
-    switch v := specVal.(type) {
+	switch v := specVal.(type) {
     case *Pair:
         var s string
         if f, ok := v.Key.(*Flag); !ok {
@@ -1603,7 +1591,7 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
 	var wg sync.WaitGroup
     for _, specName := range specNames {
 		if false {
-			p.loadUseSpecName(opts, specVal, specName, &specOpts, params...)
+			p.loadUseSpecName(opts, specVal, specName, args...)
 		} else {
 			var dc = diagContext{ Context: ctx } // redefine ctx
 			wg.Add(1); go func() {
@@ -1612,7 +1600,7 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
 					if len(dc.points) > 0 { dc.inner().diagnostic().nest(dc.points) }
 					wg.Done()
 				} ()
-				p.loadUseSpecName(opts, specVal, specName, &specOpts, params...)
+				p.loadUseSpecName(opts, specVal, specName, args...)
 			} ()
 		}
     }
@@ -1662,8 +1650,7 @@ func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ 
 
 func (p *parser) importFileMaps(ctx Context, paths ...Value) {
 	var (
-		imptOpts = importoptions{}
-		specOpts = importspecoptions{ unuse: true }
+		opts = useOpts{ noVars:true, reuse:true }
 		projects []*Project
 		projMutx sync.Mutex
 		wg sync.WaitGroup
@@ -1681,13 +1668,13 @@ func (p *parser) importFileMaps(ctx Context, paths ...Value) {
 			wg.Add(1); go func() {
 				defer checkPanicsErrors(ctx, true)
 				defer wg.Done()
-				var loaded = p.loadUseSpecName(imptOpts, val, name, &specOpts)
+				var loaded = p.loadUseSpecName(opts, val, name)
 				projMutx.Lock()
 				projects = append(projects, loaded)
 				projMutx.Unlock()
 			} ()
 		} else {
-			var loaded = p.loadUseSpecName(imptOpts, val, name, &specOpts)
+			var loaded = p.loadUseSpecName(opts, val, name)
 			projects = append(projects, loaded)
 		}
 	}
@@ -2688,79 +2675,6 @@ func (p *parser) parseClause(endPos token.Pos) {
 	erro(p, "bad clause: %v (%s) after %v", p.tok, p.lit, list).debug(6)
 }
 
-type applyUseeOpts struct {
-	unique bool `u,unique;uni,unique`
-	reverse bool `r,reverse;rev,reverse`
-}
-func (p *parser) applyUseeVar(ctx Context, value Value) {
-	var (
-		position = ctx.Position()
-		opts applyUseeOpts
-		name string
-		args []Value
-		err error
-	)
-	if arged, ok := value.(*Argumented); ok {
-		value, args = arged.value, arged.args
-		if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-			erro(p, "%v", err).at(position).debug(1)
-			return
-		} else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-			erro(p, "%v", err).at(position).debug(1)
-			return
-		}
-		for _, arg := range args {
-			erro(p, "unknown arg: %v", arg).at(arg.Position()).debug(1)
-			return
-		}
-	}
-	if name, err = value.Strval(ctx); err != nil {
-		erro(p, "%v: strval usee '%v' failed: %v", p.project, value, err).at(position)
-		return
-	}
-
-	var (
-		//usingName = fmt.Sprintf("using.%s", name) // using.%s -> %s
-		def, alt = p.project.scope.define(ctx, DefVoid, /*usingName*/name, MakeNone(position))
-	)
-	if def == nil && alt != nil { var ok bool; if def, ok = alt.(*Def); !ok {
-		erro(p, `%v: "%s" is not Def: %T'`, p.project, name, alt).at(alt.Position()).debug(1)
-		return
-	}}
-	if def == nil {
-		erro(p, `%v: "%s" is undefined'`, p.project, name).at(value.Position()).debug(1)
-		return
-	}
-	for _, base := range p.project.bases {
-		if obj, err := base.resolveObject(ctx, /*usingName*/name); err != nil {
-			erro(p, "resolve '%s' failed: %v", name, err).at(position).debug(1)
-		} else if isNil(obj) || isNone(obj) {
-			continue
-		} else {
-			def.append(ctx, obj)
-		}
-	}
-	if l, e := p.project.using.Get(ctx, name/* NOTE: gets `using.%s` */); e != nil {
-		erro(p, "%v: %v (using.%s)", p.project, e, name).at(position)
-	} else if e = def.append(ctx, l); e != nil {
-		erro(p, "append using value: %v (from %v)", e, p.Scope()).at(position)
-	} else if opts.unique && opts.reverse {
-		def.value = builtinUnique(closureWith(ctx, position, p.project.scope), MakeFlag(position, "r"), def.value)
-	} else if opts.unique {
-		def.value = builtinUnique(closureWith(ctx, position, p.project.scope), def.value)
-	}
-	if false && name == "ldlibs" && p.project.name == "llvm.utils.TableGen" {
-		info(p, "%v: %v", p.project, def)
-		info(p, "%v: %v", p.project, ctx).debug(10)
-	}
-}
-func (p *parser) applyUseeVars(position Position, using Value) {
-	var ctx = positional(p, position)
-	for _, value := range merge(using) {
-		p.applyUseeVar(ctx, value)
-	}
-}
-
 type projectDeclOpts struct {
 	final bool `f,final`
 	noDock bool `n,nod;n,nodock;nd,no-dock`
@@ -2944,7 +2858,10 @@ func (p *parser) parseFile() *parsedFile {
 			return nil
 		}
 
-		var _, declared = linfo.declares[identStr]
+		var (
+			loaderProj = p.project
+			_, declared = linfo.declares[identStr]
+		)
 		if (p.mode&Flat == 0) && p.declare(keyword, ident, identStr, optVals) {
 			// Change the 'default' owners into the new declared project
 			if s := p.Scope(); s != nil {
@@ -2955,22 +2872,14 @@ func (p *parser) parseFile() *parsedFile {
 			} else {
 				erro(p, "file scope is nil").at(position).debug(1)
 			}
-			if linfo.loadee == nil {
-				// NOTE: build.smart is always the first loaded, so the loadee will be pointed to it
-				linfo.loadee = p.Project()
-			}
+			// NOTE: build.smart is always the first loaded, so the loadee will be pointed to it
+			if linfo.loadee == nil { linfo.loadee = p.Project() }
 			defer func(proj *Project) {
-				if filepath.Base(filename) == "build.smart" {
-					var using Value
-					if o, e := proj.resolveObject(ctx, "using.*"); e != nil {
-						erro(p, "resolve using.* failed: %v", e).at(ctx.Position()).debug(1)
-					} else if !isNil(o) {
-						if def, ok := o.(*Def); ok && !isNil(def) { using = def.value }
-					}
-					if !isNil(using) && !isNone(using) {
-						assert(p.project == proj, "diverged project: %v != %v", p.project, proj)
-						p.applyUseeVars(ident.Position(), using)
-					}
+				if loaderProj != nil && filepath.Base(filename) == "build.smart" {
+					var ctx = positional(p, ident.Position())
+					assert(p.project == proj, "diverged project: %v != %v", p.project, proj)
+					//applyUseeVars(ctx, loaderProj, p.project)  // aka. ABC += $(using.ABC)
+					applyUsingVars(ctx, loaderProj, p.project) // aka. using.ABC += $(using.ABC)
 				}
 				p.isLoadingBases = false
 				p.closeCurrent(ident, identStr)
