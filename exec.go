@@ -1231,8 +1231,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         case diagInfo:  in += rec.num
         }
       }
-      if en > 0 || wn > 0 || exeres.Status != 0 || err != nil {
+      if en > 0 || exeres.Status != 0 || err != nil {
         prompt(ctx, "%v: exec failed (status=%d; err=%v)\n", targetName, exeres.Status, err)
+      } else if wn > 0 {
+        prompt(ctx, "%v: %d warnings\n", targetName, wn)
       }
       for i, rec := range exeres.scannedDiags {
         if !opts.infos && rec.dt == diagInfo { continue }

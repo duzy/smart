@@ -567,14 +567,19 @@ func (t *traverseContext) traversal() *traverseContext { return t }
 func (t *traverseContext) caller() (caller *traverseContext) { return t.Context.traversal() }
 
 func entryStr(ctx Context, entry Entry) (str, ent, tar string) {
-    ent = entry.String()
+    if ent = entry.String(); ent == "" { /**/ }
     if target, found := ctx.autoGet("@"); !found || isNil(target) {
         str = ent // ...
-    } else if tar = target.String(); ent != tar {
+    } else if tar, _ = target.Strval(ctx); ent != tar {
         str = fmt.Sprintf("%s(%s)", ent, tar)
     } else {
         str = ent
     }
+    return
+}
+
+func entryStr1(ctx Context, entry Entry) (s string) {
+    s, _, _ = entryStr(ctx, entry)
     return
 }
 

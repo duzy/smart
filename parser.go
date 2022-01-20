@@ -1590,7 +1590,7 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
 
 	var wg sync.WaitGroup
     for _, specName := range specNames {
-		if false {
+		if true {
 			p.loadUseSpecName(opts, specVal, specName, args...)
 		} else {
 			var dc = diagContext{ Context: ctx } // redefine ctx
@@ -2875,11 +2875,14 @@ func (p *parser) parseFile() *parsedFile {
 			// NOTE: build.smart is always the first loaded, so the loadee will be pointed to it
 			if linfo.loadee == nil { linfo.loadee = p.Project() }
 			defer func(proj *Project) {
-				if loaderProj != nil && filepath.Base(filename) == "build.smart" {
+				if false && loaderProj != nil && filepath.Base(filename) == "build.smart" {
 					var ctx = positional(p, ident.Position())
 					assert(p.project == proj, "diverged project: %v != %v", p.project, proj)
 					//applyUseeVars(ctx, loaderProj, p.project)  // aka. ABC += $(using.ABC)
 					applyUsingVars(ctx, loaderProj, p.project) // aka. using.ABC += $(using.ABC)
+					if loaderProj.name == "llvm.Analysis" {
+						warn(ctx, "%v, %v", loaderProj, p.project).debug(24)
+					}
 				}
 				p.isLoadingBases = false
 				p.closeCurrent(ident, identStr)

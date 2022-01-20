@@ -7,7 +7,6 @@ package smart
 
 import (
     "extbit.io/smart/token"
-    "extbit.io/smart/scanner"
     "bytes"
     "io/ioutil"
     "io"
@@ -269,16 +268,16 @@ type genericoptions struct {
 }
 
 type useOpts struct {
-    noVars bool `nv,novars;nv,no-vars` // aka. -nouse, -unuse
-	noFiles bool `nf,nofiles;nf,no-files` // FIXME: not applied, remove it or rename to '-files'
+    noVars bool `nv,novars;nv,no-vars` // NOTE: deprecates -nouse, -unuse
+	files bool `f,files` // NOTE: see also '-import(xxxx)'
 	reuse bool `r,reuse;ru,reusing`
 }
 
-type applyUseOpts struct {
+type useVarOpts struct {
 	unique bool `u,unique;uni,unique`
 	reverse bool `r,reverse;rev,reverse`
 }
-func parseUseNameOpts(ctx Context, nameVal Value) (name string, opts applyUseOpts) {
+func parseUseNameOpts(ctx Context, nameVal Value) (name string, opts useVarOpts) {
     var err error
     if arged, ok := nameVal.(*Argumented); ok {
         var args []Value
@@ -300,23 +299,23 @@ func parseUseNameOpts(ctx Context, nameVal Value) (name string, opts applyUseOpt
 	}
     return
 }
-func applyUseeVar(ctx Context, userProj, useeProj *Project, nameVal Value) {
+func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
     var name, opts = parseUseNameOpts(ctx, nameVal)
     if name == "" {
-		erro(ctx, "%v: parse use name opts '%v' failed", userProj, nameVal)
+		erro(ctx, "%v: parse use name opts '%v' failed", user, nameVal)
         return
     }
 
 	var (
         position = ctx.Position()
-		def, alt = userProj.scope.define(ctx, DefVoid, name, MakeNone(position))
+		def, alt = user.scope.define(ctx, DefVoid, name, MakeNone(position))
 	)
 	if def == nil && !isNil(alt) { def, _ = alt.(*Def) }
 	if def == nil {
-		erro(ctx, `%v: "%s" is undefined'`, userProj, name).of(nameVal).debug(1)
+		erro(ctx, `%v: "%s" is undefined'`, user, name).of(nameVal).debug(1)
 		return
     } else {
-        for _, base := range userProj.bases {
+        for _, base := range user.bases {
             if obj, err := base.resolveObject(ctx, name); err != nil {
                 erro(ctx, "resolve '%s' failed: %v", name, err).debug(1)
             } else if !isNil(obj) && !isNone(obj) {
@@ -325,35 +324,35 @@ func applyUseeVar(ctx Context, userProj, useeProj *Project, nameVal Value) {
         }
     }
 
-	if v, e := userProj.using.Get(ctx, name/* NOTE: gets `using.%s` */); e != nil {
-		erro(ctx, "%v: %v (using.%s)", userProj, e, name)
+	if v, e := user.using.Get(ctx, name/* NOTE: gets `using.%s` */); e != nil {
+		erro(ctx, "%v: %v (using.%s)", user, e, name)
 	} else if e = def.append(ctx, v); e != nil {
-		erro(ctx, "append using value: %v (from %v)", e, userProj.scope).debug(1)
+		erro(ctx, "append using value: %v (from %v)", e, user.scope).debug(1)
 	} else if opts.unique && opts.reverse {
-		def.value = builtinUnique(closureWith(ctx, position, userProj.scope), MakeFlag(position, "r"), def.value)
+		def.value = builtinUnique(closureWith(ctx, position, user.scope), MakeFlag(position, "r"), def.value)
 	} else if opts.unique {
-		def.value = builtinUnique(closureWith(ctx, position, userProj.scope), def.value)
+		def.value = builtinUnique(closureWith(ctx, position, user.scope), def.value)
 	}
-	if false && name == "ldlibs" && strings.HasPrefix(userProj.name, "lld.") {
-		info(ctx, "%v, %v: %v", userProj, useeProj, def)
-		info(ctx, "%v, %v: %v", userProj, useeProj, ctx).debug(10)
+	if false && name == "ldlibs" && strings.HasPrefix(user.name, "lld.") {
+		info(ctx, "%v, %v: %v", user, usee, def)
+		info(ctx, "%v, %v: %v", user, usee, ctx).debug(10)
 	}
 }
-func applyUsingVar(ctx Context, userProj, useeProj *Project, nameVal Value) {
+func applyUsingVar(ctx Context, user, usee *Project, nameVal Value) {
     var name, opts = parseUseNameOpts(ctx, nameVal)
     if name == "" {
-		erro(ctx, "%v: parse use name opts '%v' failed", userProj, nameVal)
+		erro(ctx, "%v: parse use name opts '%v' failed", user, nameVal)
         return
     }
 
     var (
         position = ctx.Position()
-        usingName = fmt.Sprintf("using.%s", name)
-        def, alt = userProj.scope.define(ctx, DefVoid, usingName, MakeNone(position))
+        usingName = "using." + name
+        def, alt = user.scope.define(ctx, DefVoid, usingName, MakeNone(position))
         err error
     )
     if def != nil && isNil(alt)/* aka. new define */ {
-        for _, base := range userProj.bases {
+        for _, base := range user.bases {
             if obj, err := base.resolveObject(ctx, usingName); err != nil {
                 erro(ctx, "resolve '%s' failed: %v", usingName, err).debug(1)
             } else if !isNil(obj) && !isNone(obj) {
@@ -364,48 +363,49 @@ func applyUsingVar(ctx Context, userProj, useeProj *Project, nameVal Value) {
         def, _ = alt.(*Def)
     }
     if def == nil {
-        erro(ctx, `%v: "%s" is undefined'`, userProj, name).of(nameVal).debug(1)
+        erro(ctx, `%v: "%s" is undefined'`, user, name).of(nameVal).debug(1)
         return
     }
 
-    if o := useeProj.scope.Lookup(usingName); isNil(o) || isNone(o) {
+    if o := usee.scope.Lookup(usingName); isNil(o) || isNone(o) {
         // does nothing
     } else if err = def.append(ctx, o); err != nil {
-        erro(ctx, "append '%v' failed: %v (from %v)", name, err, useeProj.scope).debug(1)
+        erro(ctx, "append '%v' failed: %v (from %v)", name, err, usee.scope).debug(1)
     } else if opts.unique && opts.reverse {
-        def.value = builtinUnique(closureWith(ctx, position, useeProj.scope), MakeFlag(position, "r"), def.value)
+        def.value = builtinUnique(closureWith(ctx, position, usee.scope), MakeFlag(position, "r"), def.value)
     } else if opts.unique {
-        def.value = builtinUnique(closureWith(ctx, position, useeProj.scope), def.value)
+        def.value = builtinUnique(closureWith(ctx, position, usee.scope), def.value)
     }
-    if false && name == "ldlibs" && (strings.HasPrefix(userProj.name, "lld.") || strings.HasPrefix(useeProj.name, "lld.")) {
-        info(ctx, "%v: %v: %v", userProj, useeProj, def)
-        info(ctx, "%v: %v: %v", userProj, useeProj, ctx).debug(10)
+    if false && name == "ldlibs" && (strings.HasPrefix(user.name, "lld.") || strings.HasPrefix(usee.name, "lld.")) {
+        info(ctx, "%v: %v: %v", user, usee, def)
+        info(ctx, "%v: %v: %v", user, usee, ctx).debug(10)
     }
 }
-func applyUseeVars(ctx Context, userProj, useeProj *Project) {
-    var usingSpec Value
-    if o, e := useeProj.resolveObject(ctx, "using.*"); e != nil {
+func applyUseeVars(ctx Context, user, usee *Project) {
+    var spec Value
+    if o, e := usee.resolveObject(ctx, "using.*"); e != nil {
         erro(ctx, "resolve using.* failed: %v", e).debug(1)
     } else if def, _ := o.(*Def); def != nil {
-        usingSpec = def.value
+        spec = def.value
     }
-    if !isNil(usingSpec) && !isNone(usingSpec) {
+    if !isNil(spec) && !isNone(spec) {
         // NOTE: apply vars like 'cflags', 'cxxflags', ...
-        for _, name := range merge(usingSpec) { applyUseeVar(ctx, userProj, useeProj, name) }
+        for _, name := range merge(spec) { applyUseeVar(ctx, user, usee, name) }
     }
 }
-func applyUsingVars(ctx Context, userProj, useeProj *Project) {
-    var usingSpec Value
-    if o, e := userProj.resolveObject(ctx, "using.*"); e != nil {
+func applyUsingVars(ctx Context, user, usee *Project) {
+    var spec Value
+    if o, e := user.resolveObject(ctx, "using.*"); e != nil {
         erro(ctx, "resolve using.* failed: %v", e).at(ctx.Position()).debug(1)
     } else if def, _ := o.(*Def); def != nil {
-        usingSpec = def.value
+        spec = def.value
     }
-    if !isNil(usingSpec) && !isNone(usingSpec) {
+    if !isNil(spec) && !isNone(spec) {
         // NOTE: apply vars like 'using.cflags', 'using.cxxflags', ...
-        for _, value := range merge(usingSpec) { applyUsingVar(ctx, userProj, useeProj, value) }
+        for _, value := range merge(spec) { applyUsingVar(ctx, user, usee, value) }
     }
 }
+
 func (l *loader) Position() Position { return l.parser.Position() }
 func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, params ...Value) (loaded *Project) {
     var (
@@ -424,8 +424,7 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, p
         return
     }
 
-    var loadedValid bool
-    loaded, loadedValid = l.loaded[absPath]
+    loaded, _ = l.loaded[absPath]
 
     // Checking circular loads. See also Project.loopImportPath()!
     var breakUseLoop bool
@@ -443,7 +442,7 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, p
                     s += load.specName + " → "
                 }
             }
-            if loadedValid && loaded.opts.breakUseLoop {
+            if loaded != nil && loaded.opts.breakUseLoop {
                 s += "<" + specName + ">"
             } else {
                 s += specName
@@ -459,7 +458,7 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, p
 
     var scope = l.Scope()
     if false && breakUseLoop {
-        if !loadedValid {
+        if loaded == nil {
             // ...
         } else if _, a := scope.ProjectName(ctx, loaded.name, loaded); a != nil {
             if val, ok := a.(*ProjectName); !ok || val == nil {
@@ -494,10 +493,10 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, p
     // ├────────────────────────────────┼───┬──⇢·
     // ├──────────────────────┬────→┬←──┤   │    ⇡
     // ├┬─→───────────────────┼─────┴───┘   ├────┼⇢
-    // │├┬───→         ↑  └──┬──┐       │    ⇣
-    // ││└──→    ·     │     │  ├─⇥     ↓
+    // │├┬───→             ↑  └──┬──┐       │    ⇣
+    // ││└──→    ·         │     │  ├─⇥     ↓
     // │└──→───⇥─┴─⇤────┬──┴──┬──┘  │
-    // └──→       ⇠─┘     ↓     └─→ ⇒ …
+    // └──→           ⇠─┘     ↓     └─→ ⇒ …
     if options.verboseImport {
         if len(l.loadStack) > 1 {
             defer func(s string) { l.vs = s } (l.vs)
@@ -518,21 +517,26 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, p
         } (time.Now())
     }
 
-    if loadedValid && !(opts.noVars || opts.reuse) {
+    if loaded != nil && !(/*opts.noVars || */opts.reuse) {
         var ( proj *Project ; res, isb bool )
         if proj, res, isb, err = l.project.hasLoaded(ctx, loaded, breakUseLoop); err != nil {
             erro(ctx, "`%s`: %s", specName, err).of(specVal).debug(1)
             return
         } else if isb {
-            erro(ctx, "`%s` is a base (%s)", specName, proj.name).of(specVal).debug(1)
+            // NOTE: proj could be nil
+            prompt(ctx, "%v: %v is already a base\n", l.project, specName)
+            erro(ctx, "`%s` is already a base (proj=%s)", specName, proj).of(specVal)
+            errostack(ctx, 10, "%v", ctx).debug(16)
             return
         } else if res {
-            erro(ctx, "'%s' already imported by '%s'", specName, proj.name).of(specVal).debug(16)
+            // NOTE: proj could be nil
+            prompt(ctx, "%v: %v already imported by %v\n", l.project, specName, proj)
+            erro(ctx, "'%s' already imported by '%s'", specName, proj).of(specVal)
+            errostack(ctx, 10, "%v", ctx).debug(16)
             return
         }
     }
-
-    if /*!loadedValid || loaded == nil*/true {
+    if loaded == nil {
         var okay bool
         if isDir {
             okay = l.loadDir(position, specName, absPath, nil)
@@ -546,7 +550,7 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, p
 
         if loaded != nil {
             // already loaded previously
-        } else if loaded, loadedValid = l.loaded[absPath]; loadedValid {
+        } else if loaded, _ = l.loaded[absPath]; loaded != nil {
             // successfully loaded (first)
         } else {
             erro(ctx, "'%s' not loaded (%s)", specName, absPath).of(specVal).debug(1)
@@ -556,15 +560,22 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, p
             erro(ctx, "'%s' not smart project", specName).of(specVal).debug(1)
             return
         }
+        if false && l.project.name == "llvm.Analysis" {
+            warn(ctx, "%v, %v, %v", l.project, loaded, opts).debug(16)
+        }
     }
-    if opts.noVars { return }
 
     // Check against the current load list before appending loaded.
-    for _, lp := range l.project.loads {
-        var ( proj *Project ; res, isb bool )
-
+    for _, using := range l.project.using.list {
+        var (
+            lp = using.project
+            proj *Project
+            res, isb bool
+        )
         if loaded == lp {
-            erro(ctx, "using `%s` multiple times", specName).of(specVal).debug(10)
+            if !opts.noVars && !opts.files {
+                erro(ctx, "using `%s` multiple times", specName).of(specVal).debug(10)
+            }
             return
         }
 
@@ -594,10 +605,6 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, p
             warnstack(ctx, 8, "`%s` has already been imported by `%s` (from %s)", loaded, lp, proj).debug(1)
         }
     }
-    if breakUseLoop { return } else {
-        // The project load list is different from using list.
-        l.project.loads = append(l.project.loads, loaded)
-    }
 
     if options.verboseImport {
         defer func(t time.Time) {
@@ -605,9 +612,9 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, p
             fmt.Fprintf(stderr, "%s├┤ %s:import(%s) (%s)\n", l.vs, l.project, specName, d)
         } (time.Now())
     }
-    if err = l.addUsing(position, loaded, params, opts); err == nil && !opts.noVars {
-        applyUseeVars(ctx, l.project, loaded)  // aka. ABC += $(using.ABC)
-        applyUsingVars(ctx, l.project, loaded) // aka. using.ABC += $(using.ABC)
+    if err = l.addUsing(ctx, loaded, params, opts); err == nil && !opts.noVars {
+        //applyUseeVars(ctx, l.project, loaded)  // aka. ABC += $(using.ABC)
+        //applyUsingVars(ctx, l.project, loaded) // aka. using.ABC += $(using.ABC)
     }
     return
 }
@@ -710,7 +717,8 @@ func (l *loader) convertBarefiles(targets []Value) []Value {
     return targets
 }
 
-func (l *loader) addUsing(position Position, usee *Project, params []Value, opts useOpts) (err error) {
+func (l *loader) addUsing(ctx Context, usee *Project, params []Value, opts useOpts) (err error) {
+    // clocks:🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚🕛🕜🕝🕞🕟🕠🕡🕢🕣🕤🕥🕦🕧
     if options.verboseUsing && options.verboseImport && options.benchImport {
         defer func(t time.Time) {
             var d = time.Now().Sub(t)
@@ -722,33 +730,6 @@ func (l *loader) addUsing(position Position, usee *Project, params []Value, opts
             fmt.Fprintf(stderr, "using(%8s) %s ⇒ %v\n", d, l.project, l.project.using)
         } (time.Now())
     }
-    if err = l.addUsing2(position, usee, params, opts); err != nil {
-        if p, ok := err.(*scanner.Error); ok {
-            erro(l, "%v", p.Brief()).at(position)
-        } else {
-            erro(l, "%v", err).at(position)
-        }
-    }
-    return
-}
-
-func (l *loader) usePath() (s string) {
-    for i, u := range l.useStack {
-        if i > 0 { s += "," }
-        s += u.name
-    }
-    return
-}
-
-func (l *loader) addUsing2(position Position, usee *Project, params []Value, opts useOpts) (err error) {
-    if usee == l.project {
-        erro(l, "'%v' use loop (%s)", usee.name, l.usePath()).at(position)
-        return
-    } else if l.project.isUsingDirectly(usee) {
-        return
-    }
-
-    // clocks:🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚🕛🕜🕝🕞🕟🕠🕡🕢🕣🕤🕥🕦🕧
     defer func(t time.Time) {
         var d = time.Now().Sub(t)
         if options.verboseImport {
@@ -761,11 +742,29 @@ func (l *loader) addUsing2(position Position, usee *Project, params []Value, opt
         }
     } (time.Now())
 
+    if usee == l.project {
+        erro(l, "'%v' use loop (%s)", usee.name, l.usePath())
+        return
+    } else if l.project.isUsingDirectly(usee) {
+        return
+    }
+
     defer func(a []*Project) { l.useStack = a } (l.useStack)
     l.useStack = append(l.useStack, usee) // build the use path
 
     // Add to the project using list, so that the use path is correct.
-    l.project.using.append(positional(l, position), usee, params, opts)
+    if l.project.using.append(ctx, usee, params, opts); !opts.noVars {
+        applyUseeVars(ctx, l.project, usee)  // aka. ABC += $(using.ABC)
+        applyUsingVars(ctx, l.project, usee) // aka. using.ABC += $(using.ABC)
+    }
+    return
+}
+
+func (l *loader) usePath() (s string) {
+    for i, u := range l.useStack {
+        if i > 0 { s += "," }
+        s += u.name
+    }
     return
 }
 
@@ -1258,7 +1257,7 @@ func (l *loader) loadDotContainer(ident *Barecomp, identStr string, file *File) 
 
             var opts useOpts
             // TODO: parse the useOpts
-            l.addUsing(position, loaded, nil, opts)
+            l.addUsing(positional(l, position), loaded, nil, opts)
 
             result = true
         }
@@ -2058,7 +2057,9 @@ func (l *loader) loadDir(pos Position, specName, absDir string, filter func(os.F
         //assert(loadedOkay || l.implicit, "failed loading '%s': %s", specName, absDir)
         //assert(loaded != nil || l.implicit, "%s not loaded (%s)", specName, absDir)
         if loaded == nil {
-            erro(l, "%v (%v) not loaded in %v", specName, filepath.Base(absDir), l.Scope()).at(pos).debug(16)
+            //erro(l, "%v (%v) not loaded in %v", specName, filepath.Base(absDir), l.Scope()).at(pos).debug(16)
+            erro(l, "%v (%v) not loaded in %v", specName, filepath.Base(absDir), l.Scope()).at(pos)
+            errostack(l, 8, "%v", specName).at(pos).debug(16)
             return
         }
         if proj := l.Scope().project; proj == nil {

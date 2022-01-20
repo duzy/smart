@@ -895,7 +895,7 @@ func CommandLine() {
   } else if options.configure {
     context.configure()
   } else if result, err := context.run(); err != nil {
-    erro(context, "run work failed: %v", err).at(context.Position())
+    erro(context, "run work failed: %v", err)
   } else if context.checkErrors(true) > 0 {
     prompt(context, "run work got %d errors\n", context.totalErrors())
   } else if result != nil {

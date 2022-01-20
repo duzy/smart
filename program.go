@@ -419,7 +419,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     // Update normal prerequisites
     if brks = traverseNormal(ctx); brks.has() {
         if tb := brks.not(breakCase, breakNext, breakDone); tb.has() {
-            prompt(ctx, "%v: execute failed, project %s\n", entry, proj)
+            prompt(ctx, "%v: execute failed, project %s\n", /*entryStr1(ctx, entry)*/entry, proj)
             for _, brk := range tb {
                 switch brk.what {
                 case breakFail: erro(ctx, `%v: broken for "%s": %v`, proj, target, brk.message).at(brk.pos)
@@ -432,7 +432,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         return
     } else if errs := ctx.checkErrors(true); errs > 0 {
         brks.add(prog.position, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", ctx.totalErrors())
-        prompt(ctx, "%v: execute failed, project %s\n", entry, proj)
+        prompt(ctx, "%v: execute failed, project %s\n", /*entryStr1(ctx, entry)*/entry, proj)
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, target)
         if warnstack(ctx, 6, "call stack for %v:", target).debug(8); options.failOnErrors {
             fail(prog.position, "fail by %d errors", ctx.totalErrors())
@@ -443,7 +443,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     // Update order-only prerequisites
     if brks = traverseOrderOnly(ctx); brks.has() {
         if tb := brks.not(breakCase, breakNext, breakDone); tb.has() {
-            prompt(ctx, "%v: execute failed, project %s\n", entry, proj)
+            prompt(ctx, "%v: execute failed, project %s\n", /*entryStr1(ctx, entry)*/entry, proj)
             for _, brk := range brks {
                 switch brk.what {
                 case breakFail: erro(ctx, `%v: broken for "%s": %v`, proj, target, brk.message).at(brk.pos)
@@ -456,7 +456,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         return
     } else if errs := ctx.checkErrors(true); errs > 0 {
         brks.add(prog.position, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", errs)
-        prompt(ctx, "%v: execute failed, project %s\n", entry, proj)
+        prompt(ctx, "%v: execute failed, project %s\n", /*entryStr1(ctx, entry)*/entry, proj)
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, target)
         if warnstack(ctx, -1, "call stack for %v:", target).debug(8); options.failOnErrors {
             fail(prog.position, "fail by %d errors", ctx.totalErrors())

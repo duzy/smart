@@ -284,7 +284,7 @@ type Project struct {
 	name    string
   scope   *Scope
   bases []*Project
-  loads []*Project
+  //loads []*Project
   using   *usinglist
 
   // List order is significant, duplication is acceptable.
@@ -425,7 +425,7 @@ func (p *Project) filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*
     }
     appendUsedFiles = func(p *Project) {
       for _, u := range p.using.list {
-        if !u.opts.noFiles { appendUsingList(u.project) }
+        if u.opts.files { appendUsingList(u.project) }
       }
     }
     appendUsedFiles(p)
@@ -846,7 +846,8 @@ func (p *Project) hasLoadedRecur(ctx Context, top, proj *Project, depth int, bre
       return
     } else if res || isb { rp = base ; return }
   }
-  for _, imp := range p.loads {
+  for _, using := range /*p.loads*/p.using.list {
+    var imp = using.project
     if imp == top && !breakUseLoop {
       s := top.loopLoadPath()
       err = fmt.Errorf("loop `%v`", s)
@@ -866,7 +867,8 @@ func (p *Project) hasLoadedRecur(ctx Context, top, proj *Project, depth int, bre
 
 func (p *Project) loopLoadPath() (s string) { return p.loopLoadRecur(p) }
 func (p *Project) loopLoadRecur(top *Project) (s string) {
-  for _, imp := range p.loads {
+  for _, using := range /*p.loads*/p.using.list {
+    var imp = using.project
     if imp == top {
       if p != top { s = "⇢" }
       s += fmt.Sprintf("(%s)⇢(%s)", p.spec, imp.spec)

@@ -2838,17 +2838,18 @@ func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
                 return
         }
 
-        if target := getTargetValue(ctx); isNil(target) {
+        var target = getTargetValue(ctx)
+        if isNil(target) {
                 prompt(ctx, "%v\n", ctx.Project())
                 erro(ctx, "stamp(%v) failed", target)
                 errostack(ctx, 6, "%v", ctx).debug(12)
                 return
-        } else if /*files*/_, err = target.stamp(ctx); err != nil {
-                prompt(ctx, "%v: %v: %v\n", ctx.Project(), target, err)
-                erro(ctx, "failed stamp(%v)", target)
-                errostack(ctx, 6, "%v", ctx).debug(12)
+        } else if /*files*/_, err = target.stamp(ctx); err == nil {
                 return
-        } else if opts.next {
+        }
+
+        prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err)
+        if opts.next {
                 if opts.verbose { warn(ctx, "%v", err).debug(1) }
                 brks.add(pos, breakNext).scope = breakTrave
                 err = nil // discard the error
@@ -2873,11 +2874,12 @@ func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
                 }
                 err = nil // discard the error
         } else if pos.IsValid() {
-                errostack(ctx, -1, "failed: %v", err).debug(1)
+                erro(ctx, "failed stamp(%v)", target)
+                errostack(ctx, -1, "failed: %v", ctx).debug(10)
         } else if pos = target.Position(); pos.IsValid() {
-                errostack(positional(ctx, pos), -1, "failed: %v", err).debug(1)
-        } else {
-                errostack(ctx, -1, "failed: %v", err).debug(1)
+                ctx = positional(ctx, pos)
+                erro(ctx, "failed stamp(%v)", target)
+                errostack(ctx, -1, "failed: %v", ctx).debug(10)
         }
 
         if err != nil { if pe, ok := err.(*fs.PathError); ok {
