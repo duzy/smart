@@ -1654,7 +1654,8 @@ func isUndef(v Value) (t bool) { _, t = v.(*unresolvedobject); return }
 func isNone(v Value) (t bool) {
     switch a := v.(type) {
     case *None: t = true
-    case *List: t = len(a.Elems) == 0 || isNone(a.Elems[0])
+    case *List: t = len(a.Elems) == 0 ||
+        (len(a.Elems) == 1 && (isNone(a.Elems[0]) || isNil(a.Elems[0])))
     }
     return
 }

@@ -761,8 +761,8 @@ func (d *Def) set(ctx Context, origin Origin, value Value) (err error) {
 func (d *Def) append(ctx Context, va... Value) (err error) {
         var (
                 pos = ctx.Position()
-                list *List
                 value Value
+                list *List
         )
         if !pos.IsValid() { pos = d.position }
 

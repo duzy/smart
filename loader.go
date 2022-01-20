@@ -808,53 +808,56 @@ func iterateArgumentedIdentifiers(ctx Context, identifier Value, f func(ident Va
 func (l *loader) determine(position Position, tok token.Token, identifier, value Value) (defs []*Def) {
     var ctx Context = positional(l, position)
     iterateArgumentedIdentifiers(ctx, identifier, func(ident Value, stems []Value) {
-        var def = l.determine1(position, tok, ident, value)
-        if false && strings.HasPrefix(ident.String(), "libs.") {
-            info(ctx, "%v -> %v, %v -> %v", identifier, ident, stems, def).of(ident)
+        var def = l.determine1(ctx, tok, ident, value)
+        if false && l.project.name == "lld.tools.lld" && strings.HasPrefix(ident.String(), "ldlibs") {
+            warn(ctx, "%v -> %v, %v -> %v", identifier, ident, stems, def).of(ident).debug(1)
         }
         defs = append(defs, def)
     })
     return
 }
 
-func (l *loader) determine1(position Position, tok token.Token, identifier, value Value) (def *Def) {
-    var ( ctx Context = positional(l, position); alt Object; dbg bool )
+func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Value) (def *Def) {
+    var alt Object
     switch t := identifier.(type) {
     case *selection:
         var v, err = t.value(ctx)
         if err != nil {
-            erro(ctx, "determine `%v`: %v", t, err).at(position)
+            erro(ctx, "determine `%v`: %v", t, err)
             return
         } else if d, ok := v.(*Def); ok {
             def = d
         } else {
-            erro(ctx, "`%v` is not a def (%T)", t, v).at(position)
+            erro(ctx, "`%v` is not a def (%T)", t, v)
             return
         }
 
     case *Bareword, *Barecomp, *Qualiword, *Path:
         var name, err = t.Strval(ctx)
         if err != nil {
-            erro(ctx, "determine `%v`: %v", t, err).at(position)
+            erro(ctx, "determine `%v`: %v", t, err)
             return
         } else if _, ok := builtins[name]; ok {
-            erro(ctx, "`%v` (%v) is builtin name", identifier, name).at(position)
+            erro(ctx, "`%v` (%v) is builtin name", identifier, name)
             return
         }
 
         // Resolve base value to derive.
         var prev Object
-        prev, err = l.project.resolveObject(ctx, name)
-        if err != nil { erro(ctx, "resolve '%s' failed: %v", name, err).at(position) }
-        if def, alt = l.def(position, name); alt == nil {
+        if prev, err = l.project.resolveObject(ctx, name); err != nil {
+            erro(ctx, "resolve '%s' failed: %v", name, err).debug(1)
+            return
+        }
+
+        if def, alt = l.def(identifier.Position(), name); alt == nil {
             // does nothing...
         } else if alt != nil && (tok == token.ASSIGN || tok == token.EXC_ASSIGN) {
             var ( okay bool; ad *Def )
             if ad, okay = alt.(*Def); !okay {
-                erro(ctx, "`%v` already defined (%T) (%v,%v)", identifier, alt, alt.OwnerProject(), l.project).at(position).debug(1)
+                erro(ctx, "`%v` already defined (%T) (%v,%v)", identifier, alt, alt.OwnerProject(), l.project).debug(1)
                 return
             } else if ad.owner == l.project && ad.origin != DefConfRef {
-                erro(ctx, "`%v` already defined (%T) (%v)", identifier, alt, l.project).at(position).debug(1)
+                erro(ctx, "`%v` already defined (%T) (%v)", identifier, alt, l.project).debug(1)
                 return
             } else {
                 def = ad
@@ -870,25 +873,25 @@ func (l *loader) determine1(position Position, tok token.Token, identifier, valu
         } else if derived, okay := prev.(*Def); !okay {
             // not a def
         } else if derived == nil {
-            erro(ctx, "def '%s' is nil", name).at(position)
+            erro(ctx, "prev def '%s' is nil", name).debug(1)
         } else if derived == def || def.value.refs(ctx, derived) {
             // same def
         } else if tok == token.ADD_ASSIGN {
             // Unshift the delegation to derive value.
-            err := def.append(ctx, MakeDelegate(position, token.LPAREN, derived))
-            if err != nil {
-                erro(ctx, "append def '%s' failed: %v", def.name, err).at(position)
+            var delegate = MakeDelegate(ctx.Position(), token.LPAREN, derived)
+            if err := def.append(ctx, delegate); err != nil {
+                erro(ctx, "append def '%s' failed: %v", def.name, err)
             }
         }
 
     case *Argumented:
         var args, err = expandmerge2(ctx, expandPlainValue, t.args...)
         if err != nil { erro(ctx, "merge args failed: %v", err).of(t); return }
-        erro(ctx, "TODO: multiple defs: %v %v", t.value, args).at(position)
+        erro(ctx, "TODO: multiple defs: %v %v", t.value, args)
         return
     }
     if def == nil {
-        erro(ctx, "def is nil for '%v' of %T", identifier, identifier).at(position).debug(1)
+        erro(ctx, "def is nil for '%v' of %T", identifier, identifier).debug(1)
         return
     }
 
@@ -896,12 +899,11 @@ func (l *loader) determine1(position Position, tok token.Token, identifier, valu
     // project context.
     //defer setclosure(setclosure(cloctx.unshift(l.scope)))
 
-    def.position = position
+    if !def.position.IsValid() {
+        def.position = identifier.Position()
+    }
     if err := l.assign(tok, def, alt, value); err != nil {
-        erro(ctx, "assign '%v' failed: %v", def.name, err).at(position)
-    } else if dbg {
-        s, _ := def.value.Strval(ctx)
-        info(ctx, "%v: %v->%v: %v -> %s (%v)", l.project, def.owner, def.name, def.value, s, value).at(position).debug(1)
+        erro(ctx, "assign '%v' failed: %v", def.name, err).debug(1)
     }
     return
 }
