@@ -3429,12 +3429,12 @@ ForArgs:
                         var s = filepath.Base(oldname)
                         prompt(ctx, "Symlink %s -> %s …", d, s)
                 }
-                if opts.relative {
-                        var dir = filepath.Dir(newname)
-                        oldname, err = filepath.Rel(dir, oldname)
-                        if err != nil {
-                                if opts.verbose { prompt(ctx, "symlink: %s\n", err) }
-                                erro(ctx, "%v", err).of(newNameVal).debug(1)
+                if opts.relative && filepath.IsAbs(oldname) {
+                        var ( dir = filepath.Dir(newname); s = oldname )
+                        if oldname, err = filepath.Rel(dir, oldname); err != nil {
+                                prompt(ctx, "symlink: rel %s, %s\n", dir, s)
+                                erro(ctx, "%v", err).of(newNameVal)
+                                errostack(ctx, 8, "%v", ctx).of(newNameVal).debug(10)
                                 return
                         }
                 }
