@@ -3184,8 +3184,8 @@ SegsLoop:
         }
     }
     if lenRes := len(res); lenRes > 0 { // full or partial matched
-        result = strings.Join(res, PathSep) // NOTE: don NOT use `filepath.Join(res...)` here
-        full = lenRes == lenSrcs && result == str
+        result = strings.Join(res, PathSep) // NOTE: do NOT use `filepath.Join(res...)` here
+        full = lenRes == lenSrcs && lenRes >= lenSegs && result == str
         if infos { if false {
             warn(ctx, "Path.match: path=%v str=%v res=%v stems=%v -> full=%v result=%v lens=%d,%d", p, str, res, stems, full, result, lenRes, lenSrcs).of(p).debug(1)
         } else {
@@ -3195,10 +3195,14 @@ SegsLoop:
         if correct := (!full && strings.HasPrefix(str, result)) || (full && str == result); false {
             assert(correct, "incorrect result: res=%v result=%v full=%v stems=%v str=%s", res, result, full, stems, str)
         } else if !correct {
-            erro(ctx, "incorrect result: str=%s res=%v stems=%v full=%v result=%v", str, res, stems, full, result).at(p.position).debug(1)
+            prompt(ctx, "%v: %v: incorrect match: full=%v; segs=%v; srcs=%v; res=%v\n", str, p, full, segs, srcs, res)
+            erro(ctx, "incorrect match: path=%v, str=%s, res=%v result=%v", p, str, res, result).of(p)
+            errostack(ctx, 8, "%v", ctx).debug(10)
         }
         if p.patterned(ctx) && full && len(stems) == 0 {
-            erro(ctx, "incorrect match result: path=%v, str=%s, res=%v result=%v", p, str, res, result).at(p.position).debug(1)
+            prompt(ctx, "%v: %v: incorrect full match: segs=%v; srcs=%v; res=%v\n", str, p, segs, srcs, res)
+            erro(ctx, "incorrect match: path=%v, str=%s, res=%v result=%v", p, str, res, result).of(p)
+            errostack(ctx, 8, "%v", ctx).debug(10)
         }
     }
     return
