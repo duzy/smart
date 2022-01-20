@@ -422,7 +422,15 @@ func (p *parser) parseSelect(lhs Value) (res Value) {
 	)
 	switch t := lhs.(type) {
 	case *selection:
-		erro(p, "TODO: multiple selection: %v", lhs).at(position).debug(1)
+		if v, err := t.value(positional(p, t.Position())); err != nil {
+			erro(p, "%v: selection failed: %v", lhs, err).at(position).debug(1)
+			return
+		} else if isNil(v) {
+			erro(p, "nil selection: %v", lhs).at(position).debug(1)
+			return
+		} else {
+			lhs = v
+		}
 	case *Bareword:
         switch t.string {
         case "usee": lhs = proj.using

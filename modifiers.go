@@ -1443,20 +1443,16 @@ type depContext struct { diagContext }
 func (ctx *depContext) String() string { return fmt.Sprintf("dep{%s}", ctx.diagContext.String()) }
 func (ctx *depContext) appendCallerUpdated() bool { return false }
 
-func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks breakers) {
+func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *File, savedDepsFileName, deps string) (files []Value, brks breakers) {
         const parallel = true
         var (
-                target, targetValid = ctx.autoGet("@")
                 targetFullName string
                 filesMux sync.Mutex
                 firstWord string
                 err error
         )
-        if !targetValid {
-                erro(ctx, "no target: %v", target, ctx).debug(1)
-                return
-        } else if targetFullName, err = fullnameOrStrval(ctx, target); err != nil {
-                erro(ctx, `fullname "%v" failed: %v`, target, err).debug(1)
+        if targetFullName, err = fullnameOrStrval(ctx, targetVal); err != nil {
+                erro(ctx, `fullname "%v" failed: %v`, targetVal, err).of(targetVal).debug(1)
                 return
         }
 
@@ -1508,12 +1504,12 @@ func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks
                 } else if ignored(file.fullname()) {
                         //continue // dep is the target itself
                 } else if brks = file.traverse(ctx); brks.has() {
-                        erro(ctx, `%v: missing "%v"`, target, file).at(depPos)
+                        erro(ctx, `%v: missing "%v"`, targetVal, file).at(depPos)
                         for _, brk := range brks {
                                 switch brk.what {
-                                case breakFail: erro(ctx, `%v: broken for "%s": %v`, proj, target, brk.message).at(brk.pos)
-                                case breakErro: erro(ctx, `%v: broken for "%s", error: %v`, proj, target, brk.error).at(brk.pos)
-                                default: erro(ctx, `%v: broken for "%s": %v (%v)`, proj, target, brk.message, brk.what).at(brk.pos)
+                                case breakFail: erro(ctx, `%v: broken for "%s": %v`, proj, targetVal, brk.message).at(brk.pos)
+                                case breakErro: erro(ctx, `%v: broken for "%s", error: %v`, proj, targetVal, brk.error).at(brk.pos)
+                                default: erro(ctx, `%v: broken for "%s": %v (%v)`, proj, targetVal, brk.message, brk.what).at(brk.pos)
                                 }
                         }
                         errostack(ctx, 5, "%v: %v", proj, ctx).debug(16)
@@ -1521,7 +1517,7 @@ func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks
                         addFile(file)
                 }
                 if n := dc.countErrors(); n > 0 {
-                        var s = trimPromptString(target.String())
+                        var s = trimPromptString(targetVal.String())
                         erro(ctx, `%v: %d errors for "%s", dep "%s"`, proj, n, s, word)
                         errostack(ctx, 5, `%v: %v`, ctx).debug(6)
                         missMux.Lock()
@@ -1531,10 +1527,12 @@ func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks
                 return
         }
 
-        var depPos Position
+        var (
+                wordRecs = make(map[string]int)
+                firstDep string
+                depPos Position
+        )
         depPos.Filename = savedDepsFileName
-
-        var wordRecs = make(map[string]int)
         for l, line := range strings.Split(deps, "\n") {
                 var words = line
                 if i := strings.Index(words, ":"); i > 0 { words = strings.TrimSpace(words[i+1:]) }
@@ -1545,6 +1543,15 @@ func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks
                         depPos.Line, depPos.Column = l + 1, strings.Index(line, word) + 1
                         if /*l == 1 && w == 0 &&*/firstWord == "" { firstWord = word }
                         if wordRecs[word] += 1; wordRecs[word] == 1 {
+                                if firstDep != "" {
+                                        // keep going...
+                                } else if firstDep = word; savedDepsFile == nil {
+                                        // no need to compare
+                                } else if firstDepFile := stat(ctx, firstDep, "", ""); firstDepFile == nil {
+                                        return nil, nil // requests to update savedDepsFile
+                                } else if firstDepFile.info.ModTime().After(savedDepsFile.info.ModTime()) {
+                                        return nil, nil // requests to update savedDepsFile
+                                }
                                 if parallel {
                                         if false { info(ctx, "spawn %v", ctx) }
                                         jobs.Add(1); go depFile(ctx.spawn(), depPos, word)
@@ -1555,8 +1562,10 @@ func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks
                 }
         }
         if jobs.Wait(); len(missing) > 0 {
+                //prompt(ctx, "%v: missing %d deps\n", targetFullName, len(missing))
+                prompt(ctx, "%v: missing %d deps\n", savedDepsFileName, len(missing))
                 for s, p := range missing { erro(ctx, `missing "%v"`, s).at(p) }
-                erro(ctx, `%v: "%v" missing %d deps in "%v"`, proj, target, len(missing), savedDepsFileName)
+                erro(ctx, `%v: "%v" missing %d deps in "%v"`, proj, targetVal, len(missing), savedDepsFileName)
                 errostack(ctx, 3, "%v", ctx).debug(10)
         }
         return
@@ -1564,7 +1573,7 @@ func parseDeps(ctx Context, savedDepsFileName, deps string) (files []Value, brks
 
 func loadSavedDepsAndCheckOutdated(ctx Context, args []string) (savedDepsFileName string, files []Value, brks breakers) {
         var (
-                savedDeps []byte
+                savedDepsBytes []byte
                 err error
         )
         if targetVal, targetStr := getTargetValueString(ctx); isNil(targetVal) {
@@ -1577,15 +1586,15 @@ func loadSavedDepsAndCheckOutdated(ctx Context, args []string) (savedDepsFileNam
                 erro(ctx, "empty saved deps filename", savedDepsFileName).debug(1)
         } else if savedDepsFile := stat(ctx, savedDepsFileName, "", ""); savedDepsFile == nil {
                 // no saved deps file
-        } else if savedDeps, err = ioutil.ReadFile(savedDepsFileName); err != nil {
+        } else if savedDepsBytes, err = ioutil.ReadFile(savedDepsFileName); err != nil {
                 erro(ctx, "can'ctx open saved deps file: %v", savedDepsFileName, err).debug(1)
-        } else if files, brks = parseDeps(ctx, savedDepsFileName, string(savedDeps)); len(files) > 0 {
+        } else if files, brks = parseDeps(ctx, targetVal, targetStr, savedDepsFile, savedDepsFileName, string(savedDepsBytes)); len(files) > 0 {
                 if false { info(ctx, "loaded deps %s (%d files)", savedDepsFileName, len(files)).debug(true, 1) }
                 var savedDepsFileModTime = savedDepsFile.info.ModTime()
                 for _, val := range files { if file, ok := val.(*File); !ok {
                         // ignore
                 } else if file.info.ModTime().After(savedDepsFileModTime) {
-                        files = nil // needs reload if outdated
+                        files = nil // need to reload if outdated
                         return
                 }}
         }
@@ -1675,10 +1684,16 @@ func modifierDeps(ctx Context, args... Value) (result Value, brks breakers) {
         // NOTE: parse opts for (deps) before expanding the args, because we share args
         //       with the compilers!
         var (
+                targetVal Value
+                targetStr string
                 opts modifierDepsOpts
                 err error
         )
-        if args, err = parseOpts(ctx, &opts, args...); err != nil {
+        if targetVal, targetStr = getTargetValueString(ctx); isNil(targetVal) {
+                erro(ctx, "target is nil").debug(1)
+        } else if targetStr == "" {
+                erro(ctx, "target '%v' is empty", targetVal).debug(1)
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
                 erro(ctx, "parse deps args failed: %v", err).debug(1)
                 return
         } else if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
@@ -1817,7 +1832,8 @@ CorrectCC:
                         info(ctx, "saved deps %s", savedDepsFileName).debug(true, 1)
                 }
 
-                files, brks = parseDeps(ctx, savedDepsFileName, stdout.String())
+                var savedDepsFile *File //= stat(ctx, savedDepsFileName, "", "")
+                files, brks = parseDeps(ctx, targetVal, targetStr, savedDepsFile, savedDepsFileName, stdout.String())
                 stdout.Reset() // release buffers (optional)
         }
         if t := ctx.traversal(); t != nil && len(files) > 0 {
