@@ -3202,8 +3202,8 @@ SegsLoop:
         }
         if p.patterned(ctx) && full && len(stems) == 0 {
             prompt(ctx, "%v: %v: incorrect full match: segs=%v; srcs=%v; res=%v\n", str, p, segs, srcs, res)
-            erro(ctx, "incorrect match: path=%v, str=%s, res=%v result=%v", p, str, res, result).of(p)
-            errostack(ctx, 8, "%v", ctx).debug(10)
+            warn(ctx, "incorrect match: path=%v, str=%s, res=%v result=%v", p, str, res, result).of(p)
+            warnstack(ctx, 3, "%v", ctx).debug(6)
         }
     }
     return

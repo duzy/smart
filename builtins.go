@@ -3610,14 +3610,8 @@ func builtinFile(ctx Context, args... Value) (res Value) {
                         list = append(list, file)
                         if opts.report { info(ctx, "%v is no such file", a).debug(1) }
                 } else {
-                        if true {
-                                var v, _ = ctx.autoGet("options")
-                                var w, _ = ctx.autoGet("table")
-                                erro(ctx, `%v: options = %T %v`, proj, v, v)
-                                erro(ctx, `%v: table = %T %v`, proj, w, w)
-                        }
                         erro(ctx, `%v: "%v" is not a file (%T: %v)`, proj, str, a, a)
-                        errostack(ctx, 3, "%v: %v", proj, ctx).debug(32)
+                        errostack(ctx, 3, "%v: %v", proj, ctx).debug(16)
                 }
         }
 

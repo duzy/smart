@@ -51,9 +51,31 @@ func (filemap *FileMap) Match(ctx Context, str string) (matched bool, pre string
   return
 }
 
-func (filemap *FileMap) match(ctx Context, pattern Value, str string) (matched bool, pre string) {
-  if matched, pre = globMatch(ctx, pattern, str, true); matched { return }
-  return
+func (filemap *FileMap) match(ctx Context, pat Value, str string) (matched bool, pre string) {
+  if matched, _, _ = pat.match(ctx, str); !matched && !(isNone(pat) || isNil(pat)) {
+    if n := strings.Index(str, PathSep); n < 0 { return }
+
+    // NOTE: Dealing with these files:
+    //     files (
+    //         (foo.c) => $(srcdir)/sub/dir
+    //         (sub/dir/foo.c) => $(srcdir)
+    //     )
+    for _, p := range filemap.paths { // FIXME: performance, operate on p.(*Path) instead
+      var ps, err = p.Strval(ctx)
+      if err != nil {
+        erro(ctx, "%v: strval `%v` failed: %v", filemap, p, err).debug(1)
+        return
+      }
+      for i := strings.LastIndex(ps, PathSep); -1 <= i; {
+        var ( prefix = ps[i+1:]; l = len(prefix) ) // NOTE: -1 <= i < len(ps)
+        if has := strings.HasPrefix(str, prefix) && str[l] == '/'; has {
+          if matched, _, _ = pat.match(ctx, str[len(prefix)+1:]); matched { break }
+        }
+        if 0 < i { i = strings.LastIndex(ps[:i], PathSep) } else { break }
+      }
+    }
+  }
+  return // NOTE: also `globMatchFile(ctx, pat, str, true)`
 }
 
 func (filemap *FileMap) stat(ctx Context, base, pre, name string) (file *File) {
@@ -198,13 +220,13 @@ func hasGlobMeta(path string) bool {
 	return strings.ContainsAny(path, magicChars)
 }
 
-// globMatch - Glob matching each component of the filename against the
+// globMatchFile - Glob matching each component of the filename against the
 // glob value. It checks in two different ways. If the filename and the
 // glob pattern has the some number of components (splitted by PathSep),
 // all components are compared. If the pattern has only one component,
 // the last filename component is compared with the pattern, and the prefix
 // components are returned in 'pre'.
-func globMatch(ctx Context, patVal Value, filename string, tailMatch bool) (matched bool, pre string) {
+func globMatchFile(ctx Context, patVal Value, filename string, tailMatch bool) (matched bool, pre string) {
   switch patVal.(type) {
   default: // good to go!
   case *List:
@@ -224,21 +246,28 @@ func globMatch(ctx Context, patVal Value, filename string, tailMatch bool) (matc
   }
 
   var patList = strings.Split(filepath.Clean(patStr), PathSep)
-  if len(patList) == 0 {
-    return // FIXME: match any?
-  }
+  if len(patList) == 0 { return } // FIXME: match any?
 
-  var list = strings.Split(filepath.Clean(filename), PathSep)
-  if len(patList) == len(list) { // src/*.o  <->  src/foo.o
+  var srcList = strings.Split(filepath.Clean(filename), PathSep)
+  if len(patList) == len(srcList) { // src/*.o  <->  src/foo.o
     for i, pat := range patList { // Matching all components
-      if matched, _ = filepath.Match(pat, list[i]); !matched { return }
+      if matched, _ = filepath.Match(pat, srcList[i]); !matched { return }
     }
-  } else if len(patList) == 1 && len(list) > 1 { // *.o|foo.o  <->  src/foo.o
+  } else if len(patList) == 1 && len(srcList) > 1 { // *.o|foo.o  <->  src/foo.o
     // NOTE: partially matching only the last part is logically incorrect!
     //       for example of this wrong match: stdint.h <-> isl/stdint.h
-    if tailMatch {
-      if matched, _ = filepath.Match(patList[0], list[len(list)-1]); matched {
-        pre = filepath.Join(list[:len(list)-1]...)
+    if tailMatch && true {
+      for i, j := len(patList)-1, len(srcList)-1; -1 < i && -1 < j; i, j = i-1, j-1 {
+        if v, _ := filepath.Match(patList[i], srcList[j]); !v {
+          pre = filepath.Join(srcList[:j]...)
+          return
+        } else {
+          matched = true
+        }
+      }
+    } else if tailMatch && false {
+      if matched, _ = filepath.Match(patList[0], srcList[len(srcList)-1]); matched {
+        pre = filepath.Join(srcList[:len(srcList)-1]...)
         return
       }
     } else if matched, _ = filepath.Match(patList[0], filename); matched {
@@ -543,9 +572,6 @@ ForFilemaps:
     // Match the represented file name.
     var matched, pre = filemap.Match(ctx, name) // TODO: performance
     if !matched { continue ForFilemaps }
-    if false && strings.HasSuffix(name, "...") {
-      warn(ctx, "%v: %T %v; %v; %v", p, filemap.pattern, filemap, name, matched).of(filemap.pattern).debug(1)
-    }
 
     var proj = filemap.project
     if proj.changedWD != "" { file = filemap.stat(ctx, proj.changedWD, pre, name) }
