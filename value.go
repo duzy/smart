@@ -2627,7 +2627,7 @@ func (p *Barecomp) match(ctx Context, i interface{}) (full bool, s string, stems
             }
         }
     } else {
-        var is string
+        var ( is string; n int; elem Value )
         switch t := i.(type) {
         case string: is = t
         case Value:
@@ -2640,7 +2640,8 @@ func (p *Barecomp) match(ctx Context, i interface{}) (full bool, s string, stems
             erro(ctx, "%T: matching unsupported value: %T %v", p, i, i).of(p).debug(1)
             return
         }
-        for _, elem := range p.Elems {
+        if is == "" { return }
+        for n, elem = range p.Elems {
             var _, t, ss = elem.match(ctx, is)
             if t == "" { break } else {
                 stems = append(stems, ss...)
@@ -2648,7 +2649,7 @@ func (p *Barecomp) match(ctx Context, i interface{}) (full bool, s string, stems
                 s += t
             }
         }
-        if is == "" { full = true }
+        if is == "" && n == len(p.Elems)-1 { full = true }
         if false && strings.HasPrefix(p.String(), "llvm.tools.") && strings.HasPrefix(fmt.Sprintf("%s", i), "llvm.tools.") {
             warn(ctx, "%v: %v %v %v; %s", p, full, s, stems, is).debug(1)
         }
@@ -3963,18 +3964,18 @@ func (p *Flag) elemStr(ctx Context, o Object, k elemkind) (s string) {
     return "-" + elementString(ctx, o, p.name, k)
 }
 func (p *Flag) opt(ctx Context, short, long string) (res string, match bool) {
-        if isNil(p.name) {
-                erro(ctx, "flag name is nil").of(p)
-        } else if f, ok := p.name.(*Flag); ok {
-                res, match = f.opt(ctx, short, long)
-        } else if s, err := p.name.Strval(ctx); err != nil {
-                erro(ctx, "strval '%v' failed: %v", p.name, err).of(p.name)
-        } else if s == short {
-                res, match = short, true
-        } else if s == long {
-                res, match = long, true
-        }
-        return
+    if isNil(p.name) || isNone(p.name) {
+        if false { erro(ctx, "flag name is nil").of(p).debug(16) }
+    } else if f, ok := p.name.(*Flag); ok {
+        res, match = f.opt(ctx, short, long)
+    } else if s, err := p.name.Strval(ctx); err != nil {
+        erro(ctx, "strval '%v' failed: %v", p.name, err).of(p.name).debug(16)
+    } else if s == short {
+        res, match = short, true
+    } else if s == long {
+        res, match = long, true
+    }
+    return
 }
 // DEPRECATED
 func (p *Flag) opts(ctx Context, try bool, opts ...string) (runes []rune, names []string, err error) {
@@ -5458,7 +5459,7 @@ func (p *GlobPattern) match(ctx Context, i interface{}) (full bool, result strin
     default:
         unreachable("glob.match: %T %v", i, i)
     }
-    if matched, pre := globMatch(ctx, p, s, true); matched {
+    if matched, pre := globMatchFile(ctx, p, s, true); matched {
         result, full = s, true // FIXME: calculate stems from matching
         if pre != "" { /*full = false*/ }
     }
