@@ -61,6 +61,7 @@ func (filemap *FileMap) match(ctx Context, pat Value, str string) (matched bool,
     //         (sub/dir/foo.c) => $(srcdir)
     //     )
     for _, p := range filemap.paths { // FIXME: performance, operate on p.(*Path) instead
+      if _, ok := p.(*Path); !ok { continue } // NOTE: only work with paths to improve performance
       var ps, err = p.Strval(ctx)
       if err != nil {
         erro(ctx, "%v: strval `%v` failed: %v", filemap, p, err).debug(1)
@@ -454,7 +455,7 @@ func (p *Project) filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*
     }
     appendUsedFiles = func(p *Project) {
       for _, u := range p.using.list {
-        if u.opts.files { appendUsingList(u.project) }
+        appendUsingList(u.project)
       }
     }
     appendUsedFiles(p)

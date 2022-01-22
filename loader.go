@@ -616,6 +616,7 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, p
         //applyUseeVars(ctx, l.project, loaded)  // aka. ABC += $(using.ABC)
         //applyUsingVars(ctx, l.project, loaded) // aka. using.ABC += $(using.ABC)
     }
+	if opts.files { l.importFileMaps(ctx, specVal) }
     return
 }
 

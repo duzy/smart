@@ -1623,18 +1623,6 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
 		erro(p, "%v errors: use %v", errs, specNames).at(pos).debug(6)
 		if true { fail(pos, "%s: use %v failed; %d errors", proj, specNames, errs) }
 	}
-
-    if false && err == nil {
-        var using Object
-        if using, err = p.project.resolveObject(ctx, "using.*"); err != nil {
-			erro(p, "resolve 'using.*' failed: %v", err).at(p.Position()).debug(1)
-		} else if isNil(using) {
-			// does nothing
-		} else if def, ok := using.(*Def); ok {
-			info(ctx, "TODO: using: %T %v", def, def.value).of(specVal).debug(true, 1)
-		}
-		err = nil
-    }
 	return
 }
 
