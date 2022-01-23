@@ -268,9 +268,11 @@ type genericoptions struct {
 }
 
 type useOpts struct {
-    noVars bool `nv,novars;nv,no-vars` // NOTE: deprecates -nouse, -unuse
-	files bool `f,files` // NOTE: see also '-import(xxxx)'
-	reuse bool `r,reuse;ru,reusing`
+    noVars   bool `nv,novars;nv,no-vars` // NOTE: deprecates -nouse, -unuse
+	files    bool `f,files` // NOTE: see also '-import(xxxx)'
+	filesPub bool `fp,files-pub;fp,files-public;pf,public-files`
+    public   bool `p,pub;pub,public` // NOTE: work with -files flag
+	reuse    bool `r,reuse;ru,reusing`
 }
 
 type useVarOpts struct {
@@ -616,7 +618,10 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, p
         //applyUseeVars(ctx, l.project, loaded)  // aka. ABC += $(using.ABC)
         //applyUsingVars(ctx, l.project, loaded) // aka. using.ABC += $(using.ABC)
     }
-	if opts.files { l.importFileMaps(ctx, specVal) }
+    if opts.files || opts.filesPub {
+        var public = opts.public || opts.filesPub
+        l.importFileMaps(ctx, public, specVal)
+    }
     return
 }
 

@@ -1644,7 +1644,7 @@ func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ 
 	}
 }
 
-func (p *parser) importFileMaps(ctx Context, paths ...Value) {
+func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
 	var (
 		opts = useOpts{ noVars:true, reuse:true }
 		projects []*Project
@@ -1678,7 +1678,12 @@ func (p *parser) importFileMaps(ctx Context, paths ...Value) {
 	for _, proj := range projects {
 		var filemaps = p.Project()._filemap_
 		for _, fm := range proj.filemaps(ctx, false, false) {
-			if fm.public { filemaps = appendFilemapUniquely(ctx, filemaps, fm) }
+			if fm.public {
+				if !public {
+					fm = &FileMap{ fm.project, fm.pattern, fm.paths, public }
+				}
+				filemaps = appendFilemapUniquely(ctx, filemaps, fm)
+			}
 		}
 		p.Project()._filemap_ = filemaps
 	}
@@ -1734,7 +1739,7 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 				return
 			}
 			switch name {
-			case "import": p.importFileMaps(ctx, a.args...); return
+			case "import": p.importFileMaps(ctx, opts.public, a.args...); return
 			default:
 				erro(ctx, "invalid files flag: %v").of(f.name).debug(1)
 				return
@@ -1768,7 +1773,7 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 				return
 			}
 			switch name {
-			case "import": p.importFileMaps(ctx, paths...); return
+			case "import": p.importFileMaps(ctx, opts.public, paths...); return
 			default:
 				erro(ctx, "invalid files flag: %v").of(f.name).debug(1)
 				return

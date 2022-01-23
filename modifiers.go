@@ -1622,8 +1622,9 @@ func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
                         okay, brks = traverseString(ctx, nil, dep)
                 } else {
                         prompt(ctx, "%s: dep is unknown as file; project %v\n", dep, proj)
-                        erro(ctx, "%s is unknown as file", dep)
+                        erro(ctx, "%v: %s is unknown as file", proj, dep)
                         errostack(ctx, 5, "%v", ctx).debug(48)
+                        fail(ctx.Position(), "dep '%s' is not file", dep)
                 }
                 fullname = dep
         } else {
@@ -1631,7 +1632,11 @@ func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
                 okay = okay && file.exists()
                 fullname = file.fullname()
         }
-        if /*brks = brks.not(breakCase, breakNext, breakDone);*/ brks.has() {
+        if tb := brks.of(breakCase, breakNext, breakDone); tb.has() {
+                brks = brks.not(breakCase, breakNext, breakDone)
+                // TODO: for _, brk := range tb { ... }
+        }
+        if brks.has() {
                 prompt(ctx, "%s: traverse dep failed (okay=%v), project %v\n", fullname, okay, proj)
                 for _, brk := range brks {
                         switch brk.what {
@@ -2722,7 +2727,8 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
                         }
                         var file = stat(ctx, filename, "", "")
                         if  file == nil {
-                                erro(ctx, "invalid file '%s'", filename).debug(1)
+                                prompt(ctx, "%s: invalid file", filename)
+                                errostack(ctx, 6, "invalid file '%s'", filename).debug(1)
                         } else {
                                 var files []*File
                                 if files, err = file.stamp(ctx); err != nil {
