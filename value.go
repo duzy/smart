@@ -612,12 +612,13 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
             var pos = pc.prog.position
             if !pos.SameLine(&last) {
                 var str, _, _ = entryStr(pc, pc.entry())
+                if pc != nil { str += " ..." }
                 point = ctx.diag(dt, "%v: %v", proj, str).at(pos)
                 last = pos
                 n -= 1
             }
             if n == 0 {
-                if pc != nil { point = ctx.diag(dt, "%v: ...", proj).at(pos) }
+                if false && pc != nil { point = ctx.diag(dt, "%v: ...", proj).at(pos) }
                 break
             }
         }
@@ -909,7 +910,7 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
         }
     }
 
-    for _, entry := range concreteList {
+    for i, entry := range concreteList {
         var project = entry.OwnerProject()
         if entry != nil && currentTargetValue != entry {
             if w, ok := currentTargetValue.(*Bareword); ok && w.string == target {
@@ -918,7 +919,8 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
                 file, _ = entry.Target().(*File)
                 okay = true
                 return
-            } else if tb := brks.of(breakFail, breakErro); len(tb) > 0 {
+            }
+            if tb := brks.not(breakCase, breakNext, breakDone); tb.has() {
                 var str, ent, _ = entryStr(ctx, entry)
                 prompt(ctx, "%s: traverse entry failed, project %v\n", ent, project)
                 brks = brks.not(breakFail, breakErro);
@@ -931,29 +933,20 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
                 }
                 errostack(ctx, 3, "%v: %v: %v", str, project, ctx).at(pos).debug(6)
                 return
-            } else if tb = brks.of(breakNext); len(tb) > 0 {
+            } else if tb = brks.of(breakNext); tb.has() {
                 if brks = brks.not(breakNext); brks.has() {
                     prompt(ctx, "%s: traverse entry failed, project %v\n", entry, project)
                     erro(ctx, "next with broken traversal for %v (entry=%v, next=%v)", target, entry, tb[0].value).at(entry.Position()).debug(1)
                     errostack(ctx, 3, "%v: %v: %v", entry, entry.OwnerProject(), ctx).at(pos).debug(6)
                 }
                 continue
-            } else if tb = brks.of(breakCase, breakDone); len(tb) > 0 {
-                brks, okay = brks.not(breakCase, breakDone), true // reset breakers
+            } else if tb = brks.of(breakCase); tb.has() {
+                if false { warn(ctx, "%v: %d. %v", project, i, entry).debug(1) }
+                brks, okay = brks.not(breakCase), true // reset breakers
                 break
-            }
-            if brks.has() {
-                var str, ent, _ = entryStr(ctx, entry)
-                prompt(ctx, "%s: traverse entry failed, project %v\n", ent, project)
-                for _, brk := range brks {
-                    switch brk.what {
-                    case breakFail: erro(ctx, "broken traversal for concrete entry '%v' failed: %v", str, brk.message).at(pos)
-                    case breakErro: erro(ctx, "broken traversal for concrete entry '%v' with error: %v", str, brk.error).at(pos)
-                    default: erro(ctx, "broken traversal for concrete entry '%v' in %v (%v)", str, project, brk.what).at(pos)
-                    }
-                }
-                errostack(ctx, 3, "%v: %v: %v", str, entry.OwnerProject(), ctx).at(pos).debug(6)
-                return
+            } else if tb = brks.of(breakDone); tb.has() {
+                brks, okay = brks.not(breakDone), true // reset breakers
+                break
             }
         }
     }

@@ -1370,17 +1370,12 @@ ForPrograms:
                 }
 
                 // Update traversal breakers
-                var prevBrks = brks; brks = nil
-                for _, brk := range prevBrks {
-                        // NOTE: see traversal.file and traversal.target for further processing
+                var _brks = brks; brks = nil
+                for _, brk := range _brks {
                         switch brk.what {
-                        case /*breakCase,*/breakDone:
-                                // FIXME: ctx.breakers = append(ctx.breakers, brk)
-                                break ForPrograms // case selected or execution fully done
-                        case breakCase:
-                                brks.append(brk)
+                        case breakDone:
                                 break ForPrograms
-                        case breakFail, breakErro:
+                        case breakCase, breakFail, breakErro:
                                 brks.append(brk)
                                 break ForPrograms
                         case breakNext:
@@ -1517,17 +1512,21 @@ func (p *stemmed) string(ctx Context, targetVal Value, target string) (res break
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("stemmed.traverse(%v)", p))) }
         if optionEnableBenchspots { defer bench(spot("stemmed.traverse")) }
 
-        var realTarget Value
-        var sc = stemmedContext{ ctx, p.Stems }
-        if file := ctx.Project().FindFile(&sc, target); file != nil {
+        var (
+                realTarget Value
+                proj = ctx.Project()
+                sc = stemmedContext{ ctx, p.Stems }
+        )
+        if file := proj.FindFile(&sc, target); file != nil {
                 file.position = p.position
                 realTarget = file
         } else {
                 realTarget = targetVal
         }
         if isNil(realTarget) {
-                erro(ctx, "%v: %v, %v: nil target", ctx.Project(), targetVal, target)
-                errostack(ctx, 8, "%v", ctx).debug(20)
+                prompt(ctx, "%v: no real target value in project %v\n", target, proj)
+                erro(ctx, "%v: %v: no real target value (%v)", proj, target, targetVal)
+                errostack(ctx, 10, "%v", ctx).debug(24)
                 return
         } else {
                 p.target = realTarget

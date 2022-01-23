@@ -228,8 +228,7 @@ func (d *diagPoint) debug(args ...interface{}) *diagPoint {
     }
   } else if true {
     var gotPanic bool
-    for j += j % 2; i+1 < len(v) && 0 < j; i += 2 {
-      if false { fmt.Fprintf(stderr, "%s\n%s\n", v[i+0], v[i+1]) }
+    for j += j % 2; 0 < j && i+1 < len(v); i, j = i+2, j-2 {
       var (
         sm1 = goStackLine1.FindAllSubmatch(v[i+0], 1)
         sm2 = goStackLine2.FindAllSubmatch(v[i+1], 1)
@@ -238,14 +237,15 @@ func (d *diagPoint) debug(args ...interface{}) *diagPoint {
       )
       if gotPanic { se = "		<---- panic" }
       if sm1 != nil && sm2 != nil && !isPanic {
+        var e string
+        if 0 < j-2 && i+3 < len(v) { e = se+"\n" } else { e = " ...\n" }
         d.stack = append(d.stack, sm2[0][1]...)
         d.stack = append(d.stack, []byte(":"+s+" ")...)
         d.stack = append(d.stack, sm1[0][1]...)
         d.stack = append(d.stack, sm1[0][2]...)
-        d.stack = append(d.stack, []byte(se+"\n")...)
+        d.stack = append(d.stack, []byte(e)...)
       }
       gotPanic = isPanic
-      j -= 2
     }
   } else {
     d.stack = bytes.Join(v[i:], ln)

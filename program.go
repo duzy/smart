@@ -493,10 +493,10 @@ func traversePrerequisites(ctx Context, prerequisites []Value) (brks breakers) {
             }
             if brks = prerequisite.traverse(ctx); brks.has() {
                 var tb = brks.not(breakNext, breakCase, breakDone)
-                if len(tb) > 0 && len(ctx.stems()) > 0 && false {
+                if false && tb.has() && len(ctx.stems()) > 0 {
                     var target, _ = ctx.autoGet("@")
                     warn(ctx, "broken traversal: %v (target = %v, stems = %v)", tb[0].what, target, ctx.stems()).debug(1)
-                } else if tb = brks.not(breakDone); infos && len(tb) > 0 {
+                } else if tb = brks.not(breakDone); infos && tb.has() {
                     var s, _ = prerequisite.Strval(ctx)
                     for _, brk := range brks { warn(ctx, "%v; %T %v; %v", brk.what, prerequisite, prerequisite, s).debug(8) }
                 }

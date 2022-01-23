@@ -70,6 +70,10 @@ func (filemap *FileMap) match(ctx Context, pat Value, str string) (matched bool,
       for i := strings.LastIndex(ps, PathSep); -1 <= i; {
         var ( prefix = ps[i+1:]; l = len(prefix) ) // NOTE: -1 <= i < len(ps)
         if has := strings.HasPrefix(str, prefix) && str[l] == '/'; has {
+          if false && strings.HasSuffix(ps, "/clang/AST") && str == "clang/AST/CommentCommandList.inc" {
+            v, s, t := pat.match(ctx, str[len(prefix)+1:])
+            warnstack(ctx, 8, "%v, %v: %v: %v: %v, %v %v %v", p, filemap, str, prefix, has, v, s, t).debug(1)
+          }
           if matched, _, _ = pat.match(ctx, str[len(prefix)+1:]); matched { break }
         }
         if 0 < i { i = strings.LastIndex(ps[:i], PathSep) } else { break }

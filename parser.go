@@ -1207,19 +1207,19 @@ func (p *parser) parseSpecialClosureDelegate(lhs bool) Value {
 		obj Object
 	)
 	if err != nil {
-		erro(p, "resolve '%v' failed: %v", name, err).of(name).debug(1)
+		erro(p, "resolve '%v' failed: %v", name, err).of(name).debug(6)
 		return MakeNil(position)
 	} else if resolved == nil {
-		erro(p, "resolved '%v' is nil", name).of(name).debug(1)
+		erro(p, "'%v' is undefined", name).of(name).debug(6)
 		return MakeNil(position)
 	} else if nameStr == "" {
-		erro(p, "name '%v' is empty", name).of(name).debug(1)
+		erro(p, "'%v' is empty", name).of(name).debug(6)
 		return MakeNil(position)
 	} else if def, ok := resolved.(Caller); def == nil || !ok {
-		erro(p, "resolved '%v' is not callable: %T", name, resolved).of(resolved).debug(1)
+		erro(p, "'%v' is not callable: %T", name, resolved).of(resolved).debug(6)
 		return MakeNil(position)
 	} else if obj, ok = def.(Object); obj == nil || !ok {
-		erro(p, "resolved '%v' is not object: %T", name, def).of(resolved).debug(1)
+		erro(p, "'%v' is not object: %T", name, def).of(resolved).debug(6)
 		return MakeNil(position)
 	}
 
@@ -1375,7 +1375,7 @@ func (p *parser) parseExpr(lhs bool) (x Value) {
 
 	var tok, lit = p.tok, p.lit
 	if x = p.parseComposedExpr(lhs); isNil(x) {
-		erro(p, "%v: invalid expression (tok=%v, lit=%v)", p.Project(), tok, lit).debug(1)
+		erro(p, "%v: invalid expression (tok=%v, lit=%v)", p.Project(), tok, lit).debug(6)
 		return
 	} else if lhs && p.tok.IsAssign() { return }
 
@@ -2192,7 +2192,13 @@ ForModifiersExpr:
 			err error
 		)
 		if g, ok := x.(*Group); !ok {
-			erro(p, "modifier not represented by group: %T", x).at(g.position).debug(1)
+			//erro(p, "invalid modifier: %T %v", x, x).at(g.position).debug(1)
+			var xv Value
+			if xv, err = x.expand(p, expandDelegate/*TODO: expandInline or expandAuto*/); err != nil {
+				erro(p, "invalid modifier: %T %v", x, x).at(g.position).debug(1)
+			} else {
+				warn(p, "modifier: %T %v   →   %T %v", x, x, xv, xv).at(x.Position()).debug(1)
+			}
 			continue ForModifiersExpr
 		} else {
 			group = g

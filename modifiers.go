@@ -115,12 +115,15 @@ func (g *modifiergroup) traverse(ctx Context) (brks breakers) {
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("modifiergroup.traverse(%s)", g))) }
         for _, m := range g.modifiers {
                 var (
-                        proj = ctx.Project()
                         ctx = positional(ctx, m.position)
+                        proj = ctx.Project()
                 )
-                if brks = m.traverse(ctx); !brks.has() {
-                        continue // no breaks
-                } else if tb := brks.not(breakCase, breakDone, breakNext); tb.has() {
+                if tb := m.traverse(ctx); tb.has() {
+                        brks = append(brks, tb...) // collect breakers
+                } else {
+                        continue
+                }
+                if tb := brks.not(breakCase, breakDone, breakNext); tb.has() {
                         var _, ent, _ = entryStr(ctx, ctx.entry())
                         prompt(ctx, "%v: traverse %s failed, project %s\n", ent, m.name, proj)
                         for _, brk := range tb {
@@ -133,6 +136,7 @@ func (g *modifiergroup) traverse(ctx Context) (brks breakers) {
                         errostack(ctx, 3, "%v: %v: %v", proj, m.name, ctx).debug(6)
                         break
                 } else if tb = brks.of(breakCase); tb.has() {
+                        if false { warn(ctx, "%v: %v", proj, m).debug(16) }
                         continue // case selected
                 } else if tb = brks.of(breakDone, breakNext); tb.has() {
                         break // done or try next rule entry
@@ -338,7 +342,7 @@ func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
                 grepped, _ = ctx.autoGet("~")
         )
         if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.error) == 0 {
-                warn(ctx, "debug: %v %v", target, depends).at(pos).debug(1)
+                warn(ctx, "debug: %v; %v; %v", target, depends, args).at(pos).debug(1)
         }
         if opts.checkOutdated && !isNil(target) {
                 var tt = target.stat(ctx).mod()
@@ -1613,7 +1617,14 @@ func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
                 errostack(ctx, 5, "%s: %v", dep, ctx).debug(10)
                 return
         } else if file := proj.FindFile(ctx, dep); file == nil {
-                okay, brks = traverseString(ctx, nil, dep)
+                if false {
+                        // NOTE: traverseString won't work with 'nil' target value
+                        okay, brks = traverseString(ctx, nil, dep)
+                } else {
+                        prompt(ctx, "%s: dep is unknown as file; project %v\n", dep, proj)
+                        erro(ctx, "%s is unknown as file", dep)
+                        errostack(ctx, 5, "%v", ctx).debug(48)
+                }
                 fullname = dep
         } else {
                 okay, brks = traverseFile(ctx, file)
