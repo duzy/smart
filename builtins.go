@@ -782,6 +782,7 @@ func builtinLess(ctx Context, args... Value) (res Value) {
 
 type builtinMatchOpts struct {
         regexps []*regexp.Regexp `r,reg;rx,regex;re,regexp`
+        full bool `f,full;fm,full-match;fm,fullmatch`
 }
 // $(match rx1 rx2 rx3, a b c d...)
 func builtinMatch(ctx Context, args... Value) (res Value) {
@@ -822,7 +823,8 @@ ForValList:
                         }
                 }
                 for _, pat := range patList {
-                        if matched, _, _ := pat.match(ctx, str); matched {
+                        var matched, s, _ = pat.match(ctx, str)
+                        if matched || (!opts.full && s != "") {
                                 res = MakeBoolean(pos, true)
                                 break ForValList
                         }
