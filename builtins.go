@@ -70,9 +70,7 @@ var builtins = map[string]BuiltinFunc {
         `defor`:        builtinDefor,
         `or`:           builtinOr,
         `and`:          builtinAnd,
-        /*
-        `xor`:          builtinXor,
-        */
+        //`xor`:          builtinXor,
         `not`:          builtinNot,
 
         `not-equal`:    builtinNotEqual,
@@ -98,10 +96,6 @@ var builtins = map[string]BuiltinFunc {
 
         `serve-http`:   builtinServeHttp,
         `serve-https`:  builtinServeHttps,
-
-        // `print`:        builtinPrint,
-        // `printl`:       builtinPrintl,
-        // `println`:      builtinPrintln,
 
         //`plus`:    builtinPlus,
         //`minus`:   builtinMinus,
@@ -162,10 +156,18 @@ var builtins = map[string]BuiltinFunc {
         `decode-csv` */
 
         // Fullname of a file or identical to the input
-        `fullname`: builtinFullName,
+        `fullname`:   builtinFullName,
 
-        // TODO: move these into builtin package `path', `filepath'
         `base`:       builtinBase,
+        `base2`:      builtinBase2,
+        `base3`:      builtinBase3,
+        `base4`:      builtinBase4,
+        `base5`:      builtinBase5,
+        `base6`:      builtinBase6,
+        `base7`:      builtinBase7,
+        `base8`:      builtinBase8,
+        `base9`:      builtinBase9,
+
         `dir`:        builtinDir,
         `dir2`:       builtinDir2,
         `dir3`:       builtinDir3,
@@ -2663,8 +2665,9 @@ type builtinBaseOpts struct {
         debug int `d,debug`
         fullname bool `f,full;fn,fullname` // unused
 }
-func builtinBase(ctx Context, args... Value) (res Value) {
+func basex(ctx Context, n int, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 opts builtinBaseOpts
                 l []Value
                 err error
@@ -2676,76 +2679,42 @@ func builtinBase(ctx Context, args... Value) (res Value) {
                 erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
         }
-
-        var pos = ctx.Position()
         for _, a := range args {
                 var s string
                 if s, err = fullnameOrStrval(ctx, a); err != nil {
                         erro(ctx, "fullname '%v' failed : %v", a, err).debug(1)
                         return
                 }
-                l = append(l, MakeString(pos, filepath.Base(s)))
-        }
-        res = MakeListOrScalar(pos, l)
-        return
-}
-
-func dirx(ctx Context, n int, args... Value) (res Value) {
-        var (
-                pos = ctx.Position()
-                l []Value
-                s string
-                err error
-        )
-        for _, a := range args {
-                if s, err = fullnameOrStrval(ctx, a); err != nil {
-                        erro(ctx, "fullname '%v' failed : %v", a, err).debug(1)
-                        return
-                }
-                s = filepath.Dir(s)
+                d := filepath.Dir(s)
+                s = filepath.Base(s)
                 for i := n-1; 0 < i; i -= 1 {
-                        s = filepath.Dir(s)
+                        s = filepath.Join(filepath.Base(d), s)
+                        d = filepath.Dir(d)
                 }
-                l = append(l, MakePathStr(pos, s))
+                l = append(l, MakeString(pos, s))
         }
         res = MakeListOrScalar(pos, l)
         return
 }
-
-func undirx(ctx Context, n int, args... Value) (res Value) {
-        var (
-                pos = ctx.Position()
-                l []Value
-                s string
-                err error
-        )
-        for _, a := range args {
-                if s, err = fullnameOrStrval(ctx, a); err != nil {
-                        erro(ctx, "fullname '%v' failed : %v", a, err).debug(1)
-                        return
-                }
-                v := strings.Split(s, PathSep)
-                if i := len(v); i == 0 {
-                        // v is empty
-                } else if n < i {
-                        v = v[n:]
-                } else {
-                        v = v[i-1:] // empty
-                }
-                l = append(l, MakePathStr(pos,filepath.Join(v...)))
-        }
-        res = MakeListOrScalar(pos, l)
-        return
-}
+func builtinBase (ctx Context, args... Value) Value { return basex(ctx, 1, args...) }
+func builtinBase2(ctx Context, args... Value) Value { return basex(ctx, 2, args...) }
+func builtinBase3(ctx Context, args... Value) Value { return basex(ctx, 3, args...) }
+func builtinBase4(ctx Context, args... Value) Value { return basex(ctx, 4, args...) }
+func builtinBase5(ctx Context, args... Value) Value { return basex(ctx, 5, args...) }
+func builtinBase6(ctx Context, args... Value) Value { return basex(ctx, 6, args...) }
+func builtinBase7(ctx Context, args... Value) Value { return basex(ctx, 7, args...) }
+func builtinBase8(ctx Context, args... Value) Value { return basex(ctx, 8, args...) }
+func builtinBase9(ctx Context, args... Value) Value { return basex(ctx, 9, args...) }
 
 type builtinDirOpts struct {
         fullname bool `f,full;fn,fullname`
 }
-func builtinDir(ctx Context, args... Value) (res Value) {
+func dirx(ctx Context, n int, args... Value) (res Value) {
         var (
+                pos = ctx.Position()
                 opts builtinDirOpts
-                proj *Project
                 l []Value
+                s string
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
@@ -2755,60 +2724,72 @@ func builtinDir(ctx Context, args... Value) (res Value) {
                 erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
         }
-
-        var pos = ctx.Position()
         for _, a := range args {
-                var s string
                 if opts.fullname {
-                        if proj, s, _, _, err = asOptFullname(ctx, proj, a); err != nil {
-                                erro(ctx, "fullname '%v' failed: %v", a, err).debug(1)
-                                break
-                        }
-                }
-                if !opts.fullname || s == "" {
-                        if s, err = a.Strval(ctx); err != nil {
-                                erro(ctx, "strval '%v' failed: %v", a, err).debug(1)
+                        if s, err = fullnameOrStrval(ctx, a); err != nil {
+                                erro(ctx, "fullname '%v' failed : %v", a, err).debug(1)
                                 return
                         }
+                } else if s, err = a.Strval(ctx); err != nil {
+                        erro(ctx, "strval '%v' failed: %v", a, err).debug(1)
+                        return
                 }
-                l = append(l, MakePathStr(pos,filepath.Dir(s)))
+                s = filepath.Dir(s)
+                for i := n-1; 0 < i; i -= 1 { s = filepath.Dir(s) }
+                l = append(l, MakePathStr(pos, s))
         }
         res = MakeListOrScalar(pos, l)
         return
 }
 
-func builtinDir2(ctx Context, args... Value) (res Value) {
-        return dirx(ctx, 2, args...)
+func undirx(ctx Context, n int, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                opts builtinDirOpts
+                l []Value
+                s string
+                err error
+        )
+        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
+                erro(ctx, "merge args failed: %v", err).debug(1)
+                return
+        } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
+                erro(ctx, "parse opts failed: %v", err).debug(1)
+                return
+        }
+        for _, a := range args {
+                if opts.fullname {
+                        if s, err = fullnameOrStrval(ctx, a); err != nil {
+                                erro(ctx, "fullname '%v' failed : %v", a, err).debug(1)
+                                return
+                        }
+                } else if s, err = a.Strval(ctx); err != nil {
+                        erro(ctx, "strval '%v' failed: %v", a, err).debug(1)
+                        return
+                }
+                var v = strings.Split(s, PathSep)
+                if i := len(v); i == 0 {
+                        // v is empty
+                } else if n < i {
+                        v = v[n:]
+                } else {
+                        v = v[i-1:] // empty
+                }
+                l = append(l, MakePathStr(pos, filepath.Join(v...)))
+        }
+        res = MakeListOrScalar(pos, l)
+        return
 }
 
-func builtinDir3(ctx Context, args... Value) (res Value) {
-        return dirx(ctx, 3, args...)
-}
-
-func builtinDir4(ctx Context, args... Value) (res Value) {
-        return dirx(ctx, 4, args...)
-}
-
-func builtinDir5(ctx Context, args... Value) (res Value) {
-        return dirx(ctx, 5, args...)
-}
-
-func builtinDir6(ctx Context, args... Value) (res Value) {
-        return dirx(ctx, 6, args...)
-}
-
-func builtinDir7(ctx Context, args... Value) (res Value) {
-        return dirx(ctx, 7, args...)
-}
-
-func builtinDir8(ctx Context, args... Value) (res Value) {
-        return dirx(ctx, 8, args...)
-}
-
-func builtinDir9(ctx Context, args... Value) (res Value) {
-        return dirx(ctx, 9, args...)
-}
-
+func builtinDir (ctx Context, args... Value) (res Value) { return dirx(ctx, 1, args...) }
+func builtinDir2(ctx Context, args... Value) (res Value) { return dirx(ctx, 2, args...) }
+func builtinDir3(ctx Context, args... Value) (res Value) { return dirx(ctx, 3, args...) }
+func builtinDir4(ctx Context, args... Value) (res Value) { return dirx(ctx, 4, args...) }
+func builtinDir5(ctx Context, args... Value) (res Value) { return dirx(ctx, 5, args...) }
+func builtinDir6(ctx Context, args... Value) (res Value) { return dirx(ctx, 6, args...) }
+func builtinDir7(ctx Context, args... Value) (res Value) { return dirx(ctx, 7, args...) }
+func builtinDir8(ctx Context, args... Value) (res Value) { return dirx(ctx, 8, args...) }
+func builtinDir9(ctx Context, args... Value) (res Value) { return dirx(ctx, 9, args...) }
 func builtinDirs(ctx Context, args... Value) (res Value) {
         var n int
         if x := len(args); x > 0 {
@@ -2825,42 +2806,15 @@ func builtinDirs(ctx Context, args... Value) (res Value) {
         return
 }
 
-func builtinUndir(ctx Context, args... Value) (res Value) {
-        return undirx(ctx, 1, args...)
-}
-
-func builtinUndir2(ctx Context, args... Value) (res Value) {
-        return undirx(ctx, 2, args...)
-}
-
-func builtinUndir3(ctx Context, args... Value) (res Value) {
-        return undirx(ctx, 3, args...)
-}
-
-func builtinUndir4(ctx Context, args... Value) (res Value) {
-        return undirx(ctx, 4, args...)
-}
-
-func builtinUndir5(ctx Context, args... Value) (res Value) {
-        return undirx(ctx, 5, args...)
-}
-
-func builtinUndir6(ctx Context, args... Value) (res Value) {
-        return undirx(ctx, 6, args...)
-}
-
-func builtinUndir7(ctx Context, args... Value) (res Value) {
-        return undirx(ctx, 7, args...)
-}
-
-func builtinUndir8(ctx Context, args... Value) (res Value) {
-        return undirx(ctx, 8, args...)
-}
-
-func builtinUndir9(ctx Context, args... Value) (res Value) {
-        return undirx(ctx, 9, args...)
-}
-
+func builtinUndir (ctx Context, args... Value) (res Value) { return undirx(ctx, 1, args...) }
+func builtinUndir2(ctx Context, args... Value) (res Value) { return undirx(ctx, 2, args...) }
+func builtinUndir3(ctx Context, args... Value) (res Value) { return undirx(ctx, 3, args...) }
+func builtinUndir4(ctx Context, args... Value) (res Value) { return undirx(ctx, 4, args...) }
+func builtinUndir5(ctx Context, args... Value) (res Value) { return undirx(ctx, 5, args...) }
+func builtinUndir6(ctx Context, args... Value) (res Value) { return undirx(ctx, 6, args...) }
+func builtinUndir7(ctx Context, args... Value) (res Value) { return undirx(ctx, 7, args...) }
+func builtinUndir8(ctx Context, args... Value) (res Value) { return undirx(ctx, 8, args...) }
+func builtinUndir9(ctx Context, args... Value) (res Value) { return undirx(ctx, 9, args...) }
 func builtinUndirs(ctx Context, args... Value) (res Value) {
         var n = 0
         if x := len(args); x > 0 {

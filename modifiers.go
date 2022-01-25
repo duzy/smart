@@ -1623,7 +1623,7 @@ func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
                 } else {
                         prompt(ctx, "%s: dep is unknown as file; project %v\n", dep, proj)
                         erro(ctx, "%v: %s is unknown as file", proj, dep)
-                        errostack(ctx, 5, "%v", ctx).debug(48)
+                        errostack(ctx, 5, "%v", ctx).debug(24)
                         fail(ctx.Position(), "dep '%s' is not file", dep)
                 }
                 fullname = dep
@@ -2727,8 +2727,9 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
                         }
                         var file = stat(ctx, filename, "", "")
                         if  file == nil {
-                                prompt(ctx, "%s: invalid file", filename)
-                                errostack(ctx, 6, "invalid file '%s'", filename).debug(1)
+                                prompt(ctx, "%s: invalid file\n", filename)
+                                errostack(ctx, 6, "%v: invalid file '%s'", ctx.Project(), filename).debug(1)
+                                fail(ctx.Position(), "invalid file %s", filename)
                         } else {
                                 var files []*File
                                 if files, err = file.stamp(ctx); err != nil {
