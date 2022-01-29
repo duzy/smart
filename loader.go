@@ -268,11 +268,13 @@ type genericoptions struct {
 }
 
 type useOpts struct {
-    noVars   bool `nv,novars;nv,no-vars` // NOTE: deprecates -nouse, -unuse
+	noUse    bool `nu,nouse;uu,unuse` // TODO
+    noVars   bool `nv,novars;nv,no-vars`
 	files    bool `f,files` // NOTE: see also '-import(xxxx)'
 	filesPub bool `fp,files-pub;fp,files-public;pf,public-files`
     public   bool `p,pub;pub,public` // NOTE: work with -files flag
 	reuse    bool `r,reuse;ru,reusing`
+    vars   []Value `var,vars`
 }
 
 type useVarOpts struct {
@@ -570,41 +572,47 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, p
     // Check against the current load list before appending loaded.
     for _, using := range l.project.using.list {
         var (
-            lp = using.project
+            up = using.project
             proj *Project
             res, isb bool
         )
-        if loaded == lp {
+        if loaded == up {
             if !opts.noVars && !opts.files {
                 erro(ctx, "using `%s` multiple times", specName).of(specVal).debug(10)
             }
             return
         }
 
-        if proj, res, isb, err = loaded.hasLoaded(ctx, lp, breakUseLoop); err != nil {
+        if false && loaded.opts.multiUseAllowed {
+            // ...
+        } else if proj, res, isb, err = loaded.hasLoaded(ctx, up, breakUseLoop); err != nil {
             erro(ctx, "load '%s' failed: %s", specName, err).of(specVal).debug(1)
             return
         } else if isb {
-            if l.project.hasBase(lp) {
+            if l.project.hasBase(up) {
                 // common bases are fine
             } else {
                 erro(ctx, "`%s` is already a base", specName).of(specVal).debug(1)
             }
-        } else if res && !lp.opts.multiUseAllowed {
-            warn(ctx, "`%s` has already imported `%s` (from %s)", loaded, lp, proj).at(position)
-            warn(ctx, "see here for project %s", loaded).at(loaded.position)
-            warn(ctx, "see here for project %s", proj).at(proj.position)
-            warn(ctx, "see here for project %s", lp).at(lp.position).debug(1)
+        } else if res && !using.opts.reuse && !up.opts.multiUseAllowed && !loaded.opts.multiUseAllowed {
+            if true {
+                warn(ctx, "`%s` has already imported `%s` (from %s)", loaded, up, proj).at(position)
+                if loaded != up { warn(ctx, "project %s", loaded).at(loaded.position) }
+                if proj != up { warn(ctx, "project %s", proj).at(proj.position) }
+                warn(ctx, "project %s", up).at(up.position).debug(6)
+            } else {
+                warnstack(ctx, -1, "`%s` has already imported `%s` (from %s)", loaded, up, proj).at(position).debug(64)
+            }
         }
 
-        if proj, res, isb, err = lp.hasLoaded(ctx, loaded, breakUseLoop); err != nil {
+        if proj, res, isb, err = up.hasLoaded(ctx, loaded, breakUseLoop); err != nil {
             erro(ctx, "load '%s' failed: %s", specName, err).of(specVal).debug(1)
             return
         } else if isb {
-            warn(ctx, "`%s` is already base of `%s` (%s)", loaded, lp, proj).at(position).debug(1)
-        } else if res && !loaded.opts.multiUseAllowed {
-            warn(ctx, "`%s` has already been imported by `%s` (from %s)", loaded, lp, proj).at(position)
-            warnstack(ctx, 8, "`%s` has already been imported by `%s` (from %s)", loaded, lp, proj).debug(1)
+            warn(ctx, "`%s` is already base of `%s` (%s)", loaded, up, proj).at(position).debug(1)
+        } else if res && !using.opts.reuse && !loaded.opts.multiUseAllowed {
+            warn(ctx, "`%s` has already been imported by `%s` (from %s)", loaded, up, proj).at(position)
+            warnstack(ctx, 8, "`%s` has already been imported by `%s` (from %s)", loaded, up, proj).debug(1)
         }
     }
 
@@ -762,6 +770,12 @@ func (l *loader) addUsing(ctx Context, usee *Project, params []Value, opts useOp
     if l.project.using.append(ctx, usee, params, opts); !opts.noVars {
         applyUseeVars(ctx, l.project, usee)  // aka. ABC += $(using.ABC)
         applyUsingVars(ctx, l.project, usee) // aka. using.ABC += $(using.ABC)
+        if 0 < len(opts.vars) {
+            for _, v := range opts.vars {
+                warn(ctx, "var: %T %v", v, v).of(v)
+            }
+            warn(ctx, "TODO: %d vars to import", len(opts.vars)).debug(1)
+        }
     }
     return
 }
@@ -1047,7 +1061,10 @@ func (l *loader) includeFile(pos Position, spec Value) {
     defer func(mode Mode) { l.mode = mode } (l.mode) // Must restore parse mode!
     defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
     if _, err = l.ParseFile(fullname, nil, parseMode|Flat); err != nil {
-        erro(ctx, "include error occurred (from %v)", fullname).at(pos).debug(1)
+        prompt(ctx, "%v: %v\n", fullname, specName)
+        erro(ctx, "include error occurred (from %v)", fullname).at(pos)
+        errostack(ctx, 5, "%v", ctx).at(pos).debug(16)
+        if true { fail(pos, "parse file failed: %s", fullname) }
     }
 
     if n := ctx.checkErrors(true); n > 0 {
@@ -1715,7 +1732,9 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *pars
 
     var text []byte
     if text, err = readSource(filename, src); err != nil {
-        erro(l, "read source file failed: %v", err).at(l.Position()).debug(1)
+        prompt(l, "%v: %v\n", filename, err)
+        erro(l, "reading source failed: %v", err)
+        errostack(l, 5, "%v", l).debug(32)
         return
     }
 

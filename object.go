@@ -816,18 +816,6 @@ func (d *Def) call(ctx Context, a... Value) (res Value) {
 
         ctx = positional(ctx, d.position)
 
-        if false && d.name == "INCLUDE" {
-                var ( refs bool; defs []*Def )
-                if !isNil(value) {
-                        //refs = value.refs(ctx, d)
-                        defs = value.defs(ctx, d.name)
-                        if len(defs) > 0 { refs = defs[0] == d }
-                }
-                info(ctx, "%v -> %T %v %v, %v, %v", d, value, value, a, refs, defs)
-                info(ctx, "%v %v", d.OwnerProject(), d.scope)
-                info(ctx, "%v %v", ctx.Project(), ctx).debug(1)
-        }
-
         if isNil(value) {
                 d.mutex.Lock()
                 value = d.value

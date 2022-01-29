@@ -394,9 +394,10 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       }
     case rxCompilationWarning:
       if p.report {
-        //p.warnPos = p.convPos(v[1].string, v[2].string, v[3].string)
+        var wpos = p.convPos(v[1].string, v[2].string, v[3].string)
         lpos.Column = v[4].col + 1
         addScannedDiag(diagWarn, lpos, fmt.Sprintf("%s", v[4].string))
+        addScannedDiag(diagWarn, wpos, "warning from here")
         if false && !reportIncludedFrom() { warn(ctx, "…reported here").at(lpos).debug(1) }
       }
     case rxProtoFileNotFound:
@@ -1267,14 +1268,17 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       if en > 0 {
         erro(ctx, "%v: scanned %d known errors", str, en).at(lpos)
         erro(ctx, "%v: execute failed (%d errors)", str, en)
-        errostack(ctx, 32, "%v: %v", str, ctx).debug(6)
+        errostack(ctx, 32, "%v: (%T)", str, ctx).debug(6)
       } else if wn > 0 {
-        warn(ctx, "%v: scanned %d known warnings", str, wn).at(lpos)
         if false {
+          warn(ctx, "%v: scanned %d known warnings", str, wn).at(lpos)
           warn(ctx, "%v: execute has %d warnings", str, wn)
           warnstack(ctx, 3, "%v: %v", str, ctx).debug(1)
+        } else if pos := ctx.Position(); lpos.Equals(&pos) {
+          warn(ctx, "%v: scanned %d known warnings", str, wn).debug(1)
         } else {
-          warn(ctx, "%v: execute has %d warnings", str, wn).debug(1)
+          warn(ctx, "%v: scanned %d known warnings", str, wn).at(lpos)
+          warn(ctx, "%v: scanned %d known warnings", str, wn).debug(1)
         }
       } else if in > 0 && opts.infos {
         info(ctx, "%v: scanned %d known messages", str, in).at(lpos)

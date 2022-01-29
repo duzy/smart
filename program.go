@@ -305,7 +305,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             prompt(ctx, "%v: execution failed with %d errors, project %s\n", ent, errs, prog.project)
         }
         warn(ctx, `%d errors in execution "%s"`, errs, str)
-        warnstack(ctx, 8, "%v: %v", prog.project, ctx).debug(10)
+        warnstack(ctx, 8, "(%T): %v", ctx, prog.project).debug(10)
         if options.failOnErrors { fail(prog.position, "fail by %d errors", errs) }
     } } ()
     if cc != nil {

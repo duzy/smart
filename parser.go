@@ -1123,9 +1123,9 @@ func (p *parser) parseClosureDelegate() (result Value) {
 		} else if name = p.parseExpr(false); isNil(name) {
 			erro(p, "%v: parsed name is nil", p.Project()).at(posName).debug(1)
 		} else if name.expandible(ctx, expandClosure) {
-			erro(p, "%v: name '%v' (%T) is closured (project=%v)", p.Project(), name, name).at(posName).debug(1)
+			erro(p, "%v: name '%v' (%T) is closured", p.Project(), name, name).at(posName).debug(1)
 		} else if nameStr, obj, okay = resolveObject(posLp, tokLp, name); !okay {
-			erro(p, "%v: name '%v' is unidentified (project=%v)", p.Project(), name).at(posName).debug(1)
+			erro(p, "%v: name '%v' is unidentified", p.Project(), name).at(posName).debug(1)
 		}
 
 		if  (tokLp == token.LPAREN && p.tok != token.RPAREN) ||
@@ -1304,7 +1304,9 @@ func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
 		}
 	}
 
-	erro(p, "bad unary expression '%v' (lit=%s,lhs=%v)", p.tok, p.lit, lhs).debug(16)
+	var pos = p.Position()
+	prompt(p, "%v: bad unary '%v' (lit=%s,lhs=%v)\n", pos.Filename, p.tok, p.lit, lhs)
+	erro(p, "bad unary expression '%v' (lit=%s,lhs=%v)", p.tok, p.lit, lhs).debug(32)
 	p._next() // go to the next token
 	return MakeNil(p.Position())
 }

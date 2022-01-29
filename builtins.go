@@ -88,6 +88,7 @@ var builtins = map[string]BuiltinFunc {
         `foreach`:      builtinForEach,
 
         `env`:          builtinEnv,
+        `call`:         builtinCall,
         `var`:          builtinValue,
         `value`:        builtinValue,
         `list`:         builtinList,
@@ -123,6 +124,8 @@ var builtins = map[string]BuiltinFunc {
         `trim-prefix`:  builtinTrimPrefix,
         `trim-suffix`:  builtinTrimSuffix,
         `trim-ext`:     builtinTrimExt,
+
+        `ext`: builtinExt,
 
         `uppercase`:    builtinUpperCase,
         `lowercase`:    builtinLowerCase,
@@ -456,6 +459,10 @@ ForArgs:
                         value = MakeBoolean(flag.position, true)
                 } else if pair, ok := arg.(*Pair); ok {
                         if flag, okay = pair.Key.(*Flag); okay { value = pair.Value }
+                } else if aa, ok := arg.(*Argumented); ok {
+                        if flag, okay = aa.value.(*Flag); okay {
+                                value = MakeListOrScalar(aa.Position(), aa.args)
+                        }
                 }
                 if !okay || flag == nil {
                         rest = append(rest, arg)
@@ -1049,28 +1056,6 @@ type builtinValueOpts struct {
         closure bool `c,closure`
 }
 func builtinValue(ctx Context, args... Value) (res Value) {
-        /*
-        var (
-                scope *Scope
-                vals []Value
-                err error
-        )
-        if len(cloctx) > 0 { scope = cloctx[0] } else {
-                scope = ctx.LoaderScope()
-        }
-
-        for _, a := range args {
-                var s string
-                if s, err = a.Strval(ctx); err != nil {
-                        erro(ctx, "strval '%v' failed: %v", a, err).debug(1)
-                        return
-                }
-                if def := scope.FindDef(s); def != nil {
-                        vals = append(vals, def.value)
-                } else {
-                        vals = append(vals, MakeNone(pos))
-                }
-        }*/
         var (
                 opts builtinValueOpts
                 vals []Value
@@ -1084,22 +1069,49 @@ func builtinValue(ctx Context, args... Value) (res Value) {
                 return
         }
         for _, a := range args {
-                var ( name string; val Value/*; scope *Scope*/ )
+                var ( name string; val Value )
                 if name, err = a.Strval(ctx); err != nil {
                         erro(ctx, "strval '%v' failed: %v", a, err).at(a.Position()).debug(1)
                         return
                 } else if opts.closure {
                         val = closureGet(ctx, name)
-                } /*else if scope = ctx.closureScope(); scope == nil {
-                        scope = ctx.loaderScope()
-                }
-                if scope != nil {
+                } else if scope := ctx.Scope(); scope != nil {
                         if def := scope.FindDef(name); def != nil {
                                 val = def.Call(ctx)
                         }
-                }*/
+                }
                 if isNil(val) { val, _ = ctx.autoGet(name) }
                 if isNil(val) { val = MakeNone(a.Position()) }
+                vals = append(vals, val)
+        }
+        return MakeListOrScalar(ctx.Position(), vals)
+}
+
+type builtinCallOpts struct {
+        //closure bool `c,closure`
+}
+func builtinCall(ctx Context, args... Value) (res Value) {
+        var (
+                opts builtinCallOpts
+                vals []Value
+                err error
+        )
+        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        }
+        if len(args) > 0 {
+                var ( name string; val Value )
+                if name, err = args[0].Strval(ctx); err != nil {
+                        erro(ctx, "strval '%v' failed: %v", args[0], err).at(args[0].Position()).debug(1)
+                        return
+                } else if def := ctx.Scope().FindDef(name); def != nil {
+                        val = def.Call(ctx, args[1:]...)
+                }
+                if isNil(val) { val = MakeNone(args[0].Position()) }
                 vals = append(vals, val)
         }
         return MakeListOrScalar(ctx.Position(), vals)
@@ -2373,6 +2385,36 @@ func builtinTrimExt(ctx Context, args... Value) (res Value) {
         return
 }
 
+type builtinExtOpts struct {
+}
+func builtinExt(ctx Context, args... Value) (res Value) {
+        var (
+                opts builtinExtOpts
+                list []Value
+                err error
+        )
+        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+                erro(ctx, "parse opts failed: %v", err).debug(1)
+                return
+        }
+
+        for _, a := range args {
+                var s string
+                if s, err = a.Strval(ctx); err != nil {
+                        erro(ctx, "%v", err).debug(1)
+                        return
+                }
+                list = append(list, MakeString(a.Position(), filepath.Ext(s)))
+        }
+        if err == nil {
+                res = MakeListOrScalar(ctx.Position(), list)
+        }
+        return
+}
+
 func builtinIndent(ctx Context, args... Value) (res Value) {
         var (
                 l []Value
@@ -3567,7 +3609,7 @@ func builtinFile(ctx Context, args... Value) (res Value) {
                         if opts.report { info(ctx, "%v is no such file", a).debug(1) }
                 } else {
                         erro(ctx, `%v: "%v" is not a file (%T: %v)`, proj, str, a, a)
-                        errostack(ctx, 3, "%v: %v", proj, ctx).debug(16)
+                        errostack(ctx, 3, "(%T): %v", ctx, proj).debug(16)
                 }
         }
 
@@ -3728,8 +3770,8 @@ func builtinReadFile(ctx Context, args... Value) (res Value) {
                         erro(ctx, "read file failed: %v", err).at(apos).debug(1)
                         break
                 } else {
-                        if opts.trim { s = bytes.TrimFunc(s, unicode.IsSpace) } else
-                        if opts.trimLeft { s = bytes.TrimLeftFunc(s, unicode.IsSpace) } else
+                        if opts.trim      { s = bytes.TrimFunc     (s, unicode.IsSpace) } else
+                        if opts.trimLeft  { s = bytes.TrimLeftFunc (s, unicode.IsSpace) } else
                         if opts.trimRight { s = bytes.TrimRightFunc(s, unicode.IsSpace) }
                         l = append(l, MakeString(pos, string(s)))
                 }

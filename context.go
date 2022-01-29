@@ -770,7 +770,9 @@ func (ctx *defaultContext) load() (err error) {
       if p := ctx.loader.Project(); p != nil { name = p.name }
       fmt.Fprintf(stderr, "└·%s … (%s)\n", name, d)
     } else if d > 4999*time.Millisecond {
-      prompt(ctx, "%s: long load time: %s !!\n", base, d).debug(1)
+      var f = filepath.Join(base, "build.smart")
+      if _, e := os.Stat(f); e == nil { base = f }
+      prompt(ctx, "%s:1:note: long loading: %s !!\n", base, d).debug(1)
     }
   } (time.Now())
   if options.verboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }

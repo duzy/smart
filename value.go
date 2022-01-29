@@ -831,7 +831,7 @@ checkFileEntries:
         for i, brk := range brks { erro(ctx, "%v, %v: %d. %v", proj, file, i, brk.what) }
         if args := t.arguments(); len(args) > 0 { erro(ctx, "%v, %v: arguments %v", proj, file, args) }
         erro(ctx, "%v: no rules for %v, required by %v", proj, file, targetVal) //proj.concrete
-        errostack(ctx, 15, "%v", ctx).debug(12)
+        errostack(ctx, 15, "(%T):", ctx).debug(12)
         brks.add(file.position, breakErro).error = fileNotFoundError{ proj, file }
     } else if !okay && len(ctx.stems()) > 0 {
         if false { brks.add(file.position, breakNext).scope = breakTrave }
@@ -2367,7 +2367,14 @@ func (p *Raw) stencil(ctx Context, stems []string) (s string, rest []string) {
 
 type String struct { valbase; string }
 func (p *String) String() string { return p.elemStr(nil, nil, 0) }
-func (p *String) Strval(ctx Context) (string, error) { return strings.Replace(p.string, "\\\"", "\"", -1), nil }
+func (p *String) Strval(ctx Context) (s string, _ error) {
+    if false {
+        s = strings.Replace(p.string, "\\\"", "\"", -1)
+    } else {
+        s = p.string
+    }
+    return
+}
 func (p *String) True(ctx Context) (bool, error) { return p.string != "", nil }
 func (p *String) Integer(ctx Context) (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *String) Float(ctx Context) (float64, error) { return strconv.ParseFloat(p.string, 64) }
@@ -4038,6 +4045,7 @@ func (p *Compound) Strval(ctx Context) (s string, err error) {
             break
         }
     }
+    s = strings.Replace(s, "\\\"", "\"", -1)
     return
 }
 func (p *Compound) Float(ctx Context) (f float64, err error) {
@@ -5751,12 +5759,12 @@ func MakeBin(pos Position, i int64) *Bin { return &Bin{integer{valbase{pos},i}} 
 func MakeOct(pos Position, i int64) *Oct { return &Oct{integer{valbase{pos},i}} }
 func MakeInt(pos Position, i int64) *Int { return &Int{integer{valbase{pos},i}} }
 func MakeHex(pos Position, i int64) *Hex { return &Hex{integer{valbase{pos},i}} }
-func MakeFloat(pos Position, f float64) *Float { return &Float{valbase{pos},f} }
-func MakeDate(pos Position, s time.Time) *Date { return &Date{DateTime{valbase{pos},s}} }
-func MakeTime(pos Position, t time.Time) *Time { return &Time{DateTime{valbase{pos},t}} }
-func MakeRaw(pos Position, s string) *Raw { return &Raw{valbase{pos},s} }
+func MakeFloat(pos Position, f float64) *Float  { return &Float{valbase{pos},f} }
+func MakeDate(pos Position, s time.Time) *Date  { return &Date{DateTime{valbase{pos},s}} }
+func MakeTime(pos Position, t time.Time) *Time  { return &Time{DateTime{valbase{pos},t}} }
+func MakeRaw(pos Position, s string) *Raw       { return &Raw{valbase{pos},s} }
 func MakeString(pos Position, s string) *String { return &String{valbase{pos},s} }
-func MakeFlag(pos Position, s string) *Flag { return &Flag{valbase{pos}, &Bareword{valbase{pos},s}} }
+func MakeFlag(pos Position, s string) *Flag     { return &Flag{valbase{pos}, &Bareword{valbase{pos},s}} }
 func MakeFlagValue(pos Position, v Value) *Flag { return &Flag{valbase{pos}, v} }
 func MakeURL(pos Position, s *url.URL) *URL {
     var host, port string

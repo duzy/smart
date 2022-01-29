@@ -321,15 +321,14 @@ type Project struct {
 	name    string
   scope   *Scope
   bases []*Project
-  //loads []*Project
   using   *usinglist
 
   // List order is significant, duplication is acceptable.
-  _files_ []Value
+  _files_   []Value
   _filemap_ []*FileMap
 
   // Rule Registry (orderred)
-  userules []*useRuleEntry // the 'use' rule
+  //userules []*useRuleEntry // the 'use' rule
   concrete []Entry //*RuleEntry
   patterns []*PatternEntry
 
@@ -785,7 +784,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
         return
       }
     }
-    var userule = &useRuleEntry{
+    /*var userule = &useRuleEntry{
       RuleEntry{
         position: target.Position(),
         class:UseRuleEntry,
@@ -794,7 +793,8 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
       opts.postExec, // post-execute use rule?
     }
     p.userules = append(p.userules, userule)
-    entry = userule //&userule.RuleEntry
+    entry = userule //&userule.RuleEntry*/
+    panic(":use: rule entry is deprecated")
     return
   }
 
