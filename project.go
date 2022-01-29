@@ -536,10 +536,13 @@ ForPatterns:
           if len(names) > 0 {
             for _, s := range names {
               name := strings.TrimPrefix(s, prefix)
-              file := stat(ctx, name, sub, prefix)
-              files = append(files, file)
-              if enable_assertions {
-                assert(file != nil, "`%s` missing (%s)", s, name)
+              if file := stat(ctx, name, sub, prefix, nil); file != nil && (file.exists() || opts.includeMissing) {
+                files = append(files, file)
+              } else if opts.errorMissing {
+                if false { err = fmt.Errorf("missing '%v'", name) }
+                erro(ctx, "%v: '%v' not found in %v", p, name, path).of(fm.pattern)
+                errostack(ctx, 6, "(%T):", ctx).of(path).debug(12)
+                if true { fail(path.Position(), "missing %v", path) }
               }
             }
           } else if ok := pattern.patterned(ctx); !ok && opts.includeMissing {
@@ -558,7 +561,10 @@ ForPatterns:
               warn(ctx, "%s: here is %v (try using flag -m, aka -include-missing)", p.name, pat).of(pat).debug(1)
             }
           } else if opts.errorMissing {
-            err = fmt.Errorf("missing files like '%v'", fm)
+            if false { err = fmt.Errorf("missing files like '%v'", fm) }
+            erro(ctx, "%v: '%v' not found in %v", p, pattern, path).of(fm.pattern)
+            errostack(ctx, 6, "(%T):", ctx).of(path).debug(12)
+            if true { fail(path.Position(), "missing %v", path) }
             break ForPatterns
           }
         }
