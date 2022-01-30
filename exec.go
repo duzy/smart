@@ -1112,7 +1112,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
           erro(ctx, `%v: deleted "%v"`, s, fullname)
         }
       }
-      errostack(ctx, 3, `%v: %v`, target, ctx).debug(6)
+      errostack(ctx, 3, `%v: (%T)`, target, ctx).debug(6)
       if /*opts.fail*/true { fail(target.Position(), `"%v" deleted`, target) }
       return
     } else if files, err := target.stamp(t); err != nil {

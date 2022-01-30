@@ -349,7 +349,13 @@ func (pc *spawnPositionalContext) String() string { return fmt.Sprintf("spawn-%s
 type positionalContext struct { Context; position Position }
 func (pc *positionalContext) inner() Context { return pc.Context }
 func (pc *positionalContext) Position() Position { return pc.position }
-func (pc *positionalContext) String() string { return fmt.Sprintf("positional{%s}", pc.Context) }
+func (pc *positionalContext) String() string {
+  if false {
+    return fmt.Sprintf("positional{%s}", pc.Context)
+  } else {
+    return pc.Context.String()
+  }
+}
 func (pc *positionalContext) spawn() Context {
   var ctx = pc.Context
   switch t := ctx.(type) {
@@ -594,14 +600,14 @@ func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
     }
     for _, goal := range goals {
       var args, _ = dc.globe.args[goal]
-      result = append(result, dc.update(goal, args)...)
+      result = append(result, updateGoal(ctx, goal, args)...)
       updated += 1
     }
   }
   return
 }
 
-func (ctx *defaultContext) update(goal Value, args []Value) (result []Value) {
+func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
   if isNil(goal) {
     // TODO: report nil goal
   } else {

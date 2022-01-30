@@ -342,6 +342,7 @@ func (cc *closureContext) Project() (proj *Project) {
     for _, scope := range cc.closureScopes() {
         if proj = scope.project; proj != nil { break }
     }
+    if proj == nil { proj = cc.Context.Project() }
     return
 }
 func (cc *closureContext) closure() *closureContext { return cc }
@@ -602,12 +603,16 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
             }
         }
         return
-    } else if pc := ctx.programCtx(); pc == nil {
-        var str, _, _ = entryStr(ctx, entry)
+    } else if proj == nil {
+        proj = entry.OwnerProject()
+        point = ctx.diag(dt, "%v: %v -- %v", proj, entry, ctx)
+    }
+
+    var str, _, _ = entryStr(ctx, entry)
+    if pc := ctx.programCtx(); pc == nil {
         point = ctx.diag(dt, "%v: %v", proj, str)
     } else {
-        var str, _, _ = entryStr(ctx, entry)
-        point = ctx.diag(dt, "%v: %v", proj, str).at(pc.prog.position)
+        point = ctx.diag(dt, "%v: %v -- %v", proj, str, pc).at(pc.prog.position)
         for last := pc.prog.position; pc != nil; pc = pc.Context.programCtx() {
             var pos = pc.prog.position
             if !pos.SameLine(&last) {
@@ -1091,11 +1096,9 @@ func appendUpdated(ctx Context, updated *updatedtarget) {
             erro(ctx, "target is <nil> for %v, operation will fail/panic", ctx.entry())
         }
         errostack(ctx, 8, "%v", ctx).debug(64)
-        if p := ctx.program(); p != nil {
-            fail(p.position, "target is <nil>")
-        } else {
-            panic("target is <nil>")
-        }
+        var pos = updated.target.Position()
+        if p := ctx.program(); p != nil { pos = p.position }
+        fail(pos, "%v: target is <nil>", updated)
         return
     } else {
         if targetValue == updated.target { return }
@@ -1127,7 +1130,8 @@ func removeUpdated(ctx Context, target Value) (removed []*updatedtarget) {
     var program = ctx.program()
     var targetValue = getTargetValue(ctx)
     if isNil(targetValue) {
-        erro(ctx, "target is <nil>").at(program.position).debug(1)
+        erro(ctx, "nil target for %v", target).at(program.position)
+        errostack(ctx, 4, "(%T):", ctx).at(program.position).debug(6)
         return
     }
 

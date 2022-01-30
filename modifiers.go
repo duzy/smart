@@ -515,7 +515,7 @@ func modifierClosure(ctx Context, args... Value) (result Value, brks breakers) {
 
         var dir string // closure work directory
         if proj := ctx.Project(); proj == nil {
-                erro(ctx, "nil project (%s)", ctx).debug(1)
+                errostack(ctx, 6, "%T: nil project in the context", ctx).debug(64)
         } else if scope := proj.scope; scope == nil {
                 erro(ctx, "empty closure context").debug(1)
         } else if def := scope.FindDef("/"); def == nil {
@@ -1523,7 +1523,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
                 } else if tb := file.traverse(ctx); !tb.has() {
                         addFile(file)
                 } else if tb = tb.not(breakCase, breakDone, breakNext); tb.has() {
-                        prompt(ctx, `%v: missing dep\n`, file)
+                        prompt(ctx, "%v: missing dep\n", file)
                         if savedDepsFile != nil {
                                 warn(ctx, `%v: missing "%v"`, targetVal, file).at(depPos)
                                 if false { for _, brk := range tb {
@@ -3001,7 +3001,7 @@ func predict(ctx Context, args... Value) (result bool, breakScope breaksco, mess
         }
         if isNil(targetVal) || isNone(targetVal) {
                 erro(ctx, "target is <nil>")
-                erro(ctx, "target is <nil>: %v", ctx).debug(1)
+                errostack(ctx, 5, "(%T):", ctx).debug(10)
                 return
         }
         for caller := ctx.traversal().caller(); caller != nil; caller = caller.caller() {
@@ -3141,7 +3141,10 @@ func modifierAssert(ctx Context, args... Value) (result Value, brks breakers) {
                 erro(ctx, "prediction %v failed: %v", args, err).debug(6)
         } else if !res {
                 if msg == "" {
-                        erro(ctx, "assertion failed: %v", args).debug(6)
+                        for _, a := range args {
+                                erro(ctx, "assertion failed: %v", a).of(a)
+                        }
+                        errostack(ctx, 3, "(%T):", ctx).debug(6)
                 } else {
                         var target, _ = ctx.autoGet("@")
                         var vals, _ = expandmerge2(ctx, expandPlainValue, args...)
