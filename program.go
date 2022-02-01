@@ -325,6 +325,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
                 }
             }
             erro(ctx, "too many recursion (%d) (%v)", recursion, entry.Target()).debug(1)
+            fail(prog.position, "max recursion")
             return
         }
         if options.traceTraversalNestIndent { t.traceLevel = cc.traversal().traceLevel }

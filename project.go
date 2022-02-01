@@ -9,7 +9,6 @@ package smart
 import (
   "extbit.io/smart/token"
   "path/filepath"
-  "runtime"
   "strings"
   "plugin"
   "sync"
@@ -214,72 +213,6 @@ func (filemap *FileMap) stat(ctx Context, base, pre, name string) (file *File) {
         n := strings.TrimPrefix(name, pre+PathSep)
         file = stat(ctx, n, s, dir, nil)
       }
-    }
-  }
-  return
-}
-
-// copy of filepath.hasMeta
-func hasGlobMeta(path string) bool {
-	magicChars := `*?[`
-	if runtime.GOOS != "windows" {
-		magicChars = `*?[\`
-	}
-	return strings.ContainsAny(path, magicChars)
-}
-
-// globMatchFile - Glob matching each component of the filename against the
-// glob value. It checks in two different ways. If the filename and the
-// glob pattern has the some number of components (splitted by PathSep),
-// all components are compared. If the pattern has only one component,
-// the last filename component is compared with the pattern, and the prefix
-// components are returned in 'pre'.
-func globMatchFile(ctx Context, patVal Value, filename string, tailMatch bool) (matched bool, pre string) {
-  switch patVal.(type) {
-  default: // good to go!
-  case *List:
-    erro(ctx, "invalid glob matching pattern: %v", patVal).of(patVal).debug(8)
-    return
-  }
-
-  var patStr, err = patVal.Strval(ctx)
-  if err != nil { return false, "" }
-  if false && strings.HasSuffix(filename, "...") {
-    defer func() {
-      if matched {
-        prompt(ctx, "%v: %v (%v)\n", filename, patVal, ctx.Project())
-        warnstack(ctx, 6, "%T %v %v; %v", patVal, patVal, filename, pre).of(patVal).debug(24)
-      }
-    } ()
-  }
-
-  var patList = strings.Split(filepath.Clean(patStr), PathSep)
-  if len(patList) == 0 { return } // FIXME: match any?
-
-  var srcList = strings.Split(filepath.Clean(filename), PathSep)
-  if len(patList) == len(srcList) { // src/*.o  <->  src/foo.o
-    for i, pat := range patList { // Matching all components
-      if matched, _ = filepath.Match(pat, srcList[i]); !matched { return }
-    }
-  } else if len(patList) == 1 && len(srcList) > 1 { // *.o|foo.o  <->  src/foo.o
-    // NOTE: partially matching only the last part is logically incorrect!
-    //       for example of this wrong match: stdint.h <-> isl/stdint.h
-    if tailMatch && true {
-      for i, j := len(patList)-1, len(srcList)-1; -1 < i && -1 < j; i, j = i-1, j-1 {
-        if v, _ := filepath.Match(patList[i], srcList[j]); !v {
-          pre = filepath.Join(srcList[:j]...)
-          return
-        } else {
-          matched = true
-        }
-      }
-    } else if tailMatch && false {
-      if matched, _ = filepath.Match(patList[0], srcList[len(srcList)-1]); matched {
-        pre = filepath.Join(srcList[:len(srcList)-1]...)
-        return
-      }
-    } else if matched, _ = filepath.Match(patList[0], filename); matched {
-      return
     }
   }
   return
@@ -527,9 +460,7 @@ ForPatterns:
           }
 
           subfile := filepath.Join(sub, str)
-          if names, err = filepath.Glob(subfile); err != nil {
-            break ForPatterns
-          }
+          if names, err = filepath.Glob(subfile); err != nil { break ForPatterns }
           // Chop off path 'sub' prefix to have shorter names
           // Aka. trim prefix 'file.Sub+PathSep'
           prefix := strings.TrimSuffix(subfile, str)

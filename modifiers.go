@@ -1488,17 +1488,15 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
         )
         var depFile = func(ctx Context, depPos Position, word string) {
                 var dc = depContext{diagContext{ Context: ctx }}; ctx = &dc
-                if parallel {
-                        defer checkPanicsErrors(ctx, true/* don't call checkErrors */)
-                        defer func() {
-                                if len(dc.points) > 0 { dc.inner().diagnostic().nest(dc.points) }
-                                jobs.Done() // minus 1
-                        } ()
-                }
+                if parallel { defer func() {
+                        checkPanicsErrors(ctx, true/* don't call checkErrors */)
+                        if len(dc.points) > 0 { dc.inner().diagnostic().nest(dc.points) }
+                        jobs.Done() // minus 1
+                }() }
                 if i := strings.Index(word, " "); i > 0 {
                         warn(ctx, "ignore dep with spaces: %v", word).debug(1)
                 } else if file := findDepFile(word); file == nil {
-                        prompt(ctx, `%v: unknown dep\n`, file)
+                        prompt(ctx, "%v: unknown dep\n", file)
                         if savedDepsFile != nil {
                                 warn(ctx, "unknown dep '%v' for '%v'", word, firstWord)
                                 warn(ctx, "from here: %s", word).at(depPos)
@@ -1525,15 +1523,9 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
                 } else if tb = tb.not(breakCase, breakDone, breakNext); tb.has() {
                         prompt(ctx, "%v: missing dep\n", file)
                         if savedDepsFile != nil {
-                                warn(ctx, `%v: missing "%v"`, targetVal, file).at(depPos)
-                                if false { for _, brk := range tb {
-                                        switch brk.what {
-                                        case breakFail: warn(ctx, `%v: broken for "%s": %v`, proj, targetVal, brk.message).at(brk.pos)
-                                        case breakErro: warn(ctx, `%v: broken for "%s", error: %v`, proj, targetVal, brk.error).at(brk.pos)
-                                        default:        warn(ctx, `%v: broken for "%s": %v (%v)`, proj, targetVal, brk.message, brk.what).at(brk.pos)
-                                        }
-                                } }
-                                if true { warnstack(ctx, 3, "%v: (%T):", proj, ctx).debug(6) }
+                                var s = filepath.Base(file.name)
+                                warn(ctx, `%v: missing "%v"`, targetVal, s).at(depPos)
+                                warnstack(ctx, 3, "%v: (%T):", proj, ctx).debug(4)
                         } else {
                                 brksMux.Lock()
                                 brks = append(brks, tb...)
@@ -1553,18 +1545,22 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
                 }
                 var n int
                 if savedDepsFile == nil {
-                        if n = dc.countErrors(); n > 0 {
+                        if n = dc.checkErrors(true); n > 0 { // aka. dc.points = nil
                                 var s = trimPromptString(targetVal.String())
-                                prompt(ctx, `%v: %d errors counted\n`, word, n)
+                                prompt(ctx, "%v: %d errors counted\n", word, n)
                                 erro(ctx, `%v: %d errors for "%s", dep "%s"`, proj, n, s, word)
                                 errostack(ctx, 5, `%v: %v`, ctx).debug(6)
                         }
                 } else {
-                        if n = dc.checkErrors(true); n > 0 { // aka. dc.points = nil
+                        if n = dc.countErrors(); n > 0 {
+                                // reset to reduce diags as we wish to continue with the errors
+                                dc.points, dc.errs = nil, 0
                                 var s = trimPromptString(targetVal.String())
-                                prompt(ctx, `%v: %d errors counted\n`, word, n)
-                                warn(ctx, `%v: %d errors for "%s", dep "%s"`, proj, n, s, word)
-                                warnstack(ctx, 3, `%v: %v`, ctx).debug(6)
+                                prompt(ctx, "%v: %d errors counted\n", word, n)
+                                if false {
+                                        warn(ctx, `%v: %d errors for "%s", dep "%s"`, proj, n, s, word)
+                                        warnstack(ctx, 3, `%v: %v`, ctx).debug(6)
+                                }
                         }
                 }
                 if n > 0 {
@@ -2428,16 +2424,6 @@ func modifierCopyFile(ctx Context, args... Value) (result Value, brks breakers) 
                         source, srcname = file, file.fullname()
                         if file.info != nil { srctime = file.info.ModTime() }
                 }
-        }
-
-        if filepath.Base(srcname) != filepath.Base(filename) {
-                a, _ := ctx.autoGet("@")
-                b, _ := ctx.autoGet("<")
-                c, _ := ctx.autoGet("^")
-                warn(ctx, "%v", a).at(a.Position())
-                warn(ctx, "%v", b).at(b.Position())
-                warn(ctx, "%v", c).at(c.Position())
-                warn(ctx, "%v, %v, %v", target, filename, srcname).debug(1)
         }
 
         if !filetime.IsZero() && filetime.After(srctime) {

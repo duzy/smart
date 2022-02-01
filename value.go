@@ -11,10 +11,13 @@ import (
     "crypto/sha256"
     "path/filepath"
     "runtime/debug" // debug.PrintStack()
+    "runtime"
+	"unicode/utf8"
     "net/url"
     "reflect"
     "strconv"
     "strings"
+	"errors"
     "bytes"
     "io/fs"
     "sync"
@@ -568,7 +571,10 @@ func (t *traverseContext) traversal() *traverseContext { return t }
 func (t *traverseContext) caller() (caller *traverseContext) { return t.Context.traversal() }
 
 func entryStr(ctx Context, entry Entry) (str, ent, tar string) {
-    if ent = entry.String(); ent == "" { /**/ }
+    if s, e := entry.Strval(ctx); e == nil { ent = s } else {
+        erro(ctx, "strval '%v' failed: %v", entry, e).debug(1)
+        return
+    }
     if target, found := ctx.autoGet("@"); !found || isNil(target) {
         str = ent // ...
     } else if tar, _ = target.Strval(ctx); ent != tar {
@@ -1127,11 +1133,12 @@ func appendUpdated(ctx Context, updated *updatedtarget) {
 }
 
 func removeUpdated(ctx Context, target Value) (removed []*updatedtarget) {
-    var program = ctx.program()
     var targetValue = getTargetValue(ctx)
     if isNil(targetValue) {
-        erro(ctx, "nil target for %v", target).at(program.position)
-        errostack(ctx, 4, "(%T):", ctx).at(program.position).debug(6)
+        if false {
+            erro(ctx, "nil target for %v", target)
+            errostack(ctx, 5, "(%T): %v", ctx, ctx).debug(48)
+        }
         return
     }
 
@@ -2790,6 +2797,294 @@ func (p *Barefile) stencil(ctx Context, stems []string) (s string, rest []string
     return
 }
 
+var ErrBadPattern = errors.New("syntax error in pattern")
+
+// modified copy of filepath.hasMeta
+func globHasMeta(path string) bool {
+	magicChars := `*?[`
+	if runtime.GOOS != "windows" {
+		magicChars = `*?[\`
+	}
+	return strings.ContainsAny(path, magicChars)
+}
+
+// modified copy of filepath.getEsc
+func globGetEsc(chunk string) (r rune, nchunk string, err error) {
+	if len(chunk) == 0 || chunk[0] == '-' || chunk[0] == ']' {
+		err = ErrBadPattern
+		return
+	}
+	if chunk[0] == '\\' && runtime.GOOS != "windows" {
+		chunk = chunk[1:]
+		if len(chunk) == 0 {
+			err = ErrBadPattern
+			return
+		}
+	}
+	r, n := utf8.DecodeRuneInString(chunk)
+	if r == utf8.RuneError && n == 1 {
+		err = ErrBadPattern
+	}
+	nchunk = chunk[n:]
+	if len(nchunk) == 0 {
+		err = ErrBadPattern
+	}
+	return
+}
+
+// modified copy of filepath.scanChunk
+func globScanChunk(pattern string) (star bool, chunk, rest string) {
+	for len(pattern) > 0 && pattern[0] == '*' {
+		pattern = pattern[1:]
+		star = true // TODO: support both '*' and '**'
+	}
+	inrange := false
+	var i int
+Scan:
+	for i = 0; i < len(pattern); i++ {
+		switch pattern[i] {
+		case '\\':
+			if runtime.GOOS != "windows" {
+				// error check handled in matchChunk: bad pattern.
+				if i+1 < len(pattern) {
+					i++
+				}
+			}
+		case '[':
+			inrange = true
+		case ']':
+			inrange = false
+		case '*':
+			if !inrange {
+				break Scan
+			}
+		}
+	}
+	return star, pattern[0:i], pattern[i:]
+}
+
+// modified copy of filepath.matchChunk
+// stems: all values matched ? and [...]
+func globMatchChunk(chunk, s string) (stems []string, rest string, ok bool, err error) {
+	// failed records whether the match has failed.
+	// After the match fails, the loop continues on processing chunk,
+	// checking that the pattern is well-formed but no longer reading s.
+	failed := false
+	for len(chunk) > 0 {
+		if !failed && len(s) == 0 {
+			failed = true
+		}
+		switch chunk[0] {
+		case '[':
+			// character class
+			var r rune
+			if !failed {
+				var n int
+				r, n = utf8.DecodeRuneInString(s)
+				s = s[n:]
+			}
+			chunk = chunk[1:]
+			// possibly negated
+			negated := false
+			if len(chunk) > 0 && chunk[0] == '^' {
+				negated = true
+				chunk = chunk[1:]
+			}
+			// parse all ranges
+			match := false
+			nrange := 0
+			for {
+				if len(chunk) > 0 && chunk[0] == ']' && nrange > 0 {
+					chunk = chunk[1:]
+					break
+				}
+				var lo, hi rune
+				if lo, chunk, err = globGetEsc(chunk); err != nil {
+					return stems, "", false, err
+				}
+				hi = lo
+				if chunk[0] == '-' {
+					if hi, chunk, err = globGetEsc(chunk[1:]); err != nil {
+						return stems, "", false, err
+					}
+				}
+				if lo <= r && r <= hi {
+					match = true
+				}
+				nrange++
+			}
+			if match == negated {
+				failed = true
+			} else {
+                stems = append(stems, string(r))
+            }
+
+		case '?':
+			if !failed {
+				if s[0] == filepath.Separator {
+					failed = true
+				}
+				_, n := utf8.DecodeRuneInString(s)
+                stems = append(stems, s[:n])
+				s = s[n:]
+			}
+			chunk = chunk[1:]
+
+		case '\\':
+			if runtime.GOOS != "windows" {
+				chunk = chunk[1:]
+				if len(chunk) == 0 {
+					return stems, "", false, ErrBadPattern
+				}
+			}
+			fallthrough
+
+		default:
+			if !failed {
+				if chunk[0] != s[0] {
+					failed = true
+				}
+				s = s[1:]
+			}
+			chunk = chunk[1:]
+		}
+	}
+	if failed {
+		return stems, "", false, nil
+	}
+	return stems, s, true, nil
+}
+
+// modified copy of filepath.Match
+func globMatch(pattern, name string) (matched bool, stems []string, err error) {
+    var _pattern, _name = pattern, name
+    var dbg = false && (
+        (_pattern == "lib*.a" && _name == "libunwind.a") ||
+        (_pattern == "libun????.a" && _name == "libunwind.a") ||
+        (_pattern == "lib[a-z][^0-9]????.a" && _name == "libunwind.a") ||
+        (_pattern == "lib?++.a" && _name == "libc++.a"))
+    if dbg {
+        if dbg {
+            fmt.Fprintf(stderr, "(%v, %v):\n", _pattern, _name)
+        }
+        defer func() {
+            if dbg {
+                fmt.Fprintf(stderr, "    matched=%v, stems=%v; (%v, %v)\n", matched, stems, pattern, name)
+            }
+        } ()
+    }
+Pattern:
+	for len(pattern) > 0 {
+		var star bool
+		var chunk string
+        var _p = pattern
+		star, chunk, pattern = globScanChunk(pattern)
+        if dbg {
+            fmt.Fprintf(stderr, "    scan: (%v) -> star=%v, chunk=%v, pattern=%v\n", _p, star, chunk, pattern)
+        }
+		if star && chunk == "" {
+			// Trailing * matches rest of string unless it has a /.
+			if matched = !strings.Contains(name, PathSep); matched {
+                if false { stems = append(stems, name) }
+            }
+            return
+		}
+		// Look for match at current position.
+		ss, t, ok, err := globMatchChunk(chunk, name)
+        if dbg {
+            fmt.Fprintf(stderr, "    match: (%v, %v) -> ss=%v, t=%v, ok=%v\n", chunk, name, ss, t, ok)
+        }
+        if err == nil && len(ss) > 0 { stems = append(stems, ss...) }
+        // if we're the last chunk, make sure we've exhausted the name
+		// otherwise we'll give a false result even if we could still match
+		// using the star
+		if ok && (len(t) == 0 || len(pattern) > 0) {
+            name = t
+			continue
+		}
+		if err != nil {
+			return false, stems, err
+		}
+        if star {
+			// Look for match skipping i+1 bytes. Cannot skip /.
+			for i := 0; i < len(name) && name[i] != filepath.Separator; i++ {
+				ss, t, ok, err := globMatchChunk(chunk, name[i+1:])
+                if dbg {
+                    fmt.Fprintf(stderr, "    match: name=%v, (%v, %v), %s -> ss=%v, t=%v, ok=%v\n", name, chunk, name[i+1:], name[:i+1], ss, t, ok)
+                }
+                if ok {
+                    // if we're the last chunk, make sure we exhausted the name
+					if len(pattern) == 0 && len(t) > 0 {
+						continue
+					}
+                    stems = append(stems, name[:i+1])
+					name = t
+					continue Pattern
+				}
+				if err != nil {
+					return false, stems, err
+				}
+			}
+		}
+		return false, stems, nil
+	}
+	return len(name) == 0, stems, nil
+}
+
+// globMatchFile - Glob matching each component of the filename against the
+// glob value. It checks in two different ways. If the filename and the
+// glob pattern has the some number of components (splitted by PathSep),
+// all components are compared. If the pattern has only one component,
+// the last filename component is compared with the pattern, and the prefix
+// components are returned in 'pre'.
+func globMatchFile(ctx Context, patVal Value, filename string, tailMatch bool) (matched bool, pre string, stems []string) {
+    switch patVal.(type) {
+    default: // good to go!
+    case *List:
+        erro(ctx, "invalid glob matching pattern: %v", patVal).of(patVal).debug(8)
+        return
+    }
+
+    var patStr, err = patVal.Strval(ctx)
+    if err != nil { return }
+
+    var patList = strings.Split(filepath.Clean(patStr), PathSep)
+    if len(patList) == 0 { return } // FIXME: match any?
+
+    var st []string
+    var srcList = strings.Split(filepath.Clean(filename), PathSep)
+    if len(patList) == len(srcList) { // src/*.o  <->  src/foo.o
+        for i, pat := range patList { // Matching all components
+            if matched, st, _ = globMatch(pat, srcList[i]); !matched { return }
+            stems = append(stems, st...)
+        }
+    } else if !(len(patList) == 1 && len(srcList) > 1) {
+        // Done!
+    } else if tailMatch && true { // *.o|foo.o  <->  src/foo.o
+        // NOTE: partially matching only the last part is logically incorrect!
+        //       for example of this wrong match: stdint.h <-> isl/stdint.h
+        for i, j := len(patList)-1, len(srcList)-1; -1 < i && -1 < j; i, j = i-1, j-1 {
+            if v, st, _ := globMatch(patList[i], srcList[j]); !v {
+                pre = filepath.Join(srcList[:j]...)
+                return
+            } else {
+                matched = true
+                stems = append(stems, st...)
+            }
+        }
+    } else if tailMatch && false { // *.o|foo.o  <->  src/foo.o
+        if matched, st, _ = globMatch(patList[0], srcList[len(srcList)-1]); matched {
+            pre = filepath.Join(srcList[:len(srcList)-1]...)
+            stems = append(stems, st...)
+            return
+        }
+    } else if matched, st, _ = globMatch(patList[0], filename); matched {
+        stems = append(stems, st...)
+        return // *.o|foo.o  <->  src/foo.o
+    }
+    return
+}
+
 type GlobMeta struct { valbase ; token.Token }
 func (p *GlobMeta) String() string { return p.Token.String() }
 func (p *GlobMeta) Strval(ctx Context) (string, error) { return p.Token.String(), nil }
@@ -3049,6 +3344,13 @@ func (p *Path) match1(ctx Context, str string) (full bool, result string, stems 
         return
     }
 
+    if p.String() == "%%/Dockerfile" {
+        defer func() {
+            warn(ctx, "%v: %s", p, str)
+            warn(ctx, "%v: %s, %v %v", p, result, full, stems).debug(4)
+        } ()
+    }
+
     const infos = false
     var (
         lenSegs = len(segs)
@@ -3204,10 +3506,10 @@ SegsLoop:
             erro(ctx, "incorrect match: path=%v, str=%s, res=%v result=%v", p, str, res, result).of(p)
             errostack(ctx, 8, "%v", ctx).debug(10)
         }
-        if p.patterned(ctx) && full && len(stems) == 0 {
+        if full && p.patterned(ctx) && len(stems) == 0 {
             prompt(ctx, "%v: %v: incorrect full match: segs=%v; srcs=%v; res=%v\n", str, p, segs, srcs, res)
-            warn(ctx, "incorrect match: path=%v, str=%s, res=%v result=%v", p, str, res, result).of(p)
-            warnstack(ctx, 3, "%v", ctx).debug(6)
+            warn(ctx, "incorrect full match: path=%v, str=%s, res=%v result=%v", p, str, res, result).of(p)
+            warnstack(ctx, 3, "(%T):", ctx).debug(6)
         }
     }
     return
@@ -5461,11 +5763,10 @@ func (p *GlobPattern) match(ctx Context, i interface{}) (full bool, result strin
             erro(ctx, "strval '%v' failed: %v", t, e).of(t)
             return
         }
-    default:
-        unreachable("glob.match: %T %v", i, i)
+    default: unreachable("glob.match: %T %v", i, i)
     }
-    if matched, pre := globMatchFile(ctx, p, s, true); matched {
-        result, full = s, true // FIXME: calculate stems from matching
+    if matched, pre, t := globMatchFile(ctx, p, s, true); matched {
+        result, stems, full = s, t, true // FIXME: calculate stems from matching
         if pre != "" { /*full = false*/ }
     }
     return

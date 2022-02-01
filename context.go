@@ -798,7 +798,12 @@ func checkPanicsErrors(ctx Context, dontCheckErrors ...bool) (panics, errs int) 
     panics += 1
   }
   if panics > 0 {
-    erro(ctx, "failed: got %d panics (%s)", panics, ctx).debug(128)
+    var pos = ctx.Position()
+    if !strings.HasSuffix(pos.Filename, "build.smart") {
+      var s = filepath.Join(pos.Filename, "build.smart")
+      if _, e := os.Stat(s); e == nil { pos.Filename = s }
+    }
+    erro(ctx, "failed: got %d panics (%s)", panics, ctx).at(pos).debug(128)
   }
   if len(dontCheckErrors) > 0 && dontCheckErrors[0] {
     // okay
