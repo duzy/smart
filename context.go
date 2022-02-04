@@ -155,6 +155,7 @@ var options = commandLineOpts{
   debugInfos:  true,
 
   failOnErrors: true,
+  fastMode: true,
 
   traceTraversalNestIndent: true,
 }
@@ -769,7 +770,7 @@ func (ctx *defaultContext) load() (err error) {
   if v := options.reconfigure; v { options.configure = v }
   if v := options.fastMode; v {
     // Turn off many things for fast mode:
-    options.noImportFiles = v
+    //options.noImportFiles = v
     options.noDepsGrep = v
     options.noDeps = v
     options.noGrep = v
