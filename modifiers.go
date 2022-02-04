@@ -1329,6 +1329,10 @@ type modifierGrepOpts struct {
         noTraverse bool `n,notraverse;nt,no-traverse;go,grep-only`
 }
 func modifierGrep(ctx Context, args... Value) (result Value, brks breakers) {
+        if options.noDepsGrep || options.noGrep {
+                return
+        }
+
         var (
                 gc grepctx
                 err error
@@ -1444,7 +1448,13 @@ ForTarget:
 }
 
 type depContext struct { diagContext }
-func (ctx *depContext) String() string { return fmt.Sprintf("dep{%s}", ctx.diagContext.String()) }
+func (ctx *depContext) String() string {
+        if fullContextStringer {
+                return fmt.Sprintf("dep{%s}", ctx.diagContext)
+        } else {
+                return ctx.diagContext.String()
+        }
+}
 func (ctx *depContext) appendCallerUpdated() bool { return false }
 
 func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *File, savedDepsFileName, deps string) (files []Value, brks breakers) {
@@ -1730,7 +1740,13 @@ func traverseMissingDeps(ctx Context, lastTry string, errBytes []byte) (res bool
 }
 
 type modifierDepsContext struct { Context }
-func (mdc *modifierDepsContext) String() string { return fmt.Sprintf("deps{%s}", mdc.Context) }
+func (mdc *modifierDepsContext) String() string {
+        if fullContextStringer {
+                return fmt.Sprintf("deps{%s}", mdc.Context)
+        } else {
+                return mdc.Context.String()
+        }
+}
 func (mdc *modifierDepsContext) spawn() Context { return &modifierDepsContext{mdc.Context.spawn()} }
 //func (mdc *modifierDepsContext) appendCallerUpdated() bool { return false }
 func (mdc *modifierDepsContext) mustExists() bool { return true }
@@ -1746,6 +1762,10 @@ type modifierDepsOpts struct {
         cc string `c,cc;c,compiler`
 }
 func modifierDeps(ctx Context, args... Value) (result Value, brks breakers) {
+        if options.noDepsGrep || options.noDeps {
+                return
+        }
+
         // NOTE: parse opts for (deps) before expanding the args, because we share args
         //       with the compilers!
         var (

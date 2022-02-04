@@ -1271,9 +1271,10 @@ func builtinPrintln(ctx Context, args... Value) (res Value) {
 }
 
 type builtinAppendOpts struct {
-        verbose bool `v,verbose`
+        auto bool `a,auto`
         closure bool `c,closure`
         string bool `s,str;s,string`
+        verbose bool `v,verbose`
 }
 func builtinAppend(ctx Context, args... Value) (result Value) {
         var (
@@ -1331,13 +1332,34 @@ func builtinAppend(ctx Context, args... Value) (result Value) {
                         erro(ctx, "%s", err).debug(1)
                         break
                 } */
-                if val := closureGet(ctx, name); !isNil(val) {
-                        list = append(merge(val), list...)
-                }
-                if val := MakeListOrScalar(pos, list); opts.closure {
-                        closureSet(ctx, name, val)
+                if opts.closure {
+                        if val := closureGet(ctx, name); !isTrivial(val) {
+                                list = append(merge(val), list...)
+                        }
+                        closureSet(ctx, name, MakeListOrScalar(pos, list))
+                } else if opts.auto {
+                        if val, found := ctx.autoGet(name); found && !isTrivial(val) {
+                                list = append(merge(val), list...)
+                        }
+                        ctx.autoSet(name, MakeListOrScalar(pos, list))
+                } else if proj := ctx.Project(); proj != nil {
+                        var def *Def
+                        if obj, err := proj.resolveObject(ctx, name); err != nil {
+                                erro(ctx, "%v", err).of(a).debug(1)
+                                break
+                        } else if def, _ = obj.(*Def); def == nil {
+                                // Good!
+                        }
+                        if def == nil {
+                                erro(ctx, "'%s' (%v) is undefined (%T)", name, a, ctx).debug(1)
+                                break
+                        } else if err = def.append(ctx, list...); err != nil {
+                                erro(ctx, "%s", err).debug(1)
+                                break
+                        }
                 } else {
-                        ctx.autoSet(name, val)
+                        erro(ctx, "%s", ctx).debug(1)
+                        break
                 }
         }
         return
@@ -3105,7 +3127,7 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                         ctx = positional(ctx, a.Position())
                         file *File
                 )
-                if isNil(a) || isNone(a) || isUndef(a) || isEmpty(a) {
+                if isTrivial(a) {
                         // ignore
                 } else if a.patterned(ctx) {
                         if str, err = a.Strval(ctx); err != nil { erro(ctx, "%v", err).debug(true, 1); return }

@@ -1285,7 +1285,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         info(ctx, "%v: execute has %d messages", str, in)
         infostack(ctx, 8, "%v: %v", str, ctx).debug(1)
       } else if err != nil || exeres.Status != 0 {
-        errostack(ctx, 20, "%v: %v", str, ctx).debug(6)
+        errostack(ctx, 20, "%v: %v:", str, ctx).debug(6)
       }
       if exeres.Status != 0 || err != nil { break }
     }

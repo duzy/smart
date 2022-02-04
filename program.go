@@ -211,7 +211,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
                     default: erro(ctx, "%v: %s: broken modifier (%v)", proj, name, brk.what).at(brk.pos)
                     }
                 }
-                errostack(ctx, 3, "%v: %v: %v", proj, name, ctx).debug(6)
+                errostack(ctx, 3, "(%T):", ctx).debug(6)
                 fail(m.Position(), "%s failed for project %s", name, proj)
             }
         } else if hyphen, found := ctx.autoGet("-"); !found || isNil(value) || value == hyphen {
@@ -219,14 +219,16 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
         } else if ctx.autoSet("-", value); false {
             var _, ent, _ = entryStr(ctx, ctx.entry())
             prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
-            erro(ctx, "setting buffer value failed: %v", value).debug(1)
+            erro(ctx, "setting buffer value failed: %v", value)
+            errostack(ctx, 3, "(%T):", ctx).debug(1)
+            fail(m.Position(), "%s failed for project %s", name, proj)
         }
     } else if i, _ := dialects[name]; i != nil {
         if err = prog.interpret(ctx, i, args); err != nil {
             var _, ent, _ = entryStr(ctx, ctx.entry())
             prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
             erro(ctx, "%s: %v", name, err)
-            errostack(ctx, 3, "%v", ctx).debug(1)
+            errostack(ctx, 3, "(%T):", ctx).debug(1)
             fail(m.Position(), "%s failed for project %s", name, proj)
         }
     } else {

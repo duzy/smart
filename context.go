@@ -45,10 +45,17 @@ type commandLineOpts struct {
   cleanDotDeps    bool `cd,clean-deps;cd,clear-deps;rd,rm-deps`
   cleanDotGrep    bool `cg,clean-grep;cg,clear-grep;rg,rm-grep`
   cleanTmpDirs    bool `ct,clean-temp;ct,clear-temp;rt,rm-temp`
-  configure       bool `g,configure`          // optionConfigure
-  reconfigure     bool `r,reconfigure`        // optionReconfig
-  noExec          bool `ne,no-exec;ne,no-execute`  // optionNoExec
+  configure       bool `conf,configure`          // optionConfigure
+  reconfigure     bool `rc,reconfig;reconf,reconfigure` // optionReconfig
   saveGrepSource  bool `sgs,save-grep-source`
+
+  noExec          bool `nx,no-exec;ne,no-execute`  // optionNoExec
+  noDeps          bool `nd,no-deps`
+  noGrep          bool `ng,no-grep`
+  noDepsGrep      bool `ndg,no-deps-grep;ngd,no-grep-deps`
+  noImportFiles   bool `nif,no-import-files`
+
+  fastMode        bool `f,fast;fm,fast-mode`
 
   failOnErrors    bool `foe,fail-on-errors`
 
@@ -61,6 +68,8 @@ type commandLineOpts struct {
   traceTraversal  bool `tt,trace-traverse`
   traceTraversalNestIndent bool `tni,trace-nest-indent`
 }
+
+const fullContextStringer bool = false
 
 type Context interface {
   // Globe returns the universe globe.
@@ -142,8 +151,10 @@ func getTargetValueString(ctx Context) (val Value, str string) {
 var options = commandLineOpts{
   debugPrompt: true,
   debugErrors: true,
-  debugWarns : true,
-  debugInfos : true,
+  debugWarns:  true,
+  debugInfos:  true,
+
+  failOnErrors: true,
 
   traceTraversalNestIndent: true,
 }
@@ -261,7 +272,13 @@ type diagContext struct {
   errs int
 }
 func (diag *diagContext) inner() Context { return diag.Context }
-func (diag *diagContext) String() string { return fmt.Sprintf("diag{%s}", diag.Context) }
+func (diag *diagContext) String() string {
+  if fullContextStringer {
+    return fmt.Sprintf("diag{%s}", diag.Context)
+  } else {
+    return diag.Context.String()
+  }
+}
 func (diag *diagContext) diagnostic() *diagContext { return diag }
 func (diag *diagContext) reset() {
   diag.Lock(); defer diag.Unlock()
@@ -350,7 +367,7 @@ type positionalContext struct { Context; position Position }
 func (pc *positionalContext) inner() Context { return pc.Context }
 func (pc *positionalContext) Position() Position { return pc.position }
 func (pc *positionalContext) String() string {
-  if false {
+  if fullContextStringer {
     return fmt.Sprintf("positional{%s}", pc.Context)
   } else {
     return pc.Context.String()
@@ -376,7 +393,13 @@ type argumentedContext struct {
   args []Value
 }
 func (ac *argumentedContext) inner() Context { return ac.Context }
-func (ac *argumentedContext) String() string { return fmt.Sprintf(`argumented{%s}`, ac.Context) }
+func (ac *argumentedContext) String() string {
+  if fullContextStringer {
+    return fmt.Sprintf(`argumented{%s}`, ac.Context)
+  } else {
+    return ac.Context.String()
+  }
+}
 func (ac *argumentedContext) arguments() []Value { return ac.args }
 func (ac *argumentedContext) argumented() *argumentedContext { return ac }
 func (ac *argumentedContext) argumentedSet(args []Value) (prev []Value) {
@@ -449,7 +472,8 @@ func (ctx *defaultContext) colonResolve(name string) (obj Object, found bool) {
 func (ctx *defaultContext) closureResolveAuto(name string) (obj Object, found bool) { return ctx.colonResolve(name) }
 func (ctx *defaultContext) autoArgs(_ []*Def, _ []Value) ([]string, error) { return nil, nil }
 func (ctx *defaultContext) autoSet(name string, val Value) (res Value, ok bool) {
-  erro(ctx, `setting auto "%v" in base context, value=%v`, val).debug(64)
+  prompt(ctx, "%v: can't set auto in default context, value=%v\n", name, val)
+  errostack(ctx, 8, `(%T): %v`, ctx, name).debug(64)
   return
 }
 func (ctx *defaultContext) autoGet(name string) (res Value, found bool) {
@@ -689,26 +713,38 @@ func joinTmpPath(ctx Context, base, rel string) string {
   return filepath.Join(baseTmpPath, ".smart", "tmp", rel)
 }
 
+func positionForDir(dir string) (pos Position) {
+  if strings.HasSuffix(dir, "build.smart") {
+    pos.Filename = dir
+  } else if _, e := os.Stat(filepath.Join(dir, "build.smart")); e == nil {
+    pos.Filename = filepath.Join(dir, "build.smart")
+  } else {
+    pos.Filename = dir
+  }
+  pos.Line = 1
+  return
+}
+
 // load loads smart files, making it as individual func to avoid being abused by loaders.
 func (ctx *defaultContext) load() (err error) {
   if options.traceLaunch { defer un(trace(t_launch, "defaultContext.load")) }
   defer func(prevLoader *loader) {
     ctx.globe.projects = ctx.loader.loaded
     ctx.loader = prevLoader
-  } (ctx.loader)
+  }(ctx.loader)
 
   var (
     base, _ = os.Getwd()
+    pos = positionForDir(base) // FIXME: find a useful position
     sp = filepath.Join(base, ".smart", "modules")
-    pos Position // FIXME: find a useful position
     args []Value
   )
-  pos.Filename = base
+
   ctx.loader = &loader{
     closureContext: closureContext{ctx, []*Scope{ctx.globe.scope}},
-    fset:     token.NewFileSet(), 
-    paths:    []string(globalPaths),
-    loaded:   make(map[string]*Project),
+    fset:   token.NewFileSet(),
+    paths:  []string(globalPaths),
+    loaded: make(map[string]*Project),
   }
   ctx.globe.goals = &Def{
     knownobject: knownobject{objbase{scope:ctx.globe.scope}, "goals"},
@@ -731,6 +767,13 @@ func (ctx *defaultContext) load() (err error) {
   }
 
   if v := options.reconfigure; v { options.configure = v }
+  if v := options.fastMode; v {
+    // Turn off many things for fast mode:
+    options.noImportFiles = v
+    options.noDepsGrep = v
+    options.noDeps = v
+    options.noGrep = v
+  }
 
   if options.verbose || options.benchImport {
     defer func(t time.Time) {

@@ -1647,6 +1647,10 @@ func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ 
 }
 
 func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
+	if options.noImportFiles {
+		return
+	}
+
 	var (
 		opts = useOpts{ noVars:true, reuse:true }
 		projects []*Project

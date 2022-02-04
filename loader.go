@@ -2071,8 +2071,7 @@ func (l *loader) loadDir(pos Position, specName, absDir string, filter func(os.F
     } (time.Now())
 
     if !pos.IsValid() {
-        pos.Filename = absDir
-        pos.Line = 1
+        pos = positionForDir(absDir)
     }
     if !filepath.IsAbs(absDir) {
         erro(l, "needs absolute dir `%s' (%s)", absDir, specName).at(pos).debug(1)

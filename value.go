@@ -324,7 +324,13 @@ type closureContext struct {
     scopes []*Scope
 }
 func (cc *closureContext) inner() Context { return cc.Context }
-func (cc *closureContext) String() string { return fmt.Sprintf("closure{%s}", cc.Context) }
+func (cc *closureContext) String() string {
+    if fullContextStringer {
+        return fmt.Sprintf("closure{%s}", cc.Context)
+    } else {
+        return cc.Context.String()
+    }
+}
 func (cc *closureContext) Scope() (scope *Scope) {
     if len(cc.scopes) > 0 {
         scope = cc.scopes[0]
@@ -366,7 +372,13 @@ func (cc *closureContext) closureScopes() (scopes []*Scope) {
 }
 
 type spawnClosureContext struct { closureContext }
-func (cc *spawnClosureContext) String() string { return fmt.Sprintf("spawn-%s", cc.closureContext.String()) }
+func (cc *spawnClosureContext) String() string {
+    if fullContextStringer {
+        return fmt.Sprintf("spawn-%s", cc.closureContext.String())
+    } else {
+        return cc.Context.String()
+    }
+}
 func (cc *closureContext) spawn() Context {
     var ctx = cc.Context
     if t, ok := ctx.(*traverseContext); ok { ctx = t.spawn() }
@@ -561,7 +573,13 @@ type traverseContext struct {
     print bool // printing work directories (Entering/Leaving)
 }
 func (t *traverseContext) inner() Context { return t.Context }
-func (t *traverseContext) String() string { return fmt.Sprintf("traversal{%s}", t.Context) }
+func (t *traverseContext) String() string {
+    if fullContextStringer {
+        return fmt.Sprintf("traversal{%s}", t.Context)
+    } else {
+        return t.Context.String()
+    }
+}
 
 func (t *traverseContext) level(n int) { t.traceLevel += n }
 func (t *traverseContext) trace(a ...interface{}) { printIndentDots(t.traceLevel, a...) }
@@ -969,7 +987,7 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
             erro(ctx, "%s: resolve object '%s' failed: %v", target, err).at(pos)
             errostack(ctx, 3, "%v: %v: %v", target, project, ctx).debug(6)
             return
-        } else if isNil(obj) || isUndef(obj) || isNone(obj) || isEmpty(obj) {
+        } else if isTrivial(obj) {
             // does nothing here and keep trying FindFile
         } else if brks = obj.traverse(ctx); brks.has() {
             prompt(ctx, "%v: traverse failed, project %s\n", target, project)
@@ -1095,16 +1113,16 @@ func traversePattern(ctx Context, pat Value) (brks breakers) {
 
 func appendUpdated(ctx Context, updated *updatedtarget) {
     var targetValue Value = getTargetValue(ctx)
-    if isNil(targetValue) {
-        if ctx.configuration() {
-            erro(ctx, "target is <nil> for configuration %v, operation will fail/panic", ctx.entry())
-        } else {
-            erro(ctx, "target is <nil> for %v, operation will fail/panic", ctx.entry())
-        }
-        errostack(ctx, 8, "%v", ctx).debug(64)
+    if isTrivial(targetValue) {
         var pos = updated.target.Position()
         if p := ctx.program(); p != nil { pos = p.position }
-        fail(pos, "%v: target is <nil>", updated)
+        if ctx.configuration() {
+            erro(ctx, "trivial $@ for configuration %v, operation will fail/panic", ctx.entry())
+        } else {
+            erro(ctx, "trivial $@ for %v, operation will fail/panic", ctx.entry())
+        }
+        errostack(ctx, 8, "(%T):", ctx).debug(64)
+        fail(pos, "%v: nil target", updated)
         return
     } else {
         if targetValue == updated.target { return }
@@ -1182,11 +1200,11 @@ func getHashDir(ctx Context, k []byte) string {
 func getCmdHash(ctx Context, values ...Value) (k, v HashBytes, err error) {
     var program = ctx.program()
     var targetVal, targetStr = getTargetValueString(ctx)
-    if isNil(targetVal) {
-        erro(ctx, "target is <nil>").at(program.position).debug(1)
+    if isTrivial(targetVal) {
+        erro(ctx, "trivial $@").at(program.position).debug(1)
         return
     } else if targetStr == "" {
-        erro(ctx, "target is <nil>").at(program.position).debug(1)
+        erro(ctx, "trivial $@").at(program.position).debug(1)
         return
     }
 
@@ -1272,7 +1290,6 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
 
     // Waiting for prerequisites
     var (
-        program = ctx.program()
         pos Position = ctx.Position()
         calleeErrs []error
     )
@@ -1283,10 +1300,7 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
         t.calleeErrsM.Unlock()
     }
 
-    if target = getTargetValue(ctx); isNil(target) {
-        erro(ctx, "target is <nil>").at(program.position).debug(1)
-        return
-    } else if isNone(target) {
+    if target = getTargetValue(ctx); isTrivial(target) {
         erro(ctx, "target is <none>").at(pos)
         errostack(ctx, 8, "target is <none>").debug(8)
         return
@@ -1641,19 +1655,29 @@ func (p *Nil) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 
+// aka. isNil(v) || isNone(v) || isUndef(v) || isEmpty(v)
+func isTrivial(v Value) (t bool) {
+    switch a := v.(type) {
+    case *None, *Nil, *unresolvedobject: t = true
+    case *String: t = a.string == ""
+    case *List: t = len(a.Elems) == 0 ||
+        (len(a.Elems) == 1 && isTrivial(a.Elems[0]))
+    default: t = isNil(v)
+    }
+    return
+}
 func isEmptyList(v Value) (t bool) {
     if l, ok := v.(*List); ok && len(l.Elems) == 0 { t = true }
     return
 }
-
 func isEmpty(v Value) (t bool) {
     switch a := v.(type) {
-    case *List: t = len(a.Elems) == 0
     case *String: t = a.string == ""
+    case *List: t = len(a.Elems) == 0 ||
+        (len(a.Elems) == 1 && isEmpty(a.Elems[0]))
     }
     return
 }
-
 func isUndef(v Value) (t bool) { _, t = v.(*unresolvedobject); return }
 func isNone(v Value) (t bool) {
     switch a := v.(type) {
@@ -3336,7 +3360,7 @@ func (p *Path) match1(ctx Context, str string) (full bool, result string, stems 
         err error
     )
     if srcs = strings.Split(str, PathSep); len(srcs) == 0 {
-        //erro(ctx, "empty: %v", str).at(p.position)
+        if false { erro(ctx, "empty: %v", str).at(p.position) }
         return
     }
     if segs, _, err = expandPathElems(ctx, expandPlainValue, p.Elems...); err != nil {
@@ -3344,14 +3368,15 @@ func (p *Path) match1(ctx Context, str string) (full bool, result string, stems 
         return
     }
 
-    if p.String() == "%%/Dockerfile" {
+    var warns = false //p.String() == "%%/Dockerfile"
+    if warns {
         defer func() {
             warn(ctx, "%v: %s", p, str)
             warn(ctx, "%v: %s, %v %v", p, result, full, stems).debug(4)
         } ()
     }
 
-    const infos = false
+    var infos = warns
     var (
         lenSegs = len(segs)
         lenSrcs = len(srcs)
@@ -3365,6 +3390,7 @@ SegsLoop:
             erro(ctx, "invalid path seg: %v (%T)", seg, seg).of(seg).debug(1)
             break SegsLoop
         }
+
         var (
             pp, pre, suf = percperc(seg)
             ss []string
@@ -3373,13 +3399,13 @@ SegsLoop:
         )
         if pp {
             if infos { info(ctx, "%d: path=%v seg=%v (%T) src=%v pp=%v pre=%v suf=%v res=%v stems=%v srcs[%d]=%s lenSegs=%d", si, p, seg, seg, src, pp, pre, suf, res, stems, m, src, lenSegs).of(p).debug(true,1) }
-            if !isNil(lastSuf) && !isNil(pre) && !isNone(pre) {
+            if !isTrivial(lastSuf) && !isTrivial(pre) {
                 erro(ctx, "the continual %%/%% makes no sense").of(seg)
                 break SegsLoop
             }
             if /*ps, ok := seg.(*PathSeg);*/ src == "" /*&& ok && (ps.rune == 0 || ps.rune == '/')*/ { // for root path seg '/'
                 // NOTE: seg could also be % or %% here
-                res = append(res, "") // for '/'
+                res   = append(res, "") // for '/'
                 stems = append(stems, "")
                 //info(ctx, "%v %v; %v %v; %v %v", p, seg, res, stems, ps, ok).of(p)
             }
@@ -3406,7 +3432,7 @@ SegsLoop:
         }
 
         var prefix string
-        if !(isNil(pre) || isNone(pre)) {
+        if !isTrivial(pre) {
             if prefix, err = pre.Strval(ctx); err != nil {
                 erro(ctx, "strval prefix '%v' failed: %v", pre, err).of(pre)
                 return
@@ -3419,14 +3445,13 @@ SegsLoop:
         // Iterate segs for %%, e.g. bar, baz in foo/%%/bar/baz
         var stem []string
         if prefix != "" { stem = append(stem, strings.TrimPrefix(src, prefix)) }
-        if !(isNil(suf) || isNone(suf)) {
+        if !isTrivial(suf) {
             var suffix string
             if suffix, err = suf.Strval(ctx); err != nil {
                 erro(ctx, "strval suffix '%v' failed: %v", suf, err).of(suf)
                 break SegsLoop
             }
-            res = append(res, src)
-            if m < lenSrcs {
+            if res = append(res, src); m < lenSrcs {
                 stem = append(stem, src)
                 for ; m < lenSrcs; m += 1 {
                     src = srcs[m]
@@ -3448,7 +3473,7 @@ SegsLoop:
                 stems = append(stems, strings.Join(stem, PathSep))
                 if infos { info(ctx, "%d: path=%v seg=%v (%T) res=%v stems=%v suffix=%v src=%s lenSegs=%d lenSrcs=%d m=%d", si, p, seg, seg, res, stems, suffix, src, lenSegs, lenSrcs, m).of(p).debug(true,1) }
             }
-        } else if n < lenSegs && !(isNil(segs[n]) || isNone(segs[n])) {
+        } else if n < lenSegs && !isTrivial(segs[n]) {
             for seg = segs[n]; m < lenSrcs; m += 1 {
                 src = srcs[m]
                 if matched, s, ss := seg.match(ctx, src); matched || s == src {
@@ -3980,8 +4005,8 @@ func (p *File) stamp(ctx Context) (files []*File, err error) {
         ctx.Globe().stamp(fullname, newModTime)
         files = append(files, p)
 
-        if target := getTargetValue(ctx); isNil(target) {
-            erro(ctx, "target is <nil>").at(ctx.program().position).debug(1)
+        if target := getTargetValue(ctx); isTrivial(target) {
+            erro(ctx, "trivial $@").at(ctx.program().position).debug(1)
             return
         } else if cmp := target.cmp(ctx, p); ctx.configuration() {
             if false {
@@ -4077,8 +4102,8 @@ func (p *File) traverse(ctx Context) (brks breakers) {
         program = ctx.program()
         targetValue = getTargetValue(ctx)
     )
-    if isNil(targetValue) {
-        erro(ctx, "target is <nil>").at(program.position).debug(1)
+    if isTrivial(targetValue) {
+        erro(ctx, "trivial $@").at(program.position).debug(1)
         return
     }
 

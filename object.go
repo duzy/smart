@@ -292,7 +292,13 @@ type autoContext struct {
         //mutex sync.RWMutex
 }
 func (ac *autoContext) inner() Context { return ac.Context }
-func (ac *autoContext) String() string { return fmt.Sprintf("auto{%s}", ac.Context) }
+func (ac *autoContext) String() string {
+        if fullContextStringer {
+                return fmt.Sprintf("auto{%s}", ac.Context)
+        } else {
+                return ac.Context.String()
+        }
+}
 func (ac *autoContext) closureResolveAuto(name string) (obj Object, found bool) {
         if cc, ok := ac.Context.(*closureContext); ok {
                 obj, found = cc.closureResolveAuto(name)
@@ -1460,7 +1466,13 @@ type stemmedContext struct {
         strs []string
 }
 func (sc *stemmedContext) inner() Context { return sc.Context }
-func (sc *stemmedContext) String() string { return fmt.Sprintf("stemmed{%s}", sc.Context) }
+func (sc *stemmedContext) String() string {
+        if fullContextStringer {
+                return fmt.Sprintf("stemmed{%s}", sc.Context)
+        } else {
+                return sc.Context.String()
+        }
+}
 func (sc *stemmedContext) stems() []string { return sc.strs }
 
 type stemmed struct { PatternEntry; Stems []string }
