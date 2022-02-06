@@ -10,6 +10,8 @@ import (
   "extbit.io/smart/token"
   "path/filepath"
   "runtime/debug"
+  "runtime/pprof"
+  "runtime"
   "strings"
   "regexp"
   "bufio"
@@ -19,41 +21,49 @@ import (
   "fmt"
   "os"
   "io"
-  "io/ioutil"
+  //"io/ioutil"
 )
 
 type commandLineOpts struct {
   help            bool `h,help`
-  debug           bool `d,debug;ps,print-stack`
-  debugErrors     bool `de,debug-errors` // optionDebugErrors
-  debugWarns      bool `dw,debug-warns`  // optionDebugWarns
-  debugInfos      bool `di,debug-infos`  // optionDebugInfos
-  debugPrompt     bool `dp,debug-prompt` // optionDebugInfos
-  printConfig     bool `po,print-options;po,printoptions`  // optionPrintConfiguration
-  printFlags      bool `pf,print-flags`                    // optionPrintFlags
-  buildPlugins    bool `bp,build-plugins;bp,buildplugins`  // optionAlwaysBuildPlugins
-  benchImport     bool `bi,bench-import;bi,benchimport`    // optionBenchImport
-  benchBuiltins   bool `bb,bench-builtins`                 // optionBenchBuiltin
-  benchSlow       bool `bs,bench-slow;bs,benchslow`        // optionBenchSlow
-  verbose         bool `v,verbose`          // optionVerbose
-  verboseImport   bool `vi,verbose-import`  // optionVerboseImport
-  verboseChecks   bool `vc,verbose-checks`  // optionVerboseChecks
-  verboseLoads    bool `vl,verbose-loading` // optionVerboseLoading
-  verboseParse    bool `vp,verbose-parsing` // optionVerboseParsing
-  verboseUsing    bool `vu,verbose-using`   // optionVerboseUsing
-  cleanDotCache   bool `cc,clean-cache;cc,clear-cache;rc,rm-cache`
-  cleanDotDeps    bool `cd,clean-deps;cd,clear-deps;rd,rm-deps`
-  cleanDotGrep    bool `cg,clean-grep;cg,clear-grep;rg,rm-grep`
-  cleanTmpDirs    bool `ct,clean-temp;ct,clear-temp;rt,rm-temp`
-  configure       bool `conf,configure`          // optionConfigure
-  reconfigure     bool `rc,reconfig;reconf,reconfigure` // optionReconfig
-  saveGrepSource  bool `sgs,save-grep-source`
 
-  noExec          bool `nx,no-exec;ne,no-execute`  // optionNoExec
-  noDeps          bool `nd,no-deps`
-  noGrep          bool `ng,no-grep`
-  noDepsGrep      bool `ndg,no-deps-grep;ngd,no-grep-deps`
-  noImportFiles   bool `nif,no-import-files`
+  debug           bool `db,debug`
+  debugErrors     bool `dberro,debug-errors` // optionDebugErrors
+  debugWarns      bool `dbwarn,debug-warns`  // optionDebugWarns
+  debugInfos      bool `dbinfo,debug-infos`  // optionDebugInfos
+  debugPrompt     bool `dbprom,debug-prompt` // optionDebugInfos
+
+  autoProfs       bool `autoprof,auto-profiles;autoprof,auto-profile`
+  cpuProf         string `cpuprof,cpu-profile`
+  memProf         string `memprof,memory-profile`
+
+  printConfig     bool `opts,print-options;opts,printoptions` // optionPrintConfiguration
+  printFlags      bool `flags,print-flags;flags,printflags`   // optionPrintFlags
+
+  buildPlugins    bool `bup,build-plugins;bup,buildplugins`  // optionAlwaysBuildPlugins
+
+  verbose         bool `v,verbose`            // optionVerbose
+  verboseImport   bool `vimp,verbose-import`  // optionVerboseImport
+  verboseChecks   bool `vchk,verbose-checks`  // optionVerboseChecks
+  verboseLoads    bool `vloa,verbose-loading` // optionVerboseLoading
+  verboseParse    bool `vpar,verbose-parsing` // optionVerboseParsing
+  verboseUsing    bool `vuse,verbose-using`   // optionVerboseUsing
+
+  cleanDotCache   bool `clcac,clean-cache;clcac,clear-cache;rmc,rm-cache`
+  cleanDotDeps    bool `cldep,clean-deps;cldep,clear-deps;rmd,rm-deps`
+  cleanDotGrep    bool `clgrp,clean-grep;clgrp,clear-grep;rmg,rm-grep`
+  cleanTmpDirs    bool `cltmp,clean-temp;cltmp,clear-temp;rmt,rm-temp`
+
+  configure       bool `conf,configure`       // optionConfigure
+  reconfigure     bool `reconf,reconfigure;rc,reconfig` // optionReconfig
+
+  saveGrepSource  bool `savgs,save-grep-source`
+
+  noExec          bool `nox,no-exec;ne,no-execute`  // optionNoExec
+  noDeps          bool `nod,no-deps`
+  noGrep          bool `nog,no-grep`
+  noDepsGrep      bool `nodg,no-deps-grep;ngd,no-grep-deps`
+  noImportFiles   bool `noif,no-import-files`
 
   fastMode        bool `f,fast;fm,fast-mode`
 
@@ -501,10 +511,52 @@ func (ctx *defaultContext) helpConfig() { print_configuration(ctx) }
 
 func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
   if options.traceLaunch { defer un(trace(t_launch, "defaultContext.run")) }
+  if options.cpuProf != "" {
+    if f, e := os.Create(options.cpuProf); e != nil {
+      erro(dc, "%v", e).debug(1)
+      return
+    } else {
+      defer f.Close()
+      if e := pprof.StartCPUProfile(f); e != nil {
+        erro(dc, "could not start CPU profile: %v", e).debug(1)
+        return
+      }
+      defer pprof.StopCPUProfile()
+    }
+  } else if options.autoProfs {
+    if f, e := os.Create("run.auto.cpu.prof"); e != nil {
+      erro(dc, "%v", e).debug(1)
+      return
+    } else {
+      defer f.Close()
+      if e := pprof.StartCPUProfile(f); e != nil {
+        erro(dc, "could not start CPU profile: %v", e).debug(1)
+        return
+      }
+      defer pprof.StopCPUProfile()
+    }
+  }
+  if options.memProf != "" || options.autoProfs {
+    defer func() {
+      var prof = options.memProf
+      if prof == "" { prof = "run.auto.mem.prof" }
+      if f, e := os.Create(prof); e != nil {
+        erro(dc, "%v", e).debug(1)
+        return
+      } else {
+        defer f.Close()
+        runtime.GC() // update memory statistics
+        if e := pprof.WriteHeapProfile(f); e != nil {
+          erro(dc, "could not start CPU profile: %v", e).debug(1)
+          return
+        }
+      }
+    } ()
+  }
 
   var main = dc.globe.main
   if main == nil {
-    erro(dc, "no targets to update `%v`", dc.globe.goals)
+    erro(dc, "no targets to update `%v`", dc.globe.goals).debug(1)
     return
   }
 
@@ -776,7 +828,7 @@ func (ctx *defaultContext) load() (err error) {
     options.noGrep = v
   }
 
-  if options.verbose || options.benchImport {
+  if options.verbose {
     defer func(t time.Time) {
       var d = time.Now().Sub(t)
       prompt(ctx, "Goals %v (%s)\n", ctx.globe.goals, d)
@@ -784,6 +836,37 @@ func (ctx *defaultContext) load() (err error) {
   }
 
   assert(ctx.globe.args != nil, "globe args is nil")
+
+  if options.autoProfs {
+    if f, e := os.Create("load.auto.cpu.prof"); e != nil {
+      erro(ctx, "%v", e).debug(1)
+      return
+    } else {
+      defer f.Close()
+      if e := pprof.StartCPUProfile(f); e != nil {
+        erro(ctx, "could not start CPU profile: %v", e).debug(1)
+        return
+      }
+      defer pprof.StopCPUProfile()
+    }
+  }
+  if options.autoProfs {
+    defer func() {
+      var prof string //= options.memProf
+      if prof == "" { prof = "load.auto.mem.prof" }
+      if f, e := os.Create(prof); e != nil {
+        erro(ctx, "%v", e).debug(1)
+        return
+      } else {
+        defer f.Close()
+        runtime.GC() // update memory statistics
+        if e := pprof.WriteHeapProfile(f); e != nil {
+          erro(ctx, "could not start CPU profile: %v", e).debug(1)
+          return
+        }
+      }
+    } ()
+  }
 
   var mode = new(Bareword)
   for _, target := range args {
@@ -819,7 +902,7 @@ func (ctx *defaultContext) load() (err error) {
       var name string
       if p := ctx.loader.Project(); p != nil { name = p.name }
       fmt.Fprintf(stderr, "└·%s … (%s)\n", name, d)
-    } else if d > 4999*time.Millisecond {
+    } else if d > 2999*time.Millisecond {
       var f = filepath.Join(base, "build.smart")
       if _, e := os.Stat(f); e == nil { base = f }
       prompt(ctx, "%s:1:note: long loading: %s !!\n", base, d).debug(1)
@@ -863,30 +946,6 @@ func CommandLine() {
   defer checkPanicsErrors(context)
 
   if options.traceLaunch { defer un(trace(t_launch, "CommandLine")) }
-  if optionEnableBenchmarks {
-    var w *bufio.Writer
-    var d = filepath.Join(context.workdir, "benchmarks")
-    if err := os.MkdirAll(d, os.FileMode(0777)); err != nil {
-      erro(context, "%v", err).at(context.Position()).debug(1)
-      return
-    } else if f, err := ioutil.TempFile(d, "*.log"); err != nil {
-      erro(context, "%v", err).at(context.Position()).debug(1)
-      return
-    } else {
-      w = bufio.NewWriter(f)
-      benchmark.start = time.Now()
-      benchmark.spot = benchmark.start
-      defer func(t time.Time) {
-        benchspot_report(w)
-        w.WriteString("--------\n")
-        benchmark.spent = time.Now().Sub(t)
-        benchmark.summary(w)
-        benchmark.report(w, 0, nil)
-        w.Flush()
-        f.Close()
-      } (benchmark.spot)
-    }
-  }
 
   var modulesPaths, packagePaths searchlist
   walkSmartBaseDirs(context, context.workdir, func(s string) bool {

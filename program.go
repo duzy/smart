@@ -101,7 +101,6 @@ func (prog *Program) Position() Position { return prog.position }
 func (prog *Program) Project() *Project { return prog.project }
 func (prog *Program) Scope() *Scope { return prog.scope }
 func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err error) {
-    if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.interpret(%s)", typeof(i)))) }
     if pos := ctx.Position(); !pos.IsValid() && prog.position.IsValid() {
         ctx = positional(ctx, prog.position)
     }
@@ -243,9 +242,6 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
 const maxRecursion  = 16 //32 //64
 
 func (prog *Program) execute(cc Context) (result Value, brks breakers) {
-    if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.execute(%s)", cc.entry()))) }
-    if optionEnableBenchspots { defer bench(spot("Program.execute")) }
-
     var (
         args  = cc.arguments()
         entry = cc.entry()
@@ -533,8 +529,7 @@ func traversePrerequisites(ctx Context, prerequisites []Value) (brks breakers) {
 }
 
 func traverseNormal(ctx Context) (brks breakers) {
-    if options.traceExec      { defer un(trace(t_exec, "^")) }
-    if optionEnableBenchmarks { defer bench(mark("traversal.normal")) }
+    if options.traceExec  { defer un(trace(t_exec, "^")) }
     if t := ctx.traversal(); t != nil {
         t.target0, t.targetN, t.targetX = "<", ">", "^"
     } else {
@@ -545,8 +540,7 @@ func traverseNormal(ctx Context) (brks breakers) {
 }
 
 func traverseOrderOnly(ctx Context) (brks breakers) {
-    if options.traceExec        { defer un(trace(t_exec, "|")) }
-    if optionEnableBenchmarks { defer bench(mark("traversal.orderonly")) }
+    if options.traceExec  { defer un(trace(t_exec, "|")) }
     if t := ctx.traversal(); t != nil {
         t.target0, t.targetN, t.targetX = "", "", "|"
     } else {
@@ -558,8 +552,7 @@ func traverseOrderOnly(ctx Context) (brks breakers) {
 
 // DEPRECATED
 func _traverseGrepped(ctx Context) (brks breakers) {
-    if options.traceExec        { defer un(trace(t_exec, "~")) }
-    if optionEnableBenchmarks { defer bench(mark("traversal.grepped")) }
+    if options.traceExec  { defer un(trace(t_exec, "~")) }
     var t = ctx.traversal()
     /*defer func(t0, tx, ta *Def) {
         t.target0, t.targetx, t.targets = t0, tx, ta

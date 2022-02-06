@@ -336,39 +336,39 @@ func (p *Project) myFilemaps(ctx Context) (filemap []*FileMap) {
   return _filemap_
 }
 
-func appendFilemapUniquely(ctx Context, filemaps []*FileMap, a *FileMap) (result []*FileMap) {
-  var numDuplicated int
-  for _, m := range filemaps {
-    if a == m || (a.pattern == m.pattern && &a.paths == &m.paths) {
-      result = filemaps
-      return
-    } else if a.pattern == m.pattern && len(a.paths) == len(m.paths) {
-      var same = true // initially assumes all paths are identical
-      for i, ap := range a.paths {
-        if ap != m.paths[i] { same = false; break }
-      }
-      if same {
+func uniqueAppendFilemap(ctx Context, filemaps []*FileMap, a *FileMap) (result []*FileMap) {
+  if false {
+    var numDuplicated int
+    for _, m := range filemaps {
+      if a == m || (a.pattern == m.pattern && &a.paths == &m.paths) {
         result = filemaps
         return
-      } else {
-        warn(ctx, "files might be duplicated: %v (paths=%v),", a, a.paths).of(a.pattern)
-        warn(ctx, "                     with: %v (paths=%v)" , m, m.paths).of(m.pattern)
-        warn(ctx, "          differred paths: %v", a.paths[0]).of(a.paths[0])
-        warn(ctx, "                      and: %v", m.paths[0]).of(m.paths[0])
-        numDuplicated += 1
+      } else if a.pattern == m.pattern && len(a.paths) == len(m.paths) {
+        var same = true // initially assumes all paths are identical
+        for i, ap := range a.paths {
+          if ap != m.paths[i] { same = false; break }
+        }
+        if same {
+          result = filemaps
+          return
+        } else {
+          warn(ctx, "files might be duplicated: %v (paths=%v),", a, a.paths).of(a.pattern)
+          warn(ctx, "                     with: %v (paths=%v)" , m, m.paths).of(m.pattern)
+          warn(ctx, "          differred paths: %v", a.paths[0]).of(a.paths[0])
+          warn(ctx, "                      and: %v", m.paths[0]).of(m.paths[0])
+          numDuplicated += 1
+        }
       }
     }
+    if numDuplicated > 0 { erro(ctx, "duplicated files: %v", a.pattern).of(a.pattern) }
   }
-  if numDuplicated > 0 { erro(ctx, "duplicated files: %v", a.pattern).of(a.pattern) }
   result = append(filemaps, a)
   return
 }
 
 func (p *Project) filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*FileMap) {
-  if optionEnableBenchmarks && false { defer bench(mark("Project.filemaps")) }
-
   var appendUnique = func(a *FileMap) {
-    filemaps = appendFilemapUniquely(ctx, filemaps, a)
+    filemaps = uniqueAppendFilemap(ctx, filemaps, a)
   }
 
   for _, m := range p.myFilemaps(ctx) { appendUnique(m) }
@@ -506,9 +506,6 @@ ForPatterns:
 }
 
 func (p *Project) matchFile(ctx Context, name string, baseFiles bool) (file *File) {
-  if optionEnableBenchmarks && false { defer bench(mark("Project.FindFile")) }
-  if optionEnableBenchspots { defer bench(spot("Project.FindFile")) }
-
   var first *File
 
 ForFilemaps:
@@ -605,8 +602,6 @@ func (p *Project) resolveObject(ctx Context, s string) (obj Object, err error) {
 }
 
 func (p *Project) resolveEntries(ctx Context, s string, matchFullSuffix, alwaysResolveBases bool) (entries *ResolveEntries, err error) {
-  if optionEnableBenchmarks && false { defer bench(mark("Project.resolveEntry")) }
-  if optionEnableBenchspots { defer bench(spot("Project.resolveEntry")) }
   var add = func(a ...Entry) {
     if len(a) > 0 {
       if entries == nil { entries = new(ResolveEntries) }
@@ -666,16 +661,13 @@ func (p *Project) resolveEntries(ctx Context, s string, matchFullSuffix, alwaysR
 }
 
 func (p *Project) resolvePatterns(ctx Context, i interface{}) (res []*stemmed) {
-  if optionEnableBenchmarks && false { defer bench(mark("Project.resolvePatterns")) }
-  if optionEnableBenchspots { defer bench(spot("Project.resolvePatterns")) }
-  if true  { res = append(res, p._resolvePatterns1(ctx, i)...) }
-  if true  { res = append(res, p._resolvePatterns2(ctx, i)...) }
-  if false { res = append(res, p._resolvePatterns3(ctx, i)...)/* heavy work, VERY SLOW! */ }
+  if true  { res = append(res, p.resolvePatterns1(ctx, i)...) }
+  if true  { res = append(res, p.resolvePatterns2(ctx, i)...) }
+  if false { res = append(res, p.resolvePatterns3(ctx, i)...)/* heavy work, VERY SLOW! */ }
   return
 }
 
-func (p *Project) _resolvePatterns1(ctx Context, i interface{}) (res []*stemmed) {
-  if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns1")) }
+func (p *Project) resolvePatterns1(ctx Context, i interface{}) (res []*stemmed) {
   for _, pat := range p.patterns {
     if full, _, stems := pat.target.match(ctx, i); full {
       res = append(res, &stemmed{*pat, stems})
@@ -684,16 +676,14 @@ func (p *Project) _resolvePatterns1(ctx Context, i interface{}) (res []*stemmed)
   return
 }
 
-func (p *Project) _resolvePatterns2(ctx Context, i interface{}) (res []*stemmed) {
-  if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns2")) }
+func (p *Project) resolvePatterns2(ctx Context, i interface{}) (res []*stemmed) {
   for _, base := range p.bases {
     res = append(res, base.resolvePatterns(ctx, i)...)
   }
   return
 }
 
-func (p *Project) _resolvePatterns3(ctx Context, i interface{}) (res []*stemmed) {
-  if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns3")) }
+func (p *Project) resolvePatterns3(ctx Context, i interface{}) (res []*stemmed) {
   for _, using := range p.using.list {
     res = append(res, using.project.resolvePatterns(ctx, i)...)
   }

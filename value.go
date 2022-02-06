@@ -394,6 +394,7 @@ ForScopes:
             }
         }
         projects = append(projects, scope.project)
+        if true { break }
     }
     return
 }
@@ -699,20 +700,11 @@ func (t *traverseContext) calleeError(err error) {
 
 // DEPRECATED
 func traverseAny(ctx Context, i interface{}) {
-    if optionEnableBenchmarks && false {  defer bench(mark(fmt.Sprintf("traversal.any(%s=%v)", typeof(i), i))) }
-
     var err error
     var pos = ctx.Position() //t.def.target.position
     if v := reflect.ValueOf(i); v.Kind() == reflect.Slice {
         for n := 0; err == nil && n < v.Len(); n++ {
-            if optionEnableBenchmarks && false {
-                i := v.Index(n).Interface()
-                a, b := mark(fmt.Sprintf("%v: %s %v", n, typeof(i), i))
-                traverseAny(ctx, i)
-                bench(a, b)
-            } else {
-                traverseAny(ctx, v.Index(n).Interface())
-            }
+            traverseAny(ctx, v.Index(n).Interface())
         }
     } else if i == nil {
         erro(ctx, "updating nil prerequisite").at(pos)
@@ -728,8 +720,6 @@ func traverseAny(ctx Context, i interface{}) {
 
 func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
     if options.traceTraversal { ctx.traversal().tracef("traversal.file: %s", file) }
-    if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.file(%v)", file))) }
-    if optionEnableBenchspots { defer bench(spot("traversal.file")) }
 
     var (
         proj = ctx.Project()
@@ -752,6 +742,14 @@ func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
         err error
     )
     defer func() {
+        if strings.HasPrefix(file.name, "isl/") {
+            for _, proj := range projects {
+                warn(ctx, "%v: %v: %v", file, proj, proj.patterns)
+            }
+            warn(ctx, "%v: concrete %v", file, concreteList)
+            warn(ctx, "%v: stemmed %v", file, stemmedList)
+            warn(ctx, "%v: %v", file, projects).debug(3)
+        }
         // Note that the file maybe not traversed yet at this point. But we
         // still have to check mod-time.
         var (
@@ -870,8 +868,6 @@ checkFileEntries:
 
 func traverseString(ctx Context, targetVal Value, target string) (okay bool, brks breakers) {
     if options.traceTraversal { ctx.traversal().tracef("traversal.target: %s", target) }
-    if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.target(%v)", target))) }
-    if optionEnableBenchspots { defer bench(spot("traversal.target")) }
 
     var currentTargetValue = getTargetValue(ctx)
     if isNil(currentTargetValue) {
@@ -1286,8 +1282,6 @@ func isRecipesOutdated(ctx Context) (outdated bool, err error) {
 }
 
 func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *ExecResult, err error) {
-    if optionEnableBenchmarks && false { defer bench(mark("traversal.wait")) }
-
     // Waiting for prerequisites
     var (
         pos Position = ctx.Position()
@@ -3368,11 +3362,14 @@ func (p *Path) match1(ctx Context, str string) (full bool, result string, stems 
         return
     }
 
-    var warns = false //p.String() == "%%/Dockerfile"
+    //const warns = false
+    //var warns = p.String() == "%%/Dockerfile"
+    var warns = false //p.String() == "isl/%%"
     if warns {
         defer func() {
             warn(ctx, "%v: %s", p, str)
-            warn(ctx, "%v: %s, %v %v", p, result, full, stems).debug(4)
+            warn(ctx, "%v: %s, %v %v", p, result, full, stems)
+            warnstack(ctx, 8, "%v: %T", p, ctx).debug(6)
         } ()
     }
 
@@ -3522,7 +3519,7 @@ SegsLoop:
             warn(ctx, "Path.match: path=%v str=%v res=%v stems=%v -> full=%v result=%v lens=%d,%d", p, str, res, stems, full, result, lenRes, lenSrcs).of(p).debug(1)
         } else {
             warn(ctx, "Path.match: path=%v res=%v stems=%v lenRes=%d", p, res, stems, lenRes).of(p)
-            warn(ctx, "Path.match: str=%v full=%v result=%v lenSrcs=%d", str, full, result, lenSrcs).of(p).debug(1)
+            warn(ctx, "Path.match: str=%v full=%v result=%v lenSrcs=%d", str, full, result, lenSrcs).of(p).debug(4)
         }}
         if correct := (!full && strings.HasPrefix(str, result)) || (full && str == result); false {
             assert(correct, "incorrect result: res=%v result=%v full=%v stems=%v str=%s", res, result, full, stems, str)
@@ -5527,8 +5524,6 @@ func (p *PercPattern) defs(ctx Context, s ...string) []*Def { return append(p.Pr
 func (p *PercPattern) expandible(ctx Context, w expandwhat) bool { return p.Prefix.expandible(ctx, w) || p.Suffix.expandible(ctx, w) }
 func (p *PercPattern) patterned(ctx Context) bool { return true }
 func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string, stems []string) {
-    if optionEnableBenchspots { defer bench(spot("PercPattern.match")) }
-
     var ( prefix string; err error )
     if !(isNil(p.Prefix) || isNone(p.Prefix)) {
         // FIXME: the prefix could be Glob, Regexp, etc.
@@ -5615,8 +5610,6 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
     return
 }
 func (p *PercPattern) match(ctx Context, i interface{}) (full bool, result string, stems []string) {
-    if optionEnableBenchspots { defer bench(spot("PercPattern.match")) }
-
     switch t := i.(type) {
     case string: return p.match1(ctx, t)
     case *filestub:
@@ -5641,9 +5634,6 @@ func (p *PercPattern) match(ctx Context, i interface{}) (full bool, result strin
     return
 }
 func (p *PercPattern) stencil(ctx Context, stems []string) (s string, rest []string) {
-    if optionEnableBenchmarks && false { defer bench(mark(fmt.Sprintf("PercPattern.stencil(%v)", p))) }
-    if optionEnableBenchspots { defer bench(spot("PercPattern.stencil")) }
-
     var err error
     if !(isNil(p.Prefix) || isNone(p.Prefix)) {
         // FIXME: the prefix could be Glob, Regexp, etc.
@@ -5777,7 +5767,6 @@ func (p *GlobPattern) expand(ctx Context, w expandwhat) (res Value, err error) {
 }
 func (p *GlobPattern) patterned(ctx Context) bool { return true }
 func (p *GlobPattern) match(ctx Context, i interface{}) (full bool, result string, stems []string) {
-    if optionEnableBenchspots { defer bench(spot("GlobPattern.match")) }
     var ( s string; e error )
     switch t := i.(type) {
     case string:    s = t
@@ -5821,7 +5810,6 @@ func (p *RegexpPattern) String() string { return "{RegexpPattern}" }
 func (p *RegexpPattern) Strval(ctx Context) (s string, err error) { return "", nil }
 func (p *RegexpPattern) patterned(ctx Context) bool { return true }
 func (p *RegexpPattern) match(ctx Context, i interface{}) (full bool, result string, stems []string) {
-    if optionEnableBenchspots { defer bench(spot("RegexpPattern.match")) }
     unreachable("regexp.match: %T %v", i, i)
     return
 }
@@ -5874,7 +5862,6 @@ type namescoper struct {
     name string
     scope *Scope
 }
-
 func (ns *namescoper) Name() string { return ns.name }
 func (ns *namescoper) Scope() *Scope { return ns.scope }
 func NameScope(name string, scope *Scope) NameScoper {

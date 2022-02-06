@@ -100,7 +100,7 @@ func (s *Scope) findouter(name string) (*Scope, Object) {
 }
 
 func (s *Scope) Find(name string) (*Scope, Object) {
-	s.mutex.Lock(); defer s.mutex.Unlock()
+	if false { s.mutex.Lock(); defer s.mutex.Unlock() }
 	if obj := s.lookup(name); obj == nil {
 		return s.findouter(name)
 	} else {

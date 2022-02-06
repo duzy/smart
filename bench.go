@@ -14,9 +14,6 @@ import (
         "io"
 )
 
-const optionEnableBenchmarks = false
-const optionEnableBenchspots = false
-
 type _benchmark struct {
         tag string
         start, spot time.Time

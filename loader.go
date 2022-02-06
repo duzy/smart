@@ -733,28 +733,12 @@ func (l *loader) convertBarefiles(targets []Value) []Value {
 
 func (l *loader) addUsing(ctx Context, usee *Project, params []Value, opts useOpts) (err error) {
     // clocks:🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚🕛🕜🕝🕞🕟🕠🕡🕢🕣🕤🕥🕦🕧
-    if options.verboseUsing && options.verboseImport && options.benchImport {
-        defer func(t time.Time) {
-            var d = time.Now().Sub(t)
-            fmt.Fprintf(stderr, "%s││ using(%8s) %s ⇒ %v\n", l.vs, d, l.project, l.project.using)
-        } (time.Now())
-    } else if options.verboseUsing {
+    if options.verboseUsing {
         defer func(t time.Time) {
             var d = time.Now().Sub(t)
             fmt.Fprintf(stderr, "using(%8s) %s ⇒ %v\n", d, l.project, l.project.using)
         } (time.Now())
     }
-    defer func(t time.Time) {
-        var d = time.Now().Sub(t)
-        if options.verboseImport {
-            if options.benchImport /*&& d > 1*time.Millisecond*/ {
-                var s = l.usePath()
-                fmt.Fprintf(stderr, "%s││ %s:use(%s) … (%s) (%s)\n", l.vs, l.project.name, usee.name, d, s)
-            }
-        } else if options.benchSlow && d > 500*time.Millisecond { // ⌚ ⌛
-            fmt.Fprintf(stderr, "smart: %s: slow ▶use(%s)◀ … (%s)\n", l.project.name, usee.name, d)
-        }
-    } (time.Now())
 
     if usee == l.project {
         erro(l, "'%v' use loop (%s)", usee.name, l.usePath())
@@ -1860,10 +1844,6 @@ func (l *loader) ParseDir(pos Position, path string, filter func(os.FileInfo) bo
         var d = time.Now().Sub(t)
         if options.verboseParse /*&& d > 50*time.Millisecond*/ {
             fmt.Fprintf(stderr, "parse(%15s) %s ⇒ %s\n", d, l.project, path)
-        } else if options.benchSlow && l.project == nil && d>5000*time.Millisecond {
-            fmt.Fprintf(stderr, "smart: slow ▶parse(%s)◀ … (%s)\n", path, d)
-        } else if options.benchSlow && l.project != nil && d>2500*time.Millisecond {
-            fmt.Fprintf(stderr, "smart: %s: slow ▶parse(%s)◀ … (%s)\n", l.project, path, d)
         }
     } (time.Now())
 
@@ -2011,8 +1991,6 @@ func (l *loader) load(specName, absPath string, source interface{}) (result bool
             } else {
                 fmt.Fprintf(stderr, "load (%15s) %s ⇒ %s (%s)\n", d, l.project.name, loaded, specName)
             }
-        } else if options.benchSlow && d > 100*time.Millisecond {
-            fmt.Fprintf(stderr, "smart: %s: slow ▶load(%s) … (%s)◀\n", l.project.name, specName, d)
         }
     } (time.Now())
 
@@ -2063,10 +2041,6 @@ func (l *loader) loadDir(pos Position, specName, absDir string, filter func(os.F
             } else {
                 fmt.Fprintf(stderr, "load (%15s) %s ⇒ %s (%s)\n", d, l.project.name, loaded, specName)
             }
-        } else if options.benchSlow && l.project == nil && d>5000*time.Millisecond {
-            fmt.Fprintf(stderr, "smart: slow ▶load(%s)◀ … (%s)\n", specName, d)
-        } else if options.benchSlow && l.project != nil && d>2500*time.Millisecond {
-            fmt.Fprintf(stderr, "smart: %s: slow ▶load(%s)◀ … (%s)\n", l.project.name, specName, d)
         }
     } (time.Now())
 

@@ -1406,11 +1406,6 @@ func builtinUnique(ctx Context, args... Value) (res Value) {
                 opts builtinUniqueOpts
                 err error
         )
-        if options.benchBuiltins {
-                defer func(t time.Time) {
-                        info(ctx, "(%8s) unique", time.Now().Sub(t))
-                } (time.Now())
-        }
         if len(args) > 0 {
                 var a []Value
                 if a, err = parseOpts(ctx, &opts, merge(args[0])...); err != nil {
@@ -3452,7 +3447,7 @@ ForArgs:
                 if opts.relative && filepath.IsAbs(oldname) {
                         var ( dir = filepath.Dir(newname); s = oldname )
                         if oldname, err = filepath.Rel(dir, oldname); err != nil {
-                                prompt(ctx, "symlink: rel %s, %s\n", dir, s)
+                                prompt(ctx, "%s: symlink: rel(%s, %s)\n", newname, dir, s)
                                 erro(ctx, "%v", err).of(newNameVal)
                                 errostack(ctx, 8, "%v", ctx).of(newNameVal).debug(10)
                                 return

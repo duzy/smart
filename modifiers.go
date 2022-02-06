@@ -58,7 +58,6 @@ func (_ *modifier) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (m *modifier) traverse(ctx Context) (brks breakers) {
-        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("modifier.traverse(%s)", m))) }
         if options.traceTraversal { defer un(tt(t_traverse, ctx, m)) }
         var proj = ctx.Project()
         ctx = positional(ctx, m.position)
@@ -112,7 +111,6 @@ func (_ *modifiergroup) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (g *modifiergroup) traverse(ctx Context) (brks breakers) {
         if options.traceTraversal { defer un(tt(t_traverse, ctx, g)) }
-        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("modifiergroup.traverse(%s)", g))) }
         for _, m := range g.modifiers {
                 var (
                         ctx = positional(ctx, m.position)
@@ -3513,14 +3511,16 @@ var (
 )
 
 func onceTest(ctx Context, tv Value) (n int) {
-        onceMutex.Lock(); defer onceMutex.Unlock()
+        onceMutex.Lock()
         onceCache[tv] += 1
+        onceMutex.Unlock()
         return onceCache[tv]
 }
 
 func onceSHA256Test(ctx Context, sum HashBytes) (n int) {
-        onceSHA256Mutex.Lock(); defer onceSHA256Mutex.Unlock()
+        onceSHA256Mutex.Lock()
         onceSHA256Cache[sum] += 1
+        onceSHA256Mutex.Unlock()
         return onceSHA256Cache[sum]
 }
 
@@ -3574,8 +3574,8 @@ func onceSHA256(ctx Context, opts *modifierOnceOpts, args... Value) (result Valu
 }
 
 type modifierOnceOpts struct {
-        debug bool `d,debug`
-        verbose bool `v,verbose`
+        debug    bool `d,debug`
+        verbose  bool `v,verbose`
         checksum bool `c,checksum;s,sha256`
 }
 func modifierOnce(ctx Context, args... Value) (result Value, brks breakers) {
@@ -3591,13 +3591,12 @@ func modifierOnce(ctx Context, args... Value) (result Value, brks breakers) {
                 return
         }
 
-
         if opts.checksum {
                 result, brks = onceSHA256(ctx, &opts, args...)
-        } else if target, found := ctx.autoGet("@"); !found || isNil(target) {
-                erro(ctx, "target is <nil>").debug(1)
+        } else if target, found := ctx.autoGet("@"); !found {
+                erro(ctx, "no target").debug(1)
                 return
-        } else if !isNil(target) && !isNone(target) {
+        } else if !isTrivial(target) {
                 var n = onceTest(ctx, target)
                 if  n > 1 { brks.add(ctx.Position(), breakDone).message = fmt.Sprintf(`executed %d times`, n) }
                 if opts.debug {

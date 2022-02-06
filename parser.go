@@ -1688,7 +1688,7 @@ func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
 				if !public {
 					fm = &FileMap{ fm.project, fm.pattern, fm.paths, public }
 				}
-				filemaps = appendFilemapUniquely(ctx, filemaps, fm)
+				filemaps = uniqueAppendFilemap(ctx, filemaps, fm)
 			}
 		}
 		p.Project()._filemap_ = filemaps

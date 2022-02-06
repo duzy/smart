@@ -1337,8 +1337,6 @@ func (entry *RuleEntry) delete(ctx Context) (files []*File, err error) { return 
 func (entry *RuleEntry) stamp(ctx Context) (files []*File, err error) { return entry.target.stamp(ctx) }
 func (entry *RuleEntry) traverse(cc Context) (brks breakers) {
         if options.traceTraversal   { defer un(tt(t_traverse, cc, entry.target)) }
-        if optionEnableBenchmarks && false { defer bench(mark("RuleEntry.traverse")) }
-        if optionEnableBenchspots { defer bench(spot("RuleEntry.traverse")) }
         var (
                 entryPos = entry.Position()
                 target, okay = cc.autoGet("@")
@@ -1509,9 +1507,6 @@ func (p *stemmed) traverse(ctx Context) (brks breakers) {
 }
 func (p *stemmed) string(ctx Context, targetVal Value, target string) (res breakers) {
         if options.traceTraversal   { defer un(tt(t_traverse, ctx, p)) }
-        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("stemmed.traverse(%v)", p))) }
-        if optionEnableBenchspots { defer bench(spot("stemmed.traverse")) }
-
         var (
                 realTarget Value
                 proj = ctx.Project()
@@ -1535,8 +1530,6 @@ func (p *stemmed) string(ctx Context, targetVal Value, target string) (res break
 }
 func (p *stemmed) file(ctx Context, file *File) (res breakers) {
         if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
-        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("stemmed.file(%v)", p))) }
-        if optionEnableBenchspots { defer bench(spot("stemmed.file")) }
 
         var sc = stemmedContext{ ctx, p.Stems }
         if file.info == nil && file.filemap == nil { // !isAbsOrRel()
