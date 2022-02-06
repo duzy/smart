@@ -78,7 +78,6 @@ func (pc *programContext) closureScopes() (scopes []*Scope) {
     } else if cc = pc.closure(); cc != nil {
         scopes = cc.closureScopes()
     }
-    //pc.info("program.closure: %v %v", scopes, pc.prog.scope).debug(1)
     if pc.prog != nil { scopes = append(scopes, pc.prog.scope) }
     return
 }
@@ -267,14 +266,14 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             start: time.Now(),
             print: true,
         }
-        pc = programContext{autoContext:autoContext{Context:&t, defs:make(autoDefMap)}, prog:prog }
+        pc = programContext{autoContext:autoContext{Context:&t, defs:make(autoDefMap)}, prog:prog}
         ctx Context = &pc
         target Value
         err error
     )
-    if true {
+    if false {
         // NOOP
-    } else if s := "external.google.tensorflow.prototext"; entry.String() == s {
+    } else if s := "polly.External.isl"; entry.String() == s {
         defer func() { warn(cc, "%v: %v; %v", entry, target, prog.depends).at(pos).debug(10) } ()
     } else if entry.String() == "program" && true {
         for i := cc.inner(); i != nil; i = i.inner() {

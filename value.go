@@ -358,7 +358,7 @@ func (cc *closureContext) closure() *closureContext { return cc }
 func (cc *closureContext) closureScopes() (scopes []*Scope) {
     if scopes = cc.Context.closureScopes(); false {
         scopes = append(scopes, cc.scopes...)
-    } else {
+    } else if false {
     ForScopes:
         for _, s1 := range cc.scopes {
             for _, s2 := range scopes {
@@ -367,6 +367,8 @@ func (cc *closureContext) closureScopes() (scopes []*Scope) {
             }
             scopes = append(scopes, s1)
         }
+    } else {
+        scopes = append(scopes, cc.scopes...)
     }
     return
 }
@@ -742,13 +744,17 @@ func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
         err error
     )
     defer func() {
-        if strings.HasPrefix(file.name, "isl/") {
+        if false && strings.HasPrefix(file.name, "isl/") {
+            for _, brk := range brks {
+                warn(ctx, "%v: %v", file, brk.what)
+            }
             for _, proj := range projects {
                 warn(ctx, "%v: %v: %v", file, proj, proj.patterns)
             }
             warn(ctx, "%v: concrete %v", file, concreteList)
             warn(ctx, "%v: stemmed %v", file, stemmedList)
-            warn(ctx, "%v: %v", file, projects).debug(3)
+            warn(ctx, "%v: %v", file, projects)
+            warnstack(ctx, 6, "%v: %T:", file, ctx).debug(16)
         }
         // Note that the file maybe not traversed yet at this point. But we
         // still have to check mod-time.
@@ -790,9 +796,35 @@ checkFileEntries:
     }
     for _, entry := range concreteList {
         if entry != nil && targetVal != entry {
-            if brks = entry.traverse(ctx); brks.has() {
-                okay = brks.has(breakCase, breakDone)
+            if brks = entry.traverse(ctx); !brks.has() {
+                if okay = file.exists(); okay { break }
+            } else if tb := brks.not(breakCase, breakDone, breakNext); tb.has() {
+                brks = brks.not(breakFail, breakErro)
+                prompt(ctx, "%s: traverse file entry failed, project %v\n", file, proj)
+                for _, brk := range tb {
+                    switch brk.what {
+                    case breakFail: erro(ctx, "broken traversal for stemmed file entry %v failed: %v", file, brk.message).at(brk.pos)
+                    case breakErro: erro(ctx, "broken traversal for stemmed file entry %v with error: %v", file, brk.error).at(brk.pos)
+                    default: erro(ctx, "broken traversal for stemmed file entry %v (%v)", file, brk.what).at(brk.pos)
+                    }
+                }
+                errostack(ctx, 3, "%v: %v", entry, ctx).debug(6)
                 return
+            } else if tb = brks.of(breakNext);    tb.has() {
+                if brks = brks.not(breakNext); !brks.has() { continue }
+            } else if tb = brks.of(breakCase, breakDone);    tb.has() {
+                if brks = brks.not(breakCase, breakDone); !brks.has() { okay = true }
+            }
+            if brks.has() {
+                prompt(ctx, "%v: traverse failed, project %s\n", file.fullname(), proj)
+                for _, brk := range brks {
+                    erro(ctx, "%v: broken for stemmed entry %v (%v)", file.fullname(), entry, brk.what).at(brk.pos)
+                }
+                erro(ctx, "%v: broken for stemmed entry %v", file.fullname(), entry)
+                errostack(ctx, 3, "%v: %v", file.fullname(), ctx).debug(6)
+                return
+            } else if okay {
+                break
             }
         }
     }
@@ -804,7 +836,7 @@ checkFileEntries:
         var proj = entry.OwnerProject()
         if brks = entry.file(ctx, file); !brks.has() {
             if okay = file.exists(); okay { break }
-        } else if tb := brks.of(breakFail, breakErro); tb.has() {
+        } else if tb := brks.not(breakCase, breakDone, breakNext); tb.has() {
             brks = brks.not(breakFail, breakErro)
             prompt(ctx, "%s: traverse file entry failed, project %v\n", file, proj)
             for _, brk := range tb {
@@ -816,10 +848,10 @@ checkFileEntries:
             }
             errostack(ctx, 3, "%v: %v", entry, ctx).debug(6)
             return
-        } else if tb := brks.of(breakCase, breakDone); tb.has() {
-            if brks = brks.not(breakCase, breakDone); !brks.has() { okay = true }
-        } else if nxts := brks.of(breakNext); nxts.has() {
+        } else if tb = brks.of(breakNext);    tb.has() {
             if brks = brks.not(breakNext); !brks.has() { continue }
+        } else if tb = brks.of(breakCase, breakDone);    tb.has() {
+            if brks = brks.not(breakCase, breakDone); !brks.has() { okay = true }
         }
         if brks.has() {
             prompt(ctx, "%v: traverse failed, project %s\n", file.fullname(), proj)
@@ -935,7 +967,7 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
         }
     }
 
-    for i, entry := range concreteList {
+    for _, entry := range concreteList {
         var project = entry.OwnerProject()
         if entry != nil && currentTargetValue != entry {
             if w, ok := currentTargetValue.(*Bareword); ok && w.string == target {
@@ -945,10 +977,10 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
                 okay = true
                 return
             }
-            if tb := brks.not(breakCase, breakNext, breakDone); tb.has() {
+            if tb := brks.not(breakCase, breakDone, breakNext); tb.has() {
+                brks = brks.not(breakFail, breakErro);
                 var str, ent, _ = entryStr(ctx, entry)
                 prompt(ctx, "%s: traverse entry failed, project %v\n", ent, project)
-                brks = brks.not(breakFail, breakErro);
                 for _, brk := range tb {
                     switch brk.what {
                     case breakFail: erro(ctx, "%v: traverse %v failed: %v", project, str, brk.message).at(brk.pos)
@@ -958,19 +990,20 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
                 }
                 errostack(ctx, 3, "%v: %v: %v", str, project, ctx).at(pos).debug(6)
                 return
-            } else if tb = brks.of(breakNext); tb.has() {
-                if brks = brks.not(breakNext); brks.has() {
-                    prompt(ctx, "%s: traverse entry failed, project %v\n", entry, project)
-                    erro(ctx, "next with broken traversal for %v (entry=%v, next=%v)", target, entry, tb[0].value).at(entry.Position()).debug(1)
-                    errostack(ctx, 3, "%v: %v: %v", entry, entry.OwnerProject(), ctx).at(pos).debug(6)
+            } else if tb = brks.of(breakNext);    tb.has() {
+                if brks = brks.not(breakNext); !brks.has() { continue }
+            } else if tb = brks.of(breakCase, breakDone);    tb.has() {
+                if brks = brks.not(breakCase, breakDone); !brks.has() { okay = true }
+            }
+            if brks.has() {
+                prompt(ctx, "%v: traverse failed, project %s\n", file.fullname(), project)
+                for _, brk := range brks {
+                    erro(ctx, "%v: broken for stemmed entry %v (%v)", file.fullname(), entry, brk.what).at(brk.pos)
                 }
-                continue
-            } else if tb = brks.of(breakCase); tb.has() {
-                if false { warn(ctx, "%v: %d. %v", project, i, entry).debug(1) }
-                brks, okay = brks.not(breakCase), true // reset breakers
-                break
-            } else if tb = brks.of(breakDone); tb.has() {
-                brks, okay = brks.not(breakDone), true // reset breakers
+                erro(ctx, "%v: broken for stemmed entry %v", file.fullname(), entry)
+                errostack(ctx, 3, "%v: %v", file.fullname(), ctx).debug(6)
+                return
+            } else if okay {
                 break
             }
         }
@@ -1003,7 +1036,7 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
     for _, entry := range stemmedList {
         if brks = entry.string(ctx, targetVal, target); !brks.has() {
             okay = true; break // continue
-        } else if tb := brks.of(breakFail, breakErro); len(tb) > 0 {
+        } else if tb := brks.not(breakCase, breakDone, breakNext); tb.has() {
             brks = brks.not(breakFail, breakErro);
             prompt(ctx, "%v: traverse failed, project %s\n", target, entry.OwnerProject())
             for _, brk := range tb {
@@ -1014,20 +1047,21 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
             }
             erro(ctx, "broken traversal for stemmed entry '%v' in %v", entry, entry.OwnerProject()).at(pos).debug(1)
             return
-        } else if tb = brks.of(breakNext); len(tb) > 0 {
-            if brks = brks.not(breakNext); brks.has() {
-                prompt(ctx, "%v: traverse failed, project %s\n", target, entry.OwnerProject())
-                erro(ctx, "next with broken traversal for %v (pattern=%v, next=%v)", target, entry.target, tb[0].value).at(entry.Position()).debug(1)
+        } else if tb = brks.of(breakNext);    tb.has() {
+            if brks = brks.not(breakNext); !brks.has() { continue }
+        } else if tb = brks.of(breakCase, breakDone);    tb.has() {
+            if brks = brks.not(breakCase, breakDone); !brks.has() { okay = true }
+        }
+        if brks.has() {
+            prompt(ctx, "%v: traverse failed, project %s\n", file.fullname(), entry.OwnerProject())
+            for _, brk := range brks {
+                erro(ctx, "%v: broken for stemmed entry %v (%v)", file.fullname(), entry, brk.what).at(brk.pos)
             }
-            continue
-        } else if tb = brks.of(breakCase, breakDone); len(tb) > 0 {
-            brks, okay = brks.not(breakCase, breakDone), true // reset breakers
-            break
-        } else {
-            prompt(ctx, "%v: traverse failed, project %s\n", target, entry.OwnerProject())
-            erro(ctx, "unknown breakers for target %v (%v)", target, brks[0].what).at(entry.Position())
-            errostack(positional(ctx, entry.Position()), -1, "unknown breakers for target %v (%v)", target, brks[0].what).debug(1)
+            erro(ctx, "%v: broken for stemmed entry %v", file.fullname(), entry).at(entry.Position())
+            errostack(positional(ctx, entry.Position()), 3, "%v: %v", file.fullname(), ctx).debug(6)
             return
+        } else if okay {
+            break
         }
     }
 
@@ -3362,9 +3396,9 @@ func (p *Path) match1(ctx Context, str string) (full bool, result string, stems 
         return
     }
 
-    //const warns = false
+    const warns = false
     //var warns = p.String() == "%%/Dockerfile"
-    var warns = false //p.String() == "isl/%%"
+    //var warns = p.String() == "isl/%%"
     if warns {
         defer func() {
             warn(ctx, "%v: %s", p, str)

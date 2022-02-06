@@ -292,6 +292,7 @@ func modifierPrint(ctx Context, args... Value) (result Value, brks breakers) {
 }
 
 type modifierDebugOpts struct {
+        cond Value `if,cond`
         info []Value `i,info`
         warn []Value `w,warn`
         error []Value `e,err;er,error`
@@ -299,16 +300,24 @@ type modifierDebugOpts struct {
 }
 func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
         var (
-                pos = ctx.Position()
                 opts modifierDebugOpts
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).at(pos).debug(1)
+                erro(ctx, "merge args failed: %v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                erro(ctx, "parse opts failed: %v", err).at(pos).debug(1)
+                erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
+        }
+
+        if opts.cond != nil {
+                if v, e := opts.cond.True(ctx); e != nil {
+                        erro(ctx, "truthfy '%v': %v", opts.cond, err).debug(1)
+                        return
+                } else if !v {
+                       return
+                }
         }
 
         var s string
@@ -340,21 +349,21 @@ func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
                 grepped, _ = ctx.autoGet("~")
         )
         if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.error) == 0 {
-                warn(ctx, "debug: %v; %v; %v", target, depends, args).at(pos).debug(1)
+                warn(ctx, "debug: %v; %v; %v", target, depends, args).debug(1)
         }
         if opts.checkOutdated && !isNil(target) {
                 var tt = target.stat(ctx).mod()
                 if tt.IsZero() {
-                        info(ctx, "target not exists: %v", target).at(pos).debug(1)
+                        info(ctx, "target not exists: %v", target).debug(1)
                         return
                 }
                 for _, dep := range merge(depends, ordered, grepped) {
                         var dt = dep.stat(ctx).mod()
                         if false { if s := dep.String(); strings.HasSuffix(s, ".o") {
-                                info(ctx, "%v -> %T %v, %v", target, dep, dep, dt.Sub(tt)).at(pos).debug(false, 1)
+                                info(ctx, "%v -> %T %v, %v", target, dep, dep, dt.Sub(tt)).debug(false, 1)
                         }}
                         if dt.After(tt) {
-                                info(ctx, "%v: outdated by %v (%v)", target, dep, dt.Sub(tt)).at(pos).debug(1)
+                                info(ctx, "%v: outdated by %v (%v)", target, dep, dt.Sub(tt)).debug(1)
                         }
                 }
         }
