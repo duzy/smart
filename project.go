@@ -786,7 +786,9 @@ func (p *Project) hasBase(proj *Project) (res bool) {
 }
 
 func (p *Project) hasLoaded(ctx Context, proj *Project, breakUseLoop bool) (rp *Project, res, isb bool, err error) {
-  if !options.fastMode { rp, res, isb, err = p.hasLoadedRecur(ctx, p, proj, 1, breakUseLoop) }
+  if options.checkLoadGraph || !options.fastMode {
+    rp, res, isb, err = p.hasLoadedRecur(ctx, p, proj, 1, breakUseLoop)
+  }
   return
 }
 

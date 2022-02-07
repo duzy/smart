@@ -54,6 +54,8 @@ type commandLineOpts struct {
   cleanDotGrep    bool `clgrp,clean-grep;clgrp,clear-grep;rmg,rm-grep`
   cleanTmpDirs    bool `cltmp,clean-temp;cltmp,clear-temp;rmt,rm-temp`
 
+  checkLoadGraph  bool `ckld,check-loads`
+
   configure       bool `conf,configure`       // optionConfigure
   reconfigure     bool `reconf,reconfigure;rc,reconfig` // optionReconfig
 
