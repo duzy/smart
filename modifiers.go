@@ -3546,19 +3546,7 @@ func onceSHA256(ctx Context, opts *modifierOnceOpts, args... Value) (result Valu
                 fmt.Fprintf(h, "%v%v", ctx.Position(), program.position)
         }
 
-        var target, found = ctx.autoGet("@")
-        if !found || isNil(target) {
-                erro(ctx, "target is <nil>").debug(1)
-                return
-        }
-
         var err error
-        if s, err = fullnameOrStrval(ctx, target); err != nil {
-                erro(ctx, "fullname '%v' failed: %v", target, err).debug(1)
-                return
-        } else if s != "" {
-                fmt.Fprintf(h, "%s", s)
-        }
         for _, a := range args {
                 if s, err = fullnameOrStrval(ctx, a); err != nil {
                         erro(ctx, "strval '%v' failed: %v", a, err).debug(1)
@@ -3574,9 +3562,9 @@ func onceSHA256(ctx Context, opts *modifierOnceOpts, args... Value) (result Valu
 
         var num = onceSHA256Test(ctx, sum)
         if opts.debug {
-                info(ctx, "%v (once: num=%d)\n", target, num)
+                info(ctx, "%T: (once: num=%d)\n", ctx, num)
         } else if opts.verbose {
-                prompt(ctx, "once: %v (num=%d)\n", target, num)
+                prompt(ctx, "once: (num=%d)\n", num)
         }
         if num > 1 { brks.add(ctx.Position(), breakDone).message = fmt.Sprintf("once (num=%d)", num) }
         return
@@ -3600,12 +3588,12 @@ func modifierOnce(ctx Context, args... Value) (result Value, brks breakers) {
                 return
         }
 
-        if opts.checksum {
-                result, brks = onceSHA256(ctx, &opts, args...)
-        } else if target, found := ctx.autoGet("@"); !found {
-                erro(ctx, "no target").debug(1)
+        if target, found := ctx.autoGet("@"); !found || isTrivial(target) {
+                erro(ctx, "(%T): no target $@", ctx).debug(1)
                 return
-        } else if !isTrivial(target) {
+        } else if opts.checksum {
+                result, brks = onceSHA256(ctx, &opts, append([]Value{target}, args...)...)
+        } else {
                 var n = onceTest(ctx, target)
                 if  n > 1 { brks.add(ctx.Position(), breakDone).message = fmt.Sprintf(`executed %d times`, n) }
                 if opts.debug {

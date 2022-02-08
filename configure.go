@@ -85,6 +85,34 @@ func (ctx *defaultContext) configure() {
         }
     }
 
+    var configureInits = make(map[Entry]int)
+    for _, entry := range configuration.entries {
+        var project = entry.OwnerProject()
+        if defent := project.configure.DefaultEntry(); defent != nil {
+            configureInits[defent] += 1
+        }
+    }
+    for entry, _ := range configureInits {
+        var vals, brks = entry.Execute(ctx)
+        if len(brks) > 0 {
+            for _, brk := range brks {
+                if brk.what == breakErro {
+                    erro(ctx, "execute '%v' failed: %v", entry, brk.error).of(entry).debug(1)
+                }
+            }
+        }
+        if len(vals) > 0 {
+            var n int
+            for _, val := range vals {
+                if !isTrivial(val) {
+                    info(ctx, "%v: %v", entry, val)
+                    n += 1
+                }
+            }
+            if n > 0 { info(ctx, "%v", entry).debug(1) }
+        }
+    }
+
     var defs = make(map[string]*Def)
     for _, entry := range configuration.entries {
         var ctx = positional(ctx, entry.Position()) // redefine ctx

@@ -890,7 +890,7 @@ checkFileEntries:
         for i, brk := range brks { erro(ctx, "%v, %v: %d. %v", proj, file, i, brk.what) }
         if args := t.arguments(); len(args) > 0 { erro(ctx, "%v, %v: arguments %v", proj, file, args) }
         erro(ctx, "%v: no rules for %v, required by %v", proj, file, targetVal) //proj.concrete
-        errostack(ctx, 15, "(%T):", ctx).debug(12)
+        errostack(ctx, 15, "(%T): (exists=%v)", ctx, file.exists()).debug(12)
         brks.add(file.position, breakErro).error = fileNotFoundError{ proj, file }
     } else if !okay && len(ctx.stems()) > 0 {
         if false { brks.add(file.position, breakNext).scope = breakTrave }

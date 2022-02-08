@@ -251,6 +251,7 @@ func (p *usinglist) Get(ctx Context, name string) (result Value, err error) {
         var list []Value
         for _, usee := range p.list {
                 if usee.opts.noVars { continue }
+                //if _, obj := usee.project.scope.Find("using."+name); !isNil(obj) {
                 if obj := usee.project.scope.Lookup("using."+name); !isNil(obj) {
                         list = append(list, obj)
                 }

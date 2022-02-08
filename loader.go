@@ -312,23 +312,36 @@ func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
 
 	var (
         position = ctx.Position()
-		def, alt = user.scope.define(ctx, DefVoid, name, MakeNone(position))
+        none = MakeNone(position)
+		def, alt = user.scope.define(ctx, DefVoid, name, none)
 	)
 	if def == nil && !isNil(alt) { def, _ = alt.(*Def) }
 	if def == nil {
-		erro(ctx, `%v: "%s" is undefined'`, user, name).of(nameVal).debug(1)
+		erro(ctx, `%v: "%s" is undefined`, user, name).of(nameVal).debug(1)
 		return
-    } else {
+    } else if isTrivial(def.value) {
         for _, base := range user.bases {
-            if obj, err := base.resolveObject(ctx, name); err != nil {
-                erro(ctx, "resolve '%s' failed: %v", name, err).debug(1)
-            } else if !isNil(obj) && !isNone(obj) {
+            //if obj, err := base.resolveObject(ctx, "using."+name); err != nil {
+            //    erro(ctx, `%v: %v: resolve "using.%s" failed: %v`, user, base, name, err).debug(1)
+            //    return
+            if obj := base.scope.lookup("using."+name); isNil(obj) {
+                continue
+            } else if d, ok := obj.(*Def); ok && !isTrivial(d.value) {
                 def.append(ctx, obj)
             }
         }
     }
+    for _, base := range user.bases {
+        if obj, err := base.resolveObject(ctx, name); err != nil {
+            erro(ctx, "resolve '%s' failed: %v", name, err).debug(1)
+        } else if isNil(obj) {
+            continue
+        } else if d, ok := obj.(*Def); ok && !isTrivial(d.value) {
+            def.append(ctx, obj)
+        }
+    }
 
-	if v, e := user.using.Get(ctx, name/* NOTE: gets `using.%s` */); e != nil {
+    if v, e := user.using.Get(ctx, name/* NOTE: gets `using.%s` */); e != nil {
 		erro(ctx, "%v: %v (using.%s)", user, e, name)
 	} else if e = def.append(ctx, v); e != nil {
 		erro(ctx, "append using value: %v (from %v)", e, user.scope).debug(1)
@@ -351,15 +364,16 @@ func applyUsingVar(ctx Context, user, usee *Project, nameVal Value) {
 
     var (
         position = ctx.Position()
+        none = MakeNone(position)
         usingName = "using." + name
-        def, alt = user.scope.define(ctx, DefVoid, usingName, MakeNone(position))
+        def, alt = user.scope.define(ctx, DefVoid, usingName, none)
         err error
     )
     if def != nil && isNil(alt)/* aka. new define */ {
         for _, base := range user.bases {
             if obj, err := base.resolveObject(ctx, usingName); err != nil {
                 erro(ctx, "resolve '%s' failed: %v", usingName, err).debug(1)
-            } else if !isNil(obj) && !isNone(obj) {
+            } else if !isTrivial(obj) {
                 def.append(ctx, obj)
             }
         }
@@ -392,7 +406,7 @@ func applyUseeVars(ctx Context, user, usee *Project) {
     } else if def, _ := o.(*Def); def != nil {
         spec = def.value
     }
-    if !isNil(spec) && !isNone(spec) {
+    if !isTrivial(spec) {
         // NOTE: apply vars like 'cflags', 'cxxflags', ...
         for _, name := range merge(spec) { applyUseeVar(ctx, user, usee, name) }
     }
@@ -404,7 +418,7 @@ func applyUsingVars(ctx Context, user, usee *Project) {
     } else if def, _ := o.(*Def); def != nil {
         spec = def.value
     }
-    if !isNil(spec) && !isNone(spec) {
+    if !isTrivial(spec) {
         // NOTE: apply vars like 'using.cflags', 'using.cxxflags', ...
         for _, value := range merge(spec) { applyUsingVar(ctx, user, usee, value) }
     }
@@ -1247,6 +1261,25 @@ ParamsLoop:
         } else {
             erro(ctx, "project `%v`(%T: %s) not loaded (%s)", elem, elem, specName, absPath).at(elemPos).debug(1)
             break ParamsLoop
+        }
+    }
+    if false {
+        var spec Value
+        if o, e := l.project.resolveObject(ctx, "using.*"); e != nil {
+            erro(ctx, "resolve using.* failed: %v", e).debug(1)
+        } else if def, _ := o.(*Def); def != nil {
+            spec = def.value
+        }
+        if !isTrivial(spec) {
+            for _, val := range merge(spec) {
+                var name, opts = parseUseNameOpts(ctx, val)
+                var us = "using." + name
+                for _, base := range l.project.bases {
+                    var obj = base.scope.lookup(us)
+                    if isNil(obj) { continue }
+                    warn(ctx, "%v: %v: %v %v", l.project, base, obj, opts).of(obj).debug(1)
+                }
+            }
         }
     }
     return true
