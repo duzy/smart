@@ -375,6 +375,9 @@ func (p *Project) filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*
   if baseFiles { for _, base := range p.bases {
     for _, m := range base.filemaps(ctx, true, usedFiles) { appendUnique(m) }
   }}
+  if p.configure != nil && ctx.configuration() {
+    for _, m := range p.configure.filemaps(ctx, true, usedFiles) { appendUnique(m) }
+  }
   if usedFiles && false/* FIXME: performance */ {
     // takes a big longer time to map usee filemaps, but acceptable
     var (
@@ -597,6 +600,11 @@ func (p *Project) resolveObject(ctx Context, s string) (obj Object, err error) {
         break
       }
     }
+    if isNil(obj) && p.configure != nil && ctx.configuration() {
+      if obj, err = p.configure.resolveObject(ctx, s); err != nil {
+        erro(ctx, "resolve object '%v' failed: %v", s, err).at(p.configure.position).debug(1)
+      }
+    }
   }
   return
 }
@@ -644,6 +652,16 @@ func (p *Project) resolveEntries(ctx Context, s string, matchFullSuffix, alwaysR
       }
     }
   }
+  if p.configure != nil && ctx.configuration() {
+    var ents *ResolveEntries
+    if ents, err = p.configure.resolveEntries(ctx, s, matchFullSuffix, true); err != nil {
+      erro(ctx, "resolve entry '%v' failed: %v", s, err).at(p.configure.position)
+      erro(ctx, "resolve entry '%v' failed (%s)", s, ctx).debug(1)
+      return
+    } else if ents != nil {
+      add(ents.all...)
+    }
+  }
   if true { /* FAST */ } else if err == nil && entries == nil { /* SLOW */
     for _, using := range p.using.list {
       var ents *ResolveEntries
@@ -679,6 +697,9 @@ func (p *Project) resolvePatterns1(ctx Context, i interface{}) (res []*stemmed) 
 func (p *Project) resolvePatterns2(ctx Context, i interface{}) (res []*stemmed) {
   for _, base := range p.bases {
     res = append(res, base.resolvePatterns(ctx, i)...)
+  }
+  if p.configure != nil && ctx.configuration() {
+    res = append(res, p.configure.resolvePatterns(ctx, i)...)
   }
   return
 }
