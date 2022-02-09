@@ -883,14 +883,21 @@ func (p *Project) isUsingDirectly(proj *Project) (res bool) {
   return
 }
 
-func (p *Project) usees(post bool) (res []*Project) {
+func (p *Project) usees(bases, basesRecur, useeRecur, pre bool) (res []*Project) {
   if p.opts.breakUseLoop { return }
-  for _, u := range p.using.list {
-    if !post { res = append(res, u.project) }
-    for _, u := range u.project.usees(post) {
-      if !p.isUsingDirectly(u) { res = append(res, u) }
+  if bases {
+    for _, base := range p.bases {
+      res = append(res, base.usees(basesRecur, basesRecur, useeRecur, pre)...)
     }
-    if post { res = append(res, u.project) }
+  }
+  for _, u := range p.using.list {
+    if pre { res = append(res, u.project) }
+    if useeRecur {
+      for _, u := range u.project.usees(bases && basesRecur, basesRecur, true, pre) {
+        if !p.isUsingDirectly(u) { res = append(res, u) }
+      }
+    }
+    if !pre { res = append(res, u.project) }
   }
   return
 }

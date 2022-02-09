@@ -321,10 +321,14 @@ func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
 		return
     } else if isTrivial(def.value) {
         for _, base := range user.bases {
-            //if obj, err := base.resolveObject(ctx, "using."+name); err != nil {
-            //    erro(ctx, `%v: %v: resolve "using.%s" failed: %v`, user, base, name, err).debug(1)
-            //    return
-            if obj := base.scope.lookup("using."+name); isNil(obj) {
+            var ( obj Object; err error )
+            if false {
+                obj = base.scope.lookup("using."+name)
+            } else if obj, err = base.resolveObject(ctx, "using."+name); err != nil {
+                erro(ctx, `%v: %v: resolve "using.%s" failed: %v`, user, base, name, err).debug(1)
+                return
+            }
+            if isNil(obj) {
                 continue
             } else if d, ok := obj.(*Def); ok && !isTrivial(d.value) {
                 def.append(ctx, obj)
@@ -369,20 +373,21 @@ func applyUsingVar(ctx Context, user, usee *Project, nameVal Value) {
         def, alt = user.scope.define(ctx, DefVoid, usingName, none)
         err error
     )
-    if def != nil && isNil(alt)/* aka. new define */ {
-        for _, base := range user.bases {
-            if obj, err := base.resolveObject(ctx, usingName); err != nil {
-                erro(ctx, "resolve '%s' failed: %v", usingName, err).debug(1)
-            } else if !isTrivial(obj) {
-                def.append(ctx, obj)
-            }
-        }
-    } else if def == nil && !isNil(alt) {
-        def, _ = alt.(*Def)
-    }
+    if def == nil && !isNil(alt) { def, _ = alt.(*Def) }
     if def == nil {
         erro(ctx, `%v: "%s" is undefined'`, user, name).of(nameVal).debug(1)
         return
+    } else if isTrivial(def.value) {
+        for _, base := range user.bases {
+            if obj, err := base.resolveObject(ctx, usingName); err != nil {
+                erro(ctx, "resolve '%s' failed: %v", usingName, err).debug(1)
+                return
+            } else if isNil(obj) {
+                continue
+            } else if d, ok := obj.(*Def); ok && !isTrivial(d.value) {
+                def.append(ctx, obj)
+            }
+        }
     }
 
     if o := usee.scope.Lookup(usingName); isNil(o) || isNone(o) {
@@ -636,13 +641,16 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, p
             fmt.Fprintf(stderr, "%s├┤ %s:import(%s) (%s)\n", l.vs, l.project, specName, d)
         } (time.Now())
     }
-    if err = l.addUsing(ctx, loaded, params, opts); err == nil && !opts.noVars {
-        //applyUseeVars(ctx, l.project, loaded)  // aka. ABC += $(using.ABC)
-        //applyUsingVars(ctx, l.project, loaded) // aka. using.ABC += $(using.ABC)
+    if err = l.addUsing(ctx, loaded, params, opts); err != nil {
+        erro(ctx, "using '%v' failed: %v", loaded, err).debug(1)
+        return
     }
     if opts.files || opts.filesPub {
-        var public = opts.public || opts.filesPub
-        l.importFileMaps(ctx, public, specVal)
+        if false {
+            l.importFileMaps(ctx, opts.public || opts.filesPub, specVal)
+        } else {
+            l.importFileMaps1(ctx, opts, loaded)
+        }
     }
     return
 }
@@ -1264,24 +1272,41 @@ ParamsLoop:
         }
     }
     if false {
-        var spec Value
-        if o, e := l.project.resolveObject(ctx, "using.*"); e != nil {
-            erro(ctx, "resolve using.* failed: %v", e).debug(1)
-        } else if def, _ := o.(*Def); def != nil {
-            spec = def.value
-        }
-        if !isTrivial(spec) {
-            for _, val := range merge(spec) {
-                var name, opts = parseUseNameOpts(ctx, val)
-                var us = "using." + name
-                for _, base := range l.project.bases {
-                    var obj = base.scope.lookup(us)
-                    if isNil(obj) { continue }
-                    warn(ctx, "%v: %v: %v %v", l.project, base, obj, opts).of(obj).debug(1)
+        // bypass ...
+    } else if o, e := l.project.resolveObject(ctx, "using.*"); e != nil {
+        erro(ctx, "resolve using.* failed: %v", e).debug(1)
+    } else if d, ok := o.(*Def); ok && !isTrivial(d.value) {
+        var none = MakeNone(position)
+        var flagR = MakeFlag(position, "r")
+        // Derive using.xxx Defs from bases
+        for _, val := range merge(d.value) {
+            var name, opts = parseUseNameOpts(ctx, val)
+            var us = "using." + name
+            var def, alt = l.project.scope.define(ctx, DefVoid, us, none)
+            if def == nil && !isNil(alt) { def, _ = alt.(*Def) }
+            if def == nil { continue }
+            for _, base := range l.project.bases {
+                var obj = base.scope.lookup(us)
+                if isNil(obj) { continue }
+                if d, ok := obj.(*Def); !ok || isTrivial(d.value) { continue }
+                if e := def.append(ctx, obj); e != nil {
+                    erro(ctx, "append using value: %v", e).debug(1)
+                } else if true {
+                    continue
+                } else if opts.unique && opts.reverse {
+                    def.value = builtinUnique(closureWith(ctx, position, l.project.scope), flagR, def.value)
+                } else if opts.unique {
+                    def.value = builtinUnique(closureWith(ctx, position, l.project.scope), def.value)
                 }
+                if false { warn(ctx, "%v: %v: %v", l.project, base, def).debug(1) }
+            }
+            if opts.unique && opts.reverse {
+                def.value = builtinUnique(closureWith(ctx, position, l.project.scope), flagR, def.value)
+            } else if opts.unique {
+                def.value = builtinUnique(closureWith(ctx, position, l.project.scope), def.value)
             }
         }
-    }
+     }
     return true
 }
 
@@ -1327,8 +1352,34 @@ func (l *loader) loadDotConfigure(ident *Barecomp, identStr string, file *File) 
                 if conf == loaded { return }
                 erro(l, ".configure already specified").at(position).debug(1)
             }
-            l.project.configure = loaded
-            result = true
+            l.project.configure, result = loaded, true
+
+            var ctx = positional(l, position)
+            var opts = useOpts{}
+            if false {
+                applyUseeVars(ctx, l.project, loaded)  // aka.       ABC += $(using.ABC)
+                applyUsingVars(ctx, l.project, loaded) // aka. using.ABC += $(using.ABC)
+            } else if false {
+                for _, usee := range loaded.usees(true, false, false, false) {
+                    applyUseeVars(ctx, l.project, usee)  // aka.       ABC += $(using.ABC)
+                    applyUsingVars(ctx, l.project, usee) // aka. using.ABC += $(using.ABC)
+                    //warn(l, "%v %v %v", l.project, loaded, usee).debug(1)
+                }
+            } else if false {
+                if err := l.addUsing(ctx, loaded, nil, opts); err != nil {
+                    erro(ctx, "using '%v' failed: %v", loaded, err).debug(1)
+                }
+                //l.importFileMaps(ctx, public, specVal)
+            } else if true {
+                for _, usee := range loaded.usees(true, false, false, false) {
+                    if false { warn(ctx, "%v: %v: %v", l.project, loaded, usee).at(usee.position).debug(1) }
+                    if err := l.addUsing(ctx, usee, nil, opts); err != nil {
+                        erro(ctx, "using '%v' failed: %v", usee, err).debug(1)
+                        break
+                    }
+                    l.importFileMaps1(ctx, opts, usee)
+                }
+            }
         }
     }
     return

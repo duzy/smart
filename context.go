@@ -61,6 +61,7 @@ type commandLineOpts struct {
 
   saveGrepSource  bool `savgs,save-grep-source`
 
+  noRun           bool `nor,no-run`
   noExec          bool `nox,no-exec;ne,no-execute`  // optionNoExec
   noDeps          bool `nod,no-deps`
   noGrep          bool `nog,no-grep`
@@ -512,6 +513,7 @@ func (ctx *defaultContext) helpFlags()  { print_flag_trace(ctx) }
 func (ctx *defaultContext) helpConfig() { print_configuration(ctx) }
 
 func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
+  if options.noRun { return }
   if options.traceLaunch { defer un(trace(t_launch, "defaultContext.run")) }
   if options.cpuProf != "" {
     if f, e := os.Create(options.cpuProf); e != nil {

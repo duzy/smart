@@ -1652,7 +1652,7 @@ func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
 	}
 
 	var (
-		opts = useOpts{ noVars:true, reuse:true }
+		opts = useOpts{ noVars:true, reuse:true, public:public }
 		projects []*Project
 		projMutx sync.Mutex
 		wg sync.WaitGroup
@@ -1681,12 +1681,18 @@ func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
 		}
 	}
 	wg.Wait()
+
+	p.importFileMaps1(ctx, opts, projects...)
+}
+
+func (p *parser) importFileMaps1(ctx Context, opts useOpts, projects ...*Project) {
+	if !opts.public && opts.filesPub { opts.public = true }
 	for _, proj := range projects {
 		var filemaps = p.Project()._filemap_
 		for _, fm := range proj.filemaps(ctx, false, false) {
 			if fm.public {
-				if !public {
-					fm = &FileMap{ fm.project, fm.pattern, fm.paths, public }
+				if !opts.public {
+					fm = &FileMap{ fm.project, fm.pattern, fm.paths, opts.public }
 				}
 				filemaps = uniqueAppendFilemap(ctx, filemaps, fm)
 			}
