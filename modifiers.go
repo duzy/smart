@@ -1336,7 +1336,7 @@ type modifierGrepOpts struct {
         noTraverse bool `n,notraverse;nt,no-traverse;go,grep-only`
 }
 func modifierGrep(ctx Context, args... Value) (result Value, brks breakers) {
-        if options.noDepsGrep || options.noGrep {
+        if false && options.noDepsGrep || options.noGrep {
                 return
         }
 
@@ -3211,6 +3211,8 @@ type predictionOutdatedOpts struct {
         checksum bool "c,checksum;c,crc"
         debug bool "d,debug"
         verbose bool "v,verbose"
+        verboseUpdated bool "vu,verbose-updated"
+        verboseOutdated bool "vo,verbose-outdated"
         silent bool "s,silent"
 }
 func predictionOutdated(ctx Context, args... Value) (result Value, err error) {
@@ -3278,7 +3280,7 @@ func predictionOutdated(ctx Context, args... Value) (result Value, err error) {
                 var s, _ = target.Strval(ctx)
                 erro(ctx, "type=%s target=%s (exists=%v, outdated=%v, updated=%v)", a, s, e, outdated, t.updated).debug(1)
         }
-        if opts.verbose {
+        if opts.verbose || (opts.verboseOutdated && outdated) || (opts.verboseUpdated && !outdated) {
                 var ( m, s string )
                 if outdated { m = "outdated" } else { m = "updated" }
                 if s = time.Now().Sub(t.start).String(); reason != "" {
