@@ -93,9 +93,6 @@ func (ctx *defaultContext) configure() {
         }
     }
     for entry, _ := range configureInits {
-        var pos = entry.Position()
-        var project = entry.OwnerProject()
-        var ctx = closureWith(ctx, pos, project.scope)
         var vals, brks = entry.Execute(ctx)
         if len(brks) > 0 {
             for _, brk := range brks {

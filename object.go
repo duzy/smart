@@ -307,11 +307,6 @@ func (ac *autoContext) closureResolveAuto(name string) (obj Object, found bool) 
                 obj, found = ac.defs[name]
                 //ac.mutex.Unlock()
         }
-        if false && name == "@" {
-                info(ac, "%v -> %v, %v", name, obj, ac.Scope())
-                info(ac, "%v -> %v", name, ac.defs)
-                info(ac, "%v -> %v", name, ac).debug(16)
-        }
         return
 }
 func (ac *autoContext) autoGet(name string) (res Value, found bool) {
@@ -325,7 +320,7 @@ func (ac *autoContext) autoGet(name string) (res Value, found bool) {
                 res, found = def.value, ok
         } else if ic = ac.inner(); ic == nil {
                 warn(ac, "missing: %v in %v", name, ac).debug(32)
-        } else if res, found = ic.autoGet(name); expandArgumentedTraverse || found || isNil(res) || isNone(res) {
+        } else if res, found = ic.autoGet(name); expandArgumentedTraverse || found || isTrivial(res) {
                 // Done!
         } else if false {
                 for /*ic = ic.inner()*/; ic != nil; ic = ic.inner() {
@@ -346,15 +341,6 @@ func (ac *autoContext) autoGet(name string) (res Value, found bool) {
                                 erro(ac, `expand "%v": %v`, ic).debug(6)
                                 return
                         } else if !(isNil(val) || isNone(val)) { res = val }
-                }
-        }
-        if false && name == "@" && res != nil && (strings.HasSuffix(res.String(), "Unwind-EHABI.o") || strings.HasSuffix(res.String(), "-libunwind.a")) {
-                if ac.entry() != nil {
-                        warn(ac, "%v: %T %v", name, res, res)
-                        warn(ac, "%v: %v", name, ac.entry())
-                        warn(ac, "%v: %v", name, ic)
-                        warn(ac, "%v: %v", name, ac).debug(6)
-                        if ac.checkErrors(true) > 0 { return }
                 }
         }
         return
