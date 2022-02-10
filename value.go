@@ -1158,21 +1158,28 @@ func traversePattern(ctx Context, pat Value) (brks breakers) {
 }
 
 func appendUpdated(ctx Context, updated *updatedtarget) {
+    var pos = updated.target.Position()
     var targetValue Value = getTargetValue(ctx)
-    if isTrivial(targetValue) {
-        var pos = updated.target.Position()
-        if p := ctx.program(); p != nil { pos = p.position }
-        if ctx.configuration() {
-            erro(ctx, "trivial $@ for configuration %v, operation will fail/panic", ctx.entry())
-        } else {
-            erro(ctx, "trivial $@ for %v, operation will fail/panic", ctx.entry())
-        }
-        errostack(ctx, 8, "(%T):", ctx).debug(64)
-        fail(pos, "%v: nil target", updated)
-        return
-    } else {
+    if !isTrivial(targetValue) {
         if targetValue == updated.target { return }
         if targetValue.cmp(ctx, updated.target) == cmpEqual { return }
+    } else if false {
+        if p := ctx.program(); p != nil { pos = p.position }
+        if ctx.configuration() {
+            erro(ctx, "trivial $@ for configuration %v, operation will fail", ctx.entry())
+        } else {
+            erro(ctx, "trivial $@ for %v, operation will fail", ctx.entry())
+        }
+        errostack(ctx, 8, "(%T): %v", ctx, ctx).debug(64)
+        fail(pos, "%v: nil target", updated)
+    } else {
+        var ( t, _ = ctx.autoGet("@"); entry = ctx.entry() )
+        if p := ctx.program(); p != nil { pos = p.position }
+        erro(ctx, "%v: $@ is trivial", updated).at(pos)
+        erro(ctx, "%v: target: %v", updated, t)
+        erro(ctx, "%v: entry: %v", updated, entry).of(entry)
+        errostack(ctx, 8, "(%T): %v", ctx, ctx).debug(64)
+        fail(pos, "%v: nil target", updated)
     }
 
     if t := ctx.traversal(); t != nil {
@@ -4056,17 +4063,11 @@ func (p *File) stamp(ctx Context) (files []*File, err error) {
             erro(ctx, "trivial $@").at(ctx.program().position).debug(1)
             return
         } else if cmp := target.cmp(ctx, p); ctx.configuration() {
-            if false {
-                var t, _ = ctx.autoGet("@")
-                warn(ctx, "%v %T", t, t)
-                warn(ctx, "%v %T", target, target)
-                warn(ctx, "%v", p)
-                warn(ctx, "%v", fullname)
-                warn(ctx, "%v, %v", cmp, ctx).debug(1)
-            }
+            // Done!
         } else if c := ctx.traversal().caller(); cmp == cmpEqual && c != nil {
             // Add to caller context
-            if positionalValueCtx {
+            if false && positionalValueCtx {
+                // NOTE: 'c' might be an incorrect context -- no @ value
                 appendUpdated(positional(c, ctx.Position()), newUpdatedTarget(p))
             } else {
                 appendUpdated(ctx, newUpdatedTarget(p))
