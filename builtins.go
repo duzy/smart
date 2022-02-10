@@ -1088,7 +1088,7 @@ func builtinValue(ctx Context, args... Value) (res Value) {
 }
 
 type builtinCallOpts struct {
-        //closure bool `c,closure`
+        closure bool `c,closure`
 }
 func builtinCall(ctx Context, args... Value) (res Value) {
         var (
@@ -1108,6 +1108,14 @@ func builtinCall(ctx Context, args... Value) (res Value) {
                 if name, err = args[0].Strval(ctx); err != nil {
                         erro(ctx, "strval '%v' failed: %v", args[0], err).at(args[0].Position()).debug(1)
                         return
+                }
+                if opts.closure {
+                        for _, scope := range ctx.closureScopes() {
+                                if def := scope.FindDef(name); def != nil && !isTrivial(def.value) {
+                                        val = def.Call(ctx, args[1:]...)
+                                        break
+                                }
+                        }
                 } else if def := ctx.Scope().FindDef(name); def != nil {
                         val = def.Call(ctx, args[1:]...)
                 }
