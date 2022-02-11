@@ -169,6 +169,7 @@ var (
                 `set`:          modifierSet,
 
                 `closure`:      modifierClosure,
+                `for`:          modifierFor,
 
                 `cd`:           modifierCD,
                 `mkdir`:        modifierMkdir,
@@ -393,26 +394,35 @@ func modifierSelect(ctx Context, args... Value) (result Value, brks breakers) {
 
 func modifierEnv(ctx Context, args... Value) (result Value, brks breakers) {
         var (
-                pos = ctx.Position()
+                program = ctx.program()
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "expand args failed: %v", err).at(pos).debug(1)
+                erro(ctx, "expand args failed: %v", err).debug(1)
+                return
+        }
+
+        var def, alt = program.scope.define(ctx, DefVoid, TheShellEnvarsDef, nil)
+        if def == nil && alt != nil { def, _ = alt.(*Def) }
+        if def == nil {
+                erro(ctx, "failed setting %v", TheShellEnvarsDef).debug(1)
                 return
         }
 
         var envars = new(List)
+        if !isTrivial(def.value) {
+                envars.Elems = merge(def.value)
+        }
         for _, a := range args {
-                if _, ok := a.(*Pair); ok { envars.Append(a) } else {
-                        err = errors.New(fmt.Sprintf("invalid env '%v' (%s)", a, typeof(a)))
+                if _, ok := a.(*Pair); ok {
+                        envars.Append(a)
+                } else {
+                        erro(ctx, "%v: not a pair value: %v (%T)", TheShellEnvarsDef, a, a).debug(1)
                         return
                 }
         }
-        if ctx.autoSet(TheShellEnvarsDef, envars); false {
-                erro(ctx, "set '%s' failed: %v", TheShellEnvarsDef, envars).at(pos).debug(1)
-        } else {
-                result = envars
-        }
+
+        def.value = envars
         return
 }
 
@@ -485,12 +495,11 @@ ForArgs:
         return
 }
 
+// create closure context for the traversal
 type modifierClosureOpts struct {
         dump    bool `d,dump`
         verbose bool `v,verbose`
 }
-
-// create closure context for the traversal
 func modifierClosure(ctx Context, args... Value) (result Value, brks breakers) {
         var (
                 opts modifierClosureOpts
@@ -541,6 +550,24 @@ func modifierClosure(ctx Context, args... Value) (result Value, brks breakers) {
         return
 }
 
+type modifierForOpts struct {
+        // ...
+}
+func modifierFor(ctx Context, args... Value) (result Value, brks breakers) {
+        var (
+                opts modifierForOpts
+                err error
+        )
+        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
+                erro(ctx, "merge args failed: %v", err).debug(1)
+                return
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+                erro(ctx, "parse cd opts failed: %v", err).debug(1)
+                return
+        }
+        return
+}
+
 type modifierCDOpts struct {
         makePath bool `p,path`
         printEnter bool `e,print-enter`
@@ -554,8 +581,7 @@ func modifierCD(ctx Context, args... Value) (result Value, brks breakers) {
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
                 erro(ctx, "merge args failed: %v", err).debug(1)
                 return
-        }
-        if args, err = parseOpts(ctx, &opts, args...); err != nil {
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
                 erro(ctx, "parse cd opts failed: %v", err).debug(1)
                 return
         }

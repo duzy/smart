@@ -1037,8 +1037,7 @@ func builtinEnv(ctx Context, args... Value) (res Value) {
                 if val, err = a.expand(ctx, expandDelegate); err != nil {
                         erro(ctx, "%v", err).debug(1)
                         return
-                }
-                if val == nil {
+                } else if val == nil {
                         // discard
                 } else if v, err = val.Strval(ctx); err == nil {
                         if s := strings.TrimSpace(v); s != "" {
