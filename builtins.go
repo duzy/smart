@@ -1030,19 +1030,23 @@ func builtinEnv(ctx Context, args... Value) (res Value) {
                 pos = ctx.Position()
                 vals []Value
                 val Value
-                v string
+                s string
                 err error
         )
         for _, a := range args {
                 if val, err = a.expand(ctx, expandDelegate); err != nil {
                         erro(ctx, "%v", err).debug(1)
                         return
-                } else if val == nil {
-                        // discard
-                } else if v, err = val.Strval(ctx); err == nil {
-                        if s := strings.TrimSpace(v); s != "" {
-                                vals = append(vals, MakeString(pos, os.Getenv(s)))
-                        }
+                } else if isNil(val) {
+                        val = a
+                }
+                if isTrivial(val) {
+                        continue
+                } else if s, err = val.Strval(ctx); err != nil {
+                        erro(ctx, "%v", err).debug(1)
+                        return
+                } else if s = strings.TrimSpace(s); s != "" {
+                        vals = append(vals, MakeString(pos, os.Getenv(s)))
                 } else {
                         erro(ctx, "%v", err).debug(1)
                         return
