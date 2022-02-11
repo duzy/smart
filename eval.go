@@ -22,18 +22,6 @@ func (p *evaluer) Evaluate(ctx Context, args ...Value) (result Value, err error)
                 erro(ctx, "needs program context to evaluate: %v", ctx).debug(16)
                 return
         }
-        if entry := ctx.entry(); false && entry != nil && entry.String() == "HAVE_TERMINFO" {
-                defer func() {
-                        warn(ctx, "recipes = %v", program.recipes)
-                        warn(ctx, "result=%v", result).debug(1)
-                } ()
-        }
-        if false && len(program.recipes) > 0 {
-                defer func() {
-                        warn(ctx, "recipes = %v", program.recipes)
-                        warn(ctx, "result=%v", result).debug(1)
-                } ()
-        }
 ForRecipes:
         for _, recipe := range program.recipes {
                 if p.accumulation {
@@ -43,7 +31,9 @@ ForRecipes:
                         if v, err = recipe.expand(ctx, expandPlainValue|expandPairVal); err != nil {
                                 erro(ctx, "expand recipe failed: %v", err).debug(1)
                                 return
-                        } else if isNil(v) { v = recipe }
+                        } else if isNil(v) {
+                                v = recipe
+                        }
                         list = append(list, v)
                         continue ForRecipes
                 }

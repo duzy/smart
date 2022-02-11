@@ -295,7 +295,7 @@ func (p *parser) skipSpaces() {
 			if p.bits&parsingBuiltinCommand != 0 {
 				TokFor: for p.tok != token.EOF {
 					switch p.tok {
-					case token.RECIPE:
+					case token.RECIPE: // TODO: using p.isRecipeStart()
 						p.scanner.LeaveCompoundLineContext()
 						p._next()
 					default: break TokFor
@@ -340,15 +340,25 @@ func (p *parser) expect(tok token.Token) token.Pos {
 	return pos
 }
 
-func (p *parser) expectLinend() {
+func (p *parser) expectLinend() (ok bool) {
 	if p.lineComment != nil {
 		// The line comment is treated as LINEND, simply ignore it.
-		p.lineComment = nil
+		p.lineComment, ok = nil, true
 	} else if p.tok == token.LINEND {
-		p._next()
+		p._next(); ok = true
 	} else {
 		p.expected(p.pos, "'\\n'")
 	}
+	return
+}
+
+func (p *parser) isRecipeStart() (res bool) {
+	if p.tok == token.RECIPE {
+		res = true
+	} else if p.tok == token.SPACE && p.lit == "\t" {
+		p.tok, res = token.RECIPE, true // Fixes recipe \t
+	}
+	return
 }
 
 // ----------------------------------------------------------------------------
@@ -500,7 +510,7 @@ func (p *parser) isEndOfList(lhs bool) bool {
 	if p.lineComment != nil || p.tok.IsListDelim() || (lhs && p.tok.IsAssign()) {
 		return true
 	}
-	if (p.bits&parsingRecipeText != 0) && p.tok == token.RECIPE {
+	if (p.bits&parsingRecipeText != 0) && p.tok == token.RECIPE { // TODO: using p.isRecipeStart()
 		return true
 	}
 	return false
@@ -522,6 +532,7 @@ func (p *parser) isEndOfDotConcat(lhs bool) bool {
 
 func (p *parser) parseDependList() (list []Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Depends")) }
+	var d bool
 	for p.tok != token.SEMICOLON && p.tok != token.BAR && !p.isEndOfLine() {
 		if p.tok == token.COLON { // FIXME: this check is not working!
 			// FIXME: detects unexpected colon ':'
@@ -530,7 +541,7 @@ func (p *parser) parseDependList() (list []Value) {
 		} else {
 			p.skipSpaces()
 			list = append(list, p.parseExpr(false))
-			p.skipSpaces()
+			if p.tok == token.SPACE { p.next(true) } //p.skipSpaces()
 		}
 	}
 	return
@@ -1010,7 +1021,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 	}
 
 	resolveObject := func(lPos Position, lTok token.Token, name Value) (str string, obj Value, okay bool) {
-		if true { defer func() {
+		if false { defer func() {
 			if isNil(obj) /*&& !isNil(resolved)*/ {
 				warn(p, "nil: %v (tok=%v%v, resolved=%T %v)", name, tok, lTok, resolved, resolved).at(name.Position()).debug(6)
 			}
@@ -1197,7 +1208,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 func (p *parser) parseSpecialClosureDelegate(lhs bool) Value {
 	if t_traverse.enabled { defer un(trace(t_traverse, "SpecialClosureDelegate")) }
 
-	var pos, tok, s = p.pos, p.tok, p.tok.String()[1:]
+	var pos, tok, s = p.pos, p.tok, p.lit//p.tok.String()[1:]
 	p._next()
 
 	var (
@@ -1304,9 +1315,8 @@ func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
 		}
 	}
 
-	var pos = p.Position()
-	prompt(p, "%v: bad unary '%v' (lit=%s,lhs=%v)\n", pos.Filename, p.tok, p.lit, lhs)
-	erro(p, "bad unary expression '%v' (lit=%s,lhs=%v)", p.tok, p.lit, lhs).debug(32)
+	prompt(p, "%v: bad unary '%v' (lit=%s,lhs=%v)\n", p.file.Name(), p.tok, p.lit, lhs)
+	erro(p, "bad unary expression '%v'", p.tok).debug(32)
 	p._next() // go to the next token
 	return MakeNil(p.Position())
 }
@@ -2028,12 +2038,12 @@ SwitchDialect:
 		if !p.isEndOfLine() {
 			defer p.setbit(p.setbit(parsingBuiltinCommand))
 			var (
-				isVal = p.dialect == "value"
-				x = p.parseExpr(!isVal) // parse first expr of recipe
+				isValue = p.dialect == "value"
+				x = p.parseExpr(!isValue) // parse first expr of recipe
 			)
 			if isNil(x) {
 				erro(p, "parsed value is nil").at(position)
-			} else if t, ok := x.(*Bareword); ok && !isVal {
+			} else if t, ok := x.(*Bareword); ok && !isValue {
 				if _, sym, err := p.resolveObject(t); err != nil {
 					erro(p, "resolve '%v' failed: %v", x, err).at(position)
 				} else if isNil(sym) {
@@ -2043,12 +2053,12 @@ SwitchDialect:
 				}
 			}
 
-			if p.tok.IsAssign() {
+			if !isValue && p.tok.IsAssign() {
 				elems = append(elems, p.parseRecipeDefineClause(x))
 				break SwitchDialect
 			}
-
 			elems = append(elems, x)
+
 			var cmdargs []Value
 			for p.tok != token.EOF && p.tok != token.SEMICOLON && p.tok != token.LINEND && p.lineComment == nil {
 				p.skipSpaces()
@@ -2149,9 +2159,6 @@ func (p *parser) defineConfigureTargets() {
 			return
 		}}
 		if !def.position.IsValid() { def.position = pos }
-		if false && strings.HasPrefix(name, "HAVE_TERMINFO") {
-			info(ctx, "configure %v: %v (%p)", t, def, def).debug(1)
-		}
 	}
 }
 
@@ -2424,18 +2431,18 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		}
 	}
 
-	if p.tok == token.SEMICOLON { // :;
+	p.scanner.TrunRecipesOn() // Turn on recipes before LINEND
+	if p.tok == token.SEMICOLON { // ;
 		// Parse inline recipe in the program scope.
 		recipes = append(recipes, p.parseRecipeExpr())
-	} else if p.tok == token.LINEND || p.lineComment != nil {
-		p.scanner.TrunRecipesOn() // Turn on recipes before LINEND
-		p.expectLinend() // Take the new line
+	} else if /*p.tok == token.LINEND || p.lineComment != nil*/p.expectLinend() {
+		//p.expectLinend() // Take the new line
 		// Parse recipes in the program scope.
-		for p.tok != token.EOF && p.tok == token.RECIPE {
+		for p.tok != token.EOF && p.isRecipeStart() {
 			recipes = append(recipes, p.parseRecipeExpr())
 		}
-		p.scanner.TurnRecipesOff()
 	}
+	p.scanner.TurnRecipesOff()
 
 	var params []string
 	if t := targets[0]; p.configure {
