@@ -532,7 +532,6 @@ func (p *parser) isEndOfDotConcat(lhs bool) bool {
 
 func (p *parser) parseDependList() (list []Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Depends")) }
-	var d bool
 	for p.tok != token.SEMICOLON && p.tok != token.BAR && !p.isEndOfLine() {
 		if p.tok == token.COLON { // FIXME: this check is not working!
 			// FIXME: detects unexpected colon ':'

@@ -4644,9 +4644,17 @@ func (p *Group) True(ctx Context) (t bool, err error) {
     return
 }
 func (p *Group) Strval(ctx Context) (s string, err error) {
-    if s, err = p.Strval(ctx); err == nil {
-        s = "(" + s + ")"
+    s = "("
+    for i, elem := range p.Elems {
+        var str string
+        if str, err = elem.Strval(ctx); err != nil {
+            erro(ctx, "strval group element '%v' failed: %v", elem, err).debug(1)
+            return
+        }
+        if i > 0 { s += " " }
+        s += str
     }
+    s += ")"
     return
 }
 func (p *Group) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
