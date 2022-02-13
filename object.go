@@ -1142,6 +1142,7 @@ func (p *ResolveEntries) Programs() (programs []*Program) {
 type RuleEntry struct {
         class RuleEntryClass
         target Value
+        argumented []Value // for restriction/filter
         programs []*Program
         position Position
 }
@@ -1313,6 +1314,7 @@ func (entry *RuleEntry) expand(ctx Context, w expandwhat) (res Value, err error)
                 // TODO: test if programs are needed to be disclosed??
                 res = &RuleEntry{
                         entry.class, target,
+                        entry.argumented,
                         entry.programs,
                         entry.position,
                 }

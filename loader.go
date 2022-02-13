@@ -978,13 +978,27 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
             name string
             err error
         )
-        if isNil(target) {
-            erro(ctx, "nil target (%T)", target).of(target).debug(1)
+        if isTrivial(target) {
+            erro(ctx, "trivial target").debug(1)
             return
-        } else if name, err = /*fullnameOrStrval(ctx, target)*/target.Strval(ctx); err != nil {
+        }
+
+        var args []Value // e.g. for pattern filtering
+        switch t := target.(type) {
+        case *Group:
+            erro(ctx, "group target not supported: %v", t).debug(1)
+            return
+        case *Argumented:
+            target, args = t.value, merge(t.args...)
+        }
+
+        if name, err = /*fullnameOrStrval(ctx, target)*/target.Strval(ctx); err != nil {
             erro(ctx, "strval target '%v' failed: %v", target, err).of(target).debug(1)
             return
-        } else if true && !target.patterned(ctx) {
+        }
+
+        var patterned = target.patterned(ctx)
+        if true && !patterned {
             // NOTE: it should work too if not checking against files
             switch target.(type) {
             case *File, *Path, *Barefile, *PercPattern, *GlobPattern, *RegexpPattern:
@@ -996,7 +1010,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
             }
         }
 
-        entry, err = l.project.entry(ctx, clause.special, clause.options, target, prog)
+        entry, err = l.project.entry(ctx, clause.special, clause.options, patterned, target, args, prog)
         if err != nil {
             erro(ctx, "creating entry '%v' failed: %v", target, err).of(target)
             return
@@ -1012,6 +1026,10 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
             }
             //if s == "configure" { configuration.configs = append(configuration.configs, entry) }
         } else if configure {
+            if patterned {
+                erro(ctx, "unsupported pattern configures: %v", target).debug(1)
+                return
+            }
             configuration.entries = append(configuration.entries, entry)
         }
     }

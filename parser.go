@@ -2418,7 +2418,7 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 
 	defer func(t []Value) { p.targets = t } (p.targets)
 	p.next(true) // skip rule delimeters and spaces
-	p.targets = targets // save targets for further usage
+	p.targets = targets // save targets for later refering
 
 	if p.tok != token.SEMICOLON && p.tok != token.BAR && !p.isEndOfLine() {
 		depends = p.parseDependList()

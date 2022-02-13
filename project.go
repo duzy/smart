@@ -688,6 +688,16 @@ func (p *Project) resolvePatterns(ctx Context, i interface{}) (res []*stemmed) {
 func (p *Project) resolvePatterns1(ctx Context, i interface{}) (res []*stemmed) {
   for _, pat := range p.patterns {
     if full, _, stems := pat.target.match(ctx, i); full {
+      if ok := false; len(pat.argumented) > 0 {
+        for _, a := range pat.argumented {
+          if false && fmt.Sprintf("%v", i) == a.String() {
+            var v1, v2, v3 = a.match(ctx, i)
+            warn(ctx, "%v %v; %v; %v, %v, %v", i, a, stems, v1, v2, v3).debug(1)
+          }
+          if ok, _, _ = a.match(ctx, i); ok { break }
+        }
+        if !ok { continue }
+      }
       res = append(res, &stemmed{*pat, stems})
     }
   }
@@ -714,7 +724,7 @@ func (p *Project) resolvePatterns3(ctx Context, i interface{}) (res []*stemmed) 
 type entryOpts struct {
   postExec bool `p,post;pe,post-execute;pe,post-exec`
 }
-func (p *Project) entry(ctx Context, special specialRule, options []Value, target Value, prog *Program) (entry Entry, err error) {
+func (p *Project) entry(ctx Context, special specialRule, options []Value, patterned bool, target Value, arged []Value, prog *Program) (entry Entry, err error) {
   defer func() {
     if entry != nil && err == nil {
       entry.SetPrograms(append(entry.Programs(), prog))
@@ -747,18 +757,14 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
   }
 
   var name string
-  if target.patterned(ctx) {
+  if patterned {
     var class = PatternRuleEntry
-    if _, ok := target.(*Path); ok {
-      class = PathPattRuleEntry
-    }
+    if _, ok := target.(*Path); ok { class = PathPattRuleEntry }
     var pattern = &PatternEntry{RuleEntry{
-      position: target.Position(),
-      class: class,
-      target: target,
+      position: target.Position(), class: class, target: target, argumented: arged,
     }}
     p.patterns = append(p.patterns, pattern)
-    entry = pattern //&pattern.RuleEntry
+    entry = pattern
     return
   } else if name, err = fullnameOrStrval(ctx, target); err != nil {
     erro(ctx, "fullname/strval failed: %v", err).of(target).debug(1)
@@ -771,20 +777,13 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
   // Looking for concrete rule entries.
   for _, rec := range p.concrete {
     var sv string
-    if closured && rec.String() == name {
-      entry = rec; break
-    }
-    if sv, err = fullnameOrStrval(ctx, rec); err != nil {
-      return
-    } else if sv == name {
-      entry = rec; break
-    }
+    if closured && rec.String() == name { entry = rec; break }
+    if sv, err = fullnameOrStrval(ctx, rec); err != nil { return }
+    if sv == name { entry = rec; break }
   }
   if entry == nil {
     entry = &RuleEntry{
-      position: target.Position(),
-      class: GeneralRuleEntry,
-      target: target,
+      position: target.Position(), class: GeneralRuleEntry, target: target, argumented: arged,
     }
     p.concrete = append(p.concrete, entry)
   }
