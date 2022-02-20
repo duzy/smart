@@ -2503,6 +2503,29 @@ func isTrueString(s string) (t bool) {
     return
 }
 
+// Punctuations: | ; ,
+type Punctuation struct { valbase; tok token.Token }
+func (p *Punctuation) String() string { return p.tok.String() }
+func (p *Punctuation) Strval(ctx Context) (string, error) { return p.tok.String(), nil }
+func (p *Punctuation) True(ctx Context) (bool, error) { return false, nil }
+func (p *Punctuation) Integer(ctx Context) (int64, error) { return 0, nil }
+func (p *Punctuation) Float(ctx Context) (float64, error) { return 0, nil }
+func (p *Punctuation) cmp(ctx Context, v Value) (res cmpres) {
+    if a, ok := v.(*Punctuation); ok {
+        if p.tok == a.tok {
+            res = cmpEqual
+        } else if p.tok > a.tok {
+            res = cmpSmaller
+        } else if p.tok < a.tok {
+            res = cmpGreater
+        }
+    }
+    return
+}
+func (p *Punctuation) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
+func (p *Punctuation) stencil(ctx Context, stems []string) (s string, rest []string) { return }
+func (p *Punctuation) traverse(ctx Context) (brks breakers) { return }
+
 type Bareword struct { valbase; string }
 func (p *Bareword) String() string { return p.string }
 func (p *Bareword) Strval(ctx Context) (string, error) { return p.string, nil }

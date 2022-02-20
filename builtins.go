@@ -4065,9 +4065,11 @@ func builtinGrep(ctx Context, args... Value) (res Value) {
 }
 
 var (
+        rsAutoconf  = `AC_(CHECK_(FILES?|FUNCS?|HEADERS?|PROG|SIZEOF|TOOL)|DEFINE)\(([^\)]*?)\)`
         rsConfigRef = `[$%]\{([^\s\}]+)\}|@([^\s\@]+)@`
         rsConfigure = `^[\t ]*#[\t ]*(define|undef|smartdefine|smartdefine01|cmakedefine|cmakedefine01)[\t ]+([A-Za-z0-9_]+)(?:[\t ]+([^\n]*))?$`
-        rxConfigure = regexp.MustCompile(fmt.Sprintf(`(?m:%s)`, rsConfigure))
+        rxAutoconf  = regexp.MustCompile(rsAutoconf)
+        rxConfigure = regexp.MustCompile(fmt.Sprintf(`(?m:%s)`, rsConfigure)) // m: multilines
         rxConfigRef = regexp.MustCompile(rsConfigRef)
 )
 
@@ -4131,6 +4133,17 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
         return
 }
 
+// https://www.gnu.org/software/autoconf/manual/autoconf-2.67/autoconf.html
+func autoconf(ctx Context, out *bytes.Buffer, project *Project, str string) (err error) {
+        var num int
+        for _, m := range rxAutoconf.FindAllStringSubmatch(str, -1) {
+                info(ctx, "TODO: %v", m)
+                num += 1
+        }
+        warn(ctx, "TODO: %d", num).debug(1)
+        return
+}
+
 func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (err error) {
         var index = 0
         if str, err = project.configExpand(ctx, str); err != nil {
@@ -4159,6 +4172,7 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
                         erro(ctx, "truthify '%v failed: %v", def, err).debug(1)
                         return
                 }
+
                 //fmt.Fprintf(stderr, "%v: configure: %v %v %v\n", scope.comment, verb, name, def)
                 switch verb {
                 case "define":

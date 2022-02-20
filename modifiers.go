@@ -185,7 +185,8 @@ var (
                 `write-file`:     modifierWriteFile,
                 `read-file`:      modifierReadFile,
                 `update-file`:    modifierUpdateFile,
-                `configure-file`: modifierConfigureFile,
+                `configure-input`: modifierConfigureInput,
+                `configure-file`:  modifierConfigureFile,
                 `configure`:      modifierConfigure,
 
                 `wait`:         modifierWait,

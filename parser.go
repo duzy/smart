@@ -592,9 +592,15 @@ func (p *parser) parseGroupExpr(lhs bool) *Group {
 	position := p.Position()
 	p.next(true)
 	elems, converted := p.parseExprList(false), false
-	for p.tok == token.COMMA {
-		p.next(true)
-		next := p.parseListExpr(false)
+	for /*p.tok == token.COMMA*/p.tok != token.RPAREN && p.tok != token.EOF {
+		//p.next(true) // skip token.COMMA
+		switch p.tok {
+		case token.BAR, token.COMMA, token.SEMICOLON:
+			elems = append(elems, p.parsePunctuation())
+			p.skipSpaces()
+		}
+		var next *List
+		next = p.parseListExpr(false)
 		if !converted {
 			elems = []Value{ MakeList(p.Position(), elems...), next }
 			converted = true
@@ -612,8 +618,18 @@ func (p *parser) parseArgumentedExpr(x Value) *Argumented {
 	p.next(true) // skip token.LPAREN
 
 	var a = []Value{ p.parseListExpr(false) }
-	for p.tok == token.COMMA {
-		p.next(true) // skip token.COMMA
+	for /*p.tok == token.COMMA*/p.tok != token.RPAREN && p.tok != token.EOF {
+		//p.next(true) // skip token.COMMA
+		switch p.tok {
+		case token.COMMA: p.next(true) // skip token.COMMA
+		case token.BAR, token.SEMICOLON:
+			if false {
+				a = append(a, p.parsePunctuation())
+				p.skipSpaces()
+			} else {
+				erro(p, "unexpected punctuation: %v", p.tok).debug(1)
+			}
+		}
 		a = append(a, p.parseListExpr(false))
 	}
 	p.expect(token.RPAREN)
@@ -768,6 +784,13 @@ func (p *parser) parseNegExpr(lhs bool) *negative {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Negative")) }
 	p.expect(token.EXC)
 	return Negative(p.parseExpr(lhs))
+}
+
+func (p *parser) parsePunctuation() *Punctuation {
+	if t_traverse.enabled { defer un(trace(t_traverse, "punctuation")) }
+	var tok = p.tok
+	p._next()
+	return &Punctuation{valbase{p.Position()}, tok}
 }
 
 func (p *parser) parseBasicLit(lhs bool) (v Value) {
@@ -1305,6 +1328,9 @@ func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
 
 	case token.EXC:
 		return p.parseNegExpr(lhs)
+
+	case token.SEMICOLON, token.BAR:
+		return p.parsePunctuation()
 
 	default:
 		if p.tok.IsClosure() || p.tok.IsDelegate() {

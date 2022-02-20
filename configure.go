@@ -101,7 +101,7 @@ func (ctx *defaultContext) configure() {
                 }
             }
         }
-        if len(vals) > 0 {
+        if false && len(vals) > 0 {
             var n int
             for _, val := range vals {
                 if !isTrivial(val) {
@@ -825,20 +825,18 @@ func walkFiles(ctx Context, root string, pats []Value, fn filewalkFunc) error {
 
 var configuredFiles = make(map[string]*Scope,8)
 
-type modifierConfigureFileOpts struct {
+type configureConvertOpts struct {
     mode os.FileMode `m,mode`
     makePath bool `p,path`
     reconfig bool `r,reconfig`
     verbose bool `v,verbose`
+    update bool `u,update`
     debug bool `d,debug`
 }
-// configure-file modifier (see also builtinConfigureFile), example usage:
-// 
-//     config.h: config.h.in [(configure-file)]
-//     
-func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ breakers) {
+
+type configureConvertFunc func(str string, out *bytes.Buffer) error
+func configureConvert(ctx Context, convert configureConvertFunc, opts *configureConvertOpts, args ...Value) (result Value, _ breakers) {
     var (
-        opts = modifierConfigureFileOpts{ mode: os.FileMode(0600) }
         closured []*Project
         project *Project
         filename string
@@ -848,7 +846,7 @@ func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ breakers
     if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
         erro(ctx, " merge configure-file args failed: %v", err).debug(1)
         return
-    } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+    } else if args, err = parseOpts(ctx, opts, args...); err != nil {
         erro(ctx, " parse configure-file opts failed: %v", err).debug(1)
         return
     } else if target, found := ctx.autoGet("@"); !found || isNil(target) {
@@ -939,13 +937,13 @@ func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ breakers
             return
         }
         if str == "" { continue }
-        if err = configure(ctx, &data, ctx.Project(), str); err != nil {
-            erro(ctx, " %v", err).debug(1)
+        if err = convert(str, &data); err != nil {
+            erro(ctx, "convert: %v", err).debug(1)
             return
         }
     }
     if data.Len() == 0 {
-        erro(ctx, " no input data").debug(1)
+        erro(ctx, "no input data").debug(6)
         return
     }
 
@@ -998,6 +996,30 @@ func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ breakers
         status = fmt.Sprintf("configured (%d bytes)", data.Len())
     }
     return
+}
+
+// configure-input generate configure input file from a .ac file, example usage:
+// 
+//     config.h.in: configure.ac [(configure-input)]
+//     
+func modifierConfigureInput(ctx Context, args ...Value) (result Value, _ breakers) {
+    var opts = configureConvertOpts{ mode: os.FileMode(0600) }
+    var convert = func(str string, out *bytes.Buffer) (err error) {
+        return autoconf(ctx, out, ctx.Project(), str)
+    }
+    return configureConvert(ctx, convert, &opts, args...)
+}
+
+// configure-file modifier (see also builtinConfigureFile), example usage:
+//
+//     config.h: config.h.in [(configure-file)]
+//
+func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ breakers) {
+    var opts = configureConvertOpts{ mode: os.FileMode(0600) }
+    var convert = func(str string, out *bytes.Buffer) (err error) {
+        return configure(ctx, out, ctx.Project(), str)
+    }
+    return configureConvert(ctx, convert, &opts, args...)
 }
 
 type modifierExtractConfigurationOpts struct {
