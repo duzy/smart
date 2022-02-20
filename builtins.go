@@ -3699,6 +3699,7 @@ type wildcardOpts struct {
         baseFiles bool `b,base;b,bases;bf,base-files`
         usedFiles bool `u,used;u,using;uf,used-files`
         verbose bool `v,verbose`
+        dir string `d,dir;dir,directory`
 }
 func builtinWildcard(ctx Context, args... Value) (res Value) {
         var (
@@ -3718,7 +3719,37 @@ func builtinWildcard(ctx Context, args... Value) (res Value) {
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
                 erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
-        } else if files, err = proj.wildcard(ctx, opts, args...); err == nil {
+        } else if opts.dir != "" {
+                var ( fi os.FileInfo; dir *os.File; names []string )
+                if fi, err = os.Stat(opts.dir); err != nil {
+                        erro(ctx, "%v", err).debug(1)
+                        return
+                } else if !fi.IsDir() {
+                        erro(ctx, "not dir: %v", opts.dir).debug(1)
+                        return
+                } else if dir, err = os.Open(opts.dir); err != nil {
+                        erro(ctx, "not dir: %v", opts.dir).debug(1)
+                        return
+                }
+                defer dir.Close()
+                if names, err = dir.Readdirnames(-1); err != nil {
+                        erro(ctx, "readdir: %v", err).debug(1)
+                        return
+                }
+                for _, name := range names {
+                        for _, pat := range args {
+                                if full, _, _ := pat.match(ctx, name); full {
+                                        file := stat(ctx, name, "", opts.dir)
+                                        files = append(files, file)
+                                        break
+                                }
+                        }
+                }
+                res = MakeListOrScalar(ctx.Position(), values(files))
+                return
+        }
+
+        if files, err = proj.wildcard(ctx, opts, args...); err == nil {
                 res = MakeListOrScalar(ctx.Position(), values(files))
         } else {
                 erro(ctx, "wildcard failed: %v", err).debug(1)
