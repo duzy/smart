@@ -1775,8 +1775,11 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 		return
 	} else if g, ok := val.(*Group); ok {
 		pats = g.Elems
-	} else {
+	} else if val.expandible(ctx, expandClosure) {
 		pats = []Value{ val }
+	} else if pats, err = expandmerge2(ctx, expandPlainValue, val); err != nil {
+		erro(ctx, "%s", err).of(val)
+		return
 	}
 	if path == nil {
 		if len(pats) == 1 { if a, ok := pats[0].(*Argumented); ok { if f, ok := a.value.(*Flag); ok {
@@ -1792,8 +1795,27 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 				return
 			}
 		}}}
-		var paths = []Value{ MakeString(val.Position(), p.Project().absPath) }
-		for _, pat := range pats { p.Project().mapfile(ctx, opts, pat, paths) }
+		var ( files []*File; newPats []Value )
+		for _, pat := range pats {
+			if f, ok := pat.(*File); ok {
+				files = append(files, f)
+			} else {
+				newPats = append(newPats, pat)
+			}
+		}
+		if len(files) > 0 {
+			if false {
+				for _, file := range files { p.Project().mapfile(ctx, opts, file, nil) }
+			} else {
+				val = MakeListOrScalar(val.Position(), values(files))
+				p.Project().mapfile(ctx, opts, val, nil)
+			}
+			pats = newPats
+		}
+		if len(pats) > 0 {
+			var paths = []Value{ MakeString(val.Position(), p.Project().absPath) }
+			for _, pat := range pats { p.Project().mapfile(ctx, opts, pat, paths) }
+		}
 	} else {
 		var patsNew []Value
 		for _, pat := range pats {

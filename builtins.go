@@ -2068,7 +2068,7 @@ ForSources:
                                         match *FileMap
                                 )
                                 for _, m := range filemaps {
-                                        if ok, s := m.Match(ctx, name); ok {
+                                        if ok, _, s := m.Match(ctx, name); ok {
                                                 match, pre = m, s
                                                 break
                                         }

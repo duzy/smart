@@ -43,9 +43,9 @@ func (filemap *FileMap) Patterns(ctx Context) (pats []Value) {
 }
 
 // Match split filename into list and match each part with the pattern correspondingly.
-func (filemap *FileMap) Match(ctx Context, str string) (matched bool, pre string) {
+func (filemap *FileMap) Match(ctx Context, str string) (matched bool, pattern Value, pre string) {
   for _, pat := range filemap.Patterns(ctx) {
-    if matched, pre = filemap.match(ctx, pat, str); matched { break }
+    if matched, pre = filemap.match(ctx, pat, str); matched { pattern = pat; break }
   }
   return
 }
@@ -428,9 +428,12 @@ ForPatterns:
           continue ForFilemaps; afterMatchedPattern:
         }
 
-        var str string
-        var names []string // glob returned file names
-        if str, err = pattern.Strval(ctx); err != nil {
+        // glob returned file names
+        var ( str string; names []string )
+        if file, ok := pattern.(*File); ok && len(fm.paths) == 0 {
+          files = append(files, file)
+          continue
+        } else if str, err = pattern.Strval(ctx); err != nil {
           erro(ctx, "strval '%v' failed: %v", pattern, err).debug(1)
           return
         } else if str == "" {
@@ -514,8 +517,11 @@ func (p *Project) matchFile(ctx Context, name string, baseFiles bool) (file *Fil
 ForFilemaps:
   for _, filemap := range p.filemaps(ctx, /*true*/baseFiles, false) {
     // Match the represented file name.
-    var matched, pre = filemap.Match(ctx, name) // TODO: performance
+    var matched, pattern, pre = filemap.Match(ctx, name) // TODO: performance
     if !matched { continue ForFilemaps }
+    if f, ok := pattern.(*File); ok {
+      file = f; break ForFilemaps
+    }
 
     var proj = filemap.project
     if proj.changedWD != "" { file = filemap.stat(ctx, proj.changedWD, pre, name) }
@@ -574,7 +580,7 @@ func (p *Project) FindFile(ctx Context, name string) (file *File) {
 func (p *Project) isFileName(ctx Context, s string) (res bool) {
   if len(s) > 0 {
     for _, filemap := range p.filemaps(ctx, true, true) {
-      if res, _ = filemap.Match(ctx, s); res { break }
+      if res, _, _ = filemap.Match(ctx, s); res { break }
     }
   }
   return
