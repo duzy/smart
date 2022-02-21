@@ -116,6 +116,7 @@ var builtins = map[string]BuiltinFunc {
 
         `path`:         builtinPath,
         `string`:       builtinString,
+        `strings`:      builtinStrings,
         `strip`:        builtinStrip,
         `trim`:         builtinTrim,
         `trim-space`:   builtinTrimSpace,
@@ -547,7 +548,7 @@ func builtinTypeOf(ctx Context, args... Value) (res Value) {
 func builtinDefined(ctx Context, args... Value) (res Value) {
         var ( pos = ctx.Position(); elems []Value; err error )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).at(pos).debug(1)
+                erro(ctx, "merge args failed: %v", err).debug(1)
                 return
         }
         for _, arg := range args {
@@ -1778,6 +1779,28 @@ func builtinString(ctx Context, args... Value) (result Value) {
                 s.WriteString(v)
         }
         result = MakeString(ctx.Position(), s.String())
+        return
+}
+
+func builtinStrings(ctx Context, args... Value) (result Value) {
+        var (
+                strs []Value
+                err error
+        )
+        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
+                erro(ctx, "merge args failed: %v", err).debug(1)
+                return
+        }
+        for _, a := range args {
+                var s string
+                if s, err = a.Strval(ctx); err != nil {
+                        erro(ctx, "%v", err).debug(1)
+                        return
+                } else {
+                        strs = append(strs, MakeString(a.Position(), s))
+                }
+        }
+        result = MakeListOrScalar(ctx.Position(), strs)
         return
 }
 
