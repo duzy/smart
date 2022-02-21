@@ -1727,7 +1727,7 @@ func (p *parser) importFileMaps1(ctx Context, opts useOpts, projects ...*Project
 		for _, fm := range proj.filemaps(ctx, false, false) {
 			if fm.public {
 				if !opts.public {
-					fm = &FileMap{ fm.project, fm.pattern, fm.paths, opts.public }
+					fm = &FileMap{ fm.project, fm.patts, fm.paths, opts.public }
 				}
 				filemaps = uniqueAppendFilemap(ctx, filemaps, fm)
 			}
@@ -1804,17 +1804,12 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 			}
 		}
 		if len(files) > 0 {
-			if false {
-				for _, file := range files { p.Project().mapfile(ctx, opts, file, nil) }
-			} else {
-				val = MakeListOrScalar(val.Position(), values(files))
-				p.Project().mapfile(ctx, opts, val, nil)
-			}
+			p.Project().mapfile(ctx, opts, values(files), nil)
 			pats = newPats
 		}
 		if len(pats) > 0 {
 			var paths = []Value{ MakeString(val.Position(), p.Project().absPath) }
-			for _, pat := range pats { p.Project().mapfile(ctx, opts, pat, paths) }
+			p.Project().mapfile(ctx, opts, pats, paths)
 		}
 	} else {
 		var patsNew []Value
@@ -1848,7 +1843,7 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 				return
 			}
 		}}
-		for _, k := range patsNew { p.Project().mapfile(ctx, opts, k, paths) }
+		p.Project().mapfile(ctx, opts, patsNew, paths)
 	}
 }
 

@@ -3693,7 +3693,7 @@ func builtinGlob(ctx Context, args... Value) (res Value) {
         return MakeListOrScalar(pos, list)
 }
 
-func wildcardPathPatsInDir(ctx Context, inDir string, args ...Value) (files []*File) {
+func wildcardPathPatsInDir(ctx Context, inDir string, pats ...Value) (files []*File) {
         var dir *os.File
         if fi, err := os.Stat(inDir); err != nil {
                 erro(ctx, "%v", err).debug(1)
@@ -3711,7 +3711,7 @@ func wildcardPathPatsInDir(ctx Context, inDir string, args ...Value) (files []*F
                 return
         }
         for _, name := range names {
-                for _, pat := range args {
+                for _, pat := range pats {
                         if p, ok := pat.(*Path); ok {
                                 if full, _, _ := p.Elems[0].match(ctx, name); !full { continue }
                                 var subFiles []*File
@@ -3722,10 +3722,15 @@ func wildcardPathPatsInDir(ctx Context, inDir string, args ...Value) (files []*F
                                         subFiles = wildcardPathPatsInDir(ctx, s, p)
                                 }
                                 for _, f := range subFiles {
-                                        f.name = filepath.Join(name, f.name)
-                                        f.dir = filepath.Base(f.dir)
+                                        if true {
+                                                f.name = filepath.Join(name, f.name)
+                                                f.dir = filepath.Base(f.dir)
+                                        } else if !f.change(filepath.Base(f.dir), "", filepath.Join(name, f.name)) {
+                                                prompt(ctx, "%v: %v: can't change file into %s/%s\n", inDir, f, name, f.name)
+                                                errostack(ctx, 6, "can't change into: %v/%v", name, f.name).debug(12)
+                                                return
+                                        }
                                 }
-                                if false { warn(ctx, "%v %v %v", pat, name, subFiles).debug(1) }
                                 files = append(files, subFiles...)
                         } else if full, _, _ := pat.match(ctx, name); full {
                                 file := stat(ctx, name, "", inDir)
@@ -3747,17 +3752,14 @@ type wildcardOpts struct {
 }
 func builtinWildcard(ctx Context, args... Value) (res Value) {
         var (
-                proj = ctx.Project()
                 opts wildcardOpts
                 files []*File
                 err error
         )
-        if proj == nil {
+        if proj := ctx.Project(); proj == nil {
                 erro(ctx, "unknown most derived context").debug(1)
                 return
-        }
-
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
+        } else if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
                 erro(ctx, "merge args failed: %v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
@@ -3765,15 +3767,11 @@ func builtinWildcard(ctx Context, args... Value) (res Value) {
                 return
         } else if opts.dir != "" {
                 files = wildcardPathPatsInDir(ctx, opts.dir, args...)
-                res = MakeListOrScalar(ctx.Position(), values(files))
+        } else if files, err = proj.wildcard(ctx, opts, args...); err != nil {
+                erro(ctx, "wildcard failed: %v", err).debug(1)
                 return
         }
-
-        if files, err = proj.wildcard(ctx, opts, args...); err == nil {
-                res = MakeListOrScalar(ctx.Position(), values(files))
-        } else {
-                erro(ctx, "wildcard failed: %v", err).debug(1)
-        }
+        res = MakeListOrScalar(ctx.Position(), values(files))
         return
 }
 

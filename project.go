@@ -21,23 +21,32 @@ const PathSep = string(filepath.Separator)
 
 type FileMap struct {
   project *Project
-  pattern Value
+  patts []Value
   paths []Value
   public bool
 }
 
-func (filemap *FileMap) String() string { return filemap.pattern.String() }
+func (filemap *FileMap) String() (s string) {
+  if n := len(filemap.patts); n == 1 {
+    s = filemap.patts[0].String()
+  } else if n > 1 {
+    s = fmt.Sprintf("%s", filemap.patts)
+  }
+  return
+}
 func (filemap *FileMap) Patterns(ctx Context) (pats []Value) {
-  if filemap.pattern.expandible(ctx, expandClosure) {
-    var err error
-    if pats, err = expandmerge2(ctx, expandPlainValue, filemap.pattern); err != nil {
-      erro(ctx, "merge pattern '%v' failed: %v", filemap.pattern, err).of(filemap.pattern)
-    } else if pats, _, err = expandall2(ctx, expandPlainValue, pats...); err != nil {
-      // NOTE: do a second expand to ensure converted closures are expanded
-      erro(ctx, "sencond expand patterns '%v' failed: %v", pats, err).of(filemap.pattern)
+  for _, pattern := range filemap.patts {
+    if pattern.expandible(ctx, expandClosure) {
+      var err error
+      if pats, err = expandmerge2(ctx, expandPlainValue, pattern); err != nil {
+        erro(ctx, "merge pattern '%v' failed: %v", pattern, err).of(pattern)
+      } else if pats, _, err = expandall2(ctx, expandPlainValue, pats...); err != nil {
+        // NOTE: do a second expand to ensure converted closures are expanded
+        erro(ctx, "sencond expand patterns '%v' failed: %v", pats, err).of(pattern)
+      }
+    } else {
+      pats = append(pats, pattern)
     }
-  } else {
-    pats = append(pats, filemap.pattern)
   }
   return merge(pats...)
 }
@@ -86,11 +95,13 @@ func (filemap *FileMap) match(ctx Context, pat Value, str string) (matched bool,
 }
 
 func (filemap *FileMap) stat(ctx Context, base, pre, name string) (file *File) {
-  var pos = filemap.pattern.Position(); if false { ctx = positional(ctx, pos) }
+  var pos = filemap.patts[0].Position(); if false { ctx = positional(ctx, pos) }
   if base = filepath.Clean(base); len(filemap.paths) == 0 {
     file = stat(ctx, name, "", base, nil) // simply stat file name if no paths
     return
-  } else if pre != "" { pre = filepath.Clean(pre) }
+  } else if pre != "" {
+    pre = filepath.Clean(pre)
+  }
   for _, path := range filemap.paths {
     if isNil(path) {
       erro(ctx, "nil path: base=%s)", base).at(pos)
@@ -118,14 +129,14 @@ func (filemap *FileMap) stat(ctx Context, base, pre, name string) (file *File) {
       return
     } else if sub == "" {
       erro(ctx, "filemap path '%v' is empty", path).at(path.Position())
-      erro(ctx, "filemap path '%v' is empty (pattern=%v)", path, filemap.pattern).at(pos)
+      erro(ctx, "filemap path '%v' is empty (pattern=%v)", path, filemap.patts).at(pos)
       erro(ctx, "filemap path '%v' is empty (project=%v)", path, ctx.Project())//.at(pos)
       erro(ctx, "filemap path '%v' is empty in %v", path, ctx).debug(64)
       return
     } else if s := filepath.Clean(sub); sub != s {
       if false {
         erro(ctx, "filemap path '%v' is not clean (sub=%s)", path, sub).at(path.Position())
-        erro(ctx, "filemap path '%v' is not clean (pattern=%v)", path, filemap.pattern).at(pos)
+        erro(ctx, "filemap path '%v' is not clean (pattern=%v)", path, filemap.patts).at(pos)
         erro(ctx, "filemap path '%v' is not clean (project=%v)", path, ctx.Project())//.at(pos)
         erro(ctx, "filemap path '%v' is not clean in %v", ctx).debug(16)
         return
@@ -257,7 +268,6 @@ type Project struct {
   using   *usinglist
 
   // List order is significant, duplication is acceptable.
-  _files_   []Value
   _filemap_ []*FileMap
 
   // Rule Registry (orderred)
@@ -288,62 +298,23 @@ func (p *Project) NewScope(pos Position, comment string) *Scope {
   return NewScope(pos, p.scope, p, comment)
 }
 
-func (p *Project) mapfile(ctx Context, opts filesOpts, pat Value, paths []Value) {
-  // List order is significant, duplication is acceptable.
-  p._filemap_ = append(p._filemap_, &FileMap{ p, pat, paths, opts.public })
+func (p *Project) mapfile(ctx Context, opts filesOpts, patts, paths []Value) {
+  // NOTE: List order is significant, duplications are acceptable.
+  p._filemap_ = append(p._filemap_, &FileMap{ p, patts, paths, opts.public })
 }
 
 func (p *Project) myFilemaps(ctx Context) (filemap []*FileMap) {
   return p._filemap_
-
-  var _filemap_ []*FileMap
-  if len(_filemap_) == 0 && len(p._files_) > 0 {
-    var mapfile = func (pat Value, paths []Value) {
-      // List order is significant, duplication is acceptable.
-      _filemap_ = append(_filemap_, &FileMap{ p, pat, paths, false })
-    }
-    for _, spec := range p._files_ {
-      switch v := spec.(type) {
-      case *Pair:
-        var pats, paths []Value
-        switch k := v.Key.(type) {
-        case *Group: pats = k.Elems
-        default:     pats = append(pats, v.Key)
-        }
-        if a, err := expandmerge2(ctx, expandPlainValue, pats...); err != nil {
-          erro(ctx, "error expanding '%v': %v", v, err).at(v.Position())
-        } else {
-          pats = a 
-        }
-        switch vv := v.Value.(type) {
-        case *Group: paths = vv.Elems
-        default: paths = append(paths, vv)
-        }
-        for _, k := range pats { mapfile(k, paths) }
-      case Value:
-        var pats, paths []Value
-        paths = []Value{&String{valbase{v.Position()},p.absPath}}
-        switch g := v.(type) {
-        default: pats = append(pats, v)
-        case *Group: pats = g.Elems
-        }
-        for _, k := range pats { mapfile(k, paths) }
-      default:
-        erro(ctx, "invalid file spec: %v", v).of(v)
-      }
-    }
-  }
-  return _filemap_
 }
 
 func uniqueAppendFilemap(ctx Context, filemaps []*FileMap, a *FileMap) (result []*FileMap) {
   if false {
     var numDuplicated int
     for _, m := range filemaps {
-      if a == m || (a.pattern == m.pattern && &a.paths == &m.paths) {
+      if a == m || (&a.patts == &m.patts && &a.paths == &m.paths) {
         result = filemaps
         return
-      } else if a.pattern == m.pattern && len(a.paths) == len(m.paths) {
+      } else if len(a.patts) == len(m.patts) && len(a.paths) == len(m.paths) {
         var same = true // initially assumes all paths are identical
         for i, ap := range a.paths {
           if ap != m.paths[i] { same = false; break }
@@ -352,15 +323,15 @@ func uniqueAppendFilemap(ctx Context, filemaps []*FileMap, a *FileMap) (result [
           result = filemaps
           return
         } else {
-          warn(ctx, "files might be duplicated: %v (paths=%v),", a, a.paths).of(a.pattern)
-          warn(ctx, "                     with: %v (paths=%v)" , m, m.paths).of(m.pattern)
+          warn(ctx, "files might be duplicated: %v (paths=%v),", a, a.paths).of(a.patts[0])
+          warn(ctx, "                     with: %v (paths=%v)" , m, m.paths).of(m.patts[0])
           warn(ctx, "          differred paths: %v", a.paths[0]).of(a.paths[0])
           warn(ctx, "                      and: %v", m.paths[0]).of(m.paths[0])
           numDuplicated += 1
         }
       }
     }
-    if numDuplicated > 0 { erro(ctx, "duplicated files: %v", a.pattern).of(a.pattern) }
+    if numDuplicated > 0 { erro(ctx, "duplicated files: %v", a.patts).of(a.patts[0]) }
   }
   result = append(filemaps, a)
   return
@@ -406,31 +377,44 @@ func (p *Project) filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*
 }
 
 func (p *Project) wildcard(ctx Context, opts wildcardOpts, patterns ...Value) (files []*File, err error) {
+  var dbg = false //&& p.name == "llvm.tools.objcopy"
   var filemaps = p.filemaps(ctx, opts.baseFiles, opts.usedFiles)
 ForPatterns:
-  for _, pat := range patterns {
+  for _, inPat := range patterns {
     var (
-      patPatterned = pat.patterned(ctx)
+      inPatPatterned = inPat.patterned(ctx)
       breakAbsRel bool
       matched bool
     )
   ForFilemaps:
-    for _, fm := range filemaps {
-      for _, pattern := range fm.Patterns(ctx) {
-        /*if !pattern.patterned(ctx) {
-          // mapping regular file path
-        } else */if matched, _, _ = pattern.match(ctx, pat); !matched {
-          // Flip glob matching order.
-          if patPatterned { if matched, _, _ = pat.match(ctx, pattern); matched {
+    for _, filemap := range filemaps {
+      for _, pattern := range filemap.Patterns(ctx) {
+        if dbg {
+          a, _, _ := pattern.match(ctx, inPat)
+          b, _, _ := inPat.match(ctx, pattern)
+          prompt(ctx, "%v: %v %v (%v, %v)\n", pattern, inPat, filemap.patts, a, b)
+          warn(ctx, "%v %v %v", inPat, pattern, filemap.patts).debug(1)
+        }
+        if matched, _, _ = pattern.match(ctx, inPat); !matched {
+          if dbg {
+            matched, _, _ = inPat.match(ctx, pattern)
+            warn(ctx, "%T %v %v %v", inPat, inPat, pattern, matched).debug(1)
+          }
+          // flip matching patterns
+          if !inPatPatterned {
+            // unmatched pattern
+          } else if matched, _, _ = inPat.match(ctx, pattern); matched {
             breakAbsRel = true // using the arg glob
             goto afterMatchedPattern
-          }}
-          continue ForFilemaps; afterMatchedPattern:
+          }
+          continue /*ForFilemaps -- FIXES: break too early */; afterMatchedPattern:
+        } else if dbg {
+          warn(ctx, "%T %v %v %v", inPat, inPat, pattern, matched).debug(1)
         }
 
         // glob returned file names
         var ( str string; names []string )
-        if file, ok := pattern.(*File); ok && len(fm.paths) == 0 {
+        if file, ok := pattern.(*File); ok && len(filemap.paths) == 0 {
           files = append(files, file)
           continue
         } else if str, err = pattern.Strval(ctx); err != nil {
@@ -459,7 +443,7 @@ ForPatterns:
         }
 
         // Check against paths for non-abs/rel patterns.
-        for _, path := range fm.paths {
+        for _, path := range filemap.paths {
           var sub string
           if sub, err = path.Strval(ctx); err != nil {
             break ForPatterns
@@ -477,7 +461,7 @@ ForPatterns:
                 files = append(files, file)
               } else if opts.errorMissing {
                 if false { err = fmt.Errorf("missing '%v'", name) }
-                erro(ctx, "%v: '%v' not found in %v", p, name, path).of(fm.pattern)
+                erro(ctx, "%v: '%v' not found in %v", p, name, path).of(filemap.patts[0])
                 errostack(ctx, 6, "(%T):", ctx).of(path).debug(12)
                 if true { fail(path.Position(), "missing %v", path) }
               }
@@ -490,16 +474,16 @@ ForPatterns:
             // Append this non-existed/missing file.
             file := stat(ctx, name, sub, prefix, nil)
             files = append(files, file)
-          } else if ok && !path.expandible(ctx, expandClosure) && len(fm.paths) == 1 {
+          } else if ok && !path.expandible(ctx, expandClosure) && len(filemap.paths) == 1 {
             // Just report that the pattern matches no files in the
             // file system (if only one path specified).
             if false {
-              warn(ctx, "%s: %v matches no files in '%v'", p.name, fm, sub).of(pattern)
-              warn(ctx, "%s: here is %v (try using flag -m, aka -include-missing)", p.name, pat).of(pat).debug(1)
+              warn(ctx, "%s: %v matches no files in '%v'", p.name, filemap, sub).of(pattern)
+              warn(ctx, "%s: here is %v (try using flag -m, aka -include-missing)", p.name, inPat).of(inPat).debug(1)
             }
           } else if opts.errorMissing {
-            if false { err = fmt.Errorf("missing files like '%v'", fm) }
-            erro(ctx, "%v: '%v' not found in %v", p, pattern, path).of(fm.pattern)
+            if false { err = fmt.Errorf("missing files like '%v'", filemap) }
+            erro(ctx, "%v: '%v' not found in %v", p, pattern, path).of(filemap.patts[0])
             errostack(ctx, 6, "(%T):", ctx).of(path).debug(12)
             if true { fail(path.Position(), "missing %v", path) }
             break ForPatterns
@@ -508,6 +492,7 @@ ForPatterns:
       }
     }
   }
+  if dbg { warn(ctx, "%v", patterns).debug(24) }
   return
 }
 

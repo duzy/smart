@@ -1376,7 +1376,7 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
         if targetValuePos.IsValid() && !targetValuePos.Equals(&targetPos) {
             if f, ok := v.(*File); ok && f.filemap != nil {
                 erro(ctx, "waiting for '%v'", target).at(targetValuePos)
-                erro(ctx, "via pattern '%v' (of %v)", v, f.filemap.project).of(f.filemap.pattern).debug(1)
+                erro(ctx, "via pattern '%v' (of %v)", v, f.filemap.project).of(f.filemap.patts[0]).debug(1)
             } else {
                 erro(ctx, "waiting for '%v'", target).at(targetValuePos).debug(1)
             }
