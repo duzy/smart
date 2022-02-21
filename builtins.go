@@ -3693,6 +3693,50 @@ func builtinGlob(ctx Context, args... Value) (res Value) {
         return MakeListOrScalar(pos, list)
 }
 
+func wildcardPathPatsInDir(ctx Context, inDir string, args ...Value) (files []*File) {
+        var dir *os.File
+        if fi, err := os.Stat(inDir); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        } else if !fi.IsDir() {
+                erro(ctx, "not dir: %v", inDir).debug(1)
+                return
+        } else if dir, err = os.Open(inDir); err != nil {
+                erro(ctx, "not dir: %v", inDir).debug(1)
+                return
+        }
+        var names, err = dir.Readdirnames(-1); dir.Close()
+        if err != nil {
+                erro(ctx, "readdir: %v", err).debug(1)
+                return
+        }
+        for _, name := range names {
+                for _, pat := range args {
+                        if p, ok := pat.(*Path); ok {
+                                if full, _, _ := p.Elems[0].match(ctx, name); !full { continue }
+                                var subFiles []*File
+                                if s := filepath.Join(inDir, name); len(p.Elems) == 2 {
+                                        subFiles = wildcardPathPatsInDir(ctx, s, p.Elems[1])
+                                } else {
+                                        p = MakePath(p.Elems[1].Position(), p.Elems[1:]...)
+                                        subFiles = wildcardPathPatsInDir(ctx, s, p)
+                                }
+                                for _, f := range subFiles {
+                                        f.name = filepath.Join(name, f.name)
+                                        f.dir = filepath.Base(f.dir)
+                                }
+                                if false { warn(ctx, "%v %v %v", pat, name, subFiles).debug(1) }
+                                files = append(files, subFiles...)
+                        } else if full, _, _ := pat.match(ctx, name); full {
+                                file := stat(ctx, name, "", inDir)
+                                files = append(files, file)
+                                break
+                        }
+                }
+        }
+        return
+}
+
 type wildcardOpts struct {
         includeMissing bool `im,includemissing;m,include-missing`
         errorMissing bool `em,errormissing;e,error-missing`
@@ -3720,31 +3764,7 @@ func builtinWildcard(ctx Context, args... Value) (res Value) {
                 erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
         } else if opts.dir != "" {
-                var ( fi os.FileInfo; dir *os.File; names []string )
-                if fi, err = os.Stat(opts.dir); err != nil {
-                        erro(ctx, "%v", err).debug(1)
-                        return
-                } else if !fi.IsDir() {
-                        erro(ctx, "not dir: %v", opts.dir).debug(1)
-                        return
-                } else if dir, err = os.Open(opts.dir); err != nil {
-                        erro(ctx, "not dir: %v", opts.dir).debug(1)
-                        return
-                }
-                defer dir.Close()
-                if names, err = dir.Readdirnames(-1); err != nil {
-                        erro(ctx, "readdir: %v", err).debug(1)
-                        return
-                }
-                for _, name := range names {
-                        for _, pat := range args {
-                                if full, _, _ := pat.match(ctx, name); full {
-                                        file := stat(ctx, name, "", opts.dir)
-                                        files = append(files, file)
-                                        break
-                                }
-                        }
-                }
+                files = wildcardPathPatsInDir(ctx, opts.dir, args...)
                 res = MakeListOrScalar(ctx.Position(), values(files))
                 return
         }
@@ -3753,10 +3773,6 @@ func builtinWildcard(ctx Context, args... Value) (res Value) {
                 res = MakeListOrScalar(ctx.Position(), values(files))
         } else {
                 erro(ctx, "wildcard failed: %v", err).debug(1)
-        }
-        if false && proj.name == "external.google.tensorflow.core.platform" {
-                warn(ctx, "%v", files)
-                warn(ctx, "%v", ctx).debug(1)
         }
         return
 }
