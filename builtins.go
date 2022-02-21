@@ -3705,6 +3705,7 @@ func wildcardPathPatsInDir(ctx Context, inDir string, pats ...Value) (files []*F
                 erro(ctx, "not dir: %v", inDir).debug(1)
                 return
         }
+        var dbg = strings.HasSuffix(inDir, "/llvm/ObjCopy")
         var names, err = dir.Readdirnames(-1); dir.Close()
         if err != nil {
                 erro(ctx, "readdir: %v", err).debug(1)
@@ -3722,22 +3723,29 @@ func wildcardPathPatsInDir(ctx Context, inDir string, pats ...Value) (files []*F
                                         subFiles = wildcardPathPatsInDir(ctx, s, p)
                                 }
                                 for _, f := range subFiles {
-                                        if true {
+                                        if true { assert(filepath.Base(f.dir) == name, "file.dir: %s != %s", f.dir, name) }
+                                        if false {
                                                 f.name = filepath.Join(name, f.name)
-                                                f.dir = filepath.Base(f.dir)
-                                        } else if !f.change(filepath.Base(f.dir), "", filepath.Join(name, f.name)) {
+                                                f.dir = filepath.Dir(f.dir)
+                                        } else if !f.change(filepath.Dir(f.dir), "", filepath.Join(name, f.name)) {
                                                 prompt(ctx, "%v: %v: can't change file into %s/%s\n", inDir, f, name, f.name)
                                                 errostack(ctx, 6, "can't change into: %v/%v", name, f.name).debug(12)
                                                 return
                                         }
                                 }
+                                if dbg { warn(ctx, "%v %v %v", pat, name, subFiles) }
                                 files = append(files, subFiles...)
                         } else if full, _, _ := pat.match(ctx, name); full {
+                                if dbg { warn(ctx, "%v %v", pat, name) }
                                 file := stat(ctx, name, "", inDir)
                                 files = append(files, file)
                                 break
                         }
                 }
+        }
+        if dbg {
+                prompt(ctx, "%v: has %d files\n", inDir, len(files))
+                warn(ctx, "pats: %v", pats).debug(24)
         }
         return
 }

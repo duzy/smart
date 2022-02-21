@@ -6062,6 +6062,16 @@ func expandall1(ctx Context, w expandwhat, values ...Value) (elems []Value, num 
             break
         } else if isNil(val) || val == elem {
             elems = append(elems, elem)
+        } else if true && val.expandible(ctx, w) {
+            if f, ok := val.(*File); ok {
+                prompt(ctx, "%v: %s\n", f.position, f.name)
+                warnstack(ctx, 6, "incomplete expand: %T %v -> %T %v -> {%v,%v,%v} (w=%016b)",
+                    elem, elem, val, val, f.name, f.sub, f.dir, w).of(elem).debug(16)
+            } else {
+                var t, _ = val.expand(ctx, w)
+                warnstack(ctx, 6, "incomplete expand: %T %v -> %T %v (equal=%v) -> %v (w=%016b)",
+                    elem, elem, val, val, (elem==val), t, w).of(elem).debug(16)
+            }
         } else {
             elems = append(elems, val)
             num += 1
@@ -6072,12 +6082,12 @@ func expandall1(ctx Context, w expandwhat, values ...Value) (elems []Value, num 
 
 func expandall2(ctx Context, w expandwhat, values ...Value) (res []Value, num int, err error) {
     if res, num, err = expandall1(ctx, w, values...); err == nil && w != 0 {
-        for i, v := range res {
+        /*for i, v := range res {
             if v.expandible(ctx, w) {
                 t, _ := v.expand(ctx, w)
-                warn(ctx, "expand incomplete: %T %v -> %T %v (equal=%v) -> %v (w=%016b)", values[i], values[i], v, v, (values[i]==v), t, w).of(values[i]).debug(true,16)
+                warn(ctx, "expand incomplete: %T %v -> %T %v (equal=%v) -> %v (w=%016b)", values[i], values[i], v, v, (values[i]==v), t, w).of(values[i]).debug(16)
             }
-        }
+        }*/
     }
     return
 }
