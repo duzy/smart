@@ -3779,6 +3779,7 @@ type wildcardOpts struct {
         baseFiles bool `b,base;b,bases;bf,base-files`
         usedFiles bool `u,used;u,using;uf,used-files`
         verbose bool `v,verbose`
+        name bool `s,str;str,string;n,name`
         dir string `d,dir;dir,directory`
 }
 func builtinWildcard(ctx Context, args... Value) (res Value) {
@@ -3802,7 +3803,15 @@ func builtinWildcard(ctx Context, args... Value) (res Value) {
                 erro(ctx, "wildcard failed: %v", err).debug(1)
                 return
         }
-        res = MakeListOrScalar(ctx.Position(), values(files))
+        var vals []Value
+        if opts.name {
+                for _, file := range files {
+                        vals = append(vals, MakeString(file.position, file.name))
+                }
+        } else {
+                vals = values(files)
+        }
+        res = MakeListOrScalar(ctx.Position(), vals)
         return
 }
 
