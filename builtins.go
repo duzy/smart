@@ -3473,11 +3473,6 @@ ForArgs:
                                 err = nil //return
                         }
                 }
-                if false && opts.verbose {
-                        var d = filepath.Base(newname)
-                        var s = filepath.Base(oldname)
-                        prompt(ctx, "Symlink %s -> %s …", d, s)
-                }
                 if opts.relative && filepath.IsAbs(oldname) {
                         var ( dir = filepath.Dir(newname); s = oldname )
                         if oldname, err = filepath.Rel(dir, oldname); err != nil {
@@ -3497,9 +3492,9 @@ ForArgs:
                         if opts.verbose { prompt(ctx, "… %s\n", err) }
                         break
                 } else if opts.verbose {
-                        var d = filepath.Base(newname)
+                        var d = trimPromptString(newname)
                         var s = filepath.Base(oldname)
-                        prompt(ctx, "Symlink %s -> %s …… ok\n", d, s)
+                        prompt(ctx, "%s -> %s …… ok\n", d, s)
                 }
         }
         return

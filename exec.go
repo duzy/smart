@@ -759,13 +759,6 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     defer un(trace(t_exec, fmt.Sprintf("executor(%s %v)", typeof(t), t)))
   }
 
-  /*for i := ctx; i != nil; i = i.inner() {
-    if e := getTargetValue(i); e != nil && e.String() == "external.google.tensorflow.prototext" {
-      defer func() { warn(i, "%v: %v", e, i.program().depends).debug(10) } ()
-      break
-    }
-  }*/
-
   var (
     opts = executorOpts{ scanStderr: true }
     pos = ctx.Position()
@@ -825,9 +818,11 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     defer func() { warn(ctx, "%v", target).debug(10) } ()
   }
 
-  var start = time.Now()
-  var exeres = &ExecResult{valbase:valbase{pos}, ctx:ctx, x:p}
-  var aa []string
+  var (
+    start = time.Now()
+    exeres = &ExecResult{valbase:valbase{pos}, ctx:ctx, x:p}
+    aa []string
+  )
   for i, v := range args {
     var s string
     if p.contained && i == 0 {
