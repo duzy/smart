@@ -395,7 +395,13 @@ func (pc *positionalContext) spawn() Context {
   }
   return &spawnPositionalContext{positionalContext{ ctx, pc.position }}
 }
+func (pc *positionalContext) autoGet(name string) (res Value, found bool) {
+  if pc.Context == nil { panic("nil inner context") }
+  res, found = pc.Context.autoGet(name)
+  return
+}
 func positional(ctx Context, pos Position) Context {
+  if ctx == nil { panic("nil inner context") }
   if pc, ok := ctx.(*positionalContext); ok && pos.Equals(&pc.position) {
      return ctx;
   }

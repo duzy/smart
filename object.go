@@ -24,9 +24,10 @@ import (
 type Object interface {
         Value
 
-        Name() string
         DeclScope() *Scope
         OwnerProject() *Project
+
+        Name(ctx Context) string
 
         // Get object's named property.
         Get(ctx Context, name string) (Value, error)
@@ -44,7 +45,7 @@ func (p *objbase) DeclScope() *Scope { return p.scope }
 func (p *objbase) OwnerProject() *Project { return p.owner }
 func (p *objbase) String() string { return fmt.Sprintf("{unknown %p}", p) }
 func (p *objbase) Strval(ctx Context) (string, error) { return fmt.Sprintf("{unknown %p}", p), nil }
-func (p *objbase) Name() string { panic("inquiring name of an unknown object") }
+func (p *objbase) Name(ctx Context) string { panic("inquiring name of an unknown object") }
 func (p *objbase) Get(_ Context, name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
 func (p *objbase) rescope(_ Context, scope *Scope) { panic("rescoping unknown object") }
 func (p *objbase) exists() existence { return existenceMatterless }
@@ -66,7 +67,7 @@ type knownobject struct { // generally named objects
 func (p *knownobject) String() string { return fmt.Sprintf("{object %s}", p.name) }
 func (p *knownobject) Strval(_ Context) (string, error) { return fmt.Sprintf("{object %s}", p.name), nil }
 func (p *knownobject) True(_ Context) (bool, error) { return true, nil }
-func (p *knownobject) Name() string { return p.name }
+func (p *knownobject) Name(ctx Context) string { return p.name }
 func (p *knownobject) rescope(_ Context, scope *Scope) {
         if p.scope != scope {
                 if p.scope != nil {
@@ -91,9 +92,17 @@ type unresolvedobject struct { // named callable/executable objects
         objbase
         name Value // name could be closured
 }
-func (p *unresolvedobject) Name() string {
-        if p.name == nil { panic("unresolved object name is nil") }
-        return p.name.String()
+func (p *unresolvedobject) Name(ctx Context) (name string) {
+        if isNil(p.name) {
+                erro(ctx, "unresolved object name is nil").at(p.position)
+        } else if ctx == nil {
+                name = p.name.String()
+        } else if s, e := p.name.Strval(ctx); e != nil {
+                erro(ctx, "strval name '%v' failed: %v", p.name, e).at(p.position)
+        } else {
+                name = s
+        }
+        return
 }
 func (p *unresolvedobject) String() string { return p.name.String() }
 func (p *unresolvedobject) Strval(_ Context) (string, error) {
@@ -204,12 +213,12 @@ func (n *ScopeName) NamedScope() *Scope { return n.scope }
 func (n *ScopeName) String() string  { return fmt.Sprintf("{scope %s}", n.name) }
 func (n *ScopeName) Strval(ctx Context) (string, error) { return fmt.Sprintf("scope %s", n.name), nil }
 func (n *ScopeName) True(ctx Context) (bool, error) { return n.scope != nil, nil }
-func (n *ScopeName) Get(_ Context, name string) (Value, error) {
+func (n *ScopeName) Get(ctx Context, name string) (Value, error) {
         if sym := n.scope.Resolve(name); sym != nil {
                 value, _ := sym.(Value)
                 return value, nil
         }
-        return nil, fmt.Errorf("Undefined `%s' in scope `%s'.", name, n.Name())
+        return nil, fmt.Errorf("Undefined `%s' in scope `%s'.", name, n.Name(ctx))
 }
 func (p *ScopeName) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*ScopeName); ok {
@@ -324,7 +333,7 @@ func (ac *autoContext) autoGet(name string) (res Value, found bool) {
                 // Done!
         } else if false {
                 for /*ic = ic.inner()*/; ic != nil; ic = ic.inner() {
-                        if d, ok := res.(*delegate); !ok || d.name(false) != name {
+                        if d, ok := res.(*delegate); !ok || d.name(ic, false) != name {
                                 break
                         } else if val, err := res.expand(ic, expandDelegate); err != nil {
                                 erro(ac, `expand "%v" failed: %v`, res, err)
@@ -334,7 +343,7 @@ func (ac *autoContext) autoGet(name string) (res Value, found bool) {
                 }
         } else if false {
                 for /*ic := ic.auto()*/; ic != nil; ic = ic.auto() {
-                        if d, ok := res.(*delegate); !ok || d.name(false) != name {
+                        if d, ok := res.(*delegate); !ok || d.name(ic, false) != name {
                                 break
                         } else if val, err := res.expand(ic, expandDelegate); err != nil {
                                 erro(ac, `expand "%v" failed: %v`, res, err)
@@ -1163,14 +1172,17 @@ func (entry *RuleEntry) Position() (pos Position) {
         }
         return
 }
-func (entry *RuleEntry) Name() string {
+func (entry *RuleEntry) Name(ctx Context) (name string) {
         if entry == nil {
-                panic("entry is nil")
-        } else if entry.target == nil {
-                fmt.Fprintf(stderr, "%v: nil target\n", entry.position)
-                panic("entry target is nil")
+                erro(ctx, "nil entry")
+        } else if isNil(entry.target) {
+                erro(ctx, "entry target is nil").at(entry.position)
+        } else if s, e := entry.target.Strval(ctx); e != nil {
+                erro(ctx, "strval '%v' failed: %v", entry.target, e).at(entry.position)
+        } else {
+                name = s
         }
-        return entry.target.String()
+        return
 }
 func (entry *RuleEntry) True(ctx Context) (bool, error) { return entry.target.True(ctx) }
 func (entry *RuleEntry) Float(_ Context) (float64, error) { return 0, nil }

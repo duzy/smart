@@ -121,7 +121,7 @@ type usinglist struct {
         owner *Project
         list []*using
 }
-func (p *usinglist) Name() string { return p.name }
+func (p *usinglist) Name(_ Context) string { return p.name }
 func (p *usinglist) DeclScope() *Scope { return p.scope }
 func (p *usinglist) OwnerProject() *Project { return p.owner }
 func (p *usinglist) Position() (pos Position) {

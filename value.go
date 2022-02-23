@@ -4933,10 +4933,15 @@ func (p *delegate) traverse(ctx Context) (brks breakers) {
     }
     return
 }
-func (p *delegate) name(sel bool) (name string) {
+func (p *delegate) name(ctx Context, sel bool) (name string) {
     switch x := p.x.(type) {
-    case *selection: if sel { name = x.String() }
-    case Object: name = x.Name()
+    case Object: name = x.Name(ctx)
+    case *selection: if sel {
+        var err error
+        if name, err = x.Strval(ctx); err != nil {
+            erro(ctx, "strval '%v' failed: %v", x).debug(1)
+        }
+    }
     }
     return
 }
@@ -4948,8 +4953,12 @@ func (p *delegate) string(ctx Context, o Object, k elemkind) (s string) { // sou
 
     var name string
     switch x := p.x.(type) {
-    case *selection: name = x.String()
-    case Object    : name = x.Name()
+    case Object    : name = x.Name(ctx)
+    case *selection:
+        var err error
+        if name, err = x.Strval(ctx); err != nil {
+            erro(ctx, "strval '%v' failed: %v", x).debug(1)
+        }
     }
 
     switch p.l {
@@ -5021,7 +5030,7 @@ func (p *delegate) expand(ctx Context, w expandwhat) (res Value, err error) {
         erro(ctx, "expand nil delegation: %v (w=%016b)", p, w).at(p.position).debug(64)
         return
     }
-    if false { if o, ok := p.x.(Object); ok && strings.HasPrefix(o.Name(), "TARGET") {
+    if false { if o, ok := p.x.(Object); ok && strings.HasPrefix(o.Name(ctx), "TARGET") {
         defer func() {
             info(ctx, "%v : x = %T %v -> res = %T %v", p, p.x, p.x, res, res)
             info(ctx, "%v : %v", p, ctx).debug(6)
@@ -5125,7 +5134,7 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (res Value, err error) {
     default:
         var pos = t.Position()
         if !pos.IsValid() { pos = p.position }
-        erro(ctx, "%s: unknown delegation: %T %v -> %T %v", x.Name(), p.x, p.x, x, x).at(pos).debug(32)
+        erro(ctx, "%s: unknown delegation: %T %v -> %T %v", x.Name(ctx), p.x, p.x, x, x).at(pos).debug(32)
     }
     return
 }
@@ -5251,7 +5260,7 @@ func (p *closure) expand(ctx Context, w expandwhat) (res Value, err error) {
 }
 func (p *closure) disclose(ctx Context, w expandwhat) (res Value, err error) {
     var x Object
-    if false { defer func() { if name, proj := p.x.(Object).Name(), ctx.Project(); name == "@" {
+    if false { defer func() { if name, proj := p.x.(Object).Name(ctx), ctx.Project(); name == "@" {
         var val, _ = res.expand(ctx, w)
         var obj = closureResolveObject(ctx, p.position, name)
         warn(ctx, "%v: p = %v, %016b", proj, p, w).at(p.Position())
@@ -5281,7 +5290,7 @@ func (p *closure) disclose(ctx Context, w expandwhat) (res Value, err error) {
     if isNil(x) {
         erro(ctx, "closure non-object: %T %v", p.x, p.x).of(p.x).debug(1)
         return
-    } else if name = x.Name(); name == "" {
+    } else if name = x.Name(ctx); name == "" {
         erro(ctx, "empty closure name: %T %v -> %T %v", p.x, p.x, x, x).of(p.x).debug(1)
         return
     }
@@ -5421,20 +5430,22 @@ func (p *selection) refs(ctx Context, v Value) bool { return p.o.refs(ctx, v) ||
 func (p *selection) defs(ctx Context, s ...string) []*Def {
     return append(p.o.defs(ctx, s...), p.s.defs(ctx, s...)...)
 }
-func (p *selection) objectName() (s string) {
+/*
+func (p *selection) objectName(ctx Context) (s string) {
     switch t := p.o.(type) {
-    case Object: s = t.Name()
+    case Object: s = t.Name(ctx)
     }
     return
 }
-func (p *selection) propName() (s string) {
+func (p *selection) propName(ctx Context) (s string) {
     switch t := p.s.(type) {
-    case Object: s = t.Name()
+    case Object: s = t.Name(ctx)
     case *Bareword: s = t.string
     case *String: s = t.string
     }
     return
 }
+*/
 func (p *selection) object(ctx Context) (o Object, err error) {
     if s, ok := p.o.(*selection); ok {
         var v Value

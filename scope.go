@@ -120,7 +120,7 @@ func (s *Scope) Resolve(name string) (obj Object) {
 // if not already set, and returns nil.
 func (s *Scope) Insert(ctx Context, obj Object) Object {
 	s.mutex.Lock(); defer s.mutex.Unlock()
-	var name = obj.Name()
+	var name = obj.Name(ctx)
 	if alt := s.elems[name]; alt != nil {
 		return alt
 	}

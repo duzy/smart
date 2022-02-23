@@ -439,7 +439,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
           erro(ctx, "%s", obj).at(lpos)
           if !isNil(obj) {
             if val, _ := obj.expand(ctx.closure().programCtx(), expandPlainValue); !isNil(val) {
-              erro(ctx, "%s -> %v", obj.Name(), val).at(lpos)
+              erro(ctx, "%s -> %v", obj.Name(ctx), val).at(lpos)
             }
           }
           erro(ctx, "%v", ctx).debug(16)
