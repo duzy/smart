@@ -1024,13 +1024,16 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
             } else if l.project.name != "~" {
                 l.Globe().AddFlagEntry(s, entry)
             }
-            //if s == "configure" { configuration.configs = append(configuration.configs, entry) }
         } else if configure {
             if patterned {
                 erro(ctx, "unsupported pattern configures: %v", target).debug(1)
                 return
             }
-            configuration.entries = append(configuration.entries, entry)
+            if true {
+                configuration.entries = append(configuration.entries, entry)
+            } else {
+                l.project.configs = append(l.project.configs, entry)
+            }
         }
     }
     return

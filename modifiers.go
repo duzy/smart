@@ -58,7 +58,6 @@ func (_ *modifier) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (m *modifier) traverse(ctx Context) (brks breakers) {
-        if options.traceTraversal { defer un(tt(t_traverse, ctx, m)) }
         var proj = ctx.Project()
         ctx = positional(ctx, m.position)
         if brks = ctx.program().modify(ctx, m); !brks.has() {
@@ -110,7 +109,6 @@ func (_ *modifiergroup) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (g *modifiergroup) traverse(ctx Context) (brks breakers) {
-        if options.traceTraversal { defer un(tt(t_traverse, ctx, g)) }
         for _, m := range g.modifiers {
                 var (
                         ctx = positional(ctx, m.position)
@@ -181,13 +179,13 @@ var (
                 `grep`:         modifierGrep,
                 `deps`:         modifierDeps,
 
-                `copy-file`:      modifierCopyFile,
-                `write-file`:     modifierWriteFile,
-                `read-file`:      modifierReadFile,
-                `update-file`:    modifierUpdateFile,
+                `copy-file`:       modifierCopyFile,
+                `write-file`:      modifierWriteFile,
+                `read-file`:       modifierReadFile,
+                `update-file`:     modifierUpdateFile,
                 `configure-input`: modifierConfigureInput,
                 `configure-file`:  modifierConfigureFile,
-                `configure`:      modifierConfigure,
+                `configure`:       modifierConfigure,
 
                 `wait`:         modifierWait,
                 `stamp`:        modifierStamp,
@@ -3318,11 +3316,6 @@ func predictionOutdated(ctx Context, args... Value) (result Value, err error) {
                         n = len(t.targets) + len(t.grepped)
                 )
                 prompt(ctx, "%s …… %s (%d files in %s)\n", ts, m, n, s).debug(opts.debug, 6)
-        }
-
-        if options.traceTraversal {
-                t_traverse.tracef("outdated: %v (updated=%v, exists=%v, target=%v)", outdated, len(t.updated), exists(ctx, target), target)
-                if len(t.updated) > 0 { t_traverse.tracef("outdated: updated=%v", t.updated) }
         }
 
         if opts.silent { reason = "" }

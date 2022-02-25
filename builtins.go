@@ -3711,7 +3711,7 @@ func builtinGlob(ctx Context, args... Value) (res Value) {
         return MakeListOrScalar(pos, list)
 }
 
-func wildcardPathPatsInDir(ctx Context, inDir string, pats ...Value) (files []*File) {
+func _wildcardPathPatsInDir1(ctx Context, inDir string, pats ...Value) (files []*File) {
         var dir *os.File
         if fi, err := os.Stat(inDir); err != nil {
                 erro(ctx, "%v", err).debug(1)
@@ -3735,10 +3735,10 @@ func wildcardPathPatsInDir(ctx Context, inDir string, pats ...Value) (files []*F
                                 if full, _, _ := p.Elems[0].match(ctx, name); !full { continue }
                                 var subFiles []*File
                                 if s := filepath.Join(inDir, name); len(p.Elems) == 2 {
-                                        subFiles = wildcardPathPatsInDir(ctx, s, p.Elems[1])
+                                        subFiles = _wildcardPathPatsInDir1(ctx, s, p.Elems[1])
                                 } else {
                                         p = MakePath(p.Elems[1].Position(), p.Elems[1:]...)
-                                        subFiles = wildcardPathPatsInDir(ctx, s, p)
+                                        subFiles = _wildcardPathPatsInDir1(ctx, s, p)
                                 }
                                 for _, f := range subFiles {
                                         if true { assert(filepath.Base(f.dir) == name, "file.dir: %s != %s", f.dir, name) }
@@ -3764,6 +3764,95 @@ func wildcardPathPatsInDir(ctx Context, inDir string, pats ...Value) (files []*F
         if dbg {
                 prompt(ctx, "%v: has %d files\n", inDir, len(files))
                 warn(ctx, "pats: %v", pats).debug(24)
+        }
+        return
+}
+
+func readDirNames(ctx Context, inDir string) (names []string) {
+        var dir *os.File
+        if fi, err := os.Stat(inDir); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        } else if !fi.IsDir() {
+                erro(ctx, "not dir: %v", inDir).debug(1)
+                return
+        } else if dir, err = os.Open(inDir); err != nil {
+                erro(ctx, "not dir: %v", inDir).debug(1)
+                return
+        }
+
+        var _names, err = dir.Readdirnames(-1); dir.Close()
+        if err != nil {
+                erro(ctx, "readdir: %v", err).debug(1)
+                return
+        } else { names = _names }
+        return
+}
+
+func wildcardPathSubDir(ctx Context, inDir, name string, p *Path) (subFiles []*File) {
+        if full, _, _ := p.Elems[0].match(ctx, name); !full {
+                return //continue
+        }
+
+        if s := filepath.Join(inDir, name); len(p.Elems) == 2 {
+                subFiles = wildcardPathPatsInDir(ctx, s, p.Elems[1])
+        } else {
+                p = MakePath(p.Elems[1].Position(), p.Elems[1:]...)
+                subFiles = wildcardPathPatsInDir(ctx, s, p)
+        }
+
+        for _, f := range subFiles {
+                if true { assert(filepath.Base(f.dir) == name, "file.dir: %s != %s", f.dir, name) }
+                if false {
+                        f.name = filepath.Join(name, f.name)
+                        f.dir = filepath.Dir(f.dir)
+                } else if !f.change(filepath.Dir(f.dir), "", filepath.Join(name, f.name)) {
+                        prompt(ctx, "%v: %v: can't change file into %s/%s\n", inDir, f, name, f.name)
+                        errostack(ctx, 6, "can't change into: %v/%v", name, f.name).debug(12)
+                        return
+                }
+        }
+        return
+}
+
+func _wildcardPathPatsInDir2(ctx Context, inDir string, pats ...Value) (files []*File) {
+        var names []string
+        for _, pat := range pats {
+                if p, ok := pat.(*Path); ok {
+                        if p.Elems[0].patterned(ctx) {
+                                if names == nil { names = readDirNames(ctx, inDir) }
+                                for i := 0; i < len(names); i += 1 {
+                                        subFiles := wildcardPathSubDir(ctx, inDir, names[i], p)
+                                        if subFiles != nil { files = append(files, subFiles...) }
+                                }
+                        } else if s, err := p.Elems[0].Strval(ctx); err != nil {
+                                erro(ctx, "strval failed: %v", p.Elems[0]).debug(1)
+                                return
+                        } else if fi, e := os.Stat(filepath.Join(inDir, s)); e == nil && fi.IsDir() {
+                                subFiles := wildcardPathSubDir(ctx, inDir, s, p)
+                                if subFiles != nil { files = append(files, subFiles...) }
+                        }
+                } else {
+                        if names == nil { names = readDirNames(ctx, inDir) }
+                        for i := 0; i < len(names); i += 1 {
+                                var name = names[i]
+                                if full, _, _ := pat.match(ctx, name); full {
+                                        file := stat(ctx, name, "", inDir)
+                                        files = append(files, file)
+                                        break
+                                }
+                        }
+                }
+        }
+        return
+}
+
+func wildcardPathPatsInDir(ctx Context, inDir string, pats ...Value) (files []*File) {
+        if false {
+                // TODO: using the optimized version: _wildcardPathPatsInDir2
+                files = _wildcardPathPatsInDir2(ctx, inDir, pats...)
+        } else {
+                files = _wildcardPathPatsInDir1(ctx, inDir, pats...)
         }
         return
 }

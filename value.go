@@ -396,7 +396,7 @@ ForScopes:
             }
         }
         projects = append(projects, scope.project)
-        if true { break }
+        if false { break }
     }
     return
 }
@@ -721,8 +721,6 @@ func traverseAny(ctx Context, i interface{}) {
 }
 
 func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
-    if options.traceTraversal { ctx.traversal().tracef("traversal.file: %s", file) }
-
     var (
         proj = ctx.Project()
         program = ctx.program()
@@ -876,7 +874,6 @@ checkFileEntries:
         errostack(ctx, 5, "%v, %v: error: %v", proj, file, err).debug(8)
     } else if !okay && (len(ctx.stems()) == 0 || ctx.mustExists()) {
         if filemap := file.filemap; filemap != nil && filemap.project != nil {
-            //warn(ctx, "%v: %v, %v, %v -> %v", proj, file.dir, file.sub, file.name, file.fullname()).debug(1)
             var s = filepath.Join(filepath.Base(filepath.Join(file.dir, file.sub)), file.name)
             if f := filemap.project.FindFile(ctx, s); f != nil && f.fullname() == file.fullname() {
                 if true { warn(ctx, "%v: %v -> %v (%s)", proj, file.name, f, s).debug(1) }
@@ -899,9 +896,6 @@ checkFileEntries:
 }
 
 func traverseString(ctx Context, targetVal Value, target string) (okay bool, brks breakers) {
-    if options.traceTraversal { ctx.traversal().tracef("traversal.target: %s", target) }
-
-    var t = ctx.traversal()
     var currentTargetValue = getTargetValue(ctx)
     if isNil(currentTargetValue) {
         prompt(ctx, "%s: zero closure projects\n", target)
@@ -927,14 +921,6 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
         err error
     )
     defer func() {
-        if false && ctx.configuration() && strings.Contains(target, ".c.include") {
-            for _, project := range projects {
-                var config = project.configure
-                var pats = config.resolvePatterns(ctx, target)
-                warn(ctx, "%v %v %v %v", target, project, config, pats)
-            }
-            warnstack(ctx, 6, "%v %v; %v; %v %v", target, projects, okay, concreteList, stemmedList).debug(6)
-        }
         // Note that the file maybe not traversed yet at this point. But we
         // still have to check mod-time.
         if file != nil {
@@ -948,15 +934,14 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
             if !file.position.IsValid() {
                 file.position = pos
             }
-
-            // Add to the $^ or $| list
-            addTarget(ctx, file)
+            addTarget(ctx, file)// Add to the $^ or $| list
         } else if true {
             if targetVal == nil { targetVal = MakeString(pos, target) }
             addTarget(ctx, targetVal)
         }
     } ()
 
+    var t = ctx.traversal()
     for _, project := range projects {
         var entries *ResolveEntries
         if entries, err = project.resolveEntries(ctx, target, t.grepping, false); err != nil {
@@ -1115,10 +1100,16 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
         } else {
             prompt(ctx, "%v: traverse target failed; projects %v, %v\n", target, proj, projects)
         }
+        for _, brk := range brks {
+            switch brk.what {
+            case breakErro: erro(ctx, "%v", brk.error)
+            case breakFail: erro(ctx, "%v", brk.message)
+            default       : erro(ctx, "%v: %v, %v", brk.what, proj, target)
+            }
+        }
+        for i, c := range ctx.closureScopes() { erro(ctx, "%v: closure: %v. %v", proj, i, c) }
         for i, concrete := range concreteList { erro(ctx, "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs())).at(concrete.Position()) }
         for i, stemmed  := range stemmedList  { erro(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position) }
-        for i, brk := range brks { erro(ctx, "%v, %v: %d. %v", proj, target, i, brk.what) }
-        for i, cs := range ctx.closureScopes() { erro(ctx, "%v: closure: %v. %v", proj, i, cs) }
         errostack(ctx, 12, "%v", ctx).debug(16)
     } else if !okay && len(ctx.stems()) > 0 {
         brks.add(pos, breakNext).scope = breakTrave
@@ -1660,7 +1651,6 @@ func (p *Argumented) Strval(ctx Context) (s string, err error) {
 }
 
 func (p *Argumented) traverse(ctx Context) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     //!< IMPORTANT! - Don't merge-expand arguments here!
     //!< Arguments should be passed to program.execute as it is.
     var args []Value
@@ -1877,7 +1867,6 @@ func (p *Any) Strval(ctx Context) (s string, err error) {
 }
 func (p *Any) String() string { return fmt.Sprintf("<%v>", p.value) }
 func (p *Any) traverse(ctx Context) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     if v, ok := p.value.(Value); ok { brks = v.traverse(ctx) }
     return
 }
@@ -1931,7 +1920,6 @@ func (p *negative) Integer(ctx Context) (res int64, err error) {
     return
 }
 func (p *negative) traverse(ctx Context) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     if p.x != nil { brks = p.x.traverse(ctx) }
     return
 }
@@ -2485,7 +2473,6 @@ func (p *String) stencil(ctx Context, stems []string) (s string, rest []string) 
     return
 }
 func (p *String) traverse(ctx Context) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     _, brks = traverseString(ctx, p, p.string)
     return
 }
@@ -2553,7 +2540,6 @@ func (p *Bareword) stencil(ctx Context, stems []string) (s string, rest []string
     return
 }
 func (p *Bareword) traverse(ctx Context) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     _, brks = traverseString(ctx, p, p.string)
     return
 }
@@ -2596,7 +2582,6 @@ func (p *Qualiword) stencil(ctx Context, stems []string) (s string, rest []strin
     return
 }
 func (p *Qualiword) traverse(ctx Context) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     _, brks = traverseString(ctx, p, p.String())
     return
 }
@@ -2707,7 +2692,6 @@ func (p *Barecomp) expand(ctx Context, w expandwhat) (res Value, err error) {
 }
 func (p *Barecomp) traverse(ctx Context) (brks breakers) {
     ctx = positional(ctx, p.Position())
-    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     if target, err := p.Strval(ctx); err == nil {
         if false { warn(ctx, "%v (%s)", p, target).at(p.position).debug(1) }
         _, brks = traverseString(ctx, p, target)
@@ -2839,7 +2823,6 @@ func (p *Barefile) expand(ctx Context, w expandwhat) (res Value, err error) {
     return
 }
 func (p *Barefile) traverse(ctx Context) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     ctx = positional(ctx, p.position)
     if p.File == nil { // it happens if p.Name refers argument
         var ( target string; err error )
@@ -3329,7 +3312,6 @@ func (p *Path) stat(ctx Context) (si *statinfo) {
     return
 }
 func (p *Path) traverse(ctx Context) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     ctx = positional(ctx, p.position)
 
     var (
@@ -4159,10 +4141,7 @@ func (p *File) isSysFile() (res bool) {
     return
 }
 func (p *File) traverse(ctx Context) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
-    if options.traceExec { defer un(trace(t_exec, fmt.Sprintf("File %v", p))) }
     if p.isSysFile() {
-        //if options.traceTraversal { t.tracef("SysFile: true") }
         return
     }
 
@@ -4186,7 +4165,6 @@ func (p *File) traverse(ctx Context) (brks breakers) {
             p.Elems[len(p.Elems)-1] = a
             targetValue = p
             ctx.autoSet("@", p)
-            //if options.traceTraversal { t.tracef("FIX: barecomp path: %v", p) }
         } else {
             var s string
             var err error
@@ -4197,7 +4175,6 @@ func (p *File) traverse(ctx Context) (brks breakers) {
             if file := proj.FindFile(ctx, s); file != nil {
                 targetValue = file
                 ctx.autoSet("@", file)
-                //if options.traceTraversal { t.tracef("FIX: barecomp file: %v", p) }
             }
         }
     }
@@ -4425,7 +4402,6 @@ func (p *Flag) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *Flag) traverse(ctx Context) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     if s, err := p.Strval(positional(ctx, p.position)); err != nil {
         erro(ctx, "strval '%v' failed: %v", p, err).of(p).debug(1)
     } else {
@@ -4576,7 +4552,6 @@ func (p *List) expand(ctx Context, w expandwhat) (res Value, err error) {
 }
 func (p *List) traverse(ctx Context) (brks breakers) {
     if len(p.Elems) > 0 {
-        if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
         for _, elem := range p.Elems {
             if brks = elem.traverse(ctx); brks.has() {
                 if false {
@@ -4913,7 +4888,6 @@ func (p *delegate) defs(ctx Context, s ...string) (res []*Def) {
     return
 }
 func (p *delegate) traverse(ctx Context) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     ctx = positional(ctx, p.position)
     if val, err := p.expand(ctx, expandPlainValue); err != nil {
         erro(ctx, "expand '%v' failed: %v", p, err).at(p.position)
@@ -4927,8 +4901,8 @@ func (p *delegate) traverse(ctx Context) (brks breakers) {
             warnstack(ctx, -1, "delegate '%v' expands to <none>", p).debug(16)
         }
     } else if brks = val.traverse(ctx); len(brks) > 0 {
-        if brks = brks.not(breakCase, breakNext, breakDone); len(brks) > 0 {
-            if true {for _, brk := range brks { warn(ctx, "%v; %v -> %T %v", brk.what, p, val, val).debug(8) }}
+        if brks = brks.not(breakCase, breakNext, breakDone); true && len(brks) > 0 {
+            for _, brk := range brks { warn(ctx, "%v: %v -> %T %v", brk.what, p, val, val).debug(8) }
         }
     }
     return
@@ -5345,7 +5319,6 @@ ClosureTok:
     return
 }
 func (p *closure) traverse(ctx Context) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     if val, err := p.expand(positional(ctx, p.position), expandClosure); err != nil {
         erro(ctx, "expand '%v' failed: %v", p, err).at(p.position).debug(1)
     } else if isNil(val) {
@@ -5519,7 +5492,6 @@ func (p *selection) expand(ctx Context, w expandwhat) (res Value, err error) {
     return
 }
 func (p *selection) traverse(ctx Context) (brks breakers) {
-    if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
     ctx = positional(ctx, p.position)
     if val, err := p.value(ctx); err != nil {
         erro(ctx, "select value '%v' failed: %v", p, err).debug(1)

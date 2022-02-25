@@ -588,10 +588,6 @@ ForArgs:
     return
 }
 
-type modifierConfigureOpts struct {
-    accumulate bool `a,accumulate;a,add`
-    verbose bool `v,verbose`
-}
 // configure - configures a variable, example usage:
 //     (configure -answer)
 //     (configure -option(info='...'))
@@ -602,6 +598,10 @@ type modifierConfigureOpts struct {
 //     (configure -library(lib,function,include='<xxx.h>'))
 //     (configure -symbol(symbol,include='<xxx.h>'))
 //     (configure -compiles(info="..."))
+type modifierConfigureOpts struct {
+    accumulate bool `a,accumulate;a,add`
+    verbose bool `v,verbose`
+}
 func modifierConfigure(ctx Context, args ...Value) (result Value, _ breakers) {
     if options.traceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", ctx, options.reconfigure))) }
 

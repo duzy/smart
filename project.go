@@ -248,6 +248,7 @@ type Project struct {
 
   self *ProjectName // $:self:
   configure *Project // .configure
+  configs []Entry // configure entries
 
   changedWD string
 	absPath string

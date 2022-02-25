@@ -174,7 +174,6 @@ func (p *ProjectName) Call(ctx Context, a... Value) (value Value) {
 }
 
 func (p *ProjectName) traverse(ctx Context) (brks breakers) {
-        if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
         if entry := p.project.DefaultEntry(); entry == nil {
                 // does nothing
         } else if entry.Class() != UseRuleEntry {
@@ -1336,7 +1335,6 @@ func (entry *RuleEntry) expand(ctx Context, w expandwhat) (res Value, err error)
 func (entry *RuleEntry) delete(ctx Context) (files []*File, err error) { return entry.target.delete(ctx) }
 func (entry *RuleEntry) stamp(ctx Context) (files []*File, err error) { return entry.target.stamp(ctx) }
 func (entry *RuleEntry) traverse(cc Context) (brks breakers) {
-        if options.traceTraversal   { defer un(tt(t_traverse, cc, entry.target)) }
         var (
                 entryPos = entry.Position()
                 target, okay = cc.autoGet("@")
@@ -1506,7 +1504,6 @@ func (p *stemmed) traverse(ctx Context) (brks breakers) {
         return
 }
 func (p *stemmed) string(ctx Context, targetVal Value, target string) (res breakers) {
-        if options.traceTraversal   { defer un(tt(t_traverse, ctx, p)) }
         var (
                 realTarget Value
                 proj = ctx.Project()
@@ -1529,8 +1526,6 @@ func (p *stemmed) string(ctx Context, targetVal Value, target string) (res break
         return p.RuleEntry.traverse(&sc)
 }
 func (p *stemmed) file(ctx Context, file *File) (res breakers) {
-        if options.traceTraversal { defer un(tt(t_traverse, ctx, p)) }
-
         var sc = stemmedContext{ ctx, p.Stems }
         if file.info == nil && file.filemap == nil { // !isAbsOrRel()
                 if f := ctx.Project().FindFile(&sc, file.name); f != nil { *file = *f }

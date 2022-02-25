@@ -78,8 +78,6 @@ type commandLineOpts struct {
   traceExec       bool `tx,trace-exec`
   traceEntering   bool `ti,trace-entering`
   traceConfig     bool `tc,trace-config`
-  traceTraversal  bool `tt,trace-traverse`
-  traceTraversalNestIndent bool `tni,trace-nest-indent`
 }
 
 const fullContextStringer bool = false
@@ -169,8 +167,6 @@ var options = commandLineOpts{
 
   failOnErrors: true,
   fastMode: true,
-
-  traceTraversalNestIndent: true,
 }
 
 type diagType int

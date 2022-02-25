@@ -325,7 +325,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             fail(prog.position, "max recursion")
             return
         }
-        if options.traceTraversalNestIndent { t.traceLevel = cc.traversal().traceLevel }
+        if /*options.traceTraversalNestIndent*/true { t.traceLevel = cc.traversal().traceLevel }
         if stems := cc.stems(); stems != nil { ctx.autoSet("*", MakeString(pos, stems[0])) }
     }
     if pc.params, err = pc.autoArgs(prog.params, args); err != nil {
@@ -391,7 +391,6 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     } (prog.project.changedWD)
 
     if alreadyUpdated {
-        if options.traceTraversal { t.tracef("Program.execute: '%v' already updated (%v)", target, t.targets) }
         if options.verbose { info(ctx, "'%v' already updated", target) }
         if false { warn(ctx, "'%v' already updated", target).debug(1) }
         if false { return }
