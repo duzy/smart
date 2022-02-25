@@ -75,7 +75,7 @@ func (ctx *defaultContext) configure() {
     } ()
 
     // Remove all existing configuration.sm files
-    for _, s := range configuration.clean {
+    if options.cleanConf { for _, s := range configuration.clean {
         if _, e := os.Stat(s); e != nil {
             if false { prompt(ctx, "%v\n", e).debug(1) }
         } else if e = os.Remove(s); e == nil {
@@ -83,7 +83,7 @@ func (ctx *defaultContext) configure() {
         } else if true {
             prompt(ctx, "Remove: %s\n", e).debug(1)
         }
-    }
+    }}
 
     var configureInits = make(map[Entry]int)
     for _, entry := range configuration.entries {

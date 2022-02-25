@@ -56,6 +56,7 @@ type commandLineOpts struct {
 
   checkLoadGraph  bool `ckld,check-loads`
 
+  cleanConf       bool `cc,clean-configure;cc,clean-conf`
   configure       bool `conf,configure`       // optionConfigure
   reconfigure     bool `reconf,reconfigure;rc,reconfig` // optionReconfig
 
