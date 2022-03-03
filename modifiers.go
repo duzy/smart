@@ -166,6 +166,8 @@ var (
                 `env`:          modifierEnv,  // interpreter environments
                 `set`:          modifierSet,
 
+                `dirty-marks`:  modifierDirtyMarks,
+
                 `closure`:      modifierClosure,
                 `for`:          modifierFor,
 
@@ -425,15 +427,14 @@ func modifierEnv(ctx Context, args... Value) (result Value, brks breakers) {
         return
 }
 
-type modifierSetOpts struct {
-        debug bool `d,debug`
-        verbose bool `v,verbose`
-}
-
 // examples:
 //     [(set name=value)]    set $(name) to 'value'
 //     [(set name)]          clear $(name)
 //     [(set -)]             clear $-
+type modifierSetOpts struct {
+        debug bool `d,debug`
+        verbose bool `v,verbose`
+}
 func modifierSet(ctx Context, args... Value) (result Value, brks breakers) {
         var (
                 none = MakeNone(ctx.Position())
@@ -491,6 +492,24 @@ ForArgs:
                 }
         }
         if len(defs) > 0 { result = MakeListOrScalar(ctx.Position(), defs) }
+        return
+}
+
+type modifierDirtyMarksOpts struct {
+        verbose bool `v,verbose`
+        pats []Value
+}
+func modifierDirtyMarks(ctx Context, args... Value) (result Value, brks breakers) {
+        var (
+                opts = ctx.marksOpts()
+                err error
+        )
+        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
+                erro(ctx, "%v", err).debug(1)
+        } else if opts.pats, err = parseOpts(ctx, opts, args...); err != nil {
+                erro(ctx, "%v", err).debug(1)
+        }
+        if false { warn(ctx, "%T %v %v", ctx.inner(), ctx, opts.pats) }
         return
 }
 
@@ -2288,10 +2307,10 @@ func copyRegular(ctx Context, src, dst string, opts *copyopts) (err error) {
                 def2 = gs.Lookup("2").(*Def)
         }
         defer func(v1, v2 Value) { def1.value, def2.value = v1, v2
-                if err == nil {
-                        var file = stat(ctx, dst, "", "")
-                        ctx.Globe().stamp(dst, file.info.ModTime())
-                }
+                // if err == nil {
+                //         var file = stat(ctx, dst, "", "")
+                //         ctx.Globe().stamp(dst, file.info.ModTime())
+                // }
         } (def1.value, def2.value)
 
         var pos = ctx.Position()
@@ -2802,7 +2821,7 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
                         return
                 }
         } else if same {
-                removeCallerUpdated(ctx, target) // remove timestamp updated
+                //removeCallerUpdated(ctx, target) // remove timestamp updated
                 result = stat(ctx, filename, "", "")
                 return
         }
@@ -2875,12 +2894,12 @@ func modifierWait(ctx Context, args... Value) (result Value, brks breakers) {
                 waitForExecResult = opts.stdout || opts.stderr || opts.status || opts.execRes
                 stampCurrentTarget = !opts.noTarget
                 target, _ = ctx.autoGet("@")
-                t = ctx.traversal()
         )
         if opts.verbose {
                 defer func (st time.Time) {
                         var s string; if err != nil { s = "fail" } else { s = "done" }
-                        prompt(ctx, "Wait %v …… %s, result=%v, updated=%v\n", target, s, execRes, t.updated).debug(opts.debug, 1)
+                        //prompt(ctx, "Wait %v …… %s, result=%v, updated=%v\n", target, s, execRes, t.updated).debug(opts.debug, 1)
+                        prompt(ctx, "Wait %v …… %s, result=%v\n", target, s, execRes).debug(opts.debug, 1)
                         if opts.debug { info(ctx, "%v", execRes).debug(6) }
                 } (time.Now())
         }
@@ -3232,6 +3251,34 @@ func modifierCase(ctx Context, args... Value) (result Value, brks breakers) {
         return
 }
 
+func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
+        var (
+                opts = ctx.marksOpts()
+                deps []Value
+                err error
+        )
+        if len(target.updatedDeps()) > 0 { return true }
+        if v, found := ctx.autoGet("^"); found && !isTrivial(v) { a = append(a, v) }
+        if deps, err = expandmerge2(ctx, expandPlainValue, a...); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        }
+        for _, dep := range deps {
+                var mat bool = len(opts.pats) == 0
+                if !mat { for _, pat := range opts.pats { if mat, _, _ = pat.match(ctx, dep); mat { break }}}
+                if false && mat && target.String() == "llvm-tools-ar" {
+                        warnstack(ctx, 5, "%v: %v, %v; %v, %v", target, dep, dep.updated(), mat, opts.pats).debug(1)
+                }
+                if false && dep.updated() && strings.HasSuffix(target.String(), "libllvm.Support.a") {
+                        warn(ctx, "%v: %v; %v, %v, %v, %v", target, target.updated(), dep, dep.updated(), mat, opts.pats).debug(1)
+                }
+                if mat && (dep.updated() || dep.stat(ctx).mod().After(target.stat(ctx).mod())) {
+                        return true
+                }
+        }
+        return
+}
+
 type predictionOutdatedOpts struct {
         checksum bool "c,checksum;c,crc"
         debug bool "d,debug"
@@ -3251,11 +3298,12 @@ func predictionOutdated(ctx Context, args... Value) (result Value, err error) {
         }
 
         var (
-                t = ctx.traversal()
                 target Value
                 targetFullname string
                 reason string
                 outdated bool
+                file2 string
+                same bool
         )
         // Wait for prerequisites only
         if target, _, _, err = wait(ctx); err != nil {
@@ -3266,17 +3314,8 @@ func predictionOutdated(ctx Context, args... Value) (result Value, err error) {
                 return
         } else if outdated = !exists(ctx, target); outdated {
                 reason = "target not exists"
-        } else if outdated = len(t.updated) > 0; outdated {
-                reason = fmt.Sprintf("%v updated: ", len(t.updated))
-                for i, v := range t.updated {
-                        if i > 0 { reason += "," }
-                        if false && len(reason) > maxPromptStr {
-                                reason += "…"
-                                break
-                        } else {
-                                reason += v.String()
-                        }
-                }
+        } else if outdated = isDirty(ctx, target, args...); outdated {
+                reason = "dirty"
         } else if outdated, err = isRecipesOutdated(ctx); err != nil {
                 erro(ctx, "isRecipesOutdated: %v", err).debug(1)
                 return
@@ -3286,27 +3325,21 @@ func predictionOutdated(ctx Context, args... Value) (result Value, err error) {
                 // does nothing
         } else if true {
                 erro(ctx, "FIXME: check target checksum against the saved one").debug(1)
-        } else if depend0, _ := ctx.autoGet("<"); !(isNil(depend0) || isNone(depend0)) {
-                var ( file2 string; same bool )
-                if file2, err = fullnameOrStrval(ctx, depend0); err != nil {
-                        erro(ctx, "strval '%v' failed: %v", depend0, err).debug(1)
-                        return
-                } else if same, err = crc64CompareFileChecksum(ctx, targetFullname, file2); err != nil {
-                        erro(ctx, "crc64 checksum failed: %v", err).debug(1)
-                        return
-                } else if outdated = !same; outdated {
-                        reason = "content changed"
-                }
+                return
+        } else if depend0, _ := ctx.autoGet("<"); isTrivial(depend0) {
+                // does nothing
+        } else if file2, err = fullnameOrStrval(ctx, depend0); err != nil {
+                erro(ctx, "strval '%v' failed: %v", depend0, err).debug(1)
+                return
+        } else if same, err = crc64CompareFileChecksum(ctx, targetFullname, file2); err != nil {
+                erro(ctx, "crc64 checksum failed: %v", err).debug(1)
+                return
+        } else if outdated = !same; outdated {
+                reason = "content changed"
         }
 
-        if opts.debug {
-                var a = typeof(target)
-                var e = exists(ctx, target)
-                var s, _ = target.Strval(ctx)
-                erro(ctx, "type=%s target=%s (exists=%v, outdated=%v, updated=%v)", a, s, e, outdated, t.updated).debug(1)
-        }
         if opts.verbose || (opts.verboseOutdated && outdated) || (opts.verboseUpdated && !outdated) {
-                var ( m, s string )
+                var ( t = ctx.traversal(); m, s string )
                 if outdated { m = "outdated" } else { m = "updated" }
                 if s = time.Now().Sub(t.start).String(); reason != "" {
                         s += "; " + strings.TrimSpace(strings.TrimPrefix(reason, "outdated:"))
@@ -3315,7 +3348,7 @@ func predictionOutdated(ctx Context, args... Value) (result Value, err error) {
                         ts = trimPromptString(targetFullname)
                         n = len(t.targets) + len(t.grepped)
                 )
-                prompt(ctx, "%s …… %s (%d files in %s)\n", ts, m, n, s).debug(opts.debug, 6)
+                prompt(ctx, "%s …… %s (%d files in %s; updated=%v)\n", ts, m, n, s, outdated).debug(opts.debug, 6)
         }
 
         if opts.silent { reason = "" }

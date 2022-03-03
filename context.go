@@ -96,7 +96,7 @@ type Context interface {
   // Scope returns the closure scope
   Scope() *Scope
 
-  // String() returns a string form of the context
+  // String() returns a string representation of the context
   String() string
 
   auto() *autoContext
@@ -119,6 +119,9 @@ type Context interface {
 
   programCtx() *programContext
   program() *Program
+
+  marksOpts() *modifierDirtyMarksOpts
+  mark(...Value)
 
   entry() Entry
   stems() []string
@@ -476,7 +479,10 @@ func (ctx *defaultContext) appendCallerUpdated() bool { return false }
 func (ctx *defaultContext) mustExists() bool { return false }
 func (ctx *defaultContext) WorkDir() string { return ctx.workdir }
 func (ctx *defaultContext) Globe() *Globe { return ctx.globe }
-func (ctx *defaultContext) String() string { return "default" }
+func (ctx *defaultContext) String() (s string) {
+  if fullContextStringer { s = "default" }
+  return
+}
 func (ctx *defaultContext) configuration() bool { return false }
 func (ctx *defaultContext) colonResolve(name string) (obj Object, found bool) {
   switch g := ctx.globe; name {
@@ -510,6 +516,8 @@ func (ctx *defaultContext) closureScopes() (scopes []*Scope) {
   }
   return
 }
+func (ctx *defaultContext) marksOpts() *modifierDirtyMarksOpts { return nil }
+func (ctx *defaultContext) mark(vals ...Value) { return }
 
 func (ctx *defaultContext) help()       { do_helpscreen(ctx) }
 func (ctx *defaultContext) helpFlags()  { print_flag_trace(ctx) }
@@ -517,7 +525,6 @@ func (ctx *defaultContext) helpConfig() { print_configuration(ctx) }
 
 func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
   if options.noRun { return }
-  if options.traceLaunch { defer un(trace(t_launch, "defaultContext.run")) }
   if options.cpuProf != "" {
     if f, e := os.Create(options.cpuProf); e != nil {
       erro(dc, "%v", e).debug(1)

@@ -25,14 +25,19 @@ type programContext struct {
     prog *Program
     params []string // $0, $1, $2, ...
     mutex sync.Mutex
+    dirtyMarks modifierDirtyMarksOpts
 }
 
 func (pc *programContext) inner() Context { return &pc.autoContext }
 func (pc *programContext) caller() *programContext { return pc.Context.programCtx() }
 //XXX: func (pc *programContext) stems() []string { return nil }
 func (pc *programContext) String() string {
-    var s = strings.TrimPrefix(pc.prog.scope.comment, "rule ")
-    return fmt.Sprintf("program{%s,%s}", s, pc.autoContext.String())
+    if fullContextStringer {
+        var s = strings.TrimPrefix(pc.prog.scope.comment, "rule ")
+        return fmt.Sprintf("program{%s,%s}", s, pc.autoContext.String())
+    } else {
+        return pc.autoContext.String()
+    }
 }
 func (pc *programContext) programCtx() *programContext { return pc }
 func (pc *programContext) program() *Program { return pc.prog }
@@ -62,6 +67,7 @@ func (pc *programContext) spawn() Context {
     }
     return &spawnProgramContext{programContext{autoContext{
         Context: ctx, defs: pc.defs.clone() }, pc.prog, pc.params, sync.Mutex{},
+        modifierDirtyMarksOpts{},
     }}
 }
 func (pc *programContext) appendCallerUpdated() bool { return true }
@@ -80,6 +86,28 @@ func (pc *programContext) closureScopes() (scopes []*Scope) {
     }
     if pc.prog != nil { scopes = append(scopes, pc.prog.scope) }
     return
+}
+
+func (pc *programContext) marksOpts() *modifierDirtyMarksOpts { return &pc.dirtyMarks }
+func (pc *programContext) mark(vals ...Value) {
+    if tt, _ := pc.autoGet("@"); isTrivial(tt) {
+        // should not happen, but safely ignoring..
+    } else if len(vals) == 0 {
+        vals = append(vals, tt)
+    } else if last := vals[len(vals)-1]; last != tt {
+        var (
+            mat bool
+            opts = pc.marksOpts()
+        )
+        for _, val := range vals {
+            for _, pat := range opts.pats {
+                if mat, _, _ = pat.match(pc, val); mat { break }
+            }
+        }
+        if mat { tt.updatedDeps(vals...) }
+        vals = append(vals, tt)
+    }
+    pc.Context.mark(vals...)
 }
 
 type Program struct {

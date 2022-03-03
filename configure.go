@@ -985,7 +985,7 @@ func configureConvert(ctx Context, convert configureConvertFunc, opts *configure
         return
     } else if file.info != nil { result = file } else {
         if file.info, err = os.Stat(filename); err == nil {
-            ctx.Globe().stamp(filename, file.info.ModTime())
+            //ctx.Globe().stamp(filename, file.info.ModTime())
             result = file
         }
     }

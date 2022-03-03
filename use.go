@@ -103,6 +103,18 @@ func (p *using) patterned(ctx Context) bool { return false }
 func (p *using) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
 func (p *using) stencil(ctx Context, stems []string) (s string, rest []string) { return }
 func (p *using) True(ctx Context) (bool, error) { return p.project != nil, nil }
+func (p *using) updated(v ...bool) (res bool) {
+        if entry := p.project.DefaultEntry(); entry != nil {
+                res = entry.updated(v...)
+        }
+        return
+}
+func (p *using) updatedDeps(v ...Value) (res []Value) {
+        if entry := p.project.DefaultEntry(); entry != nil {
+                res = entry.updatedDeps(v...)
+        }
+        return
+}
 func (p *using) String() string {
         if len(p.params) > 0 {
                 return fmt.Sprintf("%s(%v)", p.project.name, p.params)
@@ -149,6 +161,18 @@ func (p *usinglist) Strval(ctx Context) (s string, err error) {
 func (p *usinglist) True(ctx Context) (bool, error) { return len(p.list) > 0, nil }
 func (p *usinglist) Integer(ctx Context) (int64, error) { return 0, nil }
 func (p *usinglist) Float(ctx Context) (float64, error) { return 0, nil }
+func (p *usinglist) updated(v ...bool) (res bool) {
+        for _, elem := range p.list {
+                if res = elem.updated(v...); res { break }
+        }
+        return
+}
+func (p *usinglist) updatedDeps(v ...Value) (res []Value) {
+        for _, elem := range p.list {
+                res = append(res, elem.updatedDeps(v...)...)
+        }
+        return
+}
 func (p *usinglist) stat(ctx Context) (si *statinfo) {
         if len(p.list) > 0 {
                 for _, elem := range p.list {

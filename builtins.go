@@ -307,43 +307,22 @@ type optFullname struct {
 func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... Value) (rest []Value, err error) {
         var (
                 val = reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
-                pos Position = ctx.Position()
-                opt = string(tag)
-                short, long []string // short and long opt name
-                s, l string
+                opts []string // opt names
+                s string
                 ok bool
         )
         if tag == "" { return args, nil }
-        if s, ok = tag.Lookup("s"    ); ok { short = append(short, s) }
-        if l, ok = tag.Lookup("l"    ); ok { long  = append(long , l) }
-        if s, ok = tag.Lookup("short"); ok { short = append(short, s) }
-        if l, ok = tag.Lookup("long" ); ok { long  = append(long , l) }
-        if len(short) == 0 && len(long) == 0 {
-                var t = opt[:]
-                for i := strings.IndexRune(t, ','); i >= 0; {
-                        if j := strings.IndexAny(t[i+1:], "; "); j == 0 {
-                                erro(ctx, "illform option tag: %s", t).at(pos).debug(1)
-                                return
-                        } else if j > 0 {
-                                s, l = t[:i], t[i+1:i+1+j]
-                                short, long = append(short, s), append(long, l)
-                                t = t[i+1+j+1:]
-                                i = strings.IndexRune(t, ',')
+        if t := string(tag)[:]; t != "" {
+                const seps = ",; "
+                for {
+                        if i := strings.IndexAny(t, seps); i >= 0 {
+                                opts = append(opts, t[:i])
+                                t = t[i+1:]
                         } else {
-                                s, l = t[:i], t[i+1:]
-                                short, long = append(short, s), append(long, l)
+                                opts = append(opts, t)
                                 break
                         }
                 }
-                if len(short) != len(long) || len(short) == 0 || len(long) == 0 {
-                        erro(ctx, "illform option tag: %s", tag).at(pos).debug(1)
-                        return
-                }
-        }
-        if false { info(ctx, "%v -> %v %v\n", tag, short, long).at(pos).debug(1) }
-        if len(short) != len(long) {
-                erro(ctx, "short and long option names not matching: %v, %v", short, long).at(pos).debug(1)
-                return
         }
 
         var set func(reflect.Value, Value)
@@ -469,8 +448,8 @@ ForArgs:
                         rest = append(rest, arg)
                         continue ForArgs
                 }
-                for i := 0; i < len(short) && i < len(long); i += 1 {
-                        if _, match := flag.opt(ctx, short[i], long[i]); match {
+                for i := 0; i < len(opts); i += 1 {
+                        if _, match := flag.opt(ctx, opts[i]); match {
                                 set(val, value)
                                 continue ForArgs
                         }
@@ -478,7 +457,7 @@ ForArgs:
                 rest = append(rest, arg)
         }
         if false && len(args) > 0 {
-                info(ctx, "%v,%v: %v %v %v", short, long, field.Kind(), field, rest).at(pos)
+                info(ctx, "%v: %v %v %v", opts, field.Kind(), field, rest)
         }
         return
 }

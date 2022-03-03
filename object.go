@@ -365,18 +365,6 @@ func (ac *autoContext) autoSet(name string, val Value) (res Value, okay bool) {
                 ac.defs[name] = def
                 //ac.mutex.Unlock()
         }
-        if false && name == "<" && ac.entry().String() == "cpp" {
-                var va2, _ = ac.Context.autoGet("<")
-                warn(ac, "%v -> %v -> %v", name, def.value, val)
-                warn(ac, "%v -> %v", name, va2)
-                warn(ac, "%v -> %v", name, ac).debug(16)
-        }
-        if entry := ac.entry(); false && (name == "-") && entry != nil && entry.String() == "-compiles-c" {
-                warn(ac, "set: %s %v", name, ac)
-                warn(ac, "set: %s %v", name, def.value)
-                warn(ac, "set: %s %T %v", name, val, val).debug(16)
-                if ac.checkErrors(true) > 0 { return }
-        }
 
         var pos Position
         if isNil(val) {
@@ -391,52 +379,6 @@ func (ac *autoContext) autoSet(name string, val Value) (res Value, okay bool) {
         def.value = val
         def.mutex.Unlock()
         okay = true
-        return
-}
-
-func (ac *autoContext) _autoArgs(params []*Def, args []Value) (names []string, err error) {
-        var (
-                argnum int // setup named/number parameters ($1, $2, etc.)
-        )
-        for _, a := range args {
-                var (
-                        id = strconv.Itoa(argnum+1)
-                        name string
-                )
-                //<!IMPORTANT: Don't translate Flag, Flag values are valid regular arguments.
-                //             Pair values are special.
-                //if l, ok := a.(*List); ok && l.Len() == 1 { a = l.Elems[0] }
-                if a = Scalar(a); false && (isNil(a) || isNone(a)) {
-                        erro(ac, "%T '%v' is invalid scalar", a, a).of(a).debug(1)
-                        return
-                } else if p, ok := a.(*Pair); ok {
-                        if name, err = p.Key.Strval(ac); err != nil {
-                                erro(ac, "strval '%v' failed: %v", p.Key, err).of(p.Key).debug(1)
-                                return
-                        } else {
-                                a = p.Value
-                        }
-                } else if argnum < len(params) {
-                        name = params[argnum].name
-                } else {
-                        name = id
-                }
-                if true && name == "requirement" {
-                        warn(ac, "%s, %s => %v", id, name, a)
-                        warnstack(ac, 3, "%v", diagWarn, ac).debug(16)
-                }
-                if _, ok := ac.autoSet(name, a); !ok {
-                        erro(ac, "arg '%s' not set ($%s)", name, id).of(a).debug(1)
-                        return
-                } else if def, ok := ac.defs[name]; !ok || def == nil {
-                        erro(ac, "arg '%s' not set ($%s)", name, id).of(a).debug(1)
-                        return
-                } else if id != "" && id != name && false {
-                        ac.defs[id] = def // NOTE: set an alias or replace it
-                }
-                names = append(names, name)
-                argnum += 1
-        }
         return
 }
 
@@ -478,11 +420,6 @@ func (ac *autoContext) autoArgs(params []*Def, args []Value) (names []string, er
                         name = params[argnum].name
                 } else {
                         name = id
-                }
-                if false && name == "requirement" {
-                        warn(ac, "%v, %v", len(args), args)
-                        warn(ac, "%s, %s => %v", id, name, a)
-                        warnstack(ac, 3, "%v", diagWarn, ac).debug(16)
                 }
                 if _, ok := ac.autoSet(name, a); !ok {
                         erro(ac, "arg '%s' not set ($%s)", name, id).of(a).debug(1)
@@ -597,7 +534,7 @@ func (d *Def) defs(ctx Context, s ...string) (res []*Def) {
 func (d *Def) expandible(ctx Context, w expandwhat) (res bool) {
         if d.origin == DefArg || d.origin == DefAuto {
                 // res = true // expand to DefAutoVal
-                if val, has := ctx.autoGet(d.name); has && !(isNil(val) || isNone(val)) {
+                if val, has := ctx.autoGet(d.name); has && !/*(isNil(val) || isNone(val))*/isTrivial(val) {
                         res = val.expandible(ctx, w)
                 }
         } else {
@@ -687,7 +624,7 @@ func (d *Def) isEmpty(ctx Context) bool {
                 val = d.value
                 d.mutex.Unlock()
         }
-        return isNone(val) || isNil(val)
+        return isTrivial(val) //isNone(val) || isNil(val)
 }
 func (d *Def) val(ctx Context, value Value) (err error) { return d.set(ctx, d.origin, value) }
 func (d *Def) set(ctx Context, origin Origin, value Value) (err error) {
@@ -1007,6 +944,8 @@ func (p *undetermined) Strval(ctx Context) (string, error) { return p.value.Strv
 func (p *undetermined) True(ctx Context) (bool, error) { return false, nil }
 func (p *undetermined) Float(ctx Context) (float64, error) { return 0, nil }
 func (p *undetermined) Integer(ctx Context) (int64, error) { return 0, nil }
+func (p *undetermined) updated(_ ...bool) bool { return false }
+func (p *undetermined) updatedDeps(_ ...Value) []Value { return nil }
 func (p *undetermined) refs(ctx Context, v Value) bool {
         return p.identifier.refs(ctx, v) || p.value.refs(ctx, v)
 }
@@ -1105,7 +1044,14 @@ type entryContext struct {
 }
 func (ec *entryContext) entry() Entry { return ec.ent }
 func (ec *entryContext) inner() Context { return ec.Context }
-func (ec *entryContext) String() string { return fmt.Sprintf("entry{%s,%s}", ec.ent, ec.Context) }
+func (ec *entryContext) String() string {
+        if fullContextStringer {
+                return fmt.Sprintf("entry{%s,%s}", ec.ent, ec.Context)
+        } else {
+                var s, _ = ec.ent.Strval(ec.Context)
+                return fmt.Sprintf("%s{%s}", s, ec.Context)
+        }
+}
 func (ec *entryContext) Position() Position { return ec.ent.position }
 func (ec *entryContext) stems() (stems []string) {
         if sc, ok := ec.Context.(*stemmedContext); ok {
@@ -1191,6 +1137,8 @@ func (entry *RuleEntry) String() string {
         if entry.target == nil { return "<nil entry>" }
         return entry.target.String()
 }
+func (entry *RuleEntry) updated(v ...bool) bool { return entry.target.updated(v...) }
+func (entry *RuleEntry) updatedDeps(v ...Value) []Value { return entry.target.updatedDeps(v...) }
 // RuleEntry.Execute executes the rule program only if the target is outdated.
 func (entry *RuleEntry) Execute(ctx Context, a ...Value) (result []Value, brks breakers) {
         switch entry.class {

@@ -11,8 +11,6 @@ package smart
 import (
         "runtime"
         "strconv"
-        "sync"
-        "time"
         "fmt"
         "os"
 )
@@ -84,9 +82,6 @@ type Globe struct {
         pairs []*Pair
         goals   *Def
         mode    *Def
-
-        _timestamps map[string]time.Time
-        _timestampx *sync.Mutex
 }
 
 // Scope returns the globe scope.
@@ -102,17 +97,6 @@ func (g *Globe) AddFlagEntry(name string, entry Entry) {
   flags     = append(flags, entry)
   g.flagEntries[name] = flags
   return
-}
-
-func (g *Globe) timestamp(s string) (t time.Time) {
-  g._timestampx.Lock(); defer g._timestampx.Unlock()
-  t, _ = g._timestamps[s]
-  return
-}
-
-func (g *Globe) stamp(s string, t time.Time) {
-  g._timestampx.Lock(); defer g._timestampx.Unlock()
-  g._timestamps[s] = t
 }
 
 // project returns a new Project for the given project path and name;
@@ -170,8 +154,8 @@ func NewGlobe(ctx Context, name string) (g *Globe) {
                 scope: NewScope(pos, universe, nil, fmt.Sprintf("globe %q", name)),
                 args: make(map[Value][]Value),
                 flagEntries: make(map[string][]Entry),
-                _timestamps: make(map[string]time.Time),
-                _timestampx: new(sync.Mutex),
+                //_timestamps: make(map[string]time.Time),
+                //_timestampx: new(sync.Mutex),
         }
 
         var absPath, relPath, tmpPath, spec string

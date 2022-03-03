@@ -132,63 +132,54 @@ type (
 )
 
 func (k breakind) String() (s string) {
-        switch k {
-        case breakUnkn: s = "break.unkn"
-        case breakDone: s = "break.done"
-        case breakNext: s = "break.next"
-        case breakCase: s = "break.case"
-        case breakFail: s = "break.fail"
-        case breakErro: s = "break.error"
-        }
-        return
+    switch k {
+    case breakUnkn: s = "break.unkn"
+    case breakDone: s = "break.done"
+    case breakNext: s = "break.next"
+    case breakCase: s = "break.case"
+    case breakFail: s = "break.fail"
+    case breakErro: s = "break.error"
+    }
+    return
 }
 
 const (
-        breakUnkn breakind = iota
-        breakDone // (cond ...) and (case ...)
-        breakNext // (cond ...) and (case ...)
-        breakCase // (case ...)
-        breakFail // (assert ...)
-        breakErro // break with an error
+    breakUnkn breakind = iota
+    breakDone // (cond ...) and (case ...)
+    breakNext // (cond ...) and (case ...)
+    breakCase // (case ...)
+    breakFail // (assert ...)
+    breakErro // break with an error
 )
 
 const (
-        breakGroup breaksco = iota
-        breakTrave
+    breakGroup breaksco = iota
+    breakTrave
 )
 
 type breaker struct {
-        pos Position
-        what breakind
-        scope breaksco
-        message string
-        misstar *updatedtarget
-        updated []*updatedtarget
-        value Value
-        error error
+    pos Position
+    what breakind
+    scope breaksco
+    message string
+    value Value
+    error error
 }
 
 func (p *breaker) _error() (s string) {
-        switch p.what {
-        case breakUnkn: s = "unknown"
-        case breakDone: s = "done" // ineligible (cond) is ignored
-        case breakNext: s = "next"
-        case breakCase: s = "case"
-        case breakFail: s = "failure" // "break with assertion failure"
-        case breakErro: s = fmt.Sprintf("break error: %v", p.error) // "break with an error"
-        }
-        if p.pos.IsValid() {
-                if p.message != "" { s += ": " + p.message }
-                if false { s = fmt.Sprintf("%s: %s", p.pos, s) }
-        }
-        return
-}
-
-func (p *breaker) prerequisites() (res []*updatedtarget) {
-        for _, u := range p.updated {
-                res = append(res, u.prerequisites...)
-        }
-        return
+    switch p.what {
+    case breakUnkn: s = "unknown"
+    case breakDone: s = "done" // ineligible (cond) is ignored
+    case breakNext: s = "next"
+    case breakCase: s = "case"
+    case breakFail: s = "failure" // "break with assertion failure"
+    case breakErro: s = fmt.Sprintf("break error: %v", p.error) // "break with an error"
+    }
+    if p.pos.IsValid() {
+        if p.message != "" { s += ": " + p.message }
+        if false { s = fmt.Sprintf("%s: %s", p.pos, s) }
+    }
+    return
 }
 
 type breakers []*breaker
@@ -520,24 +511,6 @@ func closureWith(ctx Context, pos Position, scopes ...*Scope) (res Context) {
     return
 }
 
-type updatedtarget struct {
-    target Value
-    prerequisites []*updatedtarget
-}
-
-func (p *updatedtarget) String() (s string) {
-    if false { s = p.target.String() } else {
-        s = trimPromptStringX(p.target.String(), maxPromptStr/3)
-    }
-    if len(p.prerequisites) > 0 { s = fmt.Sprintf("%v→%v", s, p.prerequisites) }
-    return
-}
-
-func newUpdatedTarget(target Value, prerequisites ...*updatedtarget) *updatedtarget {
-    if def, ok := target.(*Def); ok { target = def.value }
-    return &updatedtarget{target, prerequisites}
-}
-
 func refdef(ctx Context, val Value, origin Origin) (res bool) {
     for _, def := range val.defs(ctx) {
         if def.origin == origin || origin == defany {
@@ -567,8 +540,6 @@ type traverseContext struct {
     grepped []Value
     grepping bool
 
-    updated []*updatedtarget // prerequisites newer than the target (from comparer) ($?)
-
     traceLevel int
 
     interpreted []interpreter
@@ -589,14 +560,14 @@ func (t *traverseContext) trace(a ...interface{}) { printIndentDots(t.traceLevel
 func (t *traverseContext) tracef(s string, a ...interface{}) { printIndentDots(t.traceLevel, fmt.Sprintf(s, a...)) }
 
 func (t *traverseContext) traversal() *traverseContext { return t }
-func (t *traverseContext) caller() (caller *traverseContext) { return t.Context.traversal() }
+func (t *traverseContext) caller() *traverseContext { return t.Context.traversal() }
 
 func entryStr(ctx Context, entry Entry) (str, ent, tar string) {
     if s, e := entry.Strval(ctx); e == nil { ent = s } else {
         erro(ctx, "strval '%v' failed: %v", entry, e).debug(1)
         return
     }
-    if target, found := ctx.autoGet("@"); !found || isNil(target) {
+    if target, found := ctx.autoGet("@"); !found || isTrivial(target) {
         str = ent // ...
     } else if tar, _ = target.Strval(ctx); ent != tar {
         str = fmt.Sprintf("%s(%s)", ent, tar)
@@ -742,27 +713,15 @@ func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
         err error
     )
     defer func() {
-        if false && strings.HasPrefix(file.name, "isl/") {
-            for _, brk := range brks {
-                warn(ctx, "%v: %v", file, brk.what)
-            }
-            for _, proj := range projects {
-                warn(ctx, "%v: %v: %v", file, proj, proj.patterns)
-            }
-            warn(ctx, "%v: concrete %v", file, concreteList)
-            warn(ctx, "%v: stemmed %v", file, stemmedList)
-            warn(ctx, "%v: %v", file, projects)
-            warnstack(ctx, 6, "%v: %T:", file, ctx).debug(16)
-        }
         // Note that the file maybe not traversed yet at this point. But we
         // still have to check mod-time.
         var (
             a = targetVal.stat(ctx).mod()
             b = file.stat(ctx).mod()
         )
-        if !a.IsZero() && b.After(a) { // a.IsZero() indicates the target not exists
-            appendUpdated(ctx, newUpdatedTarget(file))
-        }
+
+        // a.IsZero() indicates the target not exists
+        if !a.IsZero() && b.After(a) { targetVal.updated(true) }
 
         // Add to the $^ or $| list
         addTarget(ctx, file)
@@ -928,12 +887,9 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
                 a = currentTargetValue.stat(ctx).mod()
                 b = file.stat(ctx).mod()
             )
-            if !a.IsZero() && b.After(a) { // a.IsZero() indicates the target not exists
-                appendUpdated(ctx, newUpdatedTarget(file))
-            }
-            if !file.position.IsValid() {
-                file.position = pos
-            }
+            // a.IsZero() indicates the target not exists
+            if !a.IsZero() && b.After(a) { currentTargetValue.updated(true) }
+            if !file.position.IsValid() { file.position = pos }
             addTarget(ctx, file)// Add to the $^ or $| list
         } else if true {
             if targetVal == nil { targetVal = MakeString(pos, target) }
@@ -1146,86 +1102,6 @@ func traversePattern(ctx Context, pat Value) (brks breakers) {
         b.value = pat
     }
     return
-}
-
-func appendUpdated(ctx Context, updated *updatedtarget) {
-    var pos = updated.target.Position()
-    var targetValue Value = getTargetValue(ctx)
-    if !isTrivial(targetValue) {
-        if targetValue == updated.target { return }
-        if targetValue.cmp(ctx, updated.target) == cmpEqual { return }
-    } else if false {
-        if p := ctx.program(); p != nil { pos = p.position }
-        if ctx.configuration() {
-            erro(ctx, "trivial $@ for configuration %v, operation will fail", ctx.entry())
-        } else {
-            erro(ctx, "trivial $@ for %v, operation will fail", ctx.entry())
-        }
-        errostack(ctx, 8, "(%T): %v", ctx, ctx).debug(64)
-        fail(pos, "%v: nil target", updated)
-    } else {
-        var ( t, _ = ctx.autoGet("@"); entry = ctx.entry() )
-        if p := ctx.program(); p != nil { pos = p.position }
-        erro(ctx, "%v: $@ is trivial", updated).at(pos)
-        erro(ctx, "%v: target: %v", updated, t)
-        erro(ctx, "%v: entry: %v", updated, entry).of(entry)
-        errostack(ctx, 8, "(%T): %v", ctx, ctx).debug(64)
-        fail(pos, "%v: nil target", updated)
-    }
-
-    if t := ctx.traversal(); t != nil {
-        for _, u := range t.updated { // check if already added
-            if u == nil { continue }
-            if u.target == updated.target { return }
-            if u.target.cmp(ctx, updated.target) == cmpEqual { return }
-        }
-        if false { if s, _ := targetValue.Strval(ctx); strings.HasSuffix(s, ".o") {
-            warn(ctx, "%v %v %v %v", s, updated, ctx.appendCallerUpdated(), ctx).debug(16)
-        }}
-        t.updated = append(t.updated, updated)
-    }
-    if ctx.appendCallerUpdated() { if pc := ctx.programCtx(); pc != nil {
-        for p := pc; p != nil; p = p.caller() { // clear update loop
-            if ct, has := p.autoGet("@"); has && !isNil(ct) && ct == updated.target { return }
-        }
-        if p := pc.caller(); p != nil {
-            appendUpdated(positional(p, ctx.Position()), newUpdatedTarget(targetValue, updated))
-        }
-    }}
-}
-
-func removeUpdated(ctx Context, target Value) (removed []*updatedtarget) {
-    var targetValue = getTargetValue(ctx)
-    if isNil(targetValue) {
-        if false {
-            erro(ctx, "nil target for %v", target)
-            errostack(ctx, 5, "(%T): %v", ctx, ctx).debug(48)
-        }
-        return
-    }
-
-    var t = ctx.traversal()
-    for i, u := range t.updated {
-        if u.target == target || u.target.cmp(ctx, target) == cmpEqual {
-            removed = append(removed, u)
-            t.updated = append(t.updated[:i], t.updated[i+1:]...)
-            if c := t.caller(); c != nil && len(t.updated) == 0 {
-                removeUpdated(positional(c, ctx.Position()), targetValue)
-            }
-        }
-    }
-    return
-}
-
-func removeCallerUpdated(ctx Context, target Value) {
-    var t = ctx.traversal()
-    if c := t.caller(); c != nil {
-        for _, u := range removeUpdated(positional(c, ctx.Position()), target) {
-            for _, uu := range u.prerequisites {
-                removeUpdated(ctx, uu.target)
-            }
-        }
-    }
 }
 
 func getHashDir(ctx Context, k []byte) string {
@@ -1456,6 +1332,9 @@ type Value interface {
     // Stamp the value if it's a file (aka. update FileInfo).
     stamp(Context) ([]*File, error)
 
+    updated(...bool) bool
+    updatedDeps(...Value) []Value
+
     // Delete the file (if it is).
     delete(Context) ([]*File, error)
 
@@ -1499,6 +1378,8 @@ func (_ *valbase) match(_ Context, i interface{}) (full bool, s string, stems []
 func (_ *valbase) stencil(_ Context, stems []string) (s string, rest []string) { return }
 func (_ *valbase) stat(ctx Context) (si *statinfo) { return }
 func (_ *valbase) stamp(ctx Context) (file []*File, err error) { return }
+func (_ *valbase) updated(_ ...bool) bool { return false }
+func (_ *valbase) updatedDeps(_ ...Value) []Value { return nil }
 func (_ *valbase) delete(ctx Context) (file []*File, err error) { return }
 func (_ *valbase) traverse(ctx Context) (brks breakers) { return }
 func (_ *valbase) _match(ctx Context, p Value, i interface{}) (full bool, s string, stems []string) {
@@ -1556,6 +1437,8 @@ func (p *Argumented) defs(ctx Context, s ...string) (res []*Def) {
     }
     return
 }
+func (p *Argumented) updated(v ...bool) bool { return p.value.updated(v...) }
+func (p *Argumented) updatedDeps(v ...Value) []Value { return p.value.updatedDeps(v...) }
 func (p *Argumented) expandible(ctx Context, w expandwhat) (res bool) {
     if res = p.value.expandible(ctx, w); !res && w&expandArgedArgs != 0 {
         for _, a := range p.args {
@@ -1786,6 +1669,22 @@ func (p *Any) stencil(ctx Context, stems []string) (s string, rest []string) {
 }
 func (p *Any) delete(ctx Context) (files []*File, err error) {
     if a, ok := p.value.(Value); ok { files, err = a.delete(ctx) }
+    return
+}
+func (p *Any) updated(v ...bool) (res bool) {
+    if p.value == nil {
+        // does nothing
+    } else if val, ok := p.value.(Value); ok {
+        res = val.updated(v...)
+    }
+    return
+}
+func (p *Any) updatedDeps(v ...Value) (res []Value) {
+    if p.value == nil {
+        // does nothing
+    } else if val, ok := p.value.(Value); ok {
+        res = val.updatedDeps(v...)
+    }
     return
 }
 func (p *Any) stamp(ctx Context) (files []*File, err error) {
@@ -3789,9 +3688,10 @@ func (p *filestub) subname() (s string) {
 type filebase struct {
     stub filestub    // cycled-list of file stubs of different projects
     info os.FileInfo // file info if exists
-    //updated bool // true if this file has been updated by a program
+    _updated bool // true if this file has been updated by a program
+    _updatedDeps []Value // any updated deps
 }
-func (p *filebase) exists() (res bool) { return p.info != nil }
+func (p *filebase) exists() bool { return p.info != nil }
 
 var statmutex sync.Mutex
 var filecache = make(map[string]*filebase) // File.fullname() -> File
@@ -3951,7 +3851,7 @@ func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
             }
         }
 
-        base = &filebase{ filestub{ dir, sub, name, nil, nil }, fileInfo/*, false*/ }
+        base = &filebase{ filestub{ dir, sub, name, nil, nil }, fileInfo, false, nil }
         base.stub.other = &base.stub
         stub = &base.stub
         filecache[cleanFullname] = base
@@ -4000,9 +3900,7 @@ type File struct {
     *filestub
 }
 func (p *File) String() string { return p.name }
-func (p *File) Strval(ctx Context) (s string, err error) {
-    if false { warn(ctx, "use file.fullname() instead").of(p).debug(true, 8) }
-    s = p.name; return }
+func (p *File) Strval(ctx Context) (s string, err error) { return p.name, nil }
 func (p *File) True(ctx Context) (t bool, err error) {
     if p.name != "" {
         t = true // p.exists() == existenceConfirmed
@@ -4050,36 +3948,15 @@ func (p *File) delete(ctx Context) (files []*File, err error) {
 }
 func (p *File) stamp(ctx Context) (files []*File, err error) {
     if positionalValueCtx { ctx = positional(ctx, p.position) }
-
-    var fullname string
-    if fullname = p.fullname(); fullname == "" {
+    if fullname := p.fullname(); fullname == "" {
         erro(ctx, "file `%s` has no fullname", p).of(p).debug(1)
-        return
-    }
-
-    if p.info, err = os.Stat(fullname); err != nil {
-        if false { erro(ctx, "%v", err).at(p.position).debug(1) }
-    } else if p.info != nil {
-        var newModTime = p.info.ModTime()
-        ctx.Globe().stamp(fullname, newModTime)
-        files = append(files, p)
-
-        if target := getTargetValue(ctx); isTrivial(target) {
-            erro(ctx, "trivial $@").at(ctx.program().position).debug(1)
-            return
-        } else if cmp := target.cmp(ctx, p); ctx.configuration() {
-            // Done!
-        } else if c := ctx.traversal().caller(); cmp == cmpEqual && c != nil {
-            // Add to caller context
-            if false && positionalValueCtx {
-                // NOTE: 'c' might be an incorrect context -- no @ value
-                appendUpdated(positional(c, ctx.Position()), newUpdatedTarget(p))
-            } else {
-                appendUpdated(ctx, newUpdatedTarget(p))
-            }
-        } else {
-            appendUpdated(ctx, newUpdatedTarget(p))
-        }
+    } else if p.info, err = os.Stat(fullname); err != nil {
+        if false { erro(ctx, "%v", err).debug(1) }
+    } else if p.info == nil {
+        if false { warn(ctx, "%v: no such file", p).debug(1) }
+    } else if files = append(files, p); !ctx.configuration() {
+        p.updated(true)
+        ctx.mark(/*p*/)
     }
     return
 }
@@ -4110,6 +3987,17 @@ func (p *File) exists() (res bool) {
         res = p.filebase.exists()
     }
     return
+}
+func (p *File) updated(v ...bool) bool {
+    if t := len(v) > 0; t {
+        for _, a := range v { t = t && a }
+        p._updated = t
+    }
+    return p._updated
+}
+func (p *File) updatedDeps(v ...Value) []Value {
+    if len(v) > 0 { p._updatedDeps = append(p._updatedDeps, v...) }
+    return p._updatedDeps
 }
 func (p *File) stat(ctx Context) (si *statinfo) {
     var err error
@@ -4145,6 +4033,9 @@ func (p *File) traverse(ctx Context) (brks breakers) {
         return
     }
 
+    if strings.HasSuffix(p.name, ".a") {
+        warn(ctx, "%v: %v", p.name, ctx).debug(1)
+    }
     ctx = positional(ctx, p.position)
 
     var (
@@ -4249,7 +4140,7 @@ func (p *File) match(ctx Context, i interface{}) (full bool, s string, stems []s
     switch t := i.(type) {
     case string: return p.match1(ctx, t)
     case Value:
-        if !(isNil(t) || isNone(t)) {
+        if !/*(isNil(t) || isNone(t))*/isTrivial(t) {
             var ( v string; e error )
             if v, e = t.Strval(ctx); e != nil {
                 erro(ctx, "strval '%v' failed: %v", t, e).of(t).debug(1)
@@ -4275,13 +4166,8 @@ func (p *File) change(dir, sub, name string) (okay bool) {
             }
             if stub.other == head { break }
         }
-
         p.filestub = &filestub{ dir, sub, name, nil, head.other }
         head.other, okay = p.filestub, true
-
-        if enable_assertions {
-            assert(p.fullname() == fullname, "changed invalid File")
-        }
     }
     return
 }
@@ -4342,17 +4228,15 @@ func (p *Flag) expand(ctx Context, w expandwhat) (res Value, err error) {
 func (p *Flag) elemStr(ctx Context, o Object, k elemkind) (s string) {
     return "-" + elementString(ctx, o, p.name, k)
 }
-func (p *Flag) opt(ctx Context, short, long string) (res string, match bool) {
-    if isNil(p.name) || isNone(p.name) {
-        if false { erro(ctx, "flag name is nil").of(p).debug(16) }
+func (p *Flag) opt(ctx Context, name string) (res string, match bool) {
+    if isTrivial(p.name) {
+        if false { erro(ctx, "flag name is trivial").of(p).debug(16) }
     } else if f, ok := p.name.(*Flag); ok {
-        res, match = f.opt(ctx, short, long)
+        res, match = f.opt(ctx, name)
     } else if s, err := p.name.Strval(ctx); err != nil {
         erro(ctx, "strval '%v' failed: %v", p.name, err).of(p.name).debug(16)
-    } else if s == short {
-        res, match = short, true
-    } else if s == long {
-        res, match = long, true
+    } else if s == name {
+        res, match = name, true
     }
     return
 }
@@ -4563,6 +4447,18 @@ func (p *List) traverse(ctx Context) (brks breakers) {
                 break
             }
         }
+    }
+    return
+}
+func (p *List) updated(v ...bool) (res bool) {
+    for _, elem := range p.Elems {
+        if res = elem.updated(v...); res { break }
+    }
+    return
+}
+func (p *List) updatedDeps(v ...Value) (res []Value) {
+    for _, elem := range p.Elems {
+        res = append(res, elem.updatedDeps(v...)...)
     }
     return
 }
@@ -4904,6 +4800,10 @@ func (p *delegate) traverse(ctx Context) (brks breakers) {
         if brks = brks.not(breakCase, breakNext, breakDone); true && len(brks) > 0 {
             for _, brk := range brks { warn(ctx, "%v: %v -> %T %v", brk.what, p, val, val).debug(8) }
         }
+    } else if false && strings.HasSuffix(val.String(), ".a") {
+        var v, _ = ctx.autoGet("^")
+        warn(ctx, "%v: %v", p, val)
+        warn(ctx, "%v: %v", p, v).debug(1)
     }
     return
 }
