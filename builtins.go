@@ -2054,8 +2054,8 @@ ForSources:
                 // Compose the matched results with stem value.
         ForDstPats:
                 for _, dst := range dstPats {
-                        var name, rest = dst.stencil(ctx, stems)
-                        if name == "" || len(rest) > 0 {
+                        var name, /*rest*/_ = dst.stencil(ctx, stems)
+                        if name == "" /*|| len(rest) > 0*/ {
                                 continue ForDstPats
                         } else if opts.cleanPath {
                                 name = filepath.Clean(name)
@@ -3702,7 +3702,7 @@ func _wildcardPathPatsInDir1(ctx Context, inDir string, pats ...Value) (files []
                 erro(ctx, "not dir: %v", inDir).debug(1)
                 return
         }
-        var dbg = strings.HasSuffix(inDir, "/llvm/ObjCopy")
+        var dbg = false //strings.HasSuffix(inDir, "/llvm/ObjCopy")
         var names, err = dir.Readdirnames(-1); dir.Close()
         if err != nil {
                 erro(ctx, "readdir: %v", err).debug(1)

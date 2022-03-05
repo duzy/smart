@@ -90,7 +90,10 @@ func (pc *programContext) closureScopes() (scopes []*Scope) {
 
 func (pc *programContext) marksOpts() *modifierDirtyMarksOpts { return &pc.dirtyMarks }
 func (pc *programContext) mark(vals ...Value) {
-    if tt, _ := pc.autoGet("@"); isTrivial(tt) {
+    const enableUpdatedDeps = true
+    if !enableUpdatedDeps {
+        // does nothing
+    } else if tt, _ := pc.autoGet("@"); isTrivial(tt) {
         // should not happen, but safely ignoring..
     } else if len(vals) == 0 {
         vals = append(vals, tt)
@@ -107,7 +110,7 @@ func (pc *programContext) mark(vals ...Value) {
         if mat { tt.updatedDeps(vals...) }
         vals = append(vals, tt)
     }
-    pc.Context.mark(vals...)
+    if enableUpdatedDeps { pc.Context.mark(vals...) }
 }
 
 type Program struct {
