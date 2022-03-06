@@ -1787,12 +1787,11 @@ type builtinFilterOpts struct {
         stem bool `s,stem;us,use-stem`
 }
 func filterValues(ctx Context, pats []Value, opts builtinFilterOpts, neg bool, values... Value) (result []Value, err error) {
-        const info = false
         var filter = func(v Value) Value {
+                if strings.HasPrefix(v.String(), "-lcrypto") {
+                        warn(ctx, "pats=%v value=%v (%T); %v", pats, v, v, values).of(v).debug(1)
+                }
                 for _, pat := range pats {
-                        if info { if full, s, stems := pat.match(ctx, v); full || s != "" {
-                                warn(ctx, "pat=%v (%T) value=%v (%T) => full=%v result=%v stems=%v", pat, pat, v, v, full, s, stems).of(pat).debug(true, 1)
-                        }}
                         if full, s, stems := pat.match(ctx, v); full {
                                 if neg { v = nil } else if opts.stem {
                                         if len(stems) > 0 { s = stems[0] }
@@ -1822,6 +1821,7 @@ func filterValues1(ctx Context, neg bool, args... Value) (res Value) {
                         opts builtinFilterOpts
                         pats []Value
                         vals []Value
+                        i int
                 )
                 if pats, err = expandmerge2(ctx, expandPlainValue, args[0]); err != nil {
                         erro(ctx, "merge patterns '%v' failed: %v", args[0], err).debug(1)
@@ -1829,7 +1829,21 @@ func filterValues1(ctx Context, neg bool, args... Value) (res Value) {
                 } else if pats, err = parseOpts(ctx, &opts, pats...); err != nil {
                         erro(ctx, "parse opts failed: %v", err).debug(1)
                         return
-                } else if vals, err = expandmerge2(ctx, expandPlainValue, args[1:]...); err != nil {
+                } else if len(pats) > 0 {
+                        i = 1 // good
+                } else if pats, err = expandmerge2(ctx, expandPlainValue, args[1]); err != nil {
+                        erro(ctx, "merge patterns '%v' failed: %v", args[0], err).debug(1)
+                        return
+                } else if len(pats) == 0 {
+                        erro(ctx, "no patterns: %v", args).debug(1)
+                        return
+                } else {
+                        i = 2
+                }
+                if len(args) <= i {
+                        erro(ctx, "out of index: %d %v", i, args).debug(1)
+                        return
+                } else if vals, err = expandmerge2(ctx, expandPlainValue, args[i:]...); err != nil {
                         erro(ctx, "merge values failed: %v", err).debug(1)
                         return
                 }
