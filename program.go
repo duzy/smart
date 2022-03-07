@@ -269,7 +269,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
     return
 }
 
-const maxRecursion  = 16 //32 //64
+const maxRecursion  = 32 //64
 
 func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     var (
@@ -340,7 +340,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         var recursion int
         for c := cc.traversal(); c != nil; c = c.caller() { if c.program() == prog { recursion += 1 }}
         if recursion >= maxRecursion {
-            erro(ctx, "exceeds max recursion: %v", entry.Target()).debug(1)
+            errostack(ctx, recursion, "max recursion: %v", entry.Target()).debug(16)
             for c := cc.traversal(); c != nil; c = c.caller() {
                 var n int
                 for next := c.caller(); next != nil; next = next.caller() {
