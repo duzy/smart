@@ -3699,7 +3699,6 @@ var filecache = make(map[string]*filebase) // File.fullname() -> File
 func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File) {
     var (
         base *filebase ; stub *filestub ; fullname string
-        pos Position = ctx.Position()
     )
 
     statmutex.Lock(); defer statmutex.Unlock()
@@ -3727,15 +3726,14 @@ func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
             }
         } else if dir != "" {
             if true { dir = "" } else if false {
-                erro(ctx, "dir name conflicts: %s <-> %s (sub=%v)", dir, name, sub).at(pos).debug(16)
+                erro(ctx, "dir name conflicts: %s <-> %s (sub=%v)", dir, name, sub).debug(16)
                 unreachable("path error")
             } else {
                 return
             }
         }
     } else if filepath.IsAbs(sub) {
-        fullname = filepath.Join(sub, name)
-        if dir == "" {
+        if fullname = filepath.Join(sub, name); dir == "" {
             dir = sub // trims / suffix
             sub = "" // .
         } else if sub == dir {
@@ -3763,25 +3761,31 @@ func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
         assert(filepath.IsAbs(fullname), "`%s` is not abs {%s %s %s}", fullname, name, sub, dir)
         if filepath.IsAbs(name) && sub != "-" {
             if dir != "" {
-                erro(ctx, "outdated dir: dir  = %s", dir).at(pos)
-                erro(ctx, "outdated dir: sub  = %s", sub).at(pos)
-                erro(ctx, "outdated dir: name = %s", name).at(pos)
-                erro(ctx, "outdated dir: full = %s", fullname).at(pos).debug(16)
+                prompt(ctx, "%s: {%s,%s,%s}\n", fullname, name, sub, dir)
+                erro(ctx, "stat dir: dir  = %s", dir)
+                erro(ctx, "stat dir: sub  = %s", sub)
+                erro(ctx, "stat dir: name = %s", name)
+                erro(ctx, "stat dir: full = %s", fullname)
+                errostack(ctx, 8, "stat: %v", ctx).debug(16)
                 assert(false, "dir is not empty for abs name: %s", name)
             }
             if sub != "" {
-                erro(ctx, "outdated sub: dir  = %s", dir).at(pos)
-                erro(ctx, "outdated sub: sub  = %s", sub).at(pos)
-                erro(ctx, "outdated sub: name = %s", name).at(pos)
-                erro(ctx, "outdated sub: full = %s", fullname).at(pos).debug(16)
+                prompt(ctx, "%s: {%s,%s,%s}\n", fullname, name, sub, dir)
+                erro(ctx, "stat sub: dir  = %s", dir)
+                erro(ctx, "stat sub: sub  = %s", sub)
+                erro(ctx, "stat sub: name = %s", name)
+                erro(ctx, "stat sub: full = %s", fullname)
+                errostack(ctx, 8, "stat: %v", ctx).debug(16)
                 assert(false, "sub is not empty for abs name: %s", name)
             }
             if s := filepath.Clean(name); fullname != s && strings.Contains(name, "//")/* skips /../ */ {
-                erro(ctx, "outdated fullname: dir  = %s", dir).at(pos)
-                erro(ctx, "outdated fullname: sub  = %s", sub).at(pos)
-                erro(ctx, "outdated fullname: name = %s", name).at(pos)
-                erro(ctx, "outdated fullname: clean = %s", s).at(pos)
-                erro(ctx, "outdated fullname: full  = %s", fullname).at(pos).debug(16)
+                prompt(ctx, "%s: {%s,%s,%s}\n", fullname, name, sub, dir)
+                erro(ctx, "stat fullname: dir  = %s", dir)
+                erro(ctx, "stat fullname: sub  = %s", sub)
+                erro(ctx, "stat fullname: name  = %s", name)
+                erro(ctx, "stat fullname: clean = %s", s)
+                erro(ctx, "stat fullname: full  = %s", fullname)
+                errostack(ctx, 8, "stat: %v", ctx).debug(16)
                 assert(false, "fullname is not clean: %s", name)
             }
         } else if filepath.IsAbs(sub) {
@@ -3856,8 +3860,8 @@ func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
         stub = &base.stub
         filecache[cleanFullname] = base
     }
-GotFile:
-    file = &File{valbase{pos},base,stub} // FIXME: needs position information
+    GotFile: file = &File{valbase{ctx.Position()},base,stub}
+
     if enable_assertions {
         if !addNotExisted { assert(file.exists(), "`%s` file not existed", fullname) }
         assert(file.name == name, "(%s %s %s).name != %s", file.name, file.sub, file.dir, name)
@@ -3865,7 +3869,7 @@ GotFile:
         if file.dir != dir {
             var head = &base.stub
             for stub := head; stub != nil; stub = stub.other {
-                info(ctx, "stat: %s %s %s", stub.dir, stub.sub, stub.name).at(pos).debug(true,1)
+                info(ctx, "stat: %s %s %s", stub.dir, stub.sub, stub.name).debug(true,1)
                 if stub.other == head { break }
             }
         }
@@ -3880,13 +3884,13 @@ GotFile:
                     file.dir, file.sub, file.name, s)
             } else {
                 if file.info == nil {
-                    erro(ctx, "{%s %s %s} file info is nil", file.dir, file.sub, file.name).at(pos).debug(true,24)
+                    erro(ctx, "{%s %s %s} file info is nil", file.dir, file.sub, file.name).debug(true,24)
                 }
                 if file.fullname() != s {
-                    erro(ctx, "{dir=%s sub=%s name=%s} fullname incorrect: %s", file.dir, file.sub, file.name, s).at(pos).debug(true,24)
+                    erro(ctx, "{dir=%s sub=%s name=%s} fullname incorrect: %s", file.dir, file.sub, file.name, s).debug(true,24)
                 }
                 if file.info.Name() != filepath.Base(s) { // NOTE: file.name might be "" here
-                    erro(ctx, "{dir=%s sub=%s name=%s} name incorrect: %s", file.dir, file.sub, file.name, file.info.Name()).at(pos).debug(true,24)
+                    erro(ctx, "{dir=%s sub=%s name=%s} name incorrect: %s", file.dir, file.sub, file.name, file.info.Name()).debug(true,24)
                 }
             }
         }
