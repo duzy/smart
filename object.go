@@ -635,7 +635,7 @@ func (d *Def) set(ctx Context, origin Origin, value Value) (err error) {
                         warn(ctx, "setting auto '%s' failed (value=%v)", d.name, value).at(pos).debug(6)
                 }
                 return
-        } else if origin != DefExpand1 && !isNil(value) && value.refs(ctx, d) {
+        } else if origin != DefExpand1 && origin != DefExpand2 && !isNil(value) && value.refs(ctx, d) {
                 var pos = d.position
                 var val Value
                 d.mutex.Lock()
