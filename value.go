@@ -987,6 +987,14 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
         if false && ctx.configuration() && strings.Contains(target, ".c.include") {
              warn(ctx, "%v %v %v %v", project, ctx.Project(), target, entry).debug(1)
         }
+        // if e := ctx.entry(); e == nil {
+        //     // does nothing
+        // } else if se, ok := e.(*stemmed); !ok {
+        //     // does nothing
+        // } else if se.PatternEntry.cmp(ctx, &entry.PatternEntry) == cmpEqual {
+        //     warn(ctx, "loop: %v %v %v %v", project, ctx.Project(), target, entry).debug(1)
+        //     continue
+        // }
         if brks = entry.string(ctx, targetVal, target); !brks.has() {
             okay = true; break // continue
         } else if tb := brks.not(breakCase, breakDone, breakNext); tb.has() {
@@ -3766,7 +3774,7 @@ func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
                 erro(ctx, "stat dir: sub  = %s", sub)
                 erro(ctx, "stat dir: name = %s", name)
                 erro(ctx, "stat dir: full = %s", fullname)
-                errostack(ctx, 8, "stat: %v", ctx).debug(16)
+                errostack(ctx, 48, "stat: %v", ctx).debug(16)
                 assert(false, "dir is not empty for abs name: %s", name)
             }
             if sub != "" {
@@ -3775,17 +3783,19 @@ func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
                 erro(ctx, "stat sub: sub  = %s", sub)
                 erro(ctx, "stat sub: name = %s", name)
                 erro(ctx, "stat sub: full = %s", fullname)
-                errostack(ctx, 8, "stat: %v", ctx).debug(16)
+                errostack(ctx, 48, "stat: %v", ctx).debug(16)
                 assert(false, "sub is not empty for abs name: %s", name)
             }
-            if s := filepath.Clean(name); fullname != s && strings.Contains(name, "//")/* skips /../ */ {
+            if true {
+                // skips clean name checks
+            } else if s := filepath.Clean(name); fullname != s && strings.Contains(name, "//")/* skips /../ */ {
                 prompt(ctx, "%s: {%s,%s,%s}\n", fullname, name, sub, dir)
                 erro(ctx, "stat fullname: dir  = %s", dir)
                 erro(ctx, "stat fullname: sub  = %s", sub)
                 erro(ctx, "stat fullname: name  = %s", name)
                 erro(ctx, "stat fullname: clean = %s", s)
                 erro(ctx, "stat fullname: full  = %s", fullname)
-                errostack(ctx, 8, "stat: %v", ctx).debug(16)
+                errostack(ctx, 48, "stat: %v", ctx).debug(64)
                 assert(false, "fullname is not clean: %s", name)
             }
         } else if filepath.IsAbs(sub) {

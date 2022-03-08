@@ -2858,7 +2858,7 @@ func (p *parser) parseFile() *parsedFile {
 		// Smart-lang spec:
 		//   * the project clause is not a declaration;
 		//   * the project name does not appear in any scope.
-		if p.tok == token.LPAREN || p.tok == token.LINEND || p.lineComment != nil {
+		if p.tok == token.LPAREN || p.tok == token.EOF || p.tok == token.LINEND || p.lineComment != nil {
 			var (
 				dir = filepath.Dir(filename)
 				base = filepath.Base(dir)
@@ -2883,26 +2883,24 @@ func (p *parser) parseFile() *parsedFile {
 			}
 			p.next(true) // skip tilde
 		} else {
+			// var t = p.tok
 			var implicitBaseSegs []string
 			ident = MakeBarecomp(p.Position())
 		ForProjectName:
 			for p.tok != token.EOF && p.tok != token.SPACE {
 				if w := p.parseBarewordConstant(false); w == nil {
-					erro(p, "expecting a bareword").
-						at(ident.Position()).debug(1)
+					erro(p, "expecting a bareword").at(ident.Position()).debug(1)
 				} else if word, ok := w.(*Bareword); !ok {
-					erro(p, "expecting a bareword: %v (%T)", w, w).
-						at(ident.Position()).debug(1)
+					erro(p, "expecting a bareword: %v (%T)", w, w).at(ident.Position()).debug(1)
 				} else if ident.Combine(p, word); p.tok == token.DOT {
 					ident.Combine(p, MakeBareword(p.Position(), ".")) // TODO: parse to Qualiword
 					implicitBaseSegs = append(implicitBaseSegs, word.string)
 					p._next() // '.'
 				} else { break ForProjectName }
 			}
-			p.skipSpaces()
-			if len(ident.Elems) == 0 {
-				erro(p, "package name is empty").at(p.Position()).debug(1)
-				return nil
+			if p.skipSpaces(); len(ident.Elems) == 0 {
+				// erro(p, "package name is empty (tok=%v %v)", t, p.tok).debug(1)
+				// return nil
 			} else if len(implicitBaseSegs) > 0 {
 				implicitBase = filepath.Join(implicitBaseSegs...)
 			}
@@ -2992,7 +2990,9 @@ func (p *parser) parseFile() *parsedFile {
 			erro(p, "loading bases failed").at(basePos).debug(1)
 			return nil
 		}
-		p.expectLinend()
+		if p.tok != token.EOF {
+			p.expectLinend()
+		}
 		if keyword != token.PACKAGE {
 			p.loadProjectConfiguration(ident, identStr, declared)
 			if !opts.noDock { p.loadProjectContainer(ident, identStr) }

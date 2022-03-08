@@ -1288,7 +1288,9 @@ func (entry *RuleEntry) traverse(cc Context) (brks breakers) {
                 target, okay = cc.autoGet("@")
         )
         if !okay || isNil(target) { erro(cc, "$@ is not defined: %v", cc).debug(1); return }
-        if cc.entry() != entry { cc = &entryContext{ cc, entry } }
+        if cc.entry() != entry { cc = &entryContext{ cc, entry } } else {
+            warn(cc, "%v %v %v", cc.Project(), target, entry).debug(1)
+        }
 ForPrograms:
         for i, prog := range entry.programs {
                 var pos = prog.position
