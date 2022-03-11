@@ -2305,7 +2305,7 @@ func builtinTrimRight(ctx Context, args... Value) (res Value) {
 // $(trim-prefix %/foo, xxx/foo/a/b/c)
 // $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
 func builtinTrimPrefix(ctx Context, args... Value) (res Value) {
-        const info = true
+        const info = false
         var (
                 prefixs, values, list []Value
                 err error

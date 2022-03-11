@@ -3343,17 +3343,17 @@ func (p *Path) match1(ctx Context, str string) (full bool, result string, stems 
     )
     if warns {
         defer func() {
+            prompt(ctx, "%v: %v %v %v\n", p, result, full, stems)
             warn(ctx, "%v: %s (%d, %d; %d, %d)", p, str, n, lenSegs, m, lenSrcs)
-            warn(ctx, "%v: %v %v %v", p, full, result, stems)
             warnstack(ctx, 3, "%v: %T", p, ctx).debug(8)
         } ()
     }
-SegsLoop:
+SegsSrcsLoop:
     for ; n < lenSegs && m < lenSrcs; {
         var si, seg, src = n, segs[n], srcs[m]
         if cs := correctPathSegForMatch(seg); cs != nil { seg = cs } else {
             erro(ctx, "invalid path seg: %v (%T)", seg, seg).of(seg).debug(1)
-            break SegsLoop
+            break SegsSrcsLoop
         }
 
         var (
@@ -3363,10 +3363,10 @@ SegsLoop:
             f    bool
         )
         if pp {
-            if infos { info(ctx, "%d: path=%v seg=%v (%T) src=%v pp=%v pre=%v suf=%v res=%v stems=%v srcs[%d]=%s lenSegs=%d", si, p, seg, seg, src, pp, pre, suf, res, stems, m, src, lenSegs).of(p).debug(true,1) }
+            if infos { info(ctx, "%d: path=%v seg=%v (%T) src=%v pp=%v pre=%v suf=%v res=%v stems=%v srcs[%d]=%s lenSegs=%d", si, p, seg, seg, src, pp, pre, suf, res, stems, m, src, lenSegs).of(p).debug(1) }
             if !isTrivial(lastSuf) && !isTrivial(pre) {
                 erro(ctx, "the continual %%/%% makes no sense").of(seg)
-                break SegsLoop
+                break SegsSrcsLoop
             }
             if /*ps, ok := seg.(*PathSeg);*/ src == "" /*&& ok && (ps.rune == 0 || ps.rune == '/')*/ { // for root path seg '/'
                 // NOTE: seg could also be % or %% here
@@ -3378,22 +3378,22 @@ SegsLoop:
             n += 1 // move forward to the next seg
             m += 1 // move forward to the next src
         } else if f, s, ss = seg.match(ctx, src); f || s == src {
-            if infos { info(ctx, "%d: path=%v seg=%v (%T); str=%v srcs[%d]=%v -> f=%v s=%v ss=%v => res=%v stems=%v", si, p, seg, seg, str, m, src, f, s, ss, res, stems).of(p).debug(true,1) }
+            if infos { info(ctx, "%d: path=%v seg=%v (%T); str=%v srcs[%d]=%v -> f=%v s=%v ss=%v => res=%v stems=%v", si, p, seg, seg, str, m, src, f, s, ss, res, stems).of(p).debug(1) }
             // NOTE: `s` could be empty string, e.g. when `str` is absolute path
             res   = append(res  , s)
             stems = append(stems, ss...)
             lastSuf = nil
             n += 1 // move forward to the next seg
             m += 1 // move forward to the next src
-            if f { continue SegsLoop } else { break SegsLoop }
+            if f { continue SegsSrcsLoop } else { break SegsSrcsLoop }
         } else {
             if ps, ok := seg.(*PathSeg); (s == "" && ok && ps.rune == 0) || s != "" {
                 res = append(res, s)
-            } else {
+            } else if false {
                 res, stems = nil, nil
             }
-            if infos { info(ctx, "%d: path=%v seg=%v (%T) res=%v stems=%v f=%v s=%s ss=%v str=%s src=%s lenSegs=%d", si, p, seg, seg, res, stems, f, s, ss, str, src, lenSegs).of(p).debug(true,1) }
-            break SegsLoop
+            if infos { info(ctx, "%d: path=%v seg=%v (%T) res=%v stems=%v f=%v s=%s ss=%v src=%s lenSegs=%d str=%s", si, p, seg, seg, res, stems, f, s, ss, src, lenSegs, str).of(p).debug(1) }
+            break SegsSrcsLoop
         }
 
         var prefix string
@@ -3402,8 +3402,8 @@ SegsLoop:
                 erro(ctx, "strval prefix '%v' failed: %v", pre, err).of(pre)
                 return
             } else if !strings.HasPrefix(src, prefix) {
-                if infos { info(ctx, "%d: seg=%v (%T) pp=%v pre=%v suf=%v res=%v stems=%v src=%s", si, seg, seg, pp, pre, suf, res, stems, src).of(p).debug(true,1) }
-                break SegsLoop
+                if infos { info(ctx, "%d: seg=%v (%T) pp=%v pre=%v suf=%v res=%v stems=%v src=%s", si, seg, seg, pp, pre, suf, res, stems, src).of(p).debug(1) }
+                break SegsSrcsLoop
             }
         }
 
@@ -3414,19 +3414,19 @@ SegsLoop:
             var suffix string
             if suffix, err = suf.Strval(ctx); err != nil {
                 erro(ctx, "strval suffix '%v' failed: %v", suf, err).of(suf)
-                break SegsLoop
+                break SegsSrcsLoop
             }
             if res = append(res, src); m < lenSrcs {
-                stem = append(stem, src)
-                for ; m < lenSrcs; m += 1 {
+                for stem = append(stem, src); m < lenSrcs; m += 1 {
                     src = srcs[m]
                     res = append(res, src)
                     if strings.HasSuffix(src, suffix) {
                         stem = append(stem, strings.TrimSuffix(src, suffix))
                         stems = append(stems, strings.Join(stem, PathSep))
-                        if infos { info(ctx, "%d: path=%v seg=%v (%T) res=%v stems=%v suffix=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, suffix, src, lenSegs).of(p).debug(true,1) }
+                        if infos { info(ctx, "%d: path=%v seg=%v (%T) res=%v stems=%v suffix=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, suffix, src, lenSegs).of(p).debug(1) }
                         n += 1 // continue for next seg
-                        continue SegsLoop
+                        m += 1 // move forward to the next src
+                        continue SegsSrcsLoop
                     } else {
                         stem = append(stem, src)
                     }
@@ -3436,7 +3436,7 @@ SegsLoop:
             }
             if len(stem) > 0 {
                 stems = append(stems, strings.Join(stem, PathSep))
-                if infos { info(ctx, "%d: path=%v seg=%v (%T) res=%v stems=%v suffix=%v src=%s lenSegs=%d lenSrcs=%d m=%d", si, p, seg, seg, res, stems, suffix, src, lenSegs, lenSrcs, m).of(p).debug(true,1) }
+                if infos { info(ctx, "%d: path=%v seg=%v (%T) res=%v stems=%v suffix=%v src=%s lenSegs=%d lenSrcs=%d m=%d", si, p, seg, seg, res, stems, suffix, src, lenSegs, lenSrcs, m).of(p).debug(1) }
             }
         } else if n < lenSegs && !isTrivial(segs[n]) {
             for seg = segs[n]; m < lenSrcs; m += 1 {
@@ -3454,9 +3454,10 @@ SegsLoop:
                     } else {
                         stems = append(stems, strings.Join(stem, PathSep))
                     }
-                    if infos { info(ctx, "%d: path=%v seg=%v (%T) res=%v stems=%v matched=%v s=%s ss=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, matched, s, ss, src, lenSegs).of(p).debug(true,1) }
+                    if infos { info(ctx, "%d: path=%v seg=%v (%T) res=%v stems=%v matched=%v s=%s ss=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, matched, s, ss, src, lenSegs).of(p).debug(1) }
                     n += 1 // continue for next seg
-                    continue SegsLoop
+                    m += 1 // move forward to the next src
+                    continue SegsSrcsLoop
                 } else {
                     res = append(res, src)
                     stem = append(stem, src)
@@ -3464,7 +3465,7 @@ SegsLoop:
             }
             if len(stem) > 0 {
                 stems = append(stems, strings.Join(stem, PathSep))
-                if infos { info(ctx, "%d: path=%v seg=%v (%T) res=%v stems=%v s=%s ss=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, s, ss, src, lenSegs).of(p).debug(true,1) }
+                if infos { info(ctx, "%d: path=%v seg=%v (%T) res=%v stems=%v s=%s ss=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, s, ss, src, lenSegs).of(p).debug(1) }
             }
         } else { // the tailing %%
             if /*m < lenSrcs*/true {
@@ -3473,8 +3474,8 @@ SegsLoop:
                 stem = append(stem, rest...)
                 stems = append(stems, strings.Join(stem, PathSep))
             }
-            if infos { info(ctx, "%d: seg=%v pre=%v suf=%v res=%v stems=%v src=%s", si, seg, pre, suf, res, stems, src).of(p).debug(true,1) }
-            break SegsLoop
+            if infos { info(ctx, "%d: seg=%v pre=%v suf=%v res=%v stems=%v src=%s", si, seg, pre, suf, res, stems, src).of(p).debug(1) }
+            break SegsSrcsLoop
         }
         if infos && n == lenSegs {
             info(ctx, "%d: path=%v seg=%v (%T) str=%v src=%v -> f=%v s=%v ss=%v -> res=%v stems=%v stem=%v m=%d/%d 3.lengSegs=%d", si, p, seg, seg, str, src, f, s, ss, res, stems, stem, m, lenSrcs, lenSegs).of(p).debug(true, 1)
@@ -3881,7 +3882,7 @@ func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
         if file.dir != dir {
             var head = &base.stub
             for stub := head; stub != nil; stub = stub.other {
-                info(ctx, "stat: %s %s %s", stub.dir, stub.sub, stub.name).debug(true,1)
+                info(ctx, "stat: %s %s %s", stub.dir, stub.sub, stub.name).debug(1)
                 if stub.other == head { break }
             }
         }
