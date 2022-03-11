@@ -2990,7 +2990,7 @@ func (p *parser) parseFile() *parsedFile {
 			erro(p, "loading bases failed").at(basePos).debug(1)
 			return nil
 		}
-		if p.tok != token.EOF {
+		if p.skipSpaces(); p.tok != token.EOF {
 			p.expectLinend()
 		}
 		if keyword != token.PACKAGE {
