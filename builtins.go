@@ -2305,26 +2305,29 @@ func builtinTrimRight(ctx Context, args... Value) (res Value) {
 // $(trim-prefix %/foo, xxx/foo/a/b/c)
 // $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
 func builtinTrimPrefix(ctx Context, args... Value) (res Value) {
-        const info = false
+        const info = true
         var (
                 prefixs, values, list []Value
                 err error
         )
-        if len(args) == 0 { return } else
+        if len(args) == 0 { return }
         if prefixs, err = expandmerge2(ctx, expandPlainValue, args[0]); err != nil {
                 erro(ctx, "merge args '%v' failed: %v", args[0], err).of(args[0]).debug(1)
                 return
         }
+
         if len(args) == 1 {
                 if len(prefixs) > 1 { values = prefixs[1:] }
         } else if values, err = expandmerge2(ctx, expandPlainValue, args[1:]...); err != nil {
                 erro(ctx, "merge args '%v' failed: %v", args[1:], err).of(args[1]).debug(1)
                 return
         }
+
         if len(values) == 0 { return } else if len(prefixs) == 0 {
                 res = MakeListOrScalar(ctx.Position(), values)
                 return
         }
+
         for _, value := range values {
                 var (
                         pos = value.Position()
@@ -2337,7 +2340,11 @@ func builtinTrimPrefix(ctx Context, args... Value) (res Value) {
         ForPrefix:
                 for _, prefix := range prefixs {
                         var full, cutset, stems = prefix.match(ctx, value)
-                        if info { warn(ctx, "prefix=%v (%T); value=%v (%T) -> full=%v cutset=%v stems=%v", prefix, prefix, value, value, full, cutset, stems).of(prefix).debug(true, 1) }
+                        if info {
+                                warn(ctx, "prefix=%v (%T)", prefix, prefix).of(prefix)
+                                warn(ctx, "value=%v (%T)", value, value).of(value)
+                                warn(ctx, "full=%v cutset=%v stems=%v", full, cutset, stems).debug(1)
+                        }
                         if s != "" && (cutset == "" || strings.HasPrefix(s, cutset)) {
                                 if cutset == "" {
                                         s = strings.TrimLeftFunc(s, unicode.IsSpace)

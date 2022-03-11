@@ -3332,25 +3332,24 @@ func (p *Path) match1(ctx Context, str string) (full bool, result string, stems 
     }
 
     const warns = false
-    //var warns = p.String() == "%%/Dockerfile"
-    //var warns = p.String() == "isl/%%"
-    if warns {
-        defer func() {
-            warn(ctx, "%v: %s", p, str)
-            warn(ctx, "%v: %s, %v %v", p, result, full, stems)
-            warnstack(ctx, 8, "%v: %T", p, ctx).debug(6)
-        } ()
-    }
-
-    var infos = warns
     var (
+        //warns = p.String() == "%%/.smart/modules/"
+        infos = warns
         lenSegs = len(segs)
         lenSrcs = len(srcs)
         lastSuf Value
         res []string
+        n, m int
     )
+    if warns {
+        defer func() {
+            warn(ctx, "%v: %s (%d, %d; %d, %d)", p, str, n, lenSegs, m, lenSrcs)
+            warn(ctx, "%v: %v %v %v", p, full, result, stems)
+            warnstack(ctx, 3, "%v: %T", p, ctx).debug(8)
+        } ()
+    }
 SegsLoop:
-    for n, m := 0, 0; n < lenSegs && m < lenSrcs; {
+    for ; n < lenSegs && m < lenSrcs; {
         var si, seg, src = n, segs[n], srcs[m]
         if cs := correctPathSegForMatch(seg); cs != nil { seg = cs } else {
             erro(ctx, "invalid path seg: %v (%T)", seg, seg).of(seg).debug(1)
@@ -3482,8 +3481,11 @@ SegsLoop:
         }
     }
     if lenRes := len(res); lenRes > 0 { // full or partial matched
-        result = strings.Join(res, PathSep) // NOTE: do NOT use `filepath.Join(res...)` here
-        full = lenRes == lenSrcs && lenRes >= lenSegs && result == str
+        //TODO: if n < lenSegs { rest = strings.Join(segs[n:], PathSep) }
+        result = strings.Join(res, PathSep) //NOTE: do NOT use `filepath.Join(res...)` here
+        full = lenSegs == n && lenSrcs == m &&
+            lenRes == lenSrcs && lenRes >= lenSegs &&
+            result == str
         if infos { if false {
             warn(ctx, "Path.match: path=%v str=%v res=%v stems=%v -> full=%v result=%v lens=%d,%d", p, str, res, stems, full, result, lenRes, lenSrcs).of(p).debug(1)
         } else {
