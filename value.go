@@ -3333,7 +3333,7 @@ func (p *Path) match1(ctx Context, str string) (full bool, result string, stems 
 
     const warns = false
     var (
-        //warns = p.String() == "%%/.smart/modules/"
+        //warns = p.String() == "llvm/%%"
         infos = warns
         lenSegs = len(segs)
         lenSrcs = len(srcs)
@@ -3484,7 +3484,7 @@ SegsSrcsLoop:
     if lenRes := len(res); lenRes > 0 { // full or partial matched
         //TODO: if n < lenSegs { rest = strings.Join(segs[n:], PathSep) }
         result = strings.Join(res, PathSep) //NOTE: do NOT use `filepath.Join(res...)` here
-        full = lenSegs == n && lenSrcs == m &&
+        full = n == lenSegs && m <= lenSrcs &&
             lenRes == lenSrcs && lenRes >= lenSegs &&
             result == str
         if infos { if false {
