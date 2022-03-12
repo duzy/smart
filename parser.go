@@ -1864,9 +1864,10 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 	} else if name, resolved, err = p.resolveObject(prop0); err != nil {
 		erro(ctx, "resolve '%v' failed: %v", prop0, err).debug(1)
 	} else if isNil(resolved) {
-		if !generic.dontOperate && name == "configuration" {
-			// NOTE: see also defaultContext.configure()
-			if project := p.Project(); project == nil {
+		if name == "configuration" {// NOTE: see also defaultContext.configure()
+			if generic.dontOperate {
+				return
+			} else if project := p.Project(); project == nil {
 				erro(ctx, "configuration: nil project").debug(1)
 			} else if project.configure == nil {
 				erro(ctx, "configuration: no .configure for %v", project).debug(1)
