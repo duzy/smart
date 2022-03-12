@@ -62,17 +62,94 @@ var configurationOps = map[string] func(Context, map[string]Value, ...Value) (Va
     "package": configurePackage,
 }
 
+type configureExecutor struct {
+    file *os.File
+    writer *bufio.Writer
+    defs map[string]*Def
+}
+
+func (ce *configureExecutor) execute(ctx Context, project *Project, entry Entry) (result *Project, okay bool) {
+    if n := ctx.checkErrors(true); n > 0 {
+        return
+    } else if ctx = positional(ctx, entry.Position()); ctx == nil {
+        erro(ctx, "%v: nil positional context", project).debug(1)
+        return
+    } else if p := entry.OwnerProject(); p != project && p != nil {
+        if p.configured { return nil, true } // already configured
+
+        ce.defs = make(map[string]*Def) // reset defs for p
+        var f, e = p.openConfiguration(ctx)
+        if e != nil {
+            erro(ctx, "%v", e).debug(1)
+            return
+        } else if f != nil {
+            if ce.writer != nil {
+                if e = ce.writer.Flush(); e != nil {
+                    erro(ctx, "%v", e).debug(1)
+                    return
+                }
+            }
+            if ce.file != nil {
+                if e = ce.file.Close(); e != nil {
+                    erro(ctx, "%v", e).debug(1)
+                    return
+                }
+            }
+        }
+
+        ce.file, ce.writer = f, bufio.NewWriter(f)
+        fmt.Fprintf(ce.writer, "# %s (%s) configuration\n", p.spec, p.relPath)
+
+        prompt(ctx, "Project %s …… (%s)\n", p.spec, p.relPath)
+        project = p
+    }
+
+    result = project
+
+    if val, brks := entry.Execute(ctx); len(brks) > 0 {
+        for _, brk := range brks {
+            if brk.what == breakErro {
+                erro(ctx, "execute '%v' failed: %v", entry, brk.error).debug(1)
+            }
+        }
+    } else if entry.String() == "-check-file" {
+        warn(ctx, "configure %v: %v", entry, val).debug(1)
+    }
+
+    if s, e := entry.Target().Strval(ctx); e != nil {
+        erro(ctx, "strval '%v' fail: %v", entry, e).debug(1)
+    } else if def := project.scope.FindDef(s); def != nil {
+        okay = true // good!
+        if d, ok := ce.defs[s]; ok && d != nil {
+            /*if d.value.cmp(def.value) != cmpEqual {
+                    erro(ctx, "'%s' already configured: %v", d.name, d.value).at(entry.Position())
+                    return
+                }*/
+            return //continue
+        } else { ce.defs[s] = def }
+        if def.value == nil {
+            // Set <nil> value with exec-assigning ('!=')
+            // to a None value.
+            fmt.Fprintf(ce.writer, "%v !=\n", def.name)
+        } else {
+            vs := elementString(ctx, def, def.value, elemNoBrace)
+            fmt.Fprintf(ce.writer, "%v = %v\n", def.name, vs)
+        }
+    } else {
+        erro(ctx, "`%s` unconfigured", s).debug(1)
+    }
+    return
+}
+func (ce *configureExecutor) close() {
+    if ce.writer != nil { if err := ce.writer.Flush(); err != nil {} }
+    if ce.file != nil   { if err := ce.file.Close();   err != nil {} }
+}
+
 func (ctx *defaultContext) configure() {
     var (
         project *Project
-        file *os.File
-        writer *bufio.Writer
         err error
     )
-    defer func() {
-        if writer != nil { if err := writer.Flush(); err != nil {} }
-        if file != nil   { if err := file.Close();   err != nil {} }
-    } ()
 
     // Remove all existing configuration.sm files
     if options.cleanConf { for _, s := range configuration.clean {
@@ -113,69 +190,13 @@ func (ctx *defaultContext) configure() {
         }
     }
 
-    var defs = make(map[string]*Def)
+    var ce = &configureExecutor{ defs:make(map[string]*Def) }
+    defer ce.close()
     for _, entry := range configuration.entries {
-        var ctx = positional(ctx, entry.Position()) // redefine ctx
-        if n := ctx.checkErrors(true); n > 0 {
-            return
-        } else if p := entry.OwnerProject(); p != project && p != nil {
-            defs = make(map[string]*Def) // reset defs for p
-            var f, e = p.openConfiguration(ctx)
-            if e != nil {
-                erro(ctx, "%v", e).debug(1)
-                return
-            } else if f != nil {
-                if writer != nil {
-                    if e = writer.Flush(); e != nil {
-                        erro(ctx, "%v", e).debug(1)
-                        return
-                    }
-                }
-                if file != nil {
-                    if e = file.Close(); e != nil {
-                        erro(ctx, "%v", e).debug(1)
-                        return
-                    }
-                }
-            }
-
-            file, writer = f, bufio.NewWriter(f)
-            fmt.Fprintf(writer, "# %s (%s) configuration\n", p.spec, p.relPath)
-
-            prompt(ctx, "Project %s …… (%s)\n", p.spec, p.relPath)
-            project = p
-        }
-
-        if val, brks := entry.Execute(ctx); len(brks) > 0 {
-            for _, brk := range brks {
-                if brk.what == breakErro {
-                    erro(ctx, "execute '%v' failed: %v", entry, brk.error).debug(1)
-                }
-            }
-        } else if entry.String() == "-check-file" {
-            warn(ctx, "configure %v: %v", entry, val).debug(1)
-        }
-
-        if s, e := entry.Target().Strval(ctx); e != nil {
-            erro(ctx, "strval '%v' fail: %v", entry, e).debug(1)
-        } else if def := project.scope.FindDef(s); def != nil {
-            if d, ok := defs[s]; ok && d != nil {
-                /*if d.value.cmp(def.value) != cmpEqual {
-                    erro(ctx, "'%s' already configured: %v", d.name, d.value).at(entry.Position())
-                    return
-                }*/
-              continue
-            } else { defs[s] = def }
-            if def.value == nil {
-                // Set <nil> value with exec-assigning ('!=')
-                // to a None value.
-                fmt.Fprintf(writer, "%v !=\n", def.name)
-            } else {
-                vs := elementString(ctx, def, def.value, elemNoBrace)
-                fmt.Fprintf(writer, "%v = %v\n", def.name, vs)
-            }
-        } else {
-            erro(ctx, "`%s` unconfigured", s).debug(1)
+        var okay bool
+        if project, okay = ce.execute(ctx, project, entry); !okay {
+            erro(ctx, "configure '%v' failed", entry).debug(1)
+            break
         }
     }
     if err != nil {

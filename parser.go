@@ -1849,36 +1849,75 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 
 func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int) {
 	var (
-		position = p.Position()
+		ctx Context = p
 		props = p.parseDirectiveSpec()
 		resolved Value
+		name string
 		err error
 	)
 	if prop0 := props[0]; isNil(prop0) {
-		erro(p, "illegal").at(position).debug(1)
-	} else if position = prop0.Position(); !position.IsValid() {
-		erro(p, "command name '%v' has invalid position", prop0).at(position).debug(1)
-	} else if _, resolved, err = p.resolveObject(prop0); err != nil {
-		erro(p, "resolve '%v' failed: %v", prop0, err).at(position).debug(1)
+		erro(ctx, "illegal").debug(1)
+	} else if position := prop0.Position(); !position.IsValid() {
+		erro(ctx, "command name '%v' has invalid position", prop0).debug(1)
+	} else if ctx = positional(ctx, position); ctx == nil {
+		erro(ctx, "%v: nil positional", prop0).debug(1)
+	} else if name, resolved, err = p.resolveObject(prop0); err != nil {
+		erro(ctx, "resolve '%v' failed: %v", prop0, err).debug(1)
 	} else if isNil(resolved) {
-		erro(p, "resolved '%v' is nil", prop0).at(position).debug(1)
+		if !generic.dontOperate && name == "configuration" {
+			// NOTE: see also defaultContext.configure()
+			if project := p.Project(); project == nil {
+				erro(ctx, "configuration: nil project").debug(1)
+			} else if project.configure == nil {
+				erro(ctx, "configuration: no .configure for %v", project).debug(1)
+			} else {
+				if entry := project.configure.DefaultEntry(); entry == nil {
+					// no init entry from .configure
+				} else if _, brks := entry.Execute(p); len(brks) > 0 {
+					for _, brk := range brks {
+						if brk.what == breakErro {
+							erro(ctx, "execute '%v' failed: %v", entry, brk.error).of(entry).debug(1)
+						}
+					}
+				}
+				if project.configured {
+					prompt(ctx, "configuration: %v already configured\n", project)
+				} else {
+					var (
+						okay bool
+						cp *Project
+						ce = &configureExecutor{ defs:make(map[string]*Def) }
+					)
+					defer ce.close()
+					for _, entry := range project.configs {
+						if cp, okay = ce.execute(ctx, cp, entry); !okay {
+							erro(ctx, "configure '%v' failed", entry).debug(1)
+							break
+						}
+					}
+					project.configured = true // let defaultContext.configure skip
+				}
+			}
+		} else {
+			erro(ctx, "resolved '%v' is nil (options = %v)", prop0, *generic).debug(1)
+		}
 	} else if b, ok := resolved.(*Builtin); ok && (b.flag&builtinCommand) == 0 {
-		erro(p, "resolved builtin '%v' is not a command: %T", prop0, resolved).at(position).debug(1)
+		erro(ctx, "resolved builtin '%v' is not a command: %T", prop0, resolved).debug(1)
 	} else if !generic.dontOperate { //p.evalspec(spec)
         // At the point of `eval` was represented, the closure context
         // might be empty. So we start closure with the current scope.
         //defer setclosure(setclosure(cloctx.unshift(p.scope)))
-		var ( ctx = positional(p, position); res Value )
+		var res Value
         switch op := prop0.(type) {
         case Caller: res = op.Call(ctx, props[1:]...)
         default:
             var name string
             if name, err = op.Strval(ctx); err != nil {
-                erro(p, "strval '%s' failed: %v", op, err).at(position).debug(1)
+                erro(p, "strval '%s' failed: %v", op, err).debug(1)
             } else if _, obj := p.Scope().Find(name); obj == nil {
-                erro(p, "`%s` undefined", name).at(position).debug(1)
+                erro(p, "`%s` undefined", name).debug(1)
             } else if f, _ := obj.(Caller); f == nil {
-                erro(p, "`%T` is not caller (%s)", obj, name).at(position).debug(1)
+                erro(p, "`%T` is not caller (%s)", obj, name).debug(1)
             } else {
                 res = f.Call(ctx, props[1:]...)
             }

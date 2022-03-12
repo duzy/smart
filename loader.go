@@ -1029,11 +1029,8 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
                 erro(ctx, "unsupported pattern configures: %v", target).debug(1)
                 return
             }
-            if true {
-                configuration.entries = append(configuration.entries, entry)
-            } else {
-                l.project.configs = append(l.project.configs, entry)
-            }
+            l.project.configs = append(l.project.configs, entry)
+            configuration.entries = append(configuration.entries, entry)
         }
     }
     return
