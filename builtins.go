@@ -2328,37 +2328,52 @@ func builtinTrimPrefix(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        if len(values) == 0 { return } else if len(prefixs) == 0 {
+        if len(values) == 0 {
+                return
+        } else if len(prefixs) == 0 {
                 res = MakeListOrScalar(ctx.Position(), values)
                 return
         }
 
+        if info { warn(ctx, "%v %v", prefixs, values) }
         for _, value := range values {
                 var (
                         pos = value.Position()
-                        s string
+                        p, s string
                 )
                 if s, err = value.Strval(ctx); err != nil {
                         erro(ctx, "strval '%v' failed: %v", value, err).of(value).debug(1)
                         return
-                }
+                } else if s == "" { continue }
         ForPrefix:
                 for _, prefix := range prefixs {
-                        var full, cutset, stems = prefix.match(ctx, value)
-                        if info {
-                                warn(ctx, "prefix=%v (%T)", prefix, prefix).of(prefix)
-                                warn(ctx, "value=%v (%T)", value, value).of(value)
-                                warn(ctx, "full=%v cutset=%v stems=%v", full, cutset, stems).debug(1)
-                        }
-                        if s != "" && (cutset == "" || strings.HasPrefix(s, cutset)) {
-                                if cutset == "" {
-                                        s = strings.TrimLeftFunc(s, unicode.IsSpace)
-                                } else {
-                                        s = strings.TrimPrefix(s, cutset)
-                                }
+                        if prefix.patterned(ctx) {
+                                // fallthrough
+                        } else if p, err = prefix.Strval(ctx); err != nil {
+                                erro(ctx, "strval '%v' failed: %v", prefix, err).of(prefix).debug(1)
+                                return
+                        } else if p == "" {
+                                continue
+                        } else if strings.HasPrefix(s, p) {
+                                s = strings.TrimPrefix(s, p)
                                 pos = prefix.Position()
                                 break ForPrefix
                         }
+
+                        var full, cutset, stems = prefix.match(ctx, value)
+                        if info {
+                                warn(ctx, "prefix = %T %v", prefix, prefix)
+                                warn(ctx, "value  = %T %v", value, value)
+                                warn(ctx, "full=%v cutset=%v stems=%v", full, cutset, stems).debug(1)
+                        }
+                        if !full { continue }
+                        if cutset == "" {
+                                s = strings.TrimLeftFunc(s, unicode.IsSpace)
+                        } else {
+                                s = strings.TrimPrefix(s, cutset)
+                        }
+                        pos = prefix.Position()
+                        break ForPrefix
                 }
                 if info { warn(ctx, "list=%v trimmed=%v", list, s).debug(true, 1) }
                 if s != "" { list = append(list, MakeString(pos, s)) }
