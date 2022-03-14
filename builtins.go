@@ -2361,16 +2361,16 @@ func builtinTrimPrefix(ctx Context, args... Value) (res Value) {
                         }
 
                         var full, cutset, stems = prefix.match(ctx, value)
-                        if info {
+                        if info /*|| (strings.Contains(s, "/.smart/modules/") && prefix.String() == "%%/.smart/modules/")*/ {
                                 warn(ctx, "prefix = %T %v", prefix, prefix)
                                 warn(ctx, "value  = %T %v", value, value)
+                                warn(ctx, "trim   = %v", strings.TrimPrefix(s, cutset))
                                 warn(ctx, "full=%v cutset=%v stems=%v", full, cutset, stems).debug(1)
                         }
-                        if !full { continue }
-                        if cutset == "" {
-                                s = strings.TrimLeftFunc(s, unicode.IsSpace)
-                        } else {
+                        if len(s) > len(cutset) && strings.HasPrefix(s, cutset) {
                                 s = strings.TrimPrefix(s, cutset)
+                        } else {
+                                s = strings.TrimLeftFunc(s, unicode.IsSpace)
                         }
                         pos = prefix.Position()
                         break ForPrefix
