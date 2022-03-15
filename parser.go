@@ -1874,7 +1874,7 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 			} else {
 				if entry := project.configure.DefaultEntry(); entry == nil {
 					// no init entry from .configure
-				} else if _, brks := entry.Execute(p); len(brks) > 0 {
+				} else if _, brks := entry.Execute(ctx); len(brks) > 0 {
 					for _, brk := range brks {
 						if brk.what == breakErro {
 							erro(ctx, "execute '%v' failed: %v", entry, brk.error).of(entry).debug(1)
@@ -1887,9 +1887,27 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 					var (
 						okay bool
 						cp *Project
+						deps []Value
 						ce = &configureExecutor{ defs:make(map[string]*Def) }
 					)
 					defer ce.close()
+					if deps, err = expandmerge2(ctx, expandPlainValue, props[1:]...); err != nil {
+						erro(p, "merge '%v' failed: %v", props[1:], err).debug(1)
+					}
+ 					for _, dep := range deps {
+						switch prereq := dep.(type) {
+						case *RuleEntry:
+							if _, brks := prereq.Execute(ctx); len(brks) > 0 {
+								for _, brk := range brks {
+									if brk.what == breakErro {
+										erro(ctx, "execute '%v' failed: %v", prereq, brk.error).of(prereq).debug(1)
+									}
+								}
+							}
+						default:
+							erro(p, "prerequisite: unsupported %T %v", dep, dep).debug(1)
+						}
+					}
 					for _, entry := range project.configs {
 						if cp, okay = ce.execute(ctx, cp, entry); !okay {
 							erro(ctx, "configure '%v' failed", entry).debug(1)
