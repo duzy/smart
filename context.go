@@ -546,7 +546,7 @@ func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
       }
     }
     if f, e := os.Create(prof); e != nil {
-      erro(dc, "%v", e).debug(1)
+      erro(dc, "%T: %v", e, e).debug(1)
       return
     } else {
       defer f.Close()
