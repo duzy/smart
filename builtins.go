@@ -2367,7 +2367,9 @@ func builtinTrimPrefix(ctx Context, args... Value) (res Value) {
                                 warn(ctx, "trim   = %v", strings.TrimPrefix(s, cutset))
                                 warn(ctx, "full=%v cutset=%v stems=%v", full, cutset, stems).debug(1)
                         }
-                        if len(s) > len(cutset) && strings.HasPrefix(s, cutset) {
+                        if !full && s == cutset {
+                                continue
+                        } else if len(s) > len(cutset) && strings.HasPrefix(s, cutset) {
                                 s = strings.TrimPrefix(s, cutset)
                         } else {
                                 s = strings.TrimLeftFunc(s, unicode.IsSpace)
