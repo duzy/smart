@@ -21,7 +21,6 @@ import (
   "fmt"
   "os"
   "io"
-  //"io/ioutil"
 )
 
 type commandLineOpts struct {
@@ -163,6 +162,7 @@ func getTargetValueString(ctx Context) (val Value, str string) {
   return
 }
 
+var baseWorkDir, _ = os.Getwd()
 var options = commandLineOpts{
   debugPrompt: true,
   debugErrors: true,
@@ -525,20 +525,27 @@ func (ctx *defaultContext) helpConfig() { print_configuration(ctx) }
 
 func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
   if options.noRun { return }
-  if options.cpuProf != "" {
-    if f, e := os.Create(options.cpuProf); e != nil {
-      erro(dc, "%v", e).debug(1)
-      return
-    } else {
-      defer f.Close()
-      if e := pprof.StartCPUProfile(f); e != nil {
-        erro(dc, "could not start CPU profile: %v", e).debug(1)
-        return
+
+  var main = dc.globe.main
+  if main == nil {
+    erro(dc, "no targets to update `%v`", dc.globe.goals).debug(1)
+    return
+  }
+
+  var ctx Context = &closureContext{dc, []*Scope{main.scope}}
+  removeTempDirs(ctx)
+
+  if options.cpuProf != "" || options.autoProfs {
+    var prof = options.cpuProf
+    if prof == "" {
+      var s = "run.cpu.auto.prof"
+      if file := main.matchTempFile(ctx, s); file == nil {
+        prof = filepath.Join(baseWorkDir, s)
+      } else {
+        prof = file.fullname()
       }
-      defer pprof.StopCPUProfile()
     }
-  } else if options.autoProfs {
-    if f, e := os.Create("run.auto.cpu.prof"); e != nil {
+    if f, e := os.Create(prof); e != nil {
       erro(dc, "%v", e).debug(1)
       return
     } else {
@@ -550,10 +557,18 @@ func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
       defer pprof.StopCPUProfile()
     }
   }
+
   if options.memProf != "" || options.autoProfs {
+    var prof = options.memProf
+    if prof == "" {
+      var s = "run.mem.auto.prof"
+      if file := main.matchTempFile(ctx, s); file == nil {
+        prof = filepath.Join(baseWorkDir, s)
+      } else {
+        prof = file.fullname()
+      }
+    }
     defer func() {
-      var prof = options.memProf
-      if prof == "" { prof = "run.auto.mem.prof" }
       if f, e := os.Create(prof); e != nil {
         erro(dc, "%v", e).debug(1)
         return
@@ -567,15 +582,6 @@ func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
       }
     } ()
   }
-
-  var main = dc.globe.main
-  if main == nil {
-    erro(dc, "no targets to update `%v`", dc.globe.goals).debug(1)
-    return
-  }
-
-  var ctx Context = &closureContext{dc, []*Scope{main.scope}}
-  removeTempDirs(ctx)
 
   var done bool
   for _, flag := range dc.globe.flags {
@@ -801,7 +807,7 @@ func (ctx *defaultContext) load() (err error) {
   }(ctx.loader)
 
   var (
-    base, _ = os.Getwd()
+    base = baseWorkDir
     pos = positionForDir(base) // FIXME: find a useful position
     sp = filepath.Join(base, ".smart", "modules")
     args []Value
@@ -852,7 +858,7 @@ func (ctx *defaultContext) load() (err error) {
   assert(ctx.globe.args != nil, "globe args is nil")
 
   if options.autoProfs {
-    if f, e := os.Create("load.auto.cpu.prof"); e != nil {
+    if f, e := os.Create(filepath.Join(baseWorkDir, "load.cpu.auto.prof")); e != nil {
       erro(ctx, "%v", e).debug(1)
       return
     } else {
@@ -867,7 +873,7 @@ func (ctx *defaultContext) load() (err error) {
   if options.autoProfs {
     defer func() {
       var prof string //= options.memProf
-      if prof == "" { prof = "load.auto.mem.prof" }
+      if prof == "" { prof = filepath.Join(baseWorkDir, "load.mem.auto.prof") }
       if f, e := os.Create(prof); e != nil {
         erro(ctx, "%v", e).debug(1)
         return
