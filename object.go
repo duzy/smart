@@ -1047,9 +1047,12 @@ func (ec *entryContext) inner() Context { return ec.Context }
 func (ec *entryContext) String() string {
         if fullContextStringer {
                 return fmt.Sprintf("entry{%s,%s}", ec.ent, ec.Context)
-        } else {
-                var s, _ = ec.ent.Strval(ec.Context)
+        } else if s, e := ec.ent.Strval(ec.Context); e != nil {
+                return fmt.Sprintf("[%v]{%s}", e, ec.Context)
+        } else if t := ec.Context.String(); t != "" {
                 return fmt.Sprintf("%s{%s}", s, ec.Context)
+        } else {
+                return fmt.Sprintf("%s", s)
         }
 }
 func (ec *entryContext) Position() Position { return ec.ent.position }

@@ -1270,10 +1270,12 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
           warn(ctx, "%v: execute has %d warnings", str, wn)
           warnstack(ctx, 3, "%v: %v", str, ctx).debug(1)
         } else if pos := ctx.Position(); lpos.Equals(&pos) {
-          warn(ctx, "%v: scanned %d known warnings", str, wn).debug(1)
+          warn(ctx, "%v: scanned %d known warnings", str, wn)
+          warnstack(ctx, 3, "%v: %v", str, ctx).debug(1)
         } else {
           warn(ctx, "%v: scanned %d known warnings", str, wn).at(lpos)
-          warn(ctx, "%v: scanned %d known warnings", str, wn).debug(1)
+          warn(ctx, "%v: execute has %d warnings", str, wn)
+          warnstack(ctx, 3, "%v: %v", str, ctx).debug(1)
         }
       } else if in > 0 && opts.infos {
         info(ctx, "%v: scanned %d known messages", str, in).at(lpos)
