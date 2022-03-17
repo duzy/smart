@@ -94,6 +94,7 @@ var builtins = map[string]BuiltinFunc {
         `list`:         builtinList,
 
         `shell`:        builtinShell,
+        `which`:        builtinWhich,
 
         `serve-http`:   builtinServeHttp,
         `serve-https`:  builtinServeHttps,
@@ -1141,6 +1142,37 @@ func builtinShell(ctx Context, args... Value) (res Value) {
                 vals = append(vals, val)
                 bufout.Reset()
                 buferr.Reset()
+        }
+        return MakeListOrScalar(pos, vals)
+}
+
+type builtinWhichOpts struct {
+}
+func builtinWhich(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                opts builtinWhichOpts
+                vals []Value
+                err error
+        )
+        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        }
+        for _, a := range args {
+                var s string
+                if s, err = a.Strval(ctx); err != nil {
+                        erro(ctx, "%v", err).debug(1)
+                        return
+                } else if s, err = exec.LookPath(s); err != nil {
+                        erro(ctx, "%v", err).debug(1)
+                        return
+                } else if s != "" {
+                        vals = append(vals, MakeString(pos, s))
+                }
         }
         return MakeListOrScalar(pos, vals)
 }
