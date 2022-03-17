@@ -1055,6 +1055,15 @@ func (p *parser) parseClosureDelegate() (result Value) {
 			if sel, ok := name.(*selection); ok {
 				if sel == nil {
 					erro(p, "nil selection: %v", name).at(name.Position()).debug(1)
+				} else if true {
+					// NOTE: selected defs could have closured, have to preserve selection
+					if obj, okay = sel, true; false {
+						o, _ := sel.object(ctx)
+						v, _ := sel.value(ctx)
+						warn(p, "`%v`; %T %v", sel, o, o).of(name)
+						warn(p, "`%v`; %T %v", sel, v, v).of(name)
+						warn(p, "`%v`; closured = %v", sel, v.expandible(ctx, expandClosure)).of(name).debug(1)
+					}
 				} else if o, err := sel.object(ctx); err == nil && o.DeclScope().comment == usecomment {
 					obj, okay = unresolved(proj, name), true
 				} else if err != nil {
@@ -1065,7 +1074,9 @@ func (p *parser) parseClosureDelegate() (result Value) {
 					erro(p, "`%v` invalid delegate selection", name).of(name).debug(1)
 				} else if isNil(v) {
 					erro(p, "`%v` not found in %v", sel.s, o).of(name).debug(1)
-				} else if obj, okay = v.(Object); !okay {
+				} else if /* FIXME: v.expandible(ctx, expandClosure) {
+					obj, okay = sel, true
+				} else if*/ obj, okay = v.(Object); !okay {
 					return // just use the selected value
 				}
 			} else if str, resolved, err = p.resolveObject(name); err != nil {

@@ -503,7 +503,7 @@ func closureResolveEntry(ctx Context, pos Position, name string) (entries *Resol
 }
 
 func closureWith(ctx Context, pos Position, scopes ...*Scope) (res Context) {
-    if c, ok := ctx.(*closureContext); ok {
+    if c, ok := ctx.(*closureContext); false && ok {
         res = closureWith(c.Context, pos, scopes...)
     } else {
         res = &closureContext{ ctx, scopes }
@@ -4948,7 +4948,7 @@ func (p *delegate) expand(ctx Context, w expandwhat) (res Value, err error) {
             return
         }
         return
-    } else if res, err = p.reveal(ctx, w); err != nil {
+    } else if ctx, res, err = p.reveal(ctx, w); err != nil {
         erro(ctx, "reveal '%v' failed: %v", p, err).of(p).debug(1)
         return
     } else if isNil(res) {
@@ -4963,8 +4963,12 @@ func (p *delegate) expand(ctx Context, w expandwhat) (res Value, err error) {
     }
     return
 }
-func (p *delegate) reveal(ctx Context, w expandwhat) (res Value, err error) {
+func (p *delegate) reveal(ctx Context, w expandwhat) (retctx Context, res Value, err error) {
     ctx = positional(ctx, p.position)
+
+    if false { if s := p.x.String(); s == "main→sources" {
+        warn(ctx, "%T %v; %v", p.x, p.x, ctx).debug(1)
+    }}
 
     var x Object
     if t, ok := p.x.(Object); ok && t != nil {
@@ -4981,6 +4985,10 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (res Value, err error) {
         return
     } else {
         if n, ok := t.o.(*ProjectName); ok && n != nil && n.project != nil {
+            if false {if s := p.x.String(); s == "main→sources" {
+                warn(ctx, "%v: %T %v %v", p.x, ctx, ctx, ctx.closureScopes()).debug(1)
+            }}
+            // FIXME: closure with n.project not working
             ctx = closureWith(ctx, n.position, n.project.scope)
         }
 
@@ -4993,14 +5001,23 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (res Value, err error) {
             erro(ctx, "%v: selected value is nil (%T %v) (w=%016b)", p, t.o, t.o, w)
             errostack(ctx, 3, "%v", ctx).debug(16)
             return
-        } else if t, ok := v.(Object); ok {
+        } else if t, ok := v.(Object); !ok {
+            erro(ctx, "%v: selected value is not object (%T %v) (w=%016b)", t, v, v, w)
+            errostack(ctx, 3, "%v", ctx).debug(16)
+            return
+        } else {
             x = t
         }
+        if false { if s := p.x.String(); s == "main→sources" {
+            warn(ctx, "%v: %T %v", p.x, t.o, t.o)
+            warn(ctx, "%v: %T %v", p.x, x, x)
+            warn(ctx, "%v: %T %v %v", p.x, ctx, ctx, ctx.closureScopes()).debug(1)
+        }}
     }
 
     var args []Value
     if args, _, err = p.args(ctx, w); err != nil {
-        erro(ctx, "apply args failed: %v", err).debug(1)
+        erro(ctx, "compute args failed: %v", err).debug(1)
         return
     }
 
@@ -5011,6 +5028,12 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (res Value, err error) {
                 erro(ctx, "calling def '%v' (%v) returns <nil> (def.value=%v %T, %T)", d.name, d.origin, d.value, d.value, ctx).debug(16)
             }
         }
+        if false {if s := p.x.String(); s == "main→sources" {
+            xv, _ := res.expand(ctx, w)
+            warn(ctx, "%v: %v", p.x, t)
+            warn(ctx, "%v: %v", p.x, res)
+            warn(ctx, "%v: %v", p.x, xv).debug(1)
+        }}
     case Executer:
         if vals, brks := t.Execute(ctx, args...); len(brks) > 0 {
             for _, brk := range brks {
@@ -5027,6 +5050,8 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (res Value, err error) {
         if !pos.IsValid() { pos = p.position }
         erro(ctx, "%s: unknown delegation: %T %v -> %T %v", x.Name(ctx), p.x, p.x, x, x).at(pos).debug(32)
     }
+
+    retctx = ctx
     return
 }
 func (p *delegate) stat(ctx Context) (si *statinfo) {
