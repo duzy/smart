@@ -278,8 +278,8 @@ type useOpts struct {
 }
 
 type useVarOpts struct {
-	unique bool `u,unique;uni,unique`
-	reverse bool `r,reverse;rev,reverse`
+	unique bool `u,uni,uniq,unique`
+    args []Value
 }
 func parseUseNameOpts(ctx Context, nameVal Value) (name string, opts useVarOpts) {
     var err error
@@ -289,12 +289,8 @@ func parseUseNameOpts(ctx Context, nameVal Value) (name string, opts useVarOpts)
 		if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
 			erro(ctx, "%v", err).debug(1)
 			return
-		} else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+		} else if opts.args, err = parseOpts(ctx, &opts, args...); err != nil {
 			erro(ctx, "%v", err).debug(1)
-			return
-		}
-		for _, arg := range args {
-			erro(ctx, "unknown arg: %v", arg).of(arg).debug(1)
 			return
 		}
 	}
@@ -314,12 +310,29 @@ func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
         position = ctx.Position()
         none = MakeNone(position)
 		def, alt = user.scope.define(ctx, DefVoid, name, none)
+        isNewDef = !isNil(def) && isNil(alt)
 	)
 	if def == nil && !isNil(alt) { def, _ = alt.(*Def) }
 	if def == nil {
 		erro(ctx, `%v: "%s" is undefined`, user, name).of(nameVal).debug(1)
 		return
-    } else if isTrivial(def.value) {
+    } else if false {
+        isNewDef = /*isTrivial(def.value)*/true
+    }
+    if isNewDef && len(user.bases) > 0 {
+        // 1: derive values from bases
+        for _, base := range user.bases {
+            if obj, err := base.resolveObject(ctx, name); err != nil {
+                erro(ctx, "resolve '%s' failed: %v", name, err).debug(1)
+            } else if isNil(obj) {
+                continue
+            } else if d, ok := obj.(*Def); ok && !isTrivial(d.value) {
+                if false { def.append(ctx, obj) } else {
+                    def.append(ctx, d.value)
+                }
+            }
+        }
+        // 2: apply using vars from bases
         for _, base := range user.bases {
             var ( obj Object; err error )
             if false {
@@ -331,32 +344,33 @@ func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
             if isNil(obj) {
                 continue
             } else if d, ok := obj.(*Def); ok && !isTrivial(d.value) {
-                def.append(ctx, obj)
+                if false { def.append(ctx, obj) } else {
+                    def.append(ctx, d.value)
+                }
             }
-        }
-    }
-    for _, base := range user.bases {
-        if obj, err := base.resolveObject(ctx, name); err != nil {
-            erro(ctx, "resolve '%s' failed: %v", name, err).debug(1)
-        } else if isNil(obj) {
-            continue
-        } else if d, ok := obj.(*Def); ok && !isTrivial(d.value) {
-            def.append(ctx, obj)
         }
     }
 
     if v, e := user.using.Get(ctx, name/* NOTE: gets `using.%s` */); e != nil {
 		erro(ctx, "%v: %v (using.%s)", user, e, name)
-	} else if e = def.append(ctx, v); e != nil {
-		erro(ctx, "append using value: %v (from %v)", e, user.scope).debug(1)
-	} else if opts.unique && opts.reverse {
-		def.value = builtinUnique(closureWith(ctx, position, user.scope), MakeFlag(position, "r"), def.value)
-	} else if opts.unique {
-		def.value = builtinUnique(closureWith(ctx, position, user.scope), def.value)
-	}
-	if false && name == "ldlibs" && strings.HasPrefix(user.name, "lld.") {
+    } else if va := merge(v); len(va) > 0 {
+        for _, v := range va {
+            if d, ok := v.(*Def); !ok {
+                erro(ctx, "%s: not a Def: %T %v", name, v, v).debug(1)
+            } else if isTrivial(d.value) {
+                // does nothing
+            } else if e = def.append(ctx, /*v*/d.value); e != nil {
+                erro(ctx, "append using value: %v (from %v)", e, user.scope).debug(1)
+            } else if opts.unique && len(opts.args) > 0 {
+                def.value = builtinUnique(closureWith(ctx, position, user.scope), MakeList(position, opts.args...), def.value)
+            } else if opts.unique {
+                def.value = builtinUnique(closureWith(ctx, position, user.scope), def.value)
+            }
+        }
+    }
+    if false && name == "ldlibs" && strings.HasPrefix(user.name, "lld.") {
 		info(ctx, "%v, %v: %v", user, usee, def)
-		info(ctx, "%v, %v: %v", user, usee, ctx).debug(10)
+		info(ctx, "%v, %v: %v %v", user, usee, ctx.Project(), ctx).debug(10)
 	}
 }
 func applyUsingVar(ctx Context, user, usee *Project, nameVal Value) {
@@ -392,10 +406,14 @@ func applyUsingVar(ctx Context, user, usee *Project, nameVal Value) {
 
     if o := usee.scope.Lookup(usingName); isNil(o) || isNone(o) {
         // does nothing
-    } else if err = def.append(ctx, o); err != nil {
+    } else if d, ok := o.(*Def); !ok {
+        erro(ctx, "%s: not a Def: %T %v", name, o, o).debug(1)
+    } else if isTrivial(d.value) {
+        // does nothing
+    } else if err = def.append(ctx, d.value); err != nil {
         erro(ctx, "append '%v' failed: %v (from %v)", name, err, usee.scope).debug(1)
-    } else if opts.unique && opts.reverse {
-        def.value = builtinUnique(closureWith(ctx, position, usee.scope), MakeFlag(position, "r"), def.value)
+    } else if opts.unique && len(opts.args) > 0 {
+        def.value = builtinUnique(closureWith(ctx, position, usee.scope), MakeList(position, opts.args...), def.value)
     } else if opts.unique {
         def.value = builtinUnique(closureWith(ctx, position, usee.scope), def.value)
     }
@@ -903,9 +921,13 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
         } else if derived == def || def.value.refs(ctx, derived) {
             // same def
         } else if tok == token.ADD_ASSIGN {
-            // Unshift the delegation to derive value.
-            var delegate = MakeDelegate(ctx.Position(), token.LPAREN, derived)
-            if err := def.append(ctx, delegate); err != nil {
+            if false {
+                // Unshift the delegation to derive value.
+                var delegate = MakeDelegate(ctx.Position(), token.LPAREN, derived)
+                if err := def.append(ctx, delegate); err != nil {
+                    erro(ctx, "append def '%s' failed: %v", def.name, err)
+                }
+            } else if err := def.append(ctx, derived.value); err != nil {
                 erro(ctx, "append def '%s' failed: %v", def.name, err)
             }
         }
@@ -1295,7 +1317,6 @@ ParamsLoop:
         erro(ctx, "resolve using.* failed: %v", e).debug(1)
     } else if d, ok := o.(*Def); ok && !isTrivial(d.value) {
         var none = MakeNone(position)
-        var flagR = MakeFlag(position, "r")
         // Derive using.xxx Defs from bases
         for _, val := range merge(d.value) {
             var name, opts = parseUseNameOpts(ctx, val)
@@ -1303,28 +1324,37 @@ ParamsLoop:
             var def, alt = l.project.scope.define(ctx, DefVoid, us, none)
             if def == nil && !isNil(alt) { def, _ = alt.(*Def) }
             if def == nil { continue }
+            var flagR Value
+            if len(opts.args) > 0 {
+                flagR = MakeList(position, opts.args...)
+            }
             for _, base := range l.project.bases {
                 var obj = base.scope.lookup(us)
                 if isNil(obj) { continue }
-                if d, ok := obj.(*Def); !ok || isTrivial(d.value) { continue }
-                if e := def.append(ctx, obj); e != nil {
+                if d, ok := obj.(*Def); !ok || isTrivial(d.value) {
+                    continue
+                } else if e := def.append(ctx, /*obj*/d.value); e != nil {
                     erro(ctx, "append using value: %v", e).debug(1)
                 } else if true {
                     continue
-                } else if opts.unique && opts.reverse {
+                } else if opts.unique && flagR != nil {
                     def.value = builtinUnique(closureWith(ctx, position, l.project.scope), flagR, def.value)
                 } else if opts.unique {
                     def.value = builtinUnique(closureWith(ctx, position, l.project.scope), def.value)
                 }
                 if false { warn(ctx, "%v: %v: %v", l.project, base, def).debug(1) }
             }
-            if opts.unique && opts.reverse {
+            if opts.unique && flagR != nil {
                 def.value = builtinUnique(closureWith(ctx, position, l.project.scope), flagR, def.value)
             } else if opts.unique {
                 def.value = builtinUnique(closureWith(ctx, position, l.project.scope), def.value)
             }
+            if false && l.project.name == "extbit.main.macOS" {
+                warn(ctx, "%v: %v, %v, %v", def.owner, def.origin, name, opts)
+                warnstack(ctx, 5, "%v", def).debug(16)
+            }
         }
-     }
+    }
     return true
 }
 
@@ -1728,6 +1758,7 @@ func (l *loader) assign(tok token.Token, def *Def, alt Object, value Value) (err
             if err = def.val(ctx, value); err == nil {
                 err = def.append(ctx, merge(tail)...)
             }
+            warn(ctx, "%v; %v; %v", value, tail, def).debug(1)
         }
     case token.SUB_ASSIGN: // -=
         if isNil(def.value) || isNone(def.value) {

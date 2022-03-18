@@ -2105,7 +2105,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident Value) (def *Def) {
 	if n := len(elems); n == 1 {
 		value = elems[0]
 	} else if n > 1 {
-		value = MakeList(p.Position(), elems...)
+		value = MakeList(elems[0].Position(), elems...)
 	}
 
 	// NOTE: forcely put all explicit defs into project scope. It's important for defs enclosed

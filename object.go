@@ -443,19 +443,22 @@ type Def struct {
         origin Origin
         value Value
 }
-func (d *Def) String() (s string) {
-        switch s = d.name; d.origin {
-        case DefDefault: s +=   "="
-        case DefExpand1: s +=  ":="
-        case DefExpand2: s += "::="
-        case DefExecute: s +=  "!="
-        default:         s +=   "⇒"
+func (d *Def) streq() (s string) {
+        switch d.origin {
+        case DefDefault: s =   "="
+        case DefExpand1: s =  ":="
+        case DefExpand2: s = "::="
+        case DefExecute: s =  "!="
+        default:         s =   "⇒"
         }
+        return
+}
+func (d *Def) String() (s string) {
         var value Value
         d.mutex.Lock()
         value = d.value
         d.mutex.Unlock()
-        if value != nil {
+        if s = d.name + d.streq(); value != nil {
                 s += elementString(nil, d, value, 0)
         } else {
                 s += "<nil>"
@@ -628,6 +631,26 @@ func (d *Def) isEmpty(ctx Context) bool {
 }
 func (d *Def) val(ctx Context, value Value) (err error) { return d.set(ctx, d.origin, value) }
 func (d *Def) set(ctx Context, origin Origin, value Value) (err error) {
+        if false && d.name == "ldflags" {
+                warn(ctx, "%v, %v; %v", d.origin, origin, d.value == value)
+                warn(ctx, "%v", d)
+                if s := d.streq(); true {
+                        warnstack(ctx, 5, ";      %s%v", s, value).debug(16)
+                } else {
+                        warn(ctx, ";      %s%v", s, value).debug(1)
+                }
+        }
+        if d.value == value {
+                warn(ctx, "%v→%v; %v", d.origin, origin, d)
+                warnstack(ctx, 5, ";      %s%v", d.streq(), value).debug(16)
+                if d.origin != origin { d.origin = origin }
+                return
+        } else if def, ok := value.(*Def); ok {
+                // Appending Def value is not recommended, but if it does, we
+                // make a warning here to give a chance for further optimization.
+                warn(ctx, "%v; (%v)", d, d.origin)
+                warnstack(ctx, 5, "%v: append a Def value: %v", d.name, def).debug(16)
+        }
         if d.origin == DefArg || d.origin == DefAuto {
                 var pos = ctx.Position()
                 if !pos.IsValid() { pos = d.position }
@@ -692,9 +715,13 @@ func (d *Def) set(ctx Context, origin Origin, value Value) (err error) {
                 d.value = value
                 d.mutex.Unlock()
         }
+        if false && d.name == "ldflags" {
+                warn(ctx, "%v", d).debug(1)
+        }
         return
 }
 
+//TODO: func (d *Def) prepend(ctx Context, va... Value) (err error)
 func (d *Def) append(ctx Context, va... Value) (err error) {
         var (
                 pos = ctx.Position()
@@ -703,13 +730,53 @@ func (d *Def) append(ctx Context, va... Value) (err error) {
         )
         if !pos.IsValid() { pos = d.position }
 
-        for _, value := range va {
-                if !isNil(value) && value.refs(ctx, d) {
-                        info(ctx, "%v: append recursive variable '%s'", d.owner, d.name).at(pos).debug(6)
+        if false && d.name == "ldflags" && !isTrivial(d.value) && !strings.Contains(d.value.String(), "&(if &(filter %.swift,&(sources)),-L$(MacOSX.sdk)/usr/lib/swift)") {
+                warn(ctx, "%v", d.origin)
+                warn(ctx, "%v", d)
+                warnstack(ctx, 5, ";      +=%v", va).debug(16)
+        }
+        for i, val := range va { // NOTE: fix Def as delegate value
+                var def, ok = val.(*Def)
+                if !ok { continue } else {
+                        // Appending Def value is not recommended, but if it does, we
+                        // make a warning here to give a chance for further optimization.
+                        warn(ctx, "%v; (%v)", d, d.origin)
+                        warnstack(ctx, 5, "%v: append a Def value: %v", d.name, def).debug(16)
+                }
+                if def == d || def.value.refs(ctx, d) {
+                        warnstack(ctx, 5, "%v: append recursive variable '%s'", d.owner, d.name).debug(6)
+                        return
+                }
+                switch d.origin {
+                case DefExpand1, DefExpand2: va[i] = def.value
+                default: va[i] = MakeDelegate(/*val.Position()*/pos, token.LPAREN, def)
+                }
+                if false && d.name == "ldflags" { warn(ctx, "%v", def).debug(1) }
+        }
+        switch d.origin {
+        case DefExpand1: // :=     expands delegates
+                if va, _, err = expandall2(ctx, expandDelegate, va...); err != nil {
+                        erro(ctx, "%v: expand value '%v' failed: %v", d.origin, value, err).of(value)
+                        return
+                }
+        case DefExpand2: // ::=    expands delegates and closures
+                if va, _, err = expandall2(ctx, expandDelegate|expandClosure, va...); err != nil {
+                        erro(ctx, "%v: expand value '%v' failed: %v", d.origin, value, err).of(value)
                         return
                 }
         }
+        if false && d.name == "ldflags" {
+                warn(ctx, "%v", d.origin)
+                warn(ctx, "%v", d)
+                warnstack(ctx, 5, ";      +=%v", va).debug(16)
+        }
 
+        for _, val := range va {
+                if !isNil(val) && (val.refs(ctx, d)/* || val.refs(ctx, d.value)*/) {
+                        warnstack(ctx, 5, "%v: append recursive variable '%s'", d.owner, d.name).debug(6)
+                        return
+                }
+        }
         if d.origin == DefArg || d.origin == DefAuto {
                 value, _ = ctx.autoGet(d.name)
         } else {
@@ -717,13 +784,21 @@ func (d *Def) append(ctx Context, va... Value) (err error) {
                 value = d.value
                 d.mutex.Unlock()
         }
-
         if num := len(va); num == 0 {
                 return // Does nothing...
         } else if isNil(value) || isNone(value) {
                 list = MakeList(pos, va...)
         } else if list, _ = value.(*List); list != nil {
-                list.Append(va...)
+                if list.Append(va...); d.value == list {
+                        if false && d.name == "ldflags" /*&& d.owner.name == "extbit.main.macOS"*/ {
+                                warn(ctx, "%v: (%v): %s += %v", d.owner, d.origin, d.name, va)
+                                warnstack(ctx, 5, "%v", d).debug(32)
+                        }
+                        if true { for _, v := range va {
+                                assert(list.refs(ctx, v), "'%v' not appended", v)
+                        }}
+                        return
+                }
         } else {
                 list = MakeList(pos, append(merge(value), va...)...)
         }

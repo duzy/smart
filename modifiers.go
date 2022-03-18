@@ -166,7 +166,7 @@ var (
                 `env`:          modifierEnv,  // interpreter environments
                 `set`:          modifierSet,
 
-                `dirty-marks`:  modifierDirtyMarks,
+                `dirty-opts`:   modifierSetDirtyPats,
 
                 `closure`:      modifierClosure,
                 `for`:          modifierFor,
@@ -495,13 +495,13 @@ ForArgs:
         return
 }
 
-type modifierDirtyMarksOpts struct {
+type modifierSetDirtyPatsOpts struct {
         verbose bool `v,verbose`
         pats []Value
 }
-func modifierDirtyMarks(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierSetDirtyPats(ctx Context, args... Value) (result Value, brks breakers) {
         var (
-                opts = ctx.marksOpts()
+                opts = ctx.dirtyOpts()
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
@@ -3253,7 +3253,7 @@ func modifierCase(ctx Context, args... Value) (result Value, brks breakers) {
 
 func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
         var (
-                opts = ctx.marksOpts()
+                opts = ctx.dirtyOpts()
                 deps []Value
                 err error
         )

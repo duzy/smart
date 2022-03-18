@@ -25,7 +25,7 @@ type programContext struct {
     prog *Program
     params []string // $0, $1, $2, ...
     mutex sync.Mutex
-    dirtyMarks modifierDirtyMarksOpts
+    _dirtyOpts modifierSetDirtyPatsOpts
 }
 
 func (pc *programContext) inner() Context { return &pc.autoContext }
@@ -67,7 +67,7 @@ func (pc *programContext) spawn() Context {
     }
     return &spawnProgramContext{programContext{autoContext{
         Context: ctx, defs: pc.defs.clone() }, pc.prog, pc.params, sync.Mutex{},
-        modifierDirtyMarksOpts{},
+        modifierSetDirtyPatsOpts{},
     }}
 }
 func (pc *programContext) appendCallerUpdated() bool { return true }
@@ -88,7 +88,7 @@ func (pc *programContext) closureScopes() (scopes []*Scope) {
     return
 }
 
-func (pc *programContext) marksOpts() *modifierDirtyMarksOpts { return &pc.dirtyMarks }
+func (pc *programContext) dirtyOpts() *modifierSetDirtyPatsOpts { return &pc._dirtyOpts }
 func (pc *programContext) mark(vals ...Value) {
     const enableUpdatedDeps = true
     if !enableUpdatedDeps {
@@ -100,7 +100,7 @@ func (pc *programContext) mark(vals ...Value) {
     } else if last := vals[len(vals)-1]; last != tt {
         var (
             mat bool
-            opts = pc.marksOpts()
+            opts = pc.dirtyOpts()
         )
         for _, val := range vals {
             for _, pat := range opts.pats {

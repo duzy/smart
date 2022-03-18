@@ -119,7 +119,7 @@ type Context interface {
   programCtx() *programContext
   program() *Program
 
-  marksOpts() *modifierDirtyMarksOpts
+  dirtyOpts() *modifierSetDirtyPatsOpts
   mark(...Value)
 
   entry() Entry
@@ -516,7 +516,7 @@ func (ctx *defaultContext) closureScopes() (scopes []*Scope) {
   }
   return
 }
-func (ctx *defaultContext) marksOpts() *modifierDirtyMarksOpts { return nil }
+func (ctx *defaultContext) dirtyOpts() *modifierSetDirtyPatsOpts { return nil }
 func (ctx *defaultContext) mark(vals ...Value) { return }
 
 func (ctx *defaultContext) help()       { do_helpscreen(ctx) }

@@ -5069,7 +5069,9 @@ func (p *delegate) delete(ctx Context) (file []*File, err error) {
 func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*delegate); ok {
         // NOTE: don't compare the expanded value!!
-        if res = p.x.cmp(ctx, a.x); res == cmpEqual && len(p.a) == len(a.a) {
+        if p == a {
+            return cmpEqual
+        } else if res = p.x.cmp(ctx, a.x); res == cmpEqual && len(p.a) == len(a.a) {
             for i, t := range p.a {
                 if res = t.cmp(ctx, a.a[i]); res != cmpEqual { return }
             }
@@ -5287,7 +5289,9 @@ func (p *closure) delete(ctx Context) (file []*File, err error) {
 func (p *closure) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*closure); ok {
         // NOTE: don't compare the expanded value!!
-        if res = p.x.cmp(ctx, a.x); res == cmpEqual && len(p.a) == len(a.a) {
+        if p == a {
+            return cmpEqual
+        } else if res = p.x.cmp(ctx, a.x); res == cmpEqual && len(p.a) == len(a.a) {
             for i, t := range p.a {
                 if res = t.cmp(ctx, a.a[i]); res != cmpEqual { return }
             }

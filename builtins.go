@@ -1427,7 +1427,9 @@ func builtinMinus(ctx Context, args... Value) (result Value) {
 }
 
 type builtinUniqueOpts struct {
-        reverse bool `r,reverse`
+	reverse bool `r,rev,reverse`
+        unexpand bool `un,ue,unexpand,ne,noexpand,no-expand`
+        plain bool `pl,pla,plain,pv,plainvalue,plain-value`
 }
 func builtinUnique(ctx Context, args... Value) (res Value) {
         var (
@@ -1442,9 +1444,9 @@ func builtinUnique(ctx Context, args... Value) (res Value) {
                 }
                 args = append(a, args[1:]...)
         }
-        if false {
+        if opts.unexpand {
                 args = merge(args...)
-        } else if true {
+        } else if opts.plain {
                 if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
                         erro(ctx, "%v", err).debug(1)
                         return
