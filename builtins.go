@@ -2565,8 +2565,9 @@ func builtinFindstring(ctx Context, args... Value) (res Value) {
 // $(contains a b -or=(c1 c2 c3), v1 v2 …)
 type builtinContainsOpts struct {
         debug bool `d,debug`
-        verbose bool `v,verbose`
-        string bool `s,string`
+        verbose bool `v,verb,verbose`
+        string bool `s,str,string`
+        match bool `m,mat,match,p,pat,pattern`
 }
 func builtinContains(ctx Context, args... Value) (res Value) {
         var (
@@ -2612,7 +2613,9 @@ func builtinContains(ctx Context, args... Value) (res Value) {
                 }
 
                 if len(va) == 0 { continue }
-                ForList:for _, v := range list {
+
+        ForList:
+                for _, v := range list {
                         for _, a := range va {
                                 if opts.string {
                                         var r string
@@ -2625,9 +2628,15 @@ func builtinContains(ctx Context, args... Value) (res Value) {
                                                 return
                                         }
                                         if r != s { continue ForList }
-                                } else if a.cmp(ctx, v) != cmpEqual { continue ForList }
+                                } else if opts.match {
+                                        var full, r, s = a.match(ctx, v)
+                                        if false { warn(ctx, "%v %v; %v %v %v; %v, %v", a, v, full, r, s, n, x).debug(1) }
+                                        if !full { continue ForList }
+                                } else if a.cmp(ctx, v) != cmpEqual {
+                                        continue ForList
+                                }
                         }
-                        n += 1 // one matched
+                        if n += 1/* matched one */; n == x { break }
                 }
                 va = nil
         }
