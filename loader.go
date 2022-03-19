@@ -281,6 +281,20 @@ type useVarOpts struct {
 	unique bool `u,uni,uniq,unique`
     args []Value
 }
+func (opts *useVarOpts) apply(ctx Context, def *Def, vals []Value) {
+    if opts.unique {
+        if e := def.append(ctx, vals...); e != nil {
+            erro(ctx, "%v: %v, %v", def.owner, def.origin, opts)
+            errostack(ctx, 5, "%v", def).debug(16)
+        }
+        if position := ctx.Position(); len(opts.args) > 0 {
+            var args = MakeList(position, opts.args...)
+            def.value = builtinUnique(ctx, args, def.value)
+        } else {
+            def.value = builtinUnique(ctx, def.value)
+        }
+    }
+}
 func parseUseNameOpts(ctx Context, nameVal Value) (name string, opts useVarOpts) {
     var err error
     if arged, ok := nameVal.(*Argumented); ok {
@@ -327,9 +341,7 @@ func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
             } else if isNil(obj) {
                 continue
             } else if d, ok := obj.(*Def); ok && !isTrivial(d.value) {
-                if false { def.append(ctx, obj) } else {
-                    def.append(ctx, d.value)
-                }
+                opts.apply(ctx, def, merge(d.value))
             }
         }
         // 2: apply using vars from bases
@@ -344,9 +356,7 @@ func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
             if isNil(obj) {
                 continue
             } else if d, ok := obj.(*Def); ok && !isTrivial(d.value) {
-                if false { def.append(ctx, obj) } else {
-                    def.append(ctx, d.value)
-                }
+                opts.apply(ctx, def, merge(d.value))
             }
         }
     }
@@ -354,17 +364,14 @@ func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
     if v, e := user.using.Get(ctx, name/* NOTE: gets `using.%s` */); e != nil {
 		erro(ctx, "%v: %v (using.%s)", user, e, name)
     } else if va := merge(v); len(va) > 0 {
+        var c = closureWith(ctx, position, user.scope)
         for _, v := range va {
             if d, ok := v.(*Def); !ok {
                 erro(ctx, "%s: not a Def: %T %v", name, v, v).debug(1)
             } else if isTrivial(d.value) {
                 // does nothing
-            } else if e = def.append(ctx, /*v*/d.value); e != nil {
-                erro(ctx, "append using value: %v (from %v)", e, user.scope).debug(1)
-            } else if opts.unique && len(opts.args) > 0 {
-                def.value = builtinUnique(closureWith(ctx, position, user.scope), MakeList(position, opts.args...), def.value)
-            } else if opts.unique {
-                def.value = builtinUnique(closureWith(ctx, position, user.scope), def.value)
+            } else {
+                opts.apply(c, def, merge(d.value))
             }
         }
     }
@@ -385,7 +392,6 @@ func applyUsingVar(ctx Context, user, usee *Project, nameVal Value) {
         none = MakeNone(position)
         usingName = "using." + name
         def, alt = user.scope.define(ctx, DefVoid, usingName, none)
-        err error
     )
     if def == nil && !isNil(alt) { def, _ = alt.(*Def) }
     if def == nil {
@@ -410,12 +416,12 @@ func applyUsingVar(ctx Context, user, usee *Project, nameVal Value) {
         erro(ctx, "%s: not a Def: %T %v", name, o, o).debug(1)
     } else if isTrivial(d.value) {
         // does nothing
-    } else if err = def.append(ctx, d.value); err != nil {
-        erro(ctx, "append '%v' failed: %v (from %v)", name, err, usee.scope).debug(1)
-    } else if opts.unique && len(opts.args) > 0 {
-        def.value = builtinUnique(closureWith(ctx, position, usee.scope), MakeList(position, opts.args...), def.value)
-    } else if opts.unique {
-        def.value = builtinUnique(closureWith(ctx, position, usee.scope), def.value)
+    } else {
+        var c = closureWith(ctx, position, usee.scope)
+        opts.apply(c, def, merge(d.value))
+    }
+    if def.name == "arflags" && strings.Contains(def.value.String(), "crs crs") {
+        warn(ctx, "%v", def).debug(1)
     }
     if false && name == "ldlibs" && (strings.HasPrefix(user.name, "lld.") || strings.HasPrefix(usee.name, "lld.")) {
         info(ctx, "%v: %v: %v", user, usee, def)
@@ -1324,31 +1330,19 @@ ParamsLoop:
             var def, alt = l.project.scope.define(ctx, DefVoid, us, none)
             if def == nil && !isNil(alt) { def, _ = alt.(*Def) }
             if def == nil { continue }
-            var flagR Value
-            if len(opts.args) > 0 {
-                flagR = MakeList(position, opts.args...)
-            }
+
+            var vals []Value
             for _, base := range l.project.bases {
                 var obj = base.scope.lookup(us)
                 if isNil(obj) { continue }
                 if d, ok := obj.(*Def); !ok || isTrivial(d.value) {
                     continue
-                } else if e := def.append(ctx, /*obj*/d.value); e != nil {
-                    erro(ctx, "append using value: %v", e).debug(1)
-                } else if true {
-                    continue
-                } else if opts.unique && flagR != nil {
-                    def.value = builtinUnique(closureWith(ctx, position, l.project.scope), flagR, def.value)
-                } else if opts.unique {
-                    def.value = builtinUnique(closureWith(ctx, position, l.project.scope), def.value)
+                } else {
+                    vals = append(vals, merge(d.value)...)
                 }
                 if false { warn(ctx, "%v: %v: %v", l.project, base, def).debug(1) }
             }
-            if opts.unique && flagR != nil {
-                def.value = builtinUnique(closureWith(ctx, position, l.project.scope), flagR, def.value)
-            } else if opts.unique {
-                def.value = builtinUnique(closureWith(ctx, position, l.project.scope), def.value)
-            }
+            opts.apply(closureWith(ctx, position, l.project.scope), def, vals)
             if false && l.project.name == "extbit.main.macOS" {
                 warn(ctx, "%v: %v, %v, %v", def.owner, def.origin, name, opts)
                 warnstack(ctx, 5, "%v", def).debug(16)

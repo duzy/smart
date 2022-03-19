@@ -641,8 +641,10 @@ func (d *Def) set(ctx Context, origin Origin, value Value) (err error) {
                 }
         }
         if d.value == value {
-                warn(ctx, "%v→%v; %v", d.origin, origin, d)
-                warnstack(ctx, 5, ";      %s%v", d.streq(), value).debug(16)
+                if !isNil(value) {
+                        warn(ctx, "%v→%v; %v", d.origin, origin, d)
+                        warnstack(ctx, 5, ";      %s%v", d.streq(), value).debug(16)
+                }
                 if d.origin != origin { d.origin = origin }
                 return
         } else if def, ok := value.(*Def); ok {
@@ -736,6 +738,9 @@ func (d *Def) append(ctx Context, va... Value) (err error) {
                 warnstack(ctx, 5, ";      +=%v", va).debug(16)
         }
         for i, val := range va { // NOTE: fix Def as delegate value
+                if false && d.name == "arflags" && strings.Contains(val.String(), "crs") && strings.Contains(d.value.String(), "crs") {
+                        warnstack(ctx, 5, "%v %v %v", va, val, d).debug(16)
+                }
                 var def, ok = val.(*Def)
                 if !ok { continue } else {
                         // Appending Def value is not recommended, but if it does, we
