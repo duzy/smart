@@ -1123,14 +1123,34 @@ type entryContext struct {
         ent *RuleEntry
 }
 func (ec *entryContext) entry() Entry { return ec.ent }
+func (ec *entryContext) entryContext() *entryContext { return ec }
 func (ec *entryContext) inner() Context { return ec.Context }
 func (ec *entryContext) String() string {
         if fullContextStringer {
                 return fmt.Sprintf("entry{%s,%s}", ec.ent, ec.Context)
-        } else if s, e := ec.ent.Strval(ec.Context); e != nil {
+        } else if true {
+                var ( cc []*entryContext; s string )
+                for c := ec; c != nil && len(cc) < 5; c = c.Context.entryContext() {
+                        if false {
+                                cc = append([]*entryContext{ c }, cc...)
+                        } else {
+                                cc = append(cc, c)
+                        }
+                }
+                for _, c := range cc {
+                        if t, e := c.ent.Strval(c.Context); e != nil {
+                                return fmt.Sprintf("[%v]{%s}", e, ec.Context)
+                        } else if s != "" {
+                                s = fmt.Sprintf("%s{%s}", t, s)
+                        } else {
+                                s = t
+                        }
+                }
+                return s
+        } else if s, e := ec.ent.Strval(ec.Context); e != nil { // FIXME: may fall into a time-consuming trap in this branch
                 return fmt.Sprintf("[%v]{%s}", e, ec.Context)
         } else if t := ec.Context.String(); t != "" {
-                return fmt.Sprintf("%s{%s}", s, ec.Context)
+                return fmt.Sprintf("%s{%s}", s, t)
         } else {
                 return fmt.Sprintf("%s", s)
         }

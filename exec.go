@@ -1068,15 +1068,6 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     return
   }
 
-  ///////////
-  if false {
-    defer func() {
-      info(ctx, "%v, status=%v", target, exeres.Status)
-      info(ctx, "%v: %v", target, recipes)
-      info(ctx, "%v: %v", target, sources).debug(6)
-    } ()
-  }
-
   var caller = ctx.traversal().caller()
   defer func() {
     if log != nil && log.writer != nil { log.writer.Flush() }
@@ -1177,7 +1168,6 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     }
 
     if options.noExec { continue }
-
     if false {
       // Restricts the number of workers.
       ///fmt.Fprintf(stderr, "run.1: %v\n", targetName)
@@ -1185,8 +1175,6 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       ///fmt.Fprintf(stderr, "run.2: %v\n", targetName)
     }
 
-    //if err = lockCD(dir, 25*time.Millisecond); err != nil { erro(ctx, "%v", err); return }
-    //if s, e := os.Getwd(); e == nil { assert(s == dir, "wrong work directory (%s != %s)", s, dir) }
     for {
       if err = lockCD(dir, 25*time.Millisecond); err != nil {
         erro(ctx, "%v", err).debug(1)

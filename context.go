@@ -123,6 +123,7 @@ type Context interface {
   mark(...Value)
 
   entry() Entry
+  entryContext() *entryContext
   stems() []string
 
   argumented() *argumentedContext
@@ -469,6 +470,7 @@ func (ctx *defaultContext) auto() *autoContext { return nil }
 func (ctx *defaultContext) closure() *closureContext { return nil }
 func (ctx *defaultContext) traversal() *traverseContext { return nil }
 func (ctx *defaultContext) entry() Entry { return nil }
+func (ctx *defaultContext) entryContext() *entryContext { return nil }
 func (ctx *defaultContext) stems() []string { return nil }
 func (ctx *defaultContext) Scope() *Scope { return ctx.globe/*.main*/.scope }
 func (ctx *defaultContext) Project() *Project { return ctx.globe.main }
