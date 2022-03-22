@@ -166,6 +166,7 @@ var (
                 `env`:          modifierEnv,  // interpreter environments
                 `set`:          modifierSet,
 
+                `dirty-by`:     modifierSetDirtyPats,
                 `dirty-opts`:   modifierSetDirtyPats,
 
                 `closure`:      modifierClosure,
