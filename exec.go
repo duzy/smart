@@ -394,10 +394,11 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       }
     case rxCompilationWarning:
       if p.report {
-        var wpos = p.convPos(v[1].string, v[2].string, v[3].string)
+        var pos = p.convPos(v[1].string, v[2].string, v[3].string)
+        var s = fmt.Sprintf("%s", v[4].string)
         lpos.Column = v[4].col + 1
-        addScannedDiag(diagWarn, lpos, fmt.Sprintf("%s", v[4].string))
-        addScannedDiag(diagWarn, wpos, "warning from here")
+        addScannedDiag(diagWarn, lpos, s)
+        addScannedDiag(diagWarn, pos, s)
         if false && !reportIncludedFrom() { warn(ctx, "…reported here").at(lpos).debug(1) }
       }
     case rxProtoFileNotFound:
@@ -408,23 +409,29 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       }
     case rxProtoImportNotFound:
       if p.report {
-        lpos.Column = v[4].col
         var pos = p.convPos(v[1].string, v[2].string, v[3].string)
-        addScannedDiag(diagError, pos, fmt.Sprintf(`Import "%v" not found or errors`, v[4].string))
+        var s = fmt.Sprintf(`Import "%v" not found or errors`, v[4].string)
+        lpos.Column = v[4].col
+        addScannedDiag(diagError, lpos, s)
+        addScannedDiag(diagError, pos, s)
         if false && !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
       }
     case rxProtoNameNotDefined:
       if p.report {
-        lpos.Column = v[4].col
         var pos = p.convPos(v[1].string, v[2].string, v[3].string)
-        addScannedDiag(diagError, pos, fmt.Sprintf(`"%v" is not defined`, v[4].string))
+        var s = fmt.Sprintf(`"%v" is not defined`, v[4].string)
+        lpos.Column = v[4].col
+        addScannedDiag(diagError, lpos, s)
+        addScannedDiag(diagError, pos, s)
         if false && !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
       }
     case rxFatalErrorFileNotFound:
       if p.report {
-        lpos.Column = v[4].col
         var pos = p.convPos(v[1].string, v[2].string, v[3].string)
-        addScannedDiag(diagError, pos, fmt.Sprintf(`"%v" file not found`, v[4].string))
+        var s = fmt.Sprintf(`"%v" file not found`, v[4].string)
+        lpos.Column = v[4].col
+        addScannedDiag(diagError, lpos, s)
+        addScannedDiag(diagError, pos, s)
         if false && !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
       }
     case rxArNoSuchFile:
@@ -449,15 +456,17 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       }
     case rxBashNoSuchFile:
       if p.report {
+        var s = fmt.Sprintf("no such command '%v'", v[2].string)
         lpos.Column = v[2].col + 1
-        addScannedDiag(diagError, lpos, fmt.Sprintf("no such command '%v'", v[2].string))
+        addScannedDiag(diagError, lpos, s)
       }
     case rxClangNoSuchFile:
       if p.report {
         var vs string
         if s := v[1].string; s != "" { vs = "-" + s }
+        var s = fmt.Sprintf("clang%s: no such source file: %s", vs, v[2].string)
         lpos.Column = v[2].col + 1
-        addScannedDiag(diagError, lpos, fmt.Sprintf("clang%s: no such source file: %s", vs, v[2].string))
+        addScannedDiag(diagError, lpos, s)
       }
       /*
     case rxClangError:
