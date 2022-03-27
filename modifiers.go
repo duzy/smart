@@ -2714,6 +2714,7 @@ type modifierUpdateFileOpts struct {
         verbose bool "v,verbose"
         path bool "p,path"
         zero bool `z,zero;e,empty;az,allow-zero;ae,allow-empty`
+        append bool `a,app,append,append-content`
         mode os.FileMode "m,mode"
 }
 func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers) {
@@ -2829,8 +2830,16 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
 
         // Create or update the file with new content
 
-        var f *os.File
-        if f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, opts.mode); err != nil {
+        var (
+                f *os.File
+                m = os.O_RDWR | os.O_CREATE
+        )
+        if opts.append {
+                m |= os.O_APPEND
+        } else {
+                m |= os.O_TRUNC
+        }
+        if f, err = os.OpenFile(filename, m, opts.mode); err != nil {
                 brks.add(ctx.Position(), breakFail).message = fmt.Sprintf("update %v failed", target)
                 erro(ctx, "open file failed: %v", err).debug(1)
         } else if f != nil {
