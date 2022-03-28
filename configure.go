@@ -855,8 +855,9 @@ type configureConvertOpts struct {
     debug bool `d,debug`
 }
 
+type configureConvertArgs func(args []Value, out *bytes.Buffer) []Value
 type configureConvertFunc func(str string, out *bytes.Buffer) error
-func configureConvert(ctx Context, convert configureConvertFunc, opts *configureConvertOpts, args ...Value) (result Value, _ breakers) {
+func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData configureConvertFunc, opts *configureConvertOpts, args ...Value) (result Value, _ breakers) {
     var (
         closured []*Project
         project *Project
@@ -951,16 +952,19 @@ func configureConvert(ctx Context, convert configureConvertFunc, opts *configure
     if buffer, _ := ctx.autoGet("-"); !isNil(buffer) {
         args = append(args, buffer)
     }
-    for _, arg := range args {
-        var str string
-        if str, err = arg.Strval(ctx); err != nil {
-            erro(ctx, " %v", err).debug(1)
-            return
-        }
-        if str == "" { continue }
-        if err = convert(str, &data); err != nil {
-            erro(ctx, "convert: %v", err).debug(1)
-            return
+    if dealArgs != nil { args = dealArgs(args, &data) }
+    if dealData != nil {
+        for _, arg := range args {
+            var str string
+            if str, err = arg.Strval(ctx); err != nil {
+                erro(ctx, " %v", err).debug(1)
+                return
+            }
+            if str == "" { continue }
+            if err = dealData(str, &data); err != nil {
+                erro(ctx, "convert: %v", err).debug(1)
+                return
+            }
         }
     }
     if data.Len() == 0 {
@@ -1023,12 +1027,116 @@ func configureConvert(ctx Context, convert configureConvertFunc, opts *configure
 // 
 //     config.h.in: configure.ac [(configure-input)]
 //     
-func modifierConfigureInput(ctx Context, args ...Value) (result Value, _ breakers) {
+func _modifierConfigureInput(ctx Context, args ...Value) (result Value, _ breakers) {
     var opts = configureConvertOpts{ mode: os.FileMode(0600) }
     var convert = func(str string, out *bytes.Buffer) (err error) {
         return autoconf(ctx, out, ctx.Project(), str)
     }
-    return configureConvert(ctx, convert, &opts, args...)
+    return configureConvert(ctx, nil, convert, &opts, args...)
+}
+
+type modifierConfigureInputOpts struct {
+    mode os.FileMode "m,mode"
+    makePath bool "p,path"
+    verbose bool "v,verb,verbose"
+    update bool "u,up,update"
+    debug bool "d,db,debug"
+}
+func __modifierConfigureInput(ctx Context, args ...Value) (result Value, _ breakers) {
+    var (
+        opts = modifierConfigureInputOpts{ mode:os.FileMode(0640) }
+        project = ctx.Project()
+        err error
+    )
+    if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
+        erro(ctx, " merge args failed: %v", err).debug(1)
+        return
+    } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+        erro(ctx, " parse opts failed: %v", err).debug(1)
+        return
+    } else if target, found := ctx.autoGet("@"); !found || isNil(target) {
+        erro(ctx, " target '@' is not defined").debug(1)
+        return
+    }
+
+    if def, ok := project.scope.Lookup("configure.names").(*Def); ok {
+        var names []Value
+        if names, err = expandmerge2(ctx, expandPlainValue, def.value); err != nil {
+            erro(ctx, " merge configure.names failed: %v", err).debug(1)
+            return
+        }
+        args = append(args, names...)
+    }
+
+    var configs = make(map[string]*Def)
+    for _, a := range args {
+        name, err := a.Strval(ctx)
+        if err != nil { erro(ctx, "%v", err).debug(1); return }
+        if _, ok := configs[name]; ok {
+            continue
+        } else if obj, err := project.resolveObject(ctx, name); err != nil {
+            erro(ctx, "%v", err).debug(1)
+            return
+        } else if def, ok := obj.(*Def); ok {
+            configs[name] = def
+        }
+    }
+    for _, c := range project.configs {
+        var name = c.Name(ctx)
+        if def, ok := project.scope.Lookup(name).(*Def); ok {
+            configs[name] = def
+        }
+    }
+
+    var data bytes.Buffer
+    for _, def := range configs {
+        fmt.Fprintf(&data, "#undef %s\n", def.name)
+    }
+    warn(ctx, "%v", data)
+    warn(ctx, "%v: %v", project, args).debug(1)
+    return
+}
+
+func modifierConfigureInput(ctx Context, args ...Value) (result Value, _ breakers) {
+    var opts = configureConvertOpts{ mode: os.FileMode(0600) }
+    var dealArgs = func(args []Value, out *bytes.Buffer) []Value {
+        var project = ctx.Project()
+        if def, ok := project.scope.Lookup("configure.names").(*Def); ok {
+            var ( names []Value; err error )
+            if names, err = expandmerge2(ctx, expandPlainValue, def.value); err != nil {
+                erro(ctx, " merge configure.names failed: %v", err).debug(1)
+            } else {
+                args = append(args, names...)
+            }
+        }
+
+        var configs = make(map[string]*Def)
+        for _, a := range args {
+            name, err := a.Strval(ctx)
+            if err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return nil
+            } else if _, ok := configs[name]; ok {
+                continue
+            } else if obj, err := project.resolveObject(ctx, name); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return nil
+            } else if def, ok := obj.(*Def); ok {
+                configs[name] = def
+            }
+        }
+        for _, c := range project.configs {
+            var name = c.Name(ctx)
+            if def, ok := project.scope.Lookup(name).(*Def); ok {
+                configs[name] = def
+            }
+        }
+        for _, def := range configs {
+            fmt.Fprintf(out, "#undef %s\n", def.name)
+        }
+        return args
+    }
+    return configureConvert(ctx, dealArgs, nil, &opts, args...)
 }
 
 // configure-file modifier (see also builtinConfigureFile), example usage:
@@ -1040,7 +1148,7 @@ func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ breakers
     var convert = func(str string, out *bytes.Buffer) (err error) {
         return configure(ctx, out, ctx.Project(), str)
     }
-    return configureConvert(ctx, convert, &opts, args...)
+    return configureConvert(ctx, nil, convert, &opts, args...)
 }
 
 type modifierExtractConfigurationOpts struct {
