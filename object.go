@@ -1066,7 +1066,9 @@ func (p *undetermined) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *undetermined) patterned(ctx Context) bool { return false }
 func (p *undetermined) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
-func (p *undetermined) stencil(ctx Context, stems []string) (s string, rest []string) { return }
+func (p *undetermined) stencil(ctx Context, stems []string) (val Value, rest []string) {
+        return p, stems
+}
 
 type builtinFlag uint32
 const (
@@ -1389,37 +1391,41 @@ func (entry *RuleEntry) traverse(cc Context) (brks breakers) {
         var (
                 entryPos = entry.Position()
                 target, okay = cc.autoGet("@")
+                results []Value
         )
-        if !okay || isNil(target) { erro(cc, "$@ is not defined: %v", cc).debug(1); return }
-        if cc.entry() != entry { cc = &entryContext{ cc, entry } } else {
+        if !okay || isTrivial(target) {
+                erro(cc, "$@ is not defined: %v", cc).debug(1)
+                return
+        } else if cc.entry() != entry {
+                cc = &entryContext{ cc, entry }
+        } else {
             warn(cc, "%v %v %v", cc.Project(), target, entry).debug(1)
         }
+
 ForPrograms:
         for i, prog := range entry.programs {
-                var pos = prog.position
-                if !pos.IsValid() { pos = entryPos }
-
                 var (
-                        ctx = positional(cc, pos)
+                        pos = prog.position
+                        brs breakers
                         res Value
                 )
-                if brks = brks.not(breakNext); len(brks) > 0 {
-                        warn(ctx, "broken traversal %v: %v (stems = %v)", entry, brks[0].what, ctx.stems()).debug(6)
-                        return
-                } else if res, brks = prog.execute(ctx); false && brks.has() {
+                if !pos.IsValid() { pos = entryPos }
+
+                var ctx = positional(cc, pos)
+                if res, brs = prog.execute(ctx); false && brs.has() {
                         warn(ctx, "entry: %d. %v %d, %v, %v, %v", entry, i, len(entry.programs), ctx.stems(), target, brks[0].what).debug(breakDone > 0, 6)
-                } else if !isNil(res) {
-                        // TODO: deal with the result `res`
+                } else if !isTrivial(res) {
+                        results = append(results, merge(res)...)
                 }
 
                 // Update traversal breakers
-                var _brks = brks; brks = nil
-                for _, brk := range _brks {
+                for _, brk := range brs {
                         switch brk.what {
                         case breakDone:
                                 break ForPrograms
                         case breakCase, breakFail, breakErro:
                                 brks.append(brk)
+                                warn(ctx, "broken traversal %v: %v (stems = %v)", entry, brk.what, ctx.stems()).debug(6)
                                 break ForPrograms
                         case breakNext:
                                 brks.append(brk)
@@ -1430,6 +1436,7 @@ ForPrograms:
                         }
                 }
         }
+        // TODO: deal with the `results`
         return
 }
 // FIXME: entry.target maybe not the real target
@@ -1450,8 +1457,8 @@ func (entry *RuleEntry) match(ctx Context, i interface{}) (full bool, s string, 
     full, s, stems = entry.target.match(ctx, i)
     return
 }
-func (entry *RuleEntry) stencil(ctx Context, stems []string) (s string, rest []string) {
-    s, rest = entry.target.stencil(ctx, stems)
+func (entry *RuleEntry) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    val, rest = entry.target.stencil(ctx, stems)
     return
 }
 

@@ -697,7 +697,7 @@ func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
         program = ctx.program()
         targetVal = getTargetValue(ctx)
     )
-    if isNil(targetVal) {
+    if isTrivial(targetVal) {
         erro(ctx, "target is <nil>").at(program.position).debug(1)
         return
     }
@@ -828,7 +828,7 @@ checkFileEntries:
         }
     }
 
-    if ctx = positional(ctx, file.position); err != nil {
+    if err != nil {
         prompt(ctx, "%v: traverse file failed; projects %v, %v\n", file.fullname(), proj, projects)
         errostack(ctx, 5, "%v, %v: error: %v", proj, file, err).debug(8)
     } else if !okay && (len(ctx.stems()) == 0 || ctx.mustExists()) {
@@ -1086,18 +1086,26 @@ func traversePattern(ctx Context, pat Value) (brks breakers) {
         pos = pat.Position()
         rest []string
         okay bool
-        s string
+        val Value
     )
-    if s, rest = pat.stencil(ctx, ctx.stems()); s == "" {
+    if val, rest = pat.stencil(ctx, ctx.stems()); /*isTrivial*/isNil(val) {
         erro(ctx, "empty stencil: %v %v", pat, ctx.stems()).at(pos).debug(1)
         return
     } else if len(rest) > 0 {
-        erro(ctx, "partial stencil: %v, %v, %v, %v", pat, s, rest, ctx.stems()).at(pos).debug(1)
-        panic(s)
+        erro(ctx, "partial stencil: %v: %T %v, %v, %v", pat, val, val, rest, ctx.stems()).at(pos).debug(1)
+        panic(fmt.Sprintf("%T %v", val, val))
     } else if proj := ctx.Project(); proj == nil {
         erro(ctx, "no project in context: %T", ctx).at(pos).debug(1)
         return
-    } else if file := proj.FindFile(ctx, s); file != nil {
+    } else if false {
+        brks = val.traverse(ctx)
+        okay = true //!brks.has(...)
+    } else if file, okay := val.(*File); okay {
+        okay, brks = traverseFile(ctx, file)
+    } else if s, err := val.Strval(ctx); err != nil {
+        erro(ctx, "strval %T %v failed: %v", val, val, err).at(pos).debug(1)
+        return
+    } else if file = proj.FindFile(ctx, s); file != nil {
         file.position = pos
         okay, brks = traverseFile(ctx, file)
     } else {
@@ -1317,7 +1325,7 @@ type Value interface {
     match(Context, interface{}) (full bool, s string, stems []string)
 
     // Stencil this value with stems.
-    stencil(Context, []string) (s string, rest []string)
+    stencil(Context, []string) (val Value, rest []string)
 
     // Recursively detecting whether this value references
     // the object (to avoid loop-delegation).
@@ -1383,7 +1391,7 @@ func (_ *valbase) expand(_ Context, _ expandwhat) (v Value, err error) { return 
 func (_ *valbase) cmp(_ Context, _ Value) (res cmpres) { return }
 func (_ *valbase) patterned(_ Context) bool { return false }
 func (_ *valbase) match(_ Context, i interface{}) (full bool, s string, stems []string) { return }
-func (_ *valbase) stencil(_ Context, stems []string) (s string, rest []string) { return }
+func (_ *valbase) stencil(_ Context, stems []string) (val Value, rest []string) { return }
 func (_ *valbase) stat(ctx Context) (si *statinfo) { return }
 func (_ *valbase) stamp(ctx Context) (file []*File, err error) { return }
 func (_ *valbase) updated(_ ...bool) bool { return false }
@@ -1406,15 +1414,6 @@ func (_ *valbase) _match(ctx Context, p Value, i interface{}) (full bool, s stri
             return
         }
         if strings.HasPrefix(is, v) { s, full = v, (len(v) == len(is)) }
-    } else {
-        erro(ctx, "strval '%v' error: %v", p, e).of(p).debug(1)
-    }
-    return
-}
-func (_ *valbase) _stencil(ctx Context, p Value, stems []string) (s string, rest []string) {
-    var ( v string; e error )
-    if v, e = p.Strval(ctx); e == nil {
-        s, rest = v, stems
     } else {
         erro(ctx, "strval '%v' error: %v", p, e).of(p).debug(1)
     }
@@ -1487,8 +1486,8 @@ func (p *Argumented) match(ctx Context, i interface{}) (full bool, s string, ste
     full, s, stems = p.value.match(ctx, i)
     return
 }
-func (p *Argumented) stencil(ctx Context, stems []string) (s string, rest []string) {
-    s, rest = p.value.stencil(ctx, stems)
+func (p *Argumented) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    val, rest = p.value.stencil(ctx, stems)
     return
 }
 
@@ -1555,13 +1554,18 @@ func (p *Argumented) traverse(ctx Context) (brks breakers) {
             } else if !isNil(val) && val != a { a = val }
             // TODO: deal with pattern args using expandPatterned instead of stenciling:
             if true && a.patterned(ctx) { if stems := ctx.stems(); len(stems) > 0 {
-                if str, rest := a.stencil(ctx, stems); len(rest) > 0 {
-                    erro(ctx, "partial stencil: %v, %v, %v, %v", a, str, rest, stems).of(a).debug(1)
-                    panic(str)
+                if val, rest := a.stencil(ctx, stems); len(rest) > 0 {
+                    erro(ctx, "partial stencil: %v, %T %v, %v, %v", a, val, val, rest, stems).of(a).debug(1)
+                    panic(fmt.Sprintf("%T %v", val, val))
+                } else if file, okay := val.(*File); okay {
+                    a = file
+                } else if str, err := val.Strval(ctx); err != nil {
+                    erro(ctx, "strval %v failed: %v", val, err).of(a).debug(1)
+                    panic(fmt.Sprintf("%T %v", val, val))
                 } else if file := proj.FindFile(ctx, str); file != nil {
                     a = file
                 } else {
-                    a = MakeString(a.Position(), str)
+                    a = val //MakeString(a.Position(), str)
                 }
             }}
             args = append(args, a)
@@ -1667,11 +1671,11 @@ func (p *Any) match(ctx Context, i interface{}) (full bool, s string, stems []st
     }
     return
 }
-func (p *Any) stencil(ctx Context, stems []string) (s string, rest []string) {
+func (p *Any) stencil(ctx Context, stems []string) (val Value, rest []string) {
     if p.value == nil {
         // does nothing
     } else if v, ok := p.value.(Value); ok {
-        s, rest = v.stencil(ctx, stems)
+        val, rest = v.stencil(ctx, stems)
     }
     return
 }
@@ -1880,8 +1884,8 @@ func (p *boolean) match(ctx Context, i interface{}) (full bool, s string, stems 
     full, s, stems = p._match(ctx, p, i)
     return
 }
-func (p *boolean) stencil(ctx Context, stems []string) (s string, rest []string) {
-    s, rest = p._stencil(ctx, p, stems)
+func (p *boolean) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    val, rest = p, stems
     return
 }
 
@@ -1932,8 +1936,8 @@ func (p *answer) match(ctx Context, i interface{}) (full bool, s string, stems [
     full, s, stems = p._match(ctx, p, i)
     return
 }
-func (p *answer) stencil(ctx Context, stems []string) (s string, rest []string) {
-    s, rest = p._stencil(ctx, p, stems)
+func (p *answer) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    val, rest = p, stems
     return
 }
 
@@ -1984,8 +1988,8 @@ func (p *option) match(ctx Context, i interface{}) (full bool, s string, stems [
     full, s, stems = p._match(ctx, p, i)
     return
 }
-func (p *option) stencil(ctx Context, stems []string) (s string, rest []string) {
-    s, rest = p._stencil(ctx, p, stems)
+func (p *option) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    val, rest = p, stems
     return
 }
 
@@ -2025,8 +2029,8 @@ func (p *Bin) match(ctx Context, i interface{}) (full bool, s string, stems []st
     full, s, stems = p._match(ctx, p, i)
     return
 }
-func (p *Bin) stencil(ctx Context, stems []string) (s string, rest []string) {
-    s, rest = p._stencil(ctx, p, stems)
+func (p *Bin) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    val, rest = p, stems
     return
 }
 
@@ -2034,19 +2038,19 @@ type Oct struct { integer }
 func (p *Oct) String() string { return fmt.Sprintf("0%s", strconv.FormatInt(int64(p.int64),8)) }
 func (p *Oct) Strval(ctx Context) (string, error) { return strconv.FormatInt(int64(p.int64),8), nil }
 func (p *Oct) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
-func (p *Oct) stencil(ctx Context, stems []string) (s string, rest []string) { return p._stencil(ctx, p, stems) }
+func (p *Oct) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 
 type Int struct { integer }
 func (p *Int) String() string { return strconv.FormatInt(int64(p.int64),10) }
 func (p *Int) Strval(ctx Context) (string, error) { return strconv.FormatInt(int64(p.int64),10), nil }
 func (p *Int) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
-func (p *Int) stencil(ctx Context, stems []string) (s string, rest []string) { return p._stencil(ctx, p, stems) }
+func (p *Int) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 
 type Hex struct { integer }
 func (p *Hex) String() string { return fmt.Sprintf("0x%s", strconv.FormatInt(int64(p.int64),16)) }
 func (p *Hex) Strval(ctx Context) (string, error) { return strconv.FormatInt(int64(p.int64),16), nil }
 func (p *Hex) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
-func (p *Hex) stencil(ctx Context, stems []string) (s string, rest []string) { return p._stencil(ctx, p, stems) }
+func (p *Hex) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 
 const FloatEpsilon = 1e-15 /* 1e-16 */
 type Float struct { valbase; float64 } // IEEE-754 64-bit binary floating-point
@@ -2073,9 +2077,8 @@ func (p *Float) match(ctx Context, i interface{}) (full bool, s string, stems []
     full, s, stems = p._match(ctx, p, i)
     return
 }
-func (p *Float) stencil(ctx Context, stems []string) (s string, rest []string) {
-    s, rest = p._stencil(ctx, p, stems)
-    return
+func (p *Float) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    return p, stems
 }
 
 type DateTime struct {
@@ -2108,9 +2111,8 @@ func (p *DateTime) match(ctx Context, i interface{}) (full bool, s string, stems
     full, s, stems = p._match(ctx, p, i)
     return
 }
-func (p *DateTime) stencil(ctx Context, stems []string) (s string, rest []string) {
-    s, rest = p._stencil(ctx, p, stems)
-    return
+func (p *DateTime) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    return p, stems
 }
 
 func ParseDateTime(pos Position, s string) *DateTime {
@@ -2131,9 +2133,8 @@ func (p *Date) match(ctx Context, i interface{}) (full bool, s string, stems []s
     full, s, stems = p._match(ctx, p, i)
     return
 }
-func (p *Date) stencil(ctx Context, stems []string) (s string, rest []string) {
-    s, rest = p._stencil(ctx, p, stems)
-    return
+func (p *Date) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    return p, stems
 }
 
 type Time struct { DateTime }
@@ -2145,9 +2146,8 @@ func (p *Time) match(ctx Context, i interface{}) (full bool, s string, stems []s
     full, s, stems = p._match(ctx, p, i)
     return
 }
-func (p *Time) stencil(ctx Context, stems []string) (s string, rest []string) {
-    s, rest = p._stencil(ctx, p, stems)
-    return
+func (p *Time) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    return p, stems
 }
 
 // ie. https://en.wikipedia.org/wiki/URL
@@ -2316,9 +2316,8 @@ func (p *URL) match(ctx Context, i interface{}) (full bool, s string, stems []st
     full, s, stems = p._match(ctx, p, i)
     return
 }
-func (p *URL) stencil(ctx Context, stems []string) (s string, rest []string) {
-    s, rest = p._stencil(ctx, p, stems)
-    return
+func (p *URL) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    return p, stems
 }
 func (p *URL) Validate() (res *url.URL) {
     panic(fmt.Sprintf("validate %s", p))
@@ -2341,9 +2340,8 @@ func (p *Raw) match(ctx Context, i interface{}) (full bool, s string, stems []st
     full, s, stems = p._match(ctx, p, i)
     return
 }
-func (p *Raw) stencil(ctx Context, stems []string) (s string, rest []string) {
-    s, rest = p._stencil(ctx, p, stems)
-    return
+func (p *Raw) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    return p, stems
 }
 
 type String struct { valbase; string }
@@ -2375,9 +2373,8 @@ func (p *String) match(ctx Context, i interface{}) (full bool, s string, stems [
     full, s, stems = p._match(ctx, p, i)
     return
 }
-func (p *String) stencil(ctx Context, stems []string) (s string, rest []string) {
-    s, rest = p._stencil(ctx, p, stems)
-    return
+func (p *String) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    return p, stems
 }
 func (p *String) traverse(ctx Context) (brks breakers) {
     _, brks = traverseString(ctx, p, p.string)
@@ -2417,7 +2414,7 @@ func (p *Punctuation) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *Punctuation) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
-func (p *Punctuation) stencil(ctx Context, stems []string) (s string, rest []string) { return }
+func (p *Punctuation) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Punctuation) traverse(ctx Context) (brks breakers) { return }
 
 type Bareword struct { valbase; string }
@@ -2442,9 +2439,8 @@ func (p *Bareword) match(ctx Context, i interface{}) (full bool, s string, stems
     full, s, stems = p._match(ctx, p, i)
     return
 }
-func (p *Bareword) stencil(ctx Context, stems []string) (s string, rest []string) {
-    s, rest = p._stencil(ctx, p, stems)
-    return
+func (p *Bareword) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    return p, stems
 }
 func (p *Bareword) traverse(ctx Context) (brks breakers) {
     _, brks = traverseString(ctx, p, p.string)
@@ -2484,9 +2480,8 @@ func (p *Qualiword) match(ctx Context, i interface{}) (full bool, s string, stem
     full, s, stems = p._match(ctx, p, i)
     return
 }
-func (p *Qualiword) stencil(ctx Context, stems []string) (s string, rest []string) {
-    s, rest = p._stencil(ctx, p, stems)
-    return
+func (p *Qualiword) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    return p, stems
 }
 func (p *Qualiword) traverse(ctx Context) (brks breakers) {
     _, brks = traverseString(ctx, p, p.String())
@@ -2656,17 +2651,23 @@ func (p *Barecomp) match(ctx Context, i interface{}) (full bool, s string, stems
     }
     return
 }
-func (p *Barecomp) stencil(ctx Context, stems []string) (s string, rest []string) {
-    if false { s, rest = p._stencil(ctx, p, stems) } else {
-        rest = stems
-        for _, elem := range p.Elems {
-            var t string
-            t, rest = elem.stencil(ctx, rest)
-            s += t
+func (p *Barecomp) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    var (
+        elems []Value
+        changed int
+    )
+    rest = stems
+    for _, elem := range p.Elems {
+        var t Value
+        if t, rest = elem.stencil(ctx, rest); t != elem {
+            changed += 1
         }
-        if strings.HasPrefix(p.String(), "llvm.tools.") && s != "" {
-            warn(ctx, "%v: %v %v %v; %s", p, stems, s, rest).debug(1)
-        }
+        elems = append(elems, t)
+    }
+    if changed > 0 {
+        val = MakeBarecomp(p.position, elems...)
+    } else {
+        val = p
     }
     return
 }
@@ -2776,11 +2777,14 @@ func (p *Barefile) match(ctx Context, i interface{}) (full bool, s string, stems
     }
     return
 }
-func (p *Barefile) stencil(ctx Context, stems []string) (s string, rest []string) {
+func (p *Barefile) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    var name Value
     if p.File != nil {
-        s, rest = p.File.stencil(ctx, stems)
+        val, rest = p.File.stencil(ctx, stems)
+    } else if name, rest = p.Name.stencil(ctx, stems); name != p.Name {
+        val = &Barefile{p.valbase, name, p.File}
     } else {
-        s, rest = p.Name.stencil(ctx, stems)
+        val = p
     }
     return
 }
@@ -3165,13 +3169,18 @@ func (p *Path) expand(ctx Context, w expandwhat) (res Value, err error) {
     return
 }
 func (p *Path) pathname(ctx Context, stems []string) (pathname string, err error) {// the addressed file target
-    var rest []string // unmatched path segmants
+    var (
+        val Value
+        rest []string // unmatched path segmants
+    )
     if len(stems) == 0 {
         if pathname, err = p.Strval(ctx); err != nil {
             erro(ctx, "strval '%v' failed: %v", p, err).at(p.position).debug(1)
         }
-    } else if pathname, rest = p.stencil(ctx, stems); len(rest) > 0 {
+    } else if val, rest = p.stencil(ctx, stems); len(rest) > 0 {
         //err = errorf(p.position, "partial match: %v", rest)
+    } else if pathname, err = val.Strval(ctx); err != nil {
+        erro(ctx, "strval '%v' failed: %v", p, err).at(p.position).debug(1)
     }
     return
 }
@@ -3555,9 +3564,8 @@ func (p *Path) match(ctx Context, i interface{}) (full bool, result string, stem
     return
 }
 
-func (p *Path) stencil(ctx Context, stems []string) (result string, rest []string) {
+func (p *Path) stencil(ctx Context, stems []string) (result Value, rest []string) {
     var (
-        strs []string
         segs []Value
         err error
     )
@@ -3566,21 +3574,24 @@ func (p *Path) stencil(ctx Context, stems []string) (result string, rest []strin
         return
     }
 
-ForPathSegs:
+    var (
+        elems []Value
+        changed int
+    )
     for _, seg := range segs {
-        var s string
-        if s, stems = seg.stencil(ctx, stems); s != "" {
-            strs = append(strs, s)
-            continue ForPathSegs
-        } else if s, err = seg.Strval(ctx); err != nil {
-            erro(ctx, "strval seg '%v' failed: %v", seg, err).of(seg).debug(1)
-            break ForPathSegs
+        var val Value
+        if val, stems = seg.stencil(ctx, stems); !isTrivial(val) {
+            if val != seg { changed += 1 }
+            elems = append(elems, val)
         } else {
-            strs = append(strs, s)
+            elems = append(elems, seg)
         }
     }
-    result = strings.Join(strs, PathSep)
-    rest = stems // the rest stems
+    if rest = stems; changed > 0 {
+        result = MakePath(p.position, elems...)
+    } else {
+        result = p
+    }
     return
 }
 
@@ -3672,12 +3683,8 @@ func (p *PathSeg) match(ctx Context, i interface{}) (full bool, result string, s
     }
     return
 }
-func (p *PathSeg) stencil(ctx Context, stems []string) (result string, rest []string) {
-    var e error
-    if result, e = p.Strval(ctx); e != nil {
-        erro(ctx, "strval '%v' failed: %v", p, e).at(p.position).debug(1)
-    }
-    return
+func (p *PathSeg) stencil(ctx Context, stems []string) (result Value, rest []string) {
+    return p, stems
 }
 
 type filestub struct {
@@ -4168,9 +4175,8 @@ func (p *File) match(ctx Context, i interface{}) (full bool, s string, stems []s
     }
     return
 }
-func (p *File) stencil(ctx Context, stems []string) (s string, rest []string) {
-    s = p.name
-    return
+func (p *File) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    return p, stems
 }
 
 func (p *File) change(dir, sub, name string) (okay bool) {
@@ -4535,12 +4541,26 @@ func (p *List) match(ctx Context, i interface{}) (full bool, s string, stems []s
     return
 }
 
-func (p *List) stencil(ctx Context, stems []string) (s string, rest []string) {
-    if len(p.Elems) == 1 { s, rest = p.Elems[0].stencil(ctx, stems) } else {
-        /* FIXME: apply to each element??
-        for _, elem := range p.Elems {
-          ...
-        }*/
+func (p *List) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    if len(p.Elems) == 1 {
+        val, rest = p.Elems[0].stencil(ctx, stems)
+        return
+    }
+
+    var (
+        elems []Value
+        changed int
+    )
+    rest = stems
+    for _, elem := range p.Elems {
+        var t Value
+        if t, rest = elem.stencil(ctx, rest); t != elem { changed += 1 }
+        elems = append(elems, t)
+    }
+    if changed > 0 {
+        val = MakeList(p.position, elems...)
+    } else {
+        val = p
     }
     return
 }
@@ -4600,7 +4620,7 @@ func (p *Group) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *Group) patterned(ctx Context, ) bool { return false }
 func (p *Group) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
-func (p *Group) stencil(ctx Context, stems []string) (s string, rest []string) { return }
+func (p *Group) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 
 func parseGroupValue(ctx Context, g *Group) (result Value) {
     if len(g.Elems) == 0 { return g } else {
@@ -5644,9 +5664,12 @@ func (p *PercPattern) match(ctx Context, i interface{}) (full bool, result strin
     }
     return
 }
-func (p *PercPattern) stencil(ctx Context, stems []string) (s string, rest []string) {
-    var err error
-    if !(isNil(p.Prefix) || isNone(p.Prefix)) {
+func (p *PercPattern) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    var (
+        s string
+        err error
+    )
+    if !isTrivial(p.Prefix) {
         // FIXME: the prefix could be Glob, Regexp, etc.
         if s, err = p.Prefix.Strval(ctx); err != nil {
             erro(ctx, "strval prefix '%v' failed: %v", p.Prefix, err).of(p.Suffix).debug(1)
@@ -5657,22 +5680,32 @@ func (p *PercPattern) stencil(ctx Context, stems []string) (s string, rest []str
     if len(stems) > 0 {
         s += stems[0]
         rest = stems[1:]
-    } else if s != "" {
+    } else if s == "" {
         // return
     }
 
-    var v string
-    if isNil(p.Suffix) || isNone(p.Suffix) {
+    var suffix Value
+    if isTrivial(p.Suffix) {
         // done
     } else if p.Suffix.patterned(ctx) {
         // FIXME: patterns like '%%...' should use only one stem,
         // FIXME: patterns like '%xxx%...' use multiple stems.
-        if v, rest = p.Suffix.stencil(ctx, rest); v != "" { s += v }
-    } else if v, err = p.Suffix.Strval(ctx); err != nil {
-        erro(ctx, "strval suffix '%v' failed: %v", p.Suffix, err).of(p.Suffix).debug(1)
-        return
-    } else if v != "" {
-        s += v
+        suffix, rest = p.Suffix.stencil(ctx, rest)
+    } else {
+        suffix = p.Suffix
+    }
+
+    if isTrivial(suffix) {
+        if s != "" {
+            val = MakeBareword(p.position, s)
+        } else {
+            val = p
+        }
+    } else if s != "" {
+        val = MakeBareword(p.position, s)
+        val = MakeBarecomp(p.position, val, suffix)
+    } else {
+        val = suffix
     }
     return
 }
@@ -5796,7 +5829,7 @@ func (p *GlobPattern) match(ctx Context, i interface{}) (full bool, result strin
     }
     return
 }
-func (p *GlobPattern) stencil(ctx Context, stems []string) (s string, rest []string) {
+func (p *GlobPattern) stencil(ctx Context, stems []string) (val Value, rest []string) {
     unreachable(fmt.Sprintf("Unimplemented GlobPattern stencil %v (stems=%v)", p, stems))
     return
 }
@@ -5824,8 +5857,8 @@ func (p *RegexpPattern) match(ctx Context, i interface{}) (full bool, result str
     unreachable("regexp.match: %T %v", i, i)
     return
 }
-func (p *RegexpPattern) stencil(ctx Context, stems []string) (s string, rest []string) {
-    unreachable("regexp.stencil: %v", stems)
+func (p *RegexpPattern) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    unreachable("regexp.stencil: %v", stems) // TODO: regexp stencil
     return
 }
 func (p *RegexpPattern) cmp(ctx Context, v Value) (res cmpres) {

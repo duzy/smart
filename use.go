@@ -101,7 +101,7 @@ func (p *using) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *using) patterned(ctx Context) bool { return false }
 func (p *using) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
-func (p *using) stencil(ctx Context, stems []string) (s string, rest []string) { return }
+func (p *using) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
 func (p *using) True(ctx Context) (bool, error) { return p.project != nil, nil }
 func (p *using) updated(v ...bool) (res bool) {
         if entry := p.project.DefaultEntry(); entry != nil {
@@ -214,7 +214,7 @@ func (p *usinglist) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *usinglist) patterned(ctx Context) bool { return false }
 func (p *usinglist) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
-func (p *usinglist) stencil(ctx Context, stems []string) (s string, rest []string) { return }
+func (p *usinglist) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
 func (p *usinglist) refs(ctx Context, v Value) bool {
         for _, a := range p.list {
                 if a.refs(ctx, v) { return true }

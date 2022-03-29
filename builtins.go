@@ -2107,8 +2107,16 @@ ForSources:
                 // Compose the matched results with stem value.
         ForDstPats:
                 for _, dst := range dstPats {
-                        var name, /*rest*/_ = dst.stencil(ctx, stems)
-                        if name == "" /*|| len(rest) > 0*/ {
+                        var nameVal, /*rest*/_ = dst.stencil(ctx, stems)
+                        if isNil(nameVal) {
+                                erro(ctx, "nil stencil: %T %v (stems=%v)", dst, dst, stems).debug(1)
+                                nameVal = dst
+                        }
+
+                        var name string
+                        if name, err = nameVal.Strval(ctx); err != nil {
+                                erro(ctx, "strval %v failed: %v", nameVal, err).debug(1)
+                        } else if name == "" /*|| len(rest) > 0*/ {
                                 continue ForDstPats
                         } else if opts.cleanPath {
                                 name = filepath.Clean(name)

@@ -510,12 +510,17 @@ func traversePrerequisites(ctx Context, prerequisites []Value) (brks breakers) {
     // '$(or &@,...)' have to be expanded when it's used (e.g. compare).
     if true {
         var ( entry = ctx.entry(); es = entry.String() )
-        var infos = false && (es == "archive" || es == "program" || es == "shared")
+        var infos = true && es == "fc-case/fccase.h"
         for _, prerequisite := range prerequisites {
-            if infos && prerequisite.String() == "$(requirement)" {
+            if infos /*&& prerequisite.String() == "$(requirement)"*/ {
                 if target, _ := ctx.autoGet("@"); target.String() != "" {
-                    var s, _ = prerequisite.Strval(ctx)
-                    warn(ctx, "%v(%v): %T %v -> %v", entry, target, prerequisite, prerequisite, s)
+                    if !prerequisite.patterned(ctx) {
+                        var s, _ = prerequisite.Strval(ctx)
+                        warn(ctx, "%v(%v): %T %v -> %v", entry, target, prerequisite, prerequisite, s)
+                    } else {
+                        var v, rest = prerequisite.stencil(ctx, ctx.stems())
+                        warn(ctx, "%v(%v): %T %v -> %T %v %v", entry, target, prerequisite, prerequisite, v, v, rest)
+                    }
                     warn(ctx, "%v: %v", entry, ctx).debug(1)
                 }
             }
