@@ -2605,6 +2605,7 @@ func modifierWriteFile(ctx Context, args... Value) (result Value, brks breakers)
 type modifierReadFileOpts struct {
         debug bool "d,debug"
         verbose bool "v,verbose"
+        fullname bool "f,full,fullname"
         head Value "h,head"
         foot Value "f,foot"
 }
@@ -2620,6 +2621,15 @@ func modifierReadFile(ctx Context, args... Value) (result Value, brks breakers) 
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
                 erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
+        } else if !opts.fullname {
+                // does nothing
+        } else if args, err = expandmerge2(ctx, expandFullName, args...); err != nil {
+                erro(ctx, "merge args failed: %v", err).debug(1)
+                return
+        } else if false {
+                for _, a := range args {
+                        warn(ctx, "%v: %T %v", ctx.Project(), a, a).debug(1)
+                }
         }
 
         var target Value
