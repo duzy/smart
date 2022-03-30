@@ -1308,6 +1308,10 @@ ParamsLoop:
             erro(ctx, "%v: base '%s' not loaded", l.project, specName).at(position).debug(6)
             break ParamsLoop
         } else if loaded, yes := l.loaded[absPath]; yes && loaded != nil {
+            if l.project.hasBase(loaded) {
+                if false { warn(ctx, "%v %v; %v", l.project, l.project.bases, loaded).debug(1) }
+                continue ParamsLoop
+            }
             // chain loaded base project, note that err might not be nil
             l.project.bases = append(l.project.bases, loaded) //l.project.Chain(loaded)
         } else if implicit {
