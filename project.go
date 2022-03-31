@@ -140,13 +140,13 @@ func (filemap *FileMap) stat(ctx Context, base, pre, name string) (file *File) {
     var dir string
     if filepath.IsAbs(sub) {    // 'sub' is abs
       if filepath.IsAbs(name) { // 'name' is abs too
-        if strings.HasPrefix(name, sub) { // 'name' should have 'sub' prefix
-          if true {
-            warn(ctx, "sub  = %v", sub).at(pos)
+        if s := sub+PathSep; strings.HasPrefix(name, s) { // 'name' should have 'sub' prefix
+          if false {
+            warn(ctx, "sub  = %v", s).at(pos)
             warn(ctx, "name = %v", name).at(pos)
             warn(ctx, "%v", ctx).debug(6)
-            name = strings.TrimPrefix(name, sub)
           }
+          name = strings.TrimPrefix(name, s)
         } else {
           if false {
             warn(ctx, "sub  = %v", sub).at(pos)
