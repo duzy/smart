@@ -4966,7 +4966,28 @@ func (p *delegate) expand(ctx Context, w expandwhat) (res Value, err error) {
     var v Value
     if w&expandDelegate == 0 {
         var x Value
-        if x, err = p.x.expand(ctx, w); err != nil {
+        if u, ok := p.x.(*unresolvedobject); ok {
+            var name string
+            if name, err = u.name.Strval(ctx); err != nil {
+                erro(ctx, "expand '%v' failed: %v", u.name, err).of(u.name).debug(1)
+                return
+            } else if name == "" {
+                erro(ctx, "empty unresolved name: %v", u.name).of(u.name).debug(1)
+                return
+            }
+            if false {
+                for _, proj := range closureProjects(ctx) {
+                    if x, err = proj.resolveObject(ctx, name); err != nil {
+                        erro(ctx, "resolve '%v' failed: %v", name, err).of(u.name).debug(1)
+                        return
+                    } else {
+                        break
+                    }
+                }
+            } else if _, sym := ctx.Scope().Find(name); sym != nil {
+                x = sym
+            }
+        } else if x, err = p.x.expand(ctx, w); err != nil {
             erro(ctx, "expand '%v' failed: %v", p.x, err).of(p.x).debug(1)
             return
         } else if isNil(x) { x = p.x }
@@ -5006,7 +5027,32 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (retctx Context, res Value,
     }}
 
     var x Object
-    if t, ok := p.x.(Object); ok && t != nil {
+    if u, ok := p.x.(*unresolvedobject); ok {
+        var name string
+        if name, err = u.name.Strval(ctx); err != nil {
+            erro(ctx, "expand '%v' failed: %v", u.name, err).of(u.name).debug(1)
+            return
+        } else if name == "" {
+            erro(ctx, "empty unresolved name: %v", u.name).of(u.name).debug(1)
+            return
+        }
+        if false {
+            for _, proj := range closureProjects(ctx) {
+                if x, err = proj.resolveObject(ctx, name); err != nil {
+                    erro(ctx, "resolve '%v' failed: %v", name, err).of(u.name).debug(1)
+                    return
+                } else {
+                    break
+                }
+            }
+        } else if _, sym := ctx.Scope().Find(name); sym != nil {
+            x = sym
+        }
+        if isNil(x) {
+            if false { erro(ctx, "undefined '%v'", name).of(u.name).debug(1) }
+            return
+        }
+    } else if t, ok := p.x.(Object); ok && t != nil {
         x = t
     } else if t, ok := p.x.(*usinglist); ok {
         x = t
@@ -5179,7 +5225,29 @@ func (p *closure) expand(ctx Context, w expandwhat) (res Value, err error) {
     var val Value
     if w&expandClosure == 0 {
         // Can't expand Def here as closure still need it
-        if val, err = p.x.expand(ctx, w&^expandDef); err != nil {
+        /*if u, ok := p.x.(*unresolvedobject); ok {
+            var name string
+            if name, err = u.name.Strval(ctx); err != nil {
+                erro(ctx, "expand '%v' failed: %v", u.name, err).of(u.name).debug(1)
+                return
+            } else if name == "" {
+                erro(ctx, "empty unresolved name: %v", u.name).of(u.name).debug(1)
+                return
+            }
+            var x Object
+            for _, proj := range closureProjects(ctx) {
+                if x, err = proj.resolveObject(ctx, name); err != nil {
+                    erro(ctx, "resolve '%v' failed: %v", name, err).of(u.name).debug(1)
+                    return
+                } else {
+                    break
+                }
+            }
+            if val, err = x.expand(ctx, w&^expandDef); err != nil {
+                erro(ctx, "expand '%v' failed: %v", x, err).of(x).debug(1)
+                return
+            }
+        } else*/ if val, err = p.x.expand(ctx, w&^expandDef); err != nil {
             erro(ctx, "expand '%v' failed: %v", p.x, err).of(p.x).debug(1)
             return
         } else if isNil(val) { val = p.x }
@@ -5225,7 +5293,24 @@ func (p *closure) disclose(ctx Context, w expandwhat) (res Value, err error) {
         warn(ctx, "%v: %s", proj, ctx).debug(32)
     } } () }
 
-    if t, ok := p.x.(Object); ok && t != nil {
+    /*if u, ok := p.x.(*unresolvedobject); ok {
+        var name string
+        if name, err = u.name.Strval(ctx); err != nil {
+            erro(ctx, "expand '%v' failed: %v", u.name, err).of(u.name).debug(1)
+            return
+        } else if name == "" {
+            erro(ctx, "empty unresolved name: %v", u.name).of(u.name).debug(1)
+            return
+        }
+        for _, proj := range closureProjects(ctx) {
+            if x, err = proj.resolveObject(ctx, name); err != nil {
+                erro(ctx, "resolve '%v' failed: %v", name, err).of(u.name).debug(1)
+                return
+            } else {
+                break
+            }
+        }
+    } else*/ if t, ok := p.x.(Object); ok && t != nil {
         x = t
     } else if t, ok := p.x.(*selection); ok && t != nil && !isNil(t.o) {
         if n, ok := t.o.(*ProjectName); ok && n != nil && n.project != nil {
