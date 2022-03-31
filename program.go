@@ -235,9 +235,9 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
                 prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
                 for _, brk := range tb {
                     switch brk.what {
-                    case breakFail: erro(ctx, "%v: %s: broken modifier with failure: %v", proj, name, brk.message).at(brk.pos)
-                    case breakErro: erro(ctx, "%v: %s: broken modifier with error: %v", proj, name, brk.error).at(brk.pos)
-                    default: erro(ctx, "%v: %s: broken modifier (%v)", proj, name, brk.what).at(brk.pos)
+                    case breakFail: erro(ctx, "%v: %s: %v", proj, name, brk.message).at(brk.pos)
+                    case breakErro: erro(ctx, "%v: %s: %v", proj, name, brk.error).at(brk.pos)
+                    default: erro(ctx, "%v: %s: %v", proj, name, brk.what).at(brk.pos)
                     }
                 }
                 errostack(ctx, 3, "(%T):", ctx).debug(6)
@@ -510,28 +510,36 @@ func traversePrerequisites(ctx Context, prerequisites []Value) (brks breakers) {
     // '$(or &@,...)' have to be expanded when it's used (e.g. compare).
     if true {
         var ( entry = ctx.entry(); es = entry.String() )
-        var infos = true && es == "fc-case/fccase.h"
+        var infos = false && strings.Contains(es, "fcrange")
         for _, prerequisite := range prerequisites {
-            if infos /*&& prerequisite.String() == "$(requirement)"*/ {
+            brks = prerequisite.traverse(ctx)
+            if infos && brks.has() /*&& prerequisite.String() == "%.c"*/ {
                 if target, _ := ctx.autoGet("@"); target.String() != "" {
-                    if !prerequisite.patterned(ctx) {
-                        var s, _ = prerequisite.Strval(ctx)
-                        warn(ctx, "%v(%v): %T %v -> %v", entry, target, prerequisite, prerequisite, s)
-                    } else {
+                    if prerequisite.patterned(ctx) {
                         var v, rest = prerequisite.stencil(ctx, ctx.stems())
                         warn(ctx, "%v(%v): %T %v -> %T %v %v", entry, target, prerequisite, prerequisite, v, v, rest)
+                    } else {
+                        var s, _ = prerequisite.Strval(ctx)
+                        warn(ctx, "%v(%v): %T %v -> %v", entry, target, prerequisite, prerequisite, s)
                     }
-                    warn(ctx, "%v: %v", entry, ctx).debug(1)
+                    for i, brk := range brks {
+                        warn(ctx, "%v: %T %v; %d. %v", entry, prerequisite, prerequisite, i, brk.what)
+                    }
+                    warnstack(ctx, 3, "%v: %v %v; %v", ctx.Project(), entry, prerequisite, ctx).debug(8)
                 }
             }
-            if brks = prerequisite.traverse(ctx); brks.has() {
+            if /*brks = prerequisite.traverse(ctx);*/ brks.has() {
                 var tb = brks.not(breakNext, breakCase, breakDone)
                 if false && tb.has() && len(ctx.stems()) > 0 {
                     var target, _ = ctx.autoGet("@")
                     warn(ctx, "broken traversal: %v (target = %v, stems = %v)", tb[0].what, target, ctx.stems()).debug(1)
                 } else if tb = brks.not(breakDone); infos && tb.has() {
+                    var proj = ctx.Project()
                     var s, _ = prerequisite.Strval(ctx)
-                    for _, brk := range brks { warn(ctx, "%v; %T %v; %v", brk.what, prerequisite, prerequisite, s).debug(8) }
+                    for i, brk := range brks {
+                        warn(ctx, "%v: %T %v; %v; %v; %d. %v", proj, entry, prerequisite, prerequisite, s, i, brk.what)
+                    }
+                    warnstack(ctx, 3, "%v: %v; %v %v", proj, entry, prerequisite, s).debug(8)
                 }
                 break
             }
@@ -588,9 +596,6 @@ func traverseOrderOnly(ctx Context) (brks breakers) {
 func _traverseGrepped(ctx Context) (brks breakers) {
     if options.traceExec  { defer un(trace(t_exec, "~")) }
     var t = ctx.traversal()
-    /*defer func(t0, tx, ta *Def) {
-        t.target0, t.targetx, t.targets = t0, tx, ta
-    } (t.target0, t.targetx, t.targets)*/
     t.target0, t.targetN, t.targetX = "", "", "~"
     return traversePrerequisites(ctx, t.grepped)
 }

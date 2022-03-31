@@ -2728,13 +2728,33 @@ func builtinDecodeBase64(ctx Context, args... Value) (res Value) {
         return
 }
 
-func asFile(a Value) (f *File) {
+func asFile(ctx Context, a Value) (f *File) {
         switch t := a.(type) {
         case *File     : f = t
         case *Barefile : f = t.File
-        case *Def      : if t.value != nil    { return asFile(t.value   ) }
-        case *List     : if len(t.Elems) == 1 { return asFile(t.Elems[0]) }
-        case *RuleEntry:                        return asFile(t.target  )
+        case *Def      : if t.value != nil    { return asFile(ctx, t.value   ) }
+        case *List     : if len(t.Elems) == 1 { return asFile(ctx, t.Elems[0]) }
+        case *RuleEntry:                        return asFile(ctx, t.target  )
+        case *Bareword, *Barecomp, *Path:
+                for _, proj := range closureProjects(ctx) {
+                        if s, err := t.Strval(ctx); err != nil {
+                                erro(ctx, "%v", err).debug(1)
+                                break
+                        } else if f = proj.FindFile(ctx, s); f != nil {
+                                break
+                        }
+                }
+        }
+        return
+}
+
+func fullname1(ctx Context, a Value) (s string, ok bool) {
+        if f := asFile(ctx, a); f == nil {
+                // no fullname
+        } else if s = f.fullname(); filepath.IsAbs(s) {
+                ok = true
+        } else {
+                s = ""
         }
         return
 }
@@ -2744,18 +2764,7 @@ func fullname(ctx Context, a Value) (s string, ok bool) {
                 erro(ctx, "expand fullname failed: %v", err).of(a).debug(1)
         } else {
                 if isNil(v) { v = a }
-                s, ok = fullname1(v)
-        }
-        return
-}
-
-func fullname1(a Value) (s string, ok bool) {
-        if f := asFile(a); f == nil {
-                // no fullname
-        } else if s = f.fullname(); filepath.IsAbs(s) {
-                ok = true
-        } else {
-                s = ""
+                s, ok = fullname1(ctx, v)
         }
         return
 }

@@ -673,18 +673,20 @@ func (p *Project) resolvePatterns(ctx Context, i interface{}) (res []*stemmed) {
 func (p *Project) resolvePatterns1(ctx Context, i interface{}) (res []*stemmed) {
   for _, pat := range p.patterns {
     if full, _, stems := pat.target.match(ctx, i); full {
+      if false && fmt.Sprintf("%v", i) == "fcrange.o" {
+        warn(ctx, "%v, %v, %v; %v", i, full, stems, len(res))
+      }
       if ok := false; len(pat.argumented) > 0 {
         for _, a := range pat.argumented {
-          if false && fmt.Sprintf("%v", i) == a.String() {
-            var v1, v2, v3 = a.match(ctx, i)
-            warn(ctx, "%v %v; %v; %v, %v, %v", i, a, stems, v1, v2, v3).debug(1)
-          }
           if ok, _, _ = a.match(ctx, i); ok { break }
         }
         if !ok { continue }
       }
       res = append(res, &stemmed{*pat, stems})
     }
+  }
+  if false && len(res) > 0 && fmt.Sprintf("%v", i) == "fcrange.o" {
+    warnstack(ctx, 6, "%v %v, %v, %v", p, p.bases, i, len(res)).debug(132)
   }
   return
 }

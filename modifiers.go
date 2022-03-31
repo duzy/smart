@@ -2642,11 +2642,8 @@ func modifierReadFile(ctx Context, args... Value) (result Value, brks breakers) 
                 target, _ = ctx.autoGet("@")
         }
 
-        if isNil(target) {
-                erro(ctx, "target is <nil>").debug(8)
-                return
-        } else if isNone(target) {
-                erro(ctx, "target is <none>").debug(8)
+        if isTrivial(target) {
+                erro(ctx, "target is invalid (%T)", target).debug(8)
                 return
         } else if filename, err = fullnameOrStrval(ctx, target); err != nil {
                 erro(ctx, "strval '%v' error: %v", target, err).of(target).debug(1)
@@ -2654,10 +2651,6 @@ func modifierReadFile(ctx Context, args... Value) (result Value, brks breakers) 
         } else if filename == "" {
                 erro(ctx, "target filename is empty").of(target).debug(1)
                 return
-        }
-
-        if opts.debug {
-                info(ctx, "read-file: %v", filename)
         }
 
         var bytes []byte
@@ -2679,6 +2672,8 @@ func modifierReadFile(ctx Context, args... Value) (result Value, brks breakers) 
                 ctx.autoSet("-", MakeString(ctx.Position(), s))
         } else {
                 brks.add(ctx.Position(), breakErro).error = err
+                erro(ctx, "read-file: %T %s", target, filename)
+                errostack(ctx, 3, "%v", err).debug(6)
         }
         return
 }
@@ -2986,7 +2981,7 @@ func reportFileUpdates(ctx Context, start time.Time, files []*File) {
 }
 
 type modifierStampOpts struct {
-        next bool "n,next" // breakNext if failed to stamp
+        next bool "n,nxt,next" // breakNext if failed to stamp
         error bool "e,err;e,error" // breakErro if failed to stamp
         prompt bool "m,prompt"
         verbose bool "v,verbose"
