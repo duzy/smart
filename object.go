@@ -1424,14 +1424,15 @@ ForPrograms:
                         case breakDone:
                                 break ForPrograms
                         case breakCase, breakFail, breakErro:
-                                brks.append(brk)
-                                warn(ctx, "broken traversal %v: %v (stems = %v)", entry, brk.what, ctx.stems()).debug(6)
+                                if brks.append(brk); brk.what != breakCase {
+                                        warn(ctx, "%v: %v (stems=%v)", entry, brk.what, ctx.stems()).debug(6)
+                                }
                                 break ForPrograms
                         case breakNext:
                                 brks.append(brk)
                                 continue ForPrograms
                         default:
-                                warn(ctx, "broken traversal %v: %v", entry, brk.what).debug(6)
+                                warn(ctx, "%v: %v (stems=%v)", entry, brk.what, ctx.stems()).debug(6)
                                 break ForPrograms
                         }
                 }

@@ -955,12 +955,21 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
                 if brks = brks.not(breakCase, breakDone); !brks.has() { okay = true }
             }
             if brks.has() {
-                prompt(ctx, "%v: traverse failed, project %s\n", file.fullname(), project)
-                for _, brk := range brks {
-                    erro(ctx, "%v: broken for stemmed entry %v (%v)", file.fullname(), entry, brk.what).at(brk.pos)
+                if file != nil {
+                    prompt(ctx, "%v: traverse failed, project %s\n", file.fullname(), project)
+                    for _, brk := range brks {
+                        erro(ctx, "%v: broken for stemmed entry %v (%v)", file.fullname(), entry, brk.what).at(brk.pos)
+                    }
+                    erro(ctx, "%v: broken for stemmed entry %v", file.fullname(), entry)
+                    errostack(ctx, 3, "%v: %v", file.fullname(), ctx).debug(6)
+                } else {
+                    prompt(ctx, "%v: traverse failed, project %s\n", target, project)
+                    for _, brk := range brks {
+                        erro(ctx, "%v: broken for stemmed entry %v (%v)", target, entry, brk.what).at(brk.pos)
+                    }
+                    erro(ctx, "%v: broken for stemmed entry %v", target, entry)
+                    errostack(ctx, 3, "%v: %v", target, ctx).debug(6)
                 }
-                erro(ctx, "%v: broken for stemmed entry %v", file.fullname(), entry)
-                errostack(ctx, 3, "%v: %v", file.fullname(), ctx).debug(6)
                 return
             } else if okay {
                 break
@@ -5692,6 +5701,7 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
     if isTrivial(p.Suffix) {
         if a < b { stems, result, full = append(stems, rep[a:]), rep, true }
     } else if pp, ok := p.Suffix.(*PercPattern); a < b && ok {
+        // FIXME: separate paths???  *) use % to match single path sep; *) use %% to match full path
         // fooxxbaryybaz -> foo%bar%baz => (foo xx bar yy baz) [xx yy]
         // fooxxx -> foo%% => (foo xxx) [xxx]
         // fooxxxbar -> foo%%bar => (foo xxx bar) [xxx]
