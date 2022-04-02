@@ -37,12 +37,20 @@ func (filemap *FileMap) String() (s string) {
 func (filemap *FileMap) Patterns(ctx Context) (pats []Value) {
   for _, pattern := range filemap.patts {
     if pattern.expandible(ctx, expandClosure) {
+      if true {
+        warn(ctx, "closure filemap pattern may cause recursive file resolving: %v", pattern).of(pattern)
+        ctx.checkErrors(true) // check here to report warnings immediately
+      }
+
       var err error
-      if pats, err = expandmerge2(ctx, expandPlainValue, pattern); err != nil {
+      // FIXME+TODO: this could be time consuming to expand clousre in the filemap
+      /*if pats, err = expandmerge2(ctx, expandPlainValue, pattern); err != nil {
         erro(ctx, "merge pattern '%v' failed: %v", pattern, err).of(pattern)
-      } else if pats, _, err = expandall2(ctx, expandPlainValue, pats...); err != nil {
+      } else*/ if pats, _, err = expandall2(ctx, expandPlainValue, pattern); err != nil {
         // NOTE: do a second expand to ensure converted closures are expanded
         erro(ctx, "sencond expand patterns '%v' failed: %v", pats, err).of(pattern)
+      } else if pats, err = expandmerge2(ctx, expandPlainValue, pats...); err != nil {
+        erro(ctx, "merge pattern '%v' failed: %v", pattern, err).of(pattern)
       }
     } else {
       pats = append(pats, pattern)
