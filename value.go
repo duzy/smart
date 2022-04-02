@@ -770,22 +770,15 @@ checkFileEntries:
                 }
                 errostack(ctx, 3, "%v: %v", entry, ctx).debug(6)
                 return
-            } else if tb = brks.of(breakNext);    tb.has() {
-                if brks = brks.not(breakNext); !brks.has() { continue }
-            } else if tb = brks.of(breakCase, breakDone);    tb.has() {
-                if brks = brks.not(breakCase, breakDone); !brks.has() { okay = true }
-            }
-            if brks.has() {
-                prompt(ctx, "%v: traverse failed, project %s\n", file.fullname(), proj)
-                for _, brk := range brks {
-                    erro(ctx, "%v: broken for stemmed entry %v (%v)", file.fullname(), entry, brk.what).at(brk.pos)
+            } else {
+                if tb = brks.of(breakNext); tb.has() {
+                    if brks = brks.not(breakNext); !brks.has() { continue }
                 }
-                erro(ctx, "%v: broken for stemmed entry %v", file.fullname(), entry)
-                errostack(ctx, 3, "%v: %v", file.fullname(), ctx).debug(6)
-                return
-            } else if okay {
-                break
+                if tb = brks.of(breakCase, breakDone); tb.has() {
+                    if brks = brks.not(breakCase, breakDone); !brks.has() { okay = true }
+                }
             }
+            if okay { break }
         }
     }
 
@@ -949,31 +942,15 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
                 }
                 errostack(ctx, 3, "%v: %v: %v", str, project, ctx).at(pos).debug(6)
                 return
-            } else if tb = brks.of(breakNext           );    tb.has() {
-                if brks = brks.not(breakNext           ); !brks.has() { continue }
-            } else if tb = brks.of(breakCase, breakDone);    tb.has() {
-                if brks = brks.not(breakCase, breakDone); !brks.has() { okay = true }
-            }
-            if brks.has() {
-                if file != nil {
-                    prompt(ctx, "%v: traverse failed, project %s\n", file.fullname(), project)
-                    for _, brk := range brks {
-                        erro(ctx, "%v: broken for stemmed entry %v (%v)", file.fullname(), entry, brk.what).at(brk.pos)
-                    }
-                    erro(ctx, "%v: broken for stemmed entry %v", file.fullname(), entry)
-                    errostack(ctx, 3, "%v: %v", file.fullname(), ctx).debug(6)
-                } else {
-                    prompt(ctx, "%v: traverse failed, project %s\n", target, project)
-                    for _, brk := range brks {
-                        erro(ctx, "%v: broken for stemmed entry %v (%v)", target, entry, brk.what).at(brk.pos)
-                    }
-                    erro(ctx, "%v: broken for stemmed entry %v", target, entry)
-                    errostack(ctx, 3, "%v: %v", target, ctx).debug(6)
+            } else {
+                if tb = brks.of(breakNext); tb.has() {
+                    if brks = brks.not(breakNext); !brks.has() { continue }
                 }
-                return
-            } else if okay {
-                break
+                if tb = brks.of(breakCase, breakDone); tb.has() {
+                    if brks = brks.not(breakCase, breakDone); !brks.has() { okay = true }
+                }
             }
+            if okay { break }
         }
     }
 
