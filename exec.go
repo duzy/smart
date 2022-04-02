@@ -77,6 +77,10 @@ var (
   rxIgnoringNonExistentDirectory = rx(`ignoring nonexistent directory "(.*?)"`)
   rxIgnoringDuplicateDirectory = rx(`ignoring duplicate directory "(.*?)"`)
 
+  // NOTE: python standard errors
+  rxPyErrorTrace = rx(`^\s*File "(.+?)", line (\d+), in (.+)`)
+  rxPyModuleNotFoundError = rx(`ModuleNotFoundError: No module named '(.*?)'`)
+
   workingMutex = new(sync.Mutex)
   working atomic.Value // number of working executions
 
@@ -530,6 +534,19 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       if s := v[1].string; s != "0" /*&& p.report*/ {
         // FIXME: the 'exit status' report is not working
         addScannedDiag(diagError, lpos, fmt.Sprintf("abnormal exist status %s", s))
+      }
+    case rxPyErrorTrace:
+      if p.report {
+        var pos = p.convPos(v[1].string, v[2].string, "")
+        var s = fmt.Sprintf(`in %v`, v[3].string)
+        lpos.Column = v[3].col
+        addScannedDiag(diagError, lpos, s)
+        addScannedDiag(diagError, pos, s)
+      }
+    case rxPyModuleNotFoundError:
+      if p.report {
+        var name = v[1].string;  lpos.Column = v[1].col + 1
+        addScannedDiag(diagError, lpos, fmt.Sprintf(`no python module named "%v"`, name))
       }
     }
     if err != nil { break }
@@ -1020,8 +1037,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     return;
   }
 
-  var envstr string
-  var envs []string = os.Environ()
+  var (
+    envstr string
+    envs []string = os.Environ()
+  )
   for i, p := range envars {
     var k, v string
     if k, err = p.Key.Strval(ctx); err != nil {
@@ -1037,8 +1056,11 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     envs = append(envs, fmt.Sprintf("%s=%s", k, v))
   }
 
-  var log *ExecLog
-  var logFile *os.File
+  var (
+    logPos Position
+    log *ExecLog
+    logFile *os.File
+  )
   if opts.logFileName != nil { log = &ExecLog{ filename: opts.logFileName.string } }
   if opts.bufStdout { exeres.Stdout.Buf = new(bytes.Buffer) }
   if opts.bufStderr { exeres.Stderr.Buf = new(bytes.Buffer) }
@@ -1091,9 +1113,8 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     exeres.ctx = nil
     exeres.sh = nil
     exeres.x = nil
-  } ()
 
-  defer func() {
+    // Stamp the target file.
     if !opts.stamp || ctx.configuration() {
       // no stamp for target files
     } else if err != nil {
@@ -1112,9 +1133,12 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       return
     } else if files, err := target.stamp(t); err != nil {
       if pe, ok := err.(*fs.PathError); ok { err = fmt.Errorf(`"%v" not found`, target)
-        prompt(ctx, "%v: not found, stamp \"%v\"\n", pe.Path, target)
+        prompt(ctx, "%v: target not found, stamp \"%v\"\n", pe.Path, target)
       } else {
-        prompt(ctx, "%v: not found, \"%v\"\n", pe.Path, err)
+        prompt(ctx, "%v: target not found, \"%v\"\n", pe.Path, err)
+      }
+      if opts.logFileName != nil && !logPos.IsValid() {
+        prompt(ctx, "%v:1: see logs for \"%s\"\n", opts.logFileName.string, target)
       }
       erro(ctx, `stamp "%v" failed`, target)
       errostack(ctx, 6, `%v: %v`, target, ctx).debug(10)
@@ -1216,7 +1240,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     exeres.Stderr.report = !opts.silent
     exeres.Status, err = exeres.run(positional(ctx, pos))
     if (!opts.silent || opts.debug) && (len(exeres.scannedDiags) > 0 || exeres.Status != 0 || err != nil) {
-      var ( lpos Position; en, wn, in int )
+      var en, wn, in int
       for _, rec := range exeres.scannedDiags {
         switch rec.dt {
         case diagError: en += rec.num
@@ -1231,7 +1255,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       }
       for i, rec := range exeres.scannedDiags {
         if !opts.infos && rec.dt == diagInfo { continue }
-        if !lpos.IsValid() { lpos = rec.lpos }
+        if !logPos.IsValid() { logPos = rec.lpos }
         if i == 0 && !rec.position.Equals(&rec.lpos) {
           diag(ctx, rec.dt, rec.msg).at(rec.lpos)//.debug(1)
         }
@@ -1245,37 +1269,37 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
           break
         }
       }
-      if !lpos.IsValid() && log != nil {
-        lpos.Filename = log.filename
-        lpos.Line = exeres.Stderr.log.lines + 1
+      if !logPos.IsValid() && log != nil {
+        logPos.Filename = log.filename
+        logPos.Line = exeres.Stderr.log.lines + 1
       } else {
-        lpos = ctx.Position()
+        logPos = ctx.Position()
       }
       var str, _, _ = entryStr(ctx, ctx.entry())
       if exeres.Status != 0 { err = &exitstatus{ exeres.Status } // set or convert error
-        erro(ctx, "%v: abnormal exit status %d", str, exeres.Status).at(lpos)
+        erro(ctx, "%v: abnormal exit status %d", str, exeres.Status).at(logPos)
       } else if err != nil { if opts.silent { err = nil }
-        erro(ctx, "%v: %s", str, err).at(lpos)
+        erro(ctx, "%v: %s", str, err).at(logPos)
       }
       if en > 0 {
-        erro(ctx, "%v: scanned %d known errors", str, en).at(lpos)
+        erro(ctx, "%v: scanned %d known errors", str, en).at(logPos)
         erro(ctx, "%v: execute failed (%d errors)", str, en)
         errostack(ctx, 32, "%v: (%T)", str, ctx).debug(6)
       } else if wn > 0 {
         if false {
-          warn(ctx, "%v: scanned %d known warnings", str, wn).at(lpos)
+          warn(ctx, "%v: scanned %d known warnings", str, wn).at(logPos)
           warn(ctx, "%v: execute has %d warnings", str, wn)
           warnstack(ctx, 3, "%v: %v", str, ctx).debug(1)
-        } else if pos := ctx.Position(); lpos.Equals(&pos) {
+        } else if pos := ctx.Position(); logPos.Equals(&pos) {
           warn(ctx, "%v: scanned %d known warnings", str, wn)
           warnstack(ctx, 3, "%v: %v", str, ctx).debug(1)
         } else {
-          warn(ctx, "%v: scanned %d known warnings", str, wn).at(lpos)
+          warn(ctx, "%v: scanned %d known warnings", str, wn).at(logPos)
           warn(ctx, "%v: execute has %d warnings", str, wn)
           warnstack(ctx, 3, "%v: %v", str, ctx).debug(1)
         }
       } else if in > 0 && opts.infos {
-        info(ctx, "%v: scanned %d known messages", str, in).at(lpos)
+        info(ctx, "%v: scanned %d known messages", str, in).at(logPos)
         info(ctx, "%v: execute has %d messages", str, in)
         infostack(ctx, 8, "%v: %v", str, ctx).debug(1)
       } else if err != nil || exeres.Status != 0 {
