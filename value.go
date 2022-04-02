@@ -5667,8 +5667,11 @@ func (p *PercPattern) defs(ctx Context, s ...string) []*Def { return append(p.Pr
 func (p *PercPattern) expandible(ctx Context, w expandwhat) bool { return p.Prefix.expandible(ctx, w) || p.Suffix.expandible(ctx, w) }
 func (p *PercPattern) patterned(ctx Context) bool { return true }
 func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string, stems []string) {
-    var ( prefix string; err error )
-    if !(isNil(p.Prefix) || isNone(p.Prefix)) {
+    var (
+        prefix string
+        err error
+    )
+    if !isTrivial(p.Prefix) {
         // FIXME: the prefix could be Glob, Regexp, etc.
         if prefix, err = p.Prefix.Strval(ctx); err != nil {
             erro(ctx, "prefix strval '%v' failed: %v", p.Prefix, err).of(p.Prefix)
@@ -5679,16 +5682,21 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
             return
         }
     }
+    if false && p.String() == "%%" {
+        defer func() {
+            warn(ctx, "%v(%v,%v): %v, %v, %v, %v", p, p.Prefix, p.Suffix, rep, full, result, stems).debug(6)
+        } ()
+    }
 
     var a, b = len(prefix), len(rep)
-    if isNil(p.Suffix) || isNone(p.Suffix) {
+    if isTrivial(p.Suffix) {
         if a < b { stems, result, full = append(stems, rep[a:]), rep, true }
     } else if pp, ok := p.Suffix.(*PercPattern); a < b && ok {
         // fooxxbaryybaz -> foo%bar%baz => (foo xx bar yy baz) [xx yy]
         // fooxxx -> foo%% => (foo xxx) [xxx]
         // fooxxxbar -> foo%%bar => (foo xxx bar) [xxx]
         for ok {
-            if isNil(pp.Prefix) || isNone(pp.Prefix) {
+            if isTrivial(pp.Prefix) {
                 // does nothing
             } else if s, e := pp.Prefix.Strval(ctx); e != nil {
                 erro(ctx, "strval '%v' failed: %v", pp.Prefix, e).of(pp.Prefix)
@@ -5704,7 +5712,7 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
                 }
             }
             var pp2 *PercPattern
-            if isNil(pp.Suffix) || isNone(pp.Suffix) {
+            if isTrivial(pp.Suffix) {
                 var s = rep[a:] // let %% matches everything else
                 full, stems = true, append(stems, s)
                 result += s
@@ -5788,6 +5796,11 @@ func (p *PercPattern) stencil(ctx Context, stems []string) (val Value, rest []st
             return
         }
     }
+    if false && p.String() == "%%" {
+        defer func() {
+            warn(ctx, "%v(%v,%v): %v, %T %v, %v", p, p.Prefix, p.Suffix, stems, val, val, rest).debug(6)
+        } ()
+    }
 
     if len(stems) > 0 {
         s += stems[0]
@@ -5800,9 +5813,11 @@ func (p *PercPattern) stencil(ctx Context, stems []string) (val Value, rest []st
     if isTrivial(p.Suffix) {
         // done
     } else if p.Suffix.patterned(ctx) {
-        // FIXME: patterns like '%%...' should use only one stem,
         // FIXME: patterns like '%xxx%...' use multiple stems.
-        suffix, rest = p.Suffix.stencil(ctx, rest)
+        if suf, res := p.Suffix.stencil(ctx, rest); suf != p.Suffix {
+            // NOTE: patterns like '%%...' uses only one stem,
+            suffix, rest = suf, res
+        }
     } else {
         suffix = p.Suffix
     }
