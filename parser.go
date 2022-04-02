@@ -618,8 +618,7 @@ func (p *parser) parseArgumentedExpr(x Value) *Argumented {
 	p.next(true) // skip token.LPAREN
 
 	var a = []Value{ p.parseListExpr(false) }
-	for /*p.tok == token.COMMA*/p.tok != token.RPAREN && p.tok != token.EOF {
-		//p.next(true) // skip token.COMMA
+	for p.tok != token.RPAREN && p.tok != token.LINEND && p.tok != token.EOF {
 		switch p.tok {
 		case token.COMMA: p.next(true) // skip token.COMMA
 		case token.BAR, token.SEMICOLON:
