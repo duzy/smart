@@ -782,7 +782,7 @@ func (l *loader) addUsing(ctx Context, usee *Project, params []Value, opts useOp
     if options.verboseUsing {
         defer func(t time.Time) {
             var d = time.Now().Sub(t)
-            fmt.Fprintf(stderr, "using(%8s) %s ⇒ %v\n", d, l.project, l.project.using)
+            fmt.Fprintf(stderr, "using(%15s) %s ⇒ %v\n", d, l.project, l.project.using)
         } (time.Now())
     }
 
@@ -1366,7 +1366,9 @@ func (l *loader) loadDotContainer(ident *Barecomp, identStr string, file *File) 
         if name == nil {
             erro(l, "%v: %v: `dock` is not a project", l.project.name, file).of(ident).debug(1)
         } else {
-            if options.verboseLoads { prompt(l, "smart: %v (%v)\n", name, file.fullname()) }
+            if false && options.verboseLoads {
+                prompt(l, "smart: %v (%v)\n", name, file.fullname())
+            }
 
             var opts useOpts
             // TODO: parse the useOpts
@@ -1393,7 +1395,9 @@ func (l *loader) loadDotConfigure(ident *Barecomp, identStr string, file *File) 
                 erro(l, "%v: %v: `.configure` is not a project", l.project.name, file).at(position).debug(1)
             }
         } else {
-            if options.verboseLoads { prompt(l, "smart: %v (%v)\n", name, file.fullname()) }
+            if false && options.verboseLoads {
+                prompt(l, "smart: %v (%v)\n", name, file.fullname())
+            }
             if conf := l.project.configure; conf != nil {
                 if conf == loaded { return }
                 erro(l, ".configure already specified").at(position).debug(1)
@@ -1566,7 +1570,7 @@ func (l *loader) loadProjectConfiguration(ident *Barecomp, identStr string, decl
         for _, v := range configuration.clean { if s == v { exists = true; break }}
         if !exists { configuration.clean = append(configuration.clean, s) }
     } else if file.exists() {
-        if options.verboseImport || options.verboseLoads {
+        if false && (options.verboseImport || options.verboseLoads) {
             var cp Position; cp.Filename, cp.Line = file.fullname(), 1
             info(ctx, "%s (%s)", l.project, l.project.spec).at(cp).debug(true, 1)
         } else if options.verbose {
@@ -2125,6 +2129,8 @@ func (l *loader) load(specName, absPath string, source interface{}) (result bool
         }
     } (time.Now())
 
+    if false && options.verboseLoads { fmt.Fprintf(stderr, "load %s …\n", specName) }
+
     if absPath == "" {
         erro(l, "no such module `%s' (in paths %v)", specName, l.paths)
         return
@@ -2174,6 +2180,8 @@ func (l *loader) loadDir(pos Position, specName, absDir string, filter func(os.F
             }
         }
     } (time.Now())
+
+    if false && options.verboseLoads { fmt.Fprintf(stderr, "load %s …\n", specName) }
 
     if !pos.IsValid() {
         pos = positionForDir(absDir)

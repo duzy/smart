@@ -620,7 +620,11 @@ func builtinError(ctx Context, args... Value) (res Value) {
                         return
                 }
         }
-        erro(ctx, "%s", s).debug(1)
+        if false {
+                erro(ctx, "%s", s.String()).debug(1)
+        } else {
+                errostack(ctx, 5, "%s", s.String()).debug(1)
+        }
         return
 }
 

@@ -32,45 +32,44 @@ type commandLineOpts struct {
   debugInfos      bool `dbinfo,debug-infos`  // optionDebugInfos
   debugPrompt     bool `dbprom,debug-prompt` // optionDebugInfos
 
-  autoProfs       bool `autoprof,auto-profiles;autoprof,auto-profile`
+  autoProfs       bool `ap,autoprof,auto-profiles,auto-profile`
   cpuProf         string `cpuprof,cpu-profile`
   memProf         string `memprof,memory-profile`
 
-  printConfig     bool `opts,print-options;opts,printoptions` // optionPrintConfiguration
-  printFlags      bool `flags,print-flags;flags,printflags`   // optionPrintFlags
+  printConfig     bool `opts,print-options,printoptions`    // optionPrintConfiguration
+  printFlags      bool `flags,print-flags,printflags`       // optionPrintFlags
 
-  buildPlugins    bool `bup,build-plugins;bup,buildplugins`  // optionAlwaysBuildPlugins
+  buildPlugins    bool `bp,bup,build-plugins,buildplugins`  // optionAlwaysBuildPlugins
 
-  verbose         bool `v,verbose`            // optionVerbose
-  verboseImport   bool `vimp,verbose-import`  // optionVerboseImport
-  verboseChecks   bool `vchk,verbose-checks`  // optionVerboseChecks
-  verboseLoads    bool `vloa,verbose-loading` // optionVerboseLoading
-  verboseParse    bool `vpar,verbose-parsing` // optionVerboseParsing
-  verboseUsing    bool `vuse,verbose-using`   // optionVerboseUsing
+  verbose         bool `v,verb,verbose`       // optionVerbose
+  verboseImport   bool `vi,vimp,verbose-import`  // optionVerboseImport
+  verboseChecks   bool `vc,vchk,verbose-checks`  // optionVerboseChecks
+  verboseLoads    bool `vl,vloa,verbose-loading` // optionVerboseLoading
+  verboseParse    bool `vp,vpar,verbose-parsing` // optionVerboseParsing
+  verboseUsing    bool `vu,vuse,verbose-using`   // optionVerboseUsing
 
-  cleanDotCache   bool `clcac,clean-cache;clcac,clear-cache;rmc,rm-cache`
-  cleanDotDeps    bool `cldep,clean-deps;cldep,clear-deps;rmd,rm-deps`
-  cleanDotGrep    bool `clgrp,clean-grep;clgrp,clear-grep;rmg,rm-grep`
-  cleanTmpDirs    bool `cltmp,clean-temp;cltmp,clear-temp;rmt,rm-temp`
+  cleanDotCache   bool `clcac,clean-cache,clear-cache;rmc,rm-cache`
+  cleanDotDeps    bool `cldep,clean-deps,clear-deps;rmd,rm-deps`
+  cleanDotGrep    bool `clgrp,clean-grep,clear-grep;rmg,rm-grep`
+  cleanTmpDirs    bool `cltmp,clean-temp,clear-temp;rmt,rm-temp`
 
   checkLoadGraph  bool `ckld,check-loads`
 
-  cleanConf       bool `cc,clean-configure;cc,clean-conf`
-  configure       bool `conf,configure`       // optionConfigure
-  reconfigure     bool `reconf,reconfigure;rc,reconfig` // optionReconfig
+  cleanConf       bool `cc,clean-conf,clean-configure`
+  configure       bool `conf,configure`                     // optionConfigure
+  reconfigure     bool `rc,rec,reconf,reconfig,reconfigure` // optionReconfig
 
   saveGrepSource  bool `savgs,save-grep-source`
 
   noRun           bool `nor,no-run`
-  noExec          bool `nox,no-exec;ne,no-execute`  // optionNoExec
+  noExec          bool `nox,ne,no-exec,no-execute`  // optionNoExec
   noDeps          bool `nod,no-deps`
   noGrep          bool `nog,no-grep`
-  noDepsGrep      bool `nodg,no-deps-grep;ngd,no-grep-deps`
+  noDepsGrep      bool `nodg,ngd,no-deps-grep,no-grep-deps`
   noImportFiles   bool `noif,no-import-files`
 
-  fastMode        bool `f,fast;fm,fast-mode`
-
-  failOnErrors    bool `foe,fail-on-errors`
+  fastMode        bool `f,fm,fast,fast-mode`
+  failOnErrors    bool `fe,foe,fail-on-errors`
 
   traceLaunch     bool `tl,trace-launch`
   traceParsing    bool `tp,trace-parse`
@@ -927,7 +926,7 @@ func (ctx *defaultContext) load() (err error) {
     } else if d > 2999*time.Millisecond {
       var f = filepath.Join(base, "build.smart")
       if _, e := os.Stat(f); e == nil { base = f }
-      prompt(ctx, "%s:1:note: long loading: %s !!\n", base, d).debug(1)
+      prompt(ctx, "%s:1:note: long loading: %s !!\n", base, d).debug(6)
     }
   } (time.Now())
   if options.verboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
