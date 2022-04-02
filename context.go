@@ -48,6 +48,8 @@ type commandLineOpts struct {
   verboseParse    bool `vp,vpar,verbose-parsing` // optionVerboseParsing
   verboseUsing    bool `vu,vuse,verbose-using`   // optionVerboseUsing
 
+  allowClosureFilemap bool `cf,closure-filemap,closure-files`
+
   cleanDotCache   bool `clcac,clean-cache,clear-cache;rmc,rm-cache`
   cleanDotDeps    bool `cldep,clean-deps,clear-deps;rmd,rm-deps`
   cleanDotGrep    bool `clgrp,clean-grep,clear-grep;rmg,rm-grep`
