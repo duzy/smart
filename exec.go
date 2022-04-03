@@ -766,7 +766,7 @@ type (
     retStdout bool `ro,return-stdout;ro,result-stdout`
     retStderr bool `ro,return-stderr;ro,result-stderr`
     retStatus bool `ro,return-status;ro,result-status`
-    fullname   bool `f,full;fn,fullname` // expand fullname
+    fullname   bool `f,fn,full,fullname` // expand fullname
     scanStdout bool `so,scan-stdout;so,scan-out`
     scanStderr bool `se,scan-stderr;se,scan-err`
     parallel   bool `par,parallel;no,no-order`

@@ -538,7 +538,6 @@ type traverseContext struct {
     calleeErrs []error
     calleeErrsM sync.Mutex
 
-    target0, targetN, targetX string // names for setting first, last and all targets
     targets []Value // all targets def
     grepped []Value
     grepping bool
@@ -562,8 +561,15 @@ func (t *traverseContext) level(n int) { t.traceLevel += n }
 func (t *traverseContext) trace(a ...interface{}) { printIndentDots(t.traceLevel, a...) }
 func (t *traverseContext) tracef(s string, a ...interface{}) { printIndentDots(t.traceLevel, fmt.Sprintf(s, a...)) }
 
-func (t *traverseContext) traversal() *traverseContext { return t }
 func (t *traverseContext) caller() *traverseContext { return t.Context.traversal() }
+func (t *traverseContext) traversal() *traverseContext { return t }
+func (t *traverseContext) traversed(target Value) (targets []Value) {
+    if !isTrivial(target) {
+        t.targets = append(t.targets, target)
+        targets = t.targets
+    }
+    return
+}
 
 func entryStr(ctx Context, entry Entry) (str, ent, tar string) {
     if s, e := entry.Strval(ctx); e == nil { ent = s } else {
@@ -643,18 +649,6 @@ func (t *traverseContext) spawn() Context {
         start:   time.Now(),
     }}
 }
-func addTarget(ctx Context, target Value) {
-    var t = ctx.traversal()
-    if isNil(target) || isNone(target) { return } else {
-        for _, t := range t.targets {
-            if t == target || t.cmp(ctx, target) == cmpEqual { return }
-        }
-        var n = len(t.targets);  t.targets = append(t.targets, target)
-        if t.targetX != "" { ctx.autoSet(t.targetX, MakeList(t.targets[0].Position(), t.targets...)) }
-        if t.target0 != "" && n == 0 { ctx.autoSet(t.target0, t.targets[0]) }
-        if t.targetN != "" { ctx.autoSet(t.targetN, t.targets[n]) }
-    }
-}
 
 func exists(ctx Context, v Value) bool {
     // FIXME: returns true if existenceMatterless ??
@@ -727,7 +721,7 @@ func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
         if !a.IsZero() && b.After(a) { targetVal.updated(true) }
 
         // Add to the $^ or $| list
-        addTarget(ctx, file)
+        ctx.traversed(file)
     } ()
     // Try import filemap projects first! See also `files (-import ...)`
     if file.filemap != nil { if proj := file.filemap.project; proj != nil {
@@ -888,10 +882,10 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
             // a.IsZero() indicates the target not exists
             if !a.IsZero() && b.After(a) { currentTargetValue.updated(true) }
             if !file.position.IsValid() { file.position = pos }
-            addTarget(ctx, file)// Add to the $^ or $| list
+            ctx.traversed(file)// Add to the $^ or $| list
         } else if true {
             if targetVal == nil { targetVal = MakeString(pos, target) }
-            addTarget(ctx, targetVal)
+            ctx.traversed(targetVal)
         }
 
         if brks.has(breakNext) && strings.Contains(target, "fcrange") {
@@ -1089,9 +1083,6 @@ func traversePattern(ctx Context, pat Value) (brks breakers) {
     } else if proj := ctx.Project(); proj == nil {
         erro(ctx, "no project in context: %T", ctx).at(pos).debug(1)
         return
-    } else if bc, ok := val.(*Barecomp); /*false*/ok {
-        brks = bc.traverse(ctx)
-        okay = /*true*/!brks.has(breakErro, breakFail)
     } else if file, ok := val.(*File); ok {
         okay, brks = traverseFile(ctx, file)
     } else if s, err := val.Strval(ctx); err != nil { // TODO: refine this branch and others
@@ -2427,6 +2418,19 @@ func (p *Bareword) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
+func (p *Bareword) expand(ctx Context, w expandwhat) (res Value, err error) {
+    if false && w&expandFullName != 0 {
+        if str, err := p.Strval(ctx); err != nil {
+            erro(ctx, "strval '%v' failed: %v", p, err).of(p).debug(1)
+            return nil, err
+        } else if file := ctx.Project().FindFile(ctx, str); file != nil {
+            res, err = file.expand(ctx, w)
+        }
+    } else {
+        res = p // optional, return nil is fine
+    }
+    return
+}
 func (p *Bareword) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
     full, s, stems = p._match(ctx, p, i)
     return
@@ -2576,6 +2580,15 @@ func (p *Barecomp) elemStr(ctx Context, o Object, k elemkind) (s string) {
 }
 func (p *Barecomp) expandible(ctx Context, w expandwhat) bool { return p.elements.expandible(ctx, w) }
 func (p *Barecomp) expand(ctx Context, w expandwhat) (res Value, err error) {
+    if false && w&expandFullName != 0 {
+        if str, err := p.Strval(ctx); err != nil {
+            erro(ctx, "strval '%v' failed: %v", p, err).of(p).debug(1)
+            return nil, err
+        } else if file := ctx.Project().FindFile(ctx, str); file != nil {
+            return file.expand(ctx, w)
+        }
+    }
+
     var ( elems []Value; num int )
     if elems, num, err = expandall1(ctx, w, p.Elems...); err != nil {
         erro(ctx, "expand '%v' failed: %v", p, err).of(p).debug(1)
@@ -2711,19 +2724,28 @@ func (p *Barefile) defs(ctx Context, s ...string) []*Def { return p.Name.defs(ct
 func (p *Barefile) elemStr(ctx Context, o Object, k elemkind) (s string) { return elementString(ctx, o, p.Name, k) }
 func (p *Barefile) expandible(ctx Context, w expandwhat) bool { return p.Name.expandible(ctx, w) }
 func (p *Barefile) expand(ctx Context, w expandwhat) (res Value, err error) {
+    var name Value
+
     if w&expandFullName != 0 {
-        var file Value
-        if p.File == nil {
+        var file = p.File
+        if file == nil {
+            if str, err := p.Name.Strval(ctx); err != nil {
+                erro(ctx, "strval '%v' failed: %v", p.Name, err).of(p.Name).debug(1)
+                return nil, err
+            } else {
+                file = ctx.Project().FindFile(ctx, str)
+            }
+        }
+        if file == nil {
+            // fallthrough
+        } else if name, err = file.expand(ctx, w); err != nil {
+            erro(ctx, "expand '%v' failed: %v", file, err).of(file).debug(1)
             return
-        } else if file, err = p.File.expand(ctx, w); err != nil {
-            erro(ctx, "expand '%v' failed: %v", p.File, err).of(p.File).debug(1)
-            return
-        } else if !isNil(file) && file != p.File {
-            return file, nil
+        } else if !isNil(name) && name != file {
+            return name, nil
         }
     }
 
-    var name Value
     if name, err = p.Name.expand(ctx, w); err != nil {
         erro(ctx, "expand '%v' failed: %v", p.Name, err).of(p.Name).debug(1)
     } else if !isNil(name) && name != p.Name {
@@ -2771,7 +2793,7 @@ func (p *Barefile) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *Barefile) patterned(ctx Context) bool { return p.Name.patterned(ctx) }
 func (p *Barefile) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
-    if p.File != nil {
+    if false && p.File != nil {
         full, s, stems = p.File.match(ctx, i)
     } else {
         full, s, stems = p.Name.match(ctx, i)
@@ -2788,6 +2810,34 @@ func (p *Barefile) stencil(ctx Context, stems []string) (val Value, rest []strin
         val = p
     }
     return
+}
+
+
+func barefileize(ctx Context, targets ...Value) []Value {
+    var project = ctx.Project()
+    for i, target := range targets {
+        if target.patterned(ctx) { continue }
+        switch t := target.(type) {
+        case *Bareword:
+            if file := project.FindFile(ctx, t.string); file != nil {
+                targets[i] = &Barefile{ Name:target, File:file }
+                file.position = target.Position()
+            }
+        case *Barecomp:
+            if t.expandible(ctx, expandClosure) || refdef(ctx, t, DefArg) {
+                break
+            } else if s, err := t.Strval(ctx); err != nil {
+                erro(ctx, "strval '%v' failed: %v", t, err).of(target)
+            } else if file := project.FindFile(ctx, s); file != nil {
+                targets[i] = &Barefile{ Name:target, File:file }
+                file.position = target.Position()
+            }
+        case *Argumented:
+            t.value = barefileize(ctx, t.value)[0]
+            t.args  = barefileize(ctx, t.args...)
+        }
+    }
+    return targets
 }
 
 var ErrBadPattern = errors.New("syntax error in pattern")
@@ -3981,7 +4031,7 @@ func (p *File) stamp(ctx Context) (files []*File, err error) {
         if false { warn(ctx, "%v: no such file", p).debug(1) }
     } else if files = append(files, p); !ctx.configuration() {
         p.updated(true)
-        ctx.mark(/*p*/)
+        ctx.dirtyMark(/*p*/)
     }
     return
 }
@@ -4947,12 +4997,16 @@ func (p *delegate) expand(ctx Context, w expandwhat) (res Value, err error) {
         erro(ctx, "expand nil delegation: %v (w=%016b)", p, w).at(p.position).debug(64)
         return
     }
-    if false && ctx.Project().Name() == "compiler-rt.builtins" { if o, ok := p.x.(Object); ok && strings.HasPrefix(o.Name(ctx), "name") {
-        warn(ctx, "%T %v", p.x, p.x).debug(128); ctx.checkErrors(true)
-        // defer func() {
-        //     info(ctx, "%v : x = %T %v -> res = %T %v", p, p.x, p.x, res, res)
-        //     info(ctx, "%v : %v", p, ctx).debug(6)
-        // } ()
+    if false && ctx.Project().Name() == "external.python._freeze_module" { if o, ok := p.x.(Object); ok && strings.HasPrefix(o.Name(ctx), "<") {
+        // warn(ctx, "%T %v", p.x, p.x).debug(128); ctx.checkErrors(true)
+        defer func() {
+            //info(ctx, "%v : x = %T %v -> res = %T %v", p, p.x, p.x, res, res)
+            //info(ctx, "%v : %v", p, ctx).debug(6)
+            if s, _ := res.Strval(ctx); strings.HasSuffix(s, "config.c") {
+                v, _ := res.expand(ctx, expandFullName)
+                warnstack(ctx, 3, "%v: %T %v, %T %v (%v)", p, res, res, v, v, (w&expandFullName)).debug(32)
+            }
+        } ()
     }}
 
     var v Value

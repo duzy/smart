@@ -751,32 +751,6 @@ func (l *loader) loadPlugin(pos Position) (err error) {
     return
 }
 
-func (l *loader) convertBarefiles(targets []Value) []Value {
-    var ctx Context = l
-    for i, target := range targets {
-        if target.patterned(ctx) { continue }
-        switch t := target.(type) {
-        case *Bareword:
-            if file := l.project.FindFile(ctx, t.string); file != nil {
-                targets[i] = &Barefile{ Name:target, File:file }
-                file.position = target.Position()
-            }
-        case *Barecomp:
-            if t.expandible(ctx, expandClosure) || refdef(ctx, t, DefArg) { break }
-            if s, err := t.Strval(ctx); err != nil {
-                erro(ctx, "strval '%v' failed: %v", t, err).of(target)
-            } else if file := l.project.FindFile(ctx, s); file != nil {
-                targets[i] = &Barefile{ Name:target, File:file }
-                file.position = target.Position()
-            }
-        case *Argumented:
-            vals := l.convertBarefiles(append([]Value{t.value}, t.args...))
-            t.value, t.args = vals[0], vals[1:]
-        }
-    }
-    return targets
-}
-
 func (l *loader) addUsing(ctx Context, usee *Project, params []Value, opts useOpts) (err error) {
     // clocks:🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚🕛🕜🕝🕞🕟🕠🕡🕢🕣🕤🕥🕦🕧
     if options.verboseUsing {

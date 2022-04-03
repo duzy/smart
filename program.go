@@ -89,7 +89,7 @@ func (pc *programContext) closureScopes() (scopes []*Scope) {
 }
 
 func (pc *programContext) dirtyOpts() *modifierSetDirtyPatsOpts { return &pc._dirtyOpts }
-func (pc *programContext) mark(vals ...Value) {
+func (pc *programContext) dirtyMark(vals ...Value) {
     const enableUpdatedDeps = true
     if !enableUpdatedDeps {
         // does nothing
@@ -110,7 +110,7 @@ func (pc *programContext) mark(vals ...Value) {
         if mat { tt.updatedDeps(vals...) }
         vals = append(vals, tt)
     }
-    if enableUpdatedDeps { pc.Context.mark(vals...) }
+    if enableUpdatedDeps { pc.Context.dirtyMark(vals...) }
 }
 
 type Program struct {
@@ -570,32 +570,36 @@ func traversePrerequisites(ctx Context, prerequisites []Value) (brks breakers) {
     return
 }
 
+type normalTraverseContext struct { Context }
+type orderTraverseContext struct { Context }
+func (t *normalTraverseContext) traversed(target Value) (targets []Value) {
+    if targets = t.Context.traversed(target); len(targets) > 0 {
+        t.autoSet("^", MakeList(t.Position(), targets...))
+        t.autoSet("<", targets[0])
+        t.autoSet(">", targets[len(targets)-1])
+    }
+    return
+}
+func (t *orderTraverseContext) traversed(target Value) (targets []Value) {
+    if targets = t.Context.traversed(target); len(targets) > 0 {
+        t.autoSet("|", MakeList(t.Position(), targets...))
+    }
+    return
+}
+
 func traverseNormal(ctx Context) (brks breakers) {
     if options.traceExec  { defer un(trace(t_exec, "^")) }
-    if t := ctx.traversal(); t != nil {
-        t.target0, t.targetN, t.targetX = "<", ">", "^"
-    } else {
-        warn(ctx, "not traverse context")
-        warnstack(ctx, 3, "%v", ctx).debug(6)
-    }
-    return traversePrerequisites(ctx, ctx.program().depends)
+    return traversePrerequisites(&normalTraverseContext{ ctx }, ctx.program().depends)
 }
 
 func traverseOrderOnly(ctx Context) (brks breakers) {
     if options.traceExec  { defer un(trace(t_exec, "|")) }
-    if t := ctx.traversal(); t != nil {
-        t.target0, t.targetN, t.targetX = "", "", "|"
-    } else {
-        warn(ctx, "not traverse context")
-        warnstack(ctx, 3, "%v", ctx).debug(6)
-    }
-    return traversePrerequisites(ctx, ctx.program().ordered)
+    return traversePrerequisites(&orderTraverseContext{ ctx }, ctx.program().ordered)
 }
 
-// DEPRECATED
-func _traverseGrepped(ctx Context) (brks breakers) {
-    if options.traceExec  { defer un(trace(t_exec, "~")) }
-    var t = ctx.traversal()
-    t.target0, t.targetN, t.targetX = "", "", "~"
-    return traversePrerequisites(ctx, t.grepped)
-}
+// func traverseGrepped(ctx Context) (brks breakers) {
+//     if options.traceExec  { defer un(trace(t_exec, "~")) }
+//     var t = ctx.traversal()
+//     t.target0, t.targetN, t.targetX = "", "", "~"
+//     return traversePrerequisites(ctx, t.grepped)
+// }

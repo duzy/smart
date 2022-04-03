@@ -114,6 +114,7 @@ type Context interface {
   spawn() Context
 
   traversal() *traverseContext
+  traversed(target Value) []Value
 
   Project() *Project
 
@@ -121,7 +122,7 @@ type Context interface {
   program() *Program
 
   dirtyOpts() *modifierSetDirtyPatsOpts
-  mark(...Value)
+  dirtyMark(...Value)
 
   entry() Entry
   entryContext() *entryContext
@@ -470,6 +471,7 @@ func (ctx *defaultContext) spawn() Context { return nil }
 func (ctx *defaultContext) auto() *autoContext { return nil }
 func (ctx *defaultContext) closure() *closureContext { return nil }
 func (ctx *defaultContext) traversal() *traverseContext { return nil }
+func (ctx *defaultContext) traversed(target Value) []Value { fail(ctx.Position(), "%v", target); return nil }
 func (ctx *defaultContext) entry() Entry { return nil }
 func (ctx *defaultContext) entryContext() *entryContext { return nil }
 func (ctx *defaultContext) stems() []string { return nil }
@@ -520,7 +522,7 @@ func (ctx *defaultContext) closureScopes() (scopes []*Scope) {
   return
 }
 func (ctx *defaultContext) dirtyOpts() *modifierSetDirtyPatsOpts { return nil }
-func (ctx *defaultContext) mark(vals ...Value) { return }
+func (ctx *defaultContext) dirtyMark(vals ...Value) { return }
 
 func (ctx *defaultContext) help()       { do_helpscreen(ctx) }
 func (ctx *defaultContext) helpFlags()  { print_flag_trace(ctx) }
