@@ -1106,7 +1106,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     if false && log.filename != "" && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
       os.Remove(log.filename)
     }
-    if caller != nil && err != nil { caller.calleeError(err) }
+    if !opts.silent && caller != nil && err != nil { caller.calleeError(err) }
     exeres.Stdout.res = nil
     exeres.Stderr.res = nil
     exeres.container = nil
