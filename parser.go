@@ -88,10 +88,12 @@ type parsedRuleData struct {
 
 type template struct {
 	state scanner.ScanState
-	pos token.Pos   // token position
+	end *scanner.ScanState
+	pos, endPos token.Pos   // token position
 	tok token.Token // one token look-ahead
 	lit string      // token literal
 	verb string
+	name Value // if only 'def', TODO: considering []Value for nested template defs?
 	params []Value
 }
 
@@ -2678,12 +2680,11 @@ func (p *parser) expandForeach(t *template, vars map[string]Value, params []Valu
 		}
 	}
 }
-
-func (p *parser) expandTemplate(params []Value, endPos token.Pos) {
+func (p *parser) expandTemplate(endPos token.Pos, params []Value) {
 	defer func(pos token.Pos, tok token.Token, lit string, state scanner.ScanState) {
 		p.pos, p.tok, p.lit	 = pos, tok, lit
 		p.scanner.SetState(state)
-	}(p.pos, p.tok, p.lit, p.scanner.State())
+	} (p.pos, p.tok, p.lit, p.scanner.State())
 
 	// template foreach val1 val2 val3 val4 ...
 	// template for name1=(val1 val2 val3 ...) name2=(val1 val2 val3)
@@ -2714,15 +2715,59 @@ func (p *parser) expandTemplate(params []Value, endPos token.Pos) {
 		erro(p, "expand template %v: %v", t.verb, params).at(p.Position()).debug(1)
 	}
 }
+func (p *parser) callTmpl(t *template, name Value, args []Value) {
+	defer func(pos token.Pos, tok token.Token, lit string, state scanner.ScanState) {
+		p.pos, p.tok, p.lit	 = pos, tok, lit
+		p.scanner.SetState(state)
+	} (p.pos, p.tok, p.lit, p.scanner.State())
 
+	p.scanner.SetState(t.state)
+	p.pos, p.tok, p.lit = t.pos, t.tok, t.lit
+
+	defer p.closeScope(p.openScope("template expansion ")) // NOTE: comment here will affect loader.def()
+
+	var ctx = positional(p, t.name.Position())
+	var params = merge(t.params...)
+	for i, param := range params {
+		if s, err := param.Strval(ctx); err != nil {
+			erro(ctx, "strval '%v' failed", param, err).at(param.Position()).debug(1)
+		} else if def, alt := p.def(p.Position(), s); alt != nil {
+			erro(ctx, "duplicated parameter '%s'", s).at(param.Position()).debug(1)
+		} else if i < len(args) {
+			def.set(ctx, DefAuto, args[i])
+		}
+	}
+
+	if false { warn(ctx, "%v, %d %v", t.name, len(params), params).debug(1) }
+	for p.tok != token.EOF && p.pos < t.endPos {
+		switch p.tok {
+		case token.LINEND: p.next(true)
+		default: p.parseClause(t.endPos)
+		}
+	}
+}
+func (p *parser) callTemplate(name Value, args []Value) {
+	for _, tmpl := range p.templates {
+		if tmpl.name != nil && tmpl.name.cmp(p, name) == cmpEqual {
+			p.callTmpl(tmpl, name, args)
+			return
+		}
+	}
+	erro(p, "undefined template: %v", name).of(name).debug(1)
+}
 func (p *parser) parseTemplateClause() (end bool) {
 	var pos = p.pos
 	p.expect(token.TEMPLATE) // expect and skip 'template'
 	p.skipSpaces()
 
-	var verb string
+	var (
+		verb string
+		arged *Argumented
+	)
 	var op = p.parseExpr(false); p.skipSpaces()
-	if w, ok := op.(*Bareword); ok { verb = w.string } else {
+	if w, ok := op.(*Bareword); ok {
+		verb = w.string
+	} else if arged, ok = op.(*Argumented); !ok {
 		erro(p, "unknown template verb: %v", op).of(op).debug(1)
 		return
 	}
@@ -2731,14 +2776,21 @@ func (p *parser) parseTemplateClause() (end bool) {
 	if false { defer un(tracef(t_traverse, "parseTemplateClause(%v, %v, %v)", verb, len(params), pos)) }
 
 	switch verb {
+	case "end":
+		if len(p.templates) == 0 {
+			erro(p, "end template with no previous def").of(op).debug(1)
+			return
+		}
+		tmpl,end := p.templates[len(p.templates)-1], p.scanner.State()
+		tmpl.end, tmpl.endPos = &end, pos
+		return true
 	case "expand":
-		p.expandTemplate(params, pos)
-		end = true
-		return
-	case "save":
-		erro(p, "TODO: save template for later usage: ", params).of(op).debug(true)
-		return
-	}
+		p.expandTemplate(pos, params)
+		return true
+	case "": if arged != nil {
+		p.callTemplate(arged.value, arged.args)
+		return true
+	}}
 
 	var ( ctx = positional(p, p.Position()); err error )
 	if params, err = expandmerge2(ctx, expandPlainValue, params...); err != nil {
@@ -2746,11 +2798,22 @@ func (p *parser) parseTemplateClause() (end bool) {
 		return
 	}
 
-	p.templates = append(p.templates, &template{
-		state: p.scanner.State(),
-		pos: p.pos, tok: p.tok, lit: p.lit,
-		verb: verb, params: params,
-	})
+	var tmpl = &template{ state:p.scanner.State(), pos:p.pos, tok:p.tok, lit:p.lit }
+	if verb == "def" {
+		if len(params) != 1 {
+			erro(p, "too many def params: %v", params).at(p.positionAt(pos))
+			return
+		}
+		if arged, ok := params[0].(*Argumented); !ok {
+			erro(p, "too many def params: %v", params).at(p.positionAt(pos))
+			return
+		} else {
+			tmpl.name, tmpl.params = arged.value, arged.args
+		}
+	} else {
+		tmpl.verb, tmpl.params = verb, params
+	}
+	p.templates = append(p.templates, tmpl)
 
 ForToken:
 	for newline := false; p.tok != token.EOF; {
@@ -2758,10 +2821,8 @@ ForToken:
 		case token.SPACE:
 		case token.LINEND: newline = true
 		case token.TEMPLATE:
-			if !newline { continue ForToken }
-			if p.parseTemplateClause() { break ForToken }
-		default:
-			newline = false
+			if newline && p.parseTemplateClause() { break ForToken }
+		default: newline = false
 		}
 	}
 	return

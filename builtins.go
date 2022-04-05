@@ -1342,28 +1342,6 @@ func builtinAppend(ctx Context, args... Value) (result Value) {
                         erro(ctx, "name '%v' is empty", a).of(a).debug(1)
                         break
                 }
-                /*
-                var def *Def
-                if def == nil {
-                        var obj Object
-                        if obj, err = cloctx[0].project.resolveObject(ctx, name); err != nil {
-                                erro(ctx, "%v", err).of(a).debug(1)
-                                break
-                        } else if def, _ = obj.(*Def); def == nil {
-                        }
-                }
-                if def == nil {
-                        for _, scope := range cloctx {
-                                if def = scope.FindDef(name); def != nil { break }
-                        }
-                }
-                if def == nil {
-                        erro(ctx, "'%s' (%v) is undefined (%v)", name, a, cloctx).debug(1)
-                        break
-                } else if err = def.append(ctx, list...); err != nil {
-                        erro(ctx, "%s", err).debug(1)
-                        break
-                } */
                 if opts.closure {
                         if val := closureGet(ctx, name); !isTrivial(val) {
                                 list = append(merge(val), list...)
