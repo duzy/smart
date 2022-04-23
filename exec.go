@@ -750,28 +750,30 @@ type (
     deprecated bool `v,vo;w,ve;a,a;d,dump`
     debug  bool `d,debug`
     infos  bool `sci,scan-infos`
+    silent bool `s,silent` // silent errors
     prompt bool `pm,prompt;m,msg`
     promStr string "c,cmd;m,msg"
-    silent bool "s,silent" // silent errors
     verboseSrc bool `vs,verbose-source`
-    tieStdout  bool "to,tie-out;to,tie-stdout" // tied with log
-    tieStderr  bool "te,tie-err;te,tie-stderr" // tied with log
+    tieStdout  bool `to,tie-out,tie-stdout` // tied with log
+    tieStderr  bool `te,tie-err,tie-stderr` // tied with log
     tie string `t,tie` // all, both, stdout, stderr, out, err
     bufStdout bool "o,stdout;bo,buffer-stdout;so,save-stdout"
     bufStderr bool "e,stderr;be,buffer-stderr;se,save-stderr"
     stdin  bool "i,stdin;in,input"
     stamp  bool `st,stamp;sf,stamp-file`
-    wait   bool `w,wait;wr,wait-result` // wait for execution finished
+    noStamp bool `ns,nostamp,no-stamp,no-stamp-file`
+    wait   bool `w,wr,wait,waitres,wait-res,waitresult,wait-result` // wait for execution finished
     report bool `r,report;rs,report-stamp;vs,verbose-stamp`
-    retStdout bool `ro,return-stdout;ro,result-stdout`
-    retStderr bool `ro,return-stderr;ro,result-stderr`
-    retStatus bool `ro,return-status;ro,result-status`
+    retStdout bool `ro,return-stdout,result-stdout`
+    retStderr bool `ro,return-stderr,result-stderr`
+    retStatus bool `ro,return-status,result-status`
     fullname   bool `f,fn,full,fullname` // expand fullname
-    scanStdout bool `so,scan-stdout;so,scan-out`
-    scanStderr bool `se,scan-stderr;se,scan-err`
-    parallel   bool `par,parallel;no,no-order`
+    scanStdout bool `so,scan-stdout,scan-out`
+    scanStderr bool `se,scan-stderr,scan-err`
+    parallel   bool `par,parallel,no-order`
     path bool "p,path"
     noCD bool "n,nocd"
+    workDir string `cd,change-dir,wd,workdir,work-dir,work-directory`
     logFileName *optFullname "l,log"
   }
   executor struct {
@@ -818,8 +820,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   if program == nil {
     erro(ctx, "needs program context to exec: %v", ctx).debug(16)
     return
-  }
-  if _, ok := target.(*Flag); ok {
+  } else if opts.stamp && target.patterned(ctx) {
+    errostack(ctx, 5, "target is pattern: %v", target).debug(64)
+    return
+  } else if _, ok := target.(*Flag); ok {
     // no stamp required for Flags
   } else if _, ok = target.(*File); !ok {
     // no stamp required for non-file targets
@@ -837,9 +841,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     }
   } else if ms := program.getModifiers(ctx, "wait"); len(ms) > 0 {
     // should be good to work
-  } else if !opts.stamp && !opts.silent {
+  } else if !(opts.stamp || opts.noStamp || opts.silent) {
     warn(ctx, "add -stamp to (shell); target=%v (%T)", target, target).debug(1)
   }
+
   if strings.HasSuffix(targetName, "external.google.tensorflow.prototext") {
     defer func() { warn(ctx, "%v", target).debug(10) } ()
   }
@@ -925,10 +930,17 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     cmd = "docker"
   }
 
-  var cwd string
-  {
+
+  // Fixes work directory conflicts. It happens
+  // sometimes even the 'sh.Dir' is set to cwd.
+  // Because the current work directory is not
+  // thread safe.
+  var workDir string
+  if opts.workDir != "" {
+    workDir = opts.workDir
+  } else if program.changedWD == "" {
     var (
-      cc = positional(ctx, program.position)
+      cwd string
       o Object
       v Value
     )
@@ -938,7 +950,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         return
       }
     }
-    if v = o.(*Def).Call(cc); isNil(v) || isNone(v) {
+    if v = o.(*Def).Call(positional(ctx, program.position)); isNil(v) || isNone(v) {
       erro(ctx, "CWD is <nil>").debug(1)
       return
     } else if cwd, err = v.Strval(ctx); err != nil {
@@ -948,19 +960,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       erro(ctx, "CWD is empty").debug(1)
       return
     }
-  }
-
-  // Fixes work directory conflicts. It happens
-  // sometimes even the 'sh.Dir' is set to cwd.
-  // Because the current work directory is not
-  // thread safe.
-  var dir = cwd
-  if program.changedWD != "" {
-    if filepath.IsAbs(program.changedWD) {
-      dir = program.changedWD
-    } else {
-      dir = filepath.Join(program.project.absPath, program.changedWD)
-    }
+  } else if filepath.IsAbs(program.changedWD) {
+    workDir = program.changedWD
+  } else {
+    workDir = filepath.Join(program.project.absPath, program.changedWD)
   }
 
   if opts.path {
@@ -1076,14 +1079,14 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     return
   } else {
     cmdline := strings.Join(sources, "\n")
-    log.createWriter(logFile, dir, cmdline)
+    log.createWriter(logFile, workDir, cmdline)
     exeres.Stdout.log = log
     exeres.Stderr.log = log
   }
   exeres.Stdout.scanKnownErrors = opts.scanStdout
   exeres.Stderr.scanKnownErrors = opts.scanStderr
-  exeres.Stdout.defaultDirectory = dir
-  exeres.Stderr.defaultDirectory = dir
+  exeres.Stdout.defaultDirectory = workDir
+  exeres.Stderr.defaultDirectory = workDir
   exeres.Stdout.res = exeres
   exeres.Stderr.res = exeres
 
@@ -1187,13 +1190,13 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       prompt(ctx, "%s\n", s)//.debug(1)
     }
     if src = strings.TrimSpace(src); src == "" { continue }
-    if dir != "" && !opts.noCD /*&& program.changedWD == ""*/ {
+    if false && !opts.noCD && workDir != "" {
       if strings.HasPrefix(src, "#") {
-        src = fmt.Sprintf("cd '%s' %s", dir, src)
+        src = fmt.Sprintf("cd '%s' %s", workDir, src)
       } else {
         // Insert a "\n" before the right paren ')' to ensure that
         // it's working with comments like "true #comment...".
-        src = fmt.Sprintf("cd '%s' && (%s\n)", dir, src)
+        src = fmt.Sprintf("cd '%s' && (%s\n)", workDir, src)
       }
     }
     if cmd == "docker" && len(envstr) > 0 {
@@ -1208,19 +1211,19 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       ///fmt.Fprintf(stderr, "run.2: %v\n", targetName)
     }
 
-    for {
-      if err = lockCD(dir, 25*time.Millisecond); err != nil {
+    if false { for {
+      if err = lockCD(workDir, 25*time.Millisecond); err != nil {
         erro(ctx, "%v", err).debug(1)
         return
-      } else if s, _ := os.Getwd(); s == dir { break }
-    }
+      } else if s, _ := os.Getwd(); s == workDir { break }
+    }}
     if !opts.silent || opts.prompt || opts.verboseSrc {
       exeres.printEnteringOnFirstWrote = true
     }
 
     exeres.container = container
     exeres.sh = exec.Command(cmd, aa...)
-    exeres.sh.Dir = dir
+    exeres.sh.Dir = workDir
     exeres.sh.Env = envs // always set command work directory
     exeres.sh.Stdout = &exeres.Stdout
     exeres.sh.Stderr = &exeres.Stderr

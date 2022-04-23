@@ -63,7 +63,7 @@ func (m *modifier) traverse(ctx Context) (brks breakers) {
         if brks = ctx.program().modify(ctx, m); !brks.has() {
                 if n := ctx.countErrors(); n > 0 {
                         var s = fmt.Sprintf("%s: modifier failed with %d errors", m.name, n)
-                        brks.add(m.position, breakFail).message = s
+                        brks.add(ctx, breakFail).message = s
                 }
         } else if tb := brks.not(breakCase, breakNext, breakDone); tb.has() {
                 prompt(ctx, "%v: %s modify failed for %s\n", ctx.entry(), m.name, proj)
@@ -352,7 +352,8 @@ func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
                 grepped, _ = ctx.autoGet("~")
         )
         if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.error) == 0 {
-                warn(ctx, "debug: %v; %v; %v", target, depends, args).debug(1)
+                var pos = ctx.Position()
+                prompt(ctx, "%v: %v; %v %v; %v", pos, args, target, ctx.stems(), depends).debug(1)
         }
         if opts.checkOutdated && !isNil(target) {
                 var tt = target.stat(ctx).mod()
@@ -729,7 +730,6 @@ func modifierSudo(ctx Context, args... Value) (result Value, brks breakers) {
 }
 
 func parseDependList(ctx Context, dependList *List) (depends *List, brks breakers) {
-        var pos = ctx.Position()
         depends = new(List)
         for _, depend := range dependList.Elems {
                 switch d := depend.(type) {
@@ -742,7 +742,7 @@ func parseDependList(ctx Context, dependList *List) (depends *List, brks breaker
                         }
                 case *ExecResult:
                         if d.Status != 0 {
-                                brks.add(pos, breakFail).message = fmt.Sprintf("bad status %v", d.Status)
+                                brks.add(ctx, breakFail).message = fmt.Sprintf("bad status %v", d.Status)
                                 return // target shall be updated
                         } else {
                                 depends.Append(d)
@@ -2070,7 +2070,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, brks breakers) {
                         } else if makeResult != nil {
                                 values = append(values, makeResult(pos, res))
                         } else {
-                                brks.addf(pos, optBreak, "value '%v' is false", arg)
+                                brks.addf(ctx, optBreak, "value '%v' is false", arg)
                                 if opts.verbose {
                                         warn(ctx, "value '%v' is false", arg).debug(1)
                                 }
@@ -2100,7 +2100,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, brks breakers) {
                 if makeResult != nil {
                         values = append(values, makeResult(pos, res))
                 } else if !res {
-                        brks.addf(pos, optBreak, "value '%v' is not file", opts.file)
+                        brks.addf(ctx, optBreak, "value '%v' is not file", opts.file)
                         return
                 }
         }
@@ -2127,7 +2127,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, brks breakers) {
                 if makeResult != nil {
                         values = append(values, makeResult(pos, res))
                 } else if !res {
-                        brks.addf(pos, optBreak, "value '%v' is not dir", opts.dir)
+                        brks.addf(ctx, optBreak, "value '%v' is not dir", opts.dir)
                         return
                 }
         }
@@ -2144,7 +2144,7 @@ ForPairs:
                 case "status":
                         var exeres, _ = value.(*ExecResult)
                         if exeres == nil {
-                                brks.addf(pos, optBreak, "value '%v' is not exec result", value)
+                                brks.addf(ctx, optBreak, "value '%v' is not exec result", value)
                                 erro(ctx, "value '%v' (%T) is not exec result", value, value).of(value).debug(6)
                                 return
                         } else { /*exeres.wg.Wait()*/ }
@@ -2178,13 +2178,13 @@ ForPairs:
                         if makeResult != nil {
                                 values = append(values, makeResult(pos, good))
                         } else if !good {
-                                brks.addf(pos, optBreak, "bad status (%v) (expects %v)", exeres.Status, p.Value)
+                                brks.addf(ctx, optBreak, "bad status (%v) (expects %v)", exeres.Status, p.Value)
                                 break ForPairs
                         }
                 case "stdout", "stderr":
                         var exeres, _ = value.(*ExecResult)
                         if exeres == nil {
-                                brks.addf(pos, optBreak, "not an exec result (%T)", value)
+                                brks.addf(ctx, optBreak, "not an exec result (%T)", value)
                                 erro(ctx, "value '%v' (%T) is not exec result", value, value).of(value).debug(6)
                                 return
                         } else { /*exeres.wg.Wait()*/ }
@@ -2209,7 +2209,7 @@ ForPairs:
                         }
 
                         if v == nil {
-                                brks.addf(pos, optBreak, "bad %s (expects %v)", key, p.Value)
+                                brks.addf(ctx, optBreak, "bad %s (expects %v)", key, p.Value)
                                 break ForPairs
                         } else if str, err = p.Value.Strval(ctx); err != nil {
                                 erro(ctx, "strval '%v' failed: %v", p.Value, err).of(p.Value).debug(1)
@@ -2217,7 +2217,7 @@ ForPairs:
                         } else if res := v.String() == str; makeResult != nil {
                                 values = append(values, makeResult(pos, res))
                         } else if !res {
-                                brks.addf(pos, optBreak, "bad %s (%v) (expects %v)", key, v, p.Value)
+                                brks.addf(ctx, optBreak, "bad %s (%v) (expects %v)", key, v, p.Value)
                                 break ForPairs
                         }
                 case "file", "dir": // file=xxx and dir=xxx, same as -file=xxx and -dir=xxx
@@ -2242,13 +2242,13 @@ ForPairs:
                         if makeResult != nil {
                                 values = append(values, makeResult(pos, res))
                         } else if !res {
-                                brks.addf(pos, optBreak, "`%v` is not %s", p.Value, key)
+                                brks.addf(ctx, optBreak, "`%v` is not %s", p.Value, key)
                                 break ForPairs
                         }
                 case "var":
                         var g, ok = p.Value.(*Group)
                         if !ok {
-                                brks.addf(pos, optBreak, "`%v` is not a group value", p.Value)
+                                brks.addf(ctx, optBreak, "`%v` is not a group value", p.Value)
                                 break ForPairs
                         }
                         for _, elem := range g.Elems {
@@ -2263,17 +2263,17 @@ ForPairs:
                                                 if res := a != b; makeResult != nil {
                                                         values = append(values, makeResult(pos, res))
                                                 } else if !res {
-                                                        brks.addf(pos, optBreak, "`%v` != `%v`", p.Key, p.Value)
+                                                        brks.addf(ctx, optBreak, "`%v` != `%v`", p.Key, p.Value)
                                                         break ForPairs
                                                 }
                                         } else if makeResult != nil {
                                                 values = append(values, makeResult(pos, false))
                                         } else {
-                                                brks.addf(pos, optBreak, "`%v` is not defined", k)
+                                                brks.addf(ctx, optBreak, "`%v` is not defined", k)
                                                 break ForPairs
                                         }
                                 default:
-                                        brks.addf(pos, optBreak, "`%v` unsupported checks", elem)
+                                        brks.addf(ctx, optBreak, "`%v` unsupported checks", elem)
                                         break ForPairs
                                 }
                         }
@@ -2574,7 +2574,7 @@ func modifierWriteFile(ctx Context, args... Value) (result Value, brks breakers)
         )
         defer func() {
                 if err != nil && filename != "" { os.Remove(filename); f = nil }
-                if f == nil { brks.add(ctx.Position(), breakFail).message = fmt.Sprintf("file %s not generated", target) }
+                if f == nil { brks.add(ctx, breakFail).message = fmt.Sprintf("file %s not generated", target) }
         } ()
         if isNil(target) {
                 erro(ctx, "target is undefined").debug(1)
@@ -2671,7 +2671,7 @@ func modifierReadFile(ctx Context, args... Value) (result Value, brks breakers) 
                 }
                 ctx.autoSet("-", MakeString(ctx.Position(), s))
         } else {
-                brks.add(ctx.Position(), breakErro).error = err
+                brks.add(ctx, breakErro).error = err
                 erro(ctx, "read-file: %T %s", target, filename)
                 errostack(ctx, 3, "%v", err).debug(6)
         }
@@ -2845,7 +2845,7 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
                 m |= os.O_TRUNC
         }
         if f, err = os.OpenFile(filename, m, opts.mode); err != nil {
-                brks.add(ctx.Position(), breakFail).message = fmt.Sprintf("update %v failed", target)
+                brks.add(ctx, breakFail).message = fmt.Sprintf("update %v failed", target)
                 erro(ctx, "open file failed: %v", err).debug(1)
         } else if f != nil {
                 defer func() {
@@ -2875,7 +2875,7 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
                         erro(ctx, "write content failed: %v", err).debug(1)
                 }
         } else {
-                brks.add(ctx.Position(), breakFail).message = fmt.Sprintf("%v not updated", target)
+                brks.add(ctx, breakFail).message = fmt.Sprintf("%v not updated", target)
         }
         return
 }
@@ -3014,10 +3014,10 @@ func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
         prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err)
         if opts.next {
                 if opts.verbose { warn(ctx, "%v", err).debug(1) }
-                brks.add(pos, breakNext).scope = breakTrave
+                brks.add(ctx, breakNext).scope = breakTrave
                 err = nil // discard the error
         } else if opts.error {
-                brks.add(pos, breakErro).error = err
+                brks.add(ctx, breakErro).error = err
                 if false {
                         prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err)
                         erro(ctx, "stamp(%v) error")
@@ -3028,7 +3028,7 @@ func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
                         warnstack(ctx, -1, "%v", ctx).debug(1)
                 }
         } else if stems := ctx.stems(); len(stems) == 0 {
-                brks.add(pos, breakNext).scope = breakTrave
+                brks.add(ctx, breakNext).scope = breakTrave
                 if opts.debug > 0 && err != nil {
                         warn(ctx, "%v", err).debug(1)
                         warnstack(ctx, -1, "%v", err).debug(1)
@@ -3225,7 +3225,7 @@ func modifierAssert(ctx Context, args... Value) (result Value, brks breakers) {
                         erro(ctx, "assertion args: %v (expandmerged)", vals)
                         erro(ctx, "assertion context: %v", ctx).debug(6)
                 }
-                brk := brks.add(ctx.Position(), breakFail)
+                brk := brks.add(ctx, breakFail)
                 brk.message = "assertion failure"
                 brk.scope = sco
         }
@@ -3242,7 +3242,7 @@ func modifierCond(ctx Context, args... Value) (result Value, brks breakers) {
         if res, sco, msg, err = predict(ctx, args...); err != nil {
                 erro(ctx, "predict: %v", err).debug(1)
         } else if !res {
-                brk := brks.add(ctx.Position(), breakDone)
+                brk := brks.add(ctx, breakDone)
                 brk.message = msg
                 brk.scope = sco
         }
@@ -3257,8 +3257,7 @@ func modifierCase(ctx Context, args... Value) (result Value, brks breakers) {
                 err error
         )
         if res, sco, msg, err = predict(ctx, args...); err == nil {
-                var pos = ctx.Position()
-                brk := brks.add(pos, breakNext) // next case
+                brk := brks.add(ctx, breakNext) // next case
                 brk.message = msg
                 brk.scope = sco
                 if res { brk.what = breakCase } // select case
@@ -3636,16 +3635,19 @@ func onceSHA256(ctx Context, opts *modifierOnceOpts, args... Value) (result Valu
         } else if opts.verbose {
                 prompt(ctx, "once: (num=%d)\n", num)
         }
-        if num > 1 { brks.add(ctx.Position(), breakDone).message = fmt.Sprintf("once (num=%d)", num) }
+        if num > 1 { brks.add(ctx, breakDone).message = fmt.Sprintf("once (num=%d)", num) }
         return
 }
 
 type modifierOnceOpts struct {
         debug    bool `d,debug`
         verbose  bool `v,verbose`
-        checksum bool `c,checksum;s,sha256`
+        checksum bool `c,cs,checksum;s,sha,sha256`
+        forval Value `for` // TODO: (once -for=$@)
 }
 func modifierOnce(ctx Context, args... Value) (result Value, brks breakers) {
+        // TODO: (once)           --> once for the RuleEntry, aka entry.doneOnce = true
+        // TODO: (once -for=$@)   --> once for $@, aka entry.onces[$(expand $@)] = true
         var (
                 opts modifierOnceOpts
                 err error
@@ -3665,7 +3667,7 @@ func modifierOnce(ctx Context, args... Value) (result Value, brks breakers) {
                 result, brks = onceSHA256(ctx, &opts, append([]Value{target}, args...)...)
         } else {
                 var n = onceTest(ctx, target)
-                if  n > 1 { brks.add(ctx.Position(), breakDone).message = fmt.Sprintf(`executed %d times`, n) }
+                if  n > 1 { brks.add(ctx, breakDone).message = fmt.Sprintf(`executed %d times`, n) }
                 if opts.debug {
                         warn(ctx, "%T %v %p %v", target, target, target, n)
                         warnstack(positional(ctx, target.Position()), -1, "%p %v %v", target, target, n).debug(16)

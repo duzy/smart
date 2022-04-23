@@ -325,7 +325,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             } else {
                 err = fmt.Errorf("execution yields %d errors for %v", errs, str)
             }
-            brks.add(pos, breakErro).error = err
+            brks.add(ctx, breakErro).error = err
         }
         if tar != "" {
             prompt(ctx, "%v: %s, execution failed with %d errors, project %s\n", ent, tar, errs, prog.project)
@@ -459,7 +459,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         }
         return
     } else if errs := ctx.checkErrors(true); errs > 0 {
-        brks.add(prog.position, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", ctx.totalErrors())
+        brks.add(positional(ctx, prog.position), breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", ctx.totalErrors())
         prompt(ctx, "%v: execute failed, project %s\n", /*entryStr1(ctx, entry)*/entry, proj)
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, target)
         if warnstack(ctx, 6, "call stack for %v:", target).debug(8); options.failOnErrors {
@@ -483,7 +483,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         }
         return
     } else if errs := ctx.checkErrors(true); errs > 0 {
-        brks.add(prog.position, breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", errs)
+        brks.add(positional(ctx, prog.position), breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", errs)
         prompt(ctx, "%v: execute failed, project %s\n", /*entryStr1(ctx, entry)*/entry, proj)
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, target)
         if warnstack(ctx, -1, "call stack for %v:", target).debug(8); options.failOnErrors {
@@ -589,11 +589,15 @@ func (t *orderTraverseContext) traversed(target Value) (targets []Value) {
 
 func traverseNormal(ctx Context) (brks breakers) {
     if options.traceExec  { defer un(trace(t_exec, "^")) }
+    ctx.autoSet("^", nil)
+    ctx.autoSet("<", nil)
+    ctx.autoSet(">", nil)
     return traversePrerequisites(&normalTraverseContext{ ctx }, ctx.program().depends)
 }
 
 func traverseOrderOnly(ctx Context) (brks breakers) {
     if options.traceExec  { defer un(trace(t_exec, "|")) }
+    ctx.autoSet("|", nil)
     return traversePrerequisites(&orderTraverseContext{ ctx }, ctx.program().ordered)
 }
 

@@ -227,14 +227,20 @@ ForBreakers:
     return
 }
 
-func (brks *breakers) add(pos Position, what breakind) *breaker {
+func (brks *breakers) add(ctx Context, what breakind) *breaker {
+    var pos = ctx.Position()
     var brk = &breaker{ pos:pos, what:what }
-    *brks = append(*brks, brk)
+    if *brks = append(*brks, brk); false {
+        var t = getTargetValue(ctx) // t.String() == "bn/armv8-mont.S" &&
+        if what == breakNext && strings.HasSuffix(pos.Filename, "crypto/build.smart") {
+            warnstack(ctx, 3, "%v %v", t, ctx).debug(12)
+        }
+    }
     return brk
 }
 
-func (brks *breakers) addf(pos Position, what breakind, s string, a... interface{}) *breaker {
-    var brk = brks.add(pos, what)
+func (brks *breakers) addf(ctx Context, what breakind, s string, a... interface{}) *breaker {
+    var brk = brks.add(ctx, what)
     brk.message = fmt.Sprintf(s, a...)
     brk.scope = breakGroup
     return brk
@@ -703,7 +709,7 @@ func traverseFile(ctx Context, file *File) (okay bool, brks breakers) {
 
     var (
         t = ctx.traversal()
-        projects = /*[]*Project{ ctx.Project() }*/closureProjects(ctx)
+        projects = closureProjects(ctx)
         concreteEntries = make(map[Entry]bool)
         concreteList []Entry
         stemmedList []*stemmed
@@ -781,6 +787,10 @@ checkFileEntries:
         stemmedList = append(stemmedList, pats...)
     }
     for _, entry := range stemmedList {
+        if false && file.name == "bn/armv8-mont.S" {
+            warn(ctx, "%v: %v; %v", entry, entry.Stems, ctx.stems()).at(entry.Position())
+            warnstack(ctx, 3, "%v; %v; %v", file, entry, brks).debug(16)
+        }
         if brks = entry.file(ctx, file); !brks.has() {
             if okay = file.exists(); okay { break }
         } else if tb := brks.not(breakCase, breakDone, breakNext); tb.has() {
@@ -796,6 +806,13 @@ checkFileEntries:
             errostack(ctx, 3, "%v: %v", entry, ctx).debug(6)
             return
         } else if tb = brks.of(breakNext);    tb.has() {
+            if false && file.name == "bn/armv8-mont.S" {
+                warn(ctx, "%v: %v; %v", entry, entry.Stems, ctx.stems()).at(entry.Position())
+                for _, brk := range brks {
+                    warn(ctx, "%v: %v", entry, brk.what)
+                }
+                warnstack(ctx, 3, "%v %v", file, entry).debug(16)
+            }
             if brks = brks.not(breakNext); !brks.has() { continue }
         } else if tb = brks.of(breakCase, breakDone);    tb.has() {
             if brks = brks.not(breakCase, breakDone); !brks.has() { okay = true }
@@ -839,9 +856,9 @@ checkFileEntries:
         if args := t.arguments(); len(args) > 0 { erro(ctx, "%v, %v: arguments %v", proj, file, args) }
         erro(ctx, "%v: no rules for %v, required by %v", proj, file, targetVal) //proj.concrete
         errostack(ctx, 15, "(%T): (exists=%v)", ctx, file.exists()).debug(64)
-        brks.add(file.position, breakErro).error = fileNotFoundError{ proj, file }
+        brks.add(ctx, breakErro).error = fileNotFoundError{ proj, file }
     } else if !okay && len(ctx.stems()) > 0 {
-        if false { brks.add(file.position, breakNext).scope = breakTrave }
+        if false { brks.add(ctx, breakNext).scope = breakTrave }
     }
     return
 }
@@ -854,7 +871,7 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
         return
     }
 
-    var projects = /*[]*Project{ ctx.Project() }*/closureProjects(ctx)
+    var projects = closureProjects(ctx)
     if len(projects) == 0 {
         prompt(ctx, "%s: zero closure projects\n", target)
         erro(ctx, "no projects to traverse '%v' (%s)", targetVal, target)
@@ -888,7 +905,7 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
             ctx.traversed(targetVal)
         }
 
-        if brks.has(breakNext) && strings.Contains(target, "fcrange") {
+        if false && brks.has(breakNext) && strings.Contains(target, "fcrange") {
             warn(ctx, "%v %v", target, projects).debug(6)
         }
     } ()
@@ -1038,10 +1055,10 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
         errostack(ctx, 6, "%v: %v", proj, ctx).debug(16)
     } else if !okay && !ctx.configuration() && (len(ctx.stems()) == 0 || ctx.mustExists()) {
         if file != nil {
-            brks.add(file.position, breakErro).error = fileNotFoundError{proj, file}
+            brks.add(ctx, breakErro).error = fileNotFoundError{proj, file}
             ctx = positional(ctx, file.position)
         } else {
-            brks.add(pos, breakErro).error = targetNotFoundError{proj, target}
+            brks.add(ctx, breakErro).error = targetNotFoundError{proj, target}
             if targetVal != nil { ctx = positional(ctx, targetVal.Position()) }
         }
         if file != nil {
@@ -1061,7 +1078,10 @@ func traverseString(ctx Context, targetVal Value, target string) (okay bool, brk
         for i, stemmed  := range stemmedList  { erro(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position) }
         errostack(ctx, 12, "%v", ctx).debug(16)
     } else if !okay && len(ctx.stems()) > 0 {
-        if true { brks.add(pos, breakNext).scope = breakTrave }
+        if true { brks.add(ctx, breakNext).scope = breakTrave }
+        if false && strings.HasSuffix(target, "armv8-mont.pl") {
+            warnstack(ctx, 3, "%v; %v %v; %v, %v", currentTargetValue, targetVal, target, file, projects).debug(6)
+        }
     }
     return
 }
@@ -1077,26 +1097,42 @@ func traversePattern(ctx Context, pat Value) (brks breakers) {
     if val, rest = pat.stencil(ctx, stems); /*isTrivial*/isNil(val) {
         erro(ctx, "empty stencil: %v %v", pat, ctx.stems()).at(pos).debug(1)
         return
+    } else if false && val.patterned(ctx) {
+        erro(ctx, "stencil failed: %v -> %T %v; stems=%v", pat, val, val, ctx.stems()).at(pos).debug(1)
+        return
     } else if len(rest) > 0 {
         erro(ctx, "partial stencil: %v: %T %v, %v, %v", pat, val, val, rest, ctx.stems()).at(pos).debug(1)
         panic(fmt.Sprintf("%T %v", val, val))
+    } else if file, ok := val.(*File); ok {
+        okay, brks = traverseFile(ctx, file)
     } else if proj := ctx.Project(); proj == nil {
         erro(ctx, "no project in context: %T", ctx).at(pos).debug(1)
         return
-    } else if file, ok := val.(*File); ok {
-        okay, brks = traverseFile(ctx, file)
     } else if s, err := val.Strval(ctx); err != nil { // TODO: refine this branch and others
         erro(ctx, "strval %T %v failed: %v", val, val, err).at(pos).debug(1)
         return
     } else if file = proj.FindFile(ctx, s); file != nil {
         file.position = pos
-        okay, brks = traverseFile(ctx, file)
+        if okay, brks = traverseFile(ctx, file); !okay {
+            if true /*&& strings.Contains(s, "armv8-mont")*/ && brks.has() {
+                warn(ctx, "%v; %v; %v", file, brks, ctx.stems()).debug(1)
+            }
+        }
     } else {
-        okay, brks = traverseString(ctx, pat, s)
+        if false && strings.Contains(s, "arm64cpuid") {
+            warnstack(ctx, 5, "%v -> %T %v -> %v", pat, val, val, s).at(pos).debug(24)
+        }
+        if false && strings.Contains(s, "armv8-mont.S") {
+            warn(ctx, "%v; %v; %v; %v", s, pat, stems, ctx).at(pat.Position()).debug(1)
+        }
+        okay, brks = traverseString(ctx, val, s)
+        if true && strings.Contains(s, "armv8-mont.S") && brks.has() {
+            warn(ctx, "%v; %v; %v; %v; %v", s, pat, stems, brks, ctx).at(pat.Position()).debug(1)
+        }
     }
 
     if !okay && len(stems) > 0 {
-        brk := brks.add(pos, breakNext)
+        brk := brks.add(ctx, breakNext)
         brk.scope = breakTrave
         brk.value = pat
     }
@@ -3301,7 +3337,7 @@ func (p *Path) traverse(ctx Context) (brks breakers) {
     if file := stat(ctx, pathname, "", ""/*, nil*/); file != nil {
         file.traverse(ctx)
     } else if okay, brks = traverseString(ctx, p, pathname); !okay && len(ctx.stems()) > 0 {
-        if false { brks.add(p.position, breakNext).scope = breakTrave }
+        if false { brks.add(ctx, breakNext).scope = breakTrave }
     }
     return
 }
@@ -4146,7 +4182,7 @@ func (p *File) traverse(ctx Context) (brks breakers) {
     }
 
     if _, brks = traverseFile(ctx, p); p.info == nil {
-        brks.add(p.position, breakErro).error = fileNotFoundError{ proj, p }
+        brks.add(ctx, breakErro).error = fileNotFoundError{ proj, p }
         prompt(ctx, "%s: file not found, project %s\n", p.fullname(), proj)
         if s1, s2 := p.String(), p.fullname(); s1 == s2 {
             erro(ctx, `%v: missing file "%s"`, proj, s1)

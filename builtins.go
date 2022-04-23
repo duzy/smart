@@ -3793,7 +3793,11 @@ func _wildcardPathPatsInDir1(ctx Context, opts *wildcardOpts, pats ...Value) (fi
                 erro(ctx, "readdir: %v", err).debug(1)
                 return
         }
+LoopNames:
         for _, name := range names {
+                for _, x := range opts.exclude {
+                        if ok, _, _ := x.match(ctx, name); ok { continue LoopNames }
+                }
                 for _, pat := range pats {
                         if p, ok := pat.(*Path); ok {
                                 if full, _, _ := p.Elems[0].match(ctx, name); !full { continue }
@@ -3941,16 +3945,18 @@ type wildcardOpts struct {
         usedFiles bool `u,used;u,using;uf,used-files`
         verbose bool `v,verbose`
         name bool `s,str;str,string;n,name`
+        exclude []Value `x,ex,exclude,except,not`
         dir string `d,dir;dir,directory`
         filetype string `ft,filetype,file-type,t,type` // dir, file, etc.
 }
 func builtinWildcard(ctx Context, args... Value) (res Value) {
         var (
+                proj = ctx.Project()
                 opts wildcardOpts
                 files []*File
                 err error
         )
-        if proj := ctx.Project(); proj == nil {
+        if proj == nil {
                 erro(ctx, "unknown most derived context").debug(1)
                 return
         } else if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
@@ -3959,19 +3965,41 @@ func builtinWildcard(ctx Context, args... Value) (res Value) {
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
                 erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
-        } else if opts.dir != "" {
+        } else if opts.exclude == nil {
+                // fallthrough
+        } else if opts.exclude, err = expandmerge2(ctx, expandPlainValue, opts.exclude...); err != nil {
+                erro(ctx, "parse opts failed: %v", err).debug(1)
+                return
+        }
+
+        if opts.dir != "" {
                 files = wildcardPathPatsInDir(ctx, &opts, args...)
         } else if files, err = proj.wildcard(ctx, opts, args...); err != nil {
                 erro(ctx, "wildcard failed: %v", err).debug(1)
                 return
         }
+
         var vals []Value
         if opts.name {
+        LoopFiles1:
                 for _, file := range files {
+                        for _, x := range opts.exclude {
+                                if ok, _, _ := x.match(ctx, file); ok {
+                                        continue LoopFiles1
+                                }
+                        }
                         vals = append(vals, MakeString(file.position, file.name))
                 }
         } else {
-                vals = values(files)
+        LoopFiles2:
+                for _, file := range files {
+                        for _, x := range opts.exclude {
+                                if ok, _, _ := x.match(ctx, file); ok {
+                                        continue LoopFiles2
+                                }
+                        }
+                        vals = append(vals, file)
+                }
         }
         res = MakeListOrScalar(ctx.Position(), vals)
         return

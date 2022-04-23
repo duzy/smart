@@ -856,7 +856,7 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
             return
         }
 
-    case *Bareword, *Barecomp, *Qualiword, *Path:
+    case *Bareword, *Barecomp, *Qualiword, *Path, *Flag:
         var name, err = t.Strval(ctx)
         if err != nil {
             erro(ctx, "determine `%v`: %v", t, err)

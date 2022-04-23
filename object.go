@@ -1160,7 +1160,7 @@ func (ec *entryContext) String() string {
 func (ec *entryContext) Position() Position { return ec.ent.position }
 func (ec *entryContext) stems() (stems []string) {
         if sc, ok := ec.Context.(*stemmedContext); ok {
-                stems = sc.strs // only if the inner is stemmed
+                stems = sc.stem.Stems // only if the inner is stemmed
         }
         return
 }
@@ -1171,7 +1171,7 @@ type Entry interface {
         Class() RuleEntryClass
         Target() Value // pattern or concrete target
         Programs() []*Program
-        SetPrograms([]*Program)
+        setPrograms([]*Program)
 
         option(Context) (bool, []Value)
         execute(Context, ...Value) ([]Value, breakers)
@@ -1208,9 +1208,9 @@ type RuleEntry struct {
 func (entry *RuleEntry) Class() RuleEntryClass { return entry.class }
 func (entry *RuleEntry) Target() Value { return entry.target }
 func (entry *RuleEntry) Programs() []*Program { return entry.programs }
-func (entry *RuleEntry) SetPrograms(programs []*Program) { entry.programs = programs }
 func (entry *RuleEntry) DeclScope() *Scope { return entry.OwnerProject().scope }
 func (entry *RuleEntry) OwnerProject() *Project { return entry.programs[0].project }
+func (entry *RuleEntry) setPrograms(programs []*Program) { entry.programs = programs }
 func (entry *RuleEntry) setPosition(position Position) { entry.position = position }
 func (entry *RuleEntry) Position() (pos Position) {
         if pos = entry.position; !pos.IsValid() {
@@ -1520,7 +1520,7 @@ func (p *PatternEntry) cmp(ctx Context, v Value) (res cmpres) {
 
 type stemmedContext struct {
         Context
-        strs []string
+        stem *stemmed
 }
 func (sc *stemmedContext) inner() Context { return sc.Context }
 func (sc *stemmedContext) String() string {
@@ -1530,7 +1530,8 @@ func (sc *stemmedContext) String() string {
                 return sc.Context.String()
         }
 }
-func (sc *stemmedContext) stems() []string { return sc.strs }
+func (sc *stemmedContext) stems() []string { return sc.stem.Stems }
+func (sc *stemmedContext) stemmed() *stemmed { return sc.stem }
 
 type stemmed struct { PatternEntry; Stems []string }
 
@@ -1561,14 +1562,14 @@ func (p *stemmed) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *stemmed) traverse(ctx Context) (brks breakers) {
         erro(ctx, "cant traverse stemmed entry directly: %v", p).at(p.position).debug(1)
-        brks.add(p.position, breakErro).error = fmt.Errorf("traversing stemmed entry: %v", p)
+        brks.add(positional(ctx, p.position), breakErro).error = fmt.Errorf("traversing stemmed entry: %v", p)
         return
 }
 func (p *stemmed) string(ctx Context, targetVal Value, target string) (res breakers) {
         var (
                 realTarget Value
                 proj = ctx.Project()
-                sc = stemmedContext{ ctx, p.Stems }
+                sc = stemmedContext{ ctx, p }
         )
         if file := proj.FindFile(&sc, target); file != nil {
                 file.position = p.position
@@ -1587,7 +1588,7 @@ func (p *stemmed) string(ctx Context, targetVal Value, target string) (res break
         return p.RuleEntry.traverse(&sc)
 }
 func (p *stemmed) file(ctx Context, file *File) (res breakers) {
-        var sc = stemmedContext{ ctx, p.Stems }
+        var sc = stemmedContext{ ctx, p }
         if file.info == nil && file.filemap == nil { // !isAbsOrRel()
                 if f := ctx.Project().FindFile(&sc, file.name); f != nil { *file = *f }
                 //if file.info == nil { file.info, _ = os.Stat(file.name) }

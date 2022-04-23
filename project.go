@@ -691,6 +691,18 @@ func (p *Project) resolvePatterns1(ctx Context, i interface{}) (res []*stemmed) 
         }
         if !ok { continue }
       }
+      // if s := ctx.entry().String(); strings.HasSuffix(s, ".cnf") {
+      //   if ent, ok := ctx.entry().(*RuleEntry); ok {
+      //     warn(ctx, "%p, %p; %T %v; %T %v", ent, pat, ent.target, ent.target, i, i)
+      //   }
+      //   if stem := ctx.stemmed(); stem != nil {
+      //     // if f, _, s := pat.target.match(ctx, stem.target); full {
+      //     //   warn(ctx, "%T %v; %T %v; %v, %v; %v", stem.target, stem.target, pat, pat, f, s, stems).debug(1)
+      //     // }
+      //     warn(ctx, "%T %v; %T %v; %p, %p", stem.target, stem.target, pat, pat, stem, pat).debug(1)
+      //   }
+      //   warn(ctx, "%T %v; %v", ctx.entry(), ctx.entry(), i).debug(1)
+      // }
       res = append(res, &stemmed{*pat, stems})
     }
   }
@@ -723,7 +735,7 @@ type entryOpts struct {
 func (p *Project) entry(ctx Context, special specialRule, options []Value, patterned bool, target Value, arged []Value, prog *Program) (entry Entry, err error) {
   defer func() {
     if entry != nil && err == nil {
-      entry.SetPrograms(append(entry.Programs(), prog))
+      entry.setPrograms(append(entry.Programs(), prog))
     }
   } ()
 

@@ -127,6 +127,7 @@ type Context interface {
   entry() Entry
   entryContext() *entryContext
   stems() []string
+  stemmed() *stemmed
 
   argumented() *argumentedContext
   argumentedSet([]Value) []Value
@@ -475,6 +476,7 @@ func (ctx *defaultContext) traversed(target Value) []Value { fail(ctx.Position()
 func (ctx *defaultContext) entry() Entry { return nil }
 func (ctx *defaultContext) entryContext() *entryContext { return nil }
 func (ctx *defaultContext) stems() []string { return nil }
+func (ctx *defaultContext) stemmed() *stemmed { return nil }
 func (ctx *defaultContext) Scope() *Scope { return ctx.globe/*.main*/.scope }
 func (ctx *defaultContext) Project() *Project { return ctx.globe.main }
 func (ctx *defaultContext) program() *Program { return nil }
