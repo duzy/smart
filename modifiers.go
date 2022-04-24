@@ -2643,13 +2643,13 @@ func modifierReadFile(ctx Context, args... Value) (result Value, brks breakers) 
         }
 
         if isTrivial(target) {
-                erro(ctx, "target is invalid (%T)", target).debug(8)
+                errostack(ctx, 3, "target for reading is invalid (%T)", target).debug(8)
                 return
         } else if filename, err = fullnameOrStrval(ctx, target); err != nil {
-                erro(ctx, "strval '%v' error: %v", target, err).of(target).debug(1)
+                errostack(ctx, 3, "strval '%v' error: %v", target, err).of(target).debug(1)
                 return
         } else if filename == "" {
-                erro(ctx, "target filename is empty").of(target).debug(1)
+                errostack(ctx, 3, "target filename is empty").of(target).debug(1)
                 return
         }
 
