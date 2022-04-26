@@ -1019,7 +1019,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       continue
     } else if source += str; strings.HasSuffix(source, "\\") {
       source += "\n" // append the line feed
-      continue
+      // continue
     }
 
     // Escape '$$' sequences.
