@@ -4417,7 +4417,8 @@ func (p *Compound) Strval(ctx Context) (s string, err error) {
             break
         }
     }
-    s = strings.Replace(s, "\\\"", "\"", -1)
+    // NOTE: escaping \" here makes the string complicated
+    if false { s = strings.Replace(s, `\"`, `"`, -1) }
     return
 }
 func (p *Compound) Float(ctx Context) (f float64, err error) {
