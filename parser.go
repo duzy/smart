@@ -30,6 +30,8 @@ const (
 	composingURL
 	composingModifier
 
+	parsingCompound
+
 	parsingFilesSpec // files ( ... )
 	parsingSpecialRule // e.g. :use ...:
 	//parsingColonName // e.g. $:use:
@@ -816,7 +818,7 @@ func (p *parser) parseBasicLit(lhs bool) (v Value) {
     case token.URI:      v = ParseURL(position, lit)
     case token.BAREWORD: v = MakeBareword(position, lit)
     case token.STRING:   v = MakeString(position, lit)
-    case token.ESCAPE:   v = MakeString(position, EscapeChar(lit))
+    case token.ESCAPE:   v = /*MakeString*/MakeRaw(position, EscapeChar(lit))
     case token.RAW:      v = MakeRaw(position, lit)
     default: unreachable()
     }
@@ -829,6 +831,9 @@ func (p *parser) parseCompoundLit(lhs bool) *Compound {
 		elems []Value
 	)
 	p._next()
+
+	defer p.setbits(p.setbit(parsingCompound))
+
 ForCompound:
 	for p.tok != token.EOF && p.tok != token.COMPOSED {
 		var x Value
@@ -838,6 +843,9 @@ ForCompound:
 		case token.LINEND:
 			erro(p, "unexpected end of line for compound string")
 			break ForCompound
+		}
+		if false && strings.Contains(x.String(), "\\\"") {
+			warn(p, "%T %v", x, x).debug(1)
 		}
 		elems = append(elems, x)
 	}

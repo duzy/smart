@@ -6305,6 +6305,8 @@ func EscapeChar(s string) string {
     case "t":  s = "\t"
     case "v":  s = "\v"
     case "\\": s = "\\"
+    case "\"": s = "\""
+    case "'":  s = "'"
     case "$":  s = "$"
     case "&":  s = "&"
     default:   s = "\\" + s // give back the '\' character
