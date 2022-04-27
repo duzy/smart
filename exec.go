@@ -599,7 +599,7 @@ func (p *ExecResult) String() string {
   var s bytes.Buffer
   fmt.Fprintf(&s, "(ExecResult status=%d", p.Status)
   if p.Stdout.Buf != nil { fmt.Fprintf(&s, " stdout=%S", p.Stdout.Buf) }
-  if p.Stderr.Buf != nil { fmt.Fprintf(&s, " stdout=%S", p.Stderr.Buf) }
+  if p.Stderr.Buf != nil { fmt.Fprintf(&s, " stderr=%S", p.Stderr.Buf) }
   fmt.Fprintf(&s, ")")
   return s.String()
 }
@@ -747,33 +747,33 @@ func (p *ExecResult) run(ctx Context) (status int, err error) {
 
 type (
   executorOpts struct {
-    deprecated bool `v,vo;w,ve;a,a;d,dump`
-    debug  bool `d,debug`
-    infos  bool `sci,scan-infos`
-    silent bool `s,silent` // silent errors
-    prompt bool `pm,prompt;m,msg`
-    promStr string "c,cmd;m,msg"
-    verboseSrc bool `vs,verbose-source`
-    tieStdout  bool `to,tie-out,tie-stdout` // tied with log
-    tieStderr  bool `te,tie-err,tie-stderr` // tied with log
-    tie string `t,tie` // all, both, stdout, stderr, out, err
-    bufStdout bool "o,stdout;bo,buffer-stdout;so,save-stdout"
-    bufStderr bool "e,stderr;be,buffer-stderr;se,save-stderr"
-    stdin  bool "i,stdin;in,input"
-    stamp  bool `st,stamp;sf,stamp-file`
-    noStamp bool `ns,nostamp,no-stamp,no-stamp-file`
-    wait   bool `w,wr,wait,waitres,wait-res,waitresult,wait-result` // wait for execution finished
-    report bool `r,report;rs,report-stamp;vs,verbose-stamp`
-    retStdout bool `ro,return-stdout,result-stdout`
-    retStderr bool `ro,return-stderr,result-stderr`
-    retStatus bool `ro,return-status,result-status`
-    fullname   bool `f,fn,full,fullname` // expand fullname
-    scanStdout bool `so,scan-stdout,scan-out`
-    scanStderr bool `se,scan-stderr,scan-err`
-    parallel   bool `par,parallel,no-order`
-    path bool "p,path"
-    noCD bool "n,nocd"
-    workDir string `cd,change-dir,wd,workdir,work-dir,work-directory`
+    deprecated  bool `v,vo;w,ve;a,a;d,dump`
+    debug       bool `d,debug`
+    infos       bool `sci,scan-infos`
+    silent      bool `s,silent` // silent errors
+    verboseSrc  bool `vs,verbose-source`
+    tieStdout   bool `to,tie-out,tie-stdout` // tied with log
+    tieStderr   bool `te,tie-err,tie-stderr` // tied with log
+    bufStdout   bool "o,stdout;bo,buffer-stdout;so,save-stdout"
+    bufStderr   bool "e,stderr;be,buffer-stderr;se,save-stderr"
+    stdin       bool "i,stdin;in,input"
+    stamp       bool `st,stamp;sf,stamp-file`
+    noStamp     bool `ns,nostamp,no-stamp,no-stamp-file`
+    wait        bool `w,wr,wait,waitres,wait-res,waitresult,wait-result` // wait for execution finished
+    report      bool `r,report;rs,report-stamp;vs,verbose-stamp`
+    retStdout   bool `ro,return-stdout,result-stdout`
+    retStderr   bool `ro,return-stderr,result-stderr`
+    retStatus   bool `ro,return-status,result-status`
+    fullname    bool `f,fn,full,fullname` // expand fullname
+    scanStdout  bool `so,scan-stdout,scan-out`
+    scanStderr  bool `se,scan-stderr,scan-err`
+    parallel    bool `par,parallel,no-order`
+    path        bool "p,path"
+    noCD        bool "n,nocd"
+    prompt      bool `pm,prompt;m,msg`
+    promStr     string "c,cmd;m,msg"
+    tie         string `t,tie` // all, both, stdout, stderr, out, err
+    workDir     string `cd,change-dir,wd,workdir,work-dir,work-directory`
     logFileName *optFullname "l,log"
   }
   executor struct {

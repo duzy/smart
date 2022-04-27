@@ -2774,7 +2774,10 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
         }
 
         // Check existed file content checksum
-        var content string
+        var (
+                content string
+                exeres *ExecResult
+        )
         if value, found := ctx.autoGet("-"); !found || isNil(value) {
                 // no buffer value
         } else if content, err = value.Strval(ctx); err != nil {
@@ -2783,14 +2786,36 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
         } else if false && strings.Contains(content, `"\"`) {
                 prompt(ctx, "%v: %T\n", filename, value).debug(1)
                 fail(ctx.Position(), "%s", filename)
+        } else if er, ok := value.(*ExecResult); ok {
+                exeres = er
+                if false && ctx.Project().name == "external.libpng.base" {
+                        var er = value.(*ExecResult)
+                        warn(ctx, "%T %v", value, value)
+                        warn(ctx, "stdout: %v", er.Stdout.Buf)
+                        warn(ctx, "stderr: %v", er.Stderr.Buf)
+                        warn(ctx, "%v", content).debug(1)
+                }
         }
-
         if content == "" {
                 if !opts.zero {
                         if file := stat(positional(ctx, target.Position()), filename, "", ""); file != nil && file.info != nil && file.info.Size() == 0 {
                                 file.info = nil
                                 if err = os.Remove(filename); err != nil {
                                         erro(ctx, "remove file failed: %v", err).debug(1)
+                                }
+                        }
+                        if exeres != nil {
+                                if exeres.Stdout.log != nil {
+                                        var pos Position
+                                        pos.Filename = exeres.Stdout.log.filename
+                                        pos.Line = exeres.Stdout.log.lines + 1
+                                        erro(ctx, "empty stdout").at(pos)
+                                }
+                                if exeres.Stderr.log != nil && exeres.Stdout.log != exeres.Stderr.log {
+                                        var pos Position
+                                        pos.Filename = exeres.Stderr.log.filename
+                                        pos.Line = exeres.Stderr.log.lines + 1
+                                        erro(ctx, "empty stderr").at(pos)
                                 }
                         }
                         if s := target.String(); filepath.IsAbs(s) {
