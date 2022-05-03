@@ -3260,7 +3260,7 @@ func (p *Path) pathname(ctx Context, stems []string) (pathname string, err error
         val Value
         rest []string // unmatched path segmants
     )
-    if len(stems) == 0 {
+    if len(stems) == 0 || !p.patterned(ctx) {
         if pathname, err = p.Strval(ctx); err != nil {
             erro(ctx, "strval '%v' failed: %v", p, err).at(p.position).debug(1)
         }
@@ -3315,17 +3315,18 @@ func (p *Path) stat(ctx Context) (si *statinfo) {
     return
 }
 func (p *Path) traverse(ctx Context) (brks breakers) {
-    ctx = positional(ctx, p.position)
-
     var (
         pathname string
         err error
     )
+
+    ctx = positional(ctx, p.position)
+
     if p.patterned(ctx) && len(ctx.stems()) == 0 {
         erro(ctx, "empty stems to traverse pattern: %v", p).at(p.position).debug(8)
         return
     } else if pathname, err = p.pathname(ctx, ctx.stems()); err == nil && pathname == "" {
-        erro(ctx, "path matches no target: %v", p).at(p.position).debug(1)
+        erro(ctx, "path %v matches no target", p).at(p.position).debug(1)
         return
     } else if err != nil {
         erro(ctx, "compute pathname failed: %v", err).at(p.position).debug(1)
@@ -4335,6 +4336,16 @@ func (p *Flag) expand(ctx Context, w expandwhat) (res Value, err error) {
     }
     return
 }
+func (p *Flag) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    var name Value
+    name, rest = p.name.stencil(ctx, stems)
+    if !isNil(name) && name != p.name {
+        val = &Flag{p.valbase, name}
+    } else {
+        rest = stems
+    }
+    return
+}
 func (p *Flag) elemStr(ctx Context, o Object, k elemkind) (s string) {
     return "-" + elementString(ctx, o, p.name, k)
 }
@@ -4800,6 +4811,26 @@ func (p *Pair) expand(ctx Context, w expandwhat) (res Value, err error) {
     }
     return
 }
+func (p *Pair) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    var k, v Value
+    k, rest = p.Key.stencil(ctx, stems)
+    v, rest = p.Value.stencil(ctx, rest)
+
+    var (
+        kNil = isNil(k)
+        vNil = isNil(v)
+    )
+    if (!kNil && k != p.Key) || (!vNil && v != p.Value) {
+        if kNil { k = p.Key   }
+        if vNil { v = p.Value }
+        val = &Pair{p.valbase, k, v}
+    }
+
+    if false && p.String() == "--target=%" {
+        warn(ctx, "%T %v, %T %v; %T %v, %T %v; %v %v %v", p.Key, p.Key, p.Value, p.Value, k, k, v, v, stems, rest, val).debug(1)
+    }
+    return
+}
 func (p *Pair) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Pair); ok {
         if p.Key.cmp(ctx, a.Key) == cmpEqual {
@@ -4826,6 +4857,7 @@ type delegate struct {
     l token.Token
     x Value
     a []Value
+    //TODO: patsubst Value // AKA. lhs%=rhs% like in $(var:lhs%=rhs%)
 }
 func (p *delegate) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *delegate) Strval(ctx Context) (s string, err error) {
@@ -5863,31 +5895,25 @@ func (p *PercPattern) match(ctx Context, i interface{}) (full bool, result strin
     return
 }
 func (p *PercPattern) stencil(ctx Context, stems []string) (val Value, rest []string) {
-    var (
-        s string
-        err error
-    )
-    if !isTrivial(p.Prefix) {
-        // FIXME: the prefix could be Glob, Regexp, etc.
-        if s, err = p.Prefix.Strval(ctx); err != nil {
-            erro(ctx, "strval prefix '%v' failed: %v", p.Prefix, err).of(p.Suffix).debug(1)
-            return
-        }
-    }
-    if false && p.String() == "%%" {
-        defer func() {
-            warn(ctx, "%v(%v,%v): %v, %T %v, %v", p, p.Prefix, p.Suffix, stems, val, val, rest).debug(6)
-        } ()
+    var vals []Value
+    if isTrivial(p.Prefix) {
+        // does nothing
+    } else if p.Prefix.patterned(ctx) {
+        erro(ctx, "patterned prefix: %T %v", p.Prefix, p.Prefix).of(p.Prefix).debug(1)
+        return
+    } else {
+        vals = append(vals, p.Prefix)
     }
 
     if len(stems) > 0 {
-        s += stems[0]
+        if s := stems[0]; s != "" { vals = append(vals, MakeBareword(p.position, s)) }
         rest = stems[1:]
-    } else if s == "" {
+    } else {
         // return
     }
 
     var suffix Value
+    /*
     if isTrivial(p.Suffix) {
         // done
     } else if p.Suffix.patterned(ctx) {
@@ -5898,19 +5924,40 @@ func (p *PercPattern) stencil(ctx Context, stems []string) (val Value, rest []st
         }
     } else {
         suffix = p.Suffix
+    }*/
+    if isTrivial(p.Suffix) {
+        goto DoneVals
+    } else if pp, ok := p.Suffix.(*PercPattern); ok && isTrivial(pp.Prefix) {
+        if isTrivial(pp.Suffix) {
+            goto DoneVals
+        } else {
+            // NOTE: patterns like '...%%...' uses only one stem,
+            suffix = pp.Suffix
+        }
+    } else {
+        suffix = p.Suffix
     }
 
     if isTrivial(suffix) {
-        if s != "" {
-            val = MakeBareword(p.position, s)
-        } else {
-            val = p
-        }
-    } else if s != "" {
-        val = MakeBareword(p.position, s)
-        val = MakeBarecomp(p.position, val, suffix)
+        goto DoneVals
+    } else if suf, res := suffix.stencil(ctx, rest); !isNil(suf) && suf != suffix {
+        // NOTE: patterns like '...%xxx%...' use multiple stems.
+        vals, rest = append(vals, suf), res
     } else {
-        val = suffix
+        vals, rest = append(vals, suffix), res
+    }
+
+DoneVals:
+    if n := len(vals); n == 1 {
+        val = vals[0]
+    } else if n > 1 {
+        val = MakeBarecomp(p.position, vals...)
+    } else {
+        val = p
+    }
+
+    if false && len(stems) > 0 && isTrivial(p.Prefix) && isTrivial(p.Suffix) {
+        warn(ctx, "%v (%T,%T) %v -> %T %v %v", p, p.Prefix, p.Suffix, stems, val, val, rest).debug(1)
     }
     return
 }
