@@ -4370,37 +4370,44 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                 case m[4] > m[0] && m[5] > m[4]: name = s[m[4]:m[5]] // @VAR@
                 }
 
-                var def *Def
+                var (
+                        def *Def
+                        val Value
+                )
                 if def, err = project.config(ctx, name); err != nil {
                         erro(ctx, "%v", err).debug(1)
                         return
-                } else if def != nil {
-                        var val = def.Call(ctx)
-                        if isNil(val) || isNone(val) { continue }
-                        switch t := val.(type) {
-                        case *Plain: fmt.Fprintf(res, "%s", t.Value)
-                        case *answer, *boolean:
-                                var v int64
-                                if v, err = t.Integer(ctx); err != nil {
-                                        erro(ctx, "%v", err).debug(1)
-                                        return
-                                }
-                                fmt.Fprintf(res, "%d", v)
-                        case *Group:
-                                var v string
-                                if v, err = parseGroupValue(ctx, t).Strval(ctx); err != nil {
-                                        erro(ctx, "%v", err).debug(1)
-                                        return
-                                }
-                                fmt.Fprintf(res, "%s", v)
-                        default:
-                                var v string
-                                if v, err = val.Strval(ctx); err != nil {
-                                        erro(ctx, "%v", err).debug(1)
-                                        return
-                                }
-                                fmt.Fprintf(res, "%s", v)
+                } else if def == nil {
+                        if true { warnstack(ctx, 5, "%v undefined", name).debug(1) }
+                        continue
+                } else if val = def.Call(ctx); isTrivial(val) {
+                        if true { warnstack(ctx, 5, "%v is trivial", name).of(def).debug(1) }
+                        continue
+                }
+
+                switch t := val.(type) {
+                case *Plain: fmt.Fprintf(res, "%s", t.Value)
+                case *answer, *boolean:
+                        var v int64
+                        if v, err = t.Integer(ctx); err != nil {
+                                erro(ctx, "%v", err).debug(1)
+                                return
                         }
+                        fmt.Fprintf(res, "%d", v)
+                case *Group:
+                        var v string
+                        if v, err = parseGroupValue(ctx, t).Strval(ctx); err != nil {
+                                erro(ctx, "%v", err).debug(1)
+                                return
+                        }
+                        fmt.Fprintf(res, "%s", v)
+                default:
+                        var v string
+                        if v, err = val.Strval(ctx); err != nil {
+                                erro(ctx, "%v", err).debug(1)
+                                return
+                        }
+                        fmt.Fprintf(res, "%s", v)
                 }
         }
         if index < len(s) { fmt.Fprint(res, s[index:]) }

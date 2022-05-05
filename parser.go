@@ -152,7 +152,7 @@ func (p *parser) init(l *loader, filename string, src []byte) {
 	}
 
 	eh := func(pos token.Position, msg string) {
-		erro(p, "%s", msg).at(Position(pos)).debug(1)
+		errostack(p, 3, "%s", msg).at(Position(pos)).debug(128)
 	}
 	p.scanner.Init(p.file, src, eh, m)
 	p.next(true)

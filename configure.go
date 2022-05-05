@@ -911,8 +911,8 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         erro(ctx, " `%v` has empty filename", file).debug(1)
         return
     } else if !filepath.IsAbs(filename) {
+        // fix: find the the full filename and set file target
         if closured == nil { closured = closureProjects(ctx) }
-        // FIXES: match file map to have the full filename.
         for _, p := range closured {
             if f := p.FindFile(ctx, filename); f != nil {
                 var prev Value
@@ -954,6 +954,8 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
     }
     if dealArgs != nil { args = dealArgs(args, &data) }
     if dealData != nil {
+        //var pos Position
+        //pos.
         for _, arg := range args {
             var str string
             if str, err = arg.Strval(ctx); err != nil {
