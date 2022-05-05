@@ -968,6 +968,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 		case ch == '-': tok = token.CLOSURE_M
 		case ch == '+': tok = token.CLOSURE_P
 		case ch == '?': tok = token.CLOSURE_Q
+		case ch == '0': tok = token.CLOSURE_0
 		case ch == '1': tok = token.CLOSURE_1
 		case ch == '2': tok = token.CLOSURE_2
 		case ch == '3': tok = token.CLOSURE_3

@@ -90,6 +90,7 @@ const (
 	CLOSURE_M    // &-
 	CLOSURE_P    // &+
 	CLOSURE_Q    // &?
+	CLOSURE_0    // &0
 	CLOSURE_1    // &1
 	CLOSURE_2    // &2
 	CLOSURE_3    // &3
@@ -114,6 +115,7 @@ const (
 	DELEGATE_M    // $-
 	DELEGATE_P    // $+
 	DELEGATE_Q    // $?
+	DELEGATE_0    // $0
 	DELEGATE_1    // $1
 	DELEGATE_2    // $2
 	DELEGATE_3    // $3
@@ -235,6 +237,7 @@ var tokens = [...]string{
 	CLOSURE_M:    "&-",
 	CLOSURE_P:    "&+",
 	CLOSURE_Q:    "&Q",
+	CLOSURE_0:    "&0",
 	CLOSURE_1:    "&1",
 	CLOSURE_2:    "&2",
 	CLOSURE_3:    "&3",
@@ -258,6 +261,7 @@ var tokens = [...]string{
 	DELEGATE_M:    "$-",
 	DELEGATE_P:    "$+",
 	DELEGATE_Q:    "$?",
+	DELEGATE_0:    "$0",
 	DELEGATE_1:    "$1",
 	DELEGATE_2:    "$2",
 	DELEGATE_3:    "$3",

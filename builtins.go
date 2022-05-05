@@ -4233,32 +4233,37 @@ func builtinTouchFile(ctx Context, args... Value) (res Value) {
 }
 
 // $(grep 'status=1',$@)
-// $(grep -1 'status=1',$@)
+// $(grep 'status=([0-9]+)',$1,$@)
+type builtinGrepOpts struct {
+        //val Value `c,cap,capture,v,val,value,r,res,result`
+}
 func builtinGrep(ctx Context, args... Value) (res Value) {
         var (
+                opts builtinGrepOpts
                 vals, list []Value
-                linesPos, linesNeg []int
                 rxs []*regexp.Regexp
+                result Value
+                nargs int
                 err error
+
         )
-        if len(args) != 2 {
+        if nargs = len(args); !(nargs == 2 || nargs == 3) {
                 erro(ctx, "wants exactly 2 args, e.g. $(grep -1 '^example$',$(file))").debug(1)
                 return
         } else if vals, err = expandmerge2(ctx, expandPlainValue, args[0]); err != nil {
                 erro(ctx, "%v", err).debug(1)
                 return
+        } else if vals, err = parseOpts(ctx, &opts, vals...); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        } else if nargs == 2 {
+                args = args[1:]
+        } else if nargs == 3 {
+                result = args[1]
+                args = args[2:]
         }
         for _, a := range vals {
-                if i, ok := a.(*Int); ok {
-                        if i.int64 > 0 {
-                                linesPos = append(linesPos, int(i.int64))
-                        } else if i.int64 < 0{
-                                linesNeg = append(linesNeg, int(i.int64))
-                        } else {
-                                erro(ctx, "zero line number").of(a).debug(1)
-                                return
-                        }
-                } else if s, e := a.Strval(ctx); e != nil {
+                if s, e := a.Strval(ctx); e != nil {
                         erro(ctx, "%v", e).of(a); return
                 } else if s == "" {
                         erro(ctx, "empty regexp").of(a); return
@@ -4269,12 +4274,36 @@ func builtinGrep(ctx Context, args... Value) (res Value) {
                 }
         }
 
-        if vals, err = expandmerge2(ctx, expandPlainValue, args[1:]...); err != nil {
+        if vals, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
                 erro(ctx, "%v", err).debug(1)
                 return
         }
 
         var pos = ctx.Position()
+        var cc = autoContext{ Context:ctx, defs:make(autoDefMap) }
+        var greped = func(line int, match []string) (done bool) {
+                var vals []Value
+                for i, s := range match {
+                        if v, ok := cc.autoSet(fmt.Sprintf("%d",i), MakeString(pos, s)); !ok {
+                                erro(ctx, "set $%d to '%s' failed", i, s).debug(1)
+                                return
+                        } else { vals = append(vals, v) }
+                }
+                defer func() {
+                        for i, v := range vals {
+                                if v, ok := cc.autoSet(fmt.Sprintf("%d",i), v); !ok {
+                                        erro(ctx, "restore $%d to '%s' failed", i, v).debug(1)
+                                }
+                        }
+                } ()
+                if val, e := result.expand(&cc, expandPlainValue); e != nil {
+                        erro(ctx, "expand '%v' failed: %v", result, e).debug(1)
+                } else {
+                        list = append(list, val)
+                }
+                return
+        }
+
         for _, a := range vals {
                 var file *os.File
                 var filename string
@@ -4290,50 +4319,20 @@ func builtinGrep(ctx Context, args... Value) (res Value) {
 
                 var (
                         line int // line number
-                        greps = make(map[int][]string,2)
                         scanner = bufio.NewScanner(file)
                 )
                 scanner.Split(bufio.ScanLines)
-                for scanner.Scan() {
+                ScanLines: for scanner.Scan() {
                         var text = scanner.Text()
                         line += 1 // starting from #1
                         for _, rx := range rxs {
-                                var sm = rx.FindStringSubmatch(text)
-                                if len(sm) > 0 {
-                                        greps[line] = append(greps[line], sm[0])
+                                if sm := rx.FindStringSubmatch(text); len(sm) > 0 {
+                                        if greped(line, sm) { break ScanLines }
                                 }
                         }
                 }
-                if linesPos == nil && linesNeg == nil {
-                        for n, ss := range greps {
-                                //list = append(list, s)
-                                fmt.Printf("grep: %v %v\n", n, ss)
-                        }
-                } else {
-                        for _, n := range linesPos {
-                                var ss, ok = greps[n]
-                                if !ok || ss == nil { continue }
-                                var elems = []Value{ MakeInt(pos, int64(line+n)) }
-                                for _, s := range ss {
-                                        elems = append(elems, MakeString(pos, s))
-                                }
-                                list = append(list, MakeGroup(pos, elems...))
-                        }
-
-                        line += 1 // go behind the last line 
-                        for _, n := range linesNeg {
-                                var ss, ok = greps[line+n]
-                                if !ok || ss == nil { continue }
-                                var elems = []Value{ MakeInt(pos, int64(line+n)) }
-                                for _, s := range ss {
-                                        elems = append(elems, MakeString(pos, s))
-                                }
-                                list = append(list, MakeGroup(pos, elems...))
-                        }
-                }
-                greps = nil
         }
-        if err == nil {
+        if err == nil && len(list) > 0 {
                 res = MakeListOrScalar(pos, list)
         }
         return
