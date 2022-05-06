@@ -583,13 +583,12 @@ func builtinPosition(ctx Context, args... Value) (res Value) {
 }
 
 type builtinDateOpts struct {
-        now bool `n,now`
-        today bool `t,today`
+        time bool `t,tm,time,n,now`
 }
 func builtinDate(ctx Context, args... Value) (res Value) {
         var (
                 pos = ctx.Position()
-                opts = builtinDateOpts{ today:true }
+                opts = builtinDateOpts{ }
                 err error
         )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
@@ -600,10 +599,24 @@ func builtinDate(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        var t = time.Now()
-        if ; opts.now {
+        if t := time.Now(); len(args) > 0 {
+                var vals []Value
+                for _, a := range args {
+                        var ( s string; e error )
+                        if s, e = a.Strval(ctx); e != nil {
+                                erro(ctx, "strval '%v' failed: %v", a, err).of(a).debug(1)
+                                return
+                        } else if s == "" {
+                                s = t.String()
+                        } else if s = t.Format(s); s == "" {
+                                s = fmt.Sprintf("%v", t)
+                        }
+                        vals = append(vals, MakeString(a.Position(), s))
+                }
+                res = MakeListOrScalar(pos, vals)
+        } else if opts.time {
                 res = MakeTime(pos, t)
-        } else if opts.today {
+        } else {
                 res = MakeDate(pos, t)
         }
         return
