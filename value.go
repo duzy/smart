@@ -1315,6 +1315,14 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
     return
 }
 
+type kind int
+
+const (
+    valOther kind = iota
+    valInteger
+    valFloat
+)
+
 // Value represents a value of a type.
 type Value interface {
     Positioner // The position where the value appears (or NoPos).
@@ -1333,6 +1341,8 @@ type Value interface {
 
     // Returns true if the value can be evaluated as 'true', 'yes', etc.
     True(Context) (bool, error)
+
+    kind() kind
 
     // Equality compare.
     cmp(Context, Value) cmpres
@@ -1438,6 +1448,7 @@ func (_ *valbase) _match(ctx Context, p Value, i interface{}) (full bool, s stri
     }
     return
 }
+func (_ *valbase) kind() kind { return valOther }
 
 type returner struct {
     valbase
@@ -1449,6 +1460,7 @@ type Argumented struct {
     args []Value
 }
 func (p *Argumented) Position() Position { return p.value.Position() }
+func (_ *Argumented) kind() kind { return valOther }
 func (p *Argumented) refs(ctx Context, v Value) bool {
     if p.value.refs(ctx, v) { return true }
     for _, a := range p.args {
@@ -1655,6 +1667,7 @@ func isNil(v Value) (t bool) {
 
 // Any is used to box an arbitrary value
 type Any struct { value interface{} }
+func (_ *Any) kind() kind { return valOther }
 func (p *Any) cmp(ctx Context, v Value) (res cmpres) {
     switch a := v.(type) {
     case *Any:
@@ -2028,6 +2041,7 @@ type integer struct {
 func (p *integer) True(ctx Context) (bool, error) { return p.int64 != 0, nil }
 func (p *integer) Integer(ctx Context) (int64, error) { return p.int64, nil }
 func (p *integer) Float(ctx Context) (float64, error) { return float64(p.int64), nil }
+func (p *integer) kind() kind { return valInteger }
 func (p *integer) cmp(ctx Context, v Value) (res cmpres) {
     var i, e = v.Integer(ctx)
     assert(e == nil, "%T: %v", v, e)
@@ -2078,6 +2092,7 @@ func (p *Float) Strval(ctx Context) (string, error) { return strconv.FormatFloat
 func (p *Float) True(ctx Context) (bool, error) { return math.Abs(p.float64)-0 > FloatEpsilon, nil }
 func (p *Float) Integer(ctx Context) (int64, error) { return int64(p.float64), nil }
 func (p *Float) Float(ctx Context) (float64, error) { return p.float64, nil }
+func (p *Float) kind() kind { return valFloat }
 func (p *Float) cmp(ctx Context, v Value) (res cmpres) {
     if _, ok := v.(*Float); ok {
         f, e := v.Float(ctx)
@@ -2582,6 +2597,7 @@ func (p *elements) cmpElems(ctx Context, elems []Value) (res cmpres) {
 }
 
 type Barecomp struct { valbase ; elements }
+func (_ *Barecomp) kind() kind { return valOther }
 func (p *Barecomp) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *Barecomp) Strval(ctx Context) (s string, e error) {
     for _, elem := range p.Elems {
@@ -3208,6 +3224,7 @@ func (p *GlobRange) elemStr(ctx Context, o Object, k elemkind) (s string) {
 // Path is addressing a file (dynamically), the real located file varies
 // base on 'elements' and the context.
 type Path struct { valbase ; elements }
+func (_ *Path) kind() kind { return valOther }
 func (p *Path) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *Path) Strval(ctx Context) (s string, e error) {
     for i, seg := range p.Elems {
@@ -4508,6 +4525,7 @@ type List struct {
         position Position
         elements
 }
+func (_ *List) kind() kind { return valOther }
 func (p *List) Position() (pos Position) { return p.position }
 func (p *List) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *List) Strval(ctx Context) (s string, err error) {
@@ -4673,6 +4691,7 @@ func (p *Group) True(ctx Context) (t bool, err error) {
     t = len(p.Elems) > 0
     return
 }
+func (_ *Group) kind() kind { return valOther }
 func (p *Group) Strval(ctx Context) (s string, err error) {
     s = "("
     for i, elem := range p.Elems {

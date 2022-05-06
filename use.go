@@ -133,6 +133,7 @@ type usinglist struct {
         owner *Project
         list []*using
 }
+func (_ *usinglist) kind() kind { return valOther }
 func (p *usinglist) Name(_ Context) string { return p.name }
 func (p *usinglist) DeclScope() *Scope { return p.scope }
 func (p *usinglist) OwnerProject() *Project { return p.owner }

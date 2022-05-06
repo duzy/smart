@@ -127,7 +127,9 @@ var builtins = map[string]BuiltinFunc {
         `trim-suffix`:  builtinTrimSuffix,
         `trim-ext`:     builtinTrimExt,
 
-        `ext`: builtinExt,
+        `printf`:       builtinPrintf,
+
+        `ext`:          builtinExt,
 
         `uppercase`:    builtinUpperCase,
         `lowercase`:    builtinLowerCase,
@@ -230,6 +232,7 @@ var commands = map[string]BuiltinFunc {
         `print`:        builtinPrint,
         `printl`:       builtinPrintl,
         `println`:      builtinPrintln,
+        //`printf`:       builtinPrintf,
 
         `assert`:       builtinAssert,
 
@@ -597,7 +600,8 @@ func builtinDate(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        if t := time.Now(); opts.now {
+        var t = time.Now()
+        if ; opts.now {
                 res = MakeTime(pos, t)
         } else if opts.today {
                 res = MakeDate(pos, t)
@@ -2483,6 +2487,7 @@ func builtinTrimExt(ctx Context, args... Value) (res Value) {
 }
 
 type builtinExtOpts struct {
+
 }
 func builtinExt(ctx Context, args... Value) (res Value) {
         var (
@@ -2509,6 +2514,118 @@ func builtinExt(ctx Context, args... Value) (res Value) {
         if err == nil {
                 res = MakeListOrScalar(ctx.Position(), list)
         }
+        return
+}
+
+type builtinPrintfOpts struct {
+
+}
+func builtinPrintf(ctx Context, args... Value) (res Value) {
+        var (
+                opts builtinPrintfOpts
+                vals []Value
+                err error
+                f string
+        )
+        if len(args) < 1 {
+                erro(ctx, "not enough args, try $(printf 'format', ...)").debug(1)
+                return
+        } else if vals, err = expandmerge2(ctx, expandPlainValue, args[0]); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        } else if vals, err = parseOpts(ctx, &opts, vals...); err != nil {
+                erro(ctx, "parse opts failed: %v", err).debug(1)
+                return
+        } else if len(vals) != 1 {
+                erro(ctx, "not enough args, try $(printf 'format', ...)").debug(1)
+                return
+        } else if f, err = vals[0].Strval(ctx); err != nil {
+                erro(ctx, "strval '%v' failed: %v", vals[0], err).debug(1)
+                return
+        }
+
+        if args, err = expandmerge2(ctx, expandPlainValue, args[1:]...); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        }
+
+        var (
+                a []interface{}
+                i int
+        )
+        ForArgs: for _, v := range args {
+                for ; i < len(f); {
+                        if f[i] != '%' {
+                                if i += 1; i < len(f) {
+                                        continue
+                                } else {
+                                        continue ForArgs
+                                }
+                        }
+                        for i += 1; i < len(f); i += 1 {
+                                switch f[i] {
+                                case '%': continue ForArgs
+                                case '+', '-', '#', ' ', '.', '0', '1', '2', '3',
+                                        '4', '5', '6', '7', '8', '9': continue
+                                case 'c', 'd', 'o', 'O', 'q', 'U':
+                                        if n, e := v.Integer(ctx); e != nil {
+                                                erro(ctx, "'%v' is not an integer: %v", v, e).debug(1)
+                                                return
+                                        } else {
+                                                a = append(a, n)
+                                                continue ForArgs
+                                        }
+                                case 'e', 'E', 'f', 'F', 'g', 'G':
+                                        if n, e := v.Float(ctx); e != nil {
+                                                erro(ctx, "'%v' is not a float: %v", v, e).debug(1)
+                                                return
+                                        } else {
+                                                a = append(a, n)
+                                                continue ForArgs
+                                        }
+                                case 'b', 'x', 'X':
+                                        switch k := v.kind(); k {
+                                        case valInteger:
+                                                if n, e := v.Integer(ctx); e != nil {
+                                                        erro(ctx, "'%v' is not an integer: %v", v, e).debug(1)
+                                                        return
+                                                } else {
+                                                        a = append(a, n)
+                                                        continue ForArgs
+                                                }
+                                        case valFloat:
+                                                if n, e := v.Float(ctx); e != nil {
+                                                        erro(ctx, "'%v' is not a float: %v", v, e).debug(1)
+                                                        return
+                                                } else {
+                                                        a = append(a, n)
+                                                        continue ForArgs
+                                                }
+                                        case valOther:
+                                                if n, e := v.Strval(ctx); e != nil {
+                                                        erro(ctx, "'%v' is not a float: %v", v, e).debug(1)
+                                                        return
+                                                } else {
+                                                        a = append(a, n)
+                                                        continue ForArgs
+                                                }
+                                        }
+                                case 'v':
+                                        if n, e := v.Strval(ctx); e != nil {
+                                                erro(ctx, "'%v' is not a float: %v", v, e).debug(1)
+                                                return
+                                        } else {
+                                                a = append(a, n)
+                                                continue ForArgs
+                                        }
+                                case 't', 'T':
+                                        a = append(a, v)
+                                        continue ForArgs
+                                }
+                        }
+                }
+        }
+        res = MakeString(ctx.Position(), fmt.Sprintf(f, a...))
         return
 }
 

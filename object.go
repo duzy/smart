@@ -41,6 +41,7 @@ type objbase struct { // generally unnamed objects
         scope *Scope
         owner *Project
 }
+func (_ *objbase) kind() kind { return valOther }
 func (p *objbase) DeclScope() *Scope { return p.scope }
 func (p *objbase) OwnerProject() *Project { return p.owner }
 func (p *objbase) String() string { return fmt.Sprintf("{unknown %p}", p) }
@@ -1013,6 +1014,7 @@ type undetermined struct {
         identifier Value
         value Value
 }
+func (_ *undetermined) kind() kind { return valOther }
 func (p *undetermined) Position() Position { return p.identifier.Position() }
 func (p *undetermined) String() (s string) {
         s = p.identifier.String()
@@ -1205,6 +1207,7 @@ type RuleEntry struct {
         programs []*Program
         position Position
 }
+func (_ *RuleEntry) kind() kind { return valOther }
 func (entry *RuleEntry) Class() RuleEntryClass { return entry.class }
 func (entry *RuleEntry) Target() Value { return entry.target }
 func (entry *RuleEntry) Programs() []*Program { return entry.programs }
