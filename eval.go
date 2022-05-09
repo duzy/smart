@@ -46,12 +46,12 @@ ForRecipes:
                         erro(ctx, "merge recipes failed: %v", err).debug(1)
                         return
                 }
-                if len(vals) < 1 {
+                if n := len(vals); n < 1 {
                         list = append(list, recipe)
                         continue
-                } else if isTrivial(vals[0]) {
-                        erro(ctx, "trivial recipe op: %v -> %v", recipe, vals).debug(1)
-                        return
+                } else if false && n == 1 && isTrivial(vals[0]) {
+                        list = append(list, vals[0])
+                        continue
                 }
 
                 var v Value
