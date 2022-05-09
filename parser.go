@@ -2162,6 +2162,7 @@ func (p *parser) parseRecipeExpr() Value {
 		// TODO: doc = p.leadComment
 		position = p.Position()
 		elems []Value
+		isList bool
 	)
 
 SwitchDialect:
@@ -2169,7 +2170,7 @@ SwitchDialect:
 	case "", "eval", "value":
 		p.scanner.LeaveCompoundLineContext()
 		p.next(true) // skip RECIPE or SEMICOLON and parse in list mode
-		if !p.isEndOfLine() {
+		if isList = true; !p.isEndOfLine() {
 			defer p.setbit(p.setbit(parsingBuiltinCommand))
 			var (
 				isValue = p.dialect == "value"
@@ -2237,8 +2238,8 @@ SwitchDialect:
 	if p.tok != token.EOF { p.expectLinend() }
     if len(elems) == 0 {
         return MakeNone(position)
-    } else if p.dialect == "" || p.dialect == "eval" {
-        return MakeList(p.Position(), elems...)
+    } else if isList {
+        return MakeList(position, elems...)
     } else {
         return MakeCompound(position, elems...)
     }

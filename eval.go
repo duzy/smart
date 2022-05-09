@@ -13,6 +13,7 @@ import (
 // evaluer evaluates smart statements
 type evaluer struct { accumulation bool }
 type evaluerOpts struct {
+        debug bool `d,debug`
         fullname bool `f,fn,full,fullname`
 }
 func (p *evaluer) Evaluate(ctx Context, args ...Value) (result Value, err error) {
@@ -35,20 +36,6 @@ func (p *evaluer) Evaluate(ctx Context, args ...Value) (result Value, err error)
 
 ForRecipes:
         for _, recipe := range program.recipes {
-                if p.accumulation {
-                        var v Value
-                        // Expand both closures and delegates to ensure that
-                        // the right recipe value is returned.
-                        if v, err = recipe.expand(ctx, expandPlainValue|expandPairVal); err != nil {
-                                erro(ctx, "expand recipe failed: %v", err).debug(1)
-                                return
-                        } else if isNil(v) {
-                                v = recipe
-                        }
-                        list = append(list, v)
-                        continue ForRecipes
-                }
-
                 var (
                         ctx = positional(ctx, recipe.Position())
                         w = expandPlainValue
@@ -96,14 +83,11 @@ ForRecipes:
                         }
 
                 default:
-                        if n := len(vals); n == 1 {
-                                v = tv
-                        } else if n > 1 {
-                                v = MakeList(tv.Position(), vals...) // normal list
-                        }
+                        list = append(list, vals...)
+                        continue
                 }
 
-                if isNil(v) { continue }
+                if /*isNil*/isTrivial(v) { continue }
 
                 list = append(list, v)
                 if g, ok := v.(*Group); ok && g != nil && g.Len() > 0 {
