@@ -761,9 +761,9 @@ type (
     noStamp     bool `ns,nostamp,no-stamp,no-stamp-file`
     wait        bool `w,wr,wait,waitres,wait-res,waitresult,wait-result` // wait for execution finished
     report      bool `r,report;rs,report-stamp;vs,verbose-stamp`
-    retStdout   bool `ro,return-stdout,result-stdout`
-    retStderr   bool `ro,return-stderr,result-stderr`
-    retStatus   bool `ro,return-status,result-status`
+    retStdout   bool `ro,return-stdout,result-stdout,stdout`
+    retStderr   bool `re,return-stderr,result-stderr,stderr`
+    retStatus   bool `rs,return-status,result-status,status`
     fullname    bool `f,fn,full,fullname` // expand fullname
     scanStdout  bool `so,scan-stdout,scan-out`
     scanStderr  bool `se,scan-stderr,scan-err`
@@ -843,6 +843,11 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     // should be good to work
   } else if !(opts.stamp || opts.noStamp || opts.silent) {
     warn(ctx, "add -stamp to (shell); target=%v (%T)", target, target).debug(1)
+  }
+
+  if (opts.retStdout && opts.retStatus) || (opts.retStderr && opts.retStatus) {
+    erro(ctx, "cannot have both status and stdout|stderr at the same time (try -so or -se)").debug(1)
+    return
   }
 
   if strings.HasSuffix(targetName, "external.google.tensorflow.prototext") {
@@ -1065,8 +1070,8 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     logFile *os.File
   )
   if opts.logFileName != nil { log = &ExecLog{ filename: opts.logFileName.string } }
-  if opts.bufStdout { exeres.Stdout.Buf = new(bytes.Buffer) }
-  if opts.bufStderr { exeres.Stderr.Buf = new(bytes.Buffer) }
+  if opts.bufStdout || opts.retStdout { exeres.Stdout.Buf = new(bytes.Buffer) }
+  if opts.bufStderr || opts.retStderr { exeres.Stderr.Buf = new(bytes.Buffer) }
   if opts.tieStdout { exeres.Stdout.Tie = stdout }
   if opts.tieStderr { exeres.Stderr.Tie = stderr }
   if log == nil || log.filename == "" {
@@ -1179,6 +1184,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     }
   } ()
 
+  var res []Value
   for i, src := range sources {
     var pos = positions[i]
     if strings.HasPrefix(src, "@") {
@@ -1251,11 +1257,14 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         case diagInfo:  in += rec.num
         }
       }
-      if en > 0 || exeres.Status != 0 || err != nil {
-        prompt(ctx, "%v: exec failed (status=%d; err=%v)\n", targetName, exeres.Status, err)
+      if en == 0 && opts.retStatus {
+        err = nil // discard the "exit status ???" error, we need the status code
+      } else if en > 0 || exeres.Status != 0 || err != nil {
+        prompt(ctx, "exec: failure (status=%d; err=%v); target=%s\n", exeres.Status, err, targetName)
       } else if wn > 0 {
         prompt(ctx, "%v: %d warnings\n", targetName, wn)
       }
+
       for i, rec := range exeres.scannedDiags {
         if !opts.infos && rec.dt == diagInfo { continue }
         if !logPos.IsValid() { logPos = rec.lpos }
@@ -1278,12 +1287,18 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       } else {
         logPos = ctx.Position()
       }
+
       var str, _, _ = entryStr(ctx, ctx.entry())
-      if exeres.Status != 0 { err = &exitstatus{ exeres.Status } // set or convert error
+      if opts.retStatus {
+        err = nil
+      } else if exeres.Status != 0 {
+        err = &exitstatus{ exeres.Status } // set or convert error
         erro(ctx, "%v: abnormal exit status %d", str, exeres.Status).at(logPos)
-      } else if err != nil { if opts.silent { err = nil }
+      } else if err != nil {
+        if opts.silent { err = nil }
         erro(ctx, "%v: %s", str, err).at(logPos)
       }
+
       if en > 0 {
         erro(ctx, "%v: scanned %d known errors", str, en).at(logPos)
         erro(ctx, "%v: execute failed (%d errors)", str, en)
@@ -1305,19 +1320,38 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         info(ctx, "%v: scanned %d known messages", str, in).at(logPos)
         info(ctx, "%v: execute has %d messages", str, in)
         infostack(ctx, 8, "%v: %v", str, ctx).debug(1)
-      } else if err != nil || exeres.Status != 0 {
+      } else if !opts.retStatus && (err != nil || exeres.Status != 0) {
         errostack(ctx, 20, "%v: %v:", str, ctx).debug(6)
       }
-      if exeres.Status != 0 || err != nil { break }
+
+      if opts.retStatus {
+        res = append(res, MakeInt(logPos, int64(exeres.Status)))
+      } else if exeres.Status != 0 || err != nil {
+        break
+      }
     }
+  }
+
+  // Add stdout result
+  if opts.retStdout {
+    var s string
+    if exeres.Stdout.Buf != nil {
+      s = exeres.Stdout.Buf.String()
+    }
+    res = append(res, MakeString(pos, s))
+  }
+
+  // Add stderr result
+  if opts.retStderr {
+    var s string
+    if exeres.Stderr.Buf != nil {
+      s = exeres.Stderr.Buf.String()
+    }
+    res = append(res, MakeString(pos, s))
   }
 
   // The execution is performed asynchronously, the result can't be fetched immediately.
   // Caller should do a t.wait(...) or exeres.wait() before using the result.
-  var res []Value
-  // TODO: if opts.retStdout { res = append(res, ) }
-  // TODO: if opts.retStderr { res = append(res, ) }
-  // TODO: if opts.retStatus { res = append(res, ) }
   if len(res) == 0 {
     result = exeres
   } else {
