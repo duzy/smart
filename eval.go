@@ -96,7 +96,11 @@ ForRecipes:
                         }
 
                 default:
-                        v = tv // normal value
+                        if n := len(vals); n == 1 {
+                                v = tv
+                        } else if n > 1 {
+                                v = MakeList(tv.Position(), vals...) // normal list
+                        }
                 }
 
                 if isNil(v) { continue }
