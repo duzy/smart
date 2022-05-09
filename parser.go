@@ -1057,38 +1057,52 @@ func (p *parser) parseClosureDelegate() (result Value) {
 				warn(p, "nil: %v (tok=%v%v, resolved=%T %v)", name, tok, lTok, resolved, resolved).at(name.Position()).debug(6)
 			}
 		} () }
-		var proj = p.Project()
-		var err error
+		var (
+			proj = p.Project()
+			err error
+		)
+		if sel, ok := name.(*selection); ok {
+			if sel == nil {
+				erro(p, "nil selection: %v", name).at(name.Position()).debug(1)
+			} else if false {
+				// NOTE: selected defs could have closured, have to preserve selection
+				if obj, okay = sel, true; false {
+					o, _ := sel.object(ctx)
+					v, _ := sel.value(ctx)
+					warn(p, "`%v`; %T %v", sel, o, o).of(name)
+					warn(p, "`%v`; %T %v", sel, v, v).of(name)
+					warn(p, "`%v`; closured = %v", sel, v.expandible(ctx, expandClosure)).of(name).debug(1)
+				}
+			} else if o, err := sel.object(ctx); err == nil && o.DeclScope().comment == usecomment/*TODO: remove this check?*/ {
+				obj, okay = unresolved(proj, name), true
+			} else if err != nil {
+				erro(p, "`%v` invalid delegate selection", name).of(sel).debug(1)
+			} else if isNil(o) {
+				erro(p, "`%v` nil selection object", name).of(sel).debug(1)
+			} else if v, err := sel.value(ctx); err != nil {
+				erro(p, "`%v` invalid delegate selection", name).of(name).debug(1)
+			} else if isNil(v) {
+				erro(p, "`%v` not found in %v", sel.s, o).of(name).debug(1)
+			} else if obj, okay = v.(Object); !okay {
+				// return // just use the selected value
+			}
+			switch lTok {
+			case token.LPAREN:
+				if _, ok := obj.(Caller); !ok {
+					erro(p, "selected object '%v' is not callable: %T %v", name, obj, obj).of(name).debug(16)
+				}
+			case token.LBRACE:
+				if _, ok := obj.(Executer); !ok {
+					erro(p, "selected object '%v' is not executer: %T %v", name, obj, obj).of(name).debug(1)
+				}
+			case token.LCOLON:
+				erro(p, "selected object '%v' does not supported: %T %v", name, obj, obj).of(name).debug(1)
+			}
+			return
+		}
 		switch lTok {
 		case token.LPAREN:
-			if sel, ok := name.(*selection); ok {
-				if sel == nil {
-					erro(p, "nil selection: %v", name).at(name.Position()).debug(1)
-				} else if true {
-					// NOTE: selected defs could have closured, have to preserve selection
-					if obj, okay = sel, true; false {
-						o, _ := sel.object(ctx)
-						v, _ := sel.value(ctx)
-						warn(p, "`%v`; %T %v", sel, o, o).of(name)
-						warn(p, "`%v`; %T %v", sel, v, v).of(name)
-						warn(p, "`%v`; closured = %v", sel, v.expandible(ctx, expandClosure)).of(name).debug(1)
-					}
-				} else if o, err := sel.object(ctx); err == nil && o.DeclScope().comment == usecomment {
-					obj, okay = unresolved(proj, name), true
-				} else if err != nil {
-					erro(p, "`%v` invalid delegate selection", name).of(sel).debug(1)
-				} else if isNil(o) {
-					erro(p, "`%v` nil selection object", name).of(sel).debug(1)
-				} else if v, err := sel.value(ctx); err != nil {
-					erro(p, "`%v` invalid delegate selection", name).of(name).debug(1)
-				} else if isNil(v) {
-					erro(p, "`%v` not found in %v", sel.s, o).of(name).debug(1)
-				} else if /* FIXME: v.expandible(ctx, expandClosure) {
-					obj, okay = sel, true
-				} else if*/ obj, okay = v.(Object); !okay {
-					return // just use the selected value
-				}
-			} else if str, resolved, err = p.resolveObject(name); err != nil {
+			if str, resolved, err = p.resolveObject(name); err != nil {
 				erro(p, "resolve '%v' (%s) failed: %v", name, str, err).at(name.Position()).debug(1)
 			} else if str == "" {
 				erro(p, "name '%v' is empty", name).at(name.Position()).debug(1)
@@ -1112,7 +1126,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 					erro(p, "%v: resolved '%v' is nil", proj, name).of(name)
 					errostack(p, 5, "%v: %v", proj, ctx).of(name).debug(16)
 				}
-			} else if sel, ok = resolved.(*selection); ok && sel != nil {
+			} else if sel, ok := resolved.(*selection); ok && sel != nil {
 				obj, okay = sel, true
 				return
 			} else if caller, _ := resolved.(Caller); caller == nil {

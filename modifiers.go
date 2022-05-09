@@ -3241,7 +3241,7 @@ func modifierAssert(ctx Context, args... Value) (result Value, brks breakers) {
                         for _, a := range args {
                                 erro(ctx, "assertion failed: %v", a).of(a)
                         }
-                        errostack(ctx, 3, "(%T):", ctx).debug(6)
+                        errostack(ctx, 8, "(%T):", ctx).debug(6)
                 } else {
                         var target, _ = ctx.autoGet("@")
                         var vals, _ = expandmerge2(ctx, expandPlainValue, args...)
