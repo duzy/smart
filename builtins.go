@@ -92,6 +92,7 @@ var builtins = map[string]BuiltinFunc {
         `var`:          builtinValue,
         `value`:        builtinValue,
         `list`:         builtinList,
+        `sure-value`:   builtinSureValue,
 
         `shell`:        builtinShell,
         `which`:        builtinWhich,
@@ -689,6 +690,17 @@ func builtinAssert(ctx Context, args... Value) Value {
                 }
         }
         return nil
+}
+
+func builtinSureValue(ctx Context, args... Value) Value {
+        for _, a := range args {
+                if v, e := a.True(ctx); e != nil {
+                        erro(ctx, "assert: error: %v", e).of(a).debug(1)
+                } else if !v {
+                        erro(ctx, "assertion failed: %v", a).of(a).debug(1)
+                }
+        }
+        return MakeListOrScalar(ctx.Position(), args)
 }
 
 // $(defor $(x),$(y),$(z)) is identical to $(if $(defined $(x)),$(x),...)
