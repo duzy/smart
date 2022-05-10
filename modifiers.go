@@ -3091,14 +3091,8 @@ func predict(ctx Context, args... Value) (result bool, breakScope breaksco, mess
                 targetStr string
                 num int64
         )
-        if false && targetVal.String() == "ISL_GIT_HEAD_ID" {
-                defer func() {
-                        info(ctx, "%v: %v", targetVal, args).debug(6)
-                } ()
-        }
-        if isNil(targetVal) || isNone(targetVal) {
-                erro(ctx, "target is <nil>")
-                errostack(ctx, 5, "(%T):", ctx).debug(10)
+        if isTrivial(targetVal) {
+                errostack(ctx, 5, "target is trivial, %v", ctx).debug(10)
                 return
         }
         for caller := ctx.traversal().caller(); caller != nil; caller = caller.caller() {
@@ -3151,7 +3145,12 @@ ForArgs:
                 } else if va, err = parseOpts(ctx, &opts, va...); err != nil {
                         erro(ctx, "parse opts failed: %v", err).debug(1)
                         return
-                } else if len(va) == 0 { continue ForArgs }
+                } else if len(va) == 0 {
+                        continue ForArgs
+                } else if len(va) == 1 && isTrivial(va[0]) {
+                        continue ForArgs
+                }
+
                 if opts.group    { breakScope = breakGroup }
                 if opts.traverse { breakScope = breakTrave }
                 if opts.verbose && !opts.verbose0 {
@@ -3163,11 +3162,6 @@ ForArgs:
                         opts.verbose0 = true
                 }
 
-                if false && targetVal.String() == "ISL_GIT_HEAD_ID" {
-                        info(ctx, "arg: %v -> %v -> result = %v", arg, va, result)
-                        info(ctx, "arg: %v", ctx).debug(1)
-                }
-
                 if !opts.and && result { break }
                 if !opts.and || (opts.and && result) { for i, a := range va {
                         var (
@@ -3175,20 +3169,17 @@ ForArgs:
                                 val Value
                                 tru bool
                         )
-                        if false && targetVal.String() == "ISL_GIT_HEAD_ID" {
-                                info(ctx, "arg: %v, %d, %T %v", arg, i, a, a).debug(1)
-                        }
                         if g, ok := a.(*Group); !ok {
-                                // preserved the value of 'a'
+                                // preserve the value of 'a'
                         } else if len(g.Elems) == 0 {
-                                warn(ctx, "predictor is empty group").at(g.position).debug(1)
-                                a = nil // not prediction group
+                                erro(ctx, "predictor is empty group").at(g.position).debug(1)
+                                return
                         } else if name, err = g.Elems[0].Strval(ctx); err != nil {
                                 erro(ctx, "strval predictor failed: %v", err).of(g.Elems[0]).debug(1)
                                 return
                         } else if pret, ok := predictors[name]; !ok {
-                                warn(ctx, "predictor '%s' undefined (%T %v)", name, a, a).at(g.position).debug(1)
-                                a = nil // no such named predictor
+                                erro(ctx, "predictor '%s' undefined (%T %v)", name, a, a).at(g.position).debug(1)
+                                return
                         } else if val, err = pret(positional(ctx, g.Elems[0].Position()), g.Elems[1:]...); err != nil {
                                 erro(ctx, "prediction '%v' failed: %v", g.Elems[0], err).of(a).debug(1)
                                 return
@@ -3196,13 +3187,8 @@ ForArgs:
                                 a = val // reset the value of 'a'
                         }
 
-                        if false && targetVal.String() == "ISL_GIT_HEAD_ID" {
-                                info(ctx, "arg: %v, result = %v", arg, result)
-                                info(ctx, "arg: %v, %d, %T %v", arg, i, a, a).debug(1)
-                        }
-
                         if a == nil {
-                                warn(ctx, "predictor #%d is <nil>", i).debug(1)
+                                warn(ctx, "predictor %v is <nil>", arg).debug(1)
                                 continue // skip
                         } else if p, ok := a.(*prediction); ok {
                                 if p.reason != "" { reasons = append(reasons, p.reason) }
