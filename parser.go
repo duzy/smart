@@ -1332,7 +1332,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
 			return MakeBareword(position, str)
 		} else if p.tok == token.PCON { // check /
 			return p.parsePathExpr(lhs, makePathSeg(positional(p, position), tok))
-		} else if tok == token.DOT { // TODO: parse to Qualiword instead
+		} else if tok == token.DOT || tok == token.DOTDOT { // TODO: parse to Qualiword instead
 			if x = MakeBareword(p.positionAt(pos), str); p.bits&composingDOT == 0 {
 				x = p.parseDotExpr(lhs, x)
 			}
@@ -1340,7 +1340,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
 		} else if tok == token.TILDE { // TODO: ~user
 			return makePathSeg(positional(p, position), tok)
 		} else {
-			erro(p, "unexpected path segment").at(position).debug(1)
+			erro(p, "unexpected path: %v", tok).at(position).debug(1)
 			return MakeNil(position)
 		}
 
