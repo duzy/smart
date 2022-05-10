@@ -1159,7 +1159,7 @@ func builtinCall_failure(ctx Context, args... Value) (res Value) {
 }
 
 type builtinClosureOpts struct {
-        // TODO: ...
+        required bool `required,require-def,require-defs`
 }
 func builtinClosure(ctx Context, args... Value) (res Value) {
         var (
@@ -1196,7 +1196,9 @@ func builtinClosure(ctx Context, args... Value) (res Value) {
                         def = ctx.Scope().FindDef(name)
                 }
                 if def == nil {
-                        erro(ctx, "no def '%v' (%v)", name, nameVal).of(nameVal).debug(1)
+                        if opts.required {
+                                erro(ctx, "no def '%v' (%v)", name, nameVal).of(nameVal).debug(1)
+                        }
                 } else {
                         vals = append(vals, def.Call(ctx, args[1:]...))
                 }
