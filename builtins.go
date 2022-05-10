@@ -88,7 +88,7 @@ var builtins = map[string]BuiltinFunc {
         `foreach`:      builtinForEach,
 
         `env`:          builtinEnv,
-        `call`:         builtinCall,
+        // DEPRECATED: `call`:         builtinCall,
         `var`:          builtinValue,
         `value`:        builtinValue,
         `list`:         builtinList,
@@ -1122,7 +1122,7 @@ func builtinValue(ctx Context, args... Value) (res Value) {
 type builtinCallOpts struct {
         closure bool `c,closure`
 }
-func builtinCall(ctx Context, args... Value) (res Value) {
+func builtinCall_failure(ctx Context, args... Value) (res Value) {
         var (
                 opts builtinCallOpts
                 vals []Value
