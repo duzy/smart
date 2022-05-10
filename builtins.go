@@ -89,6 +89,7 @@ var builtins = map[string]BuiltinFunc {
 
         `env`:          builtinEnv,
         // DEPRECATED: `call`:         builtinCall,
+        `closure`:      builtinClosure,
         `var`:          builtinValue,
         `value`:        builtinValue,
         `list`:         builtinList,
@@ -1153,6 +1154,52 @@ func builtinCall_failure(ctx Context, args... Value) (res Value) {
                 }
                 if isNil(val) { val = MakeNone(args[0].Position()) }
                 vals = append(vals, val)
+        }
+        return MakeListOrScalar(ctx.Position(), vals)
+}
+
+type builtinClosureOpts struct {
+        // TODO: ...
+}
+func builtinClosure(ctx Context, args... Value) (res Value) {
+        var (
+                opts builtinClosureOpts
+                vals, names []Value
+                err error
+        )
+        if len(args) < 1 {
+                erro(ctx, "insufficient args: %v", args).debug(1)
+                return
+        } else if names, err = expandmerge2(ctx, expandPlainValue, args[0]); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        } else if names, err = parseOpts(ctx, &opts, names...); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        } else if len(names) < 1 {
+                erro(ctx, "no names: %v", args[0]).debug(1)
+                return
+        }
+
+        for _, nameVal := range names {
+                var ( def *Def; name string; err error )
+                if name, err = nameVal.Strval(ctx); err != nil {
+                        erro(ctx, "strval '%v' failed: %v", nameVal, err).at(nameVal.Position()).debug(1)
+                        return
+                } else if /*opts.closure*/true {
+                        for _, scope := range ctx.closureScopes() {
+                                if def = scope.FindDef(name); def != nil {
+                                        break
+                                }
+                        }
+                } else if def != nil {
+                        def = ctx.Scope().FindDef(name)
+                }
+                if def == nil {
+                        erro(ctx, "no def '%v' (%v)", name, nameVal).of(nameVal).debug(1)
+                } else {
+                        vals = append(vals, def.Call(ctx, args[1:]...))
+                }
         }
         return MakeListOrScalar(ctx.Position(), vals)
 }
