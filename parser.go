@@ -2177,11 +2177,13 @@ SwitchDialect:
 
 			var (
 				isValue = p.dialect == "value"
-				x = p.parseExpr(!isValue) // parse first expr of recipe
+				x = p.parseExpr(/*!isValue*/false) // parse first expr of recipe
 			)
 			if isNil(x) {
 				erro(p, "parsed value is nil").at(position)
-			} else if t, ok := x.(*Bareword); ok && !isValue {
+			} else if isValue {
+				// no resolving commands
+			} else if t, ok := x.(*Bareword); ok {
 				if _, sym, err := p.resolveObject(t); err != nil {
 					erro(p, "resolve '%v' failed: %v", x, err).at(position)
 				} else if isTrivial(sym) {
@@ -2214,7 +2216,7 @@ SwitchDialect:
 						erro(p, "unsupported token: %s, %v", p.tok, elems).debug(1)
 					}
 				} else {
-					x = p.parseExpr(true)
+					x = p.parseExpr(false)
 				}
 
 				cmdargs = append(cmdargs, x)
