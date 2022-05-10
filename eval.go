@@ -8,7 +8,6 @@ package smart
 
 import (
         "fmt"
-        "strings"
 )
 
 // evaluer evaluates smart statements

@@ -1159,8 +1159,10 @@ func (p *parser) parseClosureDelegate() (result Value) {
 				return
 			}
 			switch str {
-			case "usee":  resolved = proj.using // TODO: move usee and self into ctx
-			case "self":  resolved = proj.self
+			case "usee": resolved = proj.using // TODO: move usee and self into ctx
+			case "self": resolved = proj.self
+			//TODO: case "ctd" : resolved = proj.ctd
+			//TODO: case "cwd" : resolved = proj.cwd
 			default: if o, found := ctx.colonResolve(str); found { resolved = o } else {
 				erro(p, "unknown special property: %v", str, err).at(lPos).debug(1)
 				return
@@ -2960,10 +2962,10 @@ func (p *parser) parseFile() *parsedFile {
 			def, _ = p.def(position, "/")
 			def.set(ctx, DefAuto, MakePathStr(position, abs))
 
-			def, _ = p.def(position, "CTD") // Current Temp Directory
+			def, _ = p.def(position, "CTD") // Current Temp Directory, TODO: make it $:ctd:
 			def.set(ctx, DefAuto, MakePathStr(position, tmp))
 
-			def, _ = p.def(position, "CWD") // Current Work Directory
+			def, _ = p.def(position, "CWD") // Current Work Directory, TODO: make it $:cwd:
 			def.set(ctx, DefAuto, MakePathStr(position, abs))
 		} else if def = s.FindDef("/"); def == nil {
 			erro(p, "/ not in the scope: %v", s.comment).at(position)

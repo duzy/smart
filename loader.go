@@ -1163,7 +1163,7 @@ func (l *loader) loadBases(position Position, linfo *loadinfo, implicitBase stri
         implicitIndex int
         implicitBases []Value
     )
-    if file := stat(ctx, "./.base", "", l.project.absPath); file != nil && file.info.IsDir() {
+    if file := stat(ctx, "./.base", "", l.project.absPath); file != nil /*&& file.info.IsDir()*/ {
         if s, e := file.Strval(ctx); true { assert(e == nil && s == file.name && s == "./.base", "invalid strval: %v => %v", file, s) }
         implicitBases = append(implicitBases, file)
     }
@@ -1333,9 +1333,20 @@ ParamsLoop:
 func (l *loader) loadDotContainer(ident *Barecomp, identStr string, file *File) (result bool) {
     if options.traceLaunch { defer un(trace(t_launch, "loader.loadDotContainer")) }
     var position = ident.Position()
-    if !l.loadDir(position, dotContainer, file.fullname(), nil) {
+    if file.info == nil {
+        erro(l, "%s: file not exists: %s", ident, file.fullname()).of(ident).debug(1)
+        return
+    } else if file.info.IsDir() {
+        if !l.loadDir(position, dotContainer, file.fullname(), nil) {
+            erro(l, "%s: load '%v' failed (%s)", ident, dotContainer, file.fullname()).of(ident).debug(1)
+            return
+        }
+    } else if !l.loadFile(file.fullname(), nil) {
         erro(l, "%s: load '%v' failed (%s)", ident, dotContainer, file.fullname()).of(ident).debug(1)
-    } else if loaded, yes := l.loaded[file.fullname()]; yes && loaded != nil {
+        return
+    }
+
+    if loaded, yes := l.loaded[file.fullname()]; yes && loaded != nil {
         name, _ := l.Scope().Lookup(loaded.Name()).(*ProjectName)
         if name == nil {
             erro(l, "%v: %v: `dock` is not a project", l.project.name, file).of(ident).debug(1)
@@ -1356,9 +1367,21 @@ func (l *loader) loadDotContainer(ident *Barecomp, identStr string, file *File) 
 
 func (l *loader) loadDotConfigure(ident *Barecomp, identStr string, file *File) (result bool) {
     if options.traceLaunch { defer un(trace(t_launch, "loader.loadDotConfigure")) }
-    if position := ident.Position(); !l.loadDir(position, dotConfigure, file.fullname(), nil) {
+    var position = ident.Position()
+    if file.info == nil {
+        erro(l, "%s: file not exists: %s", ident, file.fullname()).at(position).debug(1)
+        return
+    } else if file.info.IsDir() {
+        if !l.loadDir(position, dotConfigure, file.fullname(), nil) {
+            erro(l, "%s: load %v failed  (%s)", ident, dotConfigure, file.fullname()).at(position).debug(1)
+            return
+        }
+    } else if !l.loadFile(file.fullname(), nil) {
         erro(l, "%s: load %v failed  (%s)", ident, dotConfigure, file.fullname()).at(position).debug(1)
-    } else if loaded, yes := l.loaded[file.fullname()]; yes && loaded != nil {
+        return
+    }
+
+    if loaded, yes := l.loaded[file.fullname()]; yes && loaded != nil {
         if name, _ := l.Scope().Lookup(loaded.name).(*ProjectName); name == nil {
             if _, alt := l.Scope().ProjectName(positional(l, position), loaded.name, loaded); alt != nil {
                 if val, ok := alt.(*ProjectName); !ok || val == nil {
