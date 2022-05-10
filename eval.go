@@ -8,6 +8,7 @@ package smart
 
 import (
         "fmt"
+        "strings"
 )
 
 // evaluer evaluates smart statements
@@ -38,7 +39,7 @@ ForRecipes:
         for _, recipe := range program.recipes {
                 var (
                         ctx = positional(ctx, recipe.Position())
-                        w = expandPlainValue
+                        w = expandPlainValue | expandPathStr | expandPairVal
                         vals []Value
                 )
                 if opts.fullname { w |= expandFullName }
