@@ -202,15 +202,15 @@ var builtins = map[string]BuiltinFunc {
         `relative-dir`: builtinRelativeDir,
 
         // TODO: move these into builtin package `os'
-        `mkdir`:      builtinMkdir,     // os/file.go
-        `mkdir-all`:  builtinMkdirAll,  // os/path.go
-        `chdir`:      builtinChdir,     // os/file.go
-        `rename`:     builtinRename,    // os/file.go
-        `remove`:     builtinRemove,    // os/file_*.go
-        `remove-all`: builtinRemoveAll, // os/path.go
-        `truncate`:   builtinTruncate,  // os/file_*.go
-        `link`:       builtinLink,      // os/file_*.go
-        `symlink`:    builtinSymlink,   // os/file_*.go
+        // `mkdir`:      builtinMkdir,     // os/file.go
+        // `mkdir-all`:  builtinMkdirAll,  // os/path.go
+        // `chdir`:      builtinChdir,     // os/file.go
+        // `rename`:     builtinRename,    // os/file.go
+        // `remove`:     builtinRemove,    // os/file_*.go
+        // `remove-all`: builtinRemoveAll, // os/path.go
+        // `truncate`:   builtinTruncate,  // os/file_*.go
+        // `link`:       builtinLink,      // os/file_*.go
+        // `symlink`:    builtinSymlink,   // os/file_*.go
 
         `file`:       builtinFile,
         `stat`:       builtinStat,// stat (deprecates file-exists)
@@ -245,6 +245,16 @@ var commands = map[string]BuiltinFunc {
         //`read-file`:    builtinReadFile,  // io/ioutil/ioutil.go
         `write-file`:   builtinWriteFile, // io/ioutil/ioutil.go
         `touch-file`:   builtinTouchFile,
+
+        `mkdir`:        builtinMkdir,     // os/file.go
+        `mkdir-all`:    builtinMkdirAll,  // os/path.go
+        `chdir`:        builtinChdir,     // os/file.go
+        `rename`:       builtinRename,    // os/file.go
+        `remove`:       builtinRemove,    // os/file_*.go
+        `remove-all`:   builtinRemoveAll, // os/path.go
+        `truncate`:     builtinTruncate,  // os/file_*.go
+        `link`:         builtinLink,      // os/file_*.go
+        `symlink`:      builtinSymlink,   // os/file_*.go
 
         `return`:       builtinReturn,
 }

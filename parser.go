@@ -1897,7 +1897,7 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 		erro(ctx, "%v: nil positional", prop0).debug(1)
 	} else if name, resolved, err = p.resolveObject(prop0); err != nil {
 		erro(ctx, "resolve '%v' failed: %v", prop0, err).debug(1)
-	} else if isNil(resolved) {
+	} else if isTrivial(resolved) {
 		if name == "configuration" {// NOTE: see also defaultContext.configure()
 			if generic.dontOperate {
 				return
@@ -1954,8 +1954,10 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 		} else {
 			erro(ctx, "resolved '%v' is nil (options = %v)", prop0, *generic).debug(1)
 		}
-	} else if b, ok := resolved.(*Builtin); ok && (b.flag&builtinCommand) == 0 {
-		erro(ctx, "resolved builtin '%v' is not a command: %T", prop0, resolved).debug(1)
+	} else if b, ok := resolved.(*Builtin); !ok {
+		erro(ctx, "resolved '%v' is not a command (%s)", prop0, typeof(resolved)).debug(1)
+	} else if b.flag&builtinCommand == 0 {
+		erro(ctx, "resolved builtin '%v' is not a command", prop0).debug(1)
 	} else if !generic.dontOperate { //p.evalspec(spec)
         // At the point of `eval` was represented, the closure context
         // might be empty. So we start closure with the current scope.
@@ -2172,6 +2174,7 @@ SwitchDialect:
 		p.next(true) // skip RECIPE or SEMICOLON and parse in list mode
 		if isList = true; !p.isEndOfLine() {
 			defer p.setbit(p.setbit(parsingBuiltinCommand))
+
 			var (
 				isValue = p.dialect == "value"
 				x = p.parseExpr(!isValue) // parse first expr of recipe
@@ -2181,8 +2184,14 @@ SwitchDialect:
 			} else if t, ok := x.(*Bareword); ok && !isValue {
 				if _, sym, err := p.resolveObject(t); err != nil {
 					erro(p, "resolve '%v' failed: %v", x, err).at(position)
-				} else if isNil(sym) {
-					erro(p, "resolved '%v' (from %v) is nil", t.string, x).at(position)
+				} else if isTrivial(sym) {
+					erro(p, "resolved '%v' (from %v) is nil", t.string, x).of(x)
+				} else if false {
+					erro(p, "builtin command no more supported, use $(%s ...) instead", t.string).of(x)
+				} else if b, ok := sym.(*Builtin); !ok {
+					erro(p, "'%s' is not a command (%s)", t.string, typeof(sym)).of(x)
+				} else if b.flag&builtinCommand == 0 {
+					erro(p, "'%s' is not a command, use $(%s ...) instead", t.string, t.string).of(x)
 				} else {
 					x = sym
 				}
@@ -2199,7 +2208,11 @@ SwitchDialect:
 				p.skipSpaces()
 
 				if p.tok.IsRuleDelim() {
-					x = p.parseRecipeRuleClause(elems) // RuleEntry
+					if false {
+						x = p.parseRecipeRuleClause(elems) // RuleEntry
+					} else {
+						erro(p, "unsupported token: %s, %v", p.tok, elems).debug(1)
+					}
 				} else {
 					x = p.parseExpr(true)
 				}
