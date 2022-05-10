@@ -1165,7 +1165,12 @@ func (l *loader) loadBases(position Position, linfo *loadinfo, implicitBase stri
     )
     if file := stat(ctx, "./.base", "", l.project.absPath); file != nil /*&& file.info.IsDir()*/ {
         if s, e := file.Strval(ctx); true { assert(e == nil && s == file.name && s == "./.base", "invalid strval: %v => %v", file, s) }
-        implicitBases = append(implicitBases, file)
+        if !file.info.IsDir() && l.project.spec == ".base" {
+            // skip the regular file '.base' to avoid self loading recursively
+            // info(ctx, "%v", file).debug(1)
+        } else {
+            implicitBases = append(implicitBases, file)
+        }
     }
     if implicitBase != "" {
         implicitIndex = len(implicitBases)
@@ -1277,9 +1282,9 @@ ParamsLoop:
         if !okay {
             var pos Position
             pos.Filename, pos.Line = absPath, 1
-            erro(ctx, "'%s' not loaded for '%v'", specName, l.project).at(pos)
-            erro(ctx, "%v: base '%s' not loaded", l.project, specName).at(elemPos)
-            erro(ctx, "%v: base '%s' not loaded", l.project, specName).at(position).debug(6)
+            erro(ctx, "%v: '%s' not loaded'", l.project, specName).at(pos)
+            erro(ctx, "%v: base '%s' not loaded, %v", l.project, specName, elem).at(elemPos)
+            erro(ctx, "%v: base '%s' not loaded, %s", l.project, specName, absPath).at(position).debug(6)
             break ParamsLoop
         } else if loaded, yes := l.loaded[absPath]; yes && loaded != nil {
             if l.project.hasBase(loaded) {
@@ -2143,6 +2148,7 @@ func (l *loader) load(specName, absPath string, source interface{}) (result bool
                 erro(l, "`%v` name already taken (%T).", loaded, a)
             }
         }
+        result = true
         return
     }
 
