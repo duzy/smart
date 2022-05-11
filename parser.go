@@ -1377,7 +1377,14 @@ func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
 	}
 
 	prompt(p, "%v: bad unary '%v' (lit=%s,lhs=%v)\n", p.file.Name(), p.tok, p.lit, lhs)
-	erro(p, "bad unary expression '%v'", p.tok).debug(32)
+	if p.lineComment == nil {
+		erro(p, "bad unary expression '%v'", p.tok).debug(32)
+	} else {
+		for _, comment := range p.lineComment.List {
+			erro(p, "# %s", comment.Text).at(comment.Pos)
+		}
+		erro(p, "bad unary expression '%v'", p.tok).debug(32)
+	}
 	p._next() // go to the next token
 	return MakeNil(p.Position())
 }
@@ -2209,7 +2216,10 @@ SwitchDialect:
 
 			var cmdargs []Value
 			for p.tok != token.EOF && p.tok != token.SEMICOLON && p.tok != token.LINEND && p.lineComment == nil {
-				p.skipSpaces()
+				if p.skipSpaces(); p.lineComment != nil {
+					// TODO: comment = p.lineComment
+					break
+				}
 
 				if p.tok.IsRuleDelim() {
 					if false {
@@ -3162,6 +3172,7 @@ func (p *parser) parseFile() *parsedFile {
 				if p.tok != token.COMMA { break }
 			}
 			p.expect(token.RPAREN)
+			if false { defer func() { warn(ctx, "%v", ident).debug(32) } () }
 		} else if !p.loadBases(basePos, linfo, implicitBase) { // for special bases, e.g. .base
 			erro(p, "loading bases failed").at(basePos).debug(1)
 			return nil
