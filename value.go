@@ -55,6 +55,7 @@ const (
     expandDelegate expandwhat = 1<<iota // $(...)  ->  ......
     expandClosure   // &(...)            ->  $(...)
     expandSelection // foo->bar          -> ...
+    expandAuto      // TODO: $0 $1 $3 $@ $<    -> ...       TODO: auto -> placeholder
     expandArgs      // $(foo $(x),$(y))  -> $(foo ...,...)
     expandArgedArgs // foo($(args))      -> foo(...)
     expandDef       // foo=...           -> ...
@@ -62,7 +63,7 @@ const (
     expandPatterned // %.proto           -> example.proto (if ctx.stems() == [example])
     expandPathStr   // "/path/to"/foo    -> /path/to/foo
     expandPairVal   // foo=$(bar)        -> foo=...
-    expandPlainValue = expandClosure | expandDelegate | expandSelection | expandDef | expandPathStr | expandArgedArgs
+    expandPlainValue = expandAuto | expandClosure | expandDelegate | expandSelection | expandDef | expandPathStr | expandArgedArgs
 )
 
 func (v cmpres) String() (s string) {
@@ -5072,7 +5073,12 @@ func (p *delegate) args(ctx Context, w expandwhat) (args []Value, num int, err e
 }
 func (p *delegate) expandible(ctx Context, w expandwhat) (res bool) {
     if res = w&expandDelegate != 0; !res {
-        if res = p.x.expandible(ctx, w); !res && w&expandArgs != 0 {
+        if def, ok := p.x.(*Def); ok && (def.origin == DefAuto) && (w&expandAuto == 0) { // TODO: auto -> placeholder
+            res = p.x.expandible(ctx, w) // false
+        } else {
+            res = p.x.expandible(ctx, w)
+        }
+        if !res && w&expandArgs != 0 {
             for _, a := range p.a {
                 if res = a.expandible(ctx, w); res { break }
             }
@@ -5098,6 +5104,9 @@ func (p *delegate) expand(ctx Context, w expandwhat) (res Value, err error) {
     }}
 
     var v Value
+    if def, ok := p.x.(*Def); ok && (def.origin == DefAuto) && (w&expandAuto == 0) { // TODO: auto -> placeholder
+        //return def, nil
+    }
     if w&expandDelegate == 0 {
         var x Value
         if u, ok := p.x.(*unresolvedobject); ok && fixUnresolvedObjectDelegate {

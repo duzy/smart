@@ -3028,15 +3028,17 @@ func (p *parser) parseFile() *parsedFile {
 		//   * the project clause is not a declaration;
 		//   * the project name does not appear in any scope.
 		if p.tok == token.LPAREN || p.tok == token.EOF || p.tok == token.LINEND || p.lineComment != nil {
-			var (
-				dir = filepath.Dir(filename)
-				base = filepath.Base(dir)
-			)
+			var dir = filepath.Dir(filename)
 			if linfo.loadee != nil && linfo.absDir == dir {
 				ident = MakeBarecomp(position, MakeBareword(position, linfo.loadee.name))
-			} else {
+			} else if name := filepath.Base(filename); name == ".base" || name == dotConfigure {
+				// NOTE: loading the .base or .configure file
+				ident = MakeBarecomp(position, MakeBareword(position, name))
+			} else if base := filepath.Base(dir); base != "" {
 				// TODO: validate basename as a valid identifier
 				ident = MakeBarecomp(position, MakeBareword(position, base))
+			} else {
+				erro(p, "invalid file: %v", filename).at(position).debug(1)
 			}
 		} else if p.tok == token.TILDE {
 			/*if filename == confinitFilename {
@@ -3119,7 +3121,6 @@ func (p *parser) parseFile() *parsedFile {
 						warn(ctx, "%v, %v", loaderProj, p.project).debug(24)
 					}
 				}
-				p.isLoadingBases = false
 				p.closeCurrent(ident, identStr)
 			} (p.project)
 		}
@@ -3127,33 +3128,39 @@ func (p *parser) parseFile() *parsedFile {
 		var basePos Position
 		if implicitBase != "" { basePos = pos } else { basePos = p.Position() }
 		if p.tok == token.LPAREN {
-			p.isLoadingBases = true
 			for p.tok != token.EOF {
 				for p.next(true); !p.isEndOfList(false); {
 					p.skipSpaces()
 					param := p.parseExpr(false)
 					p.skipSpaces()
+
 					//if p.lineComment != nil  { break }
 					//if p.tok == token.LINEND { break }
 					if p.tok == token.EOF {
 						erro(p, "unexpected end of file while parsing bases").at(basePos).debug(1)
 						return nil
 					}
-					var t, e = parseOpts(positional(p, param.Position()), &opts, param)
-					if false { info(p, "%v, %v, %v -> %v", p.Project(), ident, param, t).at(position).debug(1) }
-					if ; e != nil {
-						erro(p, "parse opt '%v' failed: %v", param, e).of(param).debug(1)
+
+					var (
+						ctx = positional(p, param.Position())
+						t, e = parseOpts(ctx, &opts, param)
+					)
+					if false {
+						var proj = p.Project()
+						info(ctx, "%v -> %v, %v; %v -> %v; %v", ident, proj.name, proj.spec, param, t, filename).at(position).debug(1)
+					}
+					if e != nil {
+						erro(ctx, "parse opt '%v' failed: %v", param, e).of(param).debug(1)
 						return nil
 					} else if keyword == token.PACKAGE || opts.final {
 						// No bases for PACKAGE or final project
-					} else if !p.loadBases(basePos, linfo, /*implicitBase*/"", merge(t...)...) {
-						erro(p, "loading base '%v' failed", t).of(param).debug(1)
+					} else if !p.loadBases(basePos, linfo, "", merge(t...)...) {
+						erro(ctx, "loading base '%v' failed", t).of(param).debug(1)
 						return nil
 					}
 				}
 				if p.tok != token.COMMA { break }
 			}
-			p.isLoadingBases = false
 			p.expect(token.RPAREN)
 		} else if !p.loadBases(basePos, linfo, implicitBase) { // for special bases, e.g. .base
 			erro(p, "loading bases failed").at(basePos).debug(1)

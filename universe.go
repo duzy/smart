@@ -134,12 +134,12 @@ func (g *Globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, sp
                         outer = outer.outer
                 }
                 var (
-                        none = MakeNone(pos)
-                        def, _ = g.scope.define(ctx, DefAuto, "_", none)
+                        //none = MakeNone(pos)
+                        def, _ = g.scope.define(ctx, DefAuto, "_", /*none*/nil)
                 )
                 if enable_assertions { assert(def != nil, "'$_' is nil") }
                 for i := 0; i <= maxNumVarVal; i += 1 {
-                        def, _ := g.scope.define(ctx, DefAuto, strconv.Itoa(i), none)
+                        def, _ := g.scope.define(ctx, DefAuto, strconv.Itoa(i), /*none*/nil)
                         if enable_assertions { assert(def != nil, "'$%d' is nil", i) }
                 }
                 g.main = m

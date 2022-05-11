@@ -89,9 +89,10 @@ var builtins = map[string]BuiltinFunc {
 
         `env`:          builtinEnv,
         // DEPRECATED: `call`:         builtinCall,
+        //`auto`:         builtinAuto,
         `closure`:      builtinClosure,
-        `var`:          builtinValue,
         `value`:        builtinValue,
+        `var`:          builtinValue,
         `list`:         builtinList,
         `sure-value`:   builtinSureValue,
 
@@ -1085,6 +1086,45 @@ func builtinEnv(ctx Context, args... Value) (res Value) {
         return MakeListOrScalar(pos, vals)
 }
 
+type builtinAutoOpts struct {
+        //closure bool `c,closure`
+}
+func builtinAuto(ctx Context, args... Value) (res Value) {
+        var (
+                opts builtinAutoOpts
+                vals []Value
+                err error
+        )
+        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        }
+        for _, a := range args {
+                var ( name string; val Value )
+                if name, err = a.Strval(ctx); err != nil {
+                        erro(ctx, "strval '%v' failed: %v", a, err).at(a.Position()).debug(1)
+                        return
+                }
+                for c := ctx; c != nil; c = c.inner() {
+                        //warn(ctx, "%v %T", name, c)
+                        if _, ok := c.(*defaultContext); ok {
+                                val = MakeNone(a.Position())
+                                break
+                        } else if val, _ = c.autoGet(name); !isNil(val) {
+                                warn(ctx, "%v %T %v", a, c, val)
+                                //break
+                        }
+                }
+                warn(ctx, "%v %v", name, ctx)
+                warn(ctx, "%v %T %v", name, val, val).debug(1)
+                vals = append(vals, val)
+        }
+        return MakeListOrScalar(ctx.Position(), vals)
+}
+
 type builtinValueOpts struct {
         closure bool `c,closure`
 }
@@ -1498,6 +1538,7 @@ func builtinMinus(ctx Context, args... Value) (result Value) {
 
 type builtinUniqueOpts struct {
 	reverse bool `r,rev,reverse`
+	keepAuto bool `a,auto,keepauto,keep-auto`
         unexpand bool `un,ue,unexpand,ne,noexpand,no-expand`
         plain bool `pl,pla,plain,pv,plainvalue,plain-value`
 }
@@ -1517,12 +1558,15 @@ func builtinUnique(ctx Context, args... Value) (res Value) {
         if opts.unexpand {
                 args = merge(args...)
         } else if opts.plain {
-                if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
+                var x = expandPlainValue
+                if opts.keepAuto { x &= ^expandAuto }
+                if args, err = expandmerge2(ctx, x, args...); err != nil {
                         erro(ctx, "%v", err).debug(1)
                         return
                 }
         } else {
                 var x = expandDelegate | expandPathStr | expandPairVal
+                if opts.keepAuto { x &= ^expandAuto }
                 if args, err = expandmerge2(ctx, x, args...); err != nil {
                         erro(ctx, "%v", err).debug(1)
                         return
@@ -3445,7 +3489,7 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                         return
                 } else if !ok || str == "" {
                         if opts.all {
-                                warn(ctx, "%v: not a file: %s (%T)", proj, str, a).debug(1)
+                                warnstack(ctx, 3, "%v: not a file: %s (%T)", proj, str, a).debug(8)
                         } else {
                                 erro(ctx, "%v: not a file: %v (%T)", proj, a, a)
                                 erro(ctx, "%v: not a file: %v (%v)", proj, str, file)

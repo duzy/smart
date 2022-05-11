@@ -146,7 +146,6 @@ type loader struct {
     useesExecuted []*Project // all executed usees
     vs string // verbose prefix
     implicit bool // loading current project implicitly, aka. via foo.bar.Baz (implicit foo/bar loaded)
-    isLoadingBases bool
 }
 func (l *loader) inner() Context { return &l.closureContext }
 func (l *loader) String() string { return fmt.Sprintf("loader{%s}", &l.closureContext) }
@@ -287,7 +286,8 @@ func (opts *useVarOpts) apply(ctx Context, def *Def, vals []Value) {
             erro(ctx, "%v: %v, %v", def.owner, def.origin, opts)
             errostack(ctx, 5, "%v", def).debug(16)
         }
-        if position := ctx.Position(); len(opts.args) > 0 {
+        if len(opts.args) > 0 {
+            var position = ctx.Position()
             var args = MakeList(position, opts.args...)
             def.value = builtinUnique(ctx, args, def.value)
         } else {
@@ -1165,7 +1165,7 @@ func (l *loader) loadBases(position Position, linfo *loadinfo, implicitBase stri
     )
     if file := stat(ctx, "./.base", "", l.project.absPath); file != nil /*&& file.info.IsDir()*/ {
         if s, e := file.Strval(ctx); true { assert(e == nil && s == file.name && s == "./.base", "invalid strval: %v => %v", file, s) }
-        if !file.info.IsDir() && l.project.spec == ".base" {
+        if !file.info.IsDir() && (l.project.spec == ".base" /*|| l.project.spec == ".configure"*/) {
             // skip the regular file '.base' to avoid self loading recursively
             // info(ctx, "%v", file).debug(1)
         } else {
@@ -1178,8 +1178,11 @@ func (l *loader) loadBases(position Position, linfo *loadinfo, implicitBase stri
     }
     params = append(implicitBases, params...)
 
+    if false { defer func() { warn(ctx, "%v: bases = %v", l.project, params).debug(1) }() }
+
 ParamsLoop:
     for i, elem := range params {
+        if false { warn(ctx, "%v %v; %d %v; %s, %v", l.project, l.project.spec, i, elem, implicitBase, params).debug(16) }
         var (
             elemPos = elem.Position()
             absPath string
@@ -1562,7 +1565,10 @@ func (l *loader) loadProjectConfiguration(ident *Barecomp, identStr string, decl
     //defer setclosure(setclosure(cloctx.unshift(l.scope)))
     if false { defer un(tracef(t_traverse, "loadProjectConfiguration(%v)", ident)) }
 
-    var ( pos = ident.Position(); ctx = positional(l, pos) )
+    var (
+        pos = ident.Position()
+        ctx = positional(l, pos)
+    )
     // Get configuration file name for the project and include it in flat mode.
     if file := l.project.configuration(ctx); file == nil {
         erro(ctx, "%v: nil configuration file", ident).at(pos).debug(1)
@@ -1586,6 +1592,7 @@ func (l *loader) loadProjectConfiguration(ident *Barecomp, identStr string, decl
     if l.project.name != dotConfigure {
         // Looking for project specific .configure module
         if file := stat(ctx, dotConfigure, "", l.project.absPath); file.exists() {
+            if false { warn(ctx, "%v %v; %v", l.project.name, l.project.spec, file).debug(1) }
             if identStr == dotConfigure {
                 erro(ctx, "provided .configure for a .configure project").at(pos).debug(1)
             } else if !l.loadDotConfigure(ident, identStr, file) {
@@ -2268,9 +2275,12 @@ func (l *loader) loadDirWithArgs(position Position, specName, absPath string, ar
 
 func (l *loader) loadFile(filename string, source interface{}) bool {
     if options.traceLaunch { defer un(trace(t_launch, "loader.loadFile")) }
-    s, _ := filepath.Split(filename)
-    s, _  = filepath.Rel(l.WorkDir(), s)
-    return l.load(s, filename, source)
+    var spec string
+    switch dir, base := filepath.Split(filename); base {
+    case ".base", ".configure": spec = base
+    default: spec, _  = filepath.Rel(l.WorkDir(), dir)
+    }
+    return l.load(spec, filename, source)
 }
 
 func (l *loader) loadPath(path string, filter func(os.FileInfo) bool) bool {
