@@ -642,9 +642,9 @@ func (d *Def) set(ctx Context, origin Origin, value Value) (err error) {
                 }
         }
         if d.value == value {
-                if !isNil(value) {
-                        warn(ctx, "%v→%v; %v", d.origin, origin, d)
-                        warnstack(ctx, 5, ";      %s%v", d.streq(), value).debug(16)
+                if false && !isNil(value) {
+                        warn(ctx, "%v", d).at(d.position) // d.streq()
+                        warnstack(ctx, 5, "%v→%v", d.origin, origin).debug(16)
                 }
                 if d.origin != origin { d.origin = origin }
                 return

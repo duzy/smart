@@ -1441,7 +1441,10 @@ func (l *loader) loadDotConfigure(ident *Barecomp, identStr string, file *File) 
 }
 
 func (l *loader) declare(keyword token.Token, ident *Barecomp, identStr string, declOpts []Value) (result bool) {
-    var ( pos = ident.Position(); ctx = positional(l, pos) )
+    var (
+        pos = ident.Position()
+        ctx = positional(l, pos)
+    )
     if identStr == "@" {
         var (
             linfo = l.loads[0]
@@ -1502,7 +1505,8 @@ func (l *loader) declare(keyword token.Token, ident *Barecomp, identStr string, 
         }
     }
 
-    if _, err := parseOpts(ctx, &dec.project.opts, declOpts...); err != nil {
+    var err error
+    if declOpts, err = parseOpts(ctx, &dec.project.opts, declOpts...); err != nil {
         erro(ctx, "parse declare opts failed: %v", err).at(pos).debug(1)
         return
     }
