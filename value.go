@@ -4163,7 +4163,7 @@ func (p *File) traverse(ctx Context) (brks breakers) {
         return
     }
 
-    if strings.HasSuffix(p.name, ".a") {
+    if false && strings.HasSuffix(p.name, ".a") {
         warn(ctx, "%v: %v", p.name, ctx).debug(1)
     }
     ctx = positional(ctx, p.position)

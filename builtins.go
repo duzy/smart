@@ -1381,7 +1381,7 @@ func builtinPrint(ctx Context, args... Value) (res Value) {
                         break
                 }
         }
-        /*fmt.Printf(sb.String())*/prompt(ctx, sb.String())
+        prompt(ctx, sb.String())
         return
 }
 
@@ -1403,7 +1403,7 @@ func builtinPrintl(ctx Context, args... Value) (res Value) {
                         fmt.Fprintf(&sb, "\n")
                 }
         }
-        /*fmt.Printf(sb.String())*/prompt(ctx, sb.String())
+        prompt(ctx, sb.String())
         return
 }
 
@@ -1426,7 +1426,7 @@ func builtinPrintln(ctx Context, args... Value) (res Value) {
                 }
         }
         fmt.Fprintf(&sb, "\n")
-        /*fmt.Printf(sb.String())*/prompt(ctx, sb.String())
+        prompt(ctx, sb.String())
         return
 }
 
