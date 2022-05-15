@@ -166,6 +166,7 @@ var (
                 `env`:          modifierEnv,  // interpreter environments
                 `set`:          modifierSet,
 
+                `by`:           modifierSetDirtyPats,
                 `dirty-by`:     modifierSetDirtyPats,
                 `dirty-opts`:   modifierSetDirtyPats,
 
@@ -1729,8 +1730,8 @@ func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
                 return
         } else if file := proj.FindFile(ctx, dep); file == nil {
                 if false {
-                        // NOTE: traverseString won't work with 'nil' target value
-                        okay, brks = traverseString(ctx, nil, dep)
+                        // FIXME: traverse won't work with 'nil' target value
+                        okay, brks = traverse(ctx, nil, dep)
                 } else {
                         prompt(ctx, "%s: dep is unknown file; project %v\n", dep, proj)
                         erro(ctx, "%v: %s is unknown file", proj, dep)
@@ -1739,11 +1740,11 @@ func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
                 }
                 fullname = dep
         } else {
-                okay, brks = traverseFile(ctx, file)
-                okay = okay && file.exists()
+                brks = file.traverse(ctx)
+                okay = !brks.has(breakErro, breakFail) && file.exists()
                 fullname = file.fullname()
         }
-        if tb := brks.of(breakCase, breakNext, breakDone); tb.has() {
+        if brks.has(breakCase, breakNext, breakDone) {
                 brks = brks.not(breakCase, breakNext, breakDone)
                 // TODO: for _, brk := range tb { ... }
         }
@@ -2788,45 +2789,39 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
                 fail(ctx.Position(), "%s", filename)
         } else if er, ok := value.(*ExecResult); ok {
                 exeres = er
-                if false && ctx.Project().name == "external.libpng.base" {
-                        var er = value.(*ExecResult)
-                        warn(ctx, "%T %v", value, value)
-                        warn(ctx, "stdout: %v", er.Stdout.Buf)
-                        warn(ctx, "stderr: %v", er.Stderr.Buf)
-                        warn(ctx, "%v", content).debug(1)
-                }
         }
-        if content == "" {
-                if !opts.zero {
-                        if file := stat(positional(ctx, target.Position()), filename, "", ""); file != nil && file.info != nil && file.info.Size() == 0 {
-                                file.info = nil
-                                if err = os.Remove(filename); err != nil {
-                                        erro(ctx, "remove file failed: %v", err).debug(1)
-                                }
+
+        if content != "" {
+                // good to go
+        } else if opts.zero {
+                if file := stat(positional(ctx, target.Position()), filename, "", ""); file != nil && file.info != nil && file.info.Size() == 0 {
+                        file.info = nil
+                        if err = os.Remove(filename); err != nil {
+                                erro(ctx, "remove file failed: %v", err).debug(1)
                         }
-                        if exeres != nil {
-                                if exeres.Stdout.log != nil {
-                                        var pos Position
-                                        pos.Filename = exeres.Stdout.log.filename
-                                        pos.Line = exeres.Stdout.log.lines + 1
-                                        erro(ctx, "empty stdout").at(pos)
-                                }
-                                if exeres.Stderr.log != nil && exeres.Stdout.log != exeres.Stderr.log {
-                                        var pos Position
-                                        pos.Filename = exeres.Stderr.log.filename
-                                        pos.Line = exeres.Stderr.log.lines + 1
-                                        erro(ctx, "empty stderr").at(pos)
-                                }
-                        }
-                        if s := target.String(); filepath.IsAbs(s) {
-                                erro(ctx, "empty content for '%s'", s).debug(1)
-                        } else {
-                                erro(ctx, "empty content for '%s' (at %s)", s, filename).debug(1)
-                        }
-                        return
-                } else if opts.verbose || opts.debug {
-                        warn(ctx, "empty content for '%v'", target).debug(1)
                 }
+                if exeres != nil {
+                        if exeres.Stdout.log != nil {
+                                var pos Position
+                                pos.Filename = exeres.Stdout.log.filename
+                                pos.Line = exeres.Stdout.log.lines + 1
+                                erro(ctx, "empty stdout").at(pos)
+                        }
+                        if exeres.Stderr.log != nil && exeres.Stdout.log != exeres.Stderr.log {
+                                var pos Position
+                                pos.Filename = exeres.Stderr.log.filename
+                                pos.Line = exeres.Stderr.log.lines + 1
+                                erro(ctx, "empty stderr").at(pos)
+                        }
+                }
+                if s := target.String(); filepath.IsAbs(s) {
+                        erro(ctx, "empty content for '%s'", s).debug(1)
+                } else {
+                        erro(ctx, "empty content for '%s' (at %s)", s, filename).debug(1)
+                }
+                return
+        } else if opts.verbose || opts.debug {
+                warn(ctx, "empty content for '%v'", target).debug(1)
         }
 
         var ( wrote int; same bool )
@@ -2840,7 +2835,7 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
                         } else {
                                 s = fmt.Sprintf("changed (%d bytes)", wrote)
                         }
-                        printEnteringDirectory(ctx)
+                        //printEnteringDirectory(ctx)
                         prompt(ctx, "update %v …… %s (in %v)\n", trimPromptString(target.String()), s, time.Now().Sub(st)).debug(opts.debug, 6)
                 } (time.Now())
         }
@@ -2857,6 +2852,8 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
                 result = stat(ctx, filename, "", "")
                 return
         }
+
+        printEnteringDirectory(ctx)
 
         // Create or update the file with new content
 
@@ -3282,7 +3279,7 @@ func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
                 deps []Value
                 err error
         )
-        if len(target.updatedDeps()) > 0 { return true }
+        if len(target.updatedDeps(ctx)) > 0 { return true }
         if v, found := ctx.autoGet("^"); found && !isTrivial(v) { a = append(a, v) }
         if deps, err = expandmerge2(ctx, expandPlainValue, a...); err != nil {
                 erro(ctx, "%v", err).debug(1)
@@ -3291,13 +3288,7 @@ func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
         for _, dep := range deps {
                 var mat bool = len(opts.pats) == 0
                 if !mat { for _, pat := range opts.pats { if mat, _, _ = pat.match(ctx, dep); mat { break }}}
-                if false && mat && target.String() == "llvm-tools-ar" {
-                        warnstack(ctx, 5, "%v: %v, %v; %v, %v", target, dep, dep.updated(), mat, opts.pats).debug(1)
-                }
-                if false && dep.updated() && strings.HasSuffix(target.String(), "libllvm.Support.a") {
-                        warn(ctx, "%v: %v; %v, %v, %v, %v", target, target.updated(), dep, dep.updated(), mat, opts.pats).debug(1)
-                }
-                if mat && (dep.updated() || dep.stat(ctx).mod().After(target.stat(ctx).mod())) {
+                if mat && (dep.updated(ctx) || dep.stat(ctx).mod().After(target.stat(ctx).mod())) {
                         return true
                 }
         }

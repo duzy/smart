@@ -1026,8 +1026,8 @@ func (p *undetermined) Strval(ctx Context) (string, error) { return p.value.Strv
 func (p *undetermined) True(ctx Context) (bool, error) { return false, nil }
 func (p *undetermined) Float(ctx Context) (float64, error) { return 0, nil }
 func (p *undetermined) Integer(ctx Context) (int64, error) { return 0, nil }
-func (p *undetermined) updated(_ ...bool) bool { return false }
-func (p *undetermined) updatedDeps(_ ...Value) []Value { return nil }
+func (p *undetermined) updated(_ Context, _ ...bool) bool { return false }
+func (p *undetermined) updatedDeps(_ Context, _ ...Value) []Value { return nil }
 func (p *undetermined) refs(ctx Context, v Value) bool {
         return p.identifier.refs(ctx, v) || p.value.refs(ctx, v)
 }
@@ -1245,8 +1245,12 @@ func (entry *RuleEntry) String() string {
         if entry.target == nil { return "<nil entry>" }
         return entry.target.String()
 }
-func (entry *RuleEntry) updated(v ...bool) bool { return entry.target.updated(v...) }
-func (entry *RuleEntry) updatedDeps(v ...Value) []Value { return entry.target.updatedDeps(v...) }
+func (entry *RuleEntry) updated(ctx Context, v ...bool) bool {
+        return entry.target.updated(ctx, v...)
+}
+func (entry *RuleEntry) updatedDeps(ctx Context, v ...Value) []Value {
+        return entry.target.updatedDeps(ctx, v...)
+}
 // RuleEntry.Execute executes the rule program only if the target is outdated.
 func (entry *RuleEntry) Execute(ctx Context, a ...Value) (result []Value, brks breakers) {
         switch entry.class {

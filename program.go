@@ -90,27 +90,46 @@ func (pc *programContext) closureScopes() (scopes []*Scope) {
 
 func (pc *programContext) dirtyOpts() *modifierSetDirtyPatsOpts { return &pc._dirtyOpts }
 func (pc *programContext) dirtyMark(vals ...Value) {
-    const enableUpdatedDeps = true
-    if !enableUpdatedDeps {
+    const enableDirtyMark = true
+    if !enableDirtyMark {
         // does nothing
-    } else if tt, _ := pc.autoGet("@"); isTrivial(tt) {
+    } else if t, _ := pc.autoGet("@"); isTrivial(t) {
+        // should not happen, but safely ignoring..
+    } else if tt := merge(t); len(tt) == 0 {
         // should not happen, but safely ignoring..
     } else if len(vals) == 0 {
-        vals = append(vals, tt)
-    } else if last := vals[len(vals)-1]; last != tt {
+        vals = append(vals, tt...)
+    } else if /*last := vals[len(vals)-1]; last != tt*/true {
+        const perUpdatedDep = true
         var (
-            mat bool
+            mat, dup bool
             opts = pc.dirtyOpts()
         )
-        for _, val := range vals {
-            for _, pat := range opts.pats {
-                if mat, _, _ = pat.match(pc, val); mat { break }
+        vals = merge(vals...)
+        for _, t := range tt {
+            ForVals: for _, val := range vals {
+                if val == t /*|| val.cmp(pc,t) == cmpEqual*/ {
+                    dup = true; continue ForVals
+                }
+                for _, pat := range opts.pats {
+                    if mat, _, _ = pat.match(pc, val); mat {
+                        if perUpdatedDep { t.updatedDeps(pc, val) }
+                        break ForVals
+                    }
+                }
             }
-        }
-        if mat { tt.updatedDeps(vals...) }
-        vals = append(vals, tt)
+            if !perUpdatedDep && mat { t.updatedDeps(pc, vals...) }
+            if !dup { // vals = append(vals, merge(tt)...)
+                vals = append(t.updatedDeps(pc), vals...)
+                vals = append(merge(t), vals...)
+            }
+            if false { warn(pc, "dirtyMark: %T %v; %v, %v, %v, %v", t, t, vals, dup,
+                t.updated(pc), t.updatedDeps(pc)).debug(0)
+            } else if false { warn(pc, "dirtyMark: %T %v; %v, %v, %v, %v", t, t, vals, dup,
+                t.updated(pc), t.updatedDeps(pc)).debug(18) }
+         }
     }
-    if enableUpdatedDeps { pc.Context.dirtyMark(vals...) }
+    if enableDirtyMark { pc.Context.dirtyMark(vals...) }
 }
 
 type Program struct {
@@ -302,40 +321,51 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         target Value
         err error
     )
-    if false {
-        // NOOP
-    } else if s := "polly.External.isl"; entry.String() == s {
-        defer func() { warn(cc, "%v: %v; %v", entry, target, prog.depends).at(pos).debug(10) } ()
-    } else if entry.String() == "program" && true {
-        for i := cc.inner(); i != nil; i = i.inner() {
-            if e := i.entry(); e != nil && e.String() == s {
-                defer func() { warn(cc, "%v: %v; %v", entry, e, prog.depends).at(pos).debug(10) } ()
-                break
-            }
-        }
-    }
-    defer func() { if ctx.checkErrors(true) > 0  {
+
+    defer func() {
         var (
-            str, ent, tar = entryStr(ctx, entry)
-            errs = ctx.totalErrors()
+            targets, _ = ctx.autoGet("@")
+            depends, _ = ctx.autoGet("^")
+            tb = brks.not(breakDone, breakNext)
         )
-        if !ctx.configuration() && cc != nil {
-            if errs == 1 {
-                err = fmt.Errorf("execution yields an error for %v", str)
-            } else {
-                err = fmt.Errorf("execution yields %d errors for %v", errs, str)
+        if isTrivial(targets) { targets = entry.Target() }
+        if true || tb.has() {
+            // breaked
+        } else if !isTrivial(targets) && !isTrivial(depends) {
+            for _, target := range merge(targets) {
+                for _, dep := range merge(depends) {
+                    var u = dep.updated(ctx)
+                    if s, _ := target.Strval(ctx); strings.HasPrefix(s, "ui/ui.h") {
+                        warn(ctx, "%T %v: %T %v; updated = %v", target, target, dep, dep, u).debug(1)
+                    }
+                    if u { /* TODO: ... */ }
+                }
+            } 
+        }
+        if ctx.checkErrors(true) > 0  {
+            var (
+                str, ent, tar = entryStr(ctx, entry)
+                errs = ctx.totalErrors()
+            )
+            if !ctx.configuration() && cc != nil {
+                if errs == 1 {
+                    err = fmt.Errorf("execution yields an error for %v", str)
+                } else {
+                    err = fmt.Errorf("execution yields %d errors for %v", errs, str)
+                }
+                brks.add(ctx, breakErro).error = err
             }
-            brks.add(ctx, breakErro).error = err
+            if tar != "" {
+                prompt(ctx, "%v: %s, execution failed with %d errors, project %s\n", ent, tar, errs, prog.project)
+            } else {
+                prompt(ctx, "%v: execution failed with %d errors, project %s\n", ent, errs, prog.project)
+            }
+            warn(ctx, `%d errors in execution "%s"`, errs, str)
+            warnstack(ctx, 8, "(%T): %v", ctx, prog.project).debug(10)
+            if options.failOnErrors { fail(prog.position, "fail by %d errors", errs) }
         }
-        if tar != "" {
-            prompt(ctx, "%v: %s, execution failed with %d errors, project %s\n", ent, tar, errs, prog.project)
-        } else {
-            prompt(ctx, "%v: execution failed with %d errors, project %s\n", ent, errs, prog.project)
-        }
-        warn(ctx, `%d errors in execution "%s"`, errs, str)
-        warnstack(ctx, 8, "(%T): %v", ctx, prog.project).debug(10)
-        if options.failOnErrors { fail(prog.position, "fail by %d errors", errs) }
-    } } ()
+    } ()
+
     if cc != nil {
         var recursion int
         for c := cc.traversal(); c != nil; c = c.caller() { if c.program() == prog { recursion += 1 }}
@@ -359,6 +389,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         if /*options.traceTraversalNestIndent*/true { t.traceLevel = cc.traversal().traceLevel }
         if stems := cc.stems(); stems != nil { ctx.autoSet("*", MakeString(pos, stems[0])) }
     }
+
     if pc.params, err = pc.autoArgs(prog.params, args); err != nil {
         erro(ctx, "auto args failed: %v", err).debug(1)
         return
@@ -509,39 +540,25 @@ func traversePrerequisites(ctx Context, prerequisites []Value) (brks breakers) {
     // IMPORTANT: don't expand the args here. The prerequisites like
     // '$(or &@,...)' have to be expanded when it's used (e.g. compare).
     if true {
-        var ( entry = ctx.entry(); es = entry.String() )
-        var infos = false && strings.Contains(es, "fcrange")
         for _, prerequisite := range prerequisites {
-            brks = prerequisite.traverse(ctx)
-            if infos && brks.has() /*&& prerequisite.String() == "%.c"*/ {
-                if target, _ := ctx.autoGet("@"); target.String() != "" {
-                    if prerequisite.patterned(ctx) {
-                        var v, rest = prerequisite.stencil(ctx, ctx.stems())
-                        warn(ctx, "%v(%v): %T %v -> %T %v %v", entry, target, prerequisite, prerequisite, v, v, rest)
-                    } else {
-                        var s, _ = prerequisite.Strval(ctx)
-                        warn(ctx, "%v(%v): %T %v -> %v", entry, target, prerequisite, prerequisite, s)
-                    }
-                    for i, brk := range brks {
-                        warn(ctx, "%v: %T %v; %d. %v", entry, prerequisite, prerequisite, i, brk.what)
-                    }
-                    warnstack(ctx, 3, "%v: %v %v; %v", ctx.Project(), entry, prerequisite, ctx).debug(8)
-                }
-            }
-            if /*brks = prerequisite.traverse(ctx);*/ brks.has() {
+            if brks = prerequisite.traverse(ctx); brks.has() {
                 var tb = brks.not(breakNext, breakCase, breakDone)
-                if false && tb.has() && len(ctx.stems()) > 0 {
-                    var target, _ = ctx.autoGet("@")
-                    warn(ctx, "broken traversal: %v (target = %v, stems = %v)", tb[0].what, target, ctx.stems()).debug(1)
-                } else if tb = brks.not(breakDone); infos && tb.has() {
+                if tb.has() {
+                    var entry = ctx.entry()
                     var proj = ctx.Project()
-                    var s, _ = prerequisite.Strval(ctx)
-                    for i, brk := range brks {
-                        warn(ctx, "%v: %T %v; %v; %v; %d. %v", proj, entry, prerequisite, prerequisite, s, i, brk.what)
+                    for i, brk := range tb {
+                        warn(ctx, "%v: %T %v; %v; %d. %v", proj, entry, prerequisite, prerequisite, i, brk.what)
                     }
-                    warnstack(ctx, 3, "%v: %v; %v %v", proj, entry, prerequisite, s).debug(8)
+                    warnstack(ctx, 3, "%v: %v; %v", proj, entry, prerequisite).debug(8)
+                } else if false && prerequisite.updated(ctx) {
+                    warn(ctx, "%v: %T %v", ctx.entry(), prerequisite, prerequisite).debug(1)
+                    //ctx.dirtyMark(prerequisite)
                 }
-                break
+                if brks.has(breakCase) {
+                    continue
+                } else {
+                    break
+                }
             }
         }
     } else if num := len(prerequisites); num > 0 {

@@ -103,15 +103,15 @@ func (p *using) patterned(ctx Context) bool { return false }
 func (p *using) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
 func (p *using) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
 func (p *using) True(ctx Context) (bool, error) { return p.project != nil, nil }
-func (p *using) updated(v ...bool) (res bool) {
+func (p *using) updated(ctx Context, v ...bool) (res bool) {
         if entry := p.project.DefaultEntry(); entry != nil {
-                res = entry.updated(v...)
+                res = entry.updated(ctx, v...)
         }
         return
 }
-func (p *using) updatedDeps(v ...Value) (res []Value) {
+func (p *using) updatedDeps(ctx Context, v ...Value) (res []Value) {
         if entry := p.project.DefaultEntry(); entry != nil {
-                res = entry.updatedDeps(v...)
+                res = entry.updatedDeps(ctx, v...)
         }
         return
 }
@@ -162,15 +162,15 @@ func (p *usinglist) Strval(ctx Context) (s string, err error) {
 func (p *usinglist) True(ctx Context) (bool, error) { return len(p.list) > 0, nil }
 func (p *usinglist) Integer(ctx Context) (int64, error) { return 0, nil }
 func (p *usinglist) Float(ctx Context) (float64, error) { return 0, nil }
-func (p *usinglist) updated(v ...bool) (res bool) {
+func (p *usinglist) updated(ctx Context, v ...bool) (res bool) {
         for _, elem := range p.list {
-                if res = elem.updated(v...); res { break }
+                if res = elem.updated(ctx, v...); res { break }
         }
         return
 }
-func (p *usinglist) updatedDeps(v ...Value) (res []Value) {
+func (p *usinglist) updatedDeps(ctx Context, v ...Value) (res []Value) {
         for _, elem := range p.list {
-                res = append(res, elem.updatedDeps(v...)...)
+                res = append(res, elem.updatedDeps(ctx, v...)...)
         }
         return
 }
