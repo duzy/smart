@@ -125,7 +125,7 @@ func (pc *programContext) dirtyMark(vals ...Value) {
             }
             if false { warn(pc, "dirtyMark: %T %v; %v, %v, %v, %v", t, t, vals, dup,
                 t.updated(pc), t.updatedDeps(pc)).debug(0) }
-            if true { warn(pc, "dirtyMark: %T %v; %v, %v, %v, %v", t, t, vals, dup,
+            if false { warn(pc, "dirtyMark: %T %v; %v, %v, %v, %v", t, t, vals, dup,
                 t.updated(pc), t.updatedDeps(pc)).debug(18) }
          }
     }
@@ -289,6 +289,23 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
 }
 
 const maxRecursion  = 32 //64
+
+type normalTraverseContext struct { Context }
+type orderTraverseContext struct { Context }
+func (t *normalTraverseContext) traversed(target Value) (targets []Value) {
+    if targets = t.Context.traversed(target); len(targets) > 0 {
+        t.autoSet("^", MakeList(t.Position(), targets...))
+        t.autoSet("<", targets[0])
+        t.autoSet(">", targets[len(targets)-1])
+    }
+    return
+}
+func (t *orderTraverseContext) traversed(target Value) (targets []Value) {
+    if targets = t.Context.traversed(target); len(targets) > 0 {
+        t.autoSet("|", MakeList(t.Position(), targets...))
+    }
+    return
+}
 
 func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     var (
@@ -590,41 +607,3 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
     }
     return
 }
-
-type normalTraverseContext struct { Context }
-type orderTraverseContext struct { Context }
-func (t *normalTraverseContext) traversed(target Value) (targets []Value) {
-    if targets = t.Context.traversed(target); len(targets) > 0 {
-        t.autoSet("^", MakeList(t.Position(), targets...))
-        t.autoSet("<", targets[0])
-        t.autoSet(">", targets[len(targets)-1])
-    }
-    return
-}
-func (t *orderTraverseContext) traversed(target Value) (targets []Value) {
-    if targets = t.Context.traversed(target); len(targets) > 0 {
-        t.autoSet("|", MakeList(t.Position(), targets...))
-    }
-    return
-}
-
-// func traverseNormal(ctx Context) (brks breakers) {
-//     if options.traceExec  { defer un(trace(t_exec, "^")) }
-//     ctx.autoSet("^", nil)
-//     ctx.autoSet("<", nil)
-//     ctx.autoSet(">", nil)
-//     return traversePrerequisites(&normalTraverseContext{ ctx }, ctx.program().depends)
-// }
-
-// func traverseOrderOnly(ctx Context) (brks breakers) {
-//     if options.traceExec  { defer un(trace(t_exec, "|")) }
-//     ctx.autoSet("|", nil)
-//     return traversePrerequisites(&orderTraverseContext{ ctx }, ctx.program().ordered)
-// }
-
-// func traverseGrepped(ctx Context) (brks breakers) {
-//     if options.traceExec  { defer un(trace(t_exec, "~")) }
-//     var t = ctx.traversal()
-//     t.target0, t.targetN, t.targetX = "", "", "~"
-//     return traversePrerequisites(ctx, t.grepped)
-// }

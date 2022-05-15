@@ -718,7 +718,13 @@ func traverse(ctx Context, targetVal Value, target string, projects... *Project)
                     b = targetVal.stat(ctx).mod()
                 )
                 // a.IsZero() indicates the target not exists
-                if !a.IsZero() && b.After(a) { currentTargetValue.updated(ctx, true) }
+                if !a.IsZero() && b.After(a) /*|| file.updated(ctx) || file.updatedDeps(ctx) != nil*/ {
+                    if true {
+                        currentTargetValue.updated(ctx, true)
+                    } else {
+                        currentTargetValue.updatedDeps(ctx, targetVal)
+                    }
+                }
             }
             ctx.traversed(targetVal) // Add to the $^ or $| list
         }
@@ -2595,8 +2601,7 @@ func (p *Barefile) expand(ctx Context, w expandwhat) (res Value, err error) {
     return
 }
 func (p *Barefile) traverse(ctx Context) (brks breakers) {
-    ctx = positional(ctx, p.position)
-    if p.File == nil { // it happens if p.Name refers argument
+    if ctx = positional(ctx, p.position); p.File == nil { // it happens if p.Name refers to arguments
         var ( target string; err error )
         if target, err = p.Strval(ctx); err != nil {
             erro(ctx, "strval '%v' failed: %v", p, err).of(p).debug(1)
@@ -2614,6 +2619,14 @@ func (p *Barefile) traverse(ctx Context) (brks breakers) {
     if p.File != nil { brks = p.File.traverse(ctx) } else {
         erro(ctx, "barefile '%s' is nil", p).at(p.position).debug(1)
     }
+    return
+}
+func (p *Barefile) updated(ctx Context, v ...bool) (res bool) {
+    if p.File != nil { res = p.File.updated(ctx, v...) }
+    return
+}
+func (p *Barefile) updatedDeps(ctx Context, v ...Value) (res []Value) {
+    if p.File != nil { res = p.File.updatedDeps(ctx, v...) }
     return
 }
 func (p *Barefile) delete(ctx Context) (files []*File, err error) {
@@ -3920,7 +3933,7 @@ func (p *File) exists() (res bool) {
     return
 }
 func (p *File) updated(ctx Context, v ...bool) bool {
-    if t := len(v) > 0; t {
+    if t := len(v) > 0; t && !p._updated {
         for _, a := range v { t = t && a }
         if p._updated = t; t { ctx.dirtyMark(p) }
     }
@@ -4013,25 +4026,33 @@ func (p *File) traverse(ctx Context) (brks breakers) {
     }
 
     if false {
-        if s := p.String(); strings.HasPrefix(s, "ui/") || s == "ui" {
-            warn(ctx, "%v %v", p, p.updatedDeps(ctx)).debug(1)
+        s1, s2 := targetValue.String(), p.String()
+        if  strings.HasPrefix(s1, "ui/") || strings.HasSuffix(s1, "/ui") || //targetValue.updated(ctx) ||
+            strings.HasPrefix(s2, "ui/") || strings.HasSuffix(s1, "/ui") || p.updated(ctx) {
+            //warn(ctx, "%v %v %v", p, p.updatedDeps(ctx), projects)
+            defer func() {
+                warn(ctx, "%v: %v (%v), %v %v, %v %v", targetValue, p, targetValue.cmp(ctx, p),
+                    targetValue.updated(ctx), p.updated(ctx), p.updatedDeps(ctx), projects).debug(4)
+            } ()
         }
     }
     defer func() {
-        // Note that the file maybe not traversed yet at this point. But we
-        // still have to check mod-time.
-        var (
-            a = targetValue.stat(ctx).mod()
-            b = file.stat(ctx).mod()
-        )
-
-        // IsZero() indicates the target not exists
-        if !a.IsZero() && b.After(a) {
-            targetValue.updated(ctx, true)
+        if false {
+            // Note that the file maybe not traversed yet at this point. But we still have to check mod-time.
+            var (
+                a = targetValue.stat(ctx).mod()
+                b = file.stat(ctx).mod()
+            )
+            // IsZero() indicates the target not exists
+            if (!a.IsZero() && b.After(a)) /*|| file.updated(ctx) || file.updatedDeps(ctx) != nil*/ {
+                if true {
+                    targetValue.updated(ctx, true)
+                } else {
+                    targetValue.updatedDeps(ctx, file)
+                }
+            }
         }
-
-        // Add to the $^ or $| list
-        ctx.traversed(file)
+        ctx.traversed(file) // Add to the $^ or $| list
     } ()
 
     var (
@@ -4114,6 +4135,11 @@ checkFileEntries:
     for _, project := range projects {
         if file.info != nil { return }
         if file.searchInMatchedPaths(ctx, project) { return }
+    }
+    if true {
+        if s := p.String(); strings.HasPrefix(s, "ui/") || s == "ui" || s == "stamp" {
+            warn(ctx, "%v %v %v", p, p.updatedDeps(ctx), projects).debug(1)
+        }
     }
 
     if (len(ctx.stems()) == 0 || ctx.mustExists()) {
@@ -5616,14 +5642,36 @@ func (p *selection) traverse(ctx Context) (brks breakers) {
     ctx = positional(ctx, p.position)
     if val, err := p.value(ctx); err != nil {
         erro(ctx, "select value '%v' failed: %v", p, err).debug(1)
-    } else if isNil(val) {
-        warn(ctx, "selected value '%v' is nil", p).debug(1)
-    } else if isNone(val) {
-        warn(ctx, "selected value '%v' is none", p).debug(1)
+    } else if isTrivial(val) {
+        warn(ctx, "selected value '%v' is trivial", p).debug(1)
     } else {
+        if false && p.String() == "extbit.c++.headers⇒stamp" {
+            warn(ctx, "%v -> %T %v, %v", p, val, val, val.updated(ctx)).debug(1)
+        }
+        _ = val.updated(ctx) // NOTE: ensure that updated flag is correct (see RuleEntry.updated)
         brks = val.traverse(ctx)
     }
     return
+}
+func (p *selection) updated(ctx Context, v ...bool) (res bool) { // NOTE: this seems not affecting the result
+    if val, err := p.value(ctx); err != nil {
+        erro(ctx, "select value '%v' failed: %v", p, err).debug(1)
+    } else if isTrivial(val) {
+        warn(ctx, "selected value '%v' is trivial", p).debug(1)
+    } else {
+        res = val.updated(ctx, v...)
+    }
+    return res
+}
+func (p *selection) updatedDeps(ctx Context, v ...Value) (res []Value) {  // NOTE: this seems not affecting the result
+    if val, err := p.value(ctx); err != nil {
+        erro(ctx, "select value '%v' failed: %v", p, err).debug(1)
+    } else if isTrivial(val) {
+        warn(ctx, "selected value '%v' is trivial", p).debug(1)
+    } else {
+        res = val.updatedDeps(ctx, v...)
+    }
+    return res
 }
 func (p *selection) stat(ctx Context) (si *statinfo) {
     erro(ctx, "cant stat selection %v, must expand it first", p).at(p.position).debug(1)

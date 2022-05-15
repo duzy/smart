@@ -1183,7 +1183,7 @@ type ResolveEntries struct {
         Entry
         all []Entry
 }
-func (p *ResolveEntries) String() string { return fmt.Sprintf("%s(in %d)", p.Entry, len(p.all)) }
+func (p *ResolveEntries) String() string { return fmt.Sprintf("%s(%d)", p.Entry, len(p.all)) }
 func (p *ResolveEntries) add(entry Entry) {
         if p.Entry == nil { p.Entry = entry }
         p.all = append(p.all, entry)
@@ -1246,10 +1246,27 @@ func (entry *RuleEntry) String() string {
         return entry.target.String()
 }
 func (entry *RuleEntry) updated(ctx Context, v ...bool) bool {
-        return entry.target.updated(ctx, v...)
+        var res = entry.target.updated(ctx, v...)
+        if res { ctx.dirtyMark(entry.target) }
+        // if target, _ := ctx.autoGet("@"); !isTrivial(target) && res {
+        //         //target.updated(ctx, res)
+        //         //target.updatedDeps(ctx, entry.target)
+        // }
+        // if entry.target.String() == "stamp" {
+        //         if target, _ := ctx.autoGet("@"); !isTrivial(target) {
+        //                 warn(ctx, "%T %v %v; %T %v %v", entry.target, entry.target, entry.target.updated(ctx),
+        //                         target, target, target.updated(ctx)).debug(1)
+        //         }
+        // }
+        return res
 }
 func (entry *RuleEntry) updatedDeps(ctx Context, v ...Value) []Value {
-        return entry.target.updatedDeps(ctx, v...)
+        var res = entry.target.updatedDeps(ctx, v...)
+        // if target, _ := ctx.autoGet("@"); !isTrivial(target) {
+        //         res = target.updatedDeps(ctx, res...)
+        //         target.updated(ctx, true)
+        // }
+        return res
 }
 // RuleEntry.Execute executes the rule program only if the target is outdated.
 func (entry *RuleEntry) Execute(ctx Context, a ...Value) (result []Value, brks breakers) {
