@@ -164,7 +164,7 @@ func (p *usinglist) Integer(ctx Context) (int64, error) { return 0, nil }
 func (p *usinglist) Float(ctx Context) (float64, error) { return 0, nil }
 func (p *usinglist) updated(ctx Context, v ...bool) (res bool) {
         for _, elem := range p.list {
-                if res = elem.updated(ctx, v...); res { break }
+                res = res || elem.updated(ctx, v...)
         }
         return
 }
