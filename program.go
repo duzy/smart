@@ -124,8 +124,8 @@ func (pc *programContext) dirtyMark(vals ...Value) {
                 vals = append(merge(t), vals...)
             }
             if false { warn(pc, "dirtyMark: %T %v; %v, %v, %v, %v", t, t, vals, dup,
-                t.updated(pc), t.updatedDeps(pc)).debug(0)
-            } else if false { warn(pc, "dirtyMark: %T %v; %v, %v, %v, %v", t, t, vals, dup,
+                t.updated(pc), t.updatedDeps(pc)).debug(0) }
+            if true { warn(pc, "dirtyMark: %T %v; %v, %v, %v, %v", t, t, vals, dup,
                 t.updated(pc), t.updatedDeps(pc)).debug(18) }
          }
     }
@@ -476,7 +476,10 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     var proj = ctx.Project()
 
     // Update normal prerequisites
-    if brks = traverseNormal(ctx); brks.has() {
+    ctx.autoSet("^", nil)
+    ctx.autoSet("<", nil)
+    ctx.autoSet(">", nil)
+    if brks = prog.traverse(&normalTraverseContext{ ctx }, prog.depends); brks.has() {
         if tb := brks.not(breakCase, breakNext, breakDone); tb.has() {
             prompt(ctx, "%v: execute failed, project %s\n", /*entryStr1(ctx, entry)*/entry, proj)
             for _, brk := range tb {
@@ -500,7 +503,8 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     }
 
     // Update order-only prerequisites
-    if brks = traverseOrderOnly(ctx); brks.has() {
+    ctx.autoSet("|", nil)
+    if brks = prog.traverse(&orderTraverseContext{ ctx }, prog.ordered); brks.has() {
         if tb := brks.not(breakCase, breakNext, breakDone); tb.has() {
             prompt(ctx, "%v: execute failed, project %s\n", /*entryStr1(ctx, entry)*/entry, proj)
             for _, brk := range brks {
@@ -536,7 +540,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     return
 }
 
-func traversePrerequisites(ctx Context, prerequisites []Value) (brks breakers) {
+func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers) {
     // IMPORTANT: don't expand the args here. The prerequisites like
     // '$(or &@,...)' have to be expanded when it's used (e.g. compare).
     if true {
@@ -604,19 +608,19 @@ func (t *orderTraverseContext) traversed(target Value) (targets []Value) {
     return
 }
 
-func traverseNormal(ctx Context) (brks breakers) {
-    if options.traceExec  { defer un(trace(t_exec, "^")) }
-    ctx.autoSet("^", nil)
-    ctx.autoSet("<", nil)
-    ctx.autoSet(">", nil)
-    return traversePrerequisites(&normalTraverseContext{ ctx }, ctx.program().depends)
-}
+// func traverseNormal(ctx Context) (brks breakers) {
+//     if options.traceExec  { defer un(trace(t_exec, "^")) }
+//     ctx.autoSet("^", nil)
+//     ctx.autoSet("<", nil)
+//     ctx.autoSet(">", nil)
+//     return traversePrerequisites(&normalTraverseContext{ ctx }, ctx.program().depends)
+// }
 
-func traverseOrderOnly(ctx Context) (brks breakers) {
-    if options.traceExec  { defer un(trace(t_exec, "|")) }
-    ctx.autoSet("|", nil)
-    return traversePrerequisites(&orderTraverseContext{ ctx }, ctx.program().ordered)
-}
+// func traverseOrderOnly(ctx Context) (brks breakers) {
+//     if options.traceExec  { defer un(trace(t_exec, "|")) }
+//     ctx.autoSet("|", nil)
+//     return traversePrerequisites(&orderTraverseContext{ ctx }, ctx.program().ordered)
+// }
 
 // func traverseGrepped(ctx Context) (brks breakers) {
 //     if options.traceExec  { defer un(trace(t_exec, "~")) }
