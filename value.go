@@ -702,12 +702,20 @@ func traverse(ctx Context, targetVal Value, target string, projects... *Project)
         // Note that the file maybe not traversed yet at this point. But we
         // still have to check mod-time.
         if file != nil {
-            var (
-                a = currentTargetValue.stat(ctx).mod()
-                b = file.stat(ctx).mod()
-            )
-            // a.IsZero() indicates the target not exists
-            if !a.IsZero() && b.After(a) { currentTargetValue.updated(ctx, true) }
+            if false {
+                var (
+                    a = currentTargetValue.stat(ctx).mod()
+                    b = file.stat(ctx).mod()
+                )
+                // IsZero() indicates the target not exists
+                if !a.IsZero() && b.After(a) /*|| file.updated(ctx) || file.updatedDeps(ctx) != nil*/ {
+                    if true {
+                        currentTargetValue.updated(ctx, true)
+                    } else {
+                        currentTargetValue.updatedDeps(ctx, targetVal)
+                    }
+                }
+            }
             if !file.position.IsValid() { file.position = pos }
             ctx.traversed(file)// Add to the $^ or $| list
         } else if true {
@@ -717,8 +725,8 @@ func traverse(ctx Context, targetVal Value, target string, projects... *Project)
                     a = currentTargetValue.stat(ctx).mod()
                     b = targetVal.stat(ctx).mod()
                 )
-                // a.IsZero() indicates the target not exists
-                if !a.IsZero() && b.After(a) /*|| file.updated(ctx) || file.updatedDeps(ctx) != nil*/ {
+                // IsZero() indicates the target not exists
+                if !a.IsZero() && b.After(a) /*|| targetVal.updated(ctx) || targetVal.updatedDeps(ctx) != nil*/ {
                     if true {
                         currentTargetValue.updated(ctx, true)
                     } else {
