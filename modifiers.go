@@ -3304,27 +3304,27 @@ type predictionOutdatedOpts struct {
         silent bool "s,silent"
 }
 func predictionOutdated(ctx Context, args... Value) (result Value, err error) {
-        var opts predictionOutdatedOpts
+        var (
+                opts predictionOutdatedOpts
+                target Value
+                targetFullname string
+                reason string
+                outdated bool
+        )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
                 erro(ctx, "merge args failed: %v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
                 erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
-        }
-
-        var (
-                target Value
-                targetFullname string
-                reason string
-                outdated bool
-                file2 string
-                same bool
-        )
-        // Wait for prerequisites only
-        if target, _, _, err = wait(ctx); err != nil {
+        } else if target, _, _, err = wait(ctx); err != nil {
                 erro(ctx, "waiting traversal failed: %v", err).debug(1)
                 return
+        }
+
+        if false { warn(ctx, "%T %v %v", target, target, target.updatedDeps(ctx)).debug(1) }
+        if outdated = len(target.updatedDeps(ctx)) > 0; outdated {
+                reason = "updated prerequisites"
         } else if targetFullname, err = fullnameOrStrval(ctx, target); err != nil {
                 erro(ctx, "strval '%v' failed: %v", target, err).debug(1)
                 return
@@ -3340,18 +3340,23 @@ func predictionOutdated(ctx Context, args... Value) (result Value, err error) {
         } else if !opts.checksum {
                 // does nothing
         } else if true {
-                erro(ctx, "FIXME: check target checksum against the saved one").debug(1)
+                erro(ctx, "FIXME: check prerequisites against the saved checksums").debug(1)
                 return
-        } else if depend0, _ := ctx.autoGet("<"); isTrivial(depend0) {
-                // does nothing
-        } else if file2, err = fullnameOrStrval(ctx, depend0); err != nil {
-                erro(ctx, "strval '%v' failed: %v", depend0, err).debug(1)
-                return
-        } else if same, err = crc64CompareFileChecksum(ctx, targetFullname, file2); err != nil {
-                erro(ctx, "crc64 checksum failed: %v", err).debug(1)
-                return
-        } else if outdated = !same; outdated {
-                reason = "content changed"
+        } else if depends, _ := ctx.autoGet("^"); !isTrivial(depends) {
+                for _, depend := range merge(depends) {
+                        var file2 string
+                        if isTrivial(depend) {
+                                // does nothing
+                        } else if file2, err = fullnameOrStrval(ctx, depend); err != nil {
+                                erro(ctx, "strval '%v' failed: %v", depend, err).debug(1)
+                                return
+                        } else if file2 != "" {
+                                // see: same, err = crc64CompareFileChecksum(ctx, targetFullname, file2)
+                                // TODO.1: load saved checksum for depend, set outdated if no such
+                                // TODO.2: calculate checksum for depend and compare with the loaded
+                                // TODO.3: set outdated if the two checksums differred
+                        }
+                }
         }
 
         if opts.verbose || (opts.verboseOutdated && outdated) || (opts.verboseUpdated && !outdated) {

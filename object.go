@@ -1175,6 +1175,8 @@ type Entry interface {
         Programs() []*Program
         setPrograms([]*Program)
 
+        //isTrivial(Context) bool // draws prerequisites only, no recipes
+
         option(Context) (bool, []Value)
         execute(Context, ...Value) ([]Value, breakers)
 }
