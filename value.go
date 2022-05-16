@@ -701,33 +701,16 @@ func traverse(ctx Context, targetVal Value, target string, projects... *Project)
     defer func() {
         // Note that the file maybe not traversed yet at this point. But we
         // still have to check mod-time.
-        if file != nil {
-            if false {
-                var (
-                    a = currentTargetValue.stat(ctx).mod()
-                    b = file.stat(ctx).mod()
-                )
-                // IsZero() indicates the target not exists
-                if !a.IsZero() && b.After(a) /*|| file.updated(ctx) || file.updatedDeps(ctx) != nil*/ {
-                    if true {
-                        currentTargetValue.updated(ctx, true)
-                    } else {
-                        currentTargetValue.updatedDeps(ctx, targetVal)
-                    }
-                }
-            }
-            if !file.position.IsValid() { file.position = pos }
-            ctx.traversed(file)// Add to the $^ or $| list
-        } else if true {
+        if file == nil {
             if targetVal == nil { targetVal = MakeString(pos, target) }
-            if false {
+            if true {
                 var (
                     a = currentTargetValue.stat(ctx).mod()
                     b = targetVal.stat(ctx).mod()
                 )
                 // IsZero() indicates the target not exists
-                if !a.IsZero() && b.After(a) /*|| targetVal.updated(ctx) || targetVal.updatedDeps(ctx) != nil*/ {
-                    if true {
+                if (!a.IsZero() && b.After(a)) || targetVal.updated(ctx) || targetVal.updatedDeps(ctx) != nil {
+                    if false {
                         currentTargetValue.updated(ctx, true)
                     } else {
                         currentTargetValue.updatedDeps(ctx, targetVal)
@@ -4044,20 +4027,32 @@ func (p *File) traverse(ctx Context) (brks breakers) {
             } ()
         }
     }
+    if true {
+        s1, s2 := targetValue.String(), p.String()
+        if  strings.HasPrefix(s1, "demo") || strings.HasPrefix(s2, "demo") {
+            //warn(ctx, "%v %v %v", p, p.updatedDeps(ctx), projects)
+            defer func() {
+                var t = p.stat(ctx).mod().After(targetValue.stat(ctx).mod())
+                warn(ctx, "%v: %v (%v, %v), %v %v, %v %v %v", targetValue, file, targetValue.cmp(ctx, p), t,
+                    targetValue.updated(ctx), p.updated(ctx), targetValue.updatedDeps(ctx),
+                    p.updatedDeps(ctx), projects).debug(4)
+            } ()
+        }
+    }
     defer func() {
-        if false {
-            // Note that the file maybe not traversed yet at this point. But we still have to check mod-time.
-            var (
-                a = targetValue.stat(ctx).mod()
-                b = file.stat(ctx).mod()
-            )
-            // IsZero() indicates the target not exists
-            if (!a.IsZero() && b.After(a)) /*|| file.updated(ctx) || file.updatedDeps(ctx) != nil*/ {
-                if true {
-                    targetValue.updated(ctx, true)
-                } else {
-                    targetValue.updatedDeps(ctx, file)
-                }
+        // Note that the file maybe not traversed yet at this point. But we still have to check mod-time.
+        var (
+            a = targetValue.stat(ctx).mod()
+            b = file.stat(ctx).mod()
+        )
+        // IsZero() indicates the target not exists
+        if (!a.IsZero() && b.After(a)) || file.updated(ctx) || file.updatedDeps(ctx) != nil {
+            if false {
+                ctx.dirtyMark(file)
+            } else if false {
+                targetValue.updated(ctx, true)
+            } else {
+                targetValue.updatedDeps(ctx, file)
             }
         }
         ctx.traversed(file) // Add to the $^ or $| list
