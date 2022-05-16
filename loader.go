@@ -454,7 +454,7 @@ func applyUsingVars(ctx Context, user, usee *Project) {
 }
 
 func (l *loader) Position() Position { return l.parser.Position() }
-func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, params ...Value) (loaded *Project) {
+func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, arged []Value, params ...Value) (loaded *Project) {
     var (
         linfo = l.loads[len(l.loads)-1]
         position = specVal.Position()
@@ -464,10 +464,10 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, p
         err error
     )
     if absPath, isDir, err = l.searchSpecPath(linfo, specName); err != nil {
-        erro(ctx, "no such package `%v`", specName).of(specVal).debug(1)
+        errostack(ctx, 3, "no such package `%v` (%T)", specName, specVal).of(specVal).debug(6)
         return
     } else if absPath == "" {
-        erro(ctx, "missing `%s` (in %v)", specName, l.paths).of(specVal).debug(1)
+        errostack(ctx, 3, "missing `%s` (in %v)", specName, l.paths).of(specVal).debug(6)
         return
     }
 
@@ -586,9 +586,9 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, p
     if loaded == nil {
         var okay bool
         if isDir {
-            okay = l.loadDir(position, specName, absPath, nil)
+            okay = l.loadDirWithArgs(position, specName, absPath, arged, nil)
         } else {
-            okay = l.load(specName, absPath, nil)
+            okay = l.loadWithArgs(position, specName, absPath, arged, nil)
         }
         if !okay {
             erro(ctx, "failed loading `%v` (%v)", specName, absPath).of(specVal).debug(1)
@@ -1544,7 +1544,7 @@ func (l *loader) declare(keyword token.Token, ident *Barecomp, identStr string, 
                 return
             }
 
-            var def, alt = l.def(l.Position(), name)
+            var def, alt = l.def(t.Key.Position(), name)
             if alt != nil {
                 var ok bool
                 def, ok = alt.(*Def)
@@ -1554,6 +1554,7 @@ func (l *loader) declare(keyword token.Token, ident *Barecomp, identStr string, 
                 }
             }
             if def != nil { def.val(ctx, t.Value) }
+            warn(ctx, "%v: %v", ident, t)
         }
     }
 
@@ -2128,7 +2129,7 @@ ListLoop:
 }
 
 // loader.Load loads script from a file or source code (string, []byte).
-func (l *loader) load(specName, absPath string, source interface{}) (result bool) {
+func (l *loader) load(position Position, specName, absPath string, source interface{}) (result bool) {
     if options.traceLaunch { defer un(trace(t_launch, "loader.load")) }
     defer func(t time.Time) {
         var d = time.Now().Sub(t)
@@ -2267,7 +2268,7 @@ func (l *loader) loadDir(pos Position, specName, absDir string, filter func(os.F
 func (l *loader) loadWithArgs(position Position, specName, absPath string, args []Value, source interface{}) bool {
     if options.traceLaunch { defer un(trace(t_launch, "loader.loadWithArgs")) }
     defer l.setArgs(l.setArgs(args))
-    return l.load(specName, absPath, source)
+    return l.load(position, specName, absPath, source)
 }
 
 func (l *loader) loadDirWithArgs(position Position, specName, absPath string, args []Value, filter func(os.FileInfo) bool) bool {
@@ -2284,13 +2285,17 @@ func (l *loader) loadFile(filename string, source interface{}) bool {
     case ".base", ".configure": spec = base
     default: spec, _  = filepath.Rel(l.WorkDir(), dir)
     }
-    return l.load(spec, filename, source)
+    var position Position
+    position.Filename = filename
+    return l.load(position, spec, filename, source)
 }
 
 func (l *loader) loadPath(path string, filter func(os.FileInfo) bool) bool {
     if options.traceLaunch { defer un(trace(t_launch, "loader.loadPath")) }
-    s, _ := filepath.Rel(l.WorkDir(), path)
-    var position Position
+    var (
+        position Position
+        s, _ = filepath.Rel(l.WorkDir(), path)
+    )
     position.Filename = s
     return l.loadDir(position, s, path, filter)
 }

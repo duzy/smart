@@ -354,7 +354,7 @@ func (cc *closureContext) Project() (proj *Project) {
 }
 func (cc *closureContext) closure() *closureContext { return cc }
 func (cc *closureContext) closureScopes() (scopes []*Scope) {
-    if scopes = cc.Context.closureScopes(); false {
+    if scopes = cc.Context.closureScopes(); true {
         scopes = append(scopes, cc.scopes...)
     } else if false {
     ForScopes:
@@ -365,8 +365,6 @@ func (cc *closureContext) closureScopes() (scopes []*Scope) {
             }
             scopes = append(scopes, s1)
         }
-    } else {
-        scopes = append(scopes, cc.scopes...)
     }
     return
 }

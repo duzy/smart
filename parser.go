@@ -1636,6 +1636,8 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
 		}
 	}
 
+	var arged []Value
+	var specName string
 	switch v := specVal.(type) {
     case *Pair:
         var s string
@@ -1662,24 +1664,28 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
             } else if s == "" { continue }
             specNames = append(specNames, s)
         }
-    default:
-        var specName string
-        if specName, err = specVal.Strval(ctx); err != nil {
-            erro(p, "%s", err).of(specVal)
-            return
-        } else if specName == "" { break }
-        specNames = append(specNames, specName)
+		goto loadSpecNames
+	case *Argumented:
+		arged, specVal = v.args, v.value
     }
 
-    if len(specNames) == 0 {
+	if specName, err = specVal.Strval(ctx); err != nil {
+		erro(p, "%s", err).of(specVal)
+		return
+	} else if specName != "" {
+		specNames = append(specNames, specName)
+	}
+
+loadSpecNames:
+	if len(specNames) == 0 {
         erro(p, "empty use spec (%v)", specVal).of(specVal).debug(1)
         return
     }
 
 	var wg sync.WaitGroup
-    for _, specName := range specNames {
+    for _, specName = range specNames {
 		if true {
-			p.loadUseSpecName(opts, specVal, specName, args...)
+			p.loadUseSpecName(opts, specVal, specName, arged, args...)
 		} else {
 			var dc = diagContext{ Context: ctx } // redefine ctx
 			wg.Add(1); go func() {
@@ -1688,7 +1694,7 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
 					if len(dc.points) > 0 { dc.inner().diagnostic().nest(dc.points) }
 					wg.Done()
 				} ()
-				p.loadUseSpecName(opts, specVal, specName, args...)
+				p.loadUseSpecName(opts, specVal, specName, arged, args...)
 			} ()
 		}
     }
@@ -1748,13 +1754,13 @@ func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
 			wg.Add(1); go func() {
 				defer checkPanicsErrors(ctx, true)
 				defer wg.Done()
-				var loaded = p.loadUseSpecName(opts, val, name)
+				var loaded = p.loadUseSpecName(opts, val, name, nil)
 				projMutx.Lock()
 				projects = append(projects, loaded)
 				projMutx.Unlock()
 			} ()
 		} else {
-			var loaded = p.loadUseSpecName(opts, val, name)
+			var loaded = p.loadUseSpecName(opts, val, name, nil)
 			projects = append(projects, loaded)
 		}
 	}
