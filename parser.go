@@ -1717,16 +1717,34 @@ func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ 
 
 	var (
 		x = p.parseExpr(false)
+		opts includeFileOpts
 		// TODO: comment = p.lineComment
-		//props []Value
 	)
+	if vals, err := parseOpts(p, &opts, generic.options...); err != nil {
+		erro(p, "parse include opts failed: %v", err).at(p.Position()).debug(1)
+		return
+	} else if len(vals) > 0 {
+		// ...
+	}
 
-	if p.tok == token.COLON {
+	if _, ok := x.(*File); ok {
+		// does nothing
+	} else if str, err := x.Strval(p); err != nil {
+		erro(p, "strval '%v' failed: %v", x, err).at(p.Position()).debug(1)
+		return
+	} else if file := p.project.FindFile(p, str); file != nil {
+		x = file
+	} else if val, _ := x.expand(p, expandPlainValue); !isNil(val) && val != x {
+		x = val
+	}
+
+	if false { warn(p, "%v: %v %v %v %v", p, p.project, generic.options, opts, x).debug(1) }
+	if p.skipSpaces(); p.tok == token.COLON {
 		x = p.parseRuleEntry(specialRuleNor, nil, []Value{x}) // this should return a RuleEntry
 	}
 
 	if !generic.dontOperate {
-		p.includeFile(p.Position(), x)
+		p.includeFile(p.Position(), opts, x)
 	}
 }
 
