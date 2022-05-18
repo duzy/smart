@@ -111,7 +111,7 @@ type parser struct {
 	lineComment *CommentGroup // last line comment
 
 	// Next token
-	pos token.Pos   // token position
+	pos, stop token.Pos   // parsing and stop position
 	tok token.Token // one token look-ahead
 	lit string      // token literal
 
@@ -1738,9 +1738,10 @@ func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ 
 		x = val
 	}
 
-	if false { warn(p, "%v: %v %v %v %v", p, p.project, generic.options, opts, x).debug(1) }
 	if p.skipSpaces(); p.tok == token.COLON {
+		if false { warn(p, "%v: %v; %v %v; %v", p, p.project, generic.options, opts, x).debug(1) }
 		x = p.parseRuleEntry(specialRuleNor, nil, []Value{x}) // this should return a RuleEntry
+		if false { warn(p, "%v: %v; %T %v; %v %v", p, p.project, x, x, p.tok, p.lit).debug(1) }
 	}
 
 	if !generic.dontOperate {
@@ -2103,7 +2104,7 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 		//lparen = p.pos
 		p.next(true)
 		if false { fmt.Fprintf(stderr, "%v: GenericSpec.1: %v(%s)\n", p.file.Position(p.pos), p.tok, p.lit) }
-		for iota := 0; p.tok != token.RPAREN && p.tok != token.EOF; iota++ {
+		for iota := 0; p.tok != token.RPAREN && p.tok != token.EOF && (p.stop == 0 || p.pos < p.stop); iota++ {
 			// TODO: collect documentation comments
 			for p.tok == token.SPACE || p.tok == token.LINEND { p.next(true) }
 			if p.tok == token.RPAREN || p.tok == token.EOF { break  }
@@ -2114,9 +2115,9 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 		if p.tok != token.EOF { p.expectLinend() }
 	} else {
 		if false { fmt.Fprintf(stderr, "%v: GenericSpec.3: %v(%s)\n", p.file.Position(p.pos), p.tok, p.lit) }
-		for iota := 0; p.tok != token.LINEND && p.tok != token.EOF; iota++ {
+		/*for*/if iota := 0; p.tok != token.LINEND && p.tok != token.EOF && (p.stop == 0 || p.pos < p.stop)/*; iota++*/ {
 			f(nil, &generic, iota)
-			if p.lineComment != nil { break }
+			if p.lineComment != nil { /*break*/ }
 
 			// Checking for `include xxx:[...]`
 			/* FIXME: if inc, _ := spec.(*ast.IncludeSpec); inc != nil && len(inc.Props) > 0 {
@@ -2127,7 +2128,7 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 
 			if p.tok == token.COMMA { p.next(true) }
 		}
-		if p.tok != token.EOF {
+		if p.tok != token.EOF && (p.stop == 0 || p.pos < p.stop) {
 			p.expectLinend()
 		}
 	}
@@ -2730,14 +2731,13 @@ func (p *parser) parseSpecialRuleClause() Value {
 	}
 }
 
-func (p *parser) expandForeach(t *template, vars map[string]Value, params []Value, endPos token.Pos) {
+func (p *parser) expandForeach(t *template, vars map[string]Value, params []Value/*, endPos token.Pos*/) {
 	p.scanner.SetState(t.state)
 	p.pos, p.tok, p.lit = t.pos, t.tok, t.lit
 
 	// TODO: deal with params
 	defer p.closeScope(p.openScope("template expansion ")) // NOTE: comment here will affect loader.def()
 
-	//t_traverse.tracef("%v %v", t_traverse.elapsed(), vars)
 	var ctx = positional(p, p.Position())
 	for s, v := range vars {
 		var def, alt = p.def(p.Position(), s)
@@ -2746,16 +2746,16 @@ func (p *parser) expandForeach(t *template, vars map[string]Value, params []Valu
 		}
 	}
 
-	for p.tok != token.EOF && p.pos < endPos {
+	//p.stop = endPos
+	for p.tok != token.EOF && p.pos < p.stop {
 		switch p.tok {
 		case token.LINEND: p.next(true)
-		default:
-			//t_traverse.tracef("%v %v", t_traverse.elapsed(), p.tok)
-			p.parseClause(endPos)
+		default: p.parseClause(/*endPos*/)
 		}
 	}
+	//p.stop = 0
 }
-func (p *parser) expandTemplate(endPos token.Pos, params []Value) {
+func (p *parser) expandTemplate(/*endPos token.Pos, */params []Value) {
 	defer func(pos token.Pos, tok token.Token, lit string, state scanner.ScanState) {
 		p.pos, p.tok, p.lit	 = pos, tok, lit
 		p.scanner.SetState(state)
@@ -2770,7 +2770,7 @@ func (p *parser) expandTemplate(endPos token.Pos, params []Value) {
 	switch t.verb {
 	case "foreach":
 		for _, a := range t.params {
-			p.expandForeach(t, map[string]Value{ "_" : a }, params, endPos)
+			p.expandForeach(t, map[string]Value{ "_" : a }, params/*, endPos*/)
 		}
 	case "for":
 		for _, a := range t.params {
@@ -2779,10 +2779,10 @@ func (p *parser) expandTemplate(endPos token.Pos, params []Value) {
 					erro(p, "expand template %v", e).of(pair.Key).debug(1)
 				} else if g, ok := pair.Value.(*Group); ok {
 					for _, v := range g.Elems {
-						p.expandForeach(t, map[string]Value{ s : v }, params, endPos)
+						p.expandForeach(t, map[string]Value{ s : v }, params/*, endPos*/)
 					}
 				} else {
-					p.expandForeach(t, map[string]Value{ s : pair.Value }, params, endPos)
+					p.expandForeach(t, map[string]Value{ s : pair.Value }, params/*, endPos*/)
 				}
 			}
 		}
@@ -2817,7 +2817,7 @@ func (p *parser) callTmpl(t *template, name Value, args []Value) {
 	for p.tok != token.EOF && p.pos < t.endPos {
 		switch p.tok {
 		case token.LINEND: p.next(true)
-		default: p.parseClause(t.endPos)
+		default: p.parseClause(/*t.endPos*/)
 		}
 	}
 }
@@ -2860,7 +2860,9 @@ func (p *parser) parseTemplateClause() (end bool) {
 		tmpl.end, tmpl.endPos = &end, pos
 		return true
 	case "expand":
-		p.expandTemplate(pos, params)
+		p.stop = pos
+		p.expandTemplate(/*pos, */params)
+		p.stop = 0
 		return true
 	case "": if arged != nil {
 		p.callTemplate(arged.value, arged.args)
@@ -2903,7 +2905,7 @@ ForToken:
 	return
 }
 
-func (p *parser) parseClause(endPos token.Pos) {
+func (p *parser) parseClause(/*endPos token.Pos*/) {
 	if false { defer un(tracef(t_traverse, "parseClause(%v, %v)", p.tok, p.pos)) }
 	var position = p.Position()
 	switch p.tok {
@@ -3251,10 +3253,8 @@ func (p *parser) parseFile() *parsedFile {
 			// rest of module body
 			for p.tok != token.EOF {
 				switch p.tok {
-				case token.LINEND:
-					p.next(true) // skip empty lines
-				default:
-					p.parseClause(token.NoPos)
+				case token.LINEND: p.next(true) // skip empty lines
+				default: p.parseClause(/*token.NoPos*/)
 				}
 			}
 		}
