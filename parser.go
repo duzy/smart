@@ -348,6 +348,8 @@ func (p *parser) expectLinend() (ok bool) {
 	if p.lineComment != nil {
 		// The line comment is treated as LINEND, simply ignore it.
 		p.lineComment, ok = nil, true
+	} else if p.tok == token.EOF {
+		ok = true
 	} else if p.tok == token.LINEND {
 		p._next(); ok = true
 	} else {
@@ -541,8 +543,7 @@ func (p *parser) parseDependList() (list []Value) {
 			// FIXME: detects unexpected colon ':'
 			erro(p, "unexpected colon").at(p.Position()).debug(1)
 			p.next(true) // just ignore this colon
-		} else {
-			p.skipSpaces()
+		} else if p.skipSpaces(); !p.isEndOfLine() {
 			list = append(list, p.parseExpr(false))
 			if p.tok == token.SPACE { p.next(true) } //p.skipSpaces()
 		}
