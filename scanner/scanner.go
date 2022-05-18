@@ -103,6 +103,7 @@ func (s *Scanner) next() {
 	if s.bits.isFirstOfLine() && s.ch == '\t' {
 		s.bits |= canBeRecipeTab
 	} else if s.ch == '\n' {
+		s.bits &^= canBeRecipeTab // clear recipe-tab bit
 		s.bits |= isFirstOfLine
 	} else {
 		s.bits &^= isFirstOfLine // clear first-of-line bit
@@ -153,7 +154,7 @@ func (bits scanbits) isCompoundCallColonL() bool { return bits&isCompoundCallCol
 func (bits scanbits) isCompoundCallColonR() bool { return bits&isCompoundCallColonR != 0 }
 func (bits scanbits) isCommentsOff()        bool { return bits&NoComments != 0 }
 func (bits scanbits) isFirstOfLine()        bool { return bits&isFirstOfLine != 0 }
-func (bits scanbits) canBeRecipe()          bool { return bits&canBeRecipes != 0 && bits&canBeRecipeTab != 0 }
+func (bits scanbits) canBeRecipe()          bool { return bits&(canBeRecipes|canBeRecipeTab) != 0 }
 
 const (
 	isCompoundLine scanbits = 1 << iota    // 1
@@ -212,7 +213,7 @@ func (s *Scanner) Init(file *token.File, src []byte, err ErrorHandler, mode Mode
 }
 
 func (s *Scanner) LeaveCompoundLineContext() { s.bitsPop(isCompoundLine) }
-func (s *Scanner) TrunRecipesOn()  { s.bits  |= canBeRecipes }
+func (s *Scanner) TurnRecipesOn()  { s.bits  |= canBeRecipes }
 func (s *Scanner) TurnRecipesOff() { s.bits &^= canBeRecipes }
 
 func (s *Scanner) IsCompoundLineContext() bool {
@@ -1022,14 +1023,14 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 		tok = token.LINEND
 		s.bitsPop(isCompoundLine)
 	case '\t':
-		if s.bits.canBeRecipe() && (s.lineOffset == s.offset-1) && !s.bits.is(
+		if lit = string(ch); s.bits.canBeRecipe() && (s.lineOffset == s.offset-1) && !s.bits.is(
 			isCompoundCallParen|isCompoundCallBrace|isCompoundCallColonL|isCompoundCallColonR|
 			isCompoundGroup,
 		) {
-			tok, lit = token.RECIPE, string(ch)
+			tok = token.RECIPE
 			s.bitsPush(isCompoundLine)
 		} else {
-			tok, lit = token.SPACE, string(ch)
+			tok = token.SPACE
 			for s.ch == '\t' || s.ch == ' ' {
 				lit += string(s.ch)
 				s.next()

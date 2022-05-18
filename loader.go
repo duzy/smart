@@ -1053,13 +1053,14 @@ func (l *loader) includeFile(pos Position, opts includeFileOpts, spec Value) {
     if false { warn(ctx, "include %T %v", spec, spec).at(pos).debug(1) }
     if entry, ok := spec.(*RuleEntry); ok && entry != nil {
         var ( result []Value; okay bool )
+        if false { warn(ctx, "include %v, %v", entry.programs, entry.programs[0].recipes).at(pos).debug(1) }
         if result, okay = executeEntry(positional(ctx, entry.position), entry); !okay {
             erro(ctx, "include entry '%v' failed", entry).at(pos).debug(1)
             return
         } else if result != nil && opts.verbose {
             info(ctx, "include %v: %v", entry, result).at(pos).debug(1)
         }
-        warn(ctx, "include %v: %v", entry, result).at(pos).debug(1)
+        if false { warn(ctx, "include %v: %v", entry, result).at(pos).debug(1) }
         spec = entry.target
     }
 

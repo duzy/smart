@@ -71,6 +71,7 @@ func (_ *plain) Evaluate(ctx Context, args ...Value) (result Value, err error) {
         }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
         result = &Plain{valbase{pos},name,str}
+        if false && ctx.Project().name == "c++" { warn(ctx, "%v", str).debug(1) }
         return
 }
 

@@ -2617,18 +2617,19 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		}
 	}
 
-	p.scanner.TrunRecipesOn() // Turn on recipes before LINEND
 	if p.tok == token.SEMICOLON { // ;
 		// Parse inline recipe in the program scope.
 		recipes = append(recipes, p.parseRecipeExpr())
-	} else if /*p.tok == token.LINEND || p.lineComment != nil*/p.expectLinend() {
-		//p.expectLinend() // Take the new line
+	} else /*if p.tok == token.LINEND || p.lineComment != nil*/ {
 		// Parse recipes in the program scope.
-		for p.tok != token.EOF && p.isRecipeStart() {
-			recipes = append(recipes, p.parseRecipeExpr())
+		p.scanner.TurnRecipesOn() // Turn on recipes before LINEND
+		if p.expectLinend() /* take the new line */ {
+			for p.tok != token.EOF && p.isRecipeStart() {
+				recipes = append(recipes, p.parseRecipeExpr())
+			}
 		}
+		p.scanner.TurnRecipesOff()
 	}
-	p.scanner.TurnRecipesOff()
 
 	var params []string
 	if t := targets[0]; p.configure {
