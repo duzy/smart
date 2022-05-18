@@ -2762,7 +2762,7 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
         }
 
         if opts.debug {
-                info(ctx, "update-file: %v (%v) (%v, %v)", target, filename, ctx.Project(), ctx).debug(1)
+                infostack(ctx, 3, "update-file: %v (%v) (%v, %v)", target, filename, ctx.Project(), ctx).debug(6)
         }
 
         if opts.path { // Make path (mkdir -p)
@@ -2821,7 +2821,7 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
                 }
                 return
         } else if opts.verbose || opts.debug {
-                warn(ctx, "empty content for '%v'", target).debug(1)
+                warnstack(ctx, 3, "empty content for '%v'", target).debug(6)
         }
 
         var ( wrote int; same bool )
