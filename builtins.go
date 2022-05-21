@@ -2202,14 +2202,15 @@ ForSources:
                         }
                 }
 
+                var srcPat Value
                 var ( matched bool; str string; stems []string )
         ForSrcPats:
-                for _, elem := range srcPats {
-                        if matched, str, stems = elem.match(ctx, source); matched {
+                for _, srcPat = range srcPats {
+                        if matched, str, stems = srcPat.match(ctx, source); matched {
                                 break ForSrcPats
                         } else if infos {
-                                info(ctx, "source=%v (%T) elem=%v (%T) str=%s stems=%v",
-                                        source, source, elem, elem, str, stems).debug(true,1)
+                                info(ctx, "source=%v (%T) srcPat=%v (%T) str=%s stems=%v",
+                                        source, source, srcPat, srcPat, str, stems).debug(true,1)
                         }
                 }
                 if !matched {
@@ -2271,6 +2272,7 @@ ForSources:
                                         file = stat(ctx, name, t.sub, t.dir, nil/* okay missing */)
                                 }
 
+                                file.position = srcPat.Position()
                                 list = append(list, file)
                                 continue ForDstPats
 
