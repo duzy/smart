@@ -697,6 +697,21 @@ func traverse(ctx Context, targetVal Value, target string, projects... *Project)
         err error
     )
     if targetVal == nil { targetVal = MakeString(pos, target) }
+    if false {
+        s1, s2 := currentTargetValue.String(), targetVal.String()
+        if  strings.Contains(s1, "metal") || strings.Contains(s2, "metal") {
+            //warn(ctx, "%v %v %v", p, targetVal.updatedDeps(ctx), projects)
+            defer func() {
+                var t = targetVal.stat(ctx).mod().After(currentTargetValue.stat(ctx).mod())
+                warn(ctx, "%v: %v (file=%v, cmp=%v, outdated=%v), %v %v, %v %v %v",
+                    currentTargetValue, targetVal, file,
+                    currentTargetValue.cmp(ctx, targetVal), t,
+                    currentTargetValue.updated(ctx), targetVal.updated(ctx),
+                    currentTargetValue.updatedDeps(ctx), targetVal.updatedDeps(ctx),
+                    projects).debug(4)
+            } ()
+        }
+    }
     defer func() {
         // Note that the file maybe not traversed yet at this point. But we
         // still have to check mod-time.
@@ -4045,6 +4060,21 @@ func (p *File) traverse(ctx Context) (brks breakers) {
                 warn(ctx, "%v: %v (%v, %v), %v %v, %v %v %v", targetValue, file, targetValue.cmp(ctx, p), t,
                     targetValue.updated(ctx), p.updated(ctx), targetValue.updatedDeps(ctx),
                     p.updatedDeps(ctx), projects).debug(4)
+            } ()
+        }
+    }
+    if false {
+        s1, s2 := targetValue.String(), p.String()
+        if  strings.Contains(s1, "metal") || strings.Contains(s2, "metal") {
+            //warn(ctx, "%v %v %v", p, p.updatedDeps(ctx), projects)
+            defer func() {
+                var t = p.stat(ctx).mod().After(targetValue.stat(ctx).mod())
+                warn(ctx, "%v: %v (cmp=%v, outdated=%v), %v %v, %v %v %v",
+                    targetValue, p, //targetValue.stat(ctx).mod(), p.stat(ctx).mod(),
+                    targetValue.cmp(ctx, p), t,
+                    targetValue.updated(ctx), p.updated(ctx),
+                    targetValue.updatedDeps(ctx), p.updatedDeps(ctx),
+                    projects).debug(4)
             } ()
         }
     }

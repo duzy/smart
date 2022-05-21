@@ -1346,19 +1346,19 @@ func (entry *RuleEntry) refs(ctx Context, v Value) bool {
         if entry.target.refs(ctx, v) { return true }
         
         // TODO: do more tests for this to see if we need to fallthrough
-        return false // only check closured agaist target
-
-        for _, prog := range entry.programs {
-                /*for _, m := range prog.pipline {
-                        for _, a := range m.args {
-                                if a.refs(v) { return true }
+        if false { // FIXME: only check closured agaist target
+                for _, prog := range entry.programs {
+                        // for _, m := range prog.pipline {
+                        //         for _, a := range m.args {
+                        //                 if a.refs(v) { return true }
+                        //         }
+                        // }
+                        for _, depend := range prog.depends {
+                                if depend.refs(ctx, v) { return true }
                         }
-                }*/
-                for _, depend := range prog.depends {
-                        if depend.refs(ctx, v) { return true }
-                }
-                for _, recipe := range prog.recipes {
-                        if recipe.refs(ctx, v) { return true }
+                        for _, recipe := range prog.recipes {
+                                if recipe.refs(ctx, v) { return true }
+                        }
                 }
         }
         return false
@@ -1412,7 +1412,7 @@ func (entry *RuleEntry) expand(ctx Context, w expandwhat) (res Value, err error)
         return
 }
 func (entry *RuleEntry) delete(ctx Context) (files []*File, err error) { return entry.target.delete(ctx) }
-func (entry *RuleEntry) stamp(ctx Context) (files []*File, err error) { return entry.target.stamp(ctx) }
+func (entry *RuleEntry) stamp( ctx Context) (files []*File, err error) { return entry.target.stamp(ctx) }
 func (entry *RuleEntry) traverse(cc Context) (brks breakers) {
         var (
                 entryPos = entry.Position()
