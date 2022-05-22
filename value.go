@@ -384,18 +384,16 @@ func (cc *closureContext) spawn() Context {
 }
 
 func closureProjects(ctx Context) (projects []*Project) {
-    if false { return []*Project{ ctx.Project() } }
-
 ForScopes:
     for _, scope := range ctx.closureScopes() {
-        if scope.project == nil { continue }
-        for _, project := range projects {
-            if project == scope.project || project.hasBase(scope.project) {
-                continue ForScopes
+        if proj := scope.project; proj != nil {
+            for _, project := range projects {
+                if project == proj || project.hasBase(proj) {
+                    continue ForScopes
+                }
             }
+            projects = append(projects, proj)
         }
-        projects = append(projects, scope.project)
-        if false { break }
     }
     return
 }
@@ -773,7 +771,10 @@ func traverse(ctx Context, targetVal Value, target string, projects... *Project)
         }
     }
 
-    var t = ctx.traversal()
+    var (
+        t = ctx.traversal()
+        done = make(map[interface{}]bool) // helps to avoid traversed multiple times
+    )
 ForProjectsConcretes:
     for _, project := range projects {
         var entries *ResolveEntries
@@ -788,6 +789,7 @@ ForProjectsConcretes:
             concreteList = append(concreteList, entries.all...)
         }
         for _, entry := range entries.all {
+            if v1, v2 := done[entry]; v1 && v2 { continue } else { done[entry] = true }
             if entry != nil && currentTargetValue != entry {
                 if w, ok := currentTargetValue.(*Bareword); ok && w.string == target {
                     continue // target resolve to itself, does nothing
@@ -824,6 +826,7 @@ ForProjectsPatterns:
         var patterns = project.resolvePatterns(ctx, target)
         stemmedList = append(stemmedList, patterns...)
         for _, entry := range patterns {
+            if v1, v2 := done[entry.target]; v1 && v2 { continue } else { done[entry.target] = true }
             if brks = entry.string(ctx, targetVal, target); !brks.has(breakFail, breakErro) {
                 okay = true
                 if brks.has(breakCase, breakDone) {
@@ -3162,7 +3165,7 @@ func (p *Path) traverse(ctx Context) (brks breakers) {
     ctx = positional(ctx, p.position)
 
     if p.patterned(ctx) && len(ctx.stems()) == 0 {
-        erro(ctx, "empty stems to traverse pattern: %v", p).at(p.position).debug(8)
+        errostack(ctx, 3, "empty stems to traverse pattern: %v", p).at(p.position).debug(64)
         return
     } else if pathname, err = p.pathname(ctx, ctx.stems()); err == nil && pathname == "" {
         erro(ctx, "path %v matches no target", p).at(p.position).debug(1)
@@ -3992,11 +3995,10 @@ func (p *File) traverse(ctx Context) (brks breakers) {
 
     ctx = positional(ctx, p.position)
 
-    var file = p
     var targetValue = getTargetValue(ctx)
     if isTrivial(targetValue) {
         var program = ctx.program()
-        prompt(ctx, "%v: trivial file target\n", file)
+        prompt(ctx, "%v: trivial file target\n", p)
         errostack(ctx, 3, "target is trivial").at(program.position).debug(1)
         return
     }
@@ -4005,15 +4007,15 @@ func (p *File) traverse(ctx Context) (brks breakers) {
     var projects []*Project
     if len(projects) == 0 { projects = closureProjects(ctx) }
     if len(projects) == 0 {
-        prompt(ctx, "%s: zero closure projects\n", file)
-        erro(ctx, "no projects to traverse '%v' (%v)", targetValue, file)
-        erro(ctx, "%v: closure %v", file, len(ctx.closureScopes()))
-        errostack(ctx, 3, "%v: %v", file, ctx).debug(8)
+        prompt(ctx, "%s: zero closure projects\n", p)
+        erro(ctx, "no projects to traverse '%v' (%v)", targetValue, p)
+        erro(ctx, "%v: closure %v", p, len(ctx.closureScopes()))
+        errostack(ctx, 3, "%v: %v", p, ctx).debug(8)
         return
     }
-    if file.filemap != nil {
+    if p.filemap != nil {
         // Add -import filemap projects! See also `files (-import ...)`
-        if proj := file.filemap.project; proj != nil {
+        if proj := p.filemap.project; proj != nil {
             for _, p := range projects { if p == proj { goto afterFilemapProject } }
             projects = append(projects, proj);               afterFilemapProject:
         }
@@ -4057,7 +4059,7 @@ func (p *File) traverse(ctx Context) (brks breakers) {
             //warn(ctx, "%v %v %v", p, p.updatedDeps(ctx), projects)
             defer func() {
                 var t = p.stat(ctx).mod().After(targetValue.stat(ctx).mod())
-                warn(ctx, "%v: %v (%v, %v), %v %v, %v %v %v", targetValue, file, targetValue.cmp(ctx, p), t,
+                warn(ctx, "%v: %v (%v, %v), %v %v, %v %v %v", targetValue, p, targetValue.cmp(ctx, p), t,
                     targetValue.updated(ctx), p.updated(ctx), targetValue.updatedDeps(ctx),
                     p.updatedDeps(ctx), projects).debug(4)
             } ()
@@ -4082,44 +4084,44 @@ func (p *File) traverse(ctx Context) (brks breakers) {
         // Note that the file maybe not traversed yet at this point. But we still have to check mod-time.
         var (
             a = targetValue.stat(ctx).mod()
-            b = file.stat(ctx).mod()
+            b = p.stat(ctx).mod()
         )
         // IsZero() indicates the target not exists
-        if (!a.IsZero() && b.After(a)) || file.updated(ctx) || file.updatedDeps(ctx) != nil {
+        if (!a.IsZero() && b.After(a)) || p.updated(ctx) || p.updatedDeps(ctx) != nil {
             if false {
-                ctx.dirtyMark(file)
+                ctx.dirtyMark(p)
             } else if false {
                 targetValue.updated(ctx, true)
             } else {
-                targetValue.updatedDeps(ctx, file)
+                targetValue.updatedDeps(ctx, p)
             }
         }
-        ctx.traversed(file) // Add to the $^ or $| list
+        ctx.traversed(p) // Add to the $^ or $| list
     } ()
 
     var (
         t = ctx.traversal()
+        done = make(map[interface{}]bool) // helps to avoid traversed multiple times
         concreteList []Entry
         stemmedList []*stemmed
     )
-forProjectsEntries:
+ForProjectsEntries:
     for _, project := range projects {
-        var entries, err = project.resolveEntries(ctx, file.name, t.grepping, false)
+        var entries, err = project.resolveEntries(ctx, p.name, t.grepping, false)
         if err != nil {
-            prompt(ctx, "%v: traverse failed, project %s\n", file.fullname(), ctx.Project())
-            erro(ctx, "resolve entry '%v' failed: %v", file.name, err).at(file.position)
-            errostack(positional(ctx, file.position), -1, "%v:", file.name).debug(1)
+            prompt(ctx, "%v: traverse failed, project %s\n", p.fullname(), ctx.Project())
+            erro(ctx, "resolve entry '%v' failed: %v", p.name, err).at(p.position)
+            errostack(positional(ctx, p.position), -1, "%v:", p.name).debug(1)
             return
-        } else if entries == nil {
-            continue
-        } else {
+        } else if entries == nil { continue } else {
             concreteList = append(concreteList, entries.all...)
         }
         for _, entry := range entries.all {
+            if v1, v2 := done[entry]; v1 && v2 { continue } else { done[entry] = true }
             if brks = entry.traverse(ctx); !brks.has(breakFail, breakErro) {
                 if brks.has(breakCase, breakDone) {
                     if brks = brks.not(breakCase, breakDone); !brks.has() {
-                        break forProjectsEntries
+                        break ForProjectsEntries
                     }
                 }
                 if brks.has(breakNext) {
@@ -4127,12 +4129,12 @@ forProjectsEntries:
                 }
             }
             if brks.has() {
-                prompt(ctx, "%s: traverse file entry failed, project %v\n", file, ctx.Project())
+                prompt(ctx, "%s: traverse file entry failed, project %v\n", p, ctx.Project())
                 for _, brk := range brks {
                     switch brk.what {
-                    case breakFail: erro(ctx, "broken traversal for stemmed file entry %v failed: %v", file, brk.message).at(brk.pos)
-                    case breakErro: erro(ctx, "broken traversal for stemmed file entry %v with error: %v", file, brk.error).at(brk.pos)
-                    default: erro(ctx, "broken traversal for stemmed file entry %v (%v)", file, brk.what).at(brk.pos)
+                    case breakFail: erro(ctx, "broken traversal for stemmed file entry %v failed: %v", p, brk.message).at(brk.pos)
+                    case breakErro: erro(ctx, "broken traversal for stemmed file entry %v with error: %v", p, brk.error).at(brk.pos)
+                    default: erro(ctx, "broken traversal for stemmed file entry %v (%v)", p, brk.what).at(brk.pos)
                     }
                 }
                 errostack(ctx, 3, "%v: %v", entry, ctx).debug(6)
@@ -4141,19 +4143,18 @@ forProjectsEntries:
         }
     }
 
-forProjectsPatterns:
+ForProjectsPatterns:
     for _, project := range projects {
-        var patterns = project.resolvePatterns(ctx, file.name) // stemmed pattern entries
-        if len(patterns) == 0 {
-            continue
-        } else {
+        var patterns = project.resolvePatterns(ctx, p.name) // stemmed pattern entries
+        if len(patterns) == 0 { continue } else {
             stemmedList = append(stemmedList, patterns...)
         }
         for _, entry := range patterns {
-            if brks = entry.file(ctx, file); !brks.has(breakFail, breakErro) {
+            if v1, v2 := done[entry.target]; v1 && v2 { continue } else { done[entry.target] = true }
+            if brks = entry.file(ctx, p); !brks.has(breakFail, breakErro) {
                 if brks.has(breakCase, breakDone) {
                     if brks = brks.not(breakCase, breakDone); !brks.has() {
-                        break forProjectsPatterns
+                        break ForProjectsPatterns
                     }
                 }
                 if brks.has(breakNext) {
@@ -4161,12 +4162,12 @@ forProjectsPatterns:
                 }
             }
             if brks.has() {
-                prompt(ctx, "%s: traverse file entry failed, project %v\n", file, ctx.Project())
+                prompt(ctx, "%s: traverse file entry failed, project %v\n", p, ctx.Project())
                 for _, brk := range brks.not(breakFail, breakErro) {
                     switch brk.what {
-                    case breakFail: erro(ctx, "broken traversal for stemmed file entry %v failed: %v", file, brk.message).at(brk.pos)
-                    case breakErro: erro(ctx, "broken traversal for stemmed file entry %v with error: %v", file, brk.error).at(brk.pos)
-                    default: erro(ctx, "broken traversal for stemmed file entry %v (%v)", file, brk.what).at(brk.pos)
+                    case breakFail: erro(ctx, "broken traversal for stemmed file entry %v failed: %v", p, brk.message).at(brk.pos)
+                    case breakErro: erro(ctx, "broken traversal for stemmed file entry %v with error: %v", p, brk.error).at(brk.pos)
+                    default: erro(ctx, "broken traversal for stemmed file entry %v (%v)", p, brk.what).at(brk.pos)
                     }
                 }
                 errostack(ctx, 3, "%v: %v", entry, ctx).debug(6)
@@ -4175,34 +4176,34 @@ forProjectsPatterns:
         }
     }
 
-    if !file.exists() {
+    if !p.exists() {
         for _, project := range projects {
-            if file.searchInMatchedPaths(ctx, project) { return }
+            if p.searchInMatchedPaths(ctx, project) { return }
         }
     }
 
-    if file.exists() {
+    if p.exists() {
         // All good!
     } else if (len(ctx.stems()) == 0 || ctx.mustExists()) {
-        if filemap := file.filemap; filemap != nil && filemap.project != nil {
-            var s = filepath.Join(filepath.Base(filepath.Join(file.dir, file.sub)), file.name)
-            if f := filemap.project.FindFile(ctx, s); f != nil && f.fullname() == file.fullname() {
-                if false { warn(ctx, "%v: %v -> %v (%s)", proj, file.name, f, s).debug(1) }
-                file, projects = f, []*Project{ filemap.project }
-                goto forProjectsEntries // retry with different file alias
+        if filemap := p.filemap; filemap != nil && filemap.project != nil {
+            var s = filepath.Join(filepath.Base(filepath.Join(p.dir, p.sub)), p.name)
+            if f := filemap.project.FindFile(ctx, s); f != nil && f.fullname() == p.fullname() {
+                if false { warn(ctx, "%v: %v -> %v (%s)", proj, p.name, f, s).debug(1) }
+                p, projects = f, []*Project{ filemap.project }
+                goto ForProjectsEntries // retry with different file alias
             }
         }
 
         // Add FileNotFound breaker
-        brks.add(ctx, breakErro).error = fileNotFoundError{ proj, file }
+        brks.add(ctx, breakErro).error = fileNotFoundError{ proj, p }
 
-        prompt(ctx, "%v: traverse file failed; projects %v, %v\n", file.fullname(), proj, projects)
+        prompt(ctx, "%v: traverse file failed; projects %v, %v\n", p.fullname(), proj, projects)
         for i, concrete := range concreteList { erro(ctx, "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs())).at(concrete.Position()) }
         for i, stemmed  := range stemmedList  { erro(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position) }
         //for i, brk := range brks { erro(ctx, "%v, %v: %d. %v", proj, file, i, brk.what) }
-        if args := t.arguments(); len(args) > 0 { erro(ctx, "%v, %v: arguments %v", proj, file, args) }
-        erro(ctx, "%v: no rules for %v, required by %v", proj, file, targetValue)
-        errostack(ctx, 15, "(%T): (exists=%v)", ctx, file.exists()).debug(64)
+        if args := t.arguments(); len(args) > 0 { erro(ctx, "%v, %v: arguments %v", proj, p, args) }
+        erro(ctx, "%v: no rules for %v, required by %v", proj, p, targetValue)
+        errostack(ctx, 15, "(%T): (exists=%v)", ctx, p.exists()).debug(64)
     } else if len(ctx.stems()) > 0 {
         if false { brks.add(ctx, breakNext).scope = breakTrave }
     }
@@ -4549,17 +4550,13 @@ func (p *List) expand(ctx Context, w expandwhat) (res Value, err error) {
     return
 }
 func (p *List) traverse(ctx Context) (brks breakers) {
-    if len(p.Elems) > 0 {
-        for _, elem := range p.Elems {
-            if brks = elem.traverse(ctx); brks.has() {
-                if false {
-                    for _, b := range brks {
-                        warn(ctx, "%T %v; %v; %v", elem, elem, b.what, p)
-                        warn(ctx, "%v; %v", ctx.stems(), ctx).debug(1)
-                    }
-                }
-                break
-            }
+    for _, elem := range p.Elems {
+        if brks = elem.traverse(ctx); brks.has(/*breakCase, breakFail, breakErro, breakNext*/) {
+            if false { for _, b := range brks {
+                warn(ctx, "%T %v; %v; %v", elem, elem, b.what, p)
+                warn(ctx, "%v; %v", ctx.stems(), ctx).debug(1)
+            }}
+            break
         }
     }
     return

@@ -682,32 +682,14 @@ func (p *Project) resolvePatterns(ctx Context, i interface{}) (res []*stemmed) {
 func (p *Project) resolvePatterns1(ctx Context, i interface{}) (res []*stemmed) {
   for _, pat := range p.patterns {
     if full, _, stems := pat.target.match(ctx, i); full {
-      if false && fmt.Sprintf("%v", i) == "fcrange.o" {
-        warn(ctx, "%v, %v, %v; %v", i, full, stems, len(res))
-      }
       if ok := false; len(pat.argumented) > 0 {
         for _, a := range pat.argumented {
           if ok, _, _ = a.match(ctx, i); ok { break }
         }
         if !ok { continue }
       }
-      // if s := ctx.entry().String(); strings.HasSuffix(s, ".cnf") {
-      //   if ent, ok := ctx.entry().(*RuleEntry); ok {
-      //     warn(ctx, "%p, %p; %T %v; %T %v", ent, pat, ent.target, ent.target, i, i)
-      //   }
-      //   if stem := ctx.stemmed(); stem != nil {
-      //     // if f, _, s := pat.target.match(ctx, stem.target); full {
-      //     //   warn(ctx, "%T %v; %T %v; %v, %v; %v", stem.target, stem.target, pat, pat, f, s, stems).debug(1)
-      //     // }
-      //     warn(ctx, "%T %v; %T %v; %p, %p", stem.target, stem.target, pat, pat, stem, pat).debug(1)
-      //   }
-      //   warn(ctx, "%T %v; %v", ctx.entry(), ctx.entry(), i).debug(1)
-      // }
       res = append(res, &stemmed{*pat, stems})
     }
-  }
-  if false && len(res) > 0 && fmt.Sprintf("%v", i) == "fcrange.o" {
-    warnstack(ctx, 6, "%v %v, %v, %v", p, p.bases, i, len(res)).debug(132)
   }
   return
 }
@@ -807,8 +789,7 @@ func (p *Project) isa(proj *Project) (res bool) {
 
 func (p *Project) hasBase(proj *Project) (res bool) {
   for _, base := range p.bases {
-    if res = base == proj; res { break }
-    if res = base.hasBase(proj); res { break }
+    if res = base == proj || base.hasBase(proj); res { break }
   }
   return
 }
