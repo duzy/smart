@@ -41,12 +41,13 @@ type commandLineOpts struct {
 
   buildPlugins    bool `bp,bup,build-plugins,buildplugins`  // optionAlwaysBuildPlugins
 
-  verbose         bool `v,verb,verbose`       // optionVerbose
-  verboseImport   bool `vi,vimp,verbose-import`  // optionVerboseImport
-  verboseChecks   bool `vc,vchk,verbose-checks`  // optionVerboseChecks
-  verboseLoads    bool `vl,vloa,verbose-loading` // optionVerboseLoading
-  verboseParse    bool `vp,vpar,verbose-parsing` // optionVerboseParsing
-  verboseUsing    bool `vu,vuse,verbose-using`   // optionVerboseUsing
+  verbose         bool `v,verb,verbose`
+  verboseBreaks   bool `vb,vbrk,verbose-breaks`
+  verboseChecks   bool `vc,vchk,verbose-checks`
+  verboseImport   bool `vi,vimp,verbose-import`
+  verboseLoads    bool `vl,vloa,verbose-loading`
+  verboseParse    bool `vp,vpar,verbose-parsing`
+  verboseUsing    bool `vu,vuse,verbose-using`
 
   allowClosureFilemap bool `cf,closure-filemap,closure-files`
 

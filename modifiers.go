@@ -65,7 +65,7 @@ func (m *modifier) traverse(ctx Context) (brks breakers) {
                         var s = fmt.Sprintf("%s: modifier failed with %d errors", m.name, n)
                         brks.add(ctx, breakFail).message = s
                 }
-        } else if tb := brks.not(breakCase, breakNext, breakDone); tb.has() {
+        } else if tb := brks.not(breakCase, breakNext, breakDone); false && tb.has() {
                 prompt(ctx, "%v: %s modify failed for %s\n", ctx.entry(), m.name, proj)
                 for _, brk := range tb {
                         switch brk.what {
@@ -114,27 +114,29 @@ func (g *modifiergroup) traverse(ctx Context) (brks breakers) {
                         ctx = positional(ctx, m.position)
                         proj = ctx.Project()
                 )
-                if tb := m.traverse(ctx); tb.has() {
-                        brks = append(brks, tb...) // collect breakers
+                if t := m.traverse(ctx); t.has() {
+                        brks = append(brks, t...) // collect breakers
                 } else {
                         continue
                 }
-                if tb := brks.not(breakCase, breakDone, breakNext); tb.has() {
-                        var _, ent, _ = entryStr(ctx, ctx.entry())
-                        prompt(ctx, "%v: traverse %s failed, project %s\n", ent, m.name, proj)
-                        for _, brk := range tb {
-                                switch brk.what {
-                                case breakErro: erro(ctx, "%v: %s: %v", proj, m.name, brk.error).at(brk.pos)
-                                case breakFail: erro(ctx, "%v: %s: %v", proj, m.name, brk.message).at(brk.pos)
-                                default: erro(ctx, "%v: %s: %v", proj, m.name, brk.what).at(brk.pos)
+                if t := brks.not(breakCase, breakDone, breakNext); t.has() {
+                        if false { // NOTE: only check breakers in func traverse
+                                var _, ent, _ = entryStr(ctx, ctx.entry())
+                                prompt(ctx, "%v: traverse %s failed, project %s\n", ent, m.name, proj)
+                                for _, brk := range t {
+                                        switch brk.what {
+                                        case breakErro: erro(ctx, "%v: %s: %v", proj, m.name, brk.error).at(brk.pos)
+                                        case breakFail: erro(ctx, "%v: %s: %v", proj, m.name, brk.message).at(brk.pos)
+                                        default: erro(ctx, "%v: %s: %v", proj, m.name, brk.what).at(brk.pos)
+                                        }
                                 }
+                                errostack(ctx, 3, "%v: %v: %v", proj, m.name, ctx).debug(6)
                         }
-                        errostack(ctx, 3, "%v: %v: %v", proj, m.name, ctx).debug(6)
                         break
-                } else if tb = brks.of(breakCase); tb.has() {
+                } else if t = brks.of(breakCase); t.has() {
                         if false { warn(ctx, "%v: %v", proj, m).debug(16) }
                         continue // case selected
-                } else if tb = brks.of(breakDone, breakNext); tb.has() {
+                } else if t = brks.of(breakDone, breakNext); t.has() {
                         break // done or try next rule entry
                 }
         }
@@ -2671,10 +2673,18 @@ func modifierReadFile(ctx Context, args... Value) (result Value, brks breakers) 
                         }
                 }
                 ctx.autoSet("-", MakeString(ctx.Position(), s))
+        } else if stems := ctx.stems(); false && len(stems) > 0 {
+                brks.add(ctx, breakNext).scope = breakTrave
+                if opts.debug {
+                        warn(ctx, "%v", err).debug(1)
+                        warnstack(ctx, -1, "%v", err).debug(1)
+                }
         } else {
                 brks.add(ctx, breakErro).error = err
-                erro(ctx, "read-file: %T %s", target, filename)
-                errostack(ctx, 3, "%v", err).debug(6)
+                if opts.debug {
+                        erro(ctx, "read-file: %T %s (stems=%v)", target, filename, stems)
+                        errostack(ctx, 5, "%v", err).debug(36)
+                }
         }
         return
 }
@@ -2836,7 +2846,8 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
                                 s = fmt.Sprintf("changed (%d bytes)", wrote)
                         }
                         //printEnteringDirectory(ctx)
-                        prompt(ctx, "update %v …… %s (in %v)\n", trimPromptString(target.String()), s, time.Now().Sub(st)).debug(opts.debug, 6)
+                        prompt(ctx, "update %v …… %s (in %v)\n", trimPromptString(target.String()), s, time.Now().Sub(st)).
+                                debug(opts.debug, 6)
                 } (time.Now())
         }
 
@@ -3049,7 +3060,7 @@ func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
                         warn(ctx, "stamp(%v) error")
                         warnstack(ctx, -1, "%v", ctx).debug(1)
                 }
-        } else if stems := ctx.stems(); len(stems) == 0 {
+        } else if stems := ctx.stems(); false && len(stems) == 0 {
                 brks.add(ctx, breakNext).scope = breakTrave
                 if opts.debug > 0 && err != nil {
                         warn(ctx, "%v", err).debug(1)

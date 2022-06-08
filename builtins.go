@@ -4624,10 +4624,10 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                         erro(ctx, "%v", err).debug(1)
                         return
                 } else if def == nil {
-                        if true { warnstack(ctx, 5, "%v undefined", name).debug(1) }
+                        if true { warnstack(ctx, 5, "%v undefined", name).debug(6) }
                         continue
                 } else if val = def.Call(ctx); isTrivial(val) {
-                        if true { warnstack(ctx, 5, "%v is trivial", name).of(def).debug(1) }
+                        if true { warnstack(ctx, 5, "%v is trivial", name).of(def).debug(6) }
                         continue
                 }
 

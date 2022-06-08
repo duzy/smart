@@ -37,7 +37,7 @@ func (filemap *FileMap) String() (s string) {
 func (filemap *FileMap) Patterns(ctx Context) (pats []Value) {
   for _, pattern := range filemap.patts {
     if pattern.expandible(ctx, expandClosure) {
-      if !options.allowClosureFilemap {
+      if !options.allowClosureFilemap { // -closure-files
         warnstack(ctx, 8, "closure filemap pattern may cause recursive file resolving: %v", pattern).
           of(pattern).debug(1)
         ctx.checkErrors(true) // check here to report warnings immediately

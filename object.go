@@ -1444,13 +1444,13 @@ ForPrograms:
                         results = append(results, merge(res)...)
                 }
 
-                // Update traversal breakers
                 for _, brk := range brs {
                         switch brk.what {
                         case breakDone:
                                 break ForPrograms
                         case breakCase, breakFail, breakErro:
-                                if brks.append(brk); brk.what != breakCase {
+                                brks.append(brk)
+                                if false && brk.what != breakCase {
                                         warn(ctx, "%v: %v (stems=%v)", entry, brk.what, ctx.stems()).debug(6)
                                 }
                                 break ForPrograms
