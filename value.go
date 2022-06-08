@@ -200,6 +200,10 @@ func (brks *breakers) has(what ...breakind) (res bool) {
     return
 }
 
+func (brks *breakers) failed() bool {
+    return brks.has(breakErro, breakFail)
+}
+
 func (brks *breakers) append(brk *breaker) {
     *brks = append(*brks, brk)
 }
@@ -732,6 +736,7 @@ func traverse(ctx Context, targetVal Value, target string, projects... *Project)
         }
     } ()
 
+ForProjectsObjects:
     for _, project := range projects {
         var obj Object
         if obj, err = project.resolveObject(ctx, target); err != nil {
@@ -741,29 +746,39 @@ func traverse(ctx Context, targetVal Value, target string, projects... *Project)
             return
         } else if isTrivial(obj) {
             // does nothing here and keep trying FindFile
-        } else if brks = obj.traverse(ctx); brks.has(breakErro, breakFail) {
+        } else if _, ok := obj.(*Def); ok {
+            continue // skip defs
+        } else if brks = obj.traverse(ctx); brks.failed() {
             prompt(ctx, "%v: traverse failed, project %s\n", target, project)
             erro(ctx, "%s: broken traversal '%v' (%T) (project=%v)", target, obj, obj, project).at(pos)
             errostack(ctx, 3, "%v: %v: %v", target, project, ctx).debug(6)
             return
+        } else if brks.has(breakCase, breakDone) {
+            if brks = brks.not(breakCase, breakDone); !brks.has() {
+                break ForProjectsObjects
+            }
         } else if brks.has(breakNext) {
-            continue
+            if brks = brks.not(breakNext); !brks.has() { continue }
         } else if _, ok := obj.(*ProjectName); ok {
-            // solved, no need to check against patterns
-            return
+            return // solved, no need to check files and patterns
         } else if !brks.has() {
             okay = true
             return
         }
     }
 
+ForProjectsFiles:
     for _, project := range projects {
         if file = project.FindFile(ctx, target); file != nil {
             file.position = pos // change the position for tracing
-            if brks = file.traverse(ctx/*, project*/); brks.has(breakErro, breakFail) {
+            if brks = file.traverse(ctx/*, project*/); brks.failed() {
                 erro(ctx, "%s: traverse file failed", target).at(pos)
+            } else if brks.has(breakCase, breakDone) {
+                if brks = brks.not(breakCase, breakDone); !brks.has() {
+                    break ForProjectsFiles
+                }
             } else if brks.has(breakNext) {
-                continue
+                if brks = brks.not(breakNext); !brks.has() { continue }
             } else if file.exists() {
                 okay = true
                 return
@@ -793,7 +808,7 @@ ForProjectsConcretes:
             if entry != nil && currentTargetValue != entry {
                 if w, ok := currentTargetValue.(*Bareword); ok && w.string == target {
                     continue // target resolve to itself, does nothing
-                } else if brks = entry.traverse(ctx); !brks.has(breakErro, breakFail) {
+                } else if brks = entry.traverse(ctx); !brks.failed() {
                     file, _ = entry.Target().(*File)
                     okay = true
                     if brks.has(breakCase, breakDone) {
@@ -827,7 +842,7 @@ ForProjectsPatterns:
         stemmedList = append(stemmedList, patterns...)
         for _, entry := range patterns {
             if v1, v2 := done[entry.target]; v1 && v2 { continue } else { done[entry.target] = true }
-            if brks = entry.string(ctx, targetVal, target); !brks.has(breakFail, breakErro) {
+            if brks = entry.string(ctx, targetVal, target); !brks.failed() {
                 okay = true
                 if brks.has(breakCase, breakDone) {
                     if brks = brks.not(breakCase, breakDone); !brks.has() {
@@ -914,7 +929,7 @@ func traversePattern(ctx Context, pat Value, projects... *Project) (brks breaker
 
     var file *File
     if file, _ = val.(*File); file != nil {
-        if brks = file.traverse(ctx/*, projects...*/); brks.has(breakErro, breakFail) {
+        if brks = file.traverse(ctx/*, projects...*/); brks.failed() {
             erro(ctx, "%v: traverse file failed", file).at(pos).debug(1)
         }
         return
@@ -932,7 +947,7 @@ func traversePattern(ctx Context, pat Value, projects... *Project) (brks breaker
     for _, proj := range projects {
         if file = proj.FindFile(ctx, name); file != nil {
             file.position = pos
-            if brks = file.traverse(ctx/*, projects...*/); brks.has(breakErro, breakFail) {
+            if brks = file.traverse(ctx/*, projects...*/); brks.failed() {
                 erro(ctx, "%v: traverse file failed", file).at(pos).debug(1)
             } else {
                 if true && brks.has() { warn(ctx, "%v; %v; %v", file, brks, ctx.stems()).debug(1) }
@@ -4118,7 +4133,7 @@ ForProjectsEntries:
         }
         for _, entry := range entries.all {
             if v1, v2 := done[entry]; v1 && v2 { continue } else { done[entry] = true }
-            if brks = entry.traverse(ctx); !brks.has(breakFail, breakErro) {
+            if brks = entry.traverse(ctx); !brks.failed() {
                 if brks.has(breakCase, breakDone) {
                     if brks = brks.not(breakCase, breakDone); !brks.has() {
                         break ForProjectsEntries
@@ -4151,7 +4166,7 @@ ForProjectsPatterns:
         }
         for _, entry := range patterns {
             if v1, v2 := done[entry.target]; v1 && v2 { continue } else { done[entry.target] = true }
-            if brks = entry.file(ctx, p); !brks.has(breakFail, breakErro) {
+            if brks = entry.file(ctx, p); !brks.failed() {
                 if brks.has(breakCase, breakDone) {
                     if brks = brks.not(breakCase, breakDone); !brks.has() {
                         break ForProjectsPatterns
