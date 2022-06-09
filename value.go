@@ -579,7 +579,9 @@ func (t *traverseContext) traversed(target Value) (targets []Value) {
 }
 
 func entryStr(ctx Context, entry Entry) (str, ent, tar string) {
-    if s, e := entry.Strval(ctx); e == nil { ent = s } else {
+    if isNil(entry) {
+        // ...
+    } else if s, e := entry.Strval(ctx); e == nil { ent = s } else {
         erro(ctx, "strval '%v' failed: %v", entry, e).debug(1)
         return
     }
@@ -4186,11 +4188,12 @@ ForProjectsPatterns:
         brks.add(ctx, breakErro).error = fileNotFoundError{ proj, p }
 
         prompt(ctx, "%v: traverse file failed; projects %v, %v\n", p.fullname(), proj, projects)
+        erro(ctx, "%v: no rules for %v, required by %v", proj, p, targetValue).at(p.position)
         for i, concrete := range concreteList { erro(ctx, "concrete: %d. %v (%v; %d programs)", i, concrete, concrete.OwnerProject(), len(concrete.Programs())).at(concrete.Position()) }
         for i, stemmed  := range stemmedList  { erro(ctx, "stemmed: %d. %v (%v)", i, stemmed, stemmed.OwnerProject()).at(stemmed.position) }
         if args := t.arguments(); len(args)>0 { erro(ctx, "%v, %v: arguments %v", proj, p, args) }
         erro(ctx, "%v: no rules for %v, required by %v", proj, p, targetValue)
-        errostack(ctx, 5, "(%T): (exists=%v)", ctx, p.exists()).debug(64)
+        errostack(ctx, 5, "(exists=%v)", p.exists()).debug(64)
     } else if len(ctx.stems()) > 0 {
         if false { brks.add(ctx, breakNext).scope = breakTrave }
     }

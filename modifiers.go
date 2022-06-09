@@ -2726,9 +2726,10 @@ func crc64CompareFileChecksum(ctx Context, filename1, filename2 string) (same bo
 }
 
 type modifierUpdateFileOpts struct {
-        debug bool "d,debug"
-        verbose bool "v,verbose"
-        path bool "p,path"
+        debug bool `d,debug`
+        verbose bool `v,verbose`
+        full bool `f,fn,full,fullname`
+        path bool `p,path,md,makedir,make-dir,mp,makepath,make-path`
         zero bool `z,zero;e,empty;az,allow-zero;ae,allow-empty`
         append bool `a,app,append,append-content`
         mode os.FileMode "m,mode"
@@ -2745,36 +2746,52 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
         } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
                 erro(ctx, "parse opts failed: %v", err).debug(1)
                 return
+        } else if !opts.full {
+                // does nothing
+        } else if args, err = expandmerge2(ctx, expandFullName, args...); err != nil {
+                erro(ctx, "merge args failed: %v", err).debug(1)
+                return
         }
 
         var target Value
-        if len(args) > 0 { target = args[0] } else { target, _ = ctx.autoGet("@") }
+        if len(args) > 0 {
+                target = args[0]
+        } else {
+                target, _ = ctx.autoGet("@")
+        }
         if len(args) > 1 { if opts.mode, err = permVal(ctx, args[1], 0600); err != nil {
                 erro(ctx, "perm value '%v' failed: %v", args[1], err).of(args[1]).debug(1)
                 return
         }}
 
         // Get target filename
-        switch p := target.(type) {
-        case *File: filename = p.fullname()
-        case *Path:
-                if filename, err = p.Strval(ctx); err != nil {
-                        erro(ctx, "strval path '%v' failed: %v", p, err).debug(1)
+        if opts.full {
+                if filename, err = fullnameOrStrval(ctx, target); err != nil {
+                        erro(ctx, "fullnameOrStrval: %v", err).debug(1)
                         return
                 }
-        default:
-                if filename, err = target.Strval(ctx); err != nil {
-                        erro(ctx, "strval '%v' failed: %v", p, err).debug(1)
-                        return
-                } else if file := ctx.Project().FindFile(ctx, filename); file != nil {
-                        target, filename = file, file.fullname()
+        } else {
+                switch p := target.(type) {
+                case *File: filename = p.fullname()
+                case *Path:
+                        if filename, err = p.Strval(ctx); err != nil {
+                                erro(ctx, "strval path '%v' failed: %v", p, err).debug(1)
+                                return
+                        }
+                default:
+                        if filename, err = target.Strval(ctx); err != nil {
+                                erro(ctx, "strval '%v' failed: %v", p, err).debug(1)
+                                return
+                        } else if file := ctx.Project().FindFile(ctx, filename); file != nil {
+                                target, filename = file, file.fullname()
+                        }
                 }
         }
 
         if opts.debug {
-                infostack(ctx, 3, "update-file: %v (%v) (%v, %v)", target, filename, ctx.Project(), ctx).debug(6)
+                warnstack(ctx, 5, "update-file: %v (fullname=%v, project=%v)",
+                        target, filename, ctx.Project()).debug(12)
         }
-
         if opts.path { // Make path (mkdir -p)
                 if p := filepath.Dir(filename); p != "." && p != "/" {
                         if err = os.MkdirAll(p, os.FileMode(0755)); err != nil {
