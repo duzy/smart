@@ -856,9 +856,18 @@ ForProjectsPatterns:
         } else if _, ok := obj.(*Def); ok {
             continue // skip defs
         } else if brks = obj.traverse(ctx); brks.failed() {
-            prompt(ctx, "%v: traverse failed, project %s\n", target, project)
-            erro(ctx, "%s: broken traversal '%v' (%T) (project=%v)", target, obj, obj, project).at(pos)
-            errostack(ctx, 3, "%v: %v: %v", target, project, ctx).debug(6)
+            var t = brks.not(breakCase, breakNext, breakDone)
+            if (true || options.debug) && len(t) > 0 {
+                prompt(ctx, "%v → %T %v\n", target, obj, obj)
+                for _, brk := range t {
+                    switch brk.what {
+                    case breakErro: warn(ctx, "%v: %v", obj, brk.error).at(brk.pos)
+                    case breakFail: warn(ctx, "%v: %v", obj, brk.message).at(brk.pos)
+                    default:        warn(ctx, "%v: broken traversal (%v)", obj, brk.what).at(brk.pos)
+                    }
+                }
+                warnstack(ctx, 5, "%T %v", obj, obj).debug(8)
+            }
             return
         } else if brks.has(breakCase, breakDone) {
             if brks = brks.not(breakCase, breakDone); !brks.has() {
@@ -4540,12 +4549,20 @@ func (p *List) expand(ctx Context, w expandwhat) (res Value, err error) {
     return
 }
 func (p *List) traverse(ctx Context) (brks breakers) {
-    for _, elem := range p.Elems {
-        if brks = elem.traverse(ctx); brks.has(/*breakCase, breakFail, breakErro, breakNext*/) {
-            if false { for _, b := range brks {
-                warn(ctx, "%T %v; %v; %v", elem, elem, b.what, p)
-                warn(ctx, "%v; %v", ctx.stems(), ctx).debug(1)
-            }}
+    for i, elem := range p.Elems {
+        if brks = elem.traverse(ctx); brks.failed() {
+            var t = brks.not(breakCase, breakNext, breakDone)
+            if (true || options.debug) && len(t) > 0 {
+                prompt(ctx, "List[%v] → %T %v\n", i, elem, elem)
+                for _, brk := range t {
+                    switch brk.what {
+                    case breakErro: warn(ctx, "[%v] %v: %v", i, elem, brk.error  ).at(brk.pos)
+                    case breakFail: warn(ctx, "[%v] %v: %v", i, elem, brk.message).at(brk.pos)
+                    default:        warn(ctx, "[%v] %v: broken traversal (%v)", i, elem, brk.what).at(brk.pos)
+                    }
+                }
+                warnstack(ctx, 5, "%T %v", elem, elem).debug(16)
+            }
             break
         }
     }
@@ -4939,8 +4956,17 @@ func (p *delegate) traverse(ctx Context) (brks breakers) {
             warnstack(ctx, -1, "delegate '%v' expands to <none>", p).debug(16)
         }
     } else if brks = val.traverse(ctx); len(brks) > 0 {
-        if brks = brks.not(breakCase, breakNext, breakDone); true && len(brks) > 0 {
-            for _, brk := range brks { warn(ctx, "%v: %v -> %T %v", brk.what, p, val, val).debug(8) }
+        var t = brks.not(breakCase, breakNext, breakDone)
+        if (true || options.debug) && len(t) > 0 {
+            prompt(ctx, "%v → %T %v\n", p, val, val)
+            for _, brk := range t {
+                switch brk.what {
+                case breakErro: warn(ctx, "%v: %v", p, brk.error  ).at(brk.pos)
+                case breakFail: warn(ctx, "%v: %v", p, brk.message).at(brk.pos)
+                default:        warn(ctx, "%v: broken traversal (%v)", p, brk.what).at(brk.pos)
+                }
+            }
+            warnstack(ctx, 5, "%v: %T", p, val).debug(16)
         }
     } else if false && strings.HasSuffix(val.String(), ".a") {
         var v, _ = ctx.autoGet("^")

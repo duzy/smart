@@ -564,9 +564,14 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
 }
 
 func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers) {
-    // IMPORTANT: don't expand the args here. The prerequisites like
-    // '$(or &@,...)' have to be expanded when it's used (e.g. compare).
-    if true {
+    var asyncUnsafe bool
+    for _, prerequisite := range prerequisites {
+        if _, ok := prerequisite.(*modifiergroup); !ok {
+            asyncUnsafe = true; break;
+        }
+    }
+
+    if asyncUnsafe {
         for _, prerequisite := range prerequisites {
             if brks = prerequisite.traverse(ctx); !brks.has() {
                 continue
@@ -593,22 +598,29 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
             wg sync.WaitGroup
         )
         for _, prerequisite := range prerequisites {
-            wg.Add(1); go func (ctx Context) {
+            wg.Add(1)
+            go func (ctx Context) {
                 defer checkPanicsErrors(ctx)
-                defer wg.Done() // minus 1
+                defer wg.Done()
                 if t := prerequisite.traverse(ctx); t.has() {
                     mu.Lock(); defer mu.Unlock()
                     brks = append(brks, t...)
+
+                    var proj = ctx.Project()
+                    if t = t.not(breakNext, breakCase, breakDone); t.has() {
+                        for _, brk := range t {
+                            switch brk.what {
+                            case breakErro: warn(ctx, "%v: %v", proj, brk.error  ).at(brk.pos)
+                            case breakFail: warn(ctx, "%v: %v", proj, brk.message).at(brk.pos)
+                            default:        warn(ctx, "%v: %v", proj, brk.what   ).at(brk.pos)
+                            }
+                        }
+                        warnstack(ctx, 5, "%v: %v: %v", proj, ctx.entry(), prerequisite).debug(36)
+                    }
                 }
             } (ctx.spawn())
         }
-        if wg.Wait(); brks.has() {
-            var t = brks.not(breakNext, breakCase, breakDone)
-            if len(t) > 0 && len(ctx.stems()) > 0 && false {
-                var target, _ = ctx.autoGet("@")
-                warn(ctx, "broken traversal: %v (target = %v, stems = %v)", t[0].what, target, ctx.stems()).debug(1)
-            }
-        }
+        wg.Wait()
     }
     return
 }

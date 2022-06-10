@@ -177,8 +177,21 @@ func (p *ProjectName) Call(ctx Context, a... Value) (value Value) {
 func (p *ProjectName) traverse(ctx Context) (brks breakers) {
         if entry := p.project.DefaultEntry(); entry == nil {
                 // does nothing
-        } else if entry.Class() != UseRuleEntry {
-                brks = entry.traverse(ctx)
+        } else if entry.Class() == UseRuleEntry {
+                // skip :use: rules
+        } else if brks = entry.traverse(ctx); brks.has() {
+                var t = brks.not(breakCase, breakNext, breakDone)
+                if (true || options.debug) && len(t) > 0 {
+                        prompt(ctx, "%v→%v\n", p, entry)
+                        for _, brk := range t {
+                                switch brk.what {
+                                case breakErro: warn(ctx, "%v→%v: %v", p, entry, brk.error  ).at(brk.pos)
+                                case breakFail: warn(ctx, "%v→%v: %v", p, entry, brk.message).at(brk.pos)
+                                default:        warn(ctx, "%v→%v: broken traversal (%v)", p, entry, brk.what).at(brk.pos)
+                                }
+                        }
+                        warnstack(ctx, 5, "%v→%v", p, entry).debug(8)
+                }
         }
         return
 }

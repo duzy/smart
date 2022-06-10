@@ -2794,6 +2794,11 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
         }
         if opts.path { // Make path (mkdir -p)
                 if p := filepath.Dir(filename); p != "." && p != "/" {
+                        if fi, _ := os.Stat(p); fi != nil && !fi.IsDir() {
+                                if e := os.Remove(p); e != nil {
+                                        erro(ctx, "%v", err).debug(1)
+                                }
+                        }
                         if err = os.MkdirAll(p, os.FileMode(0755)); err != nil {
                                 erro(ctx, "%v", err).debug(1)
                                 return
