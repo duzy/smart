@@ -3694,163 +3694,162 @@ type builtinSymlinkOpts struct {
         relative bool `r,relative;l,rel`
         verbose bool `v,verbose`
 }
-func builtinSymlink(ctx Context, aargs... Value) (res Value) {
-        var err error
+func builtinSymlink(ctx Context, args... Value) (res Value) {
+        var (
+                opts builtinSymlinkOpts
+                err error
+        )
+        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        } else if !opts.full {
+                // ...
+        } else if args, err = expandmerge2(ctx, expandFullName, args...); err != nil {
+                erro(ctx, "%v", err).debug(1)
+                return
+        }
 ForArgs:
-        for _, aarg := range aargs {
+        for i, na := 0, len(args); i < na; i += 1 {
                 var (
-                        opts builtinSymlinkOpts
+                        opts = opts // make a copy
                         oldNameVal, newNameVal Value
                         oldName   , newName    string
-                        args = []Value{ aarg }
+                        aa []Value
                 )
-                if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                        erro(ctx, "%v", err).debug(1)
+                switch t := args[i].(type) {
+                case *Pair: // symlink oldName=newName oldName=>newName...
+                        oldNameVal, newNameVal = t.Key, t.Value
+                case *Group: // symlink (-u oldName newName) (-v oldName newName)...
+                        if aa, err = expandmerge2(ctx, expandPlainValue, t.Elems...); err != nil {
+                                erro(ctx, "%v", err).debug(1)
+                                return
+                        } else if aa, err = parseOpts(ctx, &opts, aa...); err != nil {
+                                erro(ctx, "%v", err).debug(1)
+                                return
+                        } else if !opts.full {
+                                // ...
+                        } else if aa, err = expandmerge2(ctx, expandFullName, aa...); err != nil {
+                                erro(ctx, "%v", err).debug(1)
+                                return
+                        }
+                        if len(aa) != 2 {
+                                erro(ctx, "expects two values for group").of(t).debug(1)
+                                return
+                        } else {
+                                oldNameVal, newNameVal = aa[0], aa[1]
+                        }
+                case *List: // XXX: symlink old new, old new, ...
+                        if aa, err = expandmerge2(ctx, expandPlainValue, t.Elems...); err != nil {
+                                erro(ctx, "%v", err).debug(1)
+                                return
+                        } else if aa, err = parseOpts(ctx, &opts, aa...); err != nil {
+                                erro(ctx, "%v", err).debug(1)
+                                return
+                        } else if !opts.full {
+                                // ...
+                        } else if aa, err = expandmerge2(ctx, expandFullName, aa...); err != nil {
+                                erro(ctx, "%v", err).debug(1)
+                                return
+                        }
+                        if len(aa) != 2 {
+                                erro(ctx, "expects two values for list").of(t).debug(1)
+                                return
+                        } else {
+                                oldNameVal, newNameVal = aa[0], aa[1]
+                        }
+                default:// Multiple pairs of names:
+                        // symlink  new old, new old ...
+                        // symlink  new old  new old ...
+                        if i+1 < na {
+                                oldNameVal = args[i+0]
+                                newNameVal = args[i+1]
+                                i += 1
+                        } else {
+                                var a, _ = ctx.autoGet("@")
+                                var l, _ = ctx.autoGet("<")
+                                var r, _ = ctx.autoGet(">")
+                                prompt(ctx, "symlink: args=%v -> %v\n", args, t)
+                                prompt(ctx, "symlink: %v, %v, %v\n", a, l, r)
+                                errostack(ctx, 5, "expects pair of names (%T %v)", t, t).of(t).debug(6)
+                                return
+                        }
+                }
+
+                if oldName, err = oldNameVal.Strval(ctx); err != nil {
+                        prompt(ctx, "symlink: args=%v\n", args)
+                        errostack(ctx, 5, "%v", err).of(oldNameVal).debug(6)
                         return
-                } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                        erro(ctx, "%v", err).debug(1)
-                        return
-                } else if !opts.full {
-                        // ...
-                } else if args, err = expandmerge2(ctx, expandFullName, args...); err != nil {
-                        erro(ctx, "%v", err).debug(1)
+                } else if oldName == "" {
+                        prompt(ctx, "symlink: args=%v\n", args)
+                        prompt(ctx, "symlink: old=%v\n", oldNameVal)
+                        errostack(ctx, 5, "empty old filename (%T)", oldNameVal).of(oldNameVal).debug(6)
                         return
                 }
-                for i, na := 0, len(args); i < na; i += 1 {
-                        var opts = opts // make a copy
-                        var aa []Value
-                        switch t := args[i].(type) {
-                        case *Pair: // symlink oldName=newName oldName=>newName...
-                                oldNameVal, newNameVal = t.Key, t.Value
-                        case *Group: // symlink (-u oldName newName) (-v oldName newName)...
-                                if aa, err = expandmerge2(ctx, expandPlainValue, t.Elems...); err != nil {
-                                        erro(ctx, "%v", err).debug(1)
-                                        return
-                                } else if aa, err = parseOpts(ctx, &opts, aa...); err != nil {
-                                        erro(ctx, "%v", err).debug(1)
-                                        return
-                                } else if !opts.full {
-                                        // ...
-                                } else if aa, err = expandmerge2(ctx, expandFullName, aa...); err != nil {
-                                        erro(ctx, "%v", err).debug(1)
-                                        return
-                                }
-                                if len(aa) != 2 {
-                                        erro(ctx, "expects two values for group").of(t).debug(1)
-                                        return
-                                } else {
-                                        oldNameVal, newNameVal = aa[0], aa[1]
-                                }
-                        case *List: // XXX: symlink old new, old new, ...
-                                if aa, err = expandmerge2(ctx, expandPlainValue, t.Elems...); err != nil {
-                                        erro(ctx, "%v", err).debug(1)
-                                        return
-                                } else if aa, err = parseOpts(ctx, &opts, aa...); err != nil {
-                                        erro(ctx, "%v", err).debug(1)
-                                        return
-                                } else if !opts.full {
-                                        // ...
-                                } else if aa, err = expandmerge2(ctx, expandFullName, aa...); err != nil {
-                                        erro(ctx, "%v", err).debug(1)
-                                        return
-                                }
-                                if len(aa) != 2 {
-                                        erro(ctx, "expects two values for list").of(t).debug(1)
-                                        return
-                                } else {
-                                        oldNameVal, newNameVal = aa[0], aa[1]
-                                }
-                        default:// Multiple pairs of names:
-                                // symlink  new old, new old ...
-                                // symlink  new old  new old ...
-                                if i+1 < na {
-                                        oldNameVal = args[i+0]
-                                        newNameVal = args[i+1]
-                                        i += 1
-                                } else {
-                                        var a, _ = ctx.autoGet("@")
-                                        var l, _ = ctx.autoGet("<")
-                                        var r, _ = ctx.autoGet(">")
-                                        prompt(ctx, "symlink: args=%v\n", aargs)
-                                        prompt(ctx, "symlink: args=%v, %v, %v, %v\n", args, a, l, r)
-                                        errostack(ctx, 5, "expects pair of names (%T %v)", t, t).of(t).debug(6)
-                                        return
-                                }
-                        }
 
-                        if oldName, err = oldNameVal.Strval(ctx); err != nil {
-                                prompt(ctx, "symlink: args=%v\n", args)
-                                errostack(ctx, 5, "%v", err).of(oldNameVal).debug(6)
-                                return
-                        } else if oldName == "" {
-                                prompt(ctx, "symlink: args=%v\n", args)
-                                prompt(ctx, "symlink: old=%v\n", oldNameVal)
-                                errostack(ctx, 5, "empty old filename (%T)", oldNameVal).of(oldNameVal).debug(6)
-                                return
-                        }
+                if newName, err = newNameVal.Strval(ctx); err != nil {
+                        prompt(ctx, "symlink: args=%v\n", args)
+                        errostack(ctx, 5, "%v", err).of(newNameVal).debug(6)
+                        return
+                } else if newName == "" {
+                        prompt(ctx, "symlink: args=%v\n", args)
+                        prompt(ctx, "symlink: new=%v\n", newNameVal)
+                        errostack(ctx, 5, "empty new filename (%T)", newNameVal).of(newNameVal).debug(6)
+                        return
+                }
 
-                        if newName, err = newNameVal.Strval(ctx); err != nil {
-                                prompt(ctx, "symlink: args=%v\n", args)
-                                errostack(ctx, 5, "%v", err).of(newNameVal).debug(6)
-                                return
-                        } else if newName == "" {
-                                prompt(ctx, "symlink: args=%v\n", args)
-                                prompt(ctx, "symlink: new=%v\n", newNameVal)
-                                errostack(ctx, 5, "empty new filename (%T)", newNameVal).of(newNameVal).debug(6)
-                                return
+                if opts.force {
+                        if err = os.Remove(newName); err != nil {
+                                erro(ctx, "%v", err).of(newNameVal).debug(1)
+                                err = nil //return
                         }
-
-                        if opts.force {
-                                if err = os.Remove(newName); err != nil {
-                                        erro(ctx, "%v", err).of(newNameVal).debug(1)
-                                        err = nil //return
-                                }
-                        } else if opts.update {
-                                var s string
-                                if s, err = os.Readlink(newName); err != nil {
-                                        if false {
-                                                prompt(ctx, "%v: readlink failed (%T)\n", newName, err)
-                                                erro(ctx, "%v", err).of(newNameVal)
-                                                errostack(ctx, 6, "%v", ctx).of(newNameVal).debug(8)
-                                        }
-                                        err = nil //continue ForArgs
-                                } else if s == newName {
-                                        continue ForArgs
-                                } else if err = os.Remove(newName); err != nil {
-                                        if true {
-                                                prompt(ctx, "%v: remove old symlink failed (%T)\n", newName, err)
-                                                erro(ctx, "%v", err).of(newNameVal)
-                                                errostack(ctx, 6, "%v", ctx).of(newNameVal).debug(8)
-                                        }
-                                        err = nil //return
-                                }
-                        }
-
-                        if opts.relative && filepath.IsAbs(oldName) {
-                                var ( dir = filepath.Dir(newName); s = oldName )
-                                if oldName, err = filepath.Rel(dir, oldName); err != nil {
-                                        prompt(ctx, "%s: symlink: rel(%s, %s)\n", newName, dir, s)
+                } else if opts.update {
+                        var s string
+                        if s, err = os.Readlink(newName); err != nil {
+                                if false {
+                                        prompt(ctx, "%v: readlink failed (%T)\n", newName, err)
                                         erro(ctx, "%v", err).of(newNameVal)
-                                        errostack(ctx, 8, "%v", ctx).of(newNameVal).debug(10)
-                                        return
+                                        errostack(ctx, 6, "%v", ctx).of(newNameVal).debug(8)
                                 }
-                        }
-
-                        if dir := filepath.Dir(newName); opts.path && dir != "." && dir != PathSep {
-                                if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
-                                        erro(ctx, "%v", err).of(newNameVal).debug(1)
-                                        return
+                                err = nil //continue ForArgs
+                        } else if s == newName {
+                                continue ForArgs
+                        } else if err = os.Remove(newName); err != nil {
+                                if true {
+                                        prompt(ctx, "%v: remove old symlink failed (%T)\n", newName, err)
+                                        erro(ctx, "%v", err).of(newNameVal)
+                                        errostack(ctx, 6, "%v", ctx).of(newNameVal).debug(8)
                                 }
+                                err = nil //return
                         }
+                }
 
-                        if err = os.Symlink(oldName, newName); err != nil {
-                                if opts.verbose { prompt(ctx, "… %s\n", err) }
-                                break
-                        } else if opts.verbose {
-                                var d = trimPromptString(newName)
-                                var s = filepath.Base(oldName)
-                                prompt(ctx, "%s -> %s …… ok\n", d, s)
+                if opts.relative && filepath.IsAbs(oldName) {
+                        var ( dir = filepath.Dir(newName); s = oldName )
+                        if oldName, err = filepath.Rel(dir, oldName); err != nil {
+                                prompt(ctx, "%s: symlink: rel(%s, %s)\n", newName, dir, s)
+                                erro(ctx, "%v", err).of(newNameVal)
+                                errostack(ctx, 8, "%v", ctx).of(newNameVal).debug(10)
+                                return
                         }
+                }
+
+                if dir := filepath.Dir(newName); opts.path && dir != "." && dir != PathSep {
+                        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
+                                erro(ctx, "%v", err).of(newNameVal).debug(1)
+                                return
+                        }
+                }
+
+                if err = os.Symlink(oldName, newName); err != nil {
+                        if opts.verbose { prompt(ctx, "… %s\n", err) }
+                        break
+                } else if opts.verbose {
+                        var d = trimPromptString(newName)
+                        var s = filepath.Base(oldName)
+                        prompt(ctx, "%s -> %s …… ok\n", d, s)
                 }
         }
         return
