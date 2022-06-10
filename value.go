@@ -696,6 +696,7 @@ func traverse(ctx Context, targetVal Value, target string, projects... *Project)
         pos Position = ctx.Position()
         concreteList []Entry
         stemmedList []*stemmed
+        file_traversed bool
         file *File // if target is file
         err error
     )
@@ -718,7 +719,13 @@ func traverse(ctx Context, targetVal Value, target string, projects... *Project)
                     }
                 }
             }
-            ctx.traversed(targetVal) // Add to the $^ or $| list
+            ctx.traversed(targetVal) // set $< $> $^ or $|
+        } else if !file_traversed {
+            ctx.traversed(file) // set $< $> $^ or $|
+        }
+        if false && target == "llvm-tools-ar" {
+            warnstack(ctx, 3, "%v %v %v; %v",
+                currentTargetValue, targetVal, file, file_traversed).debug(6)
         }
     } ()
 
@@ -746,7 +753,7 @@ ForProjectsConcretes:
                 continue // target resolve to itself, does nothing
             } else if brks = entry.traverse(ctx); !brks.failed() {
                 file, _ = entry.Target().(*File)
-                okay = true
+                file_traversed, okay = false, true
                 if brks.has(breakCase, breakDone) {
                     if brks = brks.not(breakCase, breakDone); !brks.has() {
                         break ForProjectsConcretes
@@ -786,7 +793,8 @@ ForProjectsPatterns:
         for _, entry := range patterns {
             if v, w := done[entry.target]; v && w { continue } else { done[entry.target] = true }
             if brks = entry.string(ctx, targetVal, target); !brks.failed() {
-                okay = true
+                file, _ = entry.target.(*File)
+                file_traversed, okay = false, true
                 if brks.has(breakCase, breakDone) {
                     if brks = brks.not(breakCase, breakDone); !brks.has() {
                         break ForProjectsPatterns
@@ -797,10 +805,10 @@ ForProjectsPatterns:
                 }
             }
             if (options.verbose || options.verboseBreaks) && brks.has() {
-                var at, _ = ctx.autoGet("@")
+                var a, _ = ctx.autoGet("@")
                 var ctx = positional(ctx, entry.Position())
                 prompt(ctx, "%s: traverse entry failed (project=%v, target=%v, stems=%v)\n",
-                    entry.target, project, at, entry.Stems)
+                    entry.target, project, a, entry.Stems)
 
                 for _, brk := range brks {
                     switch brk.what {
@@ -839,8 +847,7 @@ ForProjectsPatterns:
             } else if brks.has(breakNext) {
                 if brks = brks.not(breakNext); !brks.has() { continue }
             } else if file.exists() {
-                okay = true
-                return
+                file_traversed, okay = true, true; // return
             }
         }
     }}
@@ -4087,7 +4094,10 @@ func (p *File) traverse(ctx Context) (brks breakers) {
                 targetValue.updatedDeps(ctx, p)
             }
         }
-        ctx.traversed(p) // Add to the $^ or $| list
+        ctx.traversed(p) // set $< $> $^ or $|
+        if false && p.name == "llvm-tools-ar" {
+            warnstack(ctx, 3, "%v %v", targetValue, p).debug(6)
+        }
     } ()
 
     var (
@@ -4104,11 +4114,15 @@ ForProjectsEntries:
             erro(ctx, "resolve entry '%v' failed: %v", p.name, err).at(p.position)
             errostack(positional(ctx, p.position), -1, "%v:", p.name).debug(1)
             return
-        } else if entries == nil { continue } else {
+        } else if entries == nil {
+            continue
+        } else {
             concreteList = append(concreteList, entries.all...)
         }
         for _, entry := range entries.all {
-            if v, w := done[entry]; v && w { continue } else {
+            if v, w := done[entry]; v && w {
+                continue
+            } else {
                 done[entry] = true
             }
 
@@ -4140,11 +4154,15 @@ ForProjectsEntries:
 ForProjectsPatterns:
     for _, project := range projects {
         var patterns = project.resolvePatterns(ctx, p.name) // stemmed pattern entries
-        if len(patterns) == 0 { continue } else {
+        if len(patterns) == 0 {
+            continue
+        } else {
             stemmedList = append(stemmedList, patterns...)
         }
         for _, entry := range patterns {
-            if v, w := done[entry.target]; v && w { continue } else {
+            if v, w := done[entry.target]; v && w {
+                continue
+            } else {
                 done[entry.target] = true
             }
             if brks = entry.file(ctx, p); !brks.failed() {

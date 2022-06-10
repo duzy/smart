@@ -356,7 +356,8 @@ func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
         )
         if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.error) == 0 {
                 var pos = ctx.Position()
-                prompt(ctx, "%v: %v; %v %v; %v", pos, args, target, ctx.stems(), depends).debug(1)
+                prompt(ctx, "%v: %v; target=%v stems=%v depends=%v", pos,
+                        args, target, ctx.stems(), depends).debug(1)
         }
         if opts.checkOutdated && !isNil(target) {
                 var tt = target.stat(ctx).mod()
