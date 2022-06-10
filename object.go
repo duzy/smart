@@ -1173,12 +1173,12 @@ func (ec *entryContext) String() string {
         }
 }
 func (ec *entryContext) Position() Position { return ec.ent.position }
-func (ec *entryContext) stems() (stems []string) {
-        if sc, ok := ec.Context.(*stemmedContext); ok {
-                stems = sc.stem.Stems // only if the inner is stemmed
-        }
-        return
-}
+// func (ec *entryContext) stems() (stems []string) {
+//         if sc, ok := ec.Context.(*stemmedContext); ok {
+//                 stems = sc.stem.Stems // only if the inner is stemmed
+//         }
+//         return
+// }
 
 type Entry interface {
         Object
@@ -1569,8 +1569,8 @@ func (sc *stemmedContext) String() string {
                 return sc.Context.String()
         }
 }
-func (sc *stemmedContext) stems() []string { return sc.stem.Stems }
 func (sc *stemmedContext) stemmed() *stemmed { return sc.stem }
+func (sc *stemmedContext) stems() []string { return sc.stem.Stems }
 
 type stemmed struct { PatternEntry; Stems []string }
 

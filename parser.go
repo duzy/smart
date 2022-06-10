@@ -2587,8 +2587,8 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 
 	// NOTE: expand targets to speed up for later usage, it might spend lots of time in
 	// project.entry while matching for entry looked up if not expanded right now.
-	if true {
-		targets, _, err = expandall2(ctx, expandPlainValue, targets...)
+	if w := expandPlainValue & ^expandArgedArgs; true {
+		targets, _, err = expandall2(ctx, w, targets...)
 		if err != nil { erro(p, "expand targets '%v' failed: %v", targets, err) }
 	} else {
 		var ta []Value
@@ -2596,7 +2596,7 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 			if t.expandible(ctx, expandClosure) {
 				if false { info(ctx, "target: %T %v", t, t).of(t) }
 				ta = append(ta, t)
-			} else if a, _, e := expandall2(ctx, expandPlainValue, t); e == nil {
+			} else if a, _, e := expandall2(ctx, w, t); e == nil {
 				ta = append(ta, a...)
 			} else {
 				erro(p, "expand targets '%v' failed: %v", targets, e)

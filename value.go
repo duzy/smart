@@ -3201,7 +3201,11 @@ func (p *Path) traverse(ctx Context) (brks breakers) {
     ctx = positional(ctx, p.position)
 
     if p.patterned(ctx) && len(ctx.stems()) == 0 {
-        errostack(ctx, 3, "empty stems to traverse pattern: %v", p).at(p.position).debug(64)
+        var a, _ = ctx.autoGet("@")
+        var s, _ = ctx.autoGet("*")
+        prompt(ctx, "%v: no stems for pattern: %v\n", a, p)
+        prompt(ctx, "%v: $*=%v, stemmed=%v\n", a, s, ctx.stemmed())
+        errostack(ctx, 3, "%v", p).at(p.position).debug(64)
         return
     } else if pathname, err = p.pathname(ctx, ctx.stems()); err == nil && pathname == "" {
         erro(ctx, "path %v matches no target", p).at(p.position).debug(1)
@@ -3209,9 +3213,6 @@ func (p *Path) traverse(ctx Context) (brks breakers) {
     } else if err != nil {
         erro(ctx, "compute pathname failed: %v", err).at(p.position).debug(1)
         return
-    }
-    if false && strings.HasPrefix(p.String(), "ui/") {
-        warn(ctx, "%v %v", p, pathname).debug(1)
     }
 
     // Stat the file by pathname.

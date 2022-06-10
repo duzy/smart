@@ -683,7 +683,13 @@ func (p *Project) resolvePatterns1(ctx Context, i interface{}) (res []*stemmed) 
   for _, pat := range p.patterns {
     if full, _, stems := pat.target.match(ctx, i); full {
       if ok := false; len(pat.argumented) > 0 {
-        for _, a := range pat.argumented {
+        var ( args = pat.argumented; err error )
+        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
+          erro(ctx, "expand args failed: %v", err).debug(1)
+          return
+        }
+        if false { warn(ctx, "%v %v %v %v", pat, pat.argumented, args, i).debug(1) }
+        for _, a := range args {
           if ok, _, _ = a.match(ctx, i); ok { break }
         }
         if !ok { continue }
