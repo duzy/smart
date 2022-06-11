@@ -4176,7 +4176,8 @@ ForProjectsPatterns:
                     if brks = brks.not(breakNext); !brks.has() { continue }
                 }
             }
-            if (options.verbose || options.verboseBreaks) && brks.has() {
+            if false && !p.exists() { p.stat(ctx) }
+            if (/*!p.exists() || */options.verbose || options.verboseBreaks) && brks.has() {
                 var target, _ = ctx.autoGet("@")
                 prompt(ctx, "%s: traverse pattern entry failed (project=(%v,%v), target=%v, stems=%v)\n",
                     p.name, project, entry.OwnerProject(), target, entry.Stems)
@@ -4189,9 +4190,9 @@ ForProjectsPatterns:
                     default:        warn(ctx, "%v: broken traversal (%v)", str, brk.what).at(brk.pos)
                     }
                 }
-                warnstack(ctx, 5, "%v: %v", p.name, entry.Stems).debug(16)
+                warnstack(ctx, 5, "%v: stems=%v", p.name, entry.Stems).debug(16)
             }
-            brks = nil //return
+            if p.exists() { brks = nil }
         }
     }
 
@@ -4215,13 +4216,19 @@ ForProjectsPatterns:
 
         brks.add(ctx, breakErro).error = fileNotFoundError{ proj, p }
 
-        prompt(ctx, "%v: traverse file failed; projects %v, %v\n", p.fullname(), proj, projects)
-        erro(ctx, "%v: no rules for %v, required by %v", proj, p, targetValue).at(p.position)
+        var s string
+        prompt(ctx, "%v: traverse file failed; in %v, %v\n", p.fullname(), proj, projects)
+        erro(ctx, "%v: %v: %v: originated", proj, targetValue, p)
+        if len(concreteList) == 0 && len(stemmedList) == 0 {
+            s = "%v: %v: %v: no rules to update file"
+        } else {
+            s = "%v: %v: %v: file not updated"
+        }
+        erro(ctx, s, proj, targetValue, p).at(p.position)
         for i, concrete := range concreteList { erro(ctx, "concrete: %d. %v (%v; %d programs)", i, concrete, concrete.OwnerProject(), len(concrete.Programs())).at(concrete.Position()) }
         for i, stemmed  := range stemmedList  { erro(ctx, "stemmed: %d. %v (%v)", i, stemmed, stemmed.OwnerProject()).at(stemmed.position) }
         if args := t.arguments(); len(args)>0 { erro(ctx, "%v, %v: arguments %v", proj, p, args) }
-        erro(ctx, "%v: no rules for %v, required by %v", proj, p, targetValue)
-        errostack(ctx, 5, "(exists=%v)", p.exists()).debug(64)
+        errostack(ctx, 5, "").at(p.position).debug(64)
     } else if len(ctx.stems()) > 0 {
         if false { brks.add(ctx, breakNext).scope = breakTrave }
     }

@@ -249,18 +249,19 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
             }
         }
         if value, brks = f(positional(ctx, m.position), args...); brks.has() {
-            if tb := brks.not(breakCase, breakNext, breakDone); false && tb.has() {
+            var verb = options.verbose || options.verboseBreaks
+            if tb := brks.not(breakCase, breakNext, breakDone); verb && tb.has() {
                 var _, ent, _ = entryStr(ctx, ctx.entry())
                 prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
                 for _, brk := range tb {
                     switch brk.what {
-                    case breakFail: erro(ctx, "%v: %s: %v", proj, name, brk.message).at(brk.pos)
-                    case breakErro: erro(ctx, "%v: %s: %v", proj, name, brk.error).at(brk.pos)
-                    default: erro(ctx, "%v: %s: %v", proj, name, brk.what).at(brk.pos)
+                    case breakErro: warn(ctx, "%v: %s: %v", proj, name, brk.error  ).at(brk.pos)
+                    case breakFail: warn(ctx, "%v: %s: %v", proj, name, brk.message).at(brk.pos)
+                    default:        warn(ctx, "%v: %s: %v", proj, name, brk.what   ).at(brk.pos)
                     }
                 }
-                errostack(ctx, 3, "(%T):", ctx).debug(6)
-                fail(m.Position(), "%s failed for project %s", name, proj)
+                warnstack(ctx, 3, "").debug(6)
+                if false { fail(m.Position(), "%s failed for project %s", name, proj) }
             } else {
                 return;
             }
@@ -499,7 +500,8 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     ctx.autoSet("<", nil)
     ctx.autoSet(">", nil)
     if brks = prog.traverse(&normalTraverseContext{ ctx }, prog.depends); brks.has() {
-        if t := brks.not(breakCase, breakNext, breakDone); false && t.has() {
+        var verb = options.verbose || options.verboseBreaks
+        if t := brks.not(breakCase, breakNext, breakDone); verb && t.has() {
             var target, _ = ctx.autoGet("@")
             prompt(ctx, "%v: traverse program failed (target=%s; project=%s)\n",
                 entry, target, proj)
@@ -526,7 +528,8 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     // Update order-only prerequisites
     ctx.autoSet("|", nil)
     if brks = prog.traverse(&orderTraverseContext{ ctx }, prog.ordered); brks.has() {
-        if t := brks.not(breakCase, breakNext, breakDone); false && t.has() {
+        var verb = options.verbose || options.verboseBreaks
+        if t := brks.not(breakCase, breakNext, breakDone); verb && t.has() {
             var target, _ = ctx.autoGet("@")
             prompt(ctx, "%v: traverse program failed (target=%s; project=%s)\n",
                 entry, target, proj)
@@ -571,11 +574,12 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
         }
     }
 
+    var verb = options.verbose || options.verboseBreaks
     if asyncUnsafe {
         for _, prerequisite := range prerequisites {
             if brks = prerequisite.traverse(ctx); !brks.has() {
                 continue
-            } else if t := brks.not(breakNext, breakCase, breakDone); false && t.has() {
+            } else if t := brks.not(breakNext, breakCase, breakDone); verb && t.has() {
                 var proj = ctx.Project()
                 for _, brk := range t {
                     switch brk.what {

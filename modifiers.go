@@ -59,22 +59,23 @@ func (_ *modifier) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (m *modifier) traverse(ctx Context) (brks breakers) {
         var proj = ctx.Project()
+        var verb = options.verbose || options.verboseBreaks
         ctx = positional(ctx, m.position)
         if brks = ctx.program().modify(ctx, m); !brks.has() {
                 if n := ctx.countErrors(); n > 0 {
                         var s = fmt.Sprintf("%s: modifier failed with %d errors", m.name, n)
                         brks.add(ctx, breakFail).message = s
                 }
-        } else if tb := brks.not(breakCase, breakNext, breakDone); false && tb.has() {
+        } else if tb := brks.not(breakCase, breakNext, breakDone); verb && tb.has() {
                 prompt(ctx, "%v: %s modify failed for %s\n", ctx.entry(), m.name, proj)
                 for _, brk := range tb {
                         switch brk.what {
-                        case breakFail: erro(ctx, "%v: broken traversal for modifier %v failed: %v", proj, m.name, brk.message).at(brk.pos)
-                        case breakErro: erro(ctx, "%v: broken traversal for modifier %v with error: %v", proj, m.name, brk.error).at(brk.pos)
-                        default: erro(ctx, "%v: broken traversal for modifier %v (%v)", proj, m.name, brk.what).at(brk.pos)
+                        case breakErro: warn(ctx, "%v: %s: %v", proj, m.name, brk.error  ).at(brk.pos)
+                        case breakFail: warn(ctx, "%v: %s: %v", proj, m.name, brk.message).at(brk.pos)
+                        default:        warn(ctx, "%v: %s: %v", proj, m.name, brk.what   ).at(brk.pos)
                         }
                 }
-                errostack(ctx, 3, "%v: %v: %v", proj, m.name, ctx).debug(6)
+                warnstack(ctx, 3, "").debug(6)
         }
         return
 }
@@ -3629,7 +3630,7 @@ var (
         onceSHA256Cache = make(map[HashBytes]int,64)
 )
 
-func onceTest(ctx Context, tv Value) (n int) {
+func onceCacheTest(ctx Context, tv Value) (n int) {
         onceMutex.Lock()
         onceCache[tv] += 1
         onceMutex.Unlock()
@@ -3683,7 +3684,7 @@ func onceSHA256(ctx Context, opts *modifierOnceOpts, args... Value) (result Valu
 type modifierOnceOpts struct {
         debug    bool `d,debug`
         verbose  bool `v,verbose`
-        checksum bool `c,cs,checksum;s,sha,sha256`
+        checksum bool `c,cs,checksum,s,sha,sha256,sum,h,hash`
         forval Value `for` // TODO: (once -for=$@)
 }
 func modifierOnce(ctx Context, args... Value) (result Value, brks breakers) {
@@ -3702,12 +3703,12 @@ func modifierOnce(ctx Context, args... Value) (result Value, brks breakers) {
         }
 
         if target, found := ctx.autoGet("@"); !found || isTrivial(target) {
-                erro(ctx, "(%T): no target $@", ctx).debug(1)
+                errostack(ctx, 5, "once: no target $@, %v", args).debug(16)
                 return
         } else if opts.checksum {
                 result, brks = onceSHA256(ctx, &opts, append([]Value{target}, args...)...)
         } else {
-                var n = onceTest(ctx, target)
+                var n = onceCacheTest(ctx, target)
                 if  n > 1 { brks.add(ctx, breakDone).message = fmt.Sprintf(`executed %d times`, n) }
                 if opts.debug {
                         warn(ctx, "%T %v %p %v", target, target, target, n)
