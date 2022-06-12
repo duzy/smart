@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2017, Duzy Chan <code@duzy.info>, all rights reserverd.
+//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -167,7 +167,7 @@ type breaker struct {
     error error
 }
 
-func (p *breaker) _error() (s string) {
+func (p *breaker) String() (s string) { //_error
     switch p.what {
     case breakUnkn: s = "unknown"
     case breakDone: s = "done" // ineligible (cond) is ignored
@@ -696,6 +696,7 @@ func traverse(ctx Context, targetVal Value, target string, projects... *Project)
         pos Position = ctx.Position()
         concreteList []Entry
         stemmedList []*stemmed
+        traversed int
         file_traversed bool
         file *File // if target is file
         err error
@@ -723,9 +724,17 @@ func traverse(ctx Context, targetVal Value, target string, projects... *Project)
         } else if !file_traversed {
             ctx.traversed(file) // set $< $> $^ or $|
         }
-        if false && target == "llvm-tools-ar" {
-            warnstack(ctx, 3, "%v %v %v; %v",
-                currentTargetValue, targetVal, file, file_traversed).debug(6)
+        if okay && brks.has(breakNext) && traversed > 0 && (file != nil && file.exists()) {
+            brks = brks.not(breakNext)
+        }
+        if false && strings.Contains(target, "/llvm-c/ExternC.h") {
+            prompt(ctx, "%v: %v\n", currentTargetValue, targetVal)
+            warnstack(ctx, 5, "%v %v; %v %v %v",
+                currentTargetValue, targetVal, file, okay, brks).debug(128)
+        }
+        if true && file != nil && strings.HasPrefix(file.fullname(), "llvm/") {
+            warnstack(ctx, 5, "%v %v %v; %v",
+                currentTargetValue, targetVal, file, file_traversed).debug(16)
         }
     } ()
 
@@ -743,148 +752,131 @@ ForProjectsConcretes:
             return
         } else if entries == nil {
             continue
-        } else {
-            concreteList = append(concreteList, entries.all...)
         }
+        concreteList = append(concreteList, entries.all...)
         for _, entry := range entries.all {
             if isNil(entry) && currentTargetValue == entry { continue }
             if v, w := done[entry]; v && w { continue } else { done[entry] = true }
             if w, ok := currentTargetValue.(*Bareword); ok && w.string == target {
                 continue // target resolve to itself, does nothing
-            } else if brks = entry.traverse(ctx); !brks.failed() {
+            }
+
+            var verb = options.verbose || options.verboseBreaks
+            var t = entry.traverse(ctx);
+            if brks = append(brks, t...); !t.failed() {
                 file, _ = entry.Target().(*File)
                 file_traversed, okay = false, true
-                if brks.has(breakCase, breakDone) {
-                    if brks = brks.not(breakCase, breakDone); !brks.has() {
-                        break ForProjectsConcretes
-                    }
-                }
-                if brks.has(breakNext) {
-                    if brks = brks.not(breakNext); !brks.has() { continue }
+                if t.has(breakCase, breakDone) { break ForProjectsConcretes }
+                if t.has(breakNext) { continue }
+                if t = t.not(breakCase, breakDone, breakNext); !t.has() {
+                    traversed += 1
                 }
             }
-            var verb = options.verbose || options.verboseBreaks
-            if stems := ctx.stems(); (len(stems) == 0 || verb) && brks.has() {
+            if stems := ctx.stems(); (len(stems) == 0 || verb) && t.has() {
                 var target, _ = ctx.autoGet("@")
                 prompt(ctx, "%s: traverse entry failed (project=%v, target=%v, stems=%v)\n",
                     entry, project, target, stems)
+                warn(ctx, "%v (%T) (by %v, in %v)", entry, entry.Target(), target,
+                    entry.OwnerProject()).of(entry)
 
-                var str, _, _ = entryStr(ctx, entry)
-                for _, brk := range brks.of(breakErro, breakFail) {
-                    switch brk.what {
-                    case breakErro: warn(ctx, "%v: %v", str, brk.error).at(brk.pos)
-                    case breakFail: warn(ctx, "%v: %v", str, brk.message).at(brk.pos)
-                    default:        warn(ctx, "%v: broken traversal (%v)", str, brk.what).at(brk.pos)
-                    }
+                for _, brk := range t {
+                    warn(ctx, "%v: %v: %v", target, entry, brk).at(brk.pos)
                 }
                 if n, m := 5, 16; len(stems) == 0 {
-                    errostack(ctx, n, "%v", str).at(pos).debug(m)
+                    errostack(ctx, n, "").at(pos).debug(m)
                 } else {
-                    warnstack(ctx, n, "%v", str).at(pos).debug(m)
+                    warnstack(ctx, n, "").at(pos).debug(m)
                 }
             }
         }
     }
 
-ForProjectsPatterns:
-    for _, project := range projects {
+    if traversed == 0 || !okay { ForProjectsPatterns: for _, project := range projects {
         var patterns = project.resolvePatterns(ctx, target)
         stemmedList = append(stemmedList, patterns...)
         for _, entry := range patterns {
-            if v, w := done[entry.target]; v && w { continue } else { done[entry.target] = true }
-            if brks = entry.string(ctx, targetVal, target); !brks.failed() {
+            if v, w := done[entry.target]; v && w { continue }
+            done[entry.target] = true
+
+            var t = entry.string(ctx, targetVal, target)
+            if brks = append(brks, t...); !t.failed() {
                 file, _ = entry.target.(*File)
                 file_traversed, okay = false, true
-                if brks.has(breakCase, breakDone) {
-                    if brks = brks.not(breakCase, breakDone); !brks.has() {
-                        break ForProjectsPatterns
-                    }
-                }
-                if brks.has(breakNext) {
-                    if brks = brks.not(breakNext); !brks.has() { continue }
+                if t.has(breakCase, breakDone) { break ForProjectsPatterns }
+                if t.has(breakNext) { continue }
+                if t = t.not(breakCase, breakDone, breakNext); !t.has() {
+                    traversed += 1
                 }
             }
-            if (options.verbose || options.verboseBreaks) && brks.has() {
+            if t.has() && (options.verbose || options.verboseBreaks) {
                 var a, _ = ctx.autoGet("@")
                 var ctx = positional(ctx, entry.Position())
                 prompt(ctx, "%s: traverse entry failed (project=%v, target=%v, stems=%v)\n",
                     entry.target, project, a, entry.Stems)
-
-                for _, brk := range brks {
-                    switch brk.what {
-                    case breakErro: warn(ctx, "%v: %v", entry.target, brk.error  ).at(brk.pos)
-                    case breakFail: warn(ctx, "%v: %v", entry.target, brk.message).at(brk.pos)
-                    default:        warn(ctx, "%v: %v", entry.target, brk.what   ).at(brk.pos)
-                    }
+                for _, brk := range t {
+                    warn(ctx, "%v: %v", entry.target, brk).at(brk.pos)
                 }
-                warnstack(ctx, 5, "broken traversal: %v", entry).at(pos).debug(16)
-                // return
-            }
-        }
-    }
-
-    if !okay { ForProjectsFiles: for _, project := range projects {
-        if file = project.FindFile(ctx, target); file != nil {
-            file.position = pos // change the position for tracing
-            if brks = file.traverse(ctx/*, project*/); brks.failed() {
-                var target, _ = ctx.autoGet("@")
-                prompt(ctx, "%s: traverse file failed (project=%v, stems=%v)\n",
-                    target, project, ctx.stems())
-
-                for _, brk := range brks {
-                    switch brk.what {
-                    case breakFail: erro(ctx, "%v: %v", target, brk.message).debug(1)
-                    case breakErro: erro(ctx, "%v: %v", target, brk.error).debug(1)
-                    default:        erro(ctx, "%v: %v", target, brk.what).debug(1)
-                    }
-                }
-                errostack(ctx, 5, "%s: traverse file failed: %s", target, file.fullname()).
-                    at(pos).debug(16)
-            } else if brks.has(breakCase, breakDone) {
-                if brks = brks.not(breakCase, breakDone); !brks.has() {
-                    break ForProjectsFiles
-                }
-            } else if brks.has(breakNext) {
-                if brks = brks.not(breakNext); !brks.has() { continue }
-            } else if file.exists() {
-                file_traversed, okay = true, true; // return
+                warnstack(ctx, 5, "").at(pos).debug(16)
             }
         }
     }}
 
-    if !okay { ForProjectsObjects: for _, project := range projects {
-        if obj, err := project.resolveObject(ctx, target); err != nil {
+    if traversed == 0 || !okay { ForProjectsFiles: for _, project := range projects {
+        if file = project.FindFile(ctx, target); file != nil {
+            file.position = pos // change the position for tracing
+
+            var t = file.traverse(ctx/*, project*/)
+            if brks = append(brks, t...); t.failed() {
+                var target, _ = ctx.autoGet("@")
+                prompt(ctx, "%s: traverse file failed (project=%v, stems=%v)\n",
+                    target, project, ctx.stems())
+                for _, brk := range t {
+                    erro(ctx, "%v: %v", target, brk).at(brk.pos)
+                }
+                errostack(ctx, 5, "%s: traverse file failed: %s", target, file.fullname()).
+                    at(pos).debug(16)
+                break
+            }
+            if t.has(breakCase, breakDone) { break ForProjectsFiles }
+            if t.has(breakNext) { continue }
+            if t = t.not(breakCase, breakDone, breakNext); !t.has() {
+                file_traversed, okay = true, file.exists()
+                traversed += 1
+            }
+        }
+    }}
+
+    if traversed == 0 || !okay { ForProjectsObjects: for _, project := range projects {
+        var obj, err = project.resolveObject(ctx, target)
+        if err != nil {
             prompt(ctx, "%v: traverse failed, project %s\n", target, project)
             erro(ctx, "%s: resolve object '%s' failed: %v", target, err).at(pos)
             errostack(ctx, 3, "%v: %v: %v", target, project, ctx).debug(6)
             return
         } else if isTrivial(obj) {
-            // does nothing here and keep trying FindFile
+            continue // does nothing here and keep trying FindFile
         } else if _, ok := obj.(*Def); ok {
             continue // skip defs
-        } else if brks = obj.traverse(ctx); brks.failed() {
-            var t = brks.not(breakCase, breakNext, breakDone)
-            if (true || options.debug) && len(t) > 0 {
-                prompt(ctx, "%v → %T %v\n", target, obj, obj)
-                for _, brk := range t {
-                    switch brk.what {
-                    case breakErro: warn(ctx, "%v: %v", obj, brk.error).at(brk.pos)
-                    case breakFail: warn(ctx, "%v: %v", obj, brk.message).at(brk.pos)
-                    default:        warn(ctx, "%v: broken traversal (%v)", obj, brk.what).at(brk.pos)
-                    }
-                }
-                warnstack(ctx, 5, "%T %v", obj, obj).debug(8)
+        }
+
+        var t = obj.traverse(ctx);
+        if brks = append(brks, t...); t.failed() {
+            prompt(ctx, "%v → %T %v\n", target, obj, obj)
+            for _, brk := range t {
+                warn(ctx, "%v: (%T) %v", obj, obj, brk).at(brk.pos)
             }
+            warnstack(ctx, 5, "").debug(8)
             return
-        } else if brks.has(breakCase, breakDone) {
-            if brks = brks.not(breakCase, breakDone); !brks.has() {
-                break ForProjectsObjects
-            }
-        } else if brks.has(breakNext) {
-            if brks = brks.not(breakNext); !brks.has() { continue }
-        } else if _, ok := obj.(*ProjectName); ok {
+        }
+        if t.has(breakCase, breakDone) { break ForProjectsObjects }
+        if t.has(breakNext) { continue }
+        if t = t.not(breakCase, breakDone, breakNext); !t.has() {
+            traversed += 1
+        }
+
+        if _, ok := obj.(*ProjectName); ok {
             return // solved, no need to check files and patterns
-        } else if !brks.has() {
+        } else if !t.has() {
             okay = true
             return
         }
@@ -902,21 +894,17 @@ ForProjectsPatterns:
             if targetVal != nil { ctx = positional(ctx, targetVal.Position()) }
         }
         if file != nil {
-            prompt(ctx, "%v: traverse file failed; projects %v, %v\n", file.fullname(), proj, projects)
+            prompt(ctx, "%v: traverse file failed; projects %v, %v (ok=%v)\n", file.fullname(), proj, projects, okay)
         } else {
-            prompt(ctx, "%v: traverse target failed; projects %v, %v\n", target, proj, projects)
+            prompt(ctx, "%v: traverse target failed; projects %v, %v (okay=%v)\n", target, proj, projects, okay)
         }
         for _, brk := range brks {
-            switch brk.what {
-            case breakErro: erro(ctx, "%v", brk.error)
-            case breakFail: erro(ctx, "%v", brk.message)
-            default       : erro(ctx, "%v: %v, %v", brk.what, proj, target)
-            }
+            erro(ctx, "%v: %v: %v", currentTargetValue, targetVal, brk).at(brk.pos)
         }
         for i, c := range ctx.closureScopes() { erro(ctx, "%v: closure: %v. %v", proj, i, c) }
         for i, concrete := range concreteList { erro(ctx, "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs())).at(concrete.Position()) }
         for i, stemmed  := range stemmedList  { erro(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position) }
-        errostack(ctx, 12, "%v", ctx).debug(16)
+        errostack(ctx, 12, "").debug(16)
     } else if !okay && len(ctx.stems()) > 0 {
         if true { brks.add(ctx, breakNext).scope = breakTrave }
         if false && strings.HasSuffix(target, "armv8-mont.pl") {
@@ -968,17 +956,20 @@ func traversePattern(ctx Context, pat Value, projects... *Project) (brks breaker
     for _, proj := range projects {
         if file = proj.FindFile(ctx, name); file != nil {
             file.position = pos
-            if brks = file.traverse(ctx/*, projects...*/); brks.failed() {
+
+            var t = file.traverse(ctx/*, projects...*/); brks = append(brks, t...)
+            if t.failed() {
                 erro(ctx, "%v: traverse file failed", file).at(pos).debug(1)
             } else {
-                if true && brks.has() { warn(ctx, "%v; %v; %v", file, brks, ctx.stems()).debug(1) }
+                if t.has() { warn(ctx, "%v; %v; %v", file, brks, ctx.stems()).debug(1) }
                 return
             }
         }
     }
 
     if !okay && !brks.has() && file == nil {
-        okay, brks = traverse(ctx, val, name, projects...)
+        var ok, t = traverse(ctx, val, name, projects...)
+        okay, brks = ok, append(brks, t...)
     }
     if !okay && len(stems) > 0 {
         brk := brks.add(ctx, breakNext)
@@ -4027,58 +4018,58 @@ func (p *File) isSysFile() (res bool) {
     }
     return
 }
-func (p *File) traverse(ctx Context) (brks breakers) {
+func (p *File) traverse(a_ctx Context) (brks breakers) {
     if p.isSysFile() { return }
 
-    ctx = positional(ctx, p.position)
-
-    var targetValue = getTargetValue(ctx)
+    var (
+        ctx = positional(a_ctx, p.position)
+        targetValue = getTargetValue(ctx)
+    )
     if isTrivial(targetValue) {
-        var program = ctx.program()
+        var pos = ctx.program().position
         prompt(ctx, "%v: trivial file target\n", p)
-        errostack(ctx, 3, "target is trivial").at(program.position).debug(1)
+        errostack(ctx, 3, "target is trivial").at(pos).debug(10)
         return
     }
 
-    var proj = ctx.Project()
-    var projects []*Project
-    if len(projects) == 0 { projects = closureProjects(ctx) }
+    var (
+        proj = ctx.Project()
+        projects = closureProjects(ctx)
+    )
     if len(projects) == 0 {
-        prompt(ctx, "%s: zero closure projects\n", p)
+        prompt(ctx, "%v: zero closure projects\n", p)
         erro(ctx, "no projects to traverse '%v' (%v)", targetValue, p)
         erro(ctx, "%v: closure %v", p, len(ctx.closureScopes()))
         errostack(ctx, 3, "%v: %v", p, ctx).debug(8)
         return
     }
+
     if p.filemap != nil {
-        // Add -import filemap projects! See also `files (-import ...)`
+        // Add -import filemap projects!
+        // See also `files (-import ...)`
         if proj := p.filemap.project; proj != nil {
             for _, p := range projects { if p == proj { goto afterFilemapProject } }
             projects = append(projects, proj);               afterFilemapProject:
         }
     }
 
-    switch a := targetValue.(type) {
-    case *Barecomp: // FIXES: convert barecomp path into a real Path
-        if p, ok := a.Elems[0].(*Path); ok {
-            a.Elems = append(p.Elems[len(p.Elems)-1:], a.Elems[1:]...)
-            p.Elems[len(p.Elems)-1] = a
-            targetValue = p
-            ctx.autoSet("@", p)
-        } else {
-            var s string
-            var err error
-            if s, err = a.Strval(ctx); err != nil {
-                erro(ctx, "strval '%v' failed: %v", a, err).of(a).debug(1)
-                return
-            }
-            if file := proj.FindFile(ctx, s); file != nil {
-                targetValue = file
-                ctx.autoSet("@", file)
-            }
-        }
+    // FIXES: convert barecomp path into a real Path
+    if a, ok := targetValue.(*Barecomp); !ok {
+        // does nothing
+    } else if p, ok := a.Elems[0].(*Path); ok {
+        a.Elems = append(p.Elems[len(p.Elems)-1:], a.Elems[1:]...)
+        p.Elems[len(p.Elems)-1] = a
+        targetValue = p
+        ctx.autoSet("@", p)
+    } else if s, err := a.Strval(ctx); err != nil {
+        erro(ctx, "strval '%v' failed: %v", a, err).of(a).debug(1)
+        return
+    } else if f := proj.FindFile(ctx, s); f != nil {
+        targetValue = f
+        ctx.autoSet("@", f)
     }
 
+    var traversed int
     defer func() {
         // Note that the file maybe not traversed yet at this point. But we still have to check mod-time.
         var (
@@ -4087,17 +4078,14 @@ func (p *File) traverse(ctx Context) (brks breakers) {
         )
         // IsZero() indicates the target not exists
         if (!a.IsZero() && b.After(a)) || p.updated(ctx) || p.updatedDeps(ctx) != nil {
-            if false {
-                ctx.dirtyMark(p)
-            } else if false {
-                targetValue.updated(ctx, true)
-            } else {
-                targetValue.updatedDeps(ctx, p)
-            }
+            targetValue.updatedDeps(ctx, p)
         }
         ctx.traversed(p) // set $< $> $^ or $|
-        if false && p.name == "llvm-tools-ar" {
-            warnstack(ctx, 3, "%v %v", targetValue, p).debug(6)
+        if traversed > 0 && brks.has(breakNext) && p.exists() {
+            brks = brks.not(breakNext)
+        }
+        if true && strings.HasPrefix(p.fullname(), "llvm/") {
+            warnstack(ctx, 5, "%v %v", targetValue, p).debug(64)
         }
     } ()
 
@@ -4117,84 +4105,59 @@ ForProjectsEntries:
             return
         } else if entries == nil {
             continue
-        } else {
-            concreteList = append(concreteList, entries.all...)
         }
+        concreteList = append(concreteList, entries.all...)
         for _, entry := range entries.all {
-            if v, w := done[entry]; v && w {
-                continue
-            } else {
-                done[entry] = true
-            }
+            if v, w := done[entry]; v && w { continue }
+            done[entry] = true
 
-            if brks = entry.traverse(ctx); !brks.failed() {
-                if brks.has(breakCase, breakDone) {
-                    if brks = brks.not(breakCase, breakDone); !brks.has() {
-                        break ForProjectsEntries
-                    }
-                }
-                if brks.has(breakNext) {
-                    if brks = brks.not(breakNext); !brks.has() { continue }
+            var t = entry.traverse(ctx)
+            if brks = append(brks, t...); !t.failed() {
+                if t.has(breakCase, breakDone) { break ForProjectsEntries }
+                if t.has(breakNext) { continue }
+                if t = t.not(breakCase, breakDone, breakNext); !t.has() {
+                    traversed += 1
                 }
             }
-            if brks.has() {
+            if t.has() { /*(options.verbose || options.verboseBreaks) && */
                 prompt(ctx, "%s: traverse file entry failed: %v\n", p, p.fullname())
-                for _, brk := range brks {
-                    switch brk.what {
-                    case breakErro: warn(ctx, "%v: %v", p, brk.error  ).at(brk.pos)
-                    case breakFail: warn(ctx, "%v: %v", p, brk.message).at(brk.pos)
-                    default:        warn(ctx, "broken traversal %v (%v)", p, brk.what).at(brk.pos)
-                    }
-                }
-                errostack(ctx, 3, "%v %v", entry.OwnerProject(), entry).debug(6)
+                for _, brk := range t { erro(ctx, "%v: %v", p, brk).at(brk.pos) }
+                errostack(ctx, 3, "%v: %v", entry.OwnerProject(), entry).debug(6)
                 return
             }
         }
     }
 
-ForProjectsPatterns:
-    for _, project := range projects {
+    if traversed == 0 || !p.exists() { ForProjectsPatterns: for _, project := range projects {
         var patterns = project.resolvePatterns(ctx, p.name) // stemmed pattern entries
-        if len(patterns) == 0 {
-            continue
-        } else {
-            stemmedList = append(stemmedList, patterns...)
-        }
+        if len(patterns) == 0 { continue }
+        stemmedList = append(stemmedList, patterns...)
         for _, entry := range patterns {
-            if v, w := done[entry.target]; v && w {
-                continue
-            } else {
-                done[entry.target] = true
-            }
-            if brks = entry.file(ctx, p); !brks.failed() {
-                if brks.has(breakCase, breakDone) {
-                    if brks = brks.not(breakCase, breakDone); !brks.has() {
-                        break ForProjectsPatterns
-                    }
-                }
-                if brks.has(breakNext) {
-                    if brks = brks.not(breakNext); !brks.has() { continue }
-                }
+            if v, w := done[entry.target]; v && w { continue }
+            done[entry.target] = true
+
+            var t = entry.file(ctx, p)
+            if brks = append(brks, t...); !t.failed() {
+                if t.has(breakCase, breakDone) { break ForProjectsPatterns }
+                if t.has(breakNext) { continue }
+                t = t.not(breakCase, breakDone, breakNext)
             }
             if false && !p.exists() { p.stat(ctx) }
-            if (/*!p.exists() || */options.verbose || options.verboseBreaks) && brks.has() {
+            if t.has() { // (/*!p.exists() || */options.verbose || options.verboseBreaks) &&
                 var target, _ = ctx.autoGet("@")
                 prompt(ctx, "%s: traverse pattern entry failed (project=(%v,%v), target=%v, stems=%v)\n",
                     p.name, project, entry.OwnerProject(), target, entry.Stems)
 
                 var str, _, _ = entryStr(ctx, entry)
-                for _, brk := range brks.not(breakFail, breakErro) {
-                    switch brk.what {
-                    case breakErro: warn(ctx, "%v: %v", str, brk.error  ).at(brk.pos)
-                    case breakFail: warn(ctx, "%v: %v", str, brk.message).at(brk.pos)
-                    default:        warn(ctx, "%v: broken traversal (%v)", str, brk.what).at(brk.pos)
-                    }
+                for _, brk := range t.not(breakFail, breakErro) {
+                    warn(ctx, "%v: %v", str, brk).at(brk.pos)
                 }
                 warnstack(ctx, 5, "%v: stems=%v", p.name, entry.Stems).debug(16)
+            } else {
+                traversed += 1
             }
-            if p.exists() { brks = nil }
         }
-    }
+    }}
 
     if !p.exists() {
         for _, project := range projects {
@@ -4578,7 +4541,7 @@ func (p *List) traverse(ctx Context) (brks breakers) {
     for i, elem := range p.Elems {
         if brks = elem.traverse(ctx); brks.failed() {
             var t = brks.not(breakCase, breakNext, breakDone)
-            if (true || options.debug) && len(t) > 0 {
+            if (options.verbose || options.verboseBreaks || options.debug) && t.has() {
                 prompt(ctx, "List[%v] → %T %v\n", i, elem, elem)
                 for _, brk := range t {
                     switch brk.what {
@@ -4983,7 +4946,7 @@ func (p *delegate) traverse(ctx Context) (brks breakers) {
         }
     } else if brks = val.traverse(ctx); len(brks) > 0 {
         var t = brks.not(breakCase, breakNext, breakDone)
-        if (true || options.debug) && len(t) > 0 {
+        if (options.verbose || options.verboseBreaks || options.debug) && t.has() {
             prompt(ctx, "%v → %T %v\n", p, val, val)
             for _, brk := range t {
                 switch brk.what {

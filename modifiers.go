@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2018, Duzy Chan <code@duzy.info>, all rights reserverd.
+//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -110,6 +110,7 @@ func (_ *modifiergroup) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (g *modifiergroup) traverse(ctx Context) (brks breakers) {
+        var verb = options.verbose || options.verboseBreaks
         for _, m := range g.modifiers {
                 var (
                         ctx = positional(ctx, m.position)
@@ -121,19 +122,20 @@ func (g *modifiergroup) traverse(ctx Context) (brks breakers) {
                         continue
                 }
                 if t := brks.not(breakCase, breakDone, breakNext); t.has() {
-                        if false { // NOTE: only check breakers in func traverse
-                                var _, ent, _ = entryStr(ctx, ctx.entry())
-                                prompt(ctx, "%v: traverse %s failed, project %s\n", ent, m.name, proj)
-                                for _, brk := range t {
-                                        switch brk.what {
-                                        case breakErro: erro(ctx, "%v: %s: %v", proj, m.name, brk.error).at(brk.pos)
-                                        case breakFail: erro(ctx, "%v: %s: %v", proj, m.name, brk.message).at(brk.pos)
-                                        default: erro(ctx, "%v: %s: %v", proj, m.name, brk.what).at(brk.pos)
-                                        }
-                                }
-                                errostack(ctx, 3, "%v: %v: %v", proj, m.name, ctx).debug(6)
+                        if !verb { break }
+
+                        var _, ent, _ = entryStr(ctx, ctx.entry())
+                        prompt(ctx, "%v: %s failed, project %s\n", ent, m.name, proj)
+                        for _, brk := range t {
+                                // switch brk.what {
+                                // case breakErro: erro(ctx, "%v: %s: %v", proj, m.name, brk.error).at(brk.pos)
+                                // case breakFail: erro(ctx, "%v: %s: %v", proj, m.name, brk.message).at(brk.pos)
+                                // default: erro(ctx, "%v: %s: %v", proj, m.name, brk.what).at(brk.pos)
+                                // }
+                                warn(ctx, "%v: %s: %v", proj, m.name, brk).at(brk.pos)
                         }
-                        break
+                        warnstack(ctx, 5, "").debug(16)
+                        return
                 } else if t = brks.of(breakCase); t.has() {
                         if false { warn(ctx, "%v: %v", proj, m).debug(16) }
                         continue // case selected
@@ -2020,9 +2022,8 @@ func modifierTouch(ctx Context, args... Value) (result Value, brks breakers) {
                 } else { files = append(files, vf...) }
         }
 
-        var t = ctx.traversal()
         var program = ctx.program()
-        if opts.verbose { reportFileUpdates(ctx, t.start, files) }
+        if opts.verbose { reportFileUpdates(ctx, ctx.traversal().start, files) }
         if len(program.getModifiers(ctx, "stamp")) > 0 {
                 warn(ctx, "no need to use a (stamp) after (touch)").debug(1)
         }

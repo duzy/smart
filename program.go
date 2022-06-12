@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2018, Duzy Chan <code@duzy.info>, all rights reserverd.
+//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -233,10 +233,9 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
 
     var proj = ctx.Project()
     if f, ok := modifiers[name]; ok {
-        var t = ctx.traversal()
         var value Value //, _ = ctx.autoGet("-")
         // Special modifier processing (implicit interpretation) before (configure)
-        if len(t.interpreted) == 0 && len(prog.recipes) > 0 && name == "configure" /*&& (isNil(value) || isNone(value))*/ {
+        if len(ctx.traversal().interpreted) == 0 && len(prog.recipes) > 0 && name == "configure" /*&& (isNil(value) || isNone(value))*/ {
             // Evaluate for configure modifier
             if i, ok := dialects["eval"]; ok && i != nil {
                 if err = prog.interpret(ctx, i, args); err != nil {
@@ -250,17 +249,17 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
         }
         if value, brks = f(positional(ctx, m.position), args...); brks.has() {
             var verb = options.verbose || options.verboseBreaks
-            if tb := brks.not(breakCase, breakNext, breakDone); verb && tb.has() {
+            if t := brks.not(breakCase, breakNext, breakDone); verb && t.has() {
                 var _, ent, _ = entryStr(ctx, ctx.entry())
                 prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
-                for _, brk := range tb {
+                for _, brk := range t {
                     switch brk.what {
                     case breakErro: warn(ctx, "%v: %s: %v", proj, name, brk.error  ).at(brk.pos)
                     case breakFail: warn(ctx, "%v: %s: %v", proj, name, brk.message).at(brk.pos)
                     default:        warn(ctx, "%v: %s: %v", proj, name, brk.what   ).at(brk.pos)
                     }
                 }
-                warnstack(ctx, 3, "").debug(6)
+                warnstack(ctx, 5, "").debug(16)
                 if false { fail(m.Position(), "%s failed for project %s", name, proj) }
             } else {
                 return;
@@ -506,11 +505,12 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             prompt(ctx, "%v: traverse program failed (target=%s; project=%s)\n",
                 entry, target, proj)
             for _, brk := range t {
-                switch brk.what {
-                case breakErro: warn(ctx, `%v: %s: %v`, proj, target, brk.error).at(brk.pos)
-                case breakFail: warn(ctx, `%v: %s: %v`, proj, target, brk.message).at(brk.pos)
-                default:        warn(ctx, `%v: %s: %v (%v)`, proj, target, brk.message, brk.what).at(brk.pos)
-                }
+                // switch brk.what {
+                // case breakErro: warn(ctx, `%v: %s: %v`, proj, target, brk.error).at(brk.pos)
+                // case breakFail: warn(ctx, `%v: %s: %v`, proj, target, brk.message).at(brk.pos)
+                // default:        warn(ctx, `%v: %s: %v (%v)`, proj, target, brk.message, brk.what).at(brk.pos)
+                // }
+                warn(ctx, `%v: %s: %v`, proj, target, brk).at(brk.pos)
             }
             warnstack(ctx, 5, "%v: %v", proj, ctx).debug(16)
         }
@@ -581,19 +581,21 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
                 continue
             } else if t := brks.not(breakNext, breakCase, breakDone); verb && t.has() {
                 var proj = ctx.Project()
+                prompt(ctx, "%v: traverse prerequisite failed, project %s\n", prerequisite, proj)
                 for _, brk := range t {
-                    switch brk.what {
-                    case breakErro: warn(ctx, "%v: %v", proj, brk.error  ).at(brk.pos)
-                    case breakFail: warn(ctx, "%v: %v", proj, brk.message).at(brk.pos)
-                    default:        warn(ctx, "%v: %v", proj, brk.what   ).at(brk.pos)
-                    }
+                    // switch brk.what {
+                    // case breakErro: warn(ctx, "%v: %v", proj, brk.error  ).at(brk.pos)
+                    // case breakFail: warn(ctx, "%v: %v", proj, brk.message).at(brk.pos)
+                    // default:        warn(ctx, "%v: %v", proj, brk.what   ).at(brk.pos)
+                    // }
+                    warn(ctx, "%v: %v", prerequisite, brk).at(brk.pos)
                 }
-                warnstack(ctx, 5, "%v: %v: %v", proj, ctx.entry(), prerequisite).debug(36)
+                warnstack(ctx, 5, "").debug(36)
             }
             if brks.has(breakCase) {
                 continue
             } else {
-                break
+                break // breakNext, breakDone
             }
         }
     } else if num := len(prerequisites); num > 0 {

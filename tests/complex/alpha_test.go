@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2017, Duzy Chan <code@duzy.info>, all rights reserverd.
+//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
 //
 package smartest
 

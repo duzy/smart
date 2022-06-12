@@ -1,4 +1,4 @@
-//  Copyright (C) 2012-2018, Duzy Chan <code@duzy.info>, all rights reserverd.
+//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //

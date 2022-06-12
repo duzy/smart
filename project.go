@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2018, Duzy Chan <code@duzy.info>, all rights reserverd.
+//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -682,6 +682,9 @@ func (p *Project) resolvePatterns(ctx Context, i interface{}) (res []*stemmed) {
 func (p *Project) resolvePatterns1(ctx Context, i interface{}) (res []*stemmed) {
   for _, pat := range p.patterns {
     if full, _, stems := pat.target.match(ctx, i); full {
+      // if len(stems) == 1 && stems[0] == "/Volumes/workspace/external/llvm-project/llvm/include/llvm-c/ExternC" {
+      //   warn(ctx, "%v %v; %v", pat.target, i, pat.programs[0].depends).debug(1)
+      // }
       if ok := false; len(pat.argumented) > 0 {
         var ( args = pat.argumented; err error )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
