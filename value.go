@@ -3477,9 +3477,13 @@ SegsSrcsLoop:
             errostack(ctx, 8, "%v", ctx).debug(10)
         }
         if full && p.patterned(ctx) && len(stems) == 0 {
-            prompt(ctx, "%v: %v: incorrect full match: segs=%v; srcs=%v; res=%v\n", str, p, segs, srcs, res)
-            warn(ctx, "incorrect full match: path=%v, str=%s, res=%v result=%v", p, str, res, result).of(p)
-            warnstack(ctx, 3, "(%T):", ctx).debug(6)
+            if lenSegs == 1 && lenSrcs == 1 && len(res) == 1 {
+                stems = res
+            } else {
+                prompt(ctx, "%v: %v: incorrect full match: segs=%v; srcs=%v; res=%v\n", str, p, segs, srcs, res)
+                warn(ctx, "incorrect full match: path=%v, str=%s, res=%v result=%v", p, str, res, result).of(p)
+                warnstack(ctx, 3, "(%T):", ctx).debug(6)
+            }
         }
     }
     return
