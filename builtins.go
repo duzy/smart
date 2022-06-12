@@ -4066,7 +4066,7 @@ func builtinGlob(ctx Context, args... Value) (res Value) {
         return MakeListOrScalar(pos, list)
 }
 
-func _wildcardPathPatsInDir1(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
+func wildcardPathPatsInDir1(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
         var dir *os.File
         if fi, err := os.Stat(opts.dir); err != nil {
                 erro(ctx, "%v", err).debug(1)
@@ -4078,7 +4078,7 @@ func _wildcardPathPatsInDir1(ctx Context, opts *wildcardOpts, pats ...Value) (fi
                 erro(ctx, "not dir: %v", opts.dir).debug(1)
                 return
         }
-        var dbg = false //strings.HasSuffix(opts.dir, "/llvm/ObjCopy")
+        var dbg = false //strings.HasSuffix(opts.dir, "/llvm-project/llvm/include")
         var names, err = dir.Readdirnames(-1); dir.Close()
         if err != nil {
                 erro(ctx, "readdir: %v", err).debug(1)
@@ -4091,14 +4091,19 @@ LoopNames:
                 }
                 for _, pat := range pats {
                         if p, ok := pat.(*Path); ok {
-                                if full, _, _ := p.Elems[0].match(ctx, name); !full { continue }
-                                var subFiles []*File
-                                var sub wildcardOpts = *opts
+                                var full, s, stems = p.Elems[0].match(ctx, name)
+                                if dbg { warn(ctx, "%v %v; %v %v %v", pat, name, full, s, stems) }
+                                if !full { continue }
+
+                                var (
+                                        sub wildcardOpts = *opts
+                                        subFiles []*File
+                                )
                                 if sub.dir = filepath.Join(opts.dir, name); len(p.Elems) == 2 {
-                                        subFiles = _wildcardPathPatsInDir1(ctx, &sub, p.Elems[1])
+                                        subFiles = wildcardPathPatsInDir1(ctx, &sub, p.Elems[1])
                                 } else {
                                         p = MakePath(p.Elems[1].Position(), p.Elems[1:]...)
-                                        subFiles = _wildcardPathPatsInDir1(ctx, &sub, p)
+                                        subFiles = wildcardPathPatsInDir1(ctx, &sub, p)
                                 }
                                 for _, f := range subFiles {
                                         if true { assert(filepath.Base(f.dir) == name, "file.dir: %s != %s", f.dir, name) }
@@ -4149,10 +4154,10 @@ func readDirNames(ctx Context, inDir string) (names []string) {
         return
 }
 
-func wildcardPathSubDir(ctx Context, parentOpts *wildcardOpts, name string, p *Path) (subFiles []*File) {
-        if full, _, _ := p.Elems[0].match(ctx, name); !full {
-                return //continue
-        }
+func wildcardPathSubDir(ctx Context, parentOpts *wildcardOpts, name string, p *Path, dbg bool) (subFiles []*File) {
+        var full, s, stems = p.Elems[0].match(ctx, name)
+        if dbg { warn(ctx, "%v %v; %v %v %v", p, name, full, s, stems) }
+        if !full { return }
 
         var ( opts wildcardOpts = *parentOpts; inDir = opts.dir )
         if opts.dir = filepath.Join(inDir, name); len(p.Elems) == 2 {
@@ -4176,21 +4181,22 @@ func wildcardPathSubDir(ctx Context, parentOpts *wildcardOpts, name string, p *P
         return
 }
 
-func _wildcardPathPatsInDir2(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
+func wildcardPathPatsInDir2(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
+        var dbg = strings.HasSuffix(opts.dir, "/external/llvm-project/llvm/include")
         var names []string
         for _, pat := range pats {
                 if p, ok := pat.(*Path); ok {
                         if p.Elems[0].patterned(ctx) {
                                 if names == nil { names = readDirNames(ctx, opts.dir) }
                                 for i := 0; i < len(names); i += 1 {
-                                        subFiles := wildcardPathSubDir(ctx, opts, names[i], p)
+                                        subFiles := wildcardPathSubDir(ctx, opts, names[i], p, dbg)
                                         if subFiles != nil { files = append(files, subFiles...) }
                                 }
                         } else if s, err := p.Elems[0].Strval(ctx); err != nil {
                                 erro(ctx, "strval failed: %v", p.Elems[0]).debug(1)
                                 return
                         } else if fi, e := os.Stat(filepath.Join(opts.dir, s)); e == nil && fi.IsDir() {
-                                subFiles := wildcardPathSubDir(ctx, opts, s, p)
+                                subFiles := wildcardPathSubDir(ctx, opts, s, p, dbg)
                                 if subFiles != nil { files = append(files, subFiles...) }
                         }
                 } else {
@@ -4208,12 +4214,67 @@ func _wildcardPathPatsInDir2(ctx Context, opts *wildcardOpts, pats ...Value) (fi
         return
 }
 
+func wildcardPathPatsInDir3(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
+        var dbg = false //strings.Contains(opts.dir, "/external/llvm-project/llvm/include")
+        var names = readDirNames(ctx, opts.dir)
+        forNames: for _, name := range names {
+                for _, x := range opts.exclude {
+                        if full, _, _ := x.match(ctx, name); full { continue forNames }
+                }
+                for _, pat := range pats {
+                        var p, ok = pat.(*Path)
+                        if !ok || len(p.Elems) <= 1 {
+                                var full, s, stems = pat.match(ctx, name)
+                                if dbg { warn(ctx, "%T %v %v; %v %v %v; %v %s", pat, pat, name, full, s, stems, p.Elems, opts.dir) }
+                                if full {
+                                        files = append(files, stat(ctx, name, "", opts.dir))
+                                        continue forNames
+                                } else {
+                                        continue
+                                }
+                        } else if full, s, stems := p.Elems[0].match(ctx, name); !full {
+                                continue
+                        } else if dbg {
+                                warn(ctx, "%T %v %v; %v %v", p.Elems[0], p.Elems[0], name, s, stems)
+                        }
+
+                        var subOpts wildcardOpts = *opts
+                        subOpts.dir = filepath.Join(opts.dir, name)
+                        if fi, err := os.Stat(subOpts.dir); err != nil {
+                                erro(ctx, "%v", err).debug(1)
+                                return
+                        } else if !fi.IsDir() {
+                                continue
+                        }
+
+                        var subPat = Path{ valbase:valbase{ p.Elems[1].Position() } }
+                        subPat.Elems = p.Elems[1:]
+                        if dbg { warn(ctx, "%T %v -> %v %v", pat, pat, &subPat, subOpts.dir) }
+
+                        var subs = wildcardPathPatsInDir3(ctx, &subOpts, &subPat)
+                        for _, f := range subs {
+                                if false {
+                                        f.name = filepath.Join(name, f.name)
+                                        f.dir = filepath.Dir(f.dir)
+                                } else if !f.change(filepath.Dir(f.dir), "", filepath.Join(name, f.name)) {
+                                        prompt(ctx, "%v: %v: can't change file into %s/%s\n", opts.dir, f, name, f.name)
+                                        errostack(ctx, 6, "can't change into: %v/%v", name, f.name).debug(12)
+                                        return
+                                }
+                        }
+                        files = append(files, subs...)
+                }
+        }
+        return
+}
+
 func wildcardPathPatsInDir(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
-        if false {
-                // TODO: using the optimized version: _wildcardPathPatsInDir2
-                files = _wildcardPathPatsInDir2(ctx, opts, pats...)
+        if true {
+                files = wildcardPathPatsInDir3(ctx, opts, pats...)
+        } else if false {
+                files = wildcardPathPatsInDir2(ctx, opts, pats...) // FIXME: incorrect
         } else {
-                files = _wildcardPathPatsInDir1(ctx, opts, pats...)
+                files = wildcardPathPatsInDir1(ctx, opts, pats...)
         }
         if opts.filetype != "" {
                var res []*File

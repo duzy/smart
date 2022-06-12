@@ -673,7 +673,7 @@ ForGlobTok:
 	for {
 		if p.lineComment != nil { break ForGlobTok }
 		switch p.tok {
-		case token.RPAREN, token.COMMA, token.SPACE, token.LINEND, token.EOF:
+		case token.PCON, token.RPAREN, token.COMMA, token.SPACE, token.LINEND, token.EOF:
 			break ForGlobTok
 		case token.STAR, token.QUE: // * ?
 			x = p.parseGlobMeta()

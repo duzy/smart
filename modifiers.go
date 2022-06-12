@@ -2710,11 +2710,11 @@ func crc64CheckFileModeContent(ctx Context, filename string, content []byte, per
                 var a, b = w1.Sum64(), w2.Sum64()
                 if a == b { same = true }
 
-          if false {
-            var s []byte
-            if s, err = ioutil.ReadFile(filename); err != nil { return }
-            prompt(ctx, "crc64CheckFileModeContent: %v %v\n%s\n%s\n", a, b, s, content)
-          }
+                if false {
+                        var s []byte
+                        if s, err = ioutil.ReadFile(filename); err != nil { return }
+                        prompt(ctx, "crc64CheckFileModeContent: %v %v\n%s\n%s\n", a, b, s, content)
+                }
         }
         return
 }
@@ -2772,6 +2772,18 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
                 if filename, err = fullnameOrStrval(ctx, target); err != nil {
                         erro(ctx, "fullnameOrStrval: %v", err).debug(1)
                         return
+                } else if !filepath.IsAbs(filename) {
+                        var (
+                                projs = closureProjects(ctx)
+                                file *File
+                        )
+                        for _, proj := range projs {
+                                if file = proj.FindFile(ctx, filename); file != nil {
+                                        break
+                                }
+                        }
+                        warnstack(ctx, 5, "undefined file: %T %v (%v in %v)",
+                                target, target, file, projs).debug(16)
                 }
         } else {
                 switch p := target.(type) {
