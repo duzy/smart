@@ -2048,18 +2048,20 @@ ParamsParseLoop: // Parse the directive parameters
 	return
 }
 
+type genericClauseOpts struct {
+	conds []Value `cond,if,where`
+}
 func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseSpecFunc) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Clause("+keyword.String()+")")) }
 
 	p.skipSpaces()
 
 	var (
-		//doc = p.leadComment
+		opts genericClauseOpts // TODO: merge genericClauseOpts and genericoptions
 		generic = genericoptions{ keyword: keyword }
-		//lparen, rparen token.Pos
 	)
 
-	for p.tok == token.MINUS {
+	if false { for p.tok == token.MINUS {
 		var (
 			x = p.parseExpr(false)
 			ctx = positional(p, x.Position())
@@ -2071,7 +2073,7 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 				// does nothing
 			} else if s, err := flag.name.Strval(ctx); err != nil {
 				erro(p, "strval flag name '%v' failed: %v", flag.name, err).at(x.Position())
-			} else if s == "cond" {
+			} else if s == "cond" || s == "if" {
 				conds = t.args
 			}
 		case *Pair:
@@ -2079,7 +2081,7 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 				// does nothing
 			} else if s, err := flag.name.Strval(ctx); err != nil {
 				erro(p, "strval flag name '%v' failed: %v", flag.name, err).at(x.Position())
-			} else if s == "cond" {
+			} else if s == "cond" || s == "if" {
 				if g, ok := t.Value.(*Group); ok {
 					conds = g.Elems
 				} else {
@@ -2094,6 +2096,25 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 		for _, cond := range conds {
 			if t, e := cond.True(ctx); e != nil {
 				erro(p, "conditon casting '%v' failed: %v", cond, e).at(x.Position())
+			} else if !t {
+				generic.dontOperate = true
+				break
+			}
+		}
+	}} else {
+		for p.tok == token.MINUS {
+			var x = p.parseExpr(false)
+			var ctx = positional(p, x.Position())
+			if a, e := parseOpts(ctx, &opts, x); e != nil {
+				erro(ctx, "parse generic opts failed: %v", e).debug(1)
+			} else if len(a) > 0 {
+				generic.options = append(generic.options, a...)
+			}
+		}
+		for _, cond := range opts.conds {
+			var ctx = positional(p, cond.Position())
+			if t, e := cond.True(ctx); e != nil {
+				erro(ctx, "conditon casting '%v' failed: %v", cond, e).debug(1)
 			} else if !t {
 				generic.dontOperate = true
 				break

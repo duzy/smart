@@ -757,8 +757,8 @@ func builtinAnd(ctx Context, args... Value) (res Value) {
         return
 }
 
-// $(not x y z) -> (not (or x y z))
-// $(not x,y,z) -> (and (not x) (not y) (not z))
+// $(not x y z) => (not (or x y z))
+// $(not x,y,z) => (and (not x) (not y) (not z))
 func builtinNot(ctx Context, args... Value) (res Value) {
         var (
                 t bool

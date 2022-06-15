@@ -688,6 +688,7 @@ func (p *ExecResult) ensureContainerRunning(ctx Context, containerName string) (
       if fields := strings.Split(s, "\t"); len(fields) == 3 {
         if names := strings.Split(fields[2], ","); len(names) > 0 {
           foundID, foundImage = fields[0], fields[1]
+          if foundImage == "" { /* FIXME: unused */ }
         }
       }
     }

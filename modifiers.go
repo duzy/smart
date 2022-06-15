@@ -59,7 +59,7 @@ func (_ *modifier) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (m *modifier) traverse(ctx Context) (brks breakers) {
         var proj = ctx.Project()
-        var verb = options.verbose || options.verboseBreaks
+        var verb = false //options.verbose || options.verboseBreaks
         ctx = positional(ctx, m.position)
         if brks = ctx.program().modify(ctx, m); !brks.has() {
                 if n := ctx.countErrors(); n > 0 {
@@ -68,13 +68,7 @@ func (m *modifier) traverse(ctx Context) (brks breakers) {
                 }
         } else if tb := brks.not(breakCase, breakNext, breakDone); verb && tb.has() {
                 prompt(ctx, "%v: %s modify failed for %s\n", ctx.entry(), m.name, proj)
-                for _, brk := range tb {
-                        switch brk.what {
-                        case breakErro: warn(ctx, "%v: %s: %v", proj, m.name, brk.error  ).at(brk.pos)
-                        case breakFail: warn(ctx, "%v: %s: %v", proj, m.name, brk.message).at(brk.pos)
-                        default:        warn(ctx, "%v: %s: %v", proj, m.name, brk.what   ).at(brk.pos)
-                        }
-                }
+                for _, brk := range tb { warn(ctx, "%v: %s: %v", proj, m.name, brk).at(brk.pos) }
                 warnstack(ctx, 3, "").debug(6)
         }
         return
@@ -110,7 +104,6 @@ func (_ *modifiergroup) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (g *modifiergroup) traverse(ctx Context) (brks breakers) {
-        var verb = options.verbose || options.verboseBreaks
         for _, m := range g.modifiers {
                 var (
                         ctx = positional(ctx, m.position)
@@ -122,22 +115,14 @@ func (g *modifiergroup) traverse(ctx Context) (brks breakers) {
                         continue
                 }
                 if t := brks.not(breakCase, breakDone, breakNext); t.has() {
-                        if !verb { break }
-
-                        var _, ent, _ = entryStr(ctx, ctx.entry())
-                        prompt(ctx, "%v: %s failed, project %s\n", ent, m.name, proj)
-                        for _, brk := range t {
-                                // switch brk.what {
-                                // case breakErro: erro(ctx, "%v: %s: %v", proj, m.name, brk.error).at(brk.pos)
-                                // case breakFail: erro(ctx, "%v: %s: %v", proj, m.name, brk.message).at(brk.pos)
-                                // default: erro(ctx, "%v: %s: %v", proj, m.name, brk.what).at(brk.pos)
-                                // }
-                                warn(ctx, "%v: %s: %v", proj, m.name, brk).at(brk.pos)
+                        if false && (options.verbose || options.verboseBreaks) {
+                                var _, ent, _ = entryStr(ctx, ctx.entry())
+                                prompt(ctx, "%v: %s failed, project %s\n", ent, m.name, proj)
+                                for _, brk := range t { warn(ctx, "%v: %s: %v", proj, m.name, brk).at(brk.pos) }
+                                warnstack(ctx, 5, "").debug(16)
                         }
-                        warnstack(ctx, 5, "").debug(16)
                         return
                 } else if t = brks.of(breakCase); t.has() {
-                        if false { warn(ctx, "%v: %v", proj, m).debug(16) }
                         continue // case selected
                 } else if t = brks.of(breakDone, breakNext); t.has() {
                         break // done or try next rule entry
@@ -301,11 +286,13 @@ func modifierPrint(ctx Context, args... Value) (result Value, brks breakers) {
 }
 
 type modifierDebugOpts struct {
-        cond Value `if,cond`
+        cond Value `if,cond,where,when`
         info []Value `i,info`
         warn []Value `w,warn`
         error []Value `e,err;er,error`
         checkOutdated bool `d,dirty;cd,checkdirty;cd,check-dirty;co,check-outdated`
+        s int `s,stack,sn,stack-number`
+        n int `c,count,n,num,cn,call-number`
 }
 func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
         var (
@@ -358,9 +345,9 @@ func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
                 grepped, _ = ctx.autoGet("~")
         )
         if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.error) == 0 {
-                var pos = ctx.Position()
-                prompt(ctx, "%v: %v; target=%v stems=%v depends=%v", pos,
-                        args, target, ctx.stems(), depends).debug(1)
+                var n = opts.n; if n < 1 { n = 1 }
+                prompt(ctx, "%v: %v; target=%v stems=%v depends=%v", ctx.Position(),
+                        args, target, ctx.stems(), depends).debug(n)
         }
         if opts.checkOutdated && !isNil(target) {
                 var tt = target.stat(ctx).mod()
@@ -749,7 +736,8 @@ func parseDependList(ctx Context, dependList *List) (depends *List, brks breaker
                         }
                 case *ExecResult:
                         if d.Status != 0 {
-                                brks.add(ctx, breakFail).message = fmt.Sprintf("bad status %v", d.Status)
+                                brks.add(ctx, breakFail).
+                                        message = fmt.Sprintf("bad status %v", d.Status)
                                 return // target shall be updated
                         } else {
                                 depends.Append(d)
@@ -2676,16 +2664,19 @@ func modifierReadFile(ctx Context, args... Value) (result Value, brks breakers) 
                         }
                 }
                 ctx.autoSet("-", MakeString(ctx.Position(), s))
-        } else if stems := ctx.stems(); false && len(stems) > 0 {
-                brks.add(ctx, breakNext).scope = breakTrave
+        } else /*if stems := ctx.stems(); false && len(stems) > 0 {
+                brk := brks.add(ctx, breakNext)
+                brk.scope = breakTrave
+                brk.depend = target
                 if opts.debug {
                         warn(ctx, "%v", err).debug(1)
                         warnstack(ctx, -1, "%v", err).debug(1)
                 }
-        } else {
-                brks.add(ctx, breakErro).error = err
+        } else*/ {
+                brk := brks.add(ctx, breakErro)
+                brk.error = err
                 if opts.debug {
-                        erro(ctx, "read-file: %T %s (stems=%v)", target, filename, stems)
+                        erro(ctx, "read-file: %T %s (stems=%v)", target, filename, ctx.stems())
                         errostack(ctx, 5, "%v", err).debug(36)
                 }
         }
@@ -2983,7 +2974,6 @@ func modifierWait(ctx Context, args... Value) (result Value, brks breakers) {
         if opts.verbose {
                 defer func (st time.Time) {
                         var s string; if err != nil { s = "fail" } else { s = "done" }
-                        //prompt(ctx, "Wait %v …… %s, result=%v, updated=%v\n", target, s, execRes, t.updated).debug(opts.debug, 1)
                         prompt(ctx, "Wait %v …… %s, result=%v\n", target, s, execRes).debug(opts.debug, 1)
                         if opts.debug { info(ctx, "%v", execRes).debug(6) }
                 } (time.Now())
@@ -3084,10 +3074,13 @@ func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
         prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err)
         if opts.next {
                 if opts.verbose { warn(ctx, "%v", err).debug(1) }
-                brks.add(ctx, breakNext).scope = breakTrave
+                brk := brks.add(ctx, breakNext)
+                brk.scope = breakTrave
+                // brk.depend = ???
                 err = nil // discard the error
         } else if opts.error {
-                brks.add(ctx, breakErro).error = err
+                brk := brks.add(ctx, breakErro)
+                brk.error = err
                 if false {
                         prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err)
                         erro(ctx, "stamp(%v) error")
@@ -3097,8 +3090,10 @@ func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
                         warn(ctx, "stamp(%v) error")
                         warnstack(ctx, -1, "%v", ctx).debug(1)
                 }
-        } else if stems := ctx.stems(); false && len(stems) == 0 {
-                brks.add(ctx, breakNext).scope = breakTrave
+        } else /*if stems := ctx.stems(); false && len(stems) == 0 {
+                brk := brks.add(ctx, breakNext)
+                brk.scope = breakTrave
+                brk.depend = target
                 if opts.debug > 0 && err != nil {
                         warn(ctx, "%v", err).debug(1)
                         warnstack(ctx, -1, "%v", err).debug(1)
@@ -3106,7 +3101,7 @@ func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
                         warn(ctx, "%v", err).debug(1)
                 }
                 err = nil // discard the error
-        } else if pos.IsValid() {
+        } else*/ if pos.IsValid() {
                 erro(ctx, "failed stamp(%v)", target)
                 errostack(ctx, -1, "failed: %v", ctx).debug(10)
         } else if pos = target.Position(); pos.IsValid() {
@@ -3306,17 +3301,12 @@ func modifierCond(ctx Context, args... Value) (result Value, brks breakers) {
 }
 
 func modifierCase(ctx Context, args... Value) (result Value, brks breakers) {
-        var (
-                res bool
-                sco breaksco
-                msg string
-                err error
-        )
-        if res, sco, msg, err = predict(ctx, args...); err == nil {
-                brk := brks.add(ctx, breakNext) // next case
-                brk.message = msg
-                brk.scope = sco
-                if res { brk.what = breakCase } // select case
+        if res, sco, msg, err := predict(ctx, args...); err != nil {
+                erro(ctx, "case: %v", err).debug(1)
+        } else {
+                brk := brks.add(ctx, breakCase) // select case
+                if !res { brk.what = breakNext } // next case
+                brk.message, brk.scope = msg, sco
         }
         return
 }
@@ -3417,7 +3407,8 @@ func predictionOutdated(ctx Context, args... Value) (result Value, err error) {
                         ts = trimPromptString(targetFullname)
                         n = len(t.targets) + len(t.grepped)
                 )
-                prompt(ctx, "%s …… %s (%d files in %s; updated=%v)\n", ts, m, n, s, outdated).debug(opts.debug, 6)
+                prompt(ctx, "%s …… %s (%d files in %s; update=%v)\n",
+                        ts, m, n, s, outdated).debug(opts.debug, 6)
         }
 
         if opts.silent { reason = "" }
@@ -3715,18 +3706,21 @@ func modifierOnce(ctx Context, args... Value) (result Value, brks breakers) {
                 return
         }
 
-        if target, found := ctx.autoGet("@"); !found || isTrivial(target) {
+        var n int
+        var target, found = ctx.autoGet("@")
+        if !found || isTrivial(target) {
                 errostack(ctx, 5, "once: no target $@, %v", args).debug(16)
                 return
         } else if opts.checksum {
                 result, brks = onceSHA256(ctx, &opts, append([]Value{target}, args...)...)
-        } else {
-                var n = onceCacheTest(ctx, target)
-                if  n > 1 { brks.add(ctx, breakDone).message = fmt.Sprintf(`executed %d times`, n) }
-                if opts.debug {
-                        warn(ctx, "%T %v %p %v", target, target, target, n)
-                        warnstack(positional(ctx, target.Position()), -1, "%p %v %v", target, target, n).debug(16)
-                }
+        } else if n = onceCacheTest(ctx, target); n > 1 {
+                brk := brks.add(ctx, breakDone)
+                brk.message = fmt.Sprintf(`executed %d times`, n)
+        }
+
+        if opts.debug {
+                warn(ctx, "%T %v %p %v", target, target, target, n)
+                warnstack(positional(ctx, target.Position()), -1, "%p %v %v", target, target, n).debug(16)
         }
         return
 }

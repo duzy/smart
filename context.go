@@ -437,22 +437,15 @@ func executeEntry(ctx Context, entry *RuleEntry, args ...Value) (result []Value,
   if result, brks = entry.Execute(positional(ctx, entry.position), args...); !brks.has() {
     okay = true; return
   }
-  if tb := brks.of(breakNext, breakCase, breakDone); tb.has() {
+  if t := brks.of(breakCase, breakDone, breakNext); t.has() {
     brks, okay = brks.not(breakNext, breakCase, breakDone), true
   }
-  if tb := brks.of(breakFail, breakErro); tb.has() {
+  if t := brks.of(breakErro, breakFail); t.has() {
     brks, okay = brks.not(breakFail, breakErro), false
-    for _, brk := range tb {
-      switch brk.what {
-      case breakErro: erro(ctx, "broken execution '%v' error: %v", entry, brk.error).at(brk.pos).debug(1)
-      case breakFail: erro(ctx, "broken execution '%v' failed: %v", entry, brk.message).at(brk.pos).debug(1)
-      }
-    }
+    for _, brk := range t { erro(ctx, "%v: %v", entry, brk).at(brk.pos).debug(1) }
   }
-  if brks.has() {
-    for _, brk := range brks {
-      erro(ctx, "broken execution for '%v' (%v)", entry, brk.what).at(brk.pos).debug(1)
-    }
+  if t := brks; t.has() {
+    for _, brk := range t { erro(ctx, "%v: %v", entry, brk).at(brk.pos).debug(1) }
     okay = false
   }
   return

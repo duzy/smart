@@ -248,22 +248,15 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
             }
         }
         if value, brks = f(positional(ctx, m.position), args...); brks.has() {
-            var verb = options.verbose || options.verboseBreaks
-            if t := brks.not(breakCase, breakNext, breakDone); verb && t.has() {
-                var _, ent, _ = entryStr(ctx, ctx.entry())
-                prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
-                for _, brk := range t {
-                    switch brk.what {
-                    case breakErro: warn(ctx, "%v: %s: %v", proj, name, brk.error  ).at(brk.pos)
-                    case breakFail: warn(ctx, "%v: %s: %v", proj, name, brk.message).at(brk.pos)
-                    default:        warn(ctx, "%v: %s: %v", proj, name, brk.what   ).at(brk.pos)
-                    }
+            if t := brks.not(breakCase, breakNext, breakDone); false && t.has() {
+                if options.verbose || options.verboseBreaks {
+                    var _, ent, _ = entryStr(ctx, ctx.entry())
+                    prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
+                    for _, brk := range t { warn(ctx, "%v: %s: %v", proj, name, brk).at(brk.pos) }
+                    warnstack(ctx, 5, "").debug(16)
                 }
-                warnstack(ctx, 5, "").debug(16)
-                if false { fail(m.Position(), "%s failed for project %s", name, proj) }
-            } else {
-                return;
             }
+            return;
         } else if hyphen, found := ctx.autoGet("-"); !found || isNil(value) || value == hyphen {
             // does nothing
         } else if ctx.autoSet("-", value); false {
@@ -319,8 +312,9 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     if cc != nil && cc.checkErrors(true) > 0 {
         var errs = cc.totalErrors()
         var s string; if errs > 1 { s = "s" }
-        prompt(cc, "%v: execution canceled with %d errors for '%s'\n", entry, errs, prog.project)
-        warn(cc, `cancel execution for "%v" due to %d error%s`, entry, errs, s)
+        prompt(cc, "%v: canceled execution (%d error%s), project %s\n",
+            entry, errs, s, prog.project)
+        warn(cc, `cancel "%v"`, entry)
         warnstack(cc, 5, `%v`, cc).debug(16)
         if options.failOnErrors { fail(pos, "fail by %d error%s", errs, s) }
         return
@@ -504,14 +498,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             var target, _ = ctx.autoGet("@")
             prompt(ctx, "%v: traverse program failed (target=%s; project=%s)\n",
                 entry, target, proj)
-            for _, brk := range t {
-                // switch brk.what {
-                // case breakErro: warn(ctx, `%v: %s: %v`, proj, target, brk.error).at(brk.pos)
-                // case breakFail: warn(ctx, `%v: %s: %v`, proj, target, brk.message).at(brk.pos)
-                // default:        warn(ctx, `%v: %s: %v (%v)`, proj, target, brk.message, brk.what).at(brk.pos)
-                // }
-                warn(ctx, `%v: %s: %v`, proj, target, brk).at(brk.pos)
-            }
+            for _, brk := range t { warn(ctx, `%v: %s: %v`, proj, target, brk).at(brk.pos) }
             warnstack(ctx, 5, "%v: %v", proj, ctx).debug(16)
         }
         return
@@ -533,13 +520,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             var target, _ = ctx.autoGet("@")
             prompt(ctx, "%v: traverse program failed (target=%s; project=%s)\n",
                 entry, target, proj)
-            for _, brk := range t {
-                switch brk.what {
-                case breakErro: warn(ctx, `%v: %s: %v`, proj, target, brk.error).at(brk.pos)
-                case breakFail: warn(ctx, `%v: %s: %v`, proj, target, brk.message).at(brk.pos)
-                default:        warn(ctx, `%v: %s: %v (%v)`, proj, target, brk.message, brk.what).at(brk.pos)
-                }
-            }
+            for _, brk := range t { warn(ctx, `%v: %s: %v`, proj, target, brk).at(brk.pos) }
             warnstack(ctx, 5, "%v: %v", proj, ctx).debug(16)
         }
         return
@@ -574,29 +555,52 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
         }
     }
 
+    var target, _ = ctx.autoGet("@")
     var verb = options.verbose || options.verboseBreaks
     if asyncUnsafe {
-        for _, prerequisite := range prerequisites {
-            if brks = prerequisite.traverse(ctx); !brks.has() {
-                continue
-            } else if t := brks.not(breakNext, breakCase, breakDone); verb && t.has() {
-                var proj = ctx.Project()
-                prompt(ctx, "%v: traverse prerequisite failed, project %s\n", prerequisite, proj)
-                for _, brk := range t {
-                    // switch brk.what {
-                    // case breakErro: warn(ctx, "%v: %v", proj, brk.error  ).at(brk.pos)
-                    // case breakFail: warn(ctx, "%v: %v", proj, brk.message).at(brk.pos)
-                    // default:        warn(ctx, "%v: %v", proj, brk.what   ).at(brk.pos)
-                    // }
-                    warn(ctx, "%v: %v", prerequisite, brk).at(brk.pos)
+        var stems = ctx.stems()
+        var self = func(brk *breaker) bool {
+            var t = brk.depend
+            return target == t || target.cmp(ctx, t) == cmpEqual
+        }
+        forPrerequisites: for _, prerequisite := range prerequisites {
+            if brks = prerequisite.traverse(ctx); !brks.has() { continue }
+            if false && strings.Contains(target.String(), "llvm/PassSupport.h") {
+                prompt(ctx, "%v: %v %v\n", target, prerequisite, ctx.stems())
+                for _, brk := range brks { prompt(ctx, "%v: %v\n", target, brk) }
+                warnstack(ctx, 5, "").of(prerequisite).debug(16)
+            }
+            if brks.failed() {
+                if verb {
+                    var proj = ctx.Project()
+                    prompt(ctx, "%v: failed, project %s, stems=%v\n", prerequisite, proj, stems)
+                    for _, brk := range brks { warn(ctx, "%v: %v", target, brk).at(brk.pos) }
+                    warnstack(ctx, 5, "").debug(16)
                 }
-                warnstack(ctx, 5, "").debug(36)
-            }
-            if brks.has(breakCase) {
-                continue
+                if len(stems) > 0 {
+                    // Add breakNext to try the next pattern
+                    brks = brks.not(breakErro, breakFail)
+                    brk := brks.add(ctx, breakNext)
+                    brk.scope = breakTrave
+                }
+            } else if t := brks.of(breakNext); false && t.has() && len(stems) > 0 {
+                break // keep going to try the next pattern
+            } else if t = brks.of(breakCase, breakDone, breakNext); t.has() {
+                for _, brk := range t { if !self(brk) {
+                    if len(stems) == 0 {
+                        brks = brks.not(breakCase, breakDone, breakNext)
+                    } else {
+                        brks = brks.not(breakCase, breakDone)
+                    }
+                    if brk.what == breakCase { continue forPrerequisites }
+                    break forPrerequisites
+                }}
             } else {
-                break // breakNext, breakDone
+                prompt(ctx, "%v: %v", target, prerequisite)
+                for _, brk := range brks { erro(ctx, "%v: %v", target, brk) }
+                errostack(ctx, 5, "").debug(16)
             }
+            break // breakDone
         }
     } else if num := len(prerequisites); num > 0 {
         var (
@@ -614,13 +618,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
 
                     var proj = ctx.Project()
                     if t = t.not(breakNext, breakCase, breakDone); t.has() {
-                        for _, brk := range t {
-                            switch brk.what {
-                            case breakErro: warn(ctx, "%v: %v", proj, brk.error  ).at(brk.pos)
-                            case breakFail: warn(ctx, "%v: %v", proj, brk.message).at(brk.pos)
-                            default:        warn(ctx, "%v: %v", proj, brk.what   ).at(brk.pos)
-                            }
-                        }
+                        for _, brk := range t { warn(ctx, "%v: %v", prerequisite, brk).at(brk.pos) }
                         warnstack(ctx, 5, "%v: %v: %v", proj, ctx.entry(), prerequisite).debug(36)
                     }
                 }

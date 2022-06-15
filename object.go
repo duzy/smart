@@ -180,16 +180,10 @@ func (p *ProjectName) traverse(ctx Context) (brks breakers) {
         } else if entry.Class() == UseRuleEntry {
                 // skip :use: rules
         } else if brks = entry.traverse(ctx); brks.has() {
-                var t = brks.not(breakCase, breakNext, breakDone)
-                if (true || options.debug) && len(t) > 0 {
+                var t = brks.not(breakCase, breakDone, breakNext)
+                if (false || options.debug) && len(t) > 0 {
                         prompt(ctx, "%v→%v\n", p, entry)
-                        for _, brk := range t {
-                                switch brk.what {
-                                case breakErro: warn(ctx, "%v→%v: %v", p, entry, brk.error  ).at(brk.pos)
-                                case breakFail: warn(ctx, "%v→%v: %v", p, entry, brk.message).at(brk.pos)
-                                default:        warn(ctx, "%v→%v: broken traversal (%v)", p, entry, brk.what).at(brk.pos)
-                                }
-                        }
+                        for _, brk := range t { warn(ctx, "%v→%v: %v", p, entry, brk).at(brk.pos) }
                         warnstack(ctx, 5, "%v→%v", p, entry).debug(8)
                 }
         }
@@ -1442,36 +1436,29 @@ func (entry *RuleEntry) traverse(cc Context) (brks breakers) {
         }
 
 ForPrograms:
-        for i, prog := range entry.programs {
+        for _, prog := range entry.programs {
+                var pos = prog.position
+                if !pos.IsValid() { pos = entryPos }
+
                 var (
-                        pos = prog.position
+                        ctx = positional(cc, pos)
                         brs breakers
                         res Value
                 )
-                if !pos.IsValid() { pos = entryPos }
-
-                var ctx = positional(cc, pos)
-                if res, brs = prog.execute(ctx); false && brs.has() {
-                        warn(ctx, "entry: %d. %v %d, %v, %v, %v", entry, i, len(entry.programs), ctx.stems(), target, brks[0].what).debug(breakDone > 0, 6)
-                } else if !isTrivial(res) {
+                if res, brs = prog.execute(ctx); !isNil(res) && !brks.failed() {
                         results = append(results, merge(res)...)
                 }
-
                 for _, brk := range brs {
                         switch brk.what {
-                        case breakDone:
-                                break ForPrograms
-                        case breakCase, breakFail, breakErro:
+                        case breakCase, breakDone, breakErro, breakFail:
                                 brks.append(brk)
-                                if false && brk.what != breakCase {
-                                        warn(ctx, "%v: %v (stems=%v)", entry, brk.what, ctx.stems()).debug(6)
-                                }
                                 break ForPrograms
                         case breakNext:
                                 brks.append(brk)
                                 continue ForPrograms
                         default:
-                                warn(ctx, "%v: %v (stems=%v)", entry, brk.what, ctx.stems()).debug(6)
+                                warnstack(ctx, 5, "%v: %v (stems=%v)",
+                                        entry, brk.what, ctx.stems()).debug(10)
                                 break ForPrograms
                         }
                 }
