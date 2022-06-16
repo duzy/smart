@@ -114,6 +114,8 @@ type Context interface {
   inner() Context
   spawn() Context
 
+  breakers() *breakers
+
   traversal() *traverseContext
   traversed(target Value) []Value
 
@@ -465,6 +467,7 @@ func (ctx *defaultContext) inner() Context { return nil }
 func (ctx *defaultContext) spawn() Context { return nil }
 func (ctx *defaultContext) auto() *autoContext { return nil }
 func (ctx *defaultContext) closure() *closureContext { return nil }
+func (ctx *defaultContext) breakers() *breakers { return nil }
 func (ctx *defaultContext) traversal() *traverseContext { return nil }
 func (ctx *defaultContext) traversed(target Value) []Value { fail(ctx.Position(), "%v", target); return nil }
 func (ctx *defaultContext) entry() Entry { return nil }

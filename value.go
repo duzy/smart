@@ -561,6 +561,7 @@ type traverseContext struct {
     traceLevel int
 
     interpreted []interpreter
+    _breakers breakers
 
     print bool // printing work directories (Entering/Leaving)
 }
@@ -578,6 +579,7 @@ func (t *traverseContext) trace(a ...interface{}) { printIndentDots(t.traceLevel
 func (t *traverseContext) tracef(s string, a ...interface{}) { printIndentDots(t.traceLevel, fmt.Sprintf(s, a...)) }
 
 func (t *traverseContext) caller() *traverseContext { return t.Context.traversal() }
+func (t *traverseContext) breakers() *breakers { return &t._breakers }
 func (t *traverseContext) traversal() *traverseContext { return t }
 func (t *traverseContext) traversed(target Value) (targets []Value) {
     if !isTrivial(target) {
@@ -924,11 +926,7 @@ ForProjectsConcretes:
         for i, concrete := range concreteList { erro(ctx, "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs())).at(concrete.Position()) }
         for i, stemmed  := range stemmedList  { erro(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position) }
         errostack(ctx, 12, "").debug(16)
-    }/* else if !okay && len(ctx.stems()) > 0 {
-        brk := brks.add(ctx, breakNext)
-        brk.scope = breakTrave
-        brk.depend = targetVal
-    }*/
+    }
     return
 }
 

@@ -565,10 +565,14 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
         }
         forPrerequisites: for _, prerequisite := range prerequisites {
             if brks = prerequisite.traverse(ctx); !brks.has() { continue }
-            if false && strings.Contains(target.String(), "llvm/PassSupport.h") {
-                prompt(ctx, "%v: %v %v\n", target, prerequisite, ctx.stems())
-                for _, brk := range brks { prompt(ctx, "%v: %v\n", target, brk) }
-                warnstack(ctx, 5, "").of(prerequisite).debug(16)
+            if true && strings.Contains(target.String(), "llvm-tools-driver") {
+                prompt(ctx, "%v: %v %v %v\n", target, prerequisite, ctx.entry().Target(), ctx.stems())
+                for _, brk := range brks {
+                    prompt(ctx, "%v: %v %v\n", target, self(brk), brk)
+                    warn(ctx, "%v: %v\n", target, brk.target).of(brk.target)
+                    warn(ctx, "%v: %v\n", target, brk.depend).of(brk.depend)
+                }
+                warnstack(ctx, 3, "").of(prerequisite).debug(16)
             }
             if brks.failed() {
                 if verb {

@@ -1587,8 +1587,10 @@ func (p *stemmed) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (p *stemmed) traverse(ctx Context) (brks breakers) {
-        erro(ctx, "cant traverse stemmed entry directly: %v", p).at(p.position).debug(1)
-        brks.add(positional(ctx, p.position), breakErro).error = fmt.Errorf("traversing stemmed entry: %v", p)
+        ctx  = positional(ctx, p.position)
+        brk := brks.add(ctx, breakErro)
+        brk.error = fmt.Errorf("traversing stemmed entry: %v", p)
+        erro(ctx, "cant traverse stemmed entry directly: %v", p).debug(1)
         return
 }
 func (p *stemmed) string(ctx Context, targetVal Value, target string) (res breakers) {
