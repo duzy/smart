@@ -391,7 +391,9 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             for tt, _ := c.autoGet("@"); c != nil; c = c.caller() {
                 var n int
                 for next := c.caller(); next != nil; next = next.caller() {
-                    if t, _ := next.autoGet("@"); t != nil && t.cmp(ctx, tt) == cmpEqual { continue }
+                    if t, _ := next.autoGet("@"); t != nil && t.cmp(ctx, tt) == cmpEqual {
+                        n += 1;  continue
+                    }
                     if next.program() == c.program() { n += 1; c = next } else { break }
                 }
 
