@@ -1023,7 +1023,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         if okay && brks.has(breakNext) && traversed > 0 && (file != nil && file.exists()) {
             brks = brks.not(breakNext)
         }
-        if false && strings.Contains(prereq, "llvm-tools-driver") {
+        if false && strings.Contains(prereq, "/patchlevel.c") {
             prompt(ctx, "%v: %v\n", targetValue, prereqValue)
             warnstack(ctx, 5, "%v %v; %v %v %v; %v %v",
                 targetValue, prereqValue, file, okay, brks, file_traversed, projects).
@@ -1151,11 +1151,13 @@ ForProjectsConcretes:
         }
     }}
 
-    if traversed == 0 || !okay { ForProjectsFiles: for _, project := range projects {
+    if f, ok := prereqValue.(*File); ok && prereq == f.name {
+        file, okay = f, f.exists()
+    } else if traversed == 0 || !okay { ForProjectsFiles: for _, project := range projects {
         if file = project.FindFile(ctx, prereq); file != nil {
             file.position = ctx.Position() // change the position for tracing
 
-            var t = file._locate(ctx, projects, false)
+            var t = file.locate(ctx, []*Project{ project }, false)
             if t.failed() {
                 brks = brks.not(breakCase, breakDone, breakNext)
                 brks = append(brks, t.of(breakErro, breakFail)...)
@@ -1259,7 +1261,7 @@ ForProjectsConcretes:
         for i, c := range ctx.closureScopes() { erro(ctx, "%v: closure: %v. %v", proj, i, c) }
         for i, concrete := range concreteList { erro(ctx, "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs())).at(concrete.Position()) }
         for i, stemmed  := range stemmedList  { erro(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position) }
-        errostack(ctx, 12, "").debug(16)
+        errostack(ctx, 12, "").debug(64)
     }
     return
 }
@@ -4573,7 +4575,7 @@ ForProjectsEntries:
     }
     return
 }
-func (p *File) _locate(a_ctx Context, projects []*Project, trave bool) (brks breakers) {
+func (p *File) locate(a_ctx Context, projects []*Project, trave bool) (brks breakers) {
     if p.isSysFile() { return }
 
     var ctx = positional(a_ctx, p.position)
@@ -4609,9 +4611,8 @@ func (p *File) _locate(a_ctx Context, projects []*Project, trave bool) (brks bre
     }
     return
 }
-
 func (p *File) traverse(ctx Context) (brks breakers) {
-    return p._locate(ctx, closureProjects(ctx), true)
+    return p.locate(ctx, closureProjects(ctx), true)
 }
 
 func (p *File) cmp(ctx Context, v Value) (res cmpres) {

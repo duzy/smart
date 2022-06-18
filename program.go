@@ -399,7 +399,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
 
                 var t, _ = c.autoGet("@")
                 if prog := c.program(); prog == nil {
-                    erro(ctx, "%v (@=%v)", entry, t).at(entry.Position())
+                    erro(ctx, "%v (@=%v)", entry, tt).at(entry.Position())
                     break
                 } else if pos := prog.position; n > 0 {
                     erro(ctx, "%v (repeated %d times)", t, n).at(pos)
@@ -410,7 +410,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
                     erro(ctx, "%v", t).at(pos)
                 }
             }
-            errostack(ctx, depth, "%v: max call depth", entry).debug(128)
+            errostack(ctx, depth, "%v: max call depth", entry).debug(512)
             if false { fail(prog.position, "max call depth") }
             return
         }
@@ -606,10 +606,11 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
                     warnstack(ctx, 5, "").debug(16)
                 }
                 if len(stems) > 0 {
-                    // Add breakNext to try the next pattern
                     brks = brks.not(breakErro, breakFail)
-                    brks.add(ctx, breakNext)
+                    brks.add(ctx, breakNext) // add breakNext to try the next pattern
                 }
+            } else if t := brks.of(breakDone); false && t.has() {
+                break
             } else if t := brks.of(breakNext); false && t.has() && len(stems) > 0 {
                 break // keep going to try the next pattern
             } else if t := brks.of(breakCase, breakDone, breakNext); t.has() {

@@ -203,7 +203,7 @@ func (d *diagPoint) at(position Position) *diagPoint {
   return d
 }
 func (d *diagPoint) of(value Value) *diagPoint {
-  d.position = value.Position()
+  if !isNil(value) { d.position = value.Position() }
   return d
 }
 func (d *diagPoint) debug(args ...interface{}) *diagPoint {
@@ -954,7 +954,7 @@ func checkPanicsErrors(ctx Context, dontCheckErrors ...bool) (panics, errs int) 
       var s = filepath.Join(pos.Filename, "build.smart")
       if _, e := os.Stat(s); e == nil { pos.Filename = s }
     }
-    erro(ctx, "failed: got %d panics (%s)", panics, ctx).at(pos).debug(128)
+    erro(ctx, "failed: got %d panics", panics).at(pos).debug(128)
   }
   if len(dontCheckErrors) > 0 && dontCheckErrors[0] {
     // okay

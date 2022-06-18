@@ -1450,7 +1450,12 @@ ForPrograms:
                 }
                 for _, brk := range brs {
                         switch brk.what {
-                        case breakCase, breakDone, breakErro, breakFail:
+                        case breakErro, breakFail:
+                                brks = brks.not(breakCase, breakDone, breakNext)
+                                brks.append(brk)
+                                break ForPrograms
+                        case breakCase, breakDone:
+                                brks = brks.not(breakNext) // No need for next
                                 brks.append(brk)
                                 break ForPrograms
                         case breakNext:
