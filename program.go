@@ -25,6 +25,7 @@ type programContext struct {
     prog *Program
     params []string // $0, $1, $2, ...
     mutex sync.Mutex
+    brks breakers
     _dirtyOpts modifierSetDirtyPatsOpts
 }
 
@@ -67,7 +68,7 @@ func (pc *programContext) spawn() Context {
     }
     return &spawnProgramContext{programContext{autoContext{
         Context: ctx, defs: pc.defs.clone() }, pc.prog, pc.params, sync.Mutex{},
-        modifierSetDirtyPatsOpts{},
+        breakers{}, modifierSetDirtyPatsOpts{},
     }}
 }
 func (pc *programContext) appendCallerUpdated() bool { return true }
@@ -283,7 +284,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
     return
 }
 
-const maxRecursion  = 32 //64
+const maxCallDepth  = 32 //64
 
 type normalTraverseContext struct { Context }
 type orderTraverseContext struct { Context }
@@ -374,29 +375,41 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
                 prompt(ctx, "%v: execution failed with %d errors, project %s\n", ent, errs, prog.project)
             }
             warn(ctx, `%d errors in execution "%s"`, errs, str)
-            warnstack(ctx, 8, "(%T): %v", ctx, prog.project).debug(10)
+            warnstack(ctx, 8, "(%T): %v", ctx, prog.project).debug(32)
             if options.failOnErrors { fail(prog.position, "fail by %d errors", errs) }
         }
     } ()
 
     if cc != nil {
-        var recursion int
-        for c := cc.traversal(); c != nil; c = c.caller() { if c.program() == prog { recursion += 1 }}
-        if recursion >= maxRecursion {
-            errostack(ctx, recursion, "max recursion: %v", entry.Target()).debug(16)
-            for c := cc.traversal(); c != nil; c = c.caller() {
+        var depth int
+        for c := cc.traversal(); c != nil; c = c.caller() {
+            if c.program() == prog { if depth += 1; depth == maxCallDepth { break }}
+        }
+        if depth < maxCallDepth {
+            // continues
+        } else if c := cc.traversal(); c != nil {
+            for tt, _ := c.autoGet("@"); c != nil; c = c.caller() {
                 var n int
                 for next := c.caller(); next != nil; next = next.caller() {
+                    if t, _ := next.autoGet("@"); t != nil && t.cmp(ctx, tt) == cmpEqual { continue }
                     if next.program() == c.program() { n += 1; c = next } else { break }
                 }
-                if ct, _ := c.autoGet("@"); n > 0 {
-                    erro(ctx, "%v (repeats %d times)", ct, n).at(c.program().position)
+
+                var t, _ = c.autoGet("@")
+                if prog := c.program(); prog == nil {
+                    erro(ctx, "%v (@=%v)", entry, t).at(entry.Position())
+                    break
+                } else if pos := prog.position; n > 0 {
+                    erro(ctx, "%v (repeated %d times)", t, n).at(pos)
+                } else if depth -= 1; maxCallDepth - depth > 5 {
+                    erro(ctx, "%v ...", t).at(pos)
+                    break
                 } else {
-                    erro(ctx, "%v", ct).at(c.program().position)
+                    erro(ctx, "%v", t).at(pos)
                 }
             }
-            erro(ctx, "too many recursion (%d) (%v)", recursion, entry.Target()).debug(1)
-            fail(prog.position, "max recursion")
+            errostack(ctx, depth, "%v: max call depth", entry).debug(128)
+            if false { fail(prog.position, "max call depth") }
             return
         }
         if /*options.traceTraversalNestIndent*/true { t.traceLevel = cc.traversal().traceLevel }
@@ -494,7 +507,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     ctx.autoSet(">", nil)
     if brks = prog.traverse(&normalTraverseContext{ ctx }, prog.depends); brks.has() {
         var verb = options.verbose || options.verboseBreaks
-        if t := brks.not(breakCase, breakNext, breakDone); verb && t.has() {
+        if t := brks.not(breakCase, breakDone, breakNext); verb && t.has() {
             var target, _ = ctx.autoGet("@")
             prompt(ctx, "%v: traverse program failed (target=%s; project=%s)\n",
                 entry, target, proj)
@@ -516,7 +529,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     ctx.autoSet("|", nil)
     if brks = prog.traverse(&orderTraverseContext{ ctx }, prog.ordered); brks.has() {
         var verb = options.verbose || options.verboseBreaks
-        if t := brks.not(breakCase, breakNext, breakDone); verb && t.has() {
+        if t := brks.not(breakCase, breakDone, breakNext); verb && t.has() {
             var target, _ = ctx.autoGet("@")
             prompt(ctx, "%v: traverse program failed (target=%s; project=%s)\n",
                 entry, target, proj)
@@ -555,8 +568,11 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
         }
     }
 
-    var target, _ = ctx.autoGet("@")
-    var verb = options.verbose || options.verboseBreaks
+    var (
+        pc = ctx.programCtx()
+        target, _ = ctx.autoGet("@")
+        verb = options.verbose || options.verboseBreaks
+    )
     if asyncUnsafe {
         var stems = ctx.stems()
         var self = func(brk *breaker) bool {
@@ -564,15 +580,21 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
             return target == t || target.cmp(ctx, t) == cmpEqual
         }
         forPrerequisites: for _, prerequisite := range prerequisites {
-            if brks = prerequisite.traverse(ctx); !brks.has() { continue }
-            if true && strings.Contains(target.String(), "llvm-tools-driver") {
+            if pc.brks = prerequisite.traverse(ctx); pc.brks.has() {
+                brks = pc.brks
+            } else {
+                continue
+            }
+            if true && (
+                strings.Contains(target.String(), "llvm-tools-driver") ||
+                strings.Contains(target.String(), "cc1gen_reproducer_main")) {
                 prompt(ctx, "%v: %v %v %v\n", target, prerequisite, ctx.entry().Target(), ctx.stems())
                 for _, brk := range brks {
                     prompt(ctx, "%v: %v %v\n", target, self(brk), brk)
-                    warn(ctx, "%v: %v\n", target, brk.target).of(brk.target)
-                    warn(ctx, "%v: %v\n", target, brk.depend).of(brk.depend)
+                    warn(ctx, "%v", brk.target).of(brk.target)
+                    warn(ctx, "%v", brk.depend).of(brk.depend)
                 }
-                warnstack(ctx, 3, "").of(prerequisite).debug(16)
+                warnstack(ctx, 3, "").of(prerequisite).debug(32)
             }
             if brks.failed() {
                 if verb {
@@ -584,12 +606,11 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
                 if len(stems) > 0 {
                     // Add breakNext to try the next pattern
                     brks = brks.not(breakErro, breakFail)
-                    brk := brks.add(ctx, breakNext)
-                    brk.scope = breakTrave
+                    brks.add(ctx, breakNext)
                 }
             } else if t := brks.of(breakNext); false && t.has() && len(stems) > 0 {
                 break // keep going to try the next pattern
-            } else if t = brks.of(breakCase, breakDone, breakNext); t.has() {
+            } else if t := brks.of(breakCase, breakDone, breakNext); t.has() {
                 for _, brk := range t { if !self(brk) {
                     if len(stems) == 0 {
                         brks = brks.not(breakCase, breakDone, breakNext)
@@ -629,6 +650,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
             } (ctx.spawn())
         }
         wg.Wait()
+        pc.brks = brks
     }
     return
 }

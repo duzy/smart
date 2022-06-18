@@ -1467,11 +1467,7 @@ ForTarget:
                         for _, val := range t.grepped {
                                 if brks = val.traverse(ctx); !brks.has() { continue }
                                 for _, brk := range brks {
-                                        switch brk.what {
-                                        case breakFail: erro(ctx, "broken traversal for grepped %v failed: %v", val, brk.message).at(brk.pos)
-                                        case breakErro: erro(ctx, "broken traversal for grepped %v with error: %v", val, brk.error).at(brk.pos)
-                                        default: erro(ctx, "broken traversal for grepped %v: %v (%v)", val, brk.message, brk.what).at(brk.pos)
-                                        }
+                                        erro(ctx, "%v: %v (%v)", val, brk.message, brk).at(brk.pos)
                                 }
                                 erro(ctx, "broken traversal for grepped %v from %v", val, target)
                                 errostack(ctx, 5, "%v", ctx).debug(16)
