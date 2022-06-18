@@ -4660,11 +4660,15 @@ func builtinGrep(ctx Context, args... Value) (res Value) {
                 var file *os.File
                 var filename string
                 if filename, err = a.Strval(ctx); err != nil {
-                        erro(ctx, "%v", err).of(a).debug(1)
+                        errostack(ctx, 5, "%v", err).of(a).debug(64)
+                        return
+                } else if filename == "" {
+                        errostack(ctx, 5, "empty filename: %v (%T) (%v -> %v)",
+                                a, a, args, vals).of(a).debug(64)
                         return
                 }
                 if file, err = os.Open(filename); err != nil {
-                        erro(ctx, "%v", err).of(a).debug(1)
+                        errostack(ctx, 5, "%v", err).of(a).debug(128)
                         return
                 }
                 defer file.Close()
