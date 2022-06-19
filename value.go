@@ -1087,17 +1087,29 @@ ForProjectsConcretes:
                 break ForProjectsConcretes
             }
 
-            file, _ = entry.Target().(*File)
-            file_traversed, okay = false, true
-            if t.has(breakCase, breakDone) {
+            if t.has(breakDone) {
                 brks = brks.not(breakNext) // No need for next
                 brks = append(brks, t.of(breakCase, breakDone)...)
+                if file, file_traversed = entry.Target().(*File); file != nil {
+                    okay = file.exists()
+                }
                 break ForProjectsConcretes
-            }
-            if t.has(breakNext) {
+            } else if t.has(breakCase) {
+                brks = brks.not(breakNext) // No need for next
+                brks = append(brks, t.of(breakCase, breakDone)...)
+                file, _ = entry.Target().(*File)
+                file_traversed, okay = false, true
+                break ForProjectsConcretes
+            } else if t.has(breakNext) {
                 brks = append(brks, t.of(breakNext)...)
-                continue
+                file, _ = entry.Target().(*File)
+                file_traversed, okay = false, true
+                continue //ForProjectsConcretes
+            } else {
+                file, _ = entry.Target().(*File)
+                file_traversed, okay = false, true
             }
+
             if t.has() {
                 errostack(ctx, 5, "%v", t).debug(16)
             } else {
@@ -1132,20 +1144,34 @@ ForProjectsConcretes:
                     warnstack(ctx, 5, "").debug(16)
                 }
                 break ForProjectsPatterns
-            }
-
-            file, _ = entry.target.(*File)
-            file_traversed, okay = false, true
-            if t.has(breakCase, breakDone) {
+            } else if t.has(breakDone) {
                 brks = brks.not(breakNext) // No need for next
                 brks = append(brks, t.of(breakCase, breakDone)...)
+                if file, file_traversed = entry.target.(*File); file != nil {
+                    okay = file.exists()
+                }
                 break ForProjectsPatterns
-            }
-            if t.has(breakNext) {
+            } else if t.has(breakCase) {
+                brks = brks.not(breakNext) // No need for next
+                brks = append(brks, t.of(breakCase, breakDone)...)
+                file, _ = entry.Target().(*File)
+                file_traversed, okay = false, true
+                break ForProjectsPatterns
+            } else if t.has(breakNext) {
                 brks = append(brks, t.of(breakNext)...)
-                continue
+                file, _ = entry.Target().(*File)
+                file_traversed, okay = false, true
+                continue //ForProjectsPatterns
+            } else {
+                file, _ = entry.Target().(*File)
+                file_traversed, okay = false, true
             }
-            if !t.has() { traversed += 1 }
+
+            if t.has() {
+                errostack(ctx, 5, "%v", t).debug(16)
+            } else {
+                traversed += 1
+            }
         }
     }}
 
@@ -1186,7 +1212,9 @@ ForProjectsConcretes:
         }
     }}
 
-    if traversed == 0 || !okay { ForProjectsObjects: for _, project := range projects {
+    if file != nil && okay {
+        // does nothing
+    } else if traversed == 0 || !okay { ForProjectsObjects: for _, project := range projects {
         var obj, err = project.resolveObject(ctx, prereq)
         if err != nil {
             prompt(ctx, "%v: traverse failed, project %s\n", prereq, project)

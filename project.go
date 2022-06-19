@@ -680,11 +680,20 @@ func (p *Project) resolvePatterns(ctx Context, i interface{}) (res []*stemmed) {
 }
 
 func (p *Project) resolvePatterns1(ctx Context, i interface{}) (res []*stemmed) {
-  for _, pat := range p.patterns {
-    if full, _, stems := pat.target.match(ctx, i); full {
-      // if len(stems) == 1 && stems[0] == "/Volumes/workspace/external/llvm-project/llvm/include/llvm-c/ExternC" {
-      //   warn(ctx, "%v %v; %v", pat.target, i, pat.programs[0].depends).debug(1)
-      // }
+  ForPatterns: for _, pat := range p.patterns {
+    if full, m, stems := pat.target.match(ctx, i); full {
+      for sc := ctx.stemmedContext(); sc != nil; { // pattern loop detection
+        if s, _ := sc.stem.target.Strval(ctx); s == m {
+          if false && strings.Contains(m, "isl/stdint.h") {
+            var t = sc.stem.target
+            warn(sc, "%T %v: %T %v; %v; %v; %v, %v %v",
+              i, i, t, t, sc.stem.Stems, pat, s == m, m, stems).debug(1)
+          }
+          continue ForPatterns
+        }
+        if c := sc.inner(); c != nil { sc = c.stemmedContext() } else { break }
+      }
+
       if ok := false; len(pat.argumented) > 0 {
         var ( args = pat.argumented; err error )
         if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
@@ -695,8 +704,9 @@ func (p *Project) resolvePatterns1(ctx Context, i interface{}) (res []*stemmed) 
         for _, a := range args {
           if ok, _, _ = a.match(ctx, i); ok { break }
         }
-        if !ok { continue }
+        if !ok { continue ForPatterns }
       }
+
       res = append(res, &stemmed{*pat, stems})
     }
   }
