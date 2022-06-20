@@ -718,16 +718,6 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     )
     if prereqValue == nil { prereqValue = MakeString(ctx.Position(), prereq) }
     defer func() {
-        // if s, _ := targetValue.Strval(ctx); true && (
-        //     strings.Contains(prereq, "llvm-tools-driver") ||
-        //     strings.Contains(prereq, "cc1gen_reproducer_main") ||
-        //     strings.Contains(prereq, "UnwindLevel1") ||
-        //     strings.Contains(s, "UnwindLevel1")) {
-        //     prompt(ctx, "%v: %v %v %v\n", targetValue, prereqValue, prereq, projects)
-        //     for i, brk := range brks { warn(ctx, "%v: %v", i, brk) }
-        //     warnstack(ctx, 3, "%v: %T %v %v",
-        //         targetValue, prereqValue, prereqValue, prereq).debug(6)
-        // }
         // Note that the file maybe not traversed yet at this point.
         // But we still have to check mod-time.
         if file == nil {
@@ -782,20 +772,6 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
 
             var verb = options.verbose || options.verboseBreaks
             var t = entry.traverse(ctx);
-            if false && (
-                strings.Contains(prereq, "llvm-tools-driver") ||
-                strings.Contains(prereq, "cc1gen_reproducer_main") ||
-                strings.Contains(prereq, "UnwindLevel1")) {
-                if file != nil {
-                    prompt(ctx, "%v: %v %v %v; %v\n", file, file.fullname(), file.exists(), okay, project)
-                } else {
-                    prompt(ctx, "%v %v\n", okay, project)
-                }
-                warnstack(ctx, 3, "%v %v, %v %v; %v, %v %v",
-                    targetValue, prereqValue, entry, project, traversed, t, brks).
-                    at(entry.Programs()[0].position).debug(8)
-            }
-
             if t.failed() {
                 brks = brks.not(breakCase, breakDone, breakNext)
                 brks = append(brks, t.of(breakErro, breakFail)...)
@@ -870,16 +846,6 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             }
 
             var t = entry.traverse(ctx)
-            if false && (
-                strings.Contains(prereq, "llvm-tools-driver") ||
-                strings.Contains(prereq, "cc1gen_reproducer_main") ||
-                strings.Contains(prereq, "UnwindLevel1")) {
-                for i, brk := range t    { warn(ctx, "%v: %v", i, brk) }
-                for i, brk := range brks { warn(ctx, "%v: %v", i, brk) }
-                warnstack(ctx, 3, "%v: %T %v, %v; %v",
-                    targetValue, prereqValue, prereqValue, entry, project).debug(8)
-            }
-
             if t.failed() {
                 brks = brks.not(breakCase, breakDone, breakNext)
                 brks = append(brks, t.of(breakErro, breakFail)...)
@@ -891,10 +857,9 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                     warnstack(ctx, 5, "").debug(16)
                 }
                 break ForProjectsPatterns
+            } else {
+                file_traversed, okay = false, true
             }
-
-            //file, _ = entry.target.(*File)
-            file_traversed, okay = false, true
 
             if t.has(breakDone) {
                 // brks = brks.not(breakCase, breakNext) // No need for next
