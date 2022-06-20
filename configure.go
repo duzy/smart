@@ -488,9 +488,9 @@ ForInParams:
             if options.failOnErrors { fail(pos, "fail by %d errors", ctx.totalErrors()) }
         } else if n := len(reses); n != 1 {
             if n == 0 {
-                erro(ctx, `configure "%s" has no results'`).debug(1)
+                errostack(ctx, 5, `configure "%s" has no results`, entryName).debug(32)
             } else {
-                erro(ctx, `configure "%s" has multiple results (%d)'`, n).debug(1)
+                errostack(ctx, 5, `configure "%s" has multiple results (%d)`, entryName, n).debug(32)
             }
         } else if result = reses[0]; !isNil(result) && result == hyphenVal {
             warn(ctx, `%v: configure yields value the same as input will be ignored: %v`, entry, result).debug(1)

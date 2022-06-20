@@ -1313,6 +1313,8 @@ func (entry *RuleEntry) execute(cc Context, a... Value) (result []Value, brks br
                 } else if t.has() {
                         for _, brk := range t { erro(ctx, "%v: %v", entry, brk).debug(1) }
                         break
+                } else {
+                        result = append(result, res)
                 }
         }
         return
@@ -1582,7 +1584,7 @@ func (p *stemmed) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (p *stemmed) traverse(ctx Context) (brks breakers) {
-        var real = p.RuleEntry
+        var real = p.RuleEntry // TODO: avoid copying the RuleEntry, use p directly
         real.target = p.target
         return real.traverse(&stemmedContext{ ctx, p })
 }
