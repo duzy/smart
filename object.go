@@ -1257,24 +1257,10 @@ func (entry *RuleEntry) String() string {
 func (entry *RuleEntry) updated(ctx Context, v ...bool) bool {
         var res = entry.target.updated(ctx, v...)
         if res { ctx.dirtyMark(entry.target) }
-        // if target, _ := ctx.autoGet("@"); !isTrivial(target) && res {
-        //         //target.updated(ctx, res)
-        //         //target.updatedDeps(ctx, entry.target)
-        // }
-        // if entry.target.String() == "stamp" {
-        //         if target, _ := ctx.autoGet("@"); !isTrivial(target) {
-        //                 warn(ctx, "%T %v %v; %T %v %v", entry.target, entry.target, entry.target.updated(ctx),
-        //                         target, target, target.updated(ctx)).debug(1)
-        //         }
-        // }
         return res
 }
 func (entry *RuleEntry) updatedDeps(ctx Context, v ...Value) []Value {
         var res = entry.target.updatedDeps(ctx, v...)
-        // if target, _ := ctx.autoGet("@"); !isTrivial(target) {
-        //         res = target.updatedDeps(ctx, res...)
-        //         target.updated(ctx, true)
-        // }
         return res
 }
 // RuleEntry.Execute executes the rule program only if the target is outdated.
@@ -1292,41 +1278,40 @@ func (entry *RuleEntry) Execute(ctx Context, a ...Value) (result []Value, brks b
         return entry.execute(&t, a...)
 }
 func (entry *RuleEntry) execute(cc Context, a... Value) (result []Value, brks breakers) {
-        var ec = entryContext{ cc, entry }
-        if len(a) == 0 { cc = &ec } else { cc = &argumentedContext{ &ec, a } }
+        if cc = (&entryContext{ cc, entry }); len(a) > 0 { cc = &argumentedContext{ cc, a } }
         for _, program := range entry.programs {
                 var pos = program.position
                 if !pos.IsValid() { pos = entry.Position() }
 
-                var res Value
                 var ctx = positional(cc, pos)
-                res, brks = program.execute(ctx)
-                result = append(result, res)
-                if tb := brks.of(breakFail, breakErro); tb.has() {
-                        brks = brks.not(breakFail, breakErro)
-                        for _, brk := range brks {
-                                switch brk.what {
-                                case breakFail: erro(ctx, "execution failed: %v", brk.message).debug(1)
-                                case breakErro: erro(ctx, "execution error: %v", brk.error).debug(1)
-                                default: erro(ctx, "breaker: %v", brk.what).debug(1)
-                                }
+                if res, t := program.execute(ctx); t.failed() {
+                        for _, brk := range t { erro(ctx, "%v: %v", entry, brk).debug(1) }
+                        brks = t.not(breakCase, breakDone, breakNext)
+                        break
+                } else if t.has(breakDone) {
+                        if brks = t.not(breakCase, breakDone, breakNext); isNil(res) {
+                                prompt(ctx, "%v: nil result\n", entry)
+                                for _, brk := range t { warn(ctx, "%v: %v", entry, brk) }
+                                warnstack(ctx, 5, "").debug(16)
+                        } else {
+                                result = append(result, res)
                         }
-                } else if tb = brks.of(breakCase, breakDone); tb.has() {
-                        brks = brks.not(breakCase, breakDone)
-                        for _, brk := range brks {
-                                erro(ctx, "breaker: %v", brk.what).debug(1)
+                        if entry.String() == "PY_VERSION" {
+                                warn(ctx, "%v: %v", entry, res).debug(1)
                         }
                         break
-                } else if tb = brks.of(breakNext); tb.has() {
-                        brks = brks.not(breakNext)
-                        for _, brk := range brks {
-                                erro(ctx, "breaker: %v", brk.what).debug(1)
+                } else if t.has(breakCase) {
+                        if brks = t.not(breakCase, breakNext); !isNil(res) {
+                                result = append(result, res)
+                        }
+                        break
+                } else if t.has(breakNext) {
+                        if brks = t.not(breakNext); !isNil(res) {
+                                result = append(result, res)
                         }
                         continue
-                } else if brks.has() {
-                        for _, brk := range brks {
-                                erro(ctx, "unknown breaker: %v", brk.what).debug(1)
-                        }
+                } else if t.has() {
+                        for _, brk := range t { erro(ctx, "%v: %v", entry, brk).debug(1) }
                         break
                 }
         }
@@ -1561,22 +1546,27 @@ func (sc *stemmedContext) String() string {
                 return sc.Context.String()
         }
 }
+func (sc *stemmedContext) stemmedContext() *stemmedContext { return sc }
 func (sc *stemmedContext) stemmed() *stemmed { return sc.stem }
 func (sc *stemmedContext) stems() []string { return sc.stem.Stems }
 
-type stemmed struct { PatternEntry; Stems []string }
-
+type stemmed struct {
+        *PatternEntry
+        target Value
+        Stems []string
+}
 func (p *stemmed) String() (s string) {
         for i, stem := range p.Stems { if i > 0 { s += "," }; s += stem }
         return fmt.Sprintf("<%s:%s>", p.target, s)
 }
+func (p *stemmed) Target() Value { return p.target }
 func (p *stemmed) expand(ctx Context, w expandwhat) (res Value, err error) {
         var v Value
         if v, err = p.PatternEntry.expand(ctx, w); err != nil {
                 erro(ctx, "expand '%v' failed: %v", p.PatternEntry, err).at(p.position).debug(1)
                 return
-        } else if !isNil(v) && v != &p.PatternEntry {
-                res = &stemmed{*v.(*PatternEntry), p.Stems}
+        } else if !isNil(v) && v != p.PatternEntry {
+                res = &stemmed{v.(*PatternEntry), p.target, p.Stems}
         }
         return
 }
@@ -1587,46 +1577,12 @@ func (p *stemmed) cmp(ctx Context, v Value) (res cmpres) {
                 for i, stem := range p.Stems {
                         if stem != a.Stems[i] { return }
                 }
-                res = p.PatternEntry.cmp(ctx, &a.PatternEntry)
+                res = p.PatternEntry.cmp(ctx, a.PatternEntry)
         }
         return
 }
 func (p *stemmed) traverse(ctx Context) (brks breakers) {
-        ctx  = positional(ctx, p.position)
-        brk := brks.add(ctx, breakErro)
-        brk.error = fmt.Errorf("traversing stemmed entry: %v", p)
-        erro(ctx, "cant traverse stemmed entry directly: %v", p).debug(1)
-        return
-}
-func (p *stemmed) string(ctx Context, targetVal Value, target string) (res breakers) {
-        var (
-                realTarget Value
-                proj = ctx.Project()
-                sc = stemmedContext{ ctx, p }
-        )
-        if file := proj.FindFile(&sc, target); file != nil {
-                file.position = p.position
-                realTarget = file
-        } else {
-                realTarget = targetVal
-        }
-        if isNil(realTarget) {
-                prompt(ctx, "%v: no real target value in project %v\n", target, proj)
-                erro(ctx, "%v: %v: no real target value (%v)", proj, target, targetVal)
-                errostack(ctx, 10, "%v", ctx).debug(24)
-                return
-        } else {
-                p.target = realTarget
-        }
-        return p.RuleEntry.traverse(&sc)
-}
-func (p *stemmed) file(ctx Context, file *File) (res breakers) {
-        var sc = stemmedContext{ ctx, p }
-        if file.info == nil && file.filemap == nil { // !isAbsOrRel()
-                if f := ctx.Project().FindFile(&sc, file.name); f != nil { *file = *f }
-                //if file.info == nil { file.info, _ = os.Stat(file.name) }
-        }
-        file.position = p.position
-        p.target = file
-        return p.RuleEntry.traverse(&sc)
+        var real = p.RuleEntry
+        real.target = p.target
+        return real.traverse(&stemmedContext{ ctx, p })
 }

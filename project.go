@@ -672,22 +672,36 @@ func (p *Project) resolveEntries(ctx Context, s string, matchFullSuffix, alwaysR
   return
 }
 
-func (p *Project) resolvePatterns(ctx Context, i interface{}) (res []*stemmed) {
-  if true  { res = append(res, p.resolvePatterns1(ctx, i)...) }
-  if true  { res = append(res, p.resolvePatterns2(ctx, i)...) }
-  if false { res = append(res, p.resolvePatterns3(ctx, i)...)/* heavy work, VERY SLOW! */ }
+func (p *Project) resolvePatterns(ctx Context, v Value, s string) (res []*stemmed) {
+  if res = p.resolvePatternsX(ctx, v, s); false && len(res) > 0 {
+    for _, t := range res {
+      if file, _ := t.target.(*File); file != nil {
+        file.position = t.position
+      } else if file = p.FindFile(ctx, s); file != nil {
+        file.position = t.position
+        t.target = file
+      }
+    }
+  }
   return
 }
 
-func (p *Project) resolvePatterns1(ctx Context, i interface{}) (res []*stemmed) {
+func (p *Project) resolvePatternsX(ctx Context, v Value, s string) (res []*stemmed) {
+  if true  { res = append(res, p.resolvePatterns1(ctx, v, s)...) }
+  if true  { res = append(res, p.resolvePatterns2(ctx, v, s)...) }
+  if false { res = append(res, p.resolvePatterns3(ctx, v, s)...)/* heavy work, VERY SLOW! */ }
+  return
+}
+
+func (p *Project) resolvePatterns1(ctx Context, val Value, s string) (res []*stemmed) {
   ForPatterns: for _, pat := range p.patterns {
-    if full, m, stems := pat.target.match(ctx, i); full {
+    if full, m, stems := pat.target.match(ctx, s); full {
       for sc := ctx.stemmedContext(); sc != nil; { // pattern loop detection
         if s, _ := sc.stem.target.Strval(ctx); s == m {
           if false && strings.Contains(m, "isl/stdint.h") {
             var t = sc.stem.target
-            warn(sc, "%T %v: %T %v; %v; %v; %v, %v %v",
-              i, i, t, t, sc.stem.Stems, pat, s == m, m, stems).debug(1)
+            warn(sc, "%v: %T %v; %v; %v; %v, %v %v",
+              s, t, t, sc.stem.Stems, pat, s == m, m, stems).debug(1)
           }
           continue ForPatterns
         }
@@ -700,32 +714,32 @@ func (p *Project) resolvePatterns1(ctx Context, i interface{}) (res []*stemmed) 
           erro(ctx, "expand args failed: %v", err).debug(1)
           return
         }
-        if false { warn(ctx, "%v %v %v %v", pat, pat.argumented, args, i).debug(1) }
+        if false { warn(ctx, "%v %v %v %v", pat, pat.argumented, args, s).debug(1) }
         for _, a := range args {
-          if ok, _, _ = a.match(ctx, i); ok { break }
+          if ok, _, _ = a.match(ctx, s); ok { break }
         }
         if !ok { continue ForPatterns }
       }
 
-      res = append(res, &stemmed{*pat, stems})
+      res = append(res, &stemmed{pat, val, stems})
     }
   }
   return
 }
 
-func (p *Project) resolvePatterns2(ctx Context, i interface{}) (res []*stemmed) {
+func (p *Project) resolvePatterns2(ctx Context, val Value, s string) (res []*stemmed) {
   for _, base := range p.bases {
-    res = append(res, base.resolvePatterns(ctx, i)...)
+    res = append(res, base.resolvePatternsX(ctx, val, s)...)
   }
   if p.configure != nil && ctx.configuration() {
-    res = append(res, p.configure.resolvePatterns(ctx, i)...)
+    res = append(res, p.configure.resolvePatternsX(ctx, val, s)...)
   }
   return
 }
 
-func (p *Project) resolvePatterns3(ctx Context, i interface{}) (res []*stemmed) {
+func (p *Project) resolvePatterns3(ctx Context, val Value, s string) (res []*stemmed) {
   for _, using := range p.using.list {
-    res = append(res, using.project.resolvePatterns(ctx, i)...)
+    res = append(res, using.project.resolvePatternsX(ctx, val, s)...)
   }
   return
 }

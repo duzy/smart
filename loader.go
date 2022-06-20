@@ -1758,27 +1758,25 @@ func (l *loader) def(position Position, name string) (def *Def, alt Object) {
 func (l *loader) assign(tok token.Token, def *Def, alt Object, value Value) (err error) {
     var ( pos = l.Position(); ctx = positional(l, pos) )
     switch tok {
-    case token.ASSIGN: // =
+    case token.ASSIGN:     //   =
         err = def.set(ctx, DefDefault, value)
-    case token.SCO_ASSIGN: // :=
+    case token.SCO_ASSIGN: //  :=
         err = def.set(ctx, DefExpand1, value)
     case token.DCO_ASSIGN: // ::=
         err = def.set(ctx, DefExpand2, value)
-    case token.EXC_ASSIGN: // !=
+    case token.EXC_ASSIGN: //  !=
         err = def.set(ctx, DefExecute, value)
-    case token.QUE_ASSIGN: // ?=
-        if isNil(alt) {
-            err = def.set(ctx, DefDefault, value)
-        }
-    case token.ADD_ASSIGN: // +=
-        if isNil(value) || isNone(value) {
+    case token.QUE_ASSIGN: //  ?=
+        if isNil(alt) { err = def.set(ctx, DefDefault, value) }
+    case token.ADD_ASSIGN: //  +=
+        if isTrivial(value) {
             // NOOP
-        } else if isNil(def.value) || !def.value.refs(ctx, value) {
+        } else if isTrivial(def.value) || !def.value.refs(ctx, value) {
             err = def.append(ctx, value)
         } else {
             err = fmt.Errorf("can't append value '%v' to: %v", value, def)
         }
-    case token.SHI_ASSIGN: // =+
+    case token.SHI_ASSIGN: //  =+
         if !def.value.refs(ctx, value) {
             var tail = def.value
             if err = def.val(ctx, value); err == nil {
@@ -1787,9 +1785,7 @@ func (l *loader) assign(tok token.Token, def *Def, alt Object, value Value) (err
             warn(ctx, "%v; %v; %v", value, tail, def).debug(1)
         }
     case token.SUB_ASSIGN: // -=
-        if isNil(def.value) || isNone(def.value) {
-            // ...
-        } else {
+        if !isTrivial(def.value) {
             var (
                 vals []Value
                 sub = merge(value)
@@ -1805,9 +1801,7 @@ func (l *loader) assign(tok token.Token, def *Def, alt Object, value Value) (err
         }
     case token.SAD_ASSIGN: // -+=
         var vals []Value
-        if isNil(def.value) || isNone(def.value) {
-            // ...
-        } else {
+        if !isTrivial(def.value) {
             var sub = merge(value)
             for _, val := range merge(def.value) {
                 var b bool
@@ -1821,9 +1815,7 @@ func (l *loader) assign(tok token.Token, def *Def, alt Object, value Value) (err
         def.value = MakeList(def.position, vals...)
     case token.SSH_ASSIGN: // -=+
         var vals []Value
-        if isNil(def.value) || isNone(def.value) {
-            // ...
-        } else {
+        if !isTrivial(def.value) {
             var sub = merge(value)
             for _, val := range merge(def.value) {
                 var b bool
@@ -2217,12 +2209,9 @@ func (l *loader) loadDir(pos Position, specName, absDir string, filter func(os.F
 
     var loaded *Project
     defer func() {
-        //assert(loadedOkay || l.implicit, "failed loading '%s': %s", specName, absDir)
-        //assert(loaded != nil || l.implicit, "%s not loaded (%s)", specName, absDir)
         if loaded == nil {
-            //erro(l, "%v (%v) not loaded in %v", specName, filepath.Base(absDir), l.Scope()).debug(16)
             erro(l, "%v (%v) not loaded in %v", specName, filepath.Base(absDir), l.Scope())
-            errostack(l, 8, "%v", specName).debug(16)
+            errostack(l, 16, "%v", specName).debug(512)
             return
         }
         if proj := l.Scope().project; proj == nil {
