@@ -632,12 +632,12 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
         point = point.at(pc.prog.position)
         for last := pc.prog.position; pc != nil; pc = pc.Context.programCtx() {
             var n int
-            for next := pc.caller(); next != nil; next = next.caller() {
+            if true { for next := pc.caller(); next != nil; next = next.caller() {
                 if t, _ := next.autoGet("@"); t != nil && t.cmp(ctx, tt) == cmpEqual {
                     n += 1;  continue
                 }
                 if next.program() == pc.program() { n += 1; pc = next } else { break }
-            }
+            }}
 
             var pos = pc.prog.position
             if !pos.SameLine(&last) {

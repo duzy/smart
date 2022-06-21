@@ -338,19 +338,17 @@ func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
                 }
                 erro(ctx, "%s", s).of(v).debug(1)
         }
+
         var (
                 target , _ = ctx.autoGet("@")
                 depends, _ = ctx.autoGet("^")
-                ordered, _ = ctx.autoGet("|")
-                grepped, _ = ctx.autoGet("~")
         )
-        if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.error) == 0 {
-                var n = opts.n; if n < 1 { n = 1 }
-                prompt(ctx, "%v: %v; target=%v stems=%v depends=%v", ctx.Position(),
-                        args, target, ctx.stems(), depends).debug(n)
-        }
         if opts.checkOutdated && !isNil(target) {
-                var tt = target.stat(ctx).mod()
+                var (
+                        ordered, _ = ctx.autoGet("|")
+                        grepped, _ = ctx.autoGet("~")
+                        tt = target.stat(ctx).mod()
+                )
                 if tt.IsZero() {
                         info(ctx, "target not exists: %v", target).debug(1)
                         return
@@ -363,6 +361,15 @@ func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
                         if dt.After(tt) {
                                 info(ctx, "%v: outdated by %v (%v)", target, dep, dt.Sub(tt)).debug(1)
                         }
+                }
+        }
+        if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.error) == 0 {
+                var m = prompt(ctx, "%v: %v target=%v stems=%v depends=%v\n",
+                        ctx.Position(), args, target, ctx.stems(), depends)
+                if n := opts.n*2; opts.s > 0 {
+                        infostack(ctx, opts.s, "").debug(n)
+                } else {
+                        m.debug(n)
                 }
         }
         return
@@ -2599,13 +2606,14 @@ type modifierReadFileOpts struct {
         head Value "h,head"
         foot Value "f,foot"
 }
-func modifierReadFile(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierReadFile(ctx Context, aa... Value) (result Value, brks breakers) {
         var (
                 opts modifierReadFileOpts
                 filename string
+                args []Value
                 err error
         )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
+        if args, err = expandmerge2(ctx, expandPlainValue, aa...); err != nil {
                 erro(ctx, "merge args failed: %v", err).debug(1)
                 return
         } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
@@ -2633,13 +2641,15 @@ func modifierReadFile(ctx Context, args... Value) (result Value, brks breakers) 
         }
 
         if isTrivial(target) {
-                errostack(ctx, 3, "target for reading is invalid (%T)", target).debug(8)
+                errostack(ctx, 3, "target for reading is invalid (%T) (%v -> %v)",
+                        target, aa, args).debug(10)
                 return
         } else if filename, err = fullnameOrStrval(ctx, target); err != nil {
-                errostack(ctx, 3, "strval '%v' error: %v", target, err).of(target).debug(1)
+                errostack(ctx, 3, "strval '%v' error: %v",
+                        target, err).of(target).debug(10)
                 return
         } else if filename == "" {
-                errostack(ctx, 3, "target filename is empty").of(target).debug(1)
+                errostack(ctx, 3, "target filename is empty").of(target).debug(32)
                 return
         }
 
