@@ -868,43 +868,17 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     }}
 
     if f, ok := prereqValue.(*File); ok && prereq == f.name {
-        file, okay = f, f.exists()
+        if file, okay = f, f.exists(); okay { return }
     } else if traversed == 0 || !okay { ForProjectsFiles: for _, project := range projects {
         if file = project.FindFile(ctx, prereq); file != nil {
-            file.position = ctx.Position() // change the position for tracing
-
-            var t = file.locate(ctx, []*Project{ project }, false)
-            if t.failed() {
-                brks = brks.not(breakCase, breakDone, breakNext)
-                brks = append(brks, t.of(breakErro, breakFail)...)
-
-                prompt(ctx, "%s: traverse file failed (project=%v, stems=%v)\n",
-                    targetValue, project, ctx.stems())
-                for _, brk := range t { erro(ctx, "%v: %v", targetValue, brk).at(brk.pos) }
-                errostack(ctx, 5, "%s: traverse file failed: %s", targetValue, file.fullname()).
-                    debug(16)
-                break ForProjectsFiles
-            }
-
-            if t.has(breakDone) {
-                brks = brks.not(breakCase, breakNext) // No need for next
-                brks = append(brks, t.of(breakDone)...)
-                break ForProjectsFiles
-            } else if t.has(breakCase) {
-                brks = brks.not(breakNext) // No need for next
-                brks = append(brks, t.of(breakCase)...)
-                break ForProjectsFiles
-            } else if t.has(breakNext) {
-                brks = brks.not(breakNext) // keep only one
-                brks = append(brks, t.of(breakNext)...)
-                continue
-            }
-
-            if t.has() {
-                errostack(ctx, 5, "%v", t).debug(16)
-            } else {
-                okay = file.exists()
+            if file.position = ctx.Position(); file.isSysFile() {
+                continue ForProjectsFiles
+            } else if okay = file.exists(); okay {
                 traversed += 1
+                return //break ForProjectsFiles
+            } else if okay = file.searchInMatchedPaths(ctx, project); okay {
+                traversed += 1
+                return //break ForProjectsFiles
             }
         }
     }}
@@ -3968,9 +3942,10 @@ func (p *File) isSysFile() (res bool) {
     }
     return
 }
-func (p *File) locate(a_ctx Context, projects []*Project, trave bool) (brks breakers) {
+func (p *File) traverse(a_ctx Context) (brks breakers) {
     if p.isSysFile() { return }
 
+    var projects = closureProjects(a_ctx)
     var ctx = positional(a_ctx, p.position)
     if len(projects) == 0 {
         var targetValue = getTargetValue(ctx)
@@ -3989,11 +3964,8 @@ func (p *File) locate(a_ctx Context, projects []*Project, trave bool) (brks brea
         }
     }
 
-    if trave {
-        _, brks = traverse(ctx, p, p.name, projects...)
-        if brks.has(breakNext) { return }
-    }
-
+    _, brks = traverse(ctx, p, p.name, projects...)
+    if brks.has(breakNext) { return }
     if !brks.failed() && !p.exists() {
         for _, project := range projects {
             if p.searchInMatchedPaths(ctx, project) {
@@ -4003,9 +3975,6 @@ func (p *File) locate(a_ctx Context, projects []*Project, trave bool) (brks brea
         }
     }
     return
-}
-func (p *File) traverse(ctx Context) (brks breakers) {
-    return p.locate(ctx, closureProjects(ctx), true)
 }
 
 func (p *File) cmp(ctx Context, v Value) (res cmpres) {
