@@ -1028,10 +1028,13 @@ func CommandLine() {
     prompt(context, "run work got %d errors\n", context.totalErrors())
   } else if result != nil {
     for i, v := range result {
-      if isNil(v) { continue } else if i > 0 {
-        fmt.Fprintf(stderr, ", ")
+      if s := strings.TrimSpace(v.Strval(context)); s == "" {
+        continue
+      } else if i == 0 {
+        fmt.Fprintf(stderr, "%s", s)
+      } else {
+        fmt.Fprintf(stderr, ", %s", s)
       }
-      fmt.Fprintf(stderr, "%s", v.Strval(context))
     }
     fmt.Fprintf(stderr, "\n")
   }

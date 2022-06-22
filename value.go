@@ -980,9 +980,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         } else {
             prompt(ctx, "%v: traverse target failed; projects %v, %v (okay=%v)\n", prereq, proj, projects, okay)
         }
-        for _, brk := range brks {
-            erro(ctx, "%v: %v: %v", targetValue, prereqValue, brk).at(brk.pos)
-        }
+        for _, brk := range brks { erro(ctx, "%v: %v: %v", targetValue, prereqValue, brk).at(brk.pos) }
         for i, c := range ctx.closureScopes() { erro(ctx, "%v: closure: %v. %v", proj, i, c) }
         for i, concrete := range concreteList { erro(ctx, "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs())).at(concrete.Position()) }
         for i, stemmed  := range stemmedList  { erro(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position) }
