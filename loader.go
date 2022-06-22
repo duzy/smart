@@ -282,11 +282,7 @@ type useVarOpts struct {
 }
 func (opts *useVarOpts) apply(ctx Context, def *Def, vals []Value) {
     if opts.unique {
-        if e := def.append(ctx, vals...); e != nil {
-            erro(ctx, "%v: %v, %v", def.owner, def.origin, opts)
-            errostack(ctx, 5, "%v", def).debug(16)
-        }
-        if len(opts.args) > 0 {
+        if def.append(ctx, vals...); len(opts.args) > 0 {
             var position = ctx.Position()
             var args = MakeList(position, opts.args...)
             def.value = builtinUnique(ctx, args, def.value)
@@ -296,21 +292,12 @@ func (opts *useVarOpts) apply(ctx Context, def *Def, vals []Value) {
     }
 }
 func parseUseNameOpts(ctx Context, nameVal Value) (name string, opts useVarOpts) {
-    var err error
     if arged, ok := nameVal.(*Argumented); ok {
         var args []Value
 		nameVal, args = arged.value, arged.args
-		if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-			erro(ctx, "%v", err).debug(1)
-			return
-		} else if opts.args, err = parseOpts(ctx, &opts, args...); err != nil {
-			erro(ctx, "%v", err).debug(1)
-			return
-		}
+        opts.args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 	}
-	if name, err = nameVal.Strval(ctx); err != nil {
-		erro(ctx, "strval '%v' failed: %v", nameVal, err).debug(1)
-	}
+	name = nameVal.Strval(ctx)
     return
 }
 func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
@@ -336,9 +323,7 @@ func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
     if isNewDef && len(user.bases) > 0 {
         // 1: derive values from bases
         for _, base := range user.bases {
-            if obj, err := base.resolveObject(ctx, name); err != nil {
-                erro(ctx, "resolve '%s' failed: %v", name, err).debug(1)
-            } else if isNil(obj) {
+            if obj := base.resolveObject(ctx, name); isNil(obj) {
                 continue
             } else if d, ok := obj.(*Def); ok && !isTrivial(d.value) {
                 opts.apply(ctx, def, merge(d.value))
@@ -346,14 +331,10 @@ func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
         }
         // 2: apply using vars from bases
         for _, base := range user.bases {
-            var ( obj Object; err error )
+            var obj Object
             if false {
                 obj = base.scope.lookup("using."+name)
-            } else if obj, err = base.resolveObject(ctx, "using."+name); err != nil {
-                erro(ctx, `%v: %v: resolve "using.%s" failed: %v`, user, base, name, err).debug(1)
-                return
-            }
-            if isNil(obj) {
+            } else if obj = base.resolveObject(ctx, "using."+name); isNil(obj) {
                 continue
             } else if d, ok := obj.(*Def); ok && !isTrivial(d.value) {
                 opts.apply(ctx, def, merge(d.value))
@@ -399,10 +380,7 @@ func applyUsingVar(ctx Context, user, usee *Project, nameVal Value) {
         return
     } else if isTrivial(def.value) {
         for _, base := range user.bases {
-            if obj, err := base.resolveObject(ctx, usingName); err != nil {
-                erro(ctx, "resolve '%s' failed: %v", usingName, err).debug(1)
-                return
-            } else if isNil(obj) {
+            if obj := base.resolveObject(ctx, usingName); isNil(obj) {
                 continue
             } else if d, ok := obj.(*Def); ok && !isTrivial(d.value) {
                 def.append(ctx, obj)
@@ -430,8 +408,8 @@ func applyUsingVar(ctx Context, user, usee *Project, nameVal Value) {
 }
 func applyUseeVars(ctx Context, user, usee *Project) {
     var spec Value
-    if o, e := usee.resolveObject(ctx, "using.*"); e != nil {
-        erro(ctx, "resolve using.* failed: %v", e).debug(1)
+    if o := usee.resolveObject(ctx, "using.*"); o == nil {
+        // erro(ctx, "resolve using.* failed").debug(1)
     } else if def, _ := o.(*Def); def != nil {
         spec = def.value
     }
@@ -442,8 +420,8 @@ func applyUseeVars(ctx Context, user, usee *Project) {
 }
 func applyUsingVars(ctx Context, user, usee *Project) {
     var spec Value
-    if o, e := user.resolveObject(ctx, "using.*"); e != nil {
-        erro(ctx, "resolve using.* failed: %v", e).at(ctx.Position()).debug(1)
+    if o := user.resolveObject(ctx, "using.*"); o == nil {
+        // erro(ctx, "resolve using.* failed").at(ctx.Position()).debug(1)
     } else if def, _ := o.(*Def); def != nil {
         spec = def.value
     }
@@ -713,9 +691,7 @@ func (l *loader) loadPlugin(pos Position) (err error) {
     var g = stat(ctx, "smart.go", "", l.project.absPath)
     if g == nil { return /* smart.go was not presented */ }
 
-    var src string
-    if src, err = g.Strval(ctx); err != nil { return }
-
+    var src = g.Strval(ctx)
     s := strings.Replace(l.project.relPath, "..", "_", -1)
     s = filepath.Join(filepath.Dir(joinTmpPath(ctx, "", "")), "plugins", s)
 
@@ -812,8 +788,7 @@ func iterateArgumentedIdentElems(ctx Context, elems, stems []Value, f func(elems
 func iterateArgumentedIdentifiers(ctx Context, identifier Value, f func(ident Value, stem []Value)) {
     switch t := identifier.(type) {
     case *Argumented:
-        var args, err = expandmerge2(ctx, expandPlainValue, t.args...)
-        if err != nil { erro(ctx, "merge args failed: %v", err).of(t); return }
+        var args = expandmerge2(ctx, expandPlainValue, t.args...)
         iterateArgumentedIdentifiers(ctx, t.value, func(ident Value, stems []Value) {
             var pos = ident.Position()
             for _, arg := range args { f(MakeBarecomp(pos, ident, arg), append(stems, arg)) }
@@ -845,11 +820,8 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
     var alt Object
     switch t := identifier.(type) {
     case *selection:
-        var v, err = t.value(ctx)
-        if err != nil {
-            erro(ctx, "determine `%v`: %v", t, err)
-            return
-        } else if d, ok := v.(*Def); ok {
+        var v = t.value(ctx)
+        if d, ok := v.(*Def); ok {
             def = d
         } else {
             erro(ctx, "`%v` is not a def (%T)", t, v)
@@ -857,21 +829,14 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
         }
 
     case *Bareword, *Barecomp, *Qualiword, *Path, *Flag:
-        var name, err = t.Strval(ctx)
-        if err != nil {
-            erro(ctx, "determine `%v`: %v", t, err)
-            return
-        } else if _, ok := builtins[name]; ok {
+        var name = t.Strval(ctx)
+        if _, ok := builtins[name]; ok {
             erro(ctx, "`%v` (%v) is builtin name", identifier, name)
             return
         }
 
         // Resolve base value to derive.
-        var prev Object
-        if prev, err = l.project.resolveObject(ctx, name); err != nil {
-            erro(ctx, "resolve '%s' failed: %v", name, err).debug(1)
-            return
-        }
+        var prev = l.project.resolveObject(ctx, name)
 
         if def, alt = l.def(identifier.Position(), name); alt == nil {
             // does nothing...
@@ -904,17 +869,14 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
             if false {
                 // Unshift the delegation to derive value.
                 var delegate = MakeDelegate(ctx.Position(), token.LPAREN, derived)
-                if err := def.append(ctx, delegate); err != nil {
-                    erro(ctx, "append def '%s' failed: %v", def.name, err)
-                }
-            } else if err := def.append(ctx, derived.value); err != nil {
-                erro(ctx, "append def '%s' failed: %v", def.name, err)
+                def.append(ctx, delegate)
+            } else {
+                def.append(ctx, derived.value)
             }
         }
 
     case *Argumented:
-        var args, err = expandmerge2(ctx, expandPlainValue, t.args...)
-        if err != nil { erro(ctx, "merge args failed: %v", err).of(t); return }
+        var args = expandmerge2(ctx, expandPlainValue, t.args...)
         erro(ctx, "TODO: multiple defs: %v %v", t.value, args)
         return
     }
@@ -930,9 +892,7 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
     if !def.position.IsValid() {
         def.position = identifier.Position()
     }
-    if err := l.assign(tok, def, alt, value); err != nil {
-        erro(ctx, "assign '%v' failed: %v", def.name, err).debug(1)
-    }
+    l.assign(tok, def, alt, value)
     return
 }
 
@@ -994,10 +954,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
             target, args = t.value, merge(t.args...)
         }
 
-        if name, err = /*fullnameOrStrval(ctx, target)*/target.Strval(ctx); err != nil {
-            erro(ctx, "strval target '%v' failed: %v", target, err).of(target).debug(1)
-            return
-        }
+        name = target.Strval(ctx)
 
         var patterned = target.patterned(ctx)
         if true && !patterned {
@@ -1020,10 +977,8 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
             entries = append(entries, entry)
         }
         if t, okay := entry.Target().(*Flag); okay && t != nil {
-            var s string
-            if s, err = t.name.Strval(ctx); err != nil {
-                erro(ctx, "strval flag target name '%v' failed: %v", t.name, err).of(target)
-            } else if l.project.name != "~" {
+            var s = t.name.Strval(ctx)
+            if l.project.name != "~" {
                 l.Globe().AddFlagEntry(s, entry)
             }
         } else if configure {
@@ -1076,11 +1031,7 @@ func (l *loader) includeFile(pos Position, opts includeFileOpts, spec Value) {
             return
         }
     default:
-        if specName, err = spec.Strval(ctx); err != nil {
-            erro(ctx, "include error occurred (spec %v)", spec).debug(1)
-            return
-        }
-        if filepath.IsAbs(specName) {
+        if specName = spec.Strval(ctx); filepath.IsAbs(specName) {
             fullname = specName
         } else {
             fullname = filepath.Join(linfo.absDir, specName)
@@ -1173,7 +1124,10 @@ func (l *loader) loadBases(position Position, linfo *loadinfo, implicitBase stri
         implicitBases []Value
     )
     if file := stat(ctx, "./.base", "", l.project.absPath); file != nil /*&& file.info.IsDir()*/ {
-        if s, e := file.Strval(ctx); true { assert(e == nil && s == file.name && s == "./.base", "invalid strval: %v => %v", file, s) }
+        if true {
+            var s = file.Strval(ctx)
+            assert(s == file.name && s == "./.base", "invalid strval: %v => %v", file, s)
+        }
         if !file.info.IsDir() && (l.project.spec == ".base" /*|| l.project.spec == ".configure"*/) {
             // skip the regular file '.base' to avoid self loading recursively
             // info(ctx, "%v", file).debug(1)
@@ -1207,10 +1161,7 @@ ParamsLoop:
                 position = identifier.Position()
                 name string
             )
-            if name, err = p.Key.Strval(ctx); err != nil {
-                erro(ctx, "strval '%v' failed: %v", p.Key, err).at(position).debug(1)
-                return
-            } else if len(name) > 0 && name[0] == '.' {
+            if name = p.Key.Strval(ctx); len(name) > 0 && name[0] == '.' {
                 identifier = MakeBarecomp(position, MakeBareword(position, "project"), p.Key)
             }
 
@@ -1224,10 +1175,7 @@ ParamsLoop:
             specVal Value
             implicit bool
         )
-        if specVal, err = elem.expand(ctx, expandPlainValue); err != nil {
-            erro(ctx, "expand '%v' failed: %v", elem, err).at(elemPos).debug(1)
-            return
-        } else if specVal == nil {
+        if specVal = elem.expand(ctx, expandPlainValue); specVal == nil {
             specVal = elem // okay!
         } else if specVal.expandible(ctx, expandPlainValue) {
             erro(ctx, "incomplete expand: %v -> %v", elem, specVal).at(elemPos).debug(1)
@@ -1237,10 +1185,7 @@ ParamsLoop:
             return
         }
 
-        if specName, err = elem.Strval(ctx); err != nil {
-            erro(ctx, "strval '%v' failed: %v", elem, err).at(elemPos).debug(1)
-            return
-        } else if specName == "" {
+        if specName = elem.Strval(ctx); specName == "" {
             erro(ctx, "%v: empty base name `%v` (%T)", l.project, elem, elem).at(elemPos).debug(1)
             break ParamsLoop
         } else if strings.Contains(specName, "//") {
@@ -1314,8 +1259,8 @@ ParamsLoop:
     }
     if false {
         // bypass ...
-    } else if o, e := l.project.resolveObject(ctx, "using.*"); e != nil {
-        erro(ctx, "resolve using.* failed: %v", e).debug(1)
+    } else if o := l.project.resolveObject(ctx, "using.*"); o == nil {
+        // erro(ctx, "resolve using.* failed").debug(1)
     } else if d, ok := o.(*Def); ok && !isTrivial(d.value) {
         var none = MakeNone(position)
         // Derive using.xxx Defs from bases
@@ -1514,12 +1459,7 @@ func (l *loader) declare(keyword token.Token, ident *Barecomp, identStr string, 
         }
     }
 
-    var err error
-    if declOpts, err = parseOpts(ctx, &dec.project.opts, declOpts...); err != nil {
-        erro(ctx, "parse declare opts failed: %v", err).debug(1)
-        return
-    }
-
+    declOpts = parseOpts(ctx, &dec.project.opts, declOpts...)
     dec.backscope = l.Scope()
     l.useesExecuted = nil
     l.project = dec.project
@@ -1528,11 +1468,7 @@ func (l *loader) declare(keyword token.Token, ident *Barecomp, identStr string, 
         for _, t := range l.Globe().pairs {
             switch k := t.Key.(type) {
             case *Bareword, *Barecomp:
-                var ( name string; err error )
-                if name, err = k.Strval(ctx); err != nil {
-                    erro(ctx, "%v", err).debug(1)
-                    return
-                }
+                var name = k.Strval(ctx);
                 //if name[0] == '.' { name = "project" + name }
                 var def, alt = l.def(l.Position(), name)
                 if def == nil && alt != nil { def = alt.(*Def) }
@@ -1547,17 +1483,11 @@ func (l *loader) declare(keyword token.Token, ident *Barecomp, identStr string, 
     for _, arg := range merge(l.loadArgs...) {
         switch t := arg.(type) {
         case *Pair:
-            var ( name string; err error )
-            if name, err = t.Key.Strval(ctx); err != nil {
-                erro(ctx, "strval '%v' failed: %v", err).debug(1)
-                return
-            }
-
+            var name = t.Key.Strval(ctx)
             var def, alt = l.def(t.Key.Position(), name)
             if alt != nil {
                 var ok bool
-                def, ok = alt.(*Def)
-                if !ok {
+                if def, ok = alt.(*Def); !ok {
                     erro(ctx, "'%v' is not a Def (%T)", alt, alt).debug(1)
                     return
                 }
@@ -1708,9 +1638,7 @@ func (l *loader) resolveObject(value Value) (name string, result Value, err erro
     }
 
     var ctx = positional(l, pos)
-    if name, err = value.Strval(ctx); err != nil {
-        erro(ctx, "strval name '%v' failed: %v", name, err).debug(1)
-    } else if name == "" {
+    if name = value.Strval(ctx); name == "" {
         erro(ctx, "name '%v' is empty", name).debug(1)
     } else if l.Scope() == nil {
         erro(ctx, "nil scope to resolve '%v'", name).debug(1)
@@ -1718,28 +1646,20 @@ func (l *loader) resolveObject(value Value) (name string, result Value, err erro
         // okay!
     } else if project := l.project; project == nil {
         erro(ctx, "nil project to resolve '%v'", name).debug(1)
-    } else if result, err = project.resolveObject(ctx, name); err != nil {
-        erro(ctx, "%v: resolve object '%v' failed: %v", project, name, err).debug(1)
-    } else if isNil(result) {
+    } else if result = project.resolveObject(ctx, name); isNil(result) {
         if false { erro(ctx, "%v: resolved object '%v' is nil", project, name).debug(1) }
         //erro(ctx, "%v: resolved object '%v' is nil", project, name).debug(1)
     }
     return
 }
 
-func (l *loader) resolveEntries(target Value) (entries *ResolveEntries, err error) {
+func (l *loader) resolveEntries(target Value) (entries *ResolveEntries) {
     var (
         pos = l.Position()
         ctx = positional(l, pos)
-        name string
+        name = target.Strval(ctx)
     )
-    if name, err = target.Strval(ctx); err != nil {
-        erro(ctx, "strval '%v' failed: %v", target, err).debug(1)
-        return
-    } else if entries, err = l.project.resolveEntries(ctx, name, false, false); err != nil {
-        erro(ctx, "resolve entry '%v' failed: %v", name, err).debug(1)
-        return
-    }
+    entries = l.project.resolveEntries(ctx, name, false, false)
     return
 }
 
@@ -1755,33 +1675,32 @@ func (l *loader) def(position Position, name string) (def *Def, alt Object) {
     return
 }
 
-func (l *loader) assign(tok token.Token, def *Def, alt Object, value Value) (err error) {
+func (l *loader) assign(tok token.Token, def *Def, alt Object, value Value) {
     var ( pos = l.Position(); ctx = positional(l, pos) )
     switch tok {
     case token.ASSIGN:     //   =
-        err = def.set(ctx, DefDefault, value)
+        def.set(ctx, DefDefault, value)
     case token.SCO_ASSIGN: //  :=
-        err = def.set(ctx, DefExpand1, value)
+        def.set(ctx, DefExpand1, value)
     case token.DCO_ASSIGN: // ::=
-        err = def.set(ctx, DefExpand2, value)
+        def.set(ctx, DefExpand2, value)
     case token.EXC_ASSIGN: //  !=
-        err = def.set(ctx, DefExecute, value)
+        def.set(ctx, DefExecute, value)
     case token.QUE_ASSIGN: //  ?=
-        if isNil(alt) { err = def.set(ctx, DefDefault, value) }
+        if isNil(alt) { def.set(ctx, DefDefault, value) }
     case token.ADD_ASSIGN: //  +=
         if isTrivial(value) {
             // NOOP
         } else if isTrivial(def.value) || !def.value.refs(ctx, value) {
-            err = def.append(ctx, value)
+            def.append(ctx, value)
         } else {
-            err = fmt.Errorf("can't append value '%v' to: %v", value, def)
+            erro(ctx, "can't append value '%v' to: %v", value, def).debug(1)
         }
     case token.SHI_ASSIGN: //  =+
         if !def.value.refs(ctx, value) {
             var tail = def.value
-            if err = def.val(ctx, value); err == nil {
-                err = def.append(ctx, merge(tail)...)
-            }
+            def.val(ctx, value)
+            def.append(ctx, merge(tail)...)
             warn(ctx, "%v; %v; %v", value, tail, def).debug(1)
         }
     case token.SUB_ASSIGN: // -=
@@ -2116,10 +2035,8 @@ ListLoop:
                 return
             }
 
-            var name string
-            if name, err = src.name.Strval(ctx); err != nil {
-                erro(ctx, "strval '%v' failed: %v", src.name, err).at(src.name.Position()).debug(1)
-            } else if mod, found := mods[name]; !found {
+            var name = src.name.Strval(ctx)
+            if mod, found := mods[name]; !found {
                 mod = &Project{ name: name, scope: l.Scope() }
                 mods[name] = mod
             }

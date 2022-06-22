@@ -438,10 +438,7 @@ func (p *parser) parseSelect(lhs Value) (res Value) {
 	)
 	switch t := lhs.(type) {
 	case *selection:
-		if v, err := t.value(positional(p, t.Position())); err != nil {
-			erro(p, "%v: selection failed: %v", lhs, err).at(position).debug(1)
-			return
-		} else if isNil(v) {
+		if v := t.value(positional(p, t.Position())); isNil(v) {
 			erro(p, "nil selection: %v", lhs).at(position).debug(1)
 			return
 		} else {
@@ -1044,10 +1041,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 
 	resolveConfig := func(val Value, name string) (obj Object) {
 		if p.Project().configure != nil {
-			var err error
-			if obj, err = p.Project().configure.resolveObject(ctx, name); err != nil {
-				erro(p, "resolve configure '%s' failed: %v", name, err).at(val.Position()).debug(4)
-			}
+			obj = p.Project().configure.resolveObject(ctx, name)
 		}
 		return
 	}
@@ -1068,21 +1062,17 @@ func (p *parser) parseClosureDelegate() (result Value) {
 			} else if false {
 				// NOTE: selected defs could have closured, have to preserve selection
 				if obj, okay = sel, true; false {
-					o, _ := sel.object(ctx)
-					v, _ := sel.value(ctx)
+					o := sel.object(ctx)
+					v := sel.value(ctx)
 					warn(p, "`%v`; %T %v", sel, o, o).of(name)
 					warn(p, "`%v`; %T %v", sel, v, v).of(name)
 					warn(p, "`%v`; closured = %v", sel, v.expandible(ctx, expandClosure)).of(name).debug(1)
 				}
-			} else if o, err := sel.object(ctx); err == nil && o.DeclScope().comment == usecomment/*TODO: remove this check?*/ {
+			} else if o := sel.object(ctx); o.DeclScope().comment == usecomment/*TODO: remove this check?*/ {
 				obj, okay = unresolved(proj, name), true
-			} else if err != nil {
-				erro(p, "`%v` invalid delegate selection", name).of(sel).debug(1)
 			} else if isNil(o) {
 				erro(p, "`%v` nil selection object", name).of(sel).debug(1)
-			} else if v, err := sel.value(ctx); err != nil {
-				erro(p, "`%v` invalid delegate selection", name).of(name).debug(1)
-			} else if isNil(v) {
+			} else if v := sel.value(ctx); isNil(v) {
 				erro(p, "`%v` not found in %v", sel.s, o).of(name).debug(1)
 			} else if obj, okay = v.(Object); !okay {
 				// return // just use the selected value
@@ -1140,11 +1130,9 @@ func (p *parser) parseClosureDelegate() (result Value) {
 				return
 			}
 		case token.LBRACE:
-			if resolved, err = p.resolveEntries(name); err != nil {
-				erro(p, "finding rule entry '%v' failed: %v", name, err).at(lPos).debug(1)
-			} else if isNil(resolved) {
+			if resolved = p.resolveEntries(name); isNil(resolved) {
 				if name.expandible(ctx, expandPlainValue) {
-					s, _ := name.Strval(ctx)
+					var s = name.Strval(ctx)
 					erro(p, "resolved '%v' (aka. %s) is nil (project=%v)", name, s, proj).of(name).debug(1)
 				} else {
 					erro(p, "resolved '%v' is nil (project=%v)", name, proj).of(name).debug(1)
@@ -1155,11 +1143,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 				erro(p, "resolved Executer '%v' of '%T' is not Object", name, resolved).at(lPos).debug(1)
 			}
 		case token.LCOLON:
-			if str, err = name.Strval(ctx); err != nil {
-				erro(p, "error strval name '%v': %v", name, err).at(lPos).debug(1)
-				return
-			}
-			switch str {
+			switch str = name.Strval(ctx); str {
 			case "usee": resolved = proj.using // TODO: move usee and self into ctx
 			case "self": resolved = proj.self
 			//TODO: case "ctd" : resolved = proj.ctd
@@ -1238,13 +1222,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 		}
 	}
 	if isNil(obj) && p.Project().plugin != nil && p.Project().pluginScope != nil {
-		var err error
-		if nameStr == "" && !isNil(name) {
-			if nameStr, err = name.Strval(ctx); err != nil {
-				erro(p, "strval name '%v' failed: %v", name, err).at(name.Position()).debug(1)
-				return
-			}
-		}
+		if nameStr == "" && !isNil(name) { nameStr = name.Strval(ctx) }
 		if nameStr == "" {
 			erro(p, "strval name '%v' is empty", name).at(name.Position()).debug(1)
 		} else {
@@ -1429,7 +1407,7 @@ func (p *parser) parseComposedExpr(lhs bool) (x Value) {
 		}
 	case token.COLON:
 		if (p.bits&parsingBuiltinCommand != 0 || !lhs) && p.bits&composingNoURL == 0 {
-			if s, _ := x.Strval(positional(p, p.Position())); isKnownURLScheme(s) {
+			if isKnownURLScheme(x.Strval(positional(p, p.Position()))) {
 				x = p.parseURLExpr(lhs, x)
 			}
 		}
@@ -1564,11 +1542,7 @@ func (p *parser) _parseUseSpecProps(props []Value) (opts useOpts, params []Value
         var s string
         switch t := prop.(type) {
         case *Flag:
-            if s, err = t.name.Strval(ctx); err != nil {
-                erro(p, "invalid flag `%v` (%v)", prop, err).of(prop)
-                return
-            }
-            switch s {
+            switch s = t.name.Strval(ctx); s {
             //case "nouse", "unuse": opts.unuse = true
             case "reuse": opts.reuse = true
             default: params = append(params, prop)
@@ -1576,11 +1550,7 @@ func (p *parser) _parseUseSpecProps(props []Value) (opts useOpts, params []Value
         case *Pair: // -param=value
             switch tt := t.Key.(type) {
             case *Flag:
-                if s, err = tt.name.Strval(ctx); err != nil {
-                    erro(p, "invalid flag name `%v` (%v)", tt.name, err).of(t.Key)
-                    return
-                }
-                switch s {
+                switch s = tt.name.Strval(ctx); s {
                 case "use": useList = append(useList, t.Value)
                 default: params = append(params, prop)
                 }
@@ -1591,11 +1561,7 @@ func (p *parser) _parseUseSpecProps(props []Value) (opts useOpts, params []Value
         case *Argumented: // -param(value)
             switch tt := t.value.(type) {
             case *Flag:
-                if s, err = tt.name.Strval(ctx); err != nil {
-                    erro(p, "invalid flag name `%v` (%v)", tt.name, err).of(t.value)
-                    return
-                }
-                switch s {
+                switch s = tt.name.Strval(ctx); s {
                 case "use": useList = append(useList, t.args...)
                 default: params = append(params, prop)
                 }
@@ -1624,12 +1590,8 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
 		specVal = props[0]
         specNames []string
 		opts useOpts
-		err error
 	)
-	if args, err = parseOpts(ctx, &opts, args...); err != nil {
-		erro(ctx, "parse use opts failed: %v", err).debug(1)
-		return
-	}
+	args = parseOpts(ctx, &opts, args...)
 	for _, a := range args {
 		if _, ok := a.(*Flag); ok || true {
 			erro(ctx, "unkown use opts: %T %v", a, a).of(a).debug(1)
@@ -1645,24 +1607,13 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
         if f, ok := v.Key.(*Flag); !ok {
             erro(p, "'%v' invalid use spec", v.Key).of(specVal)
             return
-        } else if s, err = f.name.Strval(ctx); err != nil {
-            erro(p, "%s", err).of(specVal)
-            return
-        } else if s != "list" {
+        } else if s = f.name.Strval(ctx); s != "list" {
             erro(p, "'%v' invalid use spec, do you mean -list?", v.Key).of(specVal)
             return
         }
 
-        var list []Value
-        if list, err = expandmerge2(ctx, expandPlainValue, v.Value); err != nil {
-            erro(p, "%s", err).of(specVal)
-            return
-        }
-        for _, val := range list {
-            if s, err = val.Strval(ctx); err != nil {
-                erro(p, "%s", err).of(specVal)
-                return
-            } else if s == "" { continue }
+        for _, val := range expandmerge2(ctx, expandPlainValue, v.Value) {
+            if s = val.Strval(ctx); s == "" { continue }
             specNames = append(specNames, s)
         }
 		goto loadSpecNames
@@ -1670,10 +1621,7 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
 		arged, specVal = v.args, v.value
     }
 
-	if specName, err = specVal.Strval(ctx); err != nil {
-		erro(p, "%s", err).of(specVal)
-		return
-	} else if specName != "" {
+	if specName = specVal.Strval(ctx); specName != "" {
 		specNames = append(specNames, specName)
 	}
 
@@ -1721,21 +1669,15 @@ func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ 
 		opts includeFileOpts
 		// TODO: comment = p.lineComment
 	)
-	if vals, err := parseOpts(p, &opts, generic.options...); err != nil {
-		erro(p, "parse include opts failed: %v", err).at(p.Position()).debug(1)
-		return
-	} else if len(vals) > 0 {
+	if vals := parseOpts(p, &opts, generic.options...); len(vals) > 0 {
 		// ...
 	}
 
 	if _, ok := x.(*File); ok {
 		// does nothing
-	} else if str, err := x.Strval(p); err != nil {
-		erro(p, "strval '%v' failed: %v", x, err).at(p.Position()).debug(1)
-		return
-	} else if file := p.project.FindFile(p, str); file != nil {
+	} else if file := p.project.FindFile(p, x.Strval(p)); file != nil {
 		x = file
-	} else if val, _ := x.expand(p, expandPlainValue); !isNil(val) && val != x {
+	} else if val := x.expand(p, expandPlainValue); !isNil(val) && val != x {
 		x = val
 	}
 
@@ -1764,12 +1706,8 @@ func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
 	for _, val := range paths {
 		var (
 			ctx = positional(p, val.Position())
-			name, err = val.Strval(ctx)
+			name = val.Strval(ctx)
 		)
-        if err != nil {
-          erro(ctx, "strval '%v' failed: %v", val, err).debug(1)
-          return
-        }
 		if false { // FIXME: parellel loading failed
 			wg.Add(1); go func() {
 				defer checkPanicsErrors(ctx, true)
@@ -1834,29 +1772,23 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 
 	var (
 		ctx = positional(p, p.Position())
+		val = props[0]
 		opts filesOpts
 		pats []Value
-		err error
-		val = props[0]
 	)
-	if _, err = parseOpts(ctx, &opts, generic.options...); err != nil {
-		erro(p, "parse use opts failed: %v", err).at(p.Position()).debug(1)
-		return
-	} else if g, ok := val.(*Group); ok {
+	parseOpts(ctx, &opts, generic.options...)
+
+	if g, ok := val.(*Group); ok {
 		pats = g.Elems
 	} else if val.expandible(ctx, expandClosure) {
 		pats = []Value{ val }
-	} else if pats, err = expandmerge2(ctx, expandPlainValue, val); err != nil {
-		erro(ctx, "%s", err).of(val)
-		return
+	} else {
+		pats = expandmerge2(ctx, expandPlainValue, val)
 	}
+
 	if path == nil {
 		if len(pats) == 1 { if a, ok := pats[0].(*Argumented); ok { if f, ok := a.value.(*Flag); ok {
-			var name, err = f.name.Strval(ctx) // -import(paths...)
-			if err != nil {
-				erro(ctx, "strval '%v' failed: %v", f.name, err).of(f.name).debug(1)
-				return
-			}
+			var name = f.name.Strval(ctx) // -import(paths...)
 			switch name {
 			case "import": p.importFileMaps(ctx, opts.public, a.args...); return
 			default:
@@ -1885,10 +1817,8 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 		for _, pat := range pats {
 			if pat.expandible(ctx, expandClosure) {
 				patsNew = append(patsNew, pat)
-			} else if v, err := expandmerge2(ctx, expandPlainValue, pat); err != nil {
-				erro(p, "merge value '%v' failed: %v", pat, err).of(pat)
 			} else {
-				patsNew = append(patsNew, v...)
+				patsNew = append(patsNew, expandmerge2(ctx, expandPlainValue, pat)...)
 			}
 		}
 
@@ -1900,11 +1830,7 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 		}
 
 		if len(patsNew) == 1 { if f, ok := patsNew[0].(*Flag); ok {
-			var name, err = f.name.Strval(ctx) // -import => (paths...)
-			if err != nil {
-				erro(ctx, "strval '%v' failed: %v", f.name, err).of(f.name).debug(1)
-				return
-			}
+			var name = f.name.Strval(ctx) // -import => (paths...)
 			switch name {
 			case "import": p.importFileMaps(ctx, opts.public, paths...); return
 			default:
@@ -1956,14 +1882,10 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 					var (
 						okay bool
 						cp *Project
-						deps []Value
 						ce = &configureExecutor{ defs:make(map[string]*Def) }
 					)
 					defer ce.close()
-					if deps, err = expandmerge2(ctx, expandPlainValue, props[1:]...); err != nil {
-						erro(p, "merge '%v' failed: %v", props[1:], err).debug(1)
-					}
- 					for _, dep := range deps {
+ 					for _, dep := range expandmerge2(ctx, expandPlainValue, props[1:]...) {
 						switch prereq := dep.(type) {
 						case *RuleEntry:
 							if _, brks := prereq.Execute(ctx); len(brks) > 0 {
@@ -2001,10 +1923,8 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
         switch op := prop0.(type) {
         case Caller: res = op.Call(ctx, props[1:]...)
         default:
-            var name string
-            if name, err = op.Strval(ctx); err != nil {
-                erro(p, "strval '%s' failed: %v", op, err).debug(1)
-            } else if _, obj := p.Scope().Find(name); obj == nil {
+            var name = op.Strval(ctx)
+			if _, obj := p.Scope().Find(name); obj == nil {
                 erro(p, "`%s` undefined", name).debug(1)
             } else if f, _ := obj.(Caller); f == nil {
                 erro(p, "`%T` is not caller (%s)", obj, name).debug(1)
@@ -2071,17 +1991,13 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 		case *Argumented:
 			if flag, ok := t.value.(*Flag); !ok {
 				// does nothing
-			} else if s, err := flag.name.Strval(ctx); err != nil {
-				erro(p, "strval flag name '%v' failed: %v", flag.name, err).at(x.Position())
-			} else if s == "cond" || s == "if" {
+			} else if s := flag.name.Strval(ctx); s == "cond" || s == "if" {
 				conds = t.args
 			}
 		case *Pair:
 			if flag, ok := t.Key.(*Flag); !ok {
 				// does nothing
-			} else if s, err := flag.name.Strval(ctx); err != nil {
-				erro(p, "strval flag name '%v' failed: %v", flag.name, err).at(x.Position())
-			} else if s == "cond" || s == "if" {
+			} else if s := flag.name.Strval(ctx); s == "cond" || s == "if" {
 				if g, ok := t.Value.(*Group); ok {
 					conds = g.Elems
 				} else {
@@ -2094,9 +2010,7 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 			continue
 		}
 		for _, cond := range conds {
-			if t, e := cond.True(ctx); e != nil {
-				erro(p, "conditon casting '%v' failed: %v", cond, e).at(x.Position())
-			} else if !t {
+			if t := cond.True(ctx); !t {
 				generic.dontOperate = true
 				break
 			}
@@ -2105,17 +2019,13 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 		for p.tok == token.MINUS {
 			var x = p.parseExpr(false)
 			var ctx = positional(p, x.Position())
-			if a, e := parseOpts(ctx, &opts, x); e != nil {
-				erro(ctx, "parse generic opts failed: %v", e).debug(1)
-			} else if len(a) > 0 {
+			if a := parseOpts(ctx, &opts, x); len(a) > 0 {
 				generic.options = append(generic.options, a...)
 			}
 		}
 		for _, cond := range opts.conds {
 			var ctx = positional(p, cond.Position())
-			if t, e := cond.True(ctx); e != nil {
-				erro(ctx, "conditon casting '%v' failed: %v", cond, e).debug(1)
-			} else if !t {
+			if t := cond.True(ctx); !t {
 				generic.dontOperate = true
 				break
 			}
@@ -2329,9 +2239,7 @@ func (p *parser) parseModifySetVar(args []Value) (err error) {
 		}
 		var name string
 		var k, v = kv.Key, kv.Value
-		if name, err = k.Strval(positional(p, k.Position())); err != nil {
-			erro(p, "strval '%v' failed: %v", k, err).of(k)
-		} else if name == "" {
+		if name = k.Strval(positional(p, k.Position())); name == "" {
 			erro(p, "name '%v' is empty", k).of(k)
 		}
 		if def, alt := p.def(elem.Position(), name); alt != nil {
@@ -2355,12 +2263,8 @@ func (p *parser) defineConfigureTargets() {
 
 		var (
 			ctx = positional(p, pos)
-			name, err = t.Strval(ctx)
+			name = t.Strval(ctx)
 		)
-		if err != nil {
-			erro(ctx, "strval target '%v' failed: %v", t, err).of(t).debug(6)
-			return
-		}
 
 		var def, alt = p.project.scope.define(ctx, /*DefVoid*/DefConfig, name, nil)
 		if def == nil && alt != nil { if def, _ = alt.(*Def); def == nil {
@@ -2376,11 +2280,7 @@ func (p *parser) parseModifyParams(args []Value) (err error) {
 		var ctx = positional(p, elem.Position())
 		switch elem.(type) {
 		case *Bareword, *Barecomp:
-			var s string
-			if s, err = elem.Strval(ctx); err != nil {
-				erro(p, "strval '%v' failed: %v", elem, err).of(elem)
-				return
-			}
+			var s = elem.Strval(ctx)
 			var def, alt = p.def(elem.Position(), s)
 			if alt != nil {
 				var ok bool
@@ -2422,16 +2322,10 @@ ForModifiersExpr:
 			x = p.parseExpr(false)
 			group *Group
 			name string
-			err error
 		)
 		if g, ok := x.(*Group); !ok {
-			//erro(p, "invalid modifier: %T %v", x, x).at(g.position).debug(1)
-			var xv Value
-			if xv, err = x.expand(p, expandDelegate/*TODO: expandInline or expandAuto*/); err != nil {
-				erro(p, "invalid modifier: %T %v", x, x).at(g.position).debug(1)
-			} else {
-				warn(p, "modifier: %T %v   →   %T %v", x, x, xv, xv).at(x.Position()).debug(1)
-			}
+			var xv = x.expand(p, expandDelegate/*TODO: expandInline or expandAuto*/)
+			warn(p, "modifier: %T %v   →   %T %v", x, x, xv, xv).at(x.Position()).debug(1)
 			continue ForModifiersExpr
 		} else {
 			group = g
@@ -2455,17 +2349,10 @@ ForModifiersExpr:
 			p.parseModifyParams(n.Elems)
 			continue ForModifiersExpr
 		case *delegate, *closure, *Barecomp, *String:
-			var ( ctx = positional(p, n.Position()) ; v []Value )
-			if v, err = expandmerge2(ctx, expandPlainValue, n); err != nil {
-				erro(p, "merge '%v' failed: %v", v, err).of(n).
-					debug(1)
-			} else if name, err = v[0].Strval(ctx); err != nil {
-				erro(p, "strval '%v' failed: %v", v[0], err).of(n).
-					debug(1)
-				continue ForModifiersExpr
-			} else if name == "" {
-				erro(p, "name '%v' is empty", n).of(n).
-					debug(1)
+			var ctx = positional(p, n.Position())
+			var v = expandmerge2(ctx, expandPlainValue, n)
+			if name = v[0].Strval(ctx); name == "" {
+				erro(p, "name '%v' is empty", n).of(n).debug(1)
 				continue ForModifiersExpr
 			}
 			goto checkNameAndAdd
@@ -2566,7 +2453,6 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 	var (
 		position = p.Position()
 		ctx = positional(p, position)
-		err error
 	)
 
 	defer p.closeScope(p.openScope(scopeComment))
@@ -2609,18 +2495,15 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 	// NOTE: expand targets to speed up for later usage, it might spend lots of time in
 	// project.entry while matching for entry looked up if not expanded right now.
 	if w := expandPlainValue & ^expandArgedArgs; true {
-		targets, _, err = expandall2(ctx, w, targets...)
-		if err != nil { erro(p, "expand targets '%v' failed: %v", targets, err) }
+		targets, _ = expandall2(ctx, w, targets...)
 	} else {
 		var ta []Value
 		for _, t := range targets {
 			if t.expandible(ctx, expandClosure) {
 				if false { info(ctx, "target: %T %v", t, t).of(t) }
 				ta = append(ta, t)
-			} else if a, _, e := expandall2(ctx, w, t); e == nil {
+			} else if a, _ := expandall2(ctx, w, t); a != nil {
 				ta = append(ta, a...)
-			} else {
-				erro(p, "expand targets '%v' failed: %v", targets, e)
 			}
 		}
 		targets = ta
@@ -2656,20 +2539,17 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 
 	var params []string
 	if t := targets[0]; p.configure {
-		if name, err := t.Strval(ctx); err != nil {
-			erro(p, "strval configure target '%v' failed: %v", t, err).of(t)
-		} else {
-			d, a := p.Project().scope.define(ctx, DefVoid, name, nil)
-			if d == nil && a == nil {
-				erro(p, "cannot define configure target '%v'", name).of(t)
-			} else if a != nil {
-				if _, ok := a.(*Def); !ok {
-					erro(p, "configure target '%v' already taken: %T %v", name, a, a).of(t)
-				}
+		name := t.Strval(ctx)
+		d, a := p.Project().scope.define(ctx, DefVoid, name, nil)
+		if d == nil && a == nil {
+			erro(p, "cannot define configure target '%v'", name).of(t)
+		} else if a != nil {
+			if _, ok := a.(*Def); !ok {
+				erro(p, "configure target '%v' already taken: %T %v", name, a, a).of(t)
 			}
-			if d != nil && !d.position.IsValid() {
-				d.position = t.Position()
-			}
+		}
+		if d != nil && !d.position.IsValid() {
+			d.position = t.Position()
 		}
 	} else {
 		for _, d := range p.params { params = append(params, d.name) }
@@ -2797,9 +2677,8 @@ func (p *parser) expandTemplate(/*endPos token.Pos, */params []Value) {
 	case "for":
 		for _, a := range t.params {
 			if pair, ok := a.(*Pair); ok {
-				if s, e := pair.Key.Strval(positional(p, pair.Key.Position())); e != nil {
-					erro(p, "expand template %v", e).of(pair.Key).debug(1)
-				} else if g, ok := pair.Value.(*Group); ok {
+				var s = pair.Key.Strval(positional(p, pair.Key.Position()))
+				if g, ok := pair.Value.(*Group); ok {
 					for _, v := range g.Elems {
 						p.expandForeach(t, map[string]Value{ s : v }, params/*, endPos*/)
 					}
@@ -2826,16 +2705,14 @@ func (p *parser) callTmpl(t *template, name Value, args []Value) {
 	var ctx = positional(p, t.name.Position())
 	var params = merge(t.params...)
 	for i, param := range params {
-		if s, err := param.Strval(ctx); err != nil {
-			erro(ctx, "strval '%v' failed", param, err).at(param.Position()).debug(1)
-		} else if def, alt := p.def(p.Position(), s); alt != nil {
+		var s = param.Strval(ctx)
+		if def, alt := p.def(p.Position(), s); alt != nil {
 			erro(ctx, "duplicated parameter '%s'", s).at(param.Position()).debug(1)
 		} else if i < len(args) {
 			def.set(ctx, DefAuto, args[i])
 		}
 	}
 
-	if false { warn(ctx, "%v, %d %v", t.name, len(params), params).debug(1) }
 	for p.tok != token.EOF && p.pos < t.endPos {
 		switch p.tok {
 		case token.LINEND: p.next(true)
@@ -2891,11 +2768,8 @@ func (p *parser) parseTemplateClause() (end bool) {
 		return true
 	}}
 
-	var ( ctx = positional(p, p.Position()); err error )
-	if params, err = expandmerge2(ctx, expandPlainValue, params...); err != nil {
-		erro(p, "merge params %s failed", err).at(p.positionAt(pos))
-		return
-	}
+	var ctx = positional(p, p.Position())
+	params = expandmerge2(ctx, expandPlainValue, params...)
 
 	var tmpl = &template{ state:p.scanner.State(), pos:p.pos, tok:p.tok, lit:p.lit }
 	if verb == "def" {
@@ -3071,10 +2945,7 @@ func (p *parser) parseFile() *parsedFile {
 			if !pos.IsValid() { pos = opt.Position() }
 		}
 		if !pos.IsValid() { pos = p.Position() }
-		if a, e := parseOpts(ctx, &opts, optVals...); e != nil {
-			erro(p, "parse project decl opts failed: %v", e).at(pos).debug(1)
-			return nil
-		} else if len(a) > 0 {
+		if a := parseOpts(ctx, &opts, optVals...); len(a) > 0 {
 			for _, v := range a {
 				erro(p, "unknown option '%v'", v).of(v).debug(1)
 			}
@@ -3136,11 +3007,7 @@ func (p *parser) parseFile() *parsedFile {
 			}
 		}
 
-		var err error
-		if identStr, err = ident.Strval(ctx); err != nil {
-			erro(p, "strval '%v' failed: %v", ident, err).at(ident.Position()).debug(1)
-			return nil
-		} else if linfo.loadee != nil && identStr != linfo.loadee.name {
+		if identStr = ident.Strval(ctx); linfo.loadee != nil && identStr != linfo.loadee.name {
 			warn(p, "%s: declare multiple project in the same directory", p.Project()).at(ident.position).debug(24)
 		} else if identStr == "_" && p.mode&DeclarationErrors != 0 {
 			erro(p, "package name '_' is preserved").at(ident.Position()).debug(1)
@@ -3202,16 +3069,9 @@ func (p *parser) parseFile() *parsedFile {
 
 					var (
 						ctx = positional(p, param.Position())
-						t, e = parseOpts(ctx, &opts, param)
+						t = parseOpts(ctx, &opts, param)
 					)
-					if false {
-						var proj = p.Project()
-						info(ctx, "%v -> %v, %v; %v -> %v; %v", ident, proj.name, proj.spec, param, t, filename).at(position).debug(1)
-					}
-					if e != nil {
-						erro(ctx, "parse opt '%v' failed: %v", param, e).of(param).debug(1)
-						return nil
-					} else if keyword == token.PACKAGE || opts.final {
+					if keyword == token.PACKAGE || opts.final {
 						// No bases for PACKAGE or final project
 					} else if !p.loadBases(basePos, linfo, "", merge(t...)...) {
 						erro(ctx, "loading base '%v' failed", t).of(param).debug(1)

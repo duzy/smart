@@ -17,35 +17,25 @@ type evaluerOpts struct {
         fullname bool `f,fn,full,fullname`
 }
 func (p *evaluer) Evaluate(ctx Context, args ...Value) (result Value, err error) {
-        var (
-                program = ctx.program()
-                opts evaluerOpts
-                list []Value
-        )
+        var program = ctx.program()
         if program == nil {
                 erro(ctx, "needs program context to evaluate: %v", ctx).debug(16)
                 return
-        } else if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                erro(ctx, "parse opts failed: %v", err)
-                errostack(ctx, 5, "%v", ctx).debug(1)
-                return
         }
+
+        var list []Value
+        var opts evaluerOpts
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
 ForRecipes:
         for _, recipe := range program.recipes {
+                var w = expandPlainValue | expandPathStr | expandPairVal
+                if opts.fullname { w |= expandFullName }
+
                 var (
                         ctx = positional(ctx, recipe.Position())
-                        w = expandPlainValue | expandPathStr | expandPairVal
-                        vals []Value
+                        vals = expandmerge2(ctx, w, recipe)
                 )
-                if opts.fullname { w |= expandFullName }
-                if vals, err = expandmerge2(ctx, w, recipe); err != nil {
-                        erro(ctx, "merge recipes failed: %v", err).debug(1)
-                        return
-                }
                 if n := len(vals); n < 1 {
                         list = append(list, recipe)
                         continue
@@ -92,16 +82,10 @@ ForRecipes:
                 list = append(list, v)
                 if g, ok := v.(*Group); ok && g != nil && g.Len() > 0 {
                         if s, c := g.Get(0), g.Get(1); s != nil && c != nil {
-                                var ( str string; num int64 )
-                                if str, err = s.Strval(ctx); err != nil {
-                                        erro(ctx, "strval '%v' failed: %v", s, err).debug(1)
-                                        return
-                                }
-                                if num, err = c.Integer(ctx); err != nil {
-                                        erro(ctx, "integify '%v' failed: %v", c, err).debug(1)
-                                        return
-                                }
-                                if str == "shell" && num != 0 {
+                                var str = s.Strval(ctx)
+                                if num, e := c.Integer(ctx); e != nil {
+                                        erro(ctx, "%v: %v", c, e).debug(1)
+                                } else if str == "shell" && num != 0 {
                                         //fmt.Fprintf(stderr, "evaluate: %v\n", v)
                                         break ForRecipes
                                 }

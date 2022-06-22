@@ -39,13 +39,10 @@ func (p *using) expandible(ctx Context, w expandwhat) (res bool) {
         }
         return
 }
-func (p *using) expand(ctx Context, w expandwhat) (res Value, err error) {
+func (p *using) expand(ctx Context, w expandwhat) (res Value) {
         var ( params []Value; num int )
-        if params, num, err = expandall2(ctx, w, p.params...); err != nil {
-                erro(ctx, "%v", err).at(p.position).debug(1)
-                return
-        } else if num > 0 {
-                return &using{p.valbase,p.project,params,p.opts}, nil
+        if params, num = expandall2(ctx, w, p.params...); num > 0 {
+                res = &using{p.valbase,p.project,params,p.opts}
         }
         return
 }
@@ -102,7 +99,7 @@ func (p *using) cmp(ctx Context, v Value) (res cmpres) {
 func (p *using) patterned(ctx Context) bool { return false }
 func (p *using) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
 func (p *using) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
-func (p *using) True(ctx Context) (bool, error) { return p.project != nil, nil }
+func (p *using) True(ctx Context) bool { return p.project != nil }
 func (p *using) updated(ctx Context, v ...bool) (res bool) {
         if entry := p.project.DefaultEntry(); entry != nil {
                 res = entry.updated(ctx, v...)
@@ -122,7 +119,7 @@ func (p *using) String() string {
                 return fmt.Sprintf("%s", p.project.name)
         }
 }
-func (p *using) Strval(ctx Context) (s string, err error) {
+func (p *using) Strval(ctx Context) (s string) {
         s = fmt.Sprintf("use %s %v", p.project.name, p.params)
         return
 }
@@ -151,7 +148,7 @@ func (p *usinglist) String() string {
         }
         return fmt.Sprintf("%s", s)
 }
-func (p *usinglist) Strval(ctx Context) (s string, err error) {
+func (p *usinglist) Strval(ctx Context) (s string) {
         for i, elem := range p.list {
                 if i > 0 { s += " " }
                 s += elem.project.name
@@ -159,9 +156,9 @@ func (p *usinglist) Strval(ctx Context) (s string, err error) {
         s = fmt.Sprintf("[%v]", s)
         return
 }
-func (p *usinglist) True(ctx Context) (bool, error) { return len(p.list) > 0, nil }
-func (p *usinglist) Integer(ctx Context) (int64, error) { return 0, nil }
-func (p *usinglist) Float(ctx Context) (float64, error) { return 0, nil }
+func (p *usinglist) True(ctx Context) bool { return len(p.list) > 0 }
+func (p *usinglist) Integer(ctx Context) (i int64, _ error) { return int64(len(p.list)), nil }
+func (p *usinglist) Float(ctx Context) (f float64, _ error) { return 0, nil }
 func (p *usinglist) updated(ctx Context, v ...bool) (res bool) {
         for _, elem := range p.list {
                 res = res || elem.updated(ctx, v...)
@@ -234,20 +231,15 @@ func (p *usinglist) expandible(ctx Context, w expandwhat) (res bool) {
         }
         return
 }
-func (p *usinglist) expand(ctx Context, w expandwhat) (res Value, err error) {
+func (p *usinglist) expand(ctx Context, w expandwhat) (res Value) {
         var ( list []*using; num int )
         for _, elem := range p.list {
-                var v Value
-                if v, err = elem.expand(ctx, w); err != nil {
-                        erro(ctx, "%v", err).at(elem.position).debug(1)
-                        return
-                } else {
-                        if !isNil(v) { v = elem } else if v != elem { num += 1 }
-                        list = append(list, v.(*using))
-                }
+                var v = elem.expand(ctx, w)
+                if !isNil(v) { v = elem } else if v != elem { num += 1 }
+                list = append(list, v.(*using))
         }
         if num > 0 {
-                return &usinglist{ p.name, p.scope, p.owner, list }, nil
+                res = &usinglist{ p.name, p.scope, p.owner, list }
         }
         return
 }

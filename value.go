@@ -404,7 +404,6 @@ ForScopes:
 }
 
 func closureGet(ctx Context, name string) (res Value) {
-    var err error
     for _, scope := range ctx.closureScopes() {
         if scope.project == nil {
             if _, res = scope.Find(name); !isNil(res) { break }
@@ -415,10 +414,7 @@ func closureGet(ctx Context, name string) (res Value) {
             if scope != scope.project.scope {
                 if _, res = scope.Find(name); !isNil(res) { break  }
             }
-            if res, err = scope.project.resolveObject(ctx, name); err != nil {
-                erro(ctx, "resolve '%s' failed: %v", name, err).debug(1)
-                break
-            } else if isNil(res) {
+            if res = scope.project.resolveObject(ctx, name); isNil(res) {
                 res, _ = ctx.autoGet(name)
             }
         }
@@ -443,11 +439,10 @@ func closureResolveObject(ctx Context, pos Position, name string) (obj Object) {
     var (
         infos = false && strings.HasPrefix(name, "@")
         scope *Scope
-        err error
     )
     if infos { defer func() {
         var val Value
-        if obj != nil { val, _ = obj.expand(ctx, expandPlainValue) }
+        if obj != nil { val = obj.expand(ctx, expandPlainValue) }
         warn(ctx, "%v: name = %s", scope.project, name).at(scope.position)
         warn(ctx, "%v: %v", scope.project, scope).at(scope.position)
         warn(ctx, "%v: %v", scope.project, ctx).at(scope.position)
@@ -464,7 +459,7 @@ func closureResolveObject(ctx Context, pos Position, name string) (obj Object) {
                 if o, ok := ctx.closureResolveAuto(name); ok && !isNil(o) { obj = o }
                 if infos {
                     var proj = def.OwnerProject()
-                    val, _ := obj.expand(ctx.closure(), expandPlainValue)
+                    val    := obj.expand(ctx.closure(), expandPlainValue)
                     va2, _ := ctx.closure().autoGet(name)
                     ob1, _ := ctx.closureResolveAuto(name)
                     warn(ctx, "%v: %v %v => %T %v", proj, def.origin, def.name, def.value, def.value)
@@ -482,11 +477,7 @@ func closureResolveObject(ctx Context, pos Position, name string) (obj Object) {
             }
         }
         if scope.project != nil {
-            if obj, err = scope.project.resolveObject(ctx, name); err != nil {
-                erro(ctx, "resolve object '%s' in '%s' failed: %v", name, scope.project, err)
-                erro(ctx, "failed from here '%s' in '%s'", name, scope).at(pos).debug(1)
-                break
-            }
+            obj = scope.project.resolveObject(ctx, name)
         }
         if isNil(obj) && false { obj = closureResolveObject(ctx.inner(), pos, name) }
         if!isNil(obj) { if infos { warn(ctx, "%v", obj).debug(1) }; break }
@@ -495,18 +486,12 @@ func closureResolveObject(ctx Context, pos Position, name string) (obj Object) {
 }
 
 func closureResolveEntry(ctx Context, pos Position, name string) (entries *ResolveEntries) {
-    var (
-        scope *Scope
-        err error
-    )
-    for _, scope = range ctx.closureScopes() {
-        if project := scope.project; project == nil {
-            // none
-        } else if entries, err = project.resolveEntries(ctx, name, false, /*true*/false); err != nil {
-            erro(ctx, "resolve entry '%s' in '%s' failed: %v", name, project, err).at(pos).debug(1)
-            break
-        } else if entries == nil && false {
-            entries = closureResolveEntry(ctx.inner(), pos, name)
+    for _, scope := range ctx.closureScopes() {
+        if project := scope.project; project != nil {
+            entries = project.resolveEntries(ctx, name, false, /*true*/false)
+            if entries == nil && false {
+                entries = closureResolveEntry(ctx.inner(), pos, name)
+            }
         }
         if entries != nil { break }
     }
@@ -580,15 +565,10 @@ func (t *traverseContext) traversed(target Value) (targets []Value) {
 }
 
 func entryStr(ctx Context, entry Entry) (str, ent, tar string) {
-    if isNil(entry) {
-        // ...
-    } else if s, e := entry.Strval(ctx); e == nil { ent = s } else {
-        erro(ctx, "strval '%v' failed: %v", entry, e).debug(1)
-        return
-    }
+    if !isNil(entry) { ent = entry.Strval(ctx) }
     if target, found := ctx.autoGet("@"); !found || isTrivial(target) {
         str = ent // ...
-    } else if tar, _ = target.Strval(ctx); ent != tar {
+    } else if tar = target.Strval(ctx); ent != tar {
         str = fmt.Sprintf("%s(%s)", ent, tar)
     } else {
         str = ent
@@ -753,15 +733,8 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     } ()
 
     ForProjectsConcretes: for _, project := range projects {
-        var entries *ResolveEntries
-        if entries, err = project.resolveEntries(ctx, prereq, t.grepping, false); err != nil {
-            prompt(ctx, "%s: traverse entry failed, project %v\n", prereq, project)
-            erro(ctx, "%s: resolve entry failed: %v", prereq, err)
-            errostack(ctx, 3, "%s: resolve entry failed: %v", prereq, err).debug(10)
-            return
-        } else if entries == nil {
-            continue
-        }
+        var entries = project.resolveEntries(ctx, prereq, t.grepping, false)
+        if entries == nil { continue }
         concreteList = append(concreteList, entries.all...)
         for _, entry := range entries.all {
             if isNil(entry) && targetValue == entry { continue }
@@ -938,13 +911,8 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     if file != nil && okay {
         // does nothing
     } else if traversed == 0 || !okay { ForProjectsObjects: for _, project := range projects {
-        var obj, err = project.resolveObject(ctx, prereq)
-        if err != nil {
-            prompt(ctx, "%v: traverse failed, project %s\n", prereq, project)
-            erro(ctx, "%s: resolve object '%s' failed: %v", prereq, err)
-            errostack(ctx, 3, "%v: %v: %v", prereq, project, ctx).debug(6)
-            return
-        } else if isTrivial(obj) {
+        var obj = project.resolveObject(ctx, prereq)
+        if isTrivial(obj) {
             continue // does nothing here and keep trying FindFile
         } else if _, ok := obj.(*Def); ok {
             continue // skip defs
@@ -1055,11 +1023,8 @@ func traversePattern(ctx Context, pat Value, projects... *Project) (brks breaker
     var name string
     if file != nil {
         name = file.name
-    } else if s, e := val.Strval(ctx); e == nil {
-        name = s
-    } else { // TODO: refine this branch and others
-        erro(ctx, "strval %T %v failed: %v", val, val, e).at(pos).debug(1)
-        return
+    } else {
+        name = val.Strval(ctx)
     }
     for _, proj := range projects {
         if file = proj.FindFile(ctx, name); file != nil {
@@ -1122,8 +1087,7 @@ func getCmdHash(ctx Context, values ...Value) (k, v HashBytes, err error) {
     for _, value := range values {
         if false {
             // FIXME: Strval() varies when &(var) is used
-            if targetStr, err = value.Strval(ctx); err != nil { return }
-            fmt.Fprintf(val, "%v", targetStr)
+            fmt.Fprintf(val, "%v", value.Strval(ctx))
         } else {
             fmt.Fprintf(val, "%v", value)
         }
@@ -1280,16 +1244,16 @@ type Value interface {
     String() string
 
     // Strval returns the string form of the value.
-    Strval(Context) (string, error)
+    Strval(Context) string
+
+    // Returns true if the value can be evaluated as 'true', 'yes', etc.
+    True(Context) bool
 
     // Integer returns the integer form of the value.
     Integer(Context) (int64, error)
 
     // Float returns the float form of the value.
     Float(Context) (float64, error)
-
-    // Returns true if the value can be evaluated as 'true', 'yes', etc.
-    True(Context) (bool, error)
 
     kind() kind
 
@@ -1319,7 +1283,7 @@ type Value interface {
     // $(...)        -> ......
     // $(...)=$(...) -> ...=$(...), ...=...
     // foo->bar      -> ...
-    expand(Context, expandwhat) (Value, error) // result is nil or identical to this value if no expansions
+    expand(Context, expandwhat) Value // result is nil or identical to this value if no expansions
 
     stat(Context) (*statinfo)
 
@@ -1358,14 +1322,14 @@ func elementString(ctx Context, o Object, elem Value, k elemkind) (s string) {
 type valbase struct { position Position }
 func (t *valbase) Position() (res Position) { return t.position }
 func (_ *valbase) String() (s string) { return }
-func (_ *valbase) Strval(_ Context) (s string, err error) { return }
-func (_ *valbase) Integer(_ Context) (i int64, err error) { return }
-func (_ *valbase) Float(_ Context) (f float64, err error) { return }
-func (_ *valbase) True(_ Context) (res bool, err error) { return }
+func (_ *valbase) Strval(_ Context) (s string) { return }
+func (_ *valbase) Integer(_ Context) (i int64, e error) { return }
+func (_ *valbase) Float(_ Context) (f float64, e error) { return }
+func (_ *valbase) True(_ Context) (res bool) { return }
 func (_ *valbase) refs(_ Context, _ Value) (res bool) { return }
 func (_ *valbase) defs(_ Context, _ ...string) (res []*Def) { return }
 func (_ *valbase) expandible(_ Context, _ expandwhat) bool { return false }
-func (_ *valbase) expand(_ Context, _ expandwhat) (v Value, err error) { return }
+func (_ *valbase) expand(_ Context, _ expandwhat) (v Value) { return }
 func (_ *valbase) cmp(_ Context, _ Value) (res cmpres) { return }
 func (_ *valbase) patterned(_ Context) bool { return false }
 func (_ *valbase) match(_ Context, i interface{}) (full bool, s string, stems []string) { return }
@@ -1377,24 +1341,16 @@ func (_ *valbase) updatedDeps(_ Context, _ ...Value) []Value { return nil }
 func (_ *valbase) delete(ctx Context) (file []*File, err error) { return }
 func (_ *valbase) traverse(ctx Context) (brks breakers) { return }
 func (_ *valbase) _match(ctx Context, p Value, i interface{}) (full bool, s string, stems []string) {
-    var ( v string; e error )
-    if v, e = p.Strval(ctx); e == nil {
-        var is string
-        switch t := i.(type) {
-        case string: is = t
-        case Value:
-            if is, e = t.Strval(ctx); e != nil {
-                erro(ctx, "strval '%v' error: %v", t, e).of(t).debug(1)
-                return
-            }
-        default:
-            erro(ctx, "%T: matching unsupported value: %T %v", p, i, i).of(p).debug(1)
-            return
-        }
-        if strings.HasPrefix(is, v) { s, full = v, (len(v) == len(is)) }
-    } else {
-        erro(ctx, "strval '%v' error: %v", p, e).of(p).debug(1)
+    var is string
+    var v = p.Strval(ctx)
+    switch t := i.(type) {
+    case string: is = t
+    case Value : is = t.Strval(ctx)
+    default:
+        erro(ctx, "%T: matching unsupported value: %T %v", p, i, i).of(p).debug(1)
+        return
     }
+    if strings.HasPrefix(is, v) { s, full = v, (len(v) == len(is)) }
     return
 }
 func (_ *valbase) kind() kind { return valOther }
@@ -1434,22 +1390,14 @@ func (p *Argumented) expandible(ctx Context, w expandwhat) (res bool) {
     }
     return
 }
-func (p *Argumented) expand(ctx Context, w expandwhat) (res Value, err error) {
+func (p *Argumented) expand(ctx Context, w expandwhat) (res Value) {
     var (
         val Value
         args []Value
         num int
     )
-    if val, err = p.value.expand(ctx, w); err != nil {
-        erro(ctx, "expand '%v' failed: %v", p.value, err).of(p.value).debug(1)
-        return
-    } else if isNil(val) { val = p.value }
-    if w&expandArgedArgs != 0 {
-        if args, num, err = expandall1(ctx, w, p.args...); err != nil {
-            erro(ctx, "expand args '%v' failed: %v", p.args, err).of(p.value).debug(1)
-            return
-        }
-    }
+    if val = p.value.expand(ctx, w); isNil(val) { val = p.value }
+    if w&expandArgedArgs != 0 { args, num = expandall1(ctx, w, p.args...) }
     if val != p.value || num > 0 { res = &Argumented{ val, args }}
     return
 }
@@ -1477,23 +1425,15 @@ func (p *Argumented) stat(ctx Context) (si *statinfo) {
     // FIXME: p.value might be not the real target (depending on the arguments)
     return p.value.stat(ctx)
 }
-func (p *Argumented) True(ctx Context) (res bool, err error) {
-    if p.value != nil { res, err = p.value.True(ctx) }
+func (p *Argumented) True(ctx Context) (res bool) {
+    if p.value != nil { res = p.value.True(ctx) }
     return
 }
 func (p *Argumented) Integer(ctx Context) (i int64, err error) {
-    var s string
-    if s, err = p.Strval(ctx); err == nil {
-        i, err = strconv.ParseInt(s, 10, 64)
-    }
-    return
+    return strconv.ParseInt(p.value.Strval(ctx), 10, 64)
 }
 func (p *Argumented) Float(ctx Context) (f float64, err error) {
-    var s string
-    if s, err = p.Strval(ctx); err == nil {
-        f, err = strconv.ParseFloat(s, 64)
-    }
-    return
+    return strconv.ParseFloat(p.value.Strval(ctx), 64)
 }
 func (p *Argumented) elemStr(ctx Context, o Object, k elemkind) (s string) {
     for i, a := range p.args {
@@ -1504,17 +1444,11 @@ func (p *Argumented) elemStr(ctx Context, o Object, k elemkind) (s string) {
     return
 }
 func (p *Argumented) String() (s string) { return p.elemStr(nil, nil, 0) }
-func (p *Argumented) Strval(ctx Context) (s string, err error) {
-    if s, err = p.value.Strval(ctx); err != nil {
-        return
-    }
-    s += "("
+func (p *Argumented) Strval(ctx Context) (s string) {
+    s = p.value.Strval(ctx) + "("
     for i, a := range p.args {
         if i > 0 { s += "," }
-        var v string
-        if v, err = a.Strval(ctx); err == nil { s += v } else {
-            break
-        }
+        s += a.Strval(ctx)
     }
     s += ")"
     return
@@ -1529,9 +1463,7 @@ func (p *Argumented) traverse(ctx Context) (brks breakers) {
         // NOTE: expand here to avoid args being expanded in the wrong context
         const w = expandPlainValue|expandPairVal|expandPatterned//|expandFullName
         for _, a := range p.args {
-            if val, err := a.expand(ctx, w); err != nil {
-                erro(ctx, `expand "%v" failed: %v`, a, err).debug(1)
-            } else if !isNil(val) && val != a { a = val }
+            if val := a.expand(ctx, w); !isNil(val) && val != a { a = val }
             // TODO: deal with pattern args using expandPatterned instead of stenciling:
             if true && a.patterned(ctx) { if stems := ctx.stems(); len(stems) > 0 {
                 if val, rest := a.stencil(ctx, stems); len(rest) > 0 {
@@ -1539,10 +1471,7 @@ func (p *Argumented) traverse(ctx Context) (brks breakers) {
                     panic(fmt.Sprintf("%T %v", val, val))
                 } else if file, okay := val.(*File); okay {
                     a = file
-                } else if str, err := val.Strval(ctx); err != nil {
-                    erro(ctx, "strval %v failed: %v", val, err).of(a).debug(1)
-                    panic(fmt.Sprintf("%T %v", val, val))
-                } else if file := proj.FindFile(ctx, str); file != nil {
+                } else if file := proj.FindFile(ctx, val.Strval(ctx)); file != nil {
                     a = file
                 } else {
                     a = val //MakeString(a.Position(), str)
@@ -1688,11 +1617,9 @@ func (p *Any) stat(ctx Context) (si *statinfo) {
     if v, ok := p.value.(Value); ok && v != nil { si = v.stat(ctx) }
     return
 }
-func (p *Any) expand(ctx Context, w expandwhat) (res Value, err error) {
+func (p *Any) expand(ctx Context, w expandwhat) (res Value) {
     if val, ok := p.value.(Value); ok && !isNil(val) {
-        if res, err = val.expand(ctx, w); err != nil {
-            erro(ctx, "expand '%v' failed: %v", val, err).of(p).debug(1)
-        }
+        res = val.expand(ctx, w)
     }
     return
 }
@@ -1712,47 +1639,47 @@ func (p *Any) Position() (res Position) {
     if v, ok := p.value.(Positioner); ok { res = v.Position() }
     return
 }
-func (p *Any) True(ctx Context) (t bool, err error) {
+func (p *Any) True(ctx Context) (t bool) {
     switch v := p.value.(type) {
-    case Value:     t, err = v.True(ctx)
-    case float32:   t      = math.Abs(float64(v))-0 >= FloatEpsilon
-    case float64:   t      = math.Abs(v)-0 >= FloatEpsilon
-    case int64:     t      = v != 0
-    case int:       t      = v != 0
-    case bool:      t      = v
+    case Value:     t = v.True(ctx)
+    case float32:   t = math.Abs(float64(v))-0 >= FloatEpsilon
+    case float64:   t = math.Abs(v)-0 >= FloatEpsilon
+    case int64:     t = v != 0
+    case int:       t = v != 0
+    case bool:      t = v
     }
     return
 }
 func (p *Any) Float(ctx Context) (res float64, err error) {
     switch v := p.value.(type) {
     case Value:       res, err = v.Float(ctx)
-    case float32:     res      = float64(v)
-    case float64:     res      = v
-    case int:         res      = float64(v)
-    case int64:       res      = float64(v)
-    case bool: if v { res      = FloatEpsilon }
+    case float32:     res = float64(v)
+    case float64:     res = v
+    case int:         res = float64(v)
+    case int64:       res = float64(v)
+    case bool: if v { res = FloatEpsilon }
     }
     return
 }
 func (p *Any) Integer(ctx Context) (res int64, err error) {
     switch v := p.value.(type) {
     case Value:       res, err = v.Integer(ctx)
-    case float32:     res      = int64(v)
-    case float64:     res      = int64(v)
-    case int:         res      = int64(v)
-    case int64:       res      = v
-    case bool: if v { res      = 1 }
+    case float32:     res = int64(v)
+    case float64:     res = int64(v)
+    case int:         res = int64(v)
+    case int64:       res = v
+    case bool: if v { res = 1 }
     }
     return
 }
-func (p *Any) Strval(ctx Context) (s string, err error) {
+func (p *Any) Strval(ctx Context) (s string) {
     switch v := p.value.(type) {
-    case Value:       s, err = v.Strval(ctx)
-    case float32:     s      = strconv.FormatFloat(float64(v),'g', -1, 32)
-    case float64:     s      = strconv.FormatFloat(float64(v),'g', -1, 64)
-    case int:         s      = strconv.FormatInt(int64(v),10)
-    case int64:       s      = strconv.FormatInt(int64(v),10)
-    case bool: if v { s      = "true" } else { s = "false" }
+    case Value:       s = v.Strval(ctx)
+    case float32:     s = strconv.FormatFloat(float64(v),'g', -1, 32)
+    case float64:     s = strconv.FormatFloat(float64(v),'g', -1, 64)
+    case int:         s = strconv.FormatInt(int64(v),10)
+    case int64:       s = strconv.FormatInt(int64(v),10)
+    case bool: if v { s = "true" } else { s = "false" }
     default: s = fmt.Sprintf("%s", p.value)
     }
     return
@@ -1767,11 +1694,8 @@ type negative struct { valbase; x Value }
 func (p *negative) refs(ctx Context, o Value) bool { return p.x.refs(ctx, o) }
 func (p *negative) defs(ctx Context, s ...string) []*Def { return p.x.defs(ctx, s...) }
 func (p *negative) expandible(ctx Context, w expandwhat) bool { return p.x.expandible(ctx, w) }
-func (p *negative) expand(ctx Context, w expandwhat) (res Value, err error) {
-    var val Value
-    if val, err = p.x.expand(ctx, w); err != nil {
-        erro(ctx, "expand '%v' failed: %v", p.x, err).of(p.x).debug(1)
-    } else if !isNil(val) && val != p.x {
+func (p *negative) expand(ctx Context, w expandwhat) (res Value) {
+    if val := p.x.expand(ctx, w); !isNil(val) && val != p.x {
         res = &negative{p.valbase, val}
     }
     return
@@ -1780,35 +1704,21 @@ func (p *negative) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*negative); ok { res = p.x.cmp(ctx, a.x) }
     return
 }
-func (p *negative) True(ctx Context) (res bool, err error) {
-    if p.x != nil { if res, err = p.x.True(ctx); err == nil { res = !res }}
+func (p *negative) True(ctx Context) (res bool) {
+    if p.x != nil { res = !p.x.True(ctx) }
     return
 }
 func (p *negative) elemStr(ctx Context, o Object, k elemkind) string {
     return `!`+elementString(ctx, o, p.x, k)
 }
 func (p *negative) String() (s string) { return p.elemStr(nil, nil, 0) }
-func (p *negative) Strval(ctx Context) (s string, err error) {
-    var t bool
-    if t, err = p.x.True(ctx); err != nil {
-        erro(ctx, "truthify '%v' failed: %v", p.x, err).at(p.position).debug(1)
-    } else {
-        s = fmt.Sprintf("%v", !t)
-    }
+func (p *negative) Strval(ctx Context) string { return fmt.Sprintf("%v", !p.x.True(ctx)) }
+func (p *negative) Float(ctx Context) (res float64, _ error) {
+    if !p.x.True(ctx) { res = FloatEpsilon }
     return
 }
-func (p *negative) Float(ctx Context) (res float64, err error) {
-    var t bool
-    if t, err = p.x.True(ctx); err == nil && !t {
-        res = FloatEpsilon
-    }
-    return
-}
-func (p *negative) Integer(ctx Context) (res int64, err error) {
-    var t bool
-    if t, err = p.x.True(ctx); err == nil && !t {
-        res = 1
-    }
+func (p *negative) Integer(ctx Context) (res int64, _ error) {
+    if !p.x.True(ctx) { res = 1 }
     return
 }
 func (p *negative) traverse(ctx Context) (brks breakers) {
@@ -1823,13 +1733,13 @@ func (p *boolean) String() (s string) {
     if p.bool { s = "true" } else { s = "false" }
     return
 }
-func (p *boolean) Strval(_ Context) (string, error) { return p.String(), nil }
-func (p *boolean) True(_ Context) (bool, error) { return p.bool, nil }
-func (p *boolean) Float(_ Context) (v float64, err error) {
+func (p *boolean) Strval(_ Context) string { return p.String() }
+func (p *boolean) True(_ Context) bool { return p.bool }
+func (p *boolean) Float(_ Context) (v float64, _ error) {
     if p.bool { v = 1. }
     return
 }
-func (p *boolean) Integer(_ Context) (v int64, err error) {
+func (p *boolean) Integer(_ Context) (v int64, _ error) {
     if p.bool { v = 1 }
     return
 }
@@ -1875,13 +1785,13 @@ func (p *answer) String() (s string) {
     if p.bool { s = "yes" } else { s = "no" }
     return
 }
-func (p *answer) Strval(ctx Context) (string, error) { return p.String(), nil }
-func (p *answer) True(ctx Context) (bool, error) { return p.bool, nil }
-func (p *answer) Float(ctx Context) (v float64, err error) {
+func (p *answer) Strval(ctx Context) string { return p.String() }
+func (p *answer) True(ctx Context) bool { return p.bool }
+func (p *answer) Float(ctx Context) (v float64, _ error) {
     if p.bool { v = 1. }
     return
 }
-func (p *answer) Integer(ctx Context) (v int64, err error) {
+func (p *answer) Integer(ctx Context) (v int64, _ error) {
     if p.bool { v = 1 }
     return
 }
@@ -1927,13 +1837,13 @@ func (p *option) String() (s string) {
     if p.bool { s = "on" } else { s = "off" }
     return
 }
-func (p *option) Strval(ctx Context) (string, error) { return p.String(), nil }
-func (p *option) True(ctx Context) (bool, error) { return p.bool, nil }
-func (p *option) Float(ctx Context) (v float64, err error) {
+func (p *option) Strval(ctx Context) string { return p.String() }
+func (p *option) True(ctx Context) bool { return p.bool }
+func (p *option) Float(ctx Context) (v float64, _ error) {
     if p.bool { v = 1. }
     return
 }
-func (p *option) Integer(ctx Context) (v int64, err error) {
+func (p *option) Integer(ctx Context) (v int64, _ error) {
     if p.bool { v = 1 }
     return
 }
@@ -1981,14 +1891,14 @@ type integer struct {
     valbase
     int64
 }
-func (p *integer) True(ctx Context) (bool, error) { return p.int64 != 0, nil }
-func (p *integer) Integer(ctx Context) (int64, error) { return p.int64, nil }
-func (p *integer) Float(ctx Context) (float64, error) { return float64(p.int64), nil }
+func (p *integer) True(ctx Context) bool { return p.int64 != 0 }
+func (p *integer) Integer(ctx Context) (i int64, _ error) { return p.int64, nil }
+func (p *integer) Float(ctx Context) (f float64, _ error) { return float64(p.int64), nil }
 func (p *integer) kind() kind { return valInteger }
 func (p *integer) cmp(ctx Context, v Value) (res cmpres) {
-    var i, e = v.Integer(ctx)
-    assert(e == nil, "%T: %v", v, e)
-    if p.int64 == i {
+    if i, e := v.Integer(ctx); e != nil {
+        erro(ctx, "%v: %v", v, e).debug(1)
+    } else if p.int64 == i {
         res = cmpEqual
     } else if p.int64 < i {
         res = cmpSmaller
@@ -2000,43 +1910,43 @@ func (p *integer) cmp(ctx Context, v Value) (res cmpres) {
 
 type Bin struct { integer }
 func (p *Bin) String() string { return fmt.Sprintf("0b%s", strconv.FormatInt(int64(p.int64),2)) }
-func (p *Bin) Strval(ctx Context) (string, error) { return strconv.FormatInt(int64(p.int64),2), nil }
+func (p *Bin) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),2) }
 func (p *Bin) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *Bin) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 
 type Oct struct { integer }
 func (p *Oct) String() string { return fmt.Sprintf("0%s", strconv.FormatInt(int64(p.int64),8)) }
-func (p *Oct) Strval(ctx Context) (string, error) { return strconv.FormatInt(int64(p.int64),8), nil }
+func (p *Oct) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),8) }
 func (p *Oct) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *Oct) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 
 type Int struct { integer }
 func (p *Int) String() string { return strconv.FormatInt(int64(p.int64),10) }
-func (p *Int) Strval(ctx Context) (string, error) { return strconv.FormatInt(int64(p.int64),10), nil }
+func (p *Int) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),10) }
 func (p *Int) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *Int) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 
 type Hex struct { integer }
 func (p *Hex) String() string { return fmt.Sprintf("0x%s", strconv.FormatInt(int64(p.int64),16)) }
-func (p *Hex) Strval(ctx Context) (string, error) { return strconv.FormatInt(int64(p.int64),16), nil }
+func (p *Hex) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),16) }
 func (p *Hex) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *Hex) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 
 const FloatEpsilon = 1e-15 /* 1e-16 */
 type Float struct { valbase; float64 } // IEEE-754 64-bit binary floating-point
 func (p *Float) String() string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
-func (p *Float) Strval(ctx Context) (string, error) { return strconv.FormatFloat(float64(p.float64),'g', -1, 64), nil }
-func (p *Float) True(ctx Context) (bool, error) { return math.Abs(p.float64)-0 > FloatEpsilon, nil }
-func (p *Float) Integer(ctx Context) (int64, error) { return int64(p.float64), nil }
-func (p *Float) Float(ctx Context) (float64, error) { return p.float64, nil }
+func (p *Float) Strval(ctx Context) string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
+func (p *Float) True(ctx Context) bool { return math.Abs(p.float64)-0 > FloatEpsilon }
+func (p *Float) Integer(ctx Context) (i int64, _ error) { return int64(p.float64), nil }
+func (p *Float) Float(ctx Context) (f float64, _ error) { return p.float64, nil }
 func (p *Float) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *Float) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Float) kind() kind { return valFloat }
 func (p *Float) cmp(ctx Context, v Value) (res cmpres) {
     if _, ok := v.(*Float); ok {
-        f, e := v.Float(ctx)
-        assert(e == nil, "%T: %v", v, e)
-        if p.float64 == f {
+        if f, e := v.Float(ctx); e != nil {
+            warn(ctx, "%v: %v", v, e).debug(1)
+        } else if p.float64 == f {
             res = cmpEqual
         } else if p.float64 < f {
             res = cmpSmaller
@@ -2052,10 +1962,10 @@ type DateTime struct {
     t time.Time
 }
 func (p *DateTime) String() string { return time.Time(p.t).Format("2006-01-02T15:04:05.999999999Z07:00") }
-func (p *DateTime) Strval(ctx Context) (string, error) { return p.String(), nil } // time.RFC3339Nano
-func (p *DateTime) True(ctx Context) (bool, error) { return !p.t.IsZero(), nil }
-func (p *DateTime) Integer(ctx Context) (int64, error) { return p.t.Unix(), nil }
-func (p *DateTime) Float(ctx Context) (float64, error) { i, e := p.Integer(ctx); return float64(i), e }
+func (p *DateTime) Strval(ctx Context) string { return p.String() } // time.RFC3339Nano
+func (p *DateTime) True(ctx Context) bool { return !p.t.IsZero() }
+func (p *DateTime) Integer(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
+func (p *DateTime) Float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
 func (p *DateTime) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *DateTime) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *DateTime) cmp(ctx Context, v Value) (res cmpres) {
@@ -2087,17 +1997,17 @@ func ParseDateTime(pos Position, s string) *DateTime {
 
 type Date struct { DateTime }
 func (p *Date) String() string { return time.Time(p.t).Format("2006-01-02") }
-func (p *Date) Strval(ctx Context) (string, error) { return p.String(), nil }
-func (p *Date) Integer(ctx Context) (int64, error) { return p.t.Unix(), nil }
-func (p *Date) Float(ctx Context) (float64, error) { i, e := p.Integer(ctx); return float64(i), e }
+func (p *Date) Strval(ctx Context) string { return p.String() }
+func (p *Date) Integer(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
+func (p *Date) Float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
 func (p *Date) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *Date) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 
 type Time struct { DateTime }
 func (p *Time) String() string { return time.Time(p.t).Format("15:04:05.999999999Z07:00") }
-func (p *Time) Strval(ctx Context) (string, error) { return p.String(), nil }
-func (p *Time) Integer(ctx Context) (int64, error) { return p.t.Unix(), nil }
-func (p *Time) Float(ctx Context) (float64, error) { i, e := p.Integer(ctx); return float64(i), e }
+func (p *Time) Strval(ctx Context) string { return p.String() }
+func (p *Time) Integer(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
+func (p *Time) Float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
 func (p *Time) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *Time) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 
@@ -2117,63 +2027,44 @@ type URL struct {
     Fragment Value
 }
 func (p *URL) String() string { return p.elemStr(nil, nil, 0) }
-func (p *URL) True(ctx Context) (t bool, e error) {
-    if p.Scheme != nil { if t, e = p.Scheme.True(ctx); t { return }}
-    if p.Host   != nil { if t, e = p.Host  .True(ctx); t { return }}
-    if p.Path   != nil { if t, e = p.Path  .True(ctx); t { return }}
+func (p *URL) True(ctx Context) (t bool) {
+    if p.Scheme != nil { if t = p.Scheme.True(ctx); t { return }}
+    if p.Host   != nil { if t = p.Host  .True(ctx); t { return }}
+    if p.Path   != nil { if t = p.Path  .True(ctx); t { return }}
     return //p.String() != "", nil
 }
-func (p *URL) Strval(ctx Context) (s string, err error) {
-    if s, err = p.Scheme.Strval(ctx); err != nil { return }
-    if s += ":"; p.Host != nil && !isNone(p.Host) {
-        var host string
-        if host, err = p.Host.Strval(ctx); err != nil { return }
+func (p *URL) Strval(ctx Context) (s string) {
+    if s = p.Scheme.Strval(ctx) + ":"; p.Host != nil && !isNone(p.Host) {
         s += "//"
         if p.Username != nil && !isNone(p.Username) {
-            var user string
-            if user, err = p.Username.Strval(ctx); err != nil { return }
-            s += user
+            s += p.Username.Strval(ctx)
             if p.Password != nil {
-                var pass string
-                s += ":"
-                if pass, err = p.Password.Strval(ctx); err != nil { return }
-                s += pass
+                s += ":" + p.Password.Strval(ctx)
             }
             s += "@"
         }
-        s += host
+        s += p.Host.Strval(ctx)
         if p.Port != nil && !isNone(p.Port) {
-            var port string
-            if port, err = p.Port.Strval(ctx); err != nil { return }
-            s += ":" + port
+            s += ":" + p.Port.Strval(ctx)
         }
     }
     if p.Path != nil && !isNone(p.Path) {
-        var path string
-        if path, err = p.Path.Strval(ctx); err != nil { return }
         //if !strings.HasPrefix(path, PathSep) { s += PathSep }
-        s += path
+        s += p.Path.Strval(ctx)
     }
     if p.Query != nil && !isNone(p.Query) {
-        var query string
-        if query, err = p.Query.Strval(ctx); err != nil { return }
-        s += "?" + query
+        s += "?" + p.Query.Strval(ctx)
     }
     if p.Fragment != nil && !isNone(p.Fragment) {
-        var fragment string
-        if fragment, err = p.Fragment.Strval(ctx); err != nil { return }
-        s += "#" + fragment
+        s += "#" + p.Fragment.Strval(ctx)
     }
     return
 }
-func (p *URL) Integer(ctx Context) (i int64, err error) {
-    var s string
-    if s, err = p.Strval(ctx); err == nil {
-        i = int64(len(s))
-    }
+func (p *URL) Integer(ctx Context) (i int64, _ error) {
+    if s := p.Strval(ctx); s != "" { i = int64(len(s)) }
     return
 }
-func (p *URL) Float(ctx Context) (float64, error) { i, e := p.Integer(ctx); return float64(i), e }
+func (p *URL) Float(ctx Context) (f float64, e error) { i, e := p.Integer(ctx); return float64(i), e }
 func (p *URL) elemStr(ctx Context, o Object, k elemkind) (s string) {
     if s = elementString(ctx, o, p.Scheme, k); s == "" { return }
     if s += ":"; p.Host == nil {
@@ -2277,10 +2168,14 @@ func (p *URL) Validate() (res *url.URL) {
 
 type Raw struct { valbase; string }
 func (p *Raw) String() string { return p.string }
-func (p *Raw) Strval(ctx Context) (string, error) { return p.string, nil }
-func (p *Raw) True(ctx Context) (bool, error) { return p.string != "", nil }
-func (p *Raw) Integer(ctx Context) (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
-func (p *Raw) Float(ctx Context) (float64, error) { return strconv.ParseFloat(p.string, 64) }
+func (p *Raw) Strval(ctx Context) string { return p.string }
+func (p *Raw) True(ctx Context) bool { return p.string != "" }
+func (p *Raw) Integer(ctx Context) (i int64, err error) {
+    return strconv.ParseInt(p.string, 10, 64)
+}
+func (p *Raw) Float(ctx Context) (f float64, err error) {
+    return strconv.ParseFloat(p.string, 64)
+}
 func (p *Raw) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Raw); ok && p.string == a.string {
         res = cmpEqual
@@ -2297,7 +2192,7 @@ func (p *Raw) stencil(ctx Context, stems []string) (val Value, rest []string) {
 
 type String struct { valbase; string }
 func (p *String) String() string { return p.elemStr(nil, nil, 0) }
-func (p *String) Strval(ctx Context) (s string, _ error) {
+func (p *String) Strval(ctx Context) (s string) {
     if false {
         s = strings.Replace(p.string, "\\\"", "\"", -1)
     } else {
@@ -2305,9 +2200,19 @@ func (p *String) Strval(ctx Context) (s string, _ error) {
     }
     return
 }
-func (p *String) True(ctx Context) (bool, error) { return p.string != "", nil }
-func (p *String) Integer(ctx Context) (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
-func (p *String) Float(ctx Context) (float64, error) { return strconv.ParseFloat(p.string, 64) }
+func (p *String) True(ctx Context) (v bool) {
+    switch p.string {
+    case "no", "false": v = false
+    default: v = p.string != ""
+    }
+    return
+}
+func (p *String) Integer(ctx Context) (i int64, err error) {
+    return strconv.ParseInt(p.string, 10, 64)
+}
+func (p *String) Float(ctx Context) (f float64, err error) {
+    return strconv.ParseFloat(p.string, 64)
+}
 func (p *String) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*String); ok {
         if p.string == a.string {
@@ -2348,10 +2253,10 @@ func isTrueString(s string) (t bool) {
 // Punctuations: | ; ,
 type Punctuation struct { valbase; tok token.Token }
 func (p *Punctuation) String() string { return p.tok.String() }
-func (p *Punctuation) Strval(ctx Context) (string, error) { return p.tok.String(), nil }
-func (p *Punctuation) True(ctx Context) (bool, error) { return false, nil }
-func (p *Punctuation) Integer(ctx Context) (int64, error) { return 0, nil }
-func (p *Punctuation) Float(ctx Context) (float64, error) { return 0, nil }
+func (p *Punctuation) Strval(ctx Context) string { return p.tok.String() }
+func (p *Punctuation) True(ctx Context) bool { return false }
+func (p *Punctuation) Integer(ctx Context) (i int64, _ error) { return 0, nil }
+func (p *Punctuation) Float(ctx Context) (f float64, _ error) { return 0, nil }
 func (p *Punctuation) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Punctuation); ok {
         if p.tok == a.tok {
@@ -2370,10 +2275,14 @@ func (p *Punctuation) traverse(ctx Context) (brks breakers) { return }
 
 type Bareword struct { valbase; string }
 func (p *Bareword) String() string { return p.string }
-func (p *Bareword) Strval(ctx Context) (string, error) { return p.string, nil }
-func (p *Bareword) True(ctx Context) (bool, error) { return isTrueString(p.string), nil }
-func (p *Bareword) Integer(ctx Context) (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
-func (p *Bareword) Float(ctx Context) (float64, error) { return strconv.ParseFloat(p.string, 64) }
+func (p *Bareword) Strval(ctx Context) string { return p.string }
+func (p *Bareword) True(ctx Context) bool { return isTrueString(p.string) }
+func (p *Bareword) Integer(ctx Context) (i int64, err error) {
+    return strconv.ParseInt(p.string, 10, 64)
+}
+func (p *Bareword) Float(ctx Context) (f float64, err error) {
+    return strconv.ParseFloat(p.string, 64)
+}
 func (p *Bareword) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Bareword); ok {
         if p.string == a.string {
@@ -2386,13 +2295,10 @@ func (p *Bareword) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *Bareword) expand(ctx Context, w expandwhat) (res Value, err error) {
+func (p *Bareword) expand(ctx Context, w expandwhat) (res Value) {
     if false && w&expandFullName != 0 {
-        if str, err := p.Strval(ctx); err != nil {
-            erro(ctx, "strval '%v' failed: %v", p, err).of(p).debug(1)
-            return nil, err
-        } else if file := ctx.Project().FindFile(ctx, str); file != nil {
-            res, err = file.expand(ctx, w)
+        if file := ctx.Project().FindFile(ctx, p.Strval(ctx)); file != nil {
+            res = file.expand(ctx, w)
         }
     } else {
         res = p // optional, return nil is fine
@@ -2413,10 +2319,10 @@ func (p *Bareword) traverse(ctx Context) (brks breakers) {
 
 type Qualiword struct { valbase; words []string } // foo.bar.zar, foo.&(bar).zar
 func (p *Qualiword) String() string { return strings.Join(p.words,".") }
-func (p *Qualiword) Strval(ctx Context) (string, error) { return p.String(), nil }
-func (p *Qualiword) True(ctx Context) (bool, error) { return len(p.words)!=0, nil }
-func (p *Qualiword) Integer(ctx Context) (int64, error) { return int64(len(p.words)), nil }
-func (p *Qualiword) Float(ctx Context) (float64, error) { return float64(len(p.words)), nil }
+func (p *Qualiword) Strval(ctx Context) string { return p.String() }
+func (p *Qualiword) True(ctx Context) bool { return len(p.words)!=0 }
+func (p *Qualiword) Integer(ctx Context) (i int64, _ error) { return int64(len(p.words)), nil }
+func (p *Qualiword) Float(ctx Context) (f float64, _ error) { return 0, nil }
 func (p *Qualiword) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Qualiword); ok {
         var n int
@@ -2472,14 +2378,13 @@ func (p *elements) Take(n int) (v Value) {
 func (p *elements) ToBarecomp(pos Position) *Barecomp { return &Barecomp{valbase{pos},*p} }
 func (p *elements) ToCompound(pos Position) *Compound { return &Compound{valbase{pos},*p} }
 func (p *elements) ToList(pos Position) *List { return &List{pos, *p} }
-func (p *elements) True(ctx Context) (t bool, err error) { // (or elems...)
+func (p *elements) True(ctx Context) (t bool) { // (or elems...)
     for _, elem := range p.Elems {
         if isNil(elem) {
             continue
-        } else if t, err = elem.True(ctx); err != nil {
-            erro(ctx, "truthify '%v' failed: %v", elem, err).of(elem).debug(1)
+        } else if t = elem.True(ctx); t {
             break
-        } else if t { break }
+        }
     }
     return
 }
@@ -2523,16 +2428,16 @@ func (p *elements) cmpElems(ctx Context, elems []Value) (res cmpres) {
 type Barecomp struct { valbase ; elements }
 func (_ *Barecomp) kind() kind { return valOther }
 func (p *Barecomp) String() (s string) { return p.elemStr(nil, nil, 0) }
-func (p *Barecomp) Strval(ctx Context) (s string, e error) {
+func (p *Barecomp) Strval(ctx Context) (s string) {
     for _, elem := range p.Elems {
-        var v string
-        if elem == nil { continue } else
-        if v, e = elem.Strval(ctx); e == nil { s += v } else { break }
+        if isTrivial(elem) { continue } else {
+            s += elem.Strval(ctx)
+        }
     }
     return
 }
-func (p *Barecomp) True(ctx Context) (bool, error) { return p.elements.True(ctx) }
-func (p *Barecomp) Integer(ctx Context) (res int64, err error) {
+func (p *Barecomp) True(ctx Context) bool { return p.elements.True(ctx) }
+func (p *Barecomp) Integer(ctx Context) (res int64, _ error) {
     if len(p.Elems) == 2 {
         if i, ok := p.Elems[0].(*Int); ok {
             var n = i.int64
@@ -2555,41 +2460,32 @@ func (p *Barecomp) elemStr(ctx Context, o Object, k elemkind) (s string) {
     return
 }
 func (p *Barecomp) expandible(ctx Context, w expandwhat) bool { return p.elements.expandible(ctx, w) }
-func (p *Barecomp) expand(ctx Context, w expandwhat) (res Value, err error) {
+func (p *Barecomp) expand(ctx Context, w expandwhat) (res Value) {
     if false && w&expandFullName != 0 {
-        if str, err := p.Strval(ctx); err != nil {
-            erro(ctx, "strval '%v' failed: %v", p, err).of(p).debug(1)
-            return nil, err
-        } else if file := ctx.Project().FindFile(ctx, str); file != nil {
+        if file := ctx.Project().FindFile(ctx, p.Strval(ctx)); file != nil {
             return file.expand(ctx, w)
         }
     }
 
-    var ( elems []Value; num int )
-    if elems, num, err = expandall1(ctx, w, p.Elems...); err != nil {
-        erro(ctx, "expand '%v' failed: %v", p, err).of(p).debug(1)
-    } else if num > 0 {
+    if elems, num := expandall1(ctx, w, p.Elems...); num > 0 {
         res = &Barecomp{p.valbase, elements{elems}}
     }
     return
 }
 func (p *Barecomp) traverse(ctx Context) (brks breakers) {
     ctx = positional(ctx, p.Position())
-    if target, err := p.Strval(ctx); err == nil {
-        if true {
-            // fallthrough...
-        } else if proj := ctx.Project(); proj == nil {
-            // fallthrough...
-        } else if file := proj.FindFile(ctx, target); file != nil {
-            file.position = p.position
-            brks = file.traverse(ctx)
-            return
-        }
-
-        _, brks = traverse(ctx, p, target)
-    } else {
-        erro(ctx, "strval '%v' error: %v", p, err).debug(1)
+    var target = p.Strval(ctx)
+    if true {
+        // fallthrough...
+    } else if proj := ctx.Project(); proj == nil {
+        // fallthrough...
+    } else if file := proj.FindFile(ctx, target); file != nil {
+        file.position = p.position
+        brks = file.traverse(ctx)
+        return
     }
+
+    _, brks = traverse(ctx, p, target)
     return
 }
 func (p *Barecomp) cmp(ctx Context, v Value) (res cmpres) {
@@ -2615,12 +2511,7 @@ func (p *Barecomp) match(ctx Context, i interface{}) (full bool, s string, stems
         var ( is string; n int; elem Value )
         switch t := i.(type) {
         case string: is = t
-        case Value:
-            var e error
-            if is, e = t.Strval(ctx); e != nil {
-                erro(ctx, "strval '%v' error: %v", t, e).of(t).debug(1)
-                return
-            }
+        case Value:  is = t.Strval(ctx)
         default:
             erro(ctx, "%T: matching unsupported value: %T %v", p, i, i).of(p).debug(1)
             return
@@ -2635,9 +2526,6 @@ func (p *Barecomp) match(ctx Context, i interface{}) (full bool, s string, stems
             }
         }
         if is == "" && n == len(p.Elems)-1 { full = true }
-        if false && strings.HasPrefix(p.String(), "llvm.tools.") && strings.HasPrefix(fmt.Sprintf("%s", i), "llvm.tools.") {
-            warn(ctx, "%v: %v %v %v; %s", p, full, s, stems, is).debug(1)
-        }
     }
     return
 }
@@ -2675,77 +2563,63 @@ type Barefile struct {
     Name Value
     File *File
 }
-func (p *Barefile) True(ctx Context) (t bool, err error) {
-    if p.File != nil { t, err = p.File.True(ctx) }
+func (p *Barefile) True(ctx Context) (t bool) {
+    if p.File != nil { t = p.File.True(ctx) }
     return
 }
 func (p *Barefile) String() string { return p.elemStr(nil, nil, 0) }
-func (p *Barefile) Strval(ctx Context) (string, error) {
+func (p *Barefile) Strval(ctx Context) string {
     if p.File != nil {
         return p.File.Strval(ctx)
     } else {
         return p.Name.Strval(ctx)
     }
 }
-func (p *Barefile) Integer(ctx Context) (res int64, err error) {
+func (p *Barefile) Integer(ctx Context) (res int64, _ error) {
     if p.File.exists() { res = p.File.info.Size() }
     return
 }
-func (p *Barefile) Float(ctx Context) (float64, error) {
-    i, e := p.Integer(ctx)
-    return float64(i), e
+func (p *Barefile) Float(ctx Context) (f float64, _ error) {
+    i, e := p.Integer(ctx); return float64(i), e
 }
 func (p *Barefile) refs(ctx Context, v Value) bool { return p.Name.refs(ctx, v) }
 func (p *Barefile) defs(ctx Context, s ...string) []*Def { return p.Name.defs(ctx, s...) }
 func (p *Barefile) elemStr(ctx Context, o Object, k elemkind) (s string) { return elementString(ctx, o, p.Name, k) }
 func (p *Barefile) expandible(ctx Context, w expandwhat) bool { return p.Name.expandible(ctx, w) }
-func (p *Barefile) expand(ctx Context, w expandwhat) (res Value, err error) {
+func (p *Barefile) expand(ctx Context, w expandwhat) (res Value) {
     var name Value
 
     if w&expandFullName != 0 {
         var file = p.File
-        if file == nil {
-            if str, err := p.Name.Strval(ctx); err != nil {
-                erro(ctx, "strval '%v' failed: %v", p.Name, err).of(p.Name).debug(1)
-                return nil, err
-            } else {
-                file = ctx.Project().FindFile(ctx, str)
-            }
-        }
+        if file == nil { file = ctx.Project().FindFile(ctx, p.Name.Strval(ctx)) }
         if file == nil {
             // fallthrough
-        } else if name, err = file.expand(ctx, w); err != nil {
-            erro(ctx, "expand '%v' failed: %v", file, err).of(file).debug(1)
-            return
-        } else if !isNil(name) && name != file {
-            return name, nil
+        } else if name = file.expand(ctx, w); !isNil(name) && name != file {
+            return name
         }
     }
 
-    if name, err = p.Name.expand(ctx, w); err != nil {
-        erro(ctx, "expand '%v' failed: %v", p.Name, err).of(p.Name).debug(1)
-    } else if !isNil(name) && name != p.Name {
+    if name = p.Name.expand(ctx, w); !isNil(name) && name != p.Name {
         res = &Barefile{p.valbase, name, p.File}
     }
     return
 }
 func (p *Barefile) traverse(ctx Context) (brks breakers) {
     if ctx = positional(ctx, p.position); p.File == nil { // it happens if p.Name refers to arguments
-        var ( target string; err error )
-        if target, err = p.Strval(ctx); err != nil {
-            erro(ctx, "strval '%v' failed: %v", p, err).of(p).debug(1)
-            return
-        }
-
+        var target = p.Strval(ctx)
         for _, project := range closureProjects(ctx) {
-            if p.File = project.FindFile(ctx, target); p.File != nil { break }
+            if p.File = project.FindFile(ctx, target); p.File != nil {
+                break
+            }
         }
         if p.File == nil {
             erro(ctx, "barefile '%s' not found", target).at(p.position).debug(1)
             return
         }
     }
-    if p.File != nil { brks = p.File.traverse(ctx) } else {
+    if p.File != nil {
+        brks = p.File.traverse(ctx)
+    } else {
         erro(ctx, "barefile '%s' is nil", p).at(p.position).debug(1)
     }
     return
@@ -2809,9 +2683,7 @@ func barefileize(ctx Context, targets ...Value) []Value {
         case *Barecomp:
             if t.expandible(ctx, expandClosure) || refdef(ctx, t, DefArg) {
                 break
-            } else if s, err := t.Strval(ctx); err != nil {
-                erro(ctx, "strval '%v' failed: %v", t, err).of(target)
-            } else if file := project.FindFile(ctx, s); file != nil {
+            } else if file := project.FindFile(ctx, t.Strval(ctx)); file != nil {
                 targets[i] = &Barefile{ Name:target, File:file }
                 file.position = target.Position()
             }
@@ -3071,10 +2943,7 @@ func globMatchFile(ctx Context, patVal Value, filename string, tailMatch bool) (
         return
     }
 
-    var patStr, err = patVal.Strval(ctx)
-    if err != nil { return }
-
-    var patList = strings.Split(filepath.Clean(patStr), PathSep)
+    var patList = strings.Split(filepath.Clean(patVal.Strval(ctx)), PathSep)
     if len(patList) == 0 { return } // FIXME: match any?
 
     var st []string
@@ -3113,7 +2982,7 @@ func globMatchFile(ctx Context, patVal Value, filename string, tailMatch bool) (
 
 type GlobMeta struct { valbase ; token.Token }
 func (p *GlobMeta) String() string { return p.Token.String() }
-func (p *GlobMeta) Strval(ctx Context) (string, error) { return p.Token.String(), nil }
+func (p *GlobMeta) Strval(ctx Context) string { return p.Token.String() }
 func (p *GlobMeta) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*GlobMeta); ok && p.Token == a.Token {
         res = cmpEqual
@@ -3125,12 +2994,8 @@ func (p *GlobMeta) cmp(ctx Context, v Value) (res cmpres) {
 // `a-b`, `abc`, `a$(var)c`, `a$(spaces)c`...
 type GlobRange struct { valbase ; Chars Value }
 func (p *GlobRange) String() (s string) { return p.elemStr(nil, nil, 0) }
-func (p *GlobRange) Strval(ctx Context) (s string, err error) {
-    var chars string
-    if chars, err = p.Chars.Strval(ctx); err == nil {
-        s = fmt.Sprintf("[%s]", chars)
-    }
-    return
+func (p *GlobRange) Strval(ctx Context) (s string) {
+    return fmt.Sprintf("[%s]", p.Chars.Strval(ctx))
 }
 func (p *GlobRange) refs(ctx Context, v Value) bool { return p.Chars.refs(ctx, v) }
 func (p *GlobRange) defs(ctx Context, s ...string) []*Def { return p.Chars.defs(ctx, s...) }
@@ -3139,11 +3004,8 @@ func (p *GlobRange) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *GlobRange) expandible(ctx Context, w expandwhat) bool { return p.Chars.expandible(ctx, w) }
-func (p *GlobRange) expand(ctx Context, w expandwhat) (res Value, err error) {
-    var val Value
-    if val, err = p.Chars.expand(ctx, w); err != nil {
-        erro(ctx, "expand '%v' failed: %v", p.Chars, err).of(p.Chars).debug(1)
-    } else if !isNil(val) && val != p.Chars {
+func (p *GlobRange) expand(ctx Context, w expandwhat) (res Value) {
+    if val := p.Chars.expand(ctx, w); !isNil(val) && val != p.Chars {
         res = &GlobRange{p.valbase, val}
     }
     return
@@ -3157,10 +3019,10 @@ func (p *GlobRange) elemStr(ctx Context, o Object, k elemkind) (s string) {
 type Path struct { valbase ; elements }
 func (_ *Path) kind() kind { return valOther }
 func (p *Path) String() (s string) { return p.elemStr(nil, nil, 0) }
-func (p *Path) Strval(ctx Context) (s string, e error) {
+func (p *Path) Strval(ctx Context) (s string) {
     for i, seg := range p.Elems {
         if seg == nil {
-            e = fmt.Errorf("`%s` nil path segment", p)
+            erro(ctx, "`%s` nil path segment", p).debug(1)
             return
         }
 
@@ -3169,10 +3031,7 @@ func (p *Path) Strval(ctx Context) (s string, e error) {
             erro(ctx, "undef path segment (%T)", seg).at(seg.Position())
             erro(ctx, "… from this context: %s", ctx).at(ctx.Position()).debug(16)
             return
-        } else if v, e = seg.Strval(ctx); e != nil {
-            erro(ctx, "%v: %v", seg, e).at(seg.Position()).debug(1)
-            return
-        } else if i > 0 {
+        } else if v = seg.Strval(ctx); i > 0 {
             s += PathSep + v
         } else if v != "" {
             s += v
@@ -3182,23 +3041,18 @@ func (p *Path) Strval(ctx Context) (s string, e error) {
     }
     return
 }
-func (p *Path) True(ctx Context) (t bool, err error) {
+func (p *Path) True(ctx Context) (t bool) {
     // FIXME: return p.exists() ??
     for _, elem := range p.Elems {
-        if t, err = elem.True(ctx); err != nil {
-            erro(ctx, "truthify path element '%v' failed: %v", elem, err).at(p.position).debug(1)
-        } else if t { break }
+        if t = elem.True(ctx); t { break }
     }
     return
 }
 func (p *Path) refs(ctx Context, v Value) (res bool) { return p.elements.refs(ctx, v) }
 func (p *Path) defs(ctx Context, s ...string) (res []*Def) { return p.elements.defs(ctx, s...) }
 func (p *Path) expandible(ctx Context, w expandwhat) bool { return p.elements.expandible(ctx, w) }
-func (p *Path) expand(ctx Context, w expandwhat) (res Value, err error) {
-    var ( elems []Value; num int )
-    if elems, num, err = expandPathElems(ctx, w, p.Elems...); err != nil {
-        erro(ctx, "expand path elems failed: %v", err).at(p.position).debug(1)
-    } else if num > 0 {
+func (p *Path) expand(ctx Context, w expandwhat) (res Value) {
+    if elems, num := expandPathElems(ctx, w, p.Elems...); num > 0 {
         res = &Path{p.valbase, elements{elems}}
     }
     return
@@ -3209,26 +3063,22 @@ func (p *Path) pathname(ctx Context, stems []string) (pathname string, err error
         rest []string // unmatched path segmants
     )
     if len(stems) == 0 || !p.patterned(ctx) {
-        if pathname, err = p.Strval(ctx); err != nil {
-            erro(ctx, "strval '%v' failed: %v", p, err).at(p.position).debug(1)
-        }
+        pathname = p.Strval(ctx)
     } else if val, rest = p.stencil(ctx, stems); len(rest) > 0 {
         //err = errorf(p.position, "partial match: %v", rest)
-    } else if pathname, err = val.Strval(ctx); err != nil {
-        erro(ctx, "strval '%v' failed: %v", p, err).at(p.position).debug(1)
+    } else {
+        pathname = val.Strval(ctx)
     }
     return
 }
 func (p *Path) delete(ctx Context) (files []*File, err error) {
     var pathname string
     if positionalValueCtx { ctx = positional(ctx, p.position) }
-    if pathname, err = p.Strval(ctx); err == nil {
-        if pathname == "" {
-            erro(ctx, "no pathname for `%s`", p)
-        } else if file := stat(ctx,pathname,"","",nil); file != nil {
-            if files, err = file.delete(ctx); err != nil {
-                erro(ctx, "stamp: %v (%v)", err, file)
-            }
+    if pathname = p.Strval(ctx); pathname == "" {
+        erro(ctx, "no pathname for `%s`", p)
+    } else if file := stat(ctx,pathname,"","",nil); file != nil {
+        if files, err = file.delete(ctx); err != nil {
+            erro(ctx, "stamp: %v (%v)", err, file)
         }
     }
     return
@@ -3236,15 +3086,13 @@ func (p *Path) delete(ctx Context) (files []*File, err error) {
 func (p *Path) stamp(ctx Context) (files []*File, err error) {
     var pathname string
     if positionalValueCtx { ctx = positional(ctx, p.position) }
-    if pathname, err = p.Strval(ctx); err == nil {
-        if pathname == "" {
-            erro(ctx, "no pathname for `%s`", p)
-        } else if file := stat(ctx,pathname,"","",nil); file != nil {
-            if files, err = file.stamp(ctx); err != nil {
-                erro(ctx, "stamp: %v (%v)", err, file)
-            } else {
-                return
-            }
+    if pathname = p.Strval(ctx); pathname == "" {
+        erro(ctx, "no pathname for `%s`", p)
+    } else if file := stat(ctx,pathname,"","",nil); file != nil {
+        if files, err = file.stamp(ctx); err != nil {
+            erro(ctx, "stamp: %v (%v)", err, file)
+        } else {
+            return
         }
     }
 
@@ -3325,20 +3173,12 @@ func (p *Path) elemStr(ctx Context, o Object, k elemkind) (s string) {
     return
 }
 
-func expandPathElems(ctx Context, w expandwhat, elems ...Value) (res []Value, num int, err error) {
-    var pos Position = ctx.Position()
+func expandPathElems(ctx Context, w expandwhat, elems ...Value) (res []Value, num int) {
     var xelems []Value
-    if xelems, num, err = expandall1(ctx, w, elems...); err != nil {
-        erro(ctx, "expand path elems failed: %v", err).at(pos).debug(1)
-        return
-    }
+    xelems, num = expandall1(ctx, w, elems...)
     for _, elem := range xelems {
         if p, ok := elem.(*Path); ok {
-            var ( ev []Value; n int )
-            if ev, n, err = expandPathElems(ctx, w, p.Elems...); err != nil {
-                erro(ctx, "expand sub path '%v' failed: %v", elem, err).of(elem).debug(1)
-                return
-            }
+            var ev, n = expandPathElems(ctx, w, p.Elems...)
             res = append(res, ev...)
             num += n
         } else {
@@ -3348,7 +3188,6 @@ func expandPathElems(ctx Context, w expandwhat, elems ...Value) (res []Value, nu
     if w&expandPathStr != 0 {
         var vals []Value
         for _, elem := range res {
-            var s string
             switch v := elem.(type) {
             case *String:
                 if v.string != "" {
@@ -3356,10 +3195,7 @@ func expandPathElems(ctx Context, w expandwhat, elems ...Value) (res []Value, nu
                 }
                 num += 1
             case *Compound:
-                if s, err = v.Strval(ctx); err != nil {
-                    erro(ctx, "strval '%v' failed: %v", v, err).at(v.position).debug(1)
-                    return
-                } else if s != "" {
+                if s := v.Strval(ctx); s != "" {
                     vals = append(vals, splitPathStr(v.position, s)...)
                 }
                 num += 1
@@ -3376,15 +3212,12 @@ func (p *Path) match1(ctx Context, str string) (full bool, result string, stems 
     var (
         srcs []string
         segs []Value
-        err error
     )
     if srcs = strings.Split(str, PathSep); len(srcs) == 0 {
         if false { erro(ctx, "empty: %v", str).at(p.position) }
         return
-    }
-    if segs, _, err = expandPathElems(ctx, expandPlainValue, p.Elems...); err != nil {
-        erro(ctx, "failed to expand path '%v': %v", p, segs).at(p.position).debug(1)
-        return
+    } else {
+        segs, _ = expandPathElems(ctx, expandPlainValue, p.Elems...)
     }
 
     const warns = false
@@ -3454,10 +3287,7 @@ SegsSrcsLoop:
 
         var prefix string
         if !isTrivial(pre) {
-            if prefix, err = pre.Strval(ctx); err != nil {
-                erro(ctx, "strval prefix '%v' failed: %v", pre, err).of(pre)
-                return
-            } else if !strings.HasPrefix(src, prefix) {
+            if prefix = pre.Strval(ctx); !strings.HasPrefix(src, prefix) {
                 if infos { info(ctx, "%d: seg=%v (%T) pp=%v pre=%v suf=%v res=%v stems=%v src=%s", si, seg, seg, pp, pre, suf, res, stems, src).of(p).debug(1) }
                 break SegsSrcsLoop
             }
@@ -3467,11 +3297,7 @@ SegsSrcsLoop:
         var stem []string
         if prefix != "" { stem = append(stem, strings.TrimPrefix(src, prefix)) }
         if !isTrivial(suf) {
-            var suffix string
-            if suffix, err = suf.Strval(ctx); err != nil {
-                erro(ctx, "strval suffix '%v' failed: %v", suf, err).of(suf)
-                break SegsSrcsLoop
-            }
+            var suffix = suf.Strval(ctx)
             if res = append(res, src); m < lenSrcs {
                 for stem = append(stem, src); m < lenSrcs; m += 1 {
                     src = srcs[m]
@@ -3604,9 +3430,7 @@ func (p *Path) match(ctx Context, i interface{}) (full bool, result string, stem
             return p.match1(ctx, t.fullname()) // NOTE: matching the fullname form
         }
     case Value :
-        if str, err := t.Strval(ctx); err != nil {
-            erro(ctx, "strval '%v' failed: %v", t, err).of(t).debug(1)
-        } else if str != "" {
+        if str := t.Strval(ctx); str != "" {
             return p.match1(ctx, str)
         }
     default:
@@ -3617,19 +3441,10 @@ func (p *Path) match(ctx Context, i interface{}) (full bool, result string, stem
 
 func (p *Path) stencil(ctx Context, stems []string) (result Value, rest []string) {
     var (
-        segs []Value
-        err error
-    )
-    if segs, err = expandmerge2(ctx, expandPlainValue, p.Elems...); err != nil {
-        erro(ctx, "expand path '%v' failed: %v", p, err).of(p).debug(1)
-        return
-    }
-
-    var (
         elems []Value
         changed int
     )
-    for _, seg := range segs {
+    for _, seg := range expandmerge2(ctx, expandPlainValue, p.Elems...) {
         var val Value
         if val, stems = seg.stencil(ctx, stems); !isTrivial(val) {
             if val != seg { changed += 1 }
@@ -3699,13 +3514,12 @@ func (p *PathSeg) String() (s string) {
     }
     return
 }
-func (p *PathSeg) Strval(ctx Context) (s string, e error) {
+func (p *PathSeg) Strval(ctx Context) (s string) {
     if p.rune == 0 { // zero segment,
         s = "" // the 'empty' after the last '/'
     } else if p.rune == '/' { // root segment,
         s = "" // the 'empty' before the first '/'
     } else if s = p.String(); s == "" {
-        e = fmt.Errorf("unknown pathseg '%s'", string(p.rune))
         erro(ctx, "unknown segment '%s' ('%v')", string(p.rune), p).at(p.position).debug(1)
     }
     return
@@ -3718,12 +3532,7 @@ func (p *PathSeg) match(ctx Context, i interface{}) (full bool, result string, s
     var s string
     switch t := i.(type) {
     case string: s = t
-    case Value:
-        var e error
-        if s, e = t.Strval(ctx); e != nil {
-            erro(ctx, "strval '%v' failed: %v", t, e).at(p.position).debug(1)
-            return
-        }
+    case Value: s = t.Strval(ctx)
     }
     switch p.rune {
     case '/': if s == ""   { result, full = s, true }
@@ -3975,8 +3784,8 @@ type File struct {
     *filestub
 }
 func (p *File) String() string { return p.name }
-func (p *File) Strval(ctx Context) (s string, err error) { return p.name, nil }
-func (p *File) True(ctx Context) (t bool, err error) {
+func (p *File) Strval(ctx Context) (s string) { return p.name }
+func (p *File) True(ctx Context) (t bool) {
     if p.name != "" {
         t = true // p.exists() == existenceConfirmed
     }
@@ -4037,7 +3846,7 @@ func (p *File) stamp(ctx Context) (files []*File, err error) {
 func (p *File) expandible(ctx Context, w expandwhat) (res bool) {
     return w&expandFullName != 0 && !filepath.IsAbs(p.name)
 }
-func (p *File) expand(ctx Context, w expandwhat) (res Value, err error) {
+func (p *File) expand(ctx Context, w expandwhat) (res Value) {
     if w&expandFullName != 0 && !filepath.IsAbs(p.name) {
         var fullname = p.fullname()
         if false && !filepath.IsAbs(fullname) { return }
@@ -4177,12 +3986,8 @@ func (p *File) match(ctx Context, i interface{}) (full bool, s string, stems []s
     switch t := i.(type) {
     case string: return p.match1(ctx, t)
     case Value:
-        if isTrivial(t) {
-            break
-        } else if v, e := t.Strval(ctx); e == nil {
-            return p.match1(ctx, v)
-        } else {
-            erro(ctx, "strval '%v' failed: %v", t, e).of(t).debug(1)
+        if !isTrivial(t) {
+            return p.match1(ctx, t.Strval(ctx))
         }
     default:
         erro(ctx, "matching file '%v' with unknown input: %v", p, i).at(p.position).debug(1)
@@ -4213,17 +4018,17 @@ type FileContent struct {
 
 type Flag struct { valbase ; name Value }
 func (p *Flag) String() (s string) { return p.elemStr(nil, nil, 0) }
-func (p *Flag) Strval(ctx Context) (s string, e error) {
+func (p *Flag) Strval(ctx Context) (s string) {
     if p.name == nil {
         s = "-"
     } else if isNone(p.name) {
         s = "-"
-    } else if s, e = p.name.Strval(ctx); e == nil {
-        s = "-" + s
+    } else {
+        s = "-" + p.name.Strval(ctx)
     }
     return
 }
-func (p *Flag) True(ctx Context) (t bool, err error) { return p.name.True(ctx) }
+func (p *Flag) True(ctx Context) (t bool) { return p.name.True(ctx) }
 func (p *Flag) refs(ctx Context, v Value) bool { return p.name.refs(ctx, v) }
 func (p *Flag) defs(ctx Context, s ...string) []*Def { return p.name.defs(ctx, s...) }
 func (p *Flag) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
@@ -4233,9 +4038,7 @@ func (p *Flag) match(ctx Context, i interface{}) (full bool, s string, stems []s
         full, s, stems = p.name.match(ctx, t.name)
         s = "-" + s
     case Value:
-        if v, e := t.Strval(ctx); e != nil {
-            erro(ctx, "strval '%v' failed: %v", t, e).of(t).debug(1)
-        } else if strings.HasPrefix(v, "-") {
+        if v := t.Strval(ctx); strings.HasPrefix(v, "-") {
             full, s, stems = p.name.match(ctx, v[1:])
             s = "-" + s
         }
@@ -4250,11 +4053,8 @@ func (p *Flag) match(ctx Context, i interface{}) (full bool, s string, stems []s
     return
 }
 func (p *Flag) expandible(ctx Context, w expandwhat) bool { return p.name.expandible(ctx, w) }
-func (p *Flag) expand(ctx Context, w expandwhat) (res Value, err error) {
-    var name Value
-    if name, err = p.name.expand(ctx, w); err != nil {
-        erro(ctx, "expand '%v' failed: %v", p.name, err).of(p.name).debug(1)
-    } else if !isNil(name) && name != p.name {
+func (p *Flag) expand(ctx Context, w expandwhat) (res Value) {
+    if name := p.name.expand(ctx, w); !isNil(name) && name != p.name {
         res = &Flag{p.valbase, name}
     }
     return
@@ -4277,9 +4077,7 @@ func (p *Flag) opt(ctx Context, name string) (res string, match bool) {
         if false { erro(ctx, "flag name is trivial").of(p).debug(16) }
     } else if f, ok := p.name.(*Flag); ok {
         res, match = f.opt(ctx, name)
-    } else if s, err := p.name.Strval(ctx); err != nil {
-        erro(ctx, "strval '%v' failed: %v", p.name, err).of(p.name).debug(16)
-    } else if s == name {
+    } else if s := p.name.Strval(ctx); s == name {
         res, match = name, true
     }
     return
@@ -4330,11 +4128,7 @@ func (p *Flag) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *Flag) traverse(ctx Context) (brks breakers) {
-    if s, err := p.Strval(positional(ctx, p.position)); err != nil {
-        erro(ctx, "strval '%v' failed: %v", p, err).of(p).debug(1)
-    } else {
-        _, brks = traverse(ctx, p, s)
-    }
+    _, brks = traverse(ctx, p, p.Strval(positional(ctx, p.position)))
     return
 }
 
@@ -4342,42 +4136,24 @@ const escapedChars = "\"\r\n"
 
 type Compound struct { valbase ; elements } // "compound string"
 func (p *Compound) String() string { return p.elemStr(nil, nil, 0) }
-func (p *Compound) Strval(ctx Context) (s string, err error) {
-    for _, e := range p.Elems {
-        var v string
-        if v, err = e.Strval(ctx); err == nil {
-            s += v
-        } else {
-            break
-        }
-    }
+func (p *Compound) Strval(ctx Context) (s string) {
+    for _, e := range p.Elems { s += e.Strval(ctx) }
     // NOTE: escaping \" here makes the string complicated
     if false { s = strings.Replace(s, `\"`, `"`, -1) }
     return
 }
 func (p *Compound) Float(ctx Context) (f float64, err error) {
-    var s string
-    if s, err = p.Strval(ctx); err == nil {
-        f, err = strconv.ParseFloat(s, 64)
-    }
-    return
+    return strconv.ParseFloat(p.Strval(ctx), 64)
 }
 func (p *Compound) Integer(ctx Context) (i int64, err error) {
-    var s string
-    if s, err = p.Strval(ctx); err == nil {
-        i, err = strconv.ParseInt(s, 10, 64)
-    }
-    return
+    return strconv.ParseInt(p.Strval(ctx), 10, 64)
 }
-func (p *Compound) True(ctx Context) (bool, error) { return p.elements.True(ctx) }
+func (p *Compound) True(ctx Context) bool { return p.elements.True(ctx) }
 func (p *Compound) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
 func (p *Compound) defs(ctx Context, s ...string) []*Def { return p.elements.defs(ctx, s...) }
 func (p *Compound) expandible(ctx Context, w expandwhat) bool { return p.elements.expandible(ctx, w) }
-func (p *Compound) expand(ctx Context, w expandwhat) (res Value, err error) {
-    var ( elems []Value; num int )
-    if elems, num, err = expandall1(ctx, w, p.Elems...); err != nil {
-        erro(ctx, "expand compound elems failed: %v", err).at(p.position).debug(1)
-    } else if num > 0 {
+func (p *Compound) expand(ctx Context, w expandwhat) (res Value) {
+    if elems, num := expandall1(ctx, w, p.Elems...); num > 0 {
         res = &Compound{p.valbase, elements{elems}}
     }
     return
@@ -4418,11 +4194,7 @@ func (p *Compound) elemStr(ctx Context, o Object, k elemkind) (s string) {
 }
 func (p *Compound) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Compound); ok {
-        s1, e := p.Strval(ctx)
-        if e != nil { return }
-        s2, e := a.Strval(ctx)
-        if e != nil { return }
-        if s1 == s2 { res = cmpEqual }
+        if p.Strval(ctx) == a.Strval(ctx) { res = cmpEqual }
     }
     return
 }
@@ -4434,27 +4206,21 @@ type List struct {
 func (_ *List) kind() kind { return valOther }
 func (p *List) Position() (pos Position) { return p.position }
 func (p *List) String() (s string) { return p.elemStr(nil, nil, 0) }
-func (p *List) Strval(ctx Context) (s string, err error) {
+func (p *List) Strval(ctx Context) (s string) {
     var x = 0
     for _, e := range p.Elems {
-        var v string
-        if v, err = e.Strval(ctx); err == nil {
-            if v != "" {
-                if 0 < x { s += " " }
-                s += v
-                x += 1
-            }
-        } else {
-            break
+        if v := e.Strval(ctx); v != "" {
+            if 0 < x { s += " " }
+            s += v
+            x += 1
         }
     }
     return
 }
-func (p *List) Float(ctx Context) (float64, error) {
-    i, e := p.Integer(ctx)
-    return float64(i), e
+func (p *List) Float(ctx Context) (f float64, _ error) {
+    i, e := p.Integer(ctx); return float64(i), e
 }
-func (p *List) Integer(ctx Context) (int64, error) {
+func (p *List) Integer(ctx Context) (i int64, err error) {
     if n := len(p.Elems); n == 1 {
         // If there's only one element, treat it as a scalar.
         return p.Elems[0].Integer(ctx)
@@ -4469,11 +4235,8 @@ func (p *List) elemStr(ctx Context, o Object, k elemkind) (s string) {
     }
     return strings.Join(strs, " ")
 }
-func (p *List) expand(ctx Context, w expandwhat) (res Value, err error) {
-    var ( elems []Value; num int )
-    if elems, num, err = expandall1(ctx, w, p.Elems...); err != nil {
-        erro(ctx, "expand list elems failed: %v", err).at(p.position).debug(1)
-    } else if num > 0 {
+func (p *List) expand(ctx Context, w expandwhat) (res Value) {
+    if elems, num := expandall1(ctx, w, p.Elems...); num > 0 {
         if false && len(elems) == 1 { res = elems[0] } else {
             res = &List{p.position, elements{elems}}
         }
@@ -4595,23 +4358,18 @@ func (p *List) stencil(ctx Context, stems []string) (val Value, rest []string) {
 type Group struct { valbase ; elements }
 func (p *Group) String() string { return p.elemStr(nil, nil, 0) }
 func (p *Group) Position() Position { return p.valbase.Position() }
-func (p *Group) Float(ctx Context) (float64, error) { return p.valbase.Float(ctx) }
-func (p *Group) Integer(ctx Context) (int64, error) { return p.valbase.Integer(ctx) }
-func (p *Group) True(ctx Context) (t bool, err error) {
+//func (p *Group) Float(ctx Context) (f float64, _ error) { return p.valbase.Float(ctx) }
+//func (p *Group) Integer(ctx Context) (i int64, e error) { return p.valbase.Integer(ctx) }
+func (p *Group) True(ctx Context) (t bool) {
     t = len(p.Elems) > 0
     return
 }
 func (_ *Group) kind() kind { return valOther }
-func (p *Group) Strval(ctx Context) (s string, err error) {
+func (p *Group) Strval(ctx Context) (s string) {
     s = "("
     for i, elem := range p.Elems {
-        var str string
-        if str, err = elem.Strval(ctx); err != nil {
-            erro(ctx, "strval group element '%v' failed: %v", elem, err).debug(1)
-            return
-        }
         if i > 0 { s += " " }
-        s += str
+        s += elem.Strval(ctx)
     }
     s += ")"
     return
@@ -4629,11 +4387,8 @@ func (p *Group) elemStr(ctx Context, o Object, k elemkind) string {
     return fmt.Sprintf("(%s)", strings.Join(strs, " "))
 }
 func (p *Group) expandible(ctx Context, w expandwhat) bool { return p.elements.expandible(ctx, w) }
-func (p *Group) expand(ctx Context, w expandwhat) (res Value, err error) {
-    var ( elems []Value; num int )
-    if elems, num, err = expandall1(ctx, w, p.Elems...); err != nil {
-        erro(ctx, "expand group elems failed: %v", err).at(p.position).debug(1)
-    } else if num > 0 {
+func (p *Group) expand(ctx Context, w expandwhat) (res Value) {
+    if elems, num := expandall1(ctx, w, p.Elems...); num > 0 {
         res = &Group{p.valbase, elements{elems}}
     }
     return
@@ -4685,27 +4440,17 @@ func (p *Pair) SetKey(k Value) {
     p.Key = k
 }
 func (p *Pair) String() string { return p.elemStr(nil, nil, 0) }
-func (p *Pair) Strval(ctx Context) (s string, err error) {
-    var k, v string
-    if k, err = p.Key.Strval(ctx); err == nil {
-        if v, err = p.Value.Strval(ctx); err == nil {
-            s = k + "=" + v
-        }
+func (p *Pair) Strval(ctx Context) string {
+    return p.Key.Strval(ctx) + "=" + p.Value.Strval(ctx)
+}
+func (p *Pair) True(ctx Context) (t bool) {
+    if t = p.Key.True(ctx); !t && !isNil(p.Value) {
+        t = p.Value.True(ctx)
     }
     return
 }
-func (p *Pair) True(ctx Context) (t bool, err error) {
-    if t, err = p.Key.True(ctx); err != nil {
-        erro(ctx, "truthify '%v' failed: %v", p.Key, err).of(p.Key).debug(1)
-    } else if t || isNil(p.Value) {
-        // done
-    } else if t, err = p.Value.True(ctx); err != nil {
-        erro(ctx, "truthify '%v' failed: %v", p.Value, err).of(p.Key).debug(1)
-    }
-    return
-}
-func (p *Pair) Integer(ctx Context) (int64, error) { return p.Value.Integer(ctx) }
-func (p *Pair) Float(ctx Context) (float64, error) { return p.Value.Float(ctx) }
+func (p *Pair) Integer(ctx Context) (i int64, e error) { return p.Value.Integer(ctx) }
+func (p *Pair) Float(ctx Context) (f float64, e error) { return p.Value.Float(ctx) }
 func (p *Pair) refs(ctx Context, v Value) bool { return p.Key.refs(ctx, v) || p.Value.refs(ctx, v) }
 func (p *Pair) defs(ctx Context, s ...string) []*Def {
     return append(p.Key.defs(ctx, s...), p.Value.defs(ctx, s...)...)
@@ -4719,19 +4464,15 @@ func (p *Pair) expandible(ctx Context, w expandwhat) bool {
     if p.Key.expandible(ctx, w) { return true }
     return w&expandPairVal != 0 && p.Value.expandible(ctx, w)
 }
-func (p *Pair) expand(ctx Context, w expandwhat) (res Value, err error) {
-    var k, v Value
-    if k, err = p.Key.expand(ctx, w); err != nil {
-        erro(ctx, "expand '%v' failed: %v", p.Key, err).of(p.Key).debug(1)
-        return
-    } else if isNil(k) { k = p.Key }
+func (p *Pair) expand(ctx Context, w expandwhat) (res Value) {
+    var k Value
+    if k = p.Key.expand(ctx, w); isNil(k) { k = p.Key }
 
     // Note: donot expand the p.Value! It's used as template
     // in arguments (see copy-file for example).
     if w&expandPairVal != 0 {
-        if v, err = p.Value.expand(ctx, w); err != nil {
-            erro(ctx, "expand '%v' failed: %v").of(p.Value).debug(1)
-        } else if (!isNil(k) && k != p.Key) || (!isNil(v) && v != p.Value) {
+        var v = p.Value.expand(ctx, w)
+        if (!isNil(k) && k != p.Key) || (!isNil(v) && v != p.Value) {
             if isNil(v) { v = p.Value }
             res = &Pair{p.valbase, k, v}
         }
@@ -4789,49 +4530,35 @@ type delegate struct {
     //TODO: patsubst Value // AKA. lhs%=rhs% like in $(var:lhs%=rhs%)
 }
 func (p *delegate) String() (s string) { return p.elemStr(nil, nil, 0) }
-func (p *delegate) Strval(ctx Context) (s string, err error) {
-    var v Value
-    if v, err = p.value(ctx); err != nil {
-        erro(ctx, "delegate '%v' value failed: %v", p, err).of(p).debug(1)
-    } else if isNil(v) {
+func (p *delegate) Strval(ctx Context) (s string) {
+    if v := p.value(ctx); isNil(v) {
         erro(ctx, "delegate value is nil: %v", p).of(p).debug(1)
-    } else if s, err = v.Strval(ctx); err != nil {
-        erro(ctx, "strval '%v' failed: %v", v, err).of(v).debug(1)
+    } else {
+        s = v.Strval(ctx)
     }
     return
 }
-func (p *delegate) True(ctx Context) (t bool, err error) {
-    var v Value
-    if v, err = p.expand(ctx, expandPlainValue); err != nil {
-        erro(ctx, "expand '%v' failed: %v", p, err).at(p.position).debug(1)
-    } else if isNil(v) {
+func (p *delegate) True(ctx Context) (t bool) {
+    if v := p.expand(ctx, expandPlainValue); isNil(v) {
         erro(ctx, "expand '%v' to nil", p).at(p.position).debug(1)
-    } else if t, err = v.True(ctx); err != nil {
-        erro(ctx, "truthify '%v' failed: %v", p, err).at(p.position).debug(1)
-    } else if false {
+    } else if t = v.True(ctx); false {
         info(ctx, "%v -> %T %v -> %v", p, v, v, t).at(p.position).debug(8)
     }
     return
 }
-func (p *delegate) Integer(ctx Context) (i int64, err error) {
-    var v Value
-    if v, err = p.value(ctx); err != nil {
-        erro(ctx, "delegate '%v' value failed: %v", p, err).of(p).debug(1)
-    } else if isNil(v) {
+func (p *delegate) Integer(ctx Context) (i int64, e error) {
+    if v := p.value(ctx); isNil(v) {
         erro(ctx, "delegate value is nil: %v", p).of(p).debug(1)
-    } else if i, err = v.Integer(ctx); err != nil {
-        erro(ctx, "integify '%v' failed: %v", v, err).of(v).debug(1)
+    } else {
+        i, e = v.Integer(ctx)
     }
     return
 }
-func (p *delegate) Float(ctx Context) (f float64, err error) {
-    var v Value
-    if v, err = p.value(ctx); err != nil {
-        erro(ctx, "delegate '%v' value failed: %v", p, err).of(p).debug(1)
-    } else if isNil(v) {
+func (p *delegate) Float(ctx Context) (f float64, e error) {
+    if v := p.value(ctx); isNil(v) {
         erro(ctx, "nil delegate value: %v", p).of(p).debug(1)
-    } else if f, err = v.Float(ctx); err != nil {
-        erro(ctx, "floatify '%v' failed: %v", v, err).of(v).debug(1)
+    } else {
+        f, e = v.Float(ctx)
     }
     return
 }
@@ -4876,10 +4603,7 @@ func (p *delegate) defs(ctx Context, s ...string) (res []*Def) {
 }
 func (p *delegate) traverse(ctx Context) (brks breakers) {
     ctx = positional(ctx, p.position)
-    if val, err := p.expand(ctx, expandPlainValue); err != nil {
-        erro(ctx, "expand '%v' failed: %v", p, err).at(p.position)
-        errostack(ctx, -1, "expand '%v' failed", p).debug(16)
-    } else if isNil(val) {
+    if val := p.expand(ctx, expandPlainValue); isNil(val) {
         warn(ctx, "delegate '%v' expands to nil", p).at(p.position)
         warnstack(ctx, -1, "delegate '%v' expands to <nil>", p).debug(16)
     } else if isNone(val) {
@@ -4910,12 +4634,7 @@ func (p *delegate) traverse(ctx Context) (brks breakers) {
 func (p *delegate) name(ctx Context, sel bool) (name string) {
     switch x := p.x.(type) {
     case Object: name = x.Name(ctx)
-    case *selection: if sel {
-        var err error
-        if name, err = x.Strval(ctx); err != nil {
-            erro(ctx, "strval '%v' failed: %v", x).debug(1)
-        }
-    }
+    case *selection: if sel { name = x.Strval(ctx) }
     }
     return
 }
@@ -4928,11 +4647,7 @@ func (p *delegate) string(ctx Context, o Object, k elemkind) (s string) { // sou
     var name string
     switch x := p.x.(type) {
     case Object    : name = x.Name(ctx)
-    case *selection:
-        var err error
-        if name, err = x.Strval(ctx); err != nil {
-            erro(ctx, "strval '%v' failed: %v", x).debug(1)
-        }
+    case *selection: name = x.Strval(ctx)
     }
 
     switch p.l {
@@ -4964,29 +4679,27 @@ func (p *delegate) string(ctx Context, o Object, k elemkind) (s string) { // sou
 func (p *delegate) elemStr(ctx Context, o Object, k elemkind) (s string) {
     if ctx == nil || k&elemExpand == 0 {
         if s = p.string(ctx, o, k); !(p.l.IsClosure() || p.l.IsDelegate()) { s = "$" + s }
-    } else if v, e := p.expand(ctx, expandDelegate); e != nil {
-        erro(ctx, "expand failed: %v", e).at(p.position).debug(1)
     } else {
+        var v = p.expand(ctx, expandDelegate)
         if isNil(v) { v = p }
         s = elementString(ctx, o, v, k)
     }
     return
 }
-func (p *delegate) value(ctx Context) (v Value, err error) {
-    if v, err = p.expand(ctx, expandDelegate); err != nil {
-        erro(ctx, "expand '%v' failed: %v", p, err).at(p.position).debug(1)
-    } else if v == p { // d, ok := v.(*delegate); ok && d == p
+func (p *delegate) value(ctx Context) (v Value) {
+    if v = p.expand(ctx, expandDelegate); v == p { // d, ok := v.(*delegate); ok && d == p
         erro(ctx, "self delegation: %v", p).of(p).debug(1)
     }
     return
 }
-func (p *delegate) args(ctx Context, w expandwhat) (args []Value, num int, err error) {
+func (p *delegate) args(ctx Context, w expandwhat) (args []Value, num int) {
     if w&expandArgs != 0 {
-        if args, num, err = expandall1(ctx, w, p.a...); err != nil {
-            erro(ctx, "expand args %v failed: %v", p.a, err).at(p.position).debug(1)
-            return
-        } else if len(args) == 0 && num == 0 && len(p.a) > 0 { args = p.a }
-    } else if len(p.a) > 0 { args = p.a }
+        if args, num = expandall1(ctx, w, p.a...); len(args) == 0 && num == 0 && len(p.a) > 0 {
+            args = p.a
+        }
+    } else if len(p.a) > 0 {
+        args = p.a
+    }
     return
 }
 func (p *delegate) expandible(ctx Context, w expandwhat) (res bool) {
@@ -5004,20 +4717,10 @@ func (p *delegate) expandible(ctx Context, w expandwhat) (res bool) {
     }
     return
 }
-func (p *delegate) expand(ctx Context, w expandwhat) (res Value, err error) {
+func (p *delegate) expand(ctx Context, w expandwhat) (res Value) {
     if isNil(p.x) || isNone(p.x) {
         erro(ctx, "expand nil delegation: %v (w=%016b)", p, w).at(p.position).debug(64)
         return
-    }
-    if false && ctx.Project().Name() == "external.python.c.base" {
-        if o, ok := p.x.(Object); ok && strings.HasPrefix(o.Name(ctx), "PY_VERSION") {
-            defer func() {
-                if s, _ := res.Strval(ctx); strings.HasSuffix(s, "config.c") {
-                    v, _ := res.expand(ctx, expandFullName)
-                    warnstack(ctx, 3, "%v: %T %v, %T %v (%v)", p, res, res, v, v, (w&expandFullName)).debug(32)
-                }
-            } ()
-        }
     }
 
     var v Value
@@ -5028,83 +4731,43 @@ func (p *delegate) expand(ctx Context, w expandwhat) (res Value, err error) {
     if w&expandDelegate == 0 {
         var x Value
         if u, ok := p.x.(*unresolvedobject); ok && fixUnresolvedObjectDelegate {
-            var name string
-            if name, err = u.name.Strval(ctx); err != nil {
-                erro(ctx, "expand '%v' failed: %v", u.name, err).of(u.name).debug(1)
-                return
-            } else if name == "" {
+            if name := u.name.Strval(ctx); name == "" {
                 erro(ctx, "empty unresolved name: %v", u.name).of(u.name).debug(1)
                 return
-            }
-            if false {
-                for _, proj := range closureProjects(ctx) {
-                    if x, err = proj.resolveObject(ctx, name); err != nil {
-                        erro(ctx, "resolve '%v' failed: %v", name, err).of(u.name).debug(1)
-                        return
-                    } else {
-                        break
-                    }
-                }
             } else if _, sym := ctx.Scope().Find(name); sym != nil && sym.(Value) != p {
                 x = sym
             }
-        } else if x, err = p.x.expand(ctx, w); err != nil {
-            erro(ctx, "expand '%v' failed: %v", p.x, err).of(p.x).debug(1)
-            return
-        } else if isNil(x) { x = p.x }
+        } else if x = p.x.expand(ctx, w); isNil(x) { x = p.x }
 
-        var ( args []Value; num int )
-        if args, num, err = p.args(ctx, w); err != nil {
-            erro(ctx, "expand args failed: %v", err).at(p.position).debug(1)
-            return
-        }
-
+        var args, num = p.args(ctx, w)
         if (!isNil(x) && x != p.x) || num > 0 {
             if num == 0 { args = p.a }
             res = &delegate{p.valbase, p.l, x, args}
             return
         }
         return
-    } else if ctx, res, err = p.reveal(ctx, w); err != nil {
-        erro(ctx, "reveal '%v' failed: %v", p, err).of(p).debug(1)
-        return
-    } else if isNil(res) {
+    } else if ctx, res = p.reveal(ctx, w); isNil(res) {
         res = MakeNone(p.position)
         return
-    } else if v, err = res.expand(ctx, w); err != nil {
-        erro(ctx, "expand '%v' failed: %v", res, err).of(p).debug(1)
-        return
-    } else if !isNil(v) && v != res {
+    } else if v = res.expand(ctx, w); !isNil(v) && v != res {
         res = v
         return
     }
     return
 }
-func (p *delegate) reveal(ctx Context, w expandwhat) (retctx Context, res Value, err error) {
+func (p *delegate) reveal(ctx Context, w expandwhat) (retctx Context, res Value) {
     ctx = positional(ctx, p.position)
-
-    if false { if s := p.x.String(); s == "main→sources" {
-        warn(ctx, "%T %v; %v", p.x, p.x, ctx).debug(1)
-    }}
 
     var x Object
     if u, ok := p.x.(*unresolvedobject); ok && fixUnresolvedObjectDelegate {
         var name string
-        if name, err = u.name.Strval(ctx); err != nil {
-            erro(ctx, "expand '%v' failed: %v", u.name, err).of(u.name).debug(1)
-            return
-        } else if name == "" {
+        if name = u.name.Strval(ctx); name == "" {
             erro(ctx, "empty unresolved name: %v", u.name).of(u.name).debug(1)
             return
         }
         if false {
             for _, proj := range closureProjects(ctx) {
-                if x, err = proj.resolveObject(ctx, name); err != nil {
-                    erro(ctx, "resolve '%v' failed: %v", name, err).of(u.name).debug(1)
-                    return
-                } else {
-                    break
-                }
+                x = proj.resolveObject(ctx, name)
             }
         } else if _, sym := ctx.Scope().Find(name); sym != nil && sym.(Value) != p {
             x = sym
@@ -5135,11 +4798,7 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (retctx Context, res Value,
         }
 
         var v Value
-        if v, err = t.value(ctx); err != nil {
-            erro(ctx, "selected value '%v' failed: %v", p.x, err)
-            errostack(ctx, 3, "%v", ctx).debug(16)
-            return
-        } else if isNil(v) {
+        if v = t.value(ctx); isNil(v) {
             erro(ctx, "%v: selected value is nil (%T %v) (w=%016b)", p, t.o, t.o, w)
             errostack(ctx, 3, "%v", ctx).debug(16)
             return
@@ -5157,12 +4816,7 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (retctx Context, res Value,
         }}
     }
 
-    var args []Value
-    if args, _, err = p.args(ctx, w); err != nil {
-        erro(ctx, "compute args failed: %v", err).debug(1)
-        return
-    }
-
+    var args, _ = p.args(ctx, w)
     switch t := x.(type) {
     case Caller:
         if res = t.Call(ctx, args...); isNil(res) {
@@ -5223,32 +4877,23 @@ func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
 
 type closure struct { delegate }
 func (p *closure) String() (s string) { return p.elemStr(nil, nil, 0) }
-func (p *closure) Strval(ctx Context) (s string, err error) {
+func (p *closure) Strval(ctx Context) (s string) {
     if !p.isValidToken() {
-        err = fmt.Errorf("invalid closure token: %v", p.l)
-        erro(ctx, "%v", err.Error()).at(p.Position()).debug(1)
+        erro(ctx, "invalid closure token: %v", p.l).at(p.Position()).debug(1)
         return
     }
 
-    var val Value
-    if val, err = p.expand(ctx, expandDelegate|expandClosure); err != nil {
-        erro(ctx, "expand '%v' failed: %v", p, err).of(p).debug(1)
-    } else if isNil(val) {
+    if val := p.expand(ctx, expandDelegate|expandClosure); isNil(val) {
         if false { warn(ctx, "expand '%v' to nil", p).of(p).debug(1) }
-    } else if s, err = val.Strval(ctx); err != nil {
-        erro(ctx, "strval '%v' failed: %v", p, err).of(p).debug(1)
+    } else {
+        s = val.Strval(ctx)
     }
     return
 }
-func (p *closure) True(ctx Context) (t bool, err error) {
-    var v Value
-    if v, err = p.expand(ctx, expandPlainValue); err != nil {
-        erro(ctx, "expand '%v' failed: %v", p, err).at(p.position).debug(1)
-    } else if isNil(v) {
+func (p *closure) True(ctx Context) (t bool) {
+    if v := p.expand(ctx, expandPlainValue); isNil(v) {
         // does nothing
-    } else if t, err = v.True(ctx); err != nil {
-        erro(ctx, "truthify '%v' failed: %v", p, err).at(p.position).debug(1)
-    } else if false {
+    } else if t = v.True(ctx); false {
         info(ctx, "%v -> %T %v -> %v", p, v, v, t).at(p.position).debug(8)
     }
     return
@@ -5256,9 +4901,8 @@ func (p *closure) True(ctx Context) (t bool, err error) {
 func (p *closure) elemStr(ctx Context, o Object, k elemkind) (s string) {
     if ctx == nil || k&elemExpand == 0 {
         if s = p.string(ctx, o, k); !(p.l.IsClosure() || p.l.IsDelegate()) { s = "&" + s }
-    } else if v, e := p.expand(ctx, expandDelegate/*|expandClosure*/); e != nil {
-        erro(ctx, "expand failed: %v", e).at(p.position).debug(1)
     } else {
+        var v = p.expand(ctx, expandDelegate/*|expandClosure*/)
         if isNil(v) { v = p }
         s = elementString(ctx, o, v, k)
     }
@@ -5274,7 +4918,7 @@ func (p *closure) expandible(ctx Context, w expandwhat) (res bool) {
     }
     return
 }
-func (p *closure) expand(ctx Context, w expandwhat) (res Value, err error) {
+func (p *closure) expand(ctx Context, w expandwhat) (res Value) {
     if isNil(p.x) {
         erro(ctx, "expand nil closure: %v (%d)", p, w).at(p.position).debug(1)
         return
@@ -5284,53 +4928,37 @@ func (p *closure) expand(ctx Context, w expandwhat) (res Value, err error) {
     if w&expandClosure == 0 {
         // Can't expand Def here as closure still need it
         if u, ok := p.x.(*unresolvedobject); ok && fixUnresolvedObjectClosure {
-            var name string
-            if name, err = u.name.Strval(ctx); err != nil {
-                erro(ctx, "expand '%v' failed: %v", u.name, err).of(u.name).debug(1)
-                return
-            } else if name == "" {
+            var x Object
+            var name = u.name.Strval(ctx)
+            if name == "" {
                 erro(ctx, "empty unresolved name: %v", u.name).of(u.name).debug(1)
                 return
             }
-            var x Object
             for _, proj := range closureProjects(ctx) {
-                if x, err = proj.resolveObject(ctx, name); err != nil {
-                    erro(ctx, "resolve '%v' failed: %v", name, err).of(u.name).debug(1)
-                    return
-                } else if !isNil(x) {
+                if x = proj.resolveObject(ctx, name); !isNil(x) {
                     break
                 }
             }
             if isNil(x) {
                 val = p.x
-            } else if val, err = x.expand(ctx, w&^expandDef); err != nil {
-                erro(ctx, "expand '%v' failed: %v", x, err).of(x).debug(1)
-                return
+            } else {
+                val = x.expand(ctx, w&^expandDef)
             }
-        } else if val, err = p.x.expand(ctx, w&^expandDef); err != nil {
-            erro(ctx, "expand '%v' failed: %v", p.x, err).of(p.x).debug(1)
-            return
-        } else if isNil(val) { val = p.x }
+        } else if val = p.x.expand(ctx, w&^expandDef); isNil(val) {
+            val = p.x
+        }
 
-        var ( args []Value; num int )
-        if args, num, err = p.args(ctx, w); err != nil {
-            erro(ctx, "expand args failed: %v", err).of(p).debug(1)
-            return
-        } else if (!isNil(val) && val != p.x) || num > 0 {
+        if args, num := p.args(ctx, w); (!isNil(val) && val != p.x) || num > 0 {
             if num == 0 { args = p.a }
             res = &closure{delegate{p.valbase, p.l, val, args}}
         }
-    } else if res, err = p.disclose(ctx, w); err != nil {
-        erro(ctx, "disclose '%v' failed: %v", p, err).of(p).debug(1)
-    } else if isNil(res) {
+    } else if res = p.disclose(ctx, w); isNil(res) {
         erro(ctx, "disclose '%v' to nil (%s '%v')", p, typeof(p.x), p.x).of(p).debug(16)
     } else if w&^expandClosure == 0 {
         // done, no more expand
-    } else if val, err = res.expand(ctx, w); err != nil {
-        erro(ctx, "expand '%v' failed: %v", res, err).of(p).debug(1)
-    } else if !isNil(val) && val != res {
+    } else if val = res.expand(ctx, w); !isNil(val) && val != res {
         if /*p.String() == "&(objects)"*/false {
-            var v, _ = res.expand(ctx.inner(), w)
+            var v = res.expand(ctx.inner(), w)
             info(ctx, "%v -> %T %v -> %T %v -> %T %v", p, res, res, val, val, v, v).at(p.position)
             info(ctx, "%v %v", p, ctx.inner()).at(p.position)
             info(ctx, "%v %v", p, ctx).at(p.position).debug(16)
@@ -5339,10 +4967,10 @@ func (p *closure) expand(ctx Context, w expandwhat) (res Value, err error) {
     }
     return
 }
-func (p *closure) disclose(ctx Context, w expandwhat) (res Value, err error) {
+func (p *closure) disclose(ctx Context, w expandwhat) (res Value) {
     var x Object
     if false { defer func() { if name, proj := p.x.(Object).Name(ctx), ctx.Project(); name == "@" {
-        var val, _ = res.expand(ctx, w)
+        var val = res.expand(ctx, w)
         var obj = closureResolveObject(ctx, p.position, name)
         warn(ctx, "%v: p = %v, %016b", proj, p, w).at(p.Position())
         warn(ctx, "%v: p.x = %T %v", proj, p.x, p.x).at(p.x.Position())
@@ -5355,18 +4983,12 @@ func (p *closure) disclose(ctx Context, w expandwhat) (res Value, err error) {
 
     if u, ok := p.x.(*unresolvedobject); ok && fixUnresolvedObjectClosure {
         var name string
-        if name, err = u.name.Strval(ctx); err != nil {
-            erro(ctx, "expand '%v' failed: %v", u.name, err).of(u.name).debug(1)
-            return
-        } else if name == "" {
+        if name = u.name.Strval(ctx); name == "" {
             erro(ctx, "empty unresolved name: %v", u.name).of(u.name).debug(1)
             return
         }
         for _, proj := range closureProjects(ctx) {
-            if x, err = proj.resolveObject(ctx, name); err != nil {
-                erro(ctx, "resolve '%v' failed: %v", name, err).of(u.name).debug(1)
-                return
-            } else if !isNil(x) {
+            if x = proj.resolveObject(ctx, name); !isNil(x) {
                 break
             }
         }
@@ -5380,9 +5002,9 @@ func (p *closure) disclose(ctx Context, w expandwhat) (res Value, err error) {
         if n, ok := t.o.(*ProjectName); ok && n != nil && n.project != nil {
             ctx = closureWith(ctx, n.position, n.project.scope)
         }
-        if v, e := t.value(ctx); e != nil {
-            erro(ctx, "select value '%v' failed: %v", p.x, e).of(p.x).debug(1)
-            err = e; return
+        if v := t.value(ctx); isNil(v) {
+            erro(ctx, "select value '%v' failed", p.x).of(p.x).debug(1)
+            return
         } else if t, ok := v.(Object); ok {
             x = t
         }
@@ -5418,10 +5040,7 @@ ClosureTok:
         }
     }
 
-    var ( args []Value; num int )
-    if args, num, err = p.args(ctx, w); err != nil {
-        erro(ctx, "get args failed: %v", err).at(p.position).debug(1)
-    } else if isNil(x) {
+    if args, num := p.args(ctx, w); isNil(x) {
         erro(ctx, "closure object is nil: %v", p.x).at(p.position).debug(1)
     } else if p.x != x || num > 0 {
         if t1, t2 := reflect.TypeOf(p.x), reflect.TypeOf(x); t1 != t2 {
@@ -5447,9 +5066,7 @@ ClosureTok:
     return
 }
 func (p *closure) traverse(ctx Context) (brks breakers) {
-    if val, err := p.expand(positional(ctx, p.position), expandClosure); err != nil {
-        erro(ctx, "expand '%v' failed: %v", p, err).at(p.position).debug(1)
-    } else if isNil(val) {
+    if val := p.expand(positional(ctx, p.position), expandClosure); isNil(val) {
         warn(ctx, "closure '%v' expands to nil", p).at(p.position).debug(1)
     } else if isNone(val) {
         warn(ctx, "closure '%v' expands to none", p).at(p.position).debug(1)
@@ -5491,43 +5108,30 @@ type selection struct {
     s Value
 }
 func (p *selection) String() (s string) { return p.elemStr(nil, nil, 0) }
-func (p *selection) Strval(ctx Context) (s string, err error) {
+func (p *selection) Strval(ctx Context) (s string) {
     if n, ok := p.o.(*ProjectName); ok && n != nil {
         ctx = closureWith(ctx, n.position, n.project.scope)
     }
-
-    var v Value
-    if v, err = p.value(ctx); err != nil {
-        erro(ctx, "%v", err).at(p.position)
-    } else if v != nil {
-        if s, err = v.Strval(ctx); err != nil {
-            erro(ctx, "%v", err).at(p.position).debug(1)
-        }
-    } else if false {
-        erro(ctx, "selection.strval: `%s` is nil", p.String()).at(p.position)
+    if v := p.value(ctx); !isNil(v) {
+        s = v.Strval(ctx)
     }
     return
 }
-func (p *selection) True(ctx Context) (t bool, err error) {
-    var v Value
-    if v, err = p.value(ctx); err == nil {
-        t, err = v.True(ctx)
+func (p *selection) True(ctx Context) (t bool) {
+    if v := p.value(ctx); !isNil(v) { t = v.True(ctx) }
+    return
+}
+func (p *selection) Integer(ctx Context) (i int64, e error) {
+    if s := p.Strval(ctx); s != "" {
+        i, e = strconv.ParseInt(s, 10, 64)
     }
     return
 }
-func (p *selection) Integer(ctx Context) (int64, error) {
-    if s, err := p.Strval(ctx); err == nil {
-        return strconv.ParseInt(s, 10, 64)
-    } else {
-        return 0, err
+func (p *selection) Float(ctx Context) (f float64, e error) {
+    if s := p.Strval(ctx); s != "" {
+        f, e = strconv.ParseFloat(s, 64)
     }
-}
-func (p *selection) Float(ctx Context) (float64, error) {
-    if s, err := p.Strval(ctx); err == nil {
-        return strconv.ParseFloat(s, 64)
-    } else {
-        return 0, err
-    }
+    return
 }
 func (p *selection) refs(ctx Context, v Value) bool { return p.o.refs(ctx, v) || p.s.refs(ctx, v) }
 func (p *selection) defs(ctx Context, s ...string) []*Def {
@@ -5549,10 +5153,9 @@ func (p *selection) propName(ctx Context) (s string) {
     return
 }
 */
-func (p *selection) object(ctx Context) (o Object, err error) {
+func (p *selection) object(ctx Context) (o Object) {
     if s, ok := p.o.(*selection); ok {
-        var v Value
-        if v, err = s.value(ctx); err != nil {
+        if v := s.value(ctx); v == nil {
             // sth's wrong!
         } else if o, _ = v.(Object); o == nil {
             erro(ctx, "selection.object: `%s` is nil", s.String()).at(p.position)
@@ -5562,28 +5165,25 @@ func (p *selection) object(ctx Context) (o Object, err error) {
     }
     return
 }
-func (p *selection) value(ctx Context) (v Value, err error) {
+func (p *selection) value(ctx Context) (v Value) {
     var o Object
     if isNil(p.s) {
         erro(ctx, "selection prop is nil: %s", p.String()).at(p.position).debug(1)
-    } else if o, err = p.object(ctx); err != nil {
-        erro(ctx, "get selection object failed: %v", err).at(p.position).debug(1)
-    } else if s := ""; o != nil {
+    } else if o = p.object(ctx); o != nil {
         /*if n, ok := o.(*ProjectName); ok && n != nil && n.project != nil {
             defer setclosure(setclosure(cloctx.unshift(n.project.scope)))
         }*/
-        if s, err = p.s.Strval(ctx); err == nil {
-            if pn, ok := o.(*ProjectName); ok && (p.t == token.SELECT_PROG1 || p.t == token.SELECT_PROG2) {
-                var entries *ResolveEntries
-                if entries, err = pn.project.resolveEntries(ctx, s, false, false); err != nil {
-                    return
-                } else if entries == nil {
-                    erro(ctx, "selection.value: no entry `%s` (%+v)", s, p.String()).at(p.position)
-                } else {
-                    v = entries
-                }
-            } else if v, err = o.Get(ctx, s); err != nil {
-                erro(ctx, "%v", err).at(p.position)
+        var s = p.s.Strval(ctx)
+        if pn, ok := o.(*ProjectName); ok && (p.t == token.SELECT_PROG1 || p.t == token.SELECT_PROG2) {
+            if entries := pn.project.resolveEntries(ctx, s, false, false); entries == nil {
+                erro(ctx, "selection.value: no entry `%s` (%+v)", s, p.String()).at(p.position)
+            } else {
+                v = entries
+            }
+        } else {
+            var e error
+            if v, e = o.Get(ctx, s); e != nil {
+               erro(ctx, "%v", e).debug(1)
             }
         }
     } else /*if o == nil*/ {
@@ -5597,11 +5197,9 @@ func (p *selection) expandible(ctx Context, w expandwhat) (res bool) {
     }
     return
 }
-func (p *selection) expand(ctx Context, w expandwhat) (res Value, err error) {
+func (p *selection) expand(ctx Context, w expandwhat) (res Value) {
     if w&expandSelection != 0 {
-        if res, err = p.value(ctx); err != nil {
-            erro(ctx, "selection '%v' failed: %v", p, err).at(p.position).debug(1)
-        }
+        return p.value(ctx)
     } else if isNil(p.o) {
         return // nil object
     } else if isNil(p.s) {
@@ -5609,23 +5207,14 @@ func (p *selection) expand(ctx Context, w expandwhat) (res Value, err error) {
     }
 
     var o, s Value
-    if o, err = p.o.expand(ctx, w); err != nil {
-        erro(ctx, "expand '%v' failed: %v", p.o, err).of(p.o).debug(1)
-        return
-    } else if isNil(o) { o = p.o }
-    if s, err = p.s.expand(ctx, w); err != nil {
-        erro(ctx, "expand '%v' failed: %v", p.s, err).of(p.s).debug(1)
-        return
-    } else if isNil(s) { s = p.s }
-
+    if o = p.o.expand(ctx, w); isNil(o) { o = p.o }
+    if s = p.s.expand(ctx, w); isNil(s) { s = p.s }
     if o != p.o || s != p.s { res = &selection{p.valbase,p.t,o,s}}
     return
 }
 func (p *selection) traverse(ctx Context) (brks breakers) {
     ctx = positional(ctx, p.position)
-    if val, err := p.value(ctx); err != nil {
-        erro(ctx, "select value '%v' failed: %v", p, err).debug(1)
-    } else if isTrivial(val) {
+    if val := p.value(ctx); isTrivial(val) {
         warn(ctx, "selected value '%v' is trivial", p).debug(1)
     } else {
         _ = val.updated(ctx) // NOTE: ensure that updated flag is correct (see RuleEntry.updated)
@@ -5634,9 +5223,7 @@ func (p *selection) traverse(ctx Context) (brks breakers) {
     return
 }
 func (p *selection) updated(ctx Context, v ...bool) (res bool) { // NOTE: this seems not affecting the result
-    if val, err := p.value(ctx); err != nil {
-        erro(ctx, "select value '%v' failed: %v", p, err).debug(1)
-    } else if isTrivial(val) {
+    if val := p.value(ctx); isTrivial(val) {
         warn(ctx, "selected value '%v' is trivial", p).debug(1)
     } else {
         res = val.updated(ctx, v...)
@@ -5644,9 +5231,7 @@ func (p *selection) updated(ctx Context, v ...bool) (res bool) { // NOTE: this s
     return res
 }
 func (p *selection) updatedDeps(ctx Context, v ...Value) (res []Value) {  // NOTE: this seems not affecting the result
-    if val, err := p.value(ctx); err != nil {
-        erro(ctx, "select value '%v' failed: %v", p, err).debug(1)
-    } else if isTrivial(val) {
+    if val := p.value(ctx); isTrivial(val) {
         warn(ctx, "selected value '%v' is trivial", p).debug(1)
     } else {
         res = val.updatedDeps(ctx, v...)
@@ -5713,24 +5298,10 @@ func (p *PercPattern) elemStr(_ Context, o Object, k elemkind) (s string) {
     s += elementString(nil, o, p.Suffix, 0)
     return
 }
-func (p *PercPattern) Strval(ctx Context) (s string, err error) {
-    if p.Prefix != nil {
-        var v string
-        if v, err = p.Prefix.Strval(ctx); err == nil {
-            s = v
-        } else {
-            return
-        }
-    }
+func (p *PercPattern) Strval(ctx Context) (s string) {
+    if p.Prefix != nil { s = p.Prefix.Strval(ctx) }
     s += "%"
-    if p.Suffix != nil {
-        var v string
-        if v, err = p.Suffix.Strval(ctx); err == nil {
-            s += v
-        } else {
-            return
-        }
-    }
+    if p.Suffix != nil { s += p.Suffix.Strval(ctx) }
     return
 }
 func (p *PercPattern) refs(ctx Context, v Value) bool { return p.Prefix.refs(ctx, v) || p.Suffix.refs(ctx, v) }
@@ -5738,25 +5309,14 @@ func (p *PercPattern) defs(ctx Context, s ...string) []*Def { return append(p.Pr
 func (p *PercPattern) expandible(ctx Context, w expandwhat) bool { return p.Prefix.expandible(ctx, w) || p.Suffix.expandible(ctx, w) }
 func (p *PercPattern) patterned(ctx Context) bool { return true }
 func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string, stems []string) {
-    var (
-        prefix string
-        err error
-    )
+    var prefix string
     if !isTrivial(p.Prefix) {
         // FIXME: the prefix could be Glob, Regexp, etc.
-        if prefix, err = p.Prefix.Strval(ctx); err != nil {
-            erro(ctx, "prefix strval '%v' failed: %v", p.Prefix, err).of(p.Prefix)
-            return
-        } else if strings.HasPrefix(rep, prefix) {
+        if prefix = p.Prefix.Strval(ctx); strings.HasPrefix(rep, prefix) {
             result = prefix
         } else {
             return
         }
-    }
-    if false && p.String() == "%%" {
-        defer func() {
-            warn(ctx, "%v(%v,%v): %v, %v, %v, %v", p, p.Prefix, p.Suffix, rep, full, result, stems).debug(6)
-        } ()
     }
 
     var a, b = len(prefix), len(rep)
@@ -5770,10 +5330,7 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
         for ok {
             if isTrivial(pp.Prefix) {
                 // does nothing
-            } else if s, e := pp.Prefix.Strval(ctx); e != nil {
-                erro(ctx, "strval '%v' failed: %v", pp.Prefix, e).of(pp.Prefix)
-                return
-            } else if s != "" {
+            } else if s := pp.Prefix.Strval(ctx); s != "" {
                 if n := strings.Index(rep[a:], s); n < 0 {
                     break
                 } else {
@@ -5792,10 +5349,7 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
             } else if pp2, ok = pp.Suffix.(*PercPattern); ok {
                 pp = pp2
                 continue
-            } else if s, e := pp.Suffix.Strval(ctx); e != nil {
-                erro(ctx, "strval '%v' failed: %v", pp.Suffix, e).of(pp.Prefix)
-                return
-            } else if s != "" && strings.HasSuffix(rep[a:], s) {
+            } else if s := pp.Suffix.Strval(ctx); s != "" && strings.HasSuffix(rep[a:], s) {
                 if b -= len(s); a < b {
                     stems = append(stems, rep[a:b])
                     result += rep[a:]
@@ -5817,10 +5371,7 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
             }
         }
    } else if a <= b {
-        var s string
-        if s, err = p.Suffix.Strval(ctx); err != nil {
-            erro(ctx, "strval '%v' failed: %v", p.Suffix, err).of(p.Suffix)
-        } else if strings.HasSuffix(rep[a:], s) {
+        if s := p.Suffix.Strval(ctx); strings.HasSuffix(rep[a:], s) {
             if b -= len(s); a < b {
                 stems = append(stems, rep[a:b])
                 result = rep
@@ -5848,9 +5399,7 @@ func (p *PercPattern) match(ctx Context, i interface{}) (full bool, result strin
             return p.match1(ctx, t.fullname()) // NOTE: matching the fullname form
         }
     case Value:
-        if rep, err := t.Strval(ctx); err != nil {
-            erro(ctx, "strval '%v' failed: %v", t, err).of(t)
-        } else { return p.match1(ctx, rep) }
+        return p.match1(ctx, t.Strval(ctx))
     default:
         unreachable(fmt.Sprintf("perc.match: %T %v", i, i))
     }
@@ -5986,14 +5535,8 @@ func (p *GlobPattern) elemStr(ctx Context, o Object, k elemkind) (s string) {
     }
     return
 }
-func (p *GlobPattern) Strval(ctx Context) (s string, err error) {
-    for _, comp := range p.Components {
-        var v string
-        if v, err = comp.Strval(ctx); err != nil {
-            return
-        }
-        s += v
-    }
+func (p *GlobPattern) Strval(ctx Context) (s string) {
+    for _, comp := range p.Components { s += comp.Strval(ctx) }
     return
 }
 func (p *GlobPattern) refs(ctx Context, v Value) (res bool) {
@@ -6014,27 +5557,20 @@ func (p *GlobPattern) expandible(ctx Context, w expandwhat) (res bool) {
     }
     return
 }
-func (p *GlobPattern) expand(ctx Context, w expandwhat) (res Value, err error) {
-    var ( components []Value; num int )
-    if components, num, err = expandall1(ctx, w, p.Components...); err != nil {
-        erro(ctx, "expand glob components failed: %v (w=%016b)", err, w).of(p).debug(1)
-    } else if num > 0 {
+func (p *GlobPattern) expand(ctx Context, w expandwhat) (res Value) {
+    if components, num := expandall1(ctx, w, p.Components...); num > 0 {
         res = &GlobPattern{p.valbase, components}
     }
     return
 }
 func (p *GlobPattern) patterned(ctx Context) bool { return true }
 func (p *GlobPattern) match(ctx Context, i interface{}) (full bool, result string, stems []string) {
-    var ( s string; e error )
+    var s string
     switch t := i.(type) {
     case string:    s = t
     case *File:     s = t.name
     case *filestub: s = t.name
-    case Value:
-        if s, e = t.Strval(ctx); e != nil {
-            erro(ctx, "strval '%v' failed: %v", t, e).of(t)
-            return
-        }
+    case Value:     s = t.Strval(ctx)
     default: unreachable("glob.match: %T %v", i, i)
     }
     if matched, pre, t := globMatchFile(ctx, p, s, true); matched {
@@ -6065,7 +5601,7 @@ func (p *GlobPattern) cmp(ctx Context, v Value) (res cmpres) {
 // TODO: implement regexp pattern
 type RegexpPattern struct { valbase }
 func (p *RegexpPattern) String() string { return "{RegexpPattern}" }
-func (p *RegexpPattern) Strval(ctx Context) (s string, err error) { return "", nil }
+func (p *RegexpPattern) Strval(ctx Context) (s string) { return "" }
 func (p *RegexpPattern) patterned(ctx Context) bool { return true }
 func (p *RegexpPattern) match(ctx Context, i interface{}) (full bool, result string, stems []string) {
     unreachable("regexp.match: %T %v", i, i)
@@ -6127,14 +5663,10 @@ func NameScope(name string, scope *Scope) NameScoper {
 }
 
 // Reveal reveals delegated component and Valuer recursively.
-func Reveal(ctx Context, values ...Value) (res []Value, err error) {
+func Reveal(ctx Context, values ...Value) (res []Value) {
     for _, v := range values {
         var t Value
-        //if v, err = Reveal(v); err != nil { break }
-        if t, err = v.expand(ctx, expandDelegate); err != nil {
-            erro(ctx, "expand '%v' failed: %v", v, err).of(v).debug(1)
-            break
-        } else if isNil(t) { t = v }
+        if t = v.expand(ctx, expandDelegate); isNil(t) { t = v }
         res = append(res, t)
     }
     return
@@ -6144,10 +5676,7 @@ func Reveal(ctx Context, values ...Value) (res []Value, err error) {
 func Disclose(ctx Context, values ...Value) (res []Value, err error) {
     for _, v := range values {
         var t Value
-        if t, err = v.expand(ctx, expandClosure); err != nil {
-            erro(ctx, "expand '%v' failed: %v", v, err).of(v).debug(1)
-            break
-        } else if isNil(t) { t = v }
+        if t = v.expand(ctx, expandClosure); isNil(t) { t = v }
         res = append(res, t)
     }
     return
@@ -6180,63 +5709,52 @@ func merge(args... Value) (elems []Value) {
     return
 }
 
-// example: mergeresult(expandall(...))
-func mergeresult(res []Value, err error) ([]Value, error) {
-    if err == nil { res = merge(res...) }
-    return res, err
-}
+// examples:
+//   mergeresult(expandall(...))
+//   mergeresult2(expandall2(...))
+func mergeresult(res []Value) []Value { return merge(res...) }
+func mergeresult2(res []Value, _ int) []Value { return merge(res...) }
 
-// example: mergeresult2(expandall2(...))
-func mergeresult2(res []Value, _ int, err error) ([]Value, error) {
-    return mergeresult(res, err)
-}
-
-func trueVal(ctx Context, v Value, i bool) (res bool, err error) {
-    if res = i; v != nil { res, err = v.True(ctx) }
+func trueVal(ctx Context, v Value, i bool) (res bool) {
+    if res = i; v != nil { res = v.True(ctx) }
     return
 }
 
 func int64Val(ctx Context, v Value, i int64) (res int64, err error) {
-    if res = i; v != nil { res, err = v.Integer(ctx) }
-    return
-}
-
-func intVal(ctx Context, v Value, i int) (res int, err error) {
     if res = i; v != nil {
-        var i int64
-        if i, err = v.Integer(ctx); err == nil {
-            res = int(i)
-        }
+        if i, err = v.Integer(ctx); err == nil { res = i }
     }
     return
 }
 
-func uintVal(ctx Context, v Value, i uint32) (res uint32, err error) {
+func intVal(ctx Context, v Value, i int) (res int, e error) {
     if res = i; v != nil {
-        var i int64
-        if i, err = v.Integer(ctx); err == nil {
-            res = uint32(i)
-        }
+        var t int64
+        if t, e = v.Integer(ctx); e == nil { res = int(t) }
     }
     return
 }
 
-func permVal(ctx Context, v Value, i uint32) (res os.FileMode, err error) {
-    if i, err = uintVal(ctx, v, i); err == nil {
-        res = os.FileMode(i) & os.ModePerm
+func uintVal(ctx Context, v Value, i uint32) (res uint32, e error) {
+    if res = i; v != nil {
+        var t int64
+        if t, e = v.Integer(ctx); e== nil { res = uint32(t) }
     }
     return
 }
 
-func expandall1(ctx Context, w expandwhat, values ...Value) (elems []Value, num int, err error) {
+func permVal(ctx Context, v Value, i uint32) (res os.FileMode) {
+    i, _ = uintVal(ctx, v, i)
+    res = os.FileMode(i) & os.ModePerm
+    return
+}
+
+func expandall1(ctx Context, w expandwhat, values ...Value) (elems []Value, num int) {
     for _, elem := range values {
         var val Value
         if isNil(elem) {
             // TODO: report nil expand ??
-        } else if val, err = elem.expand(ctx, w); err != nil {
-            erro(ctx, "expand '%v' failed: %v", elem, err).of(elem).debug(1)
-            break
-        } else if isNil(val) || val == elem {
+        } else if val = elem.expand(ctx, w); isNil(val) || val == elem {
             elems = append(elems, elem)
         } else if true && val.expandible(ctx, w) {
             if f, ok := val.(*File); ok {
@@ -6244,7 +5762,7 @@ func expandall1(ctx Context, w expandwhat, values ...Value) (elems []Value, num 
                 warnstack(ctx, 6, "incomplete expand: %T %v -> %T %v -> {%v,%v,%v} (w=%016b)",
                     elem, elem, val, val, f.name, f.sub, f.dir, w).of(elem).debug(16)
             } else {
-                var t, _ = val.expand(ctx, w)
+                var t = val.expand(ctx, w)
                 warnstack(ctx, 6, "incomplete expand: %T %v -> %T %v (equal=%v) -> %v (w=%016b)",
                     elem, elem, val, val, (elem==val), t, w).of(elem).debug(16)
             }
@@ -6256,8 +5774,8 @@ func expandall1(ctx Context, w expandwhat, values ...Value) (elems []Value, num 
     return
 }
 
-func expandall2(ctx Context, w expandwhat, values ...Value) (res []Value, num int, err error) {
-    if res, num, err = expandall1(ctx, w, values...); err == nil && w != 0 {
+func expandall2(ctx Context, w expandwhat, values ...Value) (res []Value, num int) {
+    if res, num = expandall1(ctx, w, values...); w != 0 {
         /*for i, v := range res {
             if v.expandible(ctx, w) {
                 t, _ := v.expand(ctx, w)
@@ -6268,20 +5786,20 @@ func expandall2(ctx Context, w expandwhat, values ...Value) (res []Value, num in
     return
 }
 
-func expandmerge1(ctx Context, w expandwhat, values ...Value) (res []Value, err error) {
+func expandmerge1(ctx Context, w expandwhat, values ...Value) (res []Value) {
     var num int
-    if res, num, err = expandall1(ctx, w, values...); err == nil && num > 0 {
-         res, err = mergeresult(res, err)
+    if res, num = expandall1(ctx, w, values...); num > 0 {
+         res = mergeresult(res)
     }
     return
 }
 
-func expandmerge2(ctx Context, w expandwhat, values ...Value) ([]Value, error) {
+func expandmerge2(ctx Context, w expandwhat, values ...Value) []Value {
     return mergeresult2(expandall2(ctx, w, values...))
 }
 
-func ExpandAll(ctx Context, values ...Value) (res []Value, err error) {
-    res, _, err = expandall2(ctx, expandPlainValue, values...)
+func ExpandAll(ctx Context, values ...Value) (res []Value) {
+    res, _ = expandall2(ctx, expandPlainValue, values...)
     return
 }
 

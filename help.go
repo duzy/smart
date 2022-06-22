@@ -92,8 +92,7 @@ func print_options(ctx Context) {
         for _, opt := range opts {
                 fmt.Fprintf(stderr, "    %v:\n", opt.entry)
                 for _, info := range opt.infos {
-                        s, _ := info.Strval(ctx)
-                        fmt.Fprintf(stderr, "        %s\n", s)
+                        fmt.Fprintf(stderr, "        %s\n", info.Strval(ctx))
                 }
         }
 }

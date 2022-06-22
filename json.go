@@ -77,10 +77,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                                         err = ErrorIllJson; break LoopJSON
                                 }
                                 if k := stack[x-1].Get(0); k == nil {
-                                        if s, err = k.Strval(ctx); err != nil {
-                                                erro(ctx, "%v", err).debug(1)
-                                                return
-                                        } else if s != JsonObject {
+                                        if s = k.Strval(ctx); s != JsonObject {
                                                 err = ErrorIllJson; break LoopJSON
                                         }
                                 }
@@ -91,10 +88,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                                         err = ErrorIllJson; break LoopJSON
                                 }
                                 if k := stack[x-1].Get(0); k == nil {
-                                        if s, err = k.Strval(ctx); err != nil {
-                                                erro(ctx, "%v", err).debug(1)
-                                                return
-                                        } else if s != JsonArray {
+                                        if s = k.Strval(ctx); s != JsonArray {
                                                 err = ErrorIllJson; break LoopJSON
                                         }
                                 }
@@ -113,10 +107,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                         node = stack[x-1]
                         if k := node.Get(0); k != nil {
                                 var kind string
-                                if kind, err = k.Strval(ctx); err != nil {
-                                        erro(ctx, "%v", err).debug(1)
-                                        return
-                                } else if kind == JsonArray {
+                                if kind = k.Strval(ctx); kind == JsonArray {
                                         node.Append(sv); continue
                                 } else if kind != JsonObject {
                                         err = ErrorIllJson; break LoopJSON
@@ -167,10 +158,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                 }
                 if node != nil && value != nil {
                         if k := node.Get(0); k != nil {
-                                if s, err = k.Strval(ctx); err != nil {
-                                        erro(ctx, "%v", err).debug(1)
-                                        return
-                                } else if s != JsonArray {
+                                if s = k.Strval(ctx); s != JsonArray {
                                         err = ErrorIllJson; break LoopJSON
                                 }
                         }

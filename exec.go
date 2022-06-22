@@ -449,7 +449,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
           erro(ctx, "%s", v[0].string).at(lpos)
           erro(ctx, "%s", obj).at(lpos)
           if !isNil(obj) {
-            if val, _ := obj.expand(ctx.closure().programCtx(), expandPlainValue); !isNil(val) {
+            if val := obj.expand(ctx.closure().programCtx(), expandPlainValue); !isNil(val) {
               erro(ctx, "%s -> %v", obj.Name(ctx), val).at(lpos)
             }
           }
@@ -581,17 +581,13 @@ func (p *ExecResult) cmp(ctx Context, v Value) (res cmpres) {
   }
   return
 }
-func (p *ExecResult) True(ctx Context) (res bool, err error) {
+func (p *ExecResult) True(ctx Context) (res bool) {
   res = p.Status == 0 && p.Stderr.Buf != nil && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */
   return
 }
-func (p *ExecResult) Integer(ctx Context) (int64, error) {
-  return int64(p.Status), nil
-}
-func (p *ExecResult) Float(ctx Context) (float64, error) {
-  return float64(p.Status), nil
-}
-func (p *ExecResult) Strval(ctx Context) (s string, err error) {
+func (p *ExecResult) Integer(ctx Context) (i int64, _ error) { return int64(p.Status), nil }
+func (p *ExecResult) Float(ctx Context) (f float64, _ error) { return float64(p.Status), nil }
+func (p *ExecResult) Strval(ctx Context) (s string) {
   if p.Stdout.Buf != nil { s = p.Stdout.Buf.String() }
   return
 }
@@ -630,7 +626,7 @@ func (p *ExecResult) runContainerAndRetry(ctx Context) (status int, err error) {
   )
 
   fmt.Fprintf(sh.Stderr, "\n---- Run container '%s'\n", name)
-  if entries, _ := p.container.resolveEntries(ctx, "run", false, false); entries != nil {
+  if entries := p.container.resolveEntries(ctx, "run", false, false); entries != nil {
     for _, run := range entries.all {
       if _, brks := run.execute(p.ctx); brks.has() {
         erro(ctx, "%d breakers", len(brks)).at(p.position).debug(1)
@@ -706,7 +702,7 @@ func (p *ExecResult) ensureContainerRunning(ctx Context, containerName string) (
   } (stderrR)
 
   if err = cmd.Run(); err == nil && foundID == "" {
-    if entries, _ := p.container.resolveEntries(ctx, "run", false, false); entries != nil {
+    if entries := p.container.resolveEntries(ctx, "run", false, false); entries != nil {
       for _, run := range entries.all {
         if _, brks := run.execute(p.ctx); brks.has() {
           erro(ctx, "%d breakers", len(brks)).at(p.position).debug(1)
@@ -793,14 +789,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     pos = ctx.Position()
     cmd = p.cmd
   )
-  if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-    erro(ctx, "merge args failed: %v", err).debug(1)
-    return
-  } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-    erro(ctx, "parse opts failed: %v", err)
-    errostack(ctx, 5, "%v", ctx).debug(1)
-    return
-  } else if opts.deprecated {
+  if args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...); opts.deprecated {
     erro(ctx, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug(1)
     return
   } else if !opts.prompt {
@@ -828,10 +817,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     // no stamp required for Flags
   } else if _, ok = target.(*File); !ok {
     // no stamp required for non-file targets
-  } else if targetName, err = fullnameOrStrval(ctx, target); err != nil {
-    erro(ctx, "stringify target '%v' failed: %v", target, err).of(target).debug(1)
-    return
-  } else if ctx.configuration() {
+  } else if targetName = fullnameOrStrval(ctx, target); ctx.configuration() {
     // does nothing
   } else if opts.wait {
     // good to work without (stamp) or (wait) with the -wait flag
@@ -863,16 +849,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   for i, v := range args {
     var s string
     if p.contained && i == 0 {
-      if s, err = v.Strval(ctx); err != nil {
-        erro(ctx, "strval '%v' failed: %v", v, err).of(v).debug(1)
-        return
-      } else if s == "shell" {
+      if s = v.Strval(ctx); s == "shell" {
         cmd = defaultShell
       }
-    } else if s, err = v.Strval(ctx); err != nil {
-      erro(ctx, "strval '%v' failed: %v", v, err).of(v).debug(1)
-      return
-    } else if s = strings.TrimSpace(s); s != "" {
+    } else if s = strings.TrimSpace(v.Strval(ctx)); s != "" {
       aa = append(aa, s)
     }
   }
@@ -892,13 +872,12 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       return
     }
 
-    var strval = func(name string) (str string, err error) {
+    var strval = func(name string) (str string) {
       var ctx = closureWith(ctx, pos, container.Scope())
-      if obj, _ := container.resolveObject(ctx, name); obj != nil {
+      if obj := container.resolveObject(ctx, name); obj != nil {
         if def, _ := obj.(*Def); def != nil {
-          var v Value
-          if v, err = def.DiscloseValue(ctx); err == nil && v != nil {
-            if str, err = v.Strval(ctx); str == "-" {
+          if v := def.DiscloseValue(ctx); v != nil {
+            if str = v.Strval(ctx); str == "-" {
               /*if v, err = def.DiscloseValue(container); err == nil && v != nil {
                   if str, err = v.Strval(ctx); str == "" { str = "-" }
                   fmt.Fprintf(stderr, "%v: %v (%v)\n", name, str, def)
@@ -911,19 +890,13 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     }
 
     var containerName string
-    if containerName , err = strval("container"); err != nil {
-      erro(ctx, "strval .container.container failed: %v", err).debug(1)
-      return
-    } else if containerName == "" {
+    if containerName = strval("container"); containerName == "" {
       erro(ctx, ".container.name undefined").debug(1)
       return
     }
 
     var containerImage string
-    if containerImage, err = strval("image"); err != nil {
-      erro(ctx, "strval .container.image failed: %v", err).debug(1)
-      return
-    } else if containerImage == "" {
+    if containerImage = strval("image"); containerImage == "" {
       erro(ctx, ".container.image undefined").debug(1)
       return
     }
@@ -959,10 +932,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     if v = o.(*Def).Call(positional(ctx, program.position)); isNil(v) || isNone(v) {
       erro(ctx, "CWD is <nil>").debug(1)
       return
-    } else if cwd, err = v.Strval(ctx); err != nil {
-      erro(ctx, "strval '%v' failed: %v", v, err).debug(1)
-      return
-    } else if cwd == "" {
+    } else if cwd = v.Strval(ctx); cwd == "" {
       erro(ctx, "CWD is empty").debug(1)
       return
     }
@@ -987,10 +957,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     if l, _ := def.value.(*List); l != nil {
       for _, v := range l.Elems {
         var t Value
-        if t, err = v.expand(ctx, expandClosure); err != nil {
-          erro(ctx, "expand value '%v' failed: %v", v, err).of(v).debug(1)
-          return
-        } else if isNil(t) { t = v }
+        if t = v.expand(ctx, expandClosure); isNil(t) { t = v }
         if p, ok := t.(*Pair); ok {
           envars = append(envars, p)
         } else {
@@ -1010,17 +977,12 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     w = expandPlainValue
   )
   if opts.fullname { w |= expandFullName }
-  if recipes, err = expandmerge2(ctx, w, program.recipes...); err != nil {
-    erro(ctx, "merge recipes failed: %v", err).debug(1)
-    return
-  }
+  recipes = expandmerge2(ctx, w, program.recipes...)
+
   for _, recipe := range recipes {
     var str string
     if !recipePos.IsValid() { recipePos = recipe.Position() }
-    if str, err = recipe.Strval(ctx); err != nil {
-      erro(ctx, "strval recipe failed: %v", err).of(recipe).debug(1)
-      return
-    } else if str = strings.TrimRightFunc(str, unicode.IsSpace); str == "" {
+    if str = strings.TrimRightFunc(recipe.Strval(ctx), unicode.IsSpace); str == "" {
       source += "\n" // an empty line
       continue
     } else if source += str; strings.HasSuffix(source, "\\") {
@@ -1051,15 +1013,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     envs []string = os.Environ()
   )
   for i, p := range envars {
-    var k, v string
-    if k, err = p.Key.Strval(ctx); err != nil {
-      erro(ctx, "strval '%v' failed: %v", p.Key, err).of(p.Key).debug(1)
-      return
-    }
-    if v, err = p.Value.Strval(ctx); err != nil {
-      erro(ctx, "strval '%v' failed: %v", p.Value, err).of(p.Value).debug(1)
-      return
-    }
+    var (
+      k = p.Key.Strval(ctx)
+      v = p.Value.Strval(ctx)
+    )
     if i > 0 { envstr += " && " }
     envstr += fmt.Sprintf(`%s=%s`, k, strconv.Quote(v))
     envs = append(envs, fmt.Sprintf("%s=%s", k, v))

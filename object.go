@@ -45,7 +45,7 @@ func (_ *objbase) kind() kind { return valOther }
 func (p *objbase) DeclScope() *Scope { return p.scope }
 func (p *objbase) OwnerProject() *Project { return p.owner }
 func (p *objbase) String() string { return fmt.Sprintf("{unknown %p}", p) }
-func (p *objbase) Strval(ctx Context) (string, error) { return fmt.Sprintf("{unknown %p}", p), nil }
+func (p *objbase) Strval(ctx Context) string { return fmt.Sprintf("{unknown %p}", p) }
 func (p *objbase) Name(ctx Context) string { panic("inquiring name of an unknown object") }
 func (p *objbase) Get(_ Context, name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
 func (p *objbase) rescope(_ Context, scope *Scope) { panic("rescoping unknown object") }
@@ -66,8 +66,8 @@ type knownobject struct { // generally named objects
         //members [][]string
 }
 func (p *knownobject) String() string { return fmt.Sprintf("{object %s}", p.name) }
-func (p *knownobject) Strval(_ Context) (string, error) { return fmt.Sprintf("{object %s}", p.name), nil }
-func (p *knownobject) True(_ Context) (bool, error) { return true, nil }
+func (p *knownobject) Strval(_ Context) string { return fmt.Sprintf("{object %s}", p.name) }
+func (p *knownobject) True(_ Context) bool { return true }
 func (p *knownobject) Name(ctx Context) string { return p.name }
 func (p *knownobject) rescope(_ Context, scope *Scope) {
         if p.scope != scope {
@@ -98,26 +98,23 @@ func (p *unresolvedobject) Name(ctx Context) (name string) {
                 erro(ctx, "unresolved object name is nil").at(p.position)
         } else if ctx == nil {
                 name = p.name.String()
-        } else if s, e := p.name.Strval(ctx); e != nil {
-                erro(ctx, "strval name '%v' failed: %v", p.name, e).at(p.position)
         } else {
-                name = s
+                name = p.name.Strval(ctx)
         }
         return
 }
 func (p *unresolvedobject) String() string { return p.name.String() }
-func (p *unresolvedobject) Strval(_ Context) (string, error) {
+func (p *unresolvedobject) Strval(_ Context) string {
         // The string value of a unresolved object is "", so that a
         // unresolved &(var) is stringed to ""
-        return /*p.name.Strval()*/"", nil
+        return /*p.name.Strval()*/""
 }
-func (p *unresolvedobject) True(_ Context) (bool, error) { return false, nil }
+func (p *unresolvedobject) True(_ Context) bool { return false }
 func (p *unresolvedobject) Call(ctx Context, a... Value) (result Value) { result = p; return }
 func (p *unresolvedobject) Execute(ctx Context, a... Value) (result []Value, err error) { return []Value{p}, nil }
 func (p *unresolvedobject) rescope(ctx Context, scope *Scope) {
         if p.scope != scope {
-                var name, err = p.name.Strval(ctx)
-                if err != nil { panic(fmt.Sprintf("unresolved name error: %v", p.name, err)) }
+                var name = p.name.Strval(ctx)
                 if p.scope != nil { delete(p.scope.elems, name) }
                 if p.scope = scope; p.scope != nil {
                         p.scope.elems[name] = p
@@ -155,10 +152,10 @@ func (p *ProjectName) Position() (pos Position) {
         return
 }
 func (p *ProjectName) String() string { return p.name }
-func (p *ProjectName) Strval(_ Context) (string, error) { return p.name, nil }
-func (p *ProjectName) True(_ Context) (bool, error) { return p.project != nil, nil }
+func (p *ProjectName) Strval(_ Context) string { return p.name }
+func (p *ProjectName) True(_ Context) bool { return p.project != nil }
 func (p *ProjectName) Get(ctx Context, name string) (value Value, err error) {
-        if p.project != nil { value, err = p.project.resolveObject(ctx, name) }
+        if p.project != nil { value = p.project.resolveObject(ctx, name) }
         return
 }
 
@@ -218,8 +215,8 @@ type ScopeName struct {
 // containing the import statement.
 func (n *ScopeName) NamedScope() *Scope { return n.scope }
 func (n *ScopeName) String() string  { return fmt.Sprintf("{scope %s}", n.name) }
-func (n *ScopeName) Strval(ctx Context) (string, error) { return fmt.Sprintf("scope %s", n.name), nil }
-func (n *ScopeName) True(ctx Context) (bool, error) { return n.scope != nil, nil }
+func (n *ScopeName) Strval(ctx Context) string { return fmt.Sprintf("scope %s", n.name) }
+func (n *ScopeName) True(ctx Context) bool { return n.scope != nil }
 func (n *ScopeName) Get(ctx Context, name string) (Value, error) {
         if sym := n.scope.Resolve(name); sym != nil {
                 value, _ := sym.(Value)
@@ -342,21 +339,17 @@ func (ac *autoContext) autoGet(name string) (res Value, found bool) {
                 for /*ic = ic.inner()*/; ic != nil; ic = ic.inner() {
                         if d, ok := res.(*delegate); !ok || d.name(ic, false) != name {
                                 break
-                        } else if val, err := res.expand(ic, expandDelegate); err != nil {
-                                erro(ac, `expand "%v" failed: %v`, res, err)
-                                erro(ac, `expand "%v": %v`, ic).debug(6)
-                                return
-                        } else if !(isNil(val) || isNone(val)) { res = val }
+                        } else if val := res.expand(ic, expandDelegate); !isTrivial(val) {
+                                res = val
+                        }
                 }
         } else if false {
                 for /*ic := ic.auto()*/; ic != nil; ic = ic.auto() {
                         if d, ok := res.(*delegate); !ok || d.name(ic, false) != name {
                                 break
-                        } else if val, err := res.expand(ic, expandDelegate); err != nil {
-                                erro(ac, `expand "%v" failed: %v`, res, err)
-                                erro(ac, `expand "%v": %v`, ic).debug(6)
-                                return
-                        } else if !(isNil(val) || isNone(val)) { res = val }
+                        } else if val := res.expand(ic, expandDelegate); !isTrivial(val) {
+                                res = val
+                        }
                 }
         }
         return
@@ -412,10 +405,7 @@ func (ac *autoContext) autoArgs(params []*Def, args []Value) (names []string, er
                         return
                 } else if p, ok := a.(*Pair); ok {
                         var s string
-                        if s, err = p.Key.Strval(ac); err != nil {
-                                erro(ac, "strval '%v' failed: %v", p.Key, err).of(p.Key).debug(1)
-                                return
-                        } else if namedParam(s) {
+                        if s = p.Key.Strval(ac); namedParam(s) {
                                 name, a = s, p.Value
                         } else if false {
                                 for _, param := range params { warn(ac, "%v: %v", s, param) }
@@ -473,31 +463,31 @@ func (d *Def) String() (s string) {
         }
         return
 }
-func (d *Def) Strval(ctx Context) (res string, err error) {
+func (d *Def) Strval(ctx Context) (res string) {
         if d.origin == DefArg || d.origin == DefAuto {
                 if val, has := ctx.autoGet(d.name); has && !isNil(val) {
-                        res, err = val.Strval(ctx)
+                        res = val.Strval(ctx)
                 }
         } else {
                 var value Value
                 d.mutex.Lock()
                 value = d.value
                 d.mutex.Unlock()
-                if !isNil(value) { res, err = value.Strval(ctx) }
+                if !isNil(value) { res = value.Strval(ctx) }
         }
         return
 }
-func (d *Def) True(ctx Context) (res bool, err error) {
+func (d *Def) True(ctx Context) (res bool) {
         if d.origin == DefArg || d.origin == DefAuto {
                 if val, has := ctx.autoGet(d.name); has && !isNil(val) {
-                        res, err = val.True(ctx)
+                        res = val.True(ctx)
                 }
         } else {
                 var value Value
                 d.mutex.Lock()
                 value = d.value
                 d.mutex.Unlock()
-                if !isNil(value) { res, err = value.True(ctx) }
+                if !isNil(value) { res = value.True(ctx) }
         }
         return
 }
@@ -557,7 +547,7 @@ func (d *Def) expandible(ctx Context, w expandwhat) (res bool) {
         }
         return
 }
-func (d *Def) expand(ctx Context, w expandwhat) (res Value, err error) {
+func (d *Def) expand(ctx Context, w expandwhat) (res Value) {
         var (
                 origin = d.origin
                 value0, value1, value2 Value
@@ -574,18 +564,13 @@ func (d *Def) expand(ctx Context, w expandwhat) (res Value, err error) {
                 return // does nothing
         } else if isNone(value0) {
                 if w&expandDef != 0 { res = value0 }
-        } else if value1, err = value0.expand(ctx, w); err != nil {
-                erro(ctx, "expand '%v' failed: %v", value0, err).of(value0).debug(1)
-                return
-        } else if w&expandDef == 0 {
+        } else if value1 = value0.expand(ctx, w); w&expandDef == 0 {
                 if !isNil(value1) && value1 != value0 {
                         res = &Def{ knownobject: d.knownobject, origin: origin, value: value1 }
                 }
         } else if isNil(value1) {
                 res = value0
-        } else if value2, err = value1.expand(ctx, w); err != nil {
-                erro(ctx, "expand '%v' failed: %v", value1, err).of(value0).debug(1)
-        } else if isNil(value2) {
+        } else if value2 = value1.expand(ctx, w); isNil(value2) {
                 res = value1
         } else {
                 res = value2
@@ -637,8 +622,8 @@ func (d *Def) isEmpty(ctx Context) bool {
         }
         return isTrivial(val) //isNone(val) || isNil(val)
 }
-func (d *Def) val(ctx Context, value Value) (err error) { return d.set(ctx, d.origin, value) }
-func (d *Def) set(ctx Context, origin Origin, value Value) (err error) {
+func (d *Def) val(ctx Context, value Value) { d.set(ctx, d.origin, value) }
+func (d *Def) set(ctx Context, origin Origin, value Value) {
         if false && d.name == "ldflags" {
                 warn(ctx, "%v, %v; %v", d.origin, origin, d.value == value)
                 warn(ctx, "%v", d)
@@ -686,33 +671,15 @@ func (d *Def) set(ctx Context, origin Origin, value Value) (err error) {
         var elems []Value
         switch d.origin = origin; d.origin {
         case DefExpand1: // expands delegates
-                if elems, _, err = expandall2(ctx, expandDelegate, value); err != nil {
-                        erro(ctx, "%v: expand value '%v' failed: %v", d.origin, value, err).of(value)
-                        return
-                } else {
-                        var val = MakeListOrScalar(value.Position(), elems)
-                        d.mutex.Lock()
-                        d.value = val
-                        d.mutex.Unlock()
-                        if false && d.name == "..." {
-                                info(ctx, "%v", value).at(d.position)
-                                info(ctx, "%v", val).at(d.position).debug(1)
-                        }
-                }
+                elems, _ = expandall2(ctx, expandDelegate, value)
+                d.mutex.Lock()
+                d.value = MakeListOrScalar(value.Position(), elems)
+                d.mutex.Unlock()
         case DefExpand2: // expands delegates and closures
-                if elems, _, err = expandall2(ctx, expandPlainValue/*|expandArgs*/, value); err != nil {
-                        erro(ctx, "%v: expand value '%v' failed: %v", d.origin, value, err).of(value)
-                        return
-                } else {
-                        var val = MakeListOrScalar(value.Position(), elems)
-                        d.mutex.Lock()
-                        d.value = val
-                        d.mutex.Unlock()
-                        if false && d.name == "..." {
-                                info(ctx, "%v", value).at(d.position)
-                                info(ctx, "%v", val).at(d.position).debug(1)
-                        }
-                }
+                elems, _ = expandall2(ctx, expandPlainValue/*|expandArgs*/, value)
+                d.mutex.Lock()
+                d.value = MakeListOrScalar(value.Position(), elems)
+                d.mutex.Unlock()
                 /*
         case DefExecute:
                 if err = d.execute(); err != nil {
@@ -725,14 +692,11 @@ func (d *Def) set(ctx Context, origin Origin, value Value) (err error) {
                 d.value = value
                 d.mutex.Unlock()
         }
-        if false && d.name == "ldflags" {
-                warn(ctx, "%v", d).debug(1)
-        }
         return
 }
 
 //TODO: func (d *Def) prepend(ctx Context, va... Value) (err error)
-func (d *Def) append(ctx Context, va... Value) (err error) {
+func (d *Def) append(ctx Context, va... Value) {
         var (
                 pos = ctx.Position()
                 value Value
@@ -740,15 +704,7 @@ func (d *Def) append(ctx Context, va... Value) (err error) {
         )
         if !pos.IsValid() { pos = d.position }
 
-        if false && d.name == "ldflags" && !isTrivial(d.value) && !strings.Contains(d.value.String(), "&(if &(filter %.swift,&(sources)),-L$(MacOSX.sdk)/usr/lib/swift)") {
-                warn(ctx, "%v", d.origin)
-                warn(ctx, "%v", d)
-                warnstack(ctx, 5, ";      +=%v", va).debug(16)
-        }
         for i, val := range va { // NOTE: fix Def as delegate value
-                if false && d.name == "arflags" && strings.Contains(val.String(), "crs") && strings.Contains(d.value.String(), "crs") {
-                        warnstack(ctx, 5, "%v %v %v", va, val, d).debug(16)
-                }
                 var def, ok = val.(*Def)
                 if !ok { continue } else {
                         // Appending Def value is not recommended, but if it does, we
@@ -764,24 +720,12 @@ func (d *Def) append(ctx Context, va... Value) (err error) {
                 case DefExpand1, DefExpand2: va[i] = def.value
                 default: va[i] = MakeDelegate(/*val.Position()*/pos, token.LPAREN, def)
                 }
-                if false && d.name == "ldflags" { warn(ctx, "%v", def).debug(1) }
         }
         switch d.origin {
         case DefExpand1: // :=     expands delegates
-                if va, _, err = expandall2(ctx, expandDelegate, va...); err != nil {
-                        erro(ctx, "%v: expand value '%v' failed: %v", d.origin, value, err).of(value)
-                        return
-                }
+                va, _ = expandall2(ctx, expandDelegate, va...)
         case DefExpand2: // ::=    expands delegates and closures
-                if va, _, err = expandall2(ctx, expandDelegate|expandClosure, va...); err != nil {
-                        erro(ctx, "%v: expand value '%v' failed: %v", d.origin, value, err).of(value)
-                        return
-                }
-        }
-        if false && d.name == "ldflags" {
-                warn(ctx, "%v", d.origin)
-                warn(ctx, "%v", d)
-                warnstack(ctx, 5, ";      +=%v", va).debug(16)
+                va, _ = expandall2(ctx, expandDelegate|expandClosure, va...)
         }
 
         for _, val := range va {
@@ -817,14 +761,13 @@ func (d *Def) append(ctx Context, va... Value) (err error) {
         }
 
         if true { assert(list != nil, "nil values evaluated") }
-        return d.val(ctx, list)
+        d.val(ctx, list)
 }
 
 func (d *Def) call(ctx Context, a... Value) (res Value) {
         var (
                 w = expandDelegate // NOTE: can't expand closure here (aka. expandClosure)
                 value Value
-                err error
         )
         if d.origin == DefArg || d.origin == DefAuto {
                 switch value, _ = ctx.autoGet(d.name); v := value.(type) {
@@ -861,9 +804,7 @@ func (d *Def) call(ctx Context, a... Value) (res Value) {
         var ac = autoContext{ Context:ctx, defs:make(autoDefMap) }
         ac.autoArgs(nil, a)
 
-        if res, err = value.expand(&ac, w); err != nil {
-                erro(ctx, "expand def value failed: %v", err).debug(1)
-        } else if isNil(res) {
+        if res = value.expand(&ac, w); isNil(res) {
                 if value.expandible(&ac, w) {
                         if l, ok := value.(*List); ok {
                                 var infoList func(*List)
@@ -890,7 +831,6 @@ func (d *Def) execute(ctx Context, a... Value) (res Value) {
                 origin Origin
                 value Value
                 cmd string
-                err error
         )
         d.mutex.Lock()
         origin, value = d.origin, d.value
@@ -900,10 +840,7 @@ func (d *Def) execute(ctx Context, a... Value) (res Value) {
                 erro(ctx, "%v: non-execute def: %v", origin, value).debug(1)
         } else if isNil(value) || isNone(value) {
                 // does nothing
-        } else if cmd, err = value.Strval(ctx); err != nil {
-                erro(ctx, "%v: strval '%v' failed: %v", origin, value, err).debug(1)
-                res = MakeNone(pos)
-        } else if cmd == "" {
+        } else if cmd = value.Strval(ctx); cmd == "" {
                 warn(ctx, "%v: empty command (value=%v)", origin, value).debug(1)
                 res = MakeNone(pos)
         } else {
@@ -911,7 +848,7 @@ func (d *Def) execute(ctx Context, a... Value) (res Value) {
                 var stdout, stderr bytes.Buffer
                 var sh = exec.Command("sh", "-c", cmd)
                 sh.Stdout, sh.Stderr = &stdout, &stderr
-                if err = sh.Run(); err != nil {
+                if err := sh.Run(); err != nil {
                         erro(ctx, "%v: execute command failed: %v", origin, err)
                         erro(ctx, "%v: execute command: %s", origin, cmd).debug(2)
                         res = MakeNone(pos)
@@ -956,7 +893,7 @@ func (d *Def) Call(ctx Context, a... Value) (res Value) {
         return
 }
 
-func (d *Def) DiscloseValue(ctx Context) (res Value, err error) {
+func (d *Def) DiscloseValue(ctx Context) (res Value) {
         var (
                 pos = ctx.Position()
                 value Value
@@ -966,9 +903,7 @@ func (d *Def) DiscloseValue(ctx Context) (res Value, err error) {
         d.mutex.Unlock()
         if isNil(value) {
                 // does nothing
-        } else if res, err = value.expand(ctx, expandClosure); err != nil {
-                erro(ctx, "expand '%v' failed: %v", value, err).at(pos).debug(1)
-        } else if isNil(res) {
+        } else if res = value.expand(ctx, expandClosure); isNil(res) {
                 res = value
         }
         return
@@ -1029,10 +964,10 @@ func (p *undetermined) String() (s string) {
         s += p.value.String()
         return
 }
-func (p *undetermined) Strval(ctx Context) (string, error) { return p.value.Strval(ctx) }
-func (p *undetermined) True(ctx Context) (bool, error) { return false, nil }
-func (p *undetermined) Float(ctx Context) (float64, error) { return 0, nil }
-func (p *undetermined) Integer(ctx Context) (int64, error) { return 0, nil }
+func (p *undetermined) Strval(ctx Context) string { return p.value.Strval(ctx) }
+func (p *undetermined) True(ctx Context) bool { return false }
+func (p *undetermined) Float(ctx Context) (f float64, _ error) { return 0, nil }
+func (p *undetermined) Integer(ctx Context) (i int64, _ error) { return 0, nil }
 func (p *undetermined) updated(_ Context, _ ...bool) bool { return false }
 func (p *undetermined) updatedDeps(_ Context, _ ...Value) []Value { return nil }
 func (p *undetermined) refs(ctx Context, v Value) bool {
@@ -1044,13 +979,11 @@ func (p *undetermined) defs(ctx Context, s ...string) (res []*Def) {
 func (p *undetermined) expandible(ctx Context, w expandwhat) bool {
         return p.identifier.expandible(ctx, w) || p.value.expandible(ctx, w)
 }
-func (p *undetermined) expand(ctx Context, w expandwhat) (res Value, err error) {
+func (p *undetermined) expand(ctx Context, w expandwhat) (res Value) {
         var i, v Value
-        if i, err = p.identifier.expand(ctx, w); err != nil {
-                erro(ctx, "expand '%v' failed: %v", p.identifier, err).of(p.identifier).debug(1)
-        } else if v, err = p.value.expand(ctx, w); err != nil {
-                erro(ctx, "expand '%v' failed: %v", p.value, err).of(p.value).debug(1)
-        } else if (!isNil(i) && i != p.identifier) || (!isNil(v) && v != p.value) {
+        i = p.identifier.expand(ctx, w)
+        v = p.value.expand(ctx, w)
+        if (!isNil(i) && i != p.identifier) || (!isNil(v) && v != p.value) {
                 if isNil(i) { i = p.identifier }
                 if isNil(v) { v = p.value }
                 res = &undetermined{ p.tok, i, v }
@@ -1093,7 +1026,7 @@ type Builtin struct {
         f BuiltinFunc
 }
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
-func (p *Builtin) True(_ Context) (bool, error) { return p.f != nil, nil }
+func (p *Builtin) True(_ Context) bool { return p.f != nil }
 func (p *Builtin) Call(ctx Context, a... Value) Value { return p.f(ctx, a...) }
 func (p *Builtin) cmp(_ Context, v Value) (res cmpres) {
         if a, ok := v.(*Builtin); ok {
@@ -1149,18 +1082,14 @@ func (ec *entryContext) String() string {
                         }
                 }
                 for _, c := range cc {
-                        if t, e := c.ent.Strval(c.Context); e != nil {
-                                return fmt.Sprintf("[%v]{%s}", e, ec.Context)
-                        } else if s != "" {
+                        if t := c.ent.Strval(c.Context); s != "" {
                                 s = fmt.Sprintf("%s{%s}", t, s)
                         } else {
                                 s = t
                         }
                 }
                 return s
-        } else if s, e := ec.ent.Strval(ec.Context); e != nil { // FIXME: may fall into a time-consuming trap in this branch
-                return fmt.Sprintf("[%v]{%s}", e, ec.Context)
-        } else if t := ec.Context.String(); t != "" {
+        } else if s, t := ec.ent.Strval(ec.Context), ec.Context.String(); t != "" {
                 return fmt.Sprintf("%s{%s}", s, t)
         } else {
                 return fmt.Sprintf("%s", s)
@@ -1239,17 +1168,15 @@ func (entry *RuleEntry) Name(ctx Context) (name string) {
                 erro(ctx, "nil entry")
         } else if isNil(entry.target) {
                 erro(ctx, "entry target is nil").at(entry.position)
-        } else if s, e := entry.target.Strval(ctx); e != nil {
-                erro(ctx, "strval '%v' failed: %v", entry.target, e).at(entry.position)
         } else {
-                name = s
+                name = entry.target.Strval(ctx)
         }
         return
 }
-func (entry *RuleEntry) True(ctx Context) (bool, error) { return entry.target.True(ctx) }
-func (entry *RuleEntry) Float(_ Context) (float64, error) { return 0, nil }
-func (entry *RuleEntry) Integer(_ Context) (int64, error) { return 0, nil }
-func (entry *RuleEntry) Strval(ctx Context) (string, error) { return entry.target.Strval(ctx) }
+func (entry *RuleEntry) True(ctx Context) bool { return entry.target.True(ctx) }
+func (entry *RuleEntry) Float(_ Context) (f float64, _ error) { return 0, nil }
+func (entry *RuleEntry) Integer(_ Context) (i int64, _ error) { return 0, nil }
+func (entry *RuleEntry) Strval(ctx Context) string { return entry.target.Strval(ctx) }
 func (entry *RuleEntry) String() string {
         if entry.target == nil { return "<nil entry>" }
         return entry.target.String()
@@ -1383,7 +1310,7 @@ func (entry *RuleEntry) expandible(ctx Context, w expandwhat) (res bool) {
         }
         return
 }
-func (entry *RuleEntry) expand(ctx Context, w expandwhat) (res Value, err error) {
+func (entry *RuleEntry) expand(ctx Context, w expandwhat) (res Value) {
         if entry == nil {
                 // happens from some &{xxx} exprs
                 erro(ctx, "expand nil entry (w=%016b)", w).debug(1)
@@ -1391,10 +1318,7 @@ func (entry *RuleEntry) expand(ctx Context, w expandwhat) (res Value, err error)
         }
 
         var target Value
-        if target, err = entry.target.expand(ctx, w); err != nil {
-                erro(ctx, "expand '%v' failed: %v", entry.target, err).at(entry.position).debug(1)
-                return
-        } else if !isNil(target) && target != entry.target {
+        if target = entry.target.expand(ctx, w); !isNil(target) && target != entry.target {
                 // TODO: test if programs are needed to be disclosed??
                 res = &RuleEntry{
                         entry.class, target,
@@ -1488,20 +1412,16 @@ func (entry *RuleEntry) option(ctx Context) (res bool, infos []Value) {
                         g, ok := depend.(*modifiergroup)
                         if!ok { continue }
                         for _, m := range g.modifiers {
-                                s, e := m.name.Strval(ctx)
-                                if e != nil || s != "configure" { continue }
+                                if m.name.Strval(ctx) != "configure" { continue }
                                 for _, arg := range m.args {
                                         a, ok := arg.(*Argumented)
                                         if!ok { continue }
                                         f, ok := a.value.(*Flag)
                                         if!ok { continue }
-                                        s, e := f.name.Strval(ctx)
-                                        if e != nil { continue }
-                                        if s != "option" { continue }
+                                        if f.name.Strval(ctx) != "option" { continue }
                                         for _, v := range a.args {
                                                 if p, ok := v.(*Pair); ok {
-                                                        s, _ := p.Key.Strval(ctx)
-                                                        if s != "info" { continue }
+                                                        if p.Key.Strval(ctx) != "info" { continue }
                                                         v = p.Value
                                                 }
                                                 infos = append(infos, v)
@@ -1516,11 +1436,9 @@ func (entry *RuleEntry) option(ctx Context) (res bool, infos []Value) {
 }
 
 type PatternEntry struct { RuleEntry }
-func (p *PatternEntry) expand(ctx Context, w expandwhat) (res Value, err error) {
+func (p *PatternEntry) expand(ctx Context, w expandwhat) (res Value) {
         var ent Value
-        if ent, err = p.RuleEntry.expand(ctx, w); err != nil {
-                erro(ctx, "expand '%v' failed: %v", p.RuleEntry, err).at(p.position).debug(1)
-        } else if !isNil(ent) && ent != &p.RuleEntry {
+        if ent = p.RuleEntry.expand(ctx, w); !isNil(ent) && ent != &p.RuleEntry {
                 res = &PatternEntry{ *ent.(*RuleEntry) }
         }
         return
@@ -1562,12 +1480,9 @@ func (p *stemmed) String() (s string) {
         return fmt.Sprintf("<%s:%s>", p.target, s)
 }
 func (p *stemmed) Target() Value { return p.target }
-func (p *stemmed) expand(ctx Context, w expandwhat) (res Value, err error) {
+func (p *stemmed) expand(ctx Context, w expandwhat) (res Value) {
         var v Value
-        if v, err = p.PatternEntry.expand(ctx, w); err != nil {
-                erro(ctx, "expand '%v' failed: %v", p.PatternEntry, err).at(p.position).debug(1)
-                return
-        } else if !isNil(v) && v != p.PatternEntry {
+        if v = p.PatternEntry.expand(ctx, w); !isNil(v) && v != p.PatternEntry {
                 res = &stemmed{v.(*PatternEntry), p.target, p.Stems}
         }
         return

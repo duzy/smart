@@ -52,7 +52,7 @@ func (m *modifier) expandible(ctx Context, w expandwhat) (res bool) {
         }
         return
 }
-func (m *modifier) expand(ctx Context, _ expandwhat) (Value, error) { return m, nil }
+func (m *modifier) expand(ctx Context, _ expandwhat) (Value) { return m }
 func (_ *modifier) cmp(ctx Context, v Value) (res cmpres) {
         if _, ok := v.(*modifier); ok { res = cmpEqual }
         return
@@ -98,7 +98,7 @@ func (g *modifiergroup) expandible(ctx Context, w expandwhat) (res bool) {
         }
         return
 }
-func (g *modifiergroup) expand(ctx Context, _ expandwhat) (Value, error) { return g, nil }
+func (g *modifiergroup) expand(ctx Context, _ expandwhat) (Value) { return g }
 func (_ *modifiergroup) cmp(ctx Context, v Value) (res cmpres) {
         if _, ok := v.(*modifiergroup); ok { res = cmpEqual }
         return
@@ -143,7 +143,7 @@ func (g *modifiergroup) String() (s string) {
 
 type (
         ModifierFunc   func(Context, ...Value) (Value, breakers)
-        PredictionFunc func(Context, ...Value) (Value, error)
+        PredictionFunc func(Context, ...Value) (Value)
 )
 
 var (
@@ -234,16 +234,12 @@ func getGroupElem(value Value, n int, v Value) Value {
         return v
 }
 
-func promptShellResult(ctx Context, value Value, n int) (err error) {
+func promptShellResult(ctx Context, value Value, n int) {
         if g, ok := value.(*Group); ok && g != nil {
                 if elem := g.Get(0); elem != nil {
-                        var str string
-                        if str, err = elem.Strval(ctx); err == nil && str == "shell" {
+                        if str := elem.Strval(ctx); str == "shell" {
                                 if elem = g.Get(n); elem != nil {
-                                        if str, err = elem.Strval(ctx); err != nil {
-                                                erro(ctx, "stringify '%v' failed: %v", elem, err).of(elem)
-                                                return
-                                        } else if strings.HasSuffix(str, "\n") {
+                                        if str = elem.Strval(ctx); strings.HasSuffix(str, "\n") {
                                                 prompt(ctx, "%s", str)
                                         } else if str != "" {
                                                 prompt(ctx, "%s\n", str)
@@ -265,19 +261,12 @@ func modifierPrint(ctx Context, args... Value) (result Value, brks breakers) {
                 pos = ctx.Position()
                 opts = modifierPrintOpts{ stderr: true }
                 content string
-                err error
         )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).at(pos).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
-                erro(ctx, "parse opts failed: %v", err).at(pos).debug(1)
-                return
-        } else if value, found := ctx.autoGet("-"); !found || isNil(value) {
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        if value, found := ctx.autoGet("-"); !found || isNil(value) {
                 // ...
-        } else if content, err = value.Strval(ctx) ; err != nil {
-                erro(ctx, "stringify buffer value failed: %v", err).at(pos).debug(1)
-                return
+        } else {
+                content = value.Strval(ctx)
         }
         if opts.stdout { fmt.Fprint(stdout, content) }
         if opts.stderr { fmt.Fprint(stderr, content) }
@@ -295,48 +284,18 @@ type modifierDebugOpts struct {
         n int `c,count,n,num,cn,call-number`
 }
 func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
-        var (
-                opts modifierDebugOpts
-                err error
-        )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                erro(ctx, "parse opts failed: %v", err).debug(1)
-                return
-        }
+        var opts modifierDebugOpts
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        if opts.cond != nil && !opts.cond.True(ctx) { return }
 
-        if opts.cond != nil {
-                if v, e := opts.cond.True(ctx); e != nil {
-                        erro(ctx, "truthfy '%v': %v", opts.cond, err).debug(1)
-                        return
-                } else if !v {
-                       return
-                }
-        }
-
-        var s string
         for _, v := range opts.info {
-                if s, err = v.Strval(ctx); err != nil {
-                        erro(ctx, "strval '%v' failed: %v", err).of(v).debug(1)
-                        return
-                }
-                info(ctx, "%s", s).of(v).debug(1)
+                info(ctx, "%s", v.Strval(ctx)).of(v).debug(1)
         }
         for _, v := range opts.warn {
-                if s, err = v.Strval(ctx); err != nil {
-                        erro(ctx, "strval '%v' failed: %v", err).of(v).debug(1)
-                        return
-                }
-                warn(ctx, "%s", s).of(v).debug(1)
+                warn(ctx, "%s", v.Strval(ctx)).of(v).debug(1)
         }
         for _, v := range opts.error {
-                if s, err = v.Strval(ctx); err != nil {
-                        erro(ctx, "strval '%v' failed: %v", err).of(v).debug(1)
-                        return
-                }
-                erro(ctx, "%s", s).of(v).debug(1)
+                erro(ctx, "%s", v.Strval(ctx)).of(v).debug(1)
         }
 
         var (
@@ -377,35 +336,23 @@ func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
 
 // select element by index from group result: (select 0)
 func modifierSelect(ctx Context, args... Value) (result Value, brks breakers) {
-        var (
-                pos = ctx.Position()
-                value, _ = ctx.autoGet("-")
-                err error
-        )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).at(pos).debug(1)
-                return
+        args = expandmerge2(ctx, expandPlainValue, args...)
+        if value, _ := ctx.autoGet("-"); isNil(value) {
+                erro(ctx, "no pipe value $-").debug(1)
         } else if g, ok := value.(*Group); ok && len(args) > 0 {
-                var num int64
-                if num, err = args[0].Integer(ctx); err != nil {
-                        erro(ctx, "integify '%v' failed: %v", args[0], err).at(pos).debug(1)
+                if i, e := args[0].Integer(ctx); e != nil {
+                        erro(ctx, "%v: %v", args[0], e).debug(1)
                 } else {
-                        result = g.Get(int(num))
+                        result = g.Get(int(i))
                 }
         }
         return
 }
 
 func modifierEnv(ctx Context, args... Value) (result Value, brks breakers) {
-        var (
-                program = ctx.program()
-                err error
-        )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "expand args failed: %v", err).debug(1)
-                return
-        }
+        args = expandmerge2(ctx, expandPlainValue, args...)
 
+        var program = ctx.program()
         var def, alt = program.scope.define(ctx, DefVoid, TheShellEnvarsDef, nil)
         if def == nil && alt != nil { def, _ = alt.(*Def) }
         if def == nil {
@@ -440,20 +387,13 @@ type modifierSetOpts struct {
 }
 func modifierSet(ctx Context, args... Value) (result Value, brks breakers) {
         var (
+                program = ctx.program()
                 none = MakeNone(ctx.Position())
                 opts modifierSetOpts
                 defs []Value
-                err error
         )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
-                erro(ctx, "parse opts failed: %v", err).debug(1)
-                return
-        }
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
-        var program = ctx.program()
 ForArgs:
         for _, arg := range args {
                 var (
@@ -464,22 +404,17 @@ ForArgs:
                 switch a := arg.(type) {
                 case *Bareword: name = a.string
                 case *Pair: // NOTE: Pair.Value is not expanded yet! We need to expand it again.
-                        if name, err = a.Key.Strval(ctx); err != nil {
-                                erro(ctx, "strval '%v' failed: %v", a.Key, err).debug(1)
-                                return
-                        } else if value, err = a.Value.expand(ctx, expandPlainValue); err != nil {
-                                erro(ctx, "expand '%v' failed: %v", a.Value, err).debug(1)
-                                return
-                        } else if isNil(value) { value = a.Value }
+                        name = a.Key.Strval(ctx)
+                        if value = a.Value.expand(ctx, expandPlainValue); isNil(value) {
+                                value = a.Value
+                        }
                         if entry := ctx.entry(); false && name == "@" && entry != nil && entry.String() == "archive" {
                                 info(ctx, "%v -> %v", a.Value, value)
                                 info(ctx, "%s", ctx).debug(10)
                         }
                 case *Flag:
-                        if name, err = a.name.Strval(ctx); err != nil {
-                                erro(ctx, "strval '%v' failed: %v", a.name, err).debug(1)
-                                return
-                        } else if value = none; name == "" { name = "-" }
+                        name = a.name.Strval(ctx)
+                        if value = none; name == "" { name = "-" }
                 default:
                         erro(ctx, "%T `%s` is unsupported (try: foo=value)", arg, arg).debug(1)
                         return
@@ -487,10 +422,8 @@ ForArgs:
                 if def = program.scope.FindDef(name); def == nil {
                         erro(ctx, "no such def '%s' (%v, %v)", name, arg, args).debug(16)
                         break ForArgs
-                } else if err = def.val(ctx, value); err != nil {
-                        erro(ctx, "set def '%s' failed: %v", name, err).debug(1)
-                        return
                 } else {
+                        def.val(ctx, value)
                         defs = append(defs, def)
                 }
         }
@@ -503,16 +436,8 @@ type modifierSetDirtyPatsOpts struct {
         pats []Value
 }
 func modifierSetDirtyPats(ctx Context, args... Value) (result Value, brks breakers) {
-        var (
-                opts = ctx.dirtyOpts()
-                err error
-        )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "%v", err).debug(1)
-        } else if opts.pats, err = parseOpts(ctx, opts, args...); err != nil {
-                erro(ctx, "%v", err).debug(1)
-        }
-        if false { warn(ctx, "%T %v %v", ctx.inner(), ctx, opts.pats) }
+        var opts = ctx.dirtyOpts()
+        opts.pats = parseOpts(ctx, opts, expandmerge2(ctx, expandPlainValue, args...)...)
         return
 }
 
@@ -525,7 +450,6 @@ func modifierClosure(ctx Context, args... Value) (result Value, brks breakers) {
         var (
                 opts modifierClosureOpts
                 pos = ctx.Position()
-                err error
         )
         // Closure the caller program, the context will be restored when execution is finished.
         if t := ctx.traversal(); t != nil && false {
@@ -539,14 +463,7 @@ func modifierClosure(ctx Context, args... Value) (result Value, brks breakers) {
 
         assert(ctx.closure() != nil, "context not closured: %v", ctx)
 
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                erro(ctx, "parse closure opts failed: %v", err).debug(1)
-                return
-        }
-
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
         if opts.verbose { info(ctx, "%v: %v", ctx.Project(), ctx).debug(1) }
         if opts.dump { infostack(ctx, -1, "%v: %v", ctx.Project(), ctx).debug(1) }
 
@@ -557,13 +474,11 @@ func modifierClosure(ctx Context, args... Value) (result Value, brks breakers) {
                 erro(ctx, "empty closure context").debug(1)
         } else if def := scope.FindDef("/"); def == nil {
                 erro(ctx, "&/ is undefined").at(scope.position).debug(1)
-        } else if dir, err = def.value.Strval(ctx); err != nil {
-                erro(ctx, "%v", err).of(def.value).debug(1)
-        } else if dir == "" {
+        } else if dir = def.value.Strval(ctx); dir == "" {
                 erro(ctx, "&/ is empty").at(scope.position).debug(1)
         } else if !filepath.IsAbs(dir) {
                 erro(ctx, "&/ is relative").at(scope.position).debug(1)
-        } else if err = enter(ctx, dir); err == nil {
+        } else if err := enter(ctx, dir); err == nil {
                 var program = ctx.program()
                 program.project.changedWD = dir
                 program.changedWD = dir
@@ -575,17 +490,9 @@ type modifierForOpts struct {
         // ...
 }
 func modifierFor(ctx Context, args... Value) (result Value, brks breakers) {
-        var (
-                opts modifierForOpts
-                err error
-        )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                erro(ctx, "parse cd opts failed: %v", err).debug(1)
-                return
-        }
+        var opts modifierForOpts
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        // TODO: ...
         return
 }
 
@@ -595,41 +502,30 @@ type modifierCDOpts struct {
         printLeave bool `l,print-leave`
 }
 func modifierCD(ctx Context, args... Value) (result Value, brks breakers) {
-        var (
-                opts modifierCDOpts
-                err error
-        )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                erro(ctx, "parse cd opts failed: %v", err).debug(1)
-                return
-        }
+        var opts modifierCDOpts
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
         if opts.printEnter { printEnteringDirectory(ctx) }
         if opts.printLeave { printLeavingDirectory(ctx) }
         if (opts.printEnter || opts.printLeave) && len(args) == 0 { return }
         if len(args) == 1 {
-                var dir string
-                if dir, err = args[0].Strval(ctx); err != nil {
-                        erro(ctx, "strval '%v' failed: %v", args[0], err).debug(1)
-                        return
-                } else if dir == "" {
+                var dir = args[0].Strval(ctx)
+                if dir == "" {
                         // TODO: do something special
                         return
                 }
+
                 var program = ctx.program()
                 if !filepath.IsAbs(dir) {
                         dir = filepath.Join(program.project.absPath, dir)
                 }
                 if opts.makePath && dir != "." && dir != ".." && dir != PathSep {// mkdir -p
-                        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
+                        if err := os.MkdirAll(dir, os.FileMode(0755)); err != nil {
                                 erro(ctx, "make path '%s' failed: %v", dir, err)
                                 return
                         }
                 }
-                if err = enter(ctx, dir); err == nil {
+                if err := enter(ctx, dir); err == nil {
                         program.project.changedWD = dir
                         program.changedWD = dir
                 }
@@ -644,35 +540,20 @@ type modifierMkdirOpts struct {
         verbose bool `v,verbose`
 }
 func modifierMkdir(ctx Context, args... Value) (result Value, brks breakers) {
-        var (
-                opts = modifierMkdirOpts{ mode: os.FileMode(0755) }
-                err error
-        )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge mkdir args failed: %v", err).debug(1)
-                return
-        }
-        if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                erro(ctx, "parse mkdir opts failed: %v", err).debug(1)
-                return
-        }
+        var opts = modifierMkdirOpts{ mode: os.FileMode(0755) }
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+
         if len(args) == 0 {
                 var target, _ = ctx.autoGet("@")
-                var s string
-                if s, err = target.Strval(ctx); err != nil {
-                        erro(ctx, "stringify target '%v' failed: %v", target, err).debug(1)
-                } else if err = os.MkdirAll(filepath.Dir(s), opts.mode); err != nil {
+                var s = target.Strval(ctx)
+                if err := os.MkdirAll(filepath.Dir(s), opts.mode); err != nil {
                         erro(ctx, "make path '%s' failed: %v", s, err).debug(1)
                 }
                 return
         }
         for _, a := range args {
-                var s string
-                if s, err = a.Strval(ctx); err != nil {
-                        erro(ctx, "stringify '%v' failed: %v", a, err).debug(1)
-                        break
-                }
-                if err = os.MkdirAll(s, opts.mode); err != nil {
+                var s = a.Strval(ctx)
+                if err := os.MkdirAll(s, opts.mode); err != nil {
                         erro(ctx, "make path '%s' failed: %v", s, err).debug(1)
                         break
                 }
@@ -686,25 +567,14 @@ type modifierPathOpts struct {
 // (path $(dir $@))
 // (path /example/path)
 func modifierPath(ctx Context, args... Value) (result Value, brks breakers) {
-        var (
-                opts modifierPathOpts
-                err error
-        )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge path args failed: %v", err)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                erro(ctx, "parse path opts failed: %v", err)
-                return
-        }
+        var opts modifierPathOpts
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
         if len(args) == 0 {
                 var target, _ = ctx.autoGet("@")
-                var s string
-                if s, err = target.Strval(ctx); err != nil {
-                        erro(ctx, "stringify target value '%v' failed: %v", target, err).debug(1)
-                } else if s = filepath.Dir(s); s != "" && s != "." && s != "/" {
-                        if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
+                var s = target.Strval(ctx)
+                if s = filepath.Dir(s); s != "" && s != "." && s != "/" {
+                        if err := os.MkdirAll(s, os.FileMode(0755)); err != nil {
                                 erro(ctx, "make path '%s' failed: %v", err).debug(1)
                         }
                 }
@@ -712,12 +582,8 @@ func modifierPath(ctx Context, args... Value) (result Value, brks breakers) {
         }
 
         for _, arg := range args {
-                var s string
-                if s, err = arg.Strval(ctx); err != nil {
-                        erro(ctx, "stringify arg '%v' failed: %v", arg, err).of(arg).debug(1)
-                        break
-                }
-                if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
+                var s = arg.Strval(ctx)
+                if err := os.MkdirAll(s, os.FileMode(0755)); err != nil {
                         erro(ctx, "make path '%s' failed: %v", s, err).debug(1)
                         break
                 }
@@ -850,9 +716,7 @@ func (g *greptouch) work(ctx Context, gc *grepctx) (err error) {
                         return
                 }
                 if file.info == nil && !file.isSysFile() {
-                        var s string
-                        if s, err = file.Strval(ctx); err != nil { erro(ctx, "%v", err); return }
-                        if file.info, _ = os.Stat(s); file.info == nil { continue }
+                        if file.info, _ = os.Stat(file.Strval(ctx)); file.info == nil { continue }
                         if gc.debug { warn(ctx, "'%v' info is nil (%s)", file, file.fullname()) }
                 }
                 if file.info == nil {/* ... */} else
@@ -873,7 +737,7 @@ func (g *grepctx) isTargetFile(ctx Context, file *File) (res bool) {
                 // ...
         } else if g.target == file {
                 res = true
-        } else if s, _ := fullnameOrStrval(ctx, file); s == g.targetFullName {
+        } else if fullnameOrStrval(ctx, file) == g.targetFullName {
                 res = true
         } else if ctx, ok := g.target.(*File); ok && ctx.name == file.name {
                 res = true
@@ -974,9 +838,7 @@ func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name str
                 }
         } else if file == nil {
                 for _, inc := range gc.incs {
-                        if s, e := inc.Strval(ctx); e != nil {
-                                erro(ctx, "strval '%v' failed: %v", inc, e).of(inc).debug(1)
-                        } else if file = stat(ctx, name, "", s); file != nil {
+                        if file = stat(ctx, name, "", inc.Strval(ctx)); file != nil {
                                 if false { info(ctx, "%v in %v", file, inc).debug(1) }
                                 return
                         }
@@ -1001,12 +863,7 @@ func searchGrepped(ctx Context, gp Position, gc *grepctx, sys bool, name string)
         } else if gc.files = append(gc.files, file); false && gc.touch {
                 var tt = gc.targetInfo.ModTime()
                 if file.info == nil && !file.isSysFile() {
-                        var s string
-                        if s, err = file.Strval(ctx); err != nil {
-                                erro(ctx, "strval '%v' failed: %v", file, err).debug(1)
-                                return
-                        }
-                        if file.info, err = os.Stat(s); err != nil {
+                        if file.info, err = os.Stat(file.Strval(ctx)); err != nil {
                                 erro(ctx, "%v", err).debug(1)
                                 return
                         }
@@ -1095,8 +952,8 @@ func getSavedDepsFileName(ctx Context, targetFullName string, strs []string) (fi
         for _, s := range strs { hashees = append(hashees, s) }
         if file, err = tempFile(ctx, ".deps", targetFullName, hashees...); err != nil {
                 erro(ctx, "get .deps temp file failed: %v", err).debug(1)
-        } else if filename, err = fullnameOrStrval(ctx, file); err != nil {
-                erro(ctx, "get .deps temp filename failed: %v", err).debug(1)
+        } else {
+                filename = fullnameOrStrval(ctx, file)
         }
         return
 }
@@ -1105,8 +962,8 @@ func getSavedGrepFileName(ctx Context, targetFullName string) (filename string, 
         var ( file *File )
         if file, err = tempFile(ctx, ".grep", targetFullName); err != nil {
                 erro(ctx, "get .grep temp file failed: %v", err).debug(1)
-        } else if filename, err = fullnameOrStrval(ctx, file); err != nil {
-                erro(ctx, "get .grep temp filename failed: %v", err).debug(1)
+        } else {
+                filename = fullnameOrStrval(ctx, file)
         }
         return
 }
@@ -1228,10 +1085,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
                 if v.isSysFile() { return }
         default:
                 gc.targetDir = ctx.Project().absPath
-                if targetName, err = v.Strval(ctx); err != nil {
-                        erro(ctx, "strval grep target '%v' failed: %s", v, err).debug(1)
-                        return
-                }
+                targetName = v.Strval(ctx)
                 if filepath.IsAbs(targetName) {
                         gc.targetFullName = targetName
                 } else {
@@ -1387,21 +1241,10 @@ func modifierGrep(ctx Context, args... Value) (result Value, brks breakers) {
                 return
         }
 
-        var (
-                gc grepctx
-                err error
-        )
+        var gc grepctx
         gc.fileinc = true // grep files by default
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge grep args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &gc.modifierGrepOpts, args...); err != nil {
-                erro(ctx, "parse grep args failed: %v", err).debug(1)
-                return
-        } else if gc.incs, err = expandmerge2(ctx, expandPlainValue, gc.incs...); err != nil {
-                erro(ctx, "expand grep incs failed: %v", err).debug(1)
-                return
-        }
+        args = parseOpts(ctx, &gc.modifierGrepOpts, expandmerge2(ctx, expandPlainValue, args...)...)
+        gc.incs = expandmerge2(ctx, expandPlainValue, gc.incs...)
         for _, s := range gc.sys { gc.rxs = append(gc.rxs, &greprex{s, true , nil}) }
         for _, s := range gc.reg { gc.rxs = append(gc.rxs, &greprex{s, false, nil}) }
         for _, s := range gc.langs {
@@ -1465,7 +1308,7 @@ ForTarget:
                 }
 
                 gc.target, t.grepped = target, nil
-                if err = grep(ctx, &gc); err != nil {
+                if err := grep(ctx, &gc); err != nil {
                         erro(ctx, "grep files from %v failed: %v", target, err).debug(1)
                         return
                 } else if gc.noTraverse {
@@ -1486,9 +1329,7 @@ ForTarget:
         t.grepped = grepped
 
         var pos = ctx.Position()
-        if err != nil {
-                erro(ctx, "grep files failed: %v", err).debug(1)
-        } else if !gc.noTraverse {
+        if !gc.noTraverse {
                 ctx.autoSet("~", MakeNone(pos))
                 t.grepped = nil
         } else {
@@ -1511,15 +1352,11 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
         const parallel = true
         var (
                 proj = ctx.Project()
-                targetFullName string
+                targetFullName = fullnameOrStrval(ctx, targetVal)
                 filesMux sync.Mutex
                 firstWord string
                 err error
         )
-        if targetFullName, err = fullnameOrStrval(ctx, targetVal); err != nil {
-                erro(ctx, `fullname "%v" failed: %v`, targetVal, err).of(targetVal).debug(1)
-                return
-        }
 
         var findDepFile = func(name string) (file *File) {
                 if filepath.IsAbs(name) {
@@ -1826,14 +1663,12 @@ func modifierDeps(ctx Context, args... Value) (result Value, brks breakers) {
         )
         if targetVal, targetStr = getTargetValueString(ctx); isNil(targetVal) {
                 erro(ctx, "target is nil").debug(1)
+                return
         } else if targetStr == "" {
                 erro(ctx, "target '%v' is empty", targetVal).debug(1)
-        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                erro(ctx, "parse deps args failed: %v", err).debug(1)
                 return
-        } else if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge deps args failed: %v", err).debug(1)
-                return
+        } else if args = parseOpts(ctx, &opts, args...); len(args) > 0 {
+                args = expandmerge2(ctx, expandPlainValue, args...)
         }
 
         var files []Value
@@ -1863,22 +1698,12 @@ CorrectCC:
         }
 
         var (
+                flags = expandmerge2(ctx, expandPlainValue, opts.flags...)
                 _MM, _MG bool
                 ca []string
-                flags []Value
         )
-        if flags, err = expandmerge2(ctx, expandPlainValue, opts.flags...); err != nil {
-                erro(ctx, "merge flags failed: %v", err).debug(1)
-                return
-        }
-
         for _, f := range flags {
-                var s string
-                if s, err = f.Strval(ctx); err != nil {
-                        erro(ctx, "strval '%v' failed: %v", err).debug(1)
-                        return
-                } else { s = strings.TrimSpace(s) }
-                switch s {
+                switch s := strings.TrimSpace(f.Strval(ctx)); s {
                 case "-MM": ca, _MM = append(ca, s), true // only user headers
                 case "-MD": break // discard, use -M or -MM instead
                 case "-MP": break // discard, not creating phony target
@@ -1893,13 +1718,9 @@ CorrectCC:
         if !_MM { ca = append(ca, "-M")  } // both user and system headers
         if !_MG && opts.addMissing { ca = append(ca, "-MG") } // add missing headers
         for _, a := range args {
-                var s string
-                if s, err = fullnameOrStrval(ctx, a); err != nil {
-                        erro(ctx, "strval '%v' failed: %v", err).debug(1)
-                        return
-                } else { s = strings.TrimSpace(s) }
+                var s = strings.TrimSpace(fullnameOrStrval(ctx, a))
                 if strings.Contains(s, "-v -fPIC -fvisibility-inlines-hidden") {
-                        v, _ := a.expand(ctx, expandPlainValue)
+                        var v = a.expand(ctx, expandPlainValue)
                         warn(ctx, "%T %v", a, a)
                         warn(ctx, "%T %v", v, v).debug(1)
                 }
@@ -1918,13 +1739,7 @@ CorrectCC:
         )
         ctx = &modifierDepsContext{ ctx }
         if savedDepsFileName, files, brks = loadSavedDepsAndCheckOutdated(ctx, ca); brks.has() {
-                for _, brk := range brks {
-                        switch brk.what {
-                        case breakErro: erro(ctx, "borken loading saved deps: %v", brk.error).at(brk.pos)
-                        case breakFail: erro(ctx, "borken loading saved deps: %v", brk.message).at(brk.pos)
-                        default: erro(ctx, "borken loading saved deps: %v", brk.what).at(brk.pos)
-                        }
-                }
+                for _, brk := range brks { erro(ctx, "%v", brk).at(brk.pos) }
                 errostack(ctx, 5, "%v: %v", proj, ctx).debug(16)
                 return
         } else if len(files) == 0 {
@@ -1985,18 +1800,10 @@ type modifierTouchOpts struct {
         mode os.FileMode `m,mode`
 }
 func modifierTouch(ctx Context, args... Value) (result Value, brks breakers) {
-        var (
-                opts modifierTouchOpts // = modifierTouchOpts{ mode: os.FileMode(0755) }
-                err error
-        )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge touch args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                erro(ctx, "parse touch opts failed: %v", err).debug(1)
-                return
-        } else if len(args) == 0 {
-                if target, found := ctx.autoGet("@"); found && !isNil(target) {
+        var opts modifierTouchOpts // = modifierTouchOpts{ mode: os.FileMode(0755) }
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        if len(args) == 0 {
+                if target, found := ctx.autoGet("@"); found && !isTrivial(target) {
                         args = append(args, target)
                 }
         }
@@ -2004,7 +1811,7 @@ func modifierTouch(ctx Context, args... Value) (result Value, brks breakers) {
         var files []*File
         for _, arg := range args {
                 var vf []*File
-                if err = touch(ctx, arg, uint32(opts.mode), opts.path); err != nil {
+                if err := touch(ctx, arg, uint32(opts.mode), opts.path); err != nil {
                         erro(ctx, "touch '%v' failed: %v", arg, err).debug(1)
                         break
                 } else if vf, err = arg.stamp(ctx); err != nil {
@@ -2044,27 +1851,21 @@ func modifierCheck(ctx Context, args... Value) (result Value, brks breakers) {
                 value, _ = ctx.autoGet("-")
                 values []Value
                 pairs []*Pair
-                err error
                 res bool
         )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge check args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                erro(ctx, "parse check args failed: %v", err).debug(1)
-                return
-        }
+
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+
         if opts.good    { optBreak   = breakDone }
         if opts.answer  { makeResult = MakeAnswer }
         if opts.boolean { makeResult = MakeBoolean }
         if opts.silent && makeResult == nil { makeResult = MakeBoolean }
+
         for _, arg := range args {
                 switch a := arg.(type) {
                 case *Pair: pairs = append(pairs, a)
                 default:
-                        if res, err = arg.True(ctx); err != nil {
-                                erro(ctx, "unknown check '%v' (%T)", arg, arg).debug(1)
-                        } else if makeResult != nil {
+                        if res = arg.True(ctx); makeResult != nil {
                                 values = append(values, makeResult(pos, res))
                         } else {
                                 brks.addf(ctx, optBreak, "value '%v' is false", arg)
@@ -2074,16 +1875,14 @@ func modifierCheck(ctx Context, args... Value) (result Value, brks breakers) {
                         }
                 }
         }
+
         if !(isNil(opts.file) || isNone(opts.file)) {
                 var ( s string; f *File )
                 if f, res = opts.file.(*File); res {
                         if res = f.exists(); !res && opts.verbose {
                                 warn(ctx, "file '%v' does not exists", opts.file).of(opts.file).debug(1)
                         }
-                } else if s, err = opts.file.Strval(ctx); err != nil {
-                        erro(ctx, "strval '%v' failed: %v", opts.file, err).debug(1)
-                        return
-                } else if filepath.IsAbs(s) {
+                } else if s = opts.file.Strval(ctx); filepath.IsAbs(s) {
                         if f = stat(positional(ctx, opts.file.Position()), s, "", ""); f != nil {
                                 res = f.exists()
                         }
@@ -2107,10 +1906,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, brks breakers) {
                         if res = f.exists(); !res && opts.verbose {
                                 warn(ctx, "file '%v' does not exists", opts.dir).of(opts.dir).debug(1)
                         }
-                } else if s, err = opts.dir.Strval(ctx); err != nil {
-                        erro(ctx, "strval '%v' failed: %v", opts.dir, err).debug(1)
-                        return
-                } else if filepath.IsAbs(s) {
+                } else if s = opts.dir.Strval(ctx); filepath.IsAbs(s) {
                         if f = stat(positional(ctx, opts.dir.Position()), s, "", ""); f != nil {
                                 res = f.exists()
                         }
@@ -2133,11 +1929,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, brks breakers) {
 ForPairs:
         for _, p := range pairs {
                 var key, str string
-                if key, err = p.Key.Strval(ctx); err != nil {
-                        erro(ctx, "strval '%v' failed: %v", p.Key, err).of(p.Key).debug(1)
-                        return
-                }
-                switch key {
+                switch key = p.Key.Strval(ctx); key {
                 case "status":
                         var exeres, _ = value.(*ExecResult)
                         if exeres == nil {
@@ -2146,9 +1938,9 @@ ForPairs:
                                 return
                         } else { /*exeres.wg.Wait()*/ }
 
-                        var num int64
-                        if num, err = p.Value.Integer(ctx); err != nil {
-                                erro(ctx, "%v", err).of(p.Value).debug(1)
+                        var num, e = p.Value.Integer(ctx)
+                        if e != nil {
+                                erro(ctx, "%v: %v", p.Value, e).debug(1)
                                 return
                         }
                         if opts.verbose {
@@ -2208,10 +2000,11 @@ ForPairs:
                         if v == nil {
                                 brks.addf(ctx, optBreak, "bad %s (expects %v)", key, p.Value)
                                 break ForPairs
-                        } else if str, err = p.Value.Strval(ctx); err != nil {
-                                erro(ctx, "strval '%v' failed: %v", p.Value, err).of(p.Value).debug(1)
-                                return
-                        } else if res := v.String() == str; makeResult != nil {
+                        }
+
+                        str = p.Value.Strval(ctx)
+
+                        if res := v.String() == str; makeResult != nil {
                                 values = append(values, makeResult(pos, res))
                         } else if !res {
                                 brks.addf(ctx, optBreak, "bad %s (%v) (expects %v)", key, v, p.Value)
@@ -2221,10 +2014,7 @@ ForPairs:
                         var ( file *File; res bool )
                         if file, res = p.Value.(*File); res {
                                 // ok
-                        } else if str, err = p.Value.Strval(ctx); err != nil {
-                                erro(ctx, "strval '%v' failed: %v", p.Value, err).debug(1)
-                                return
-                        } else if filepath.IsAbs(str) {
+                        } else if str = p.Value.Strval(ctx); filepath.IsAbs(str) {
                                 if file = stat(positional(ctx, p.Value.Position()), str, "", ""); file != nil {
                                         // ok
                                 }
@@ -2251,12 +2041,12 @@ ForPairs:
                         for _, elem := range g.Elems {
                                 switch p := elem.(type) {
                                 case *Pair:
-                                        var k, a, b string
-                                        if k, err = p.Key.Strval(ctx); err != nil { break ForPairs }
+                                        var a, b string
+                                        var k = p.Key.Strval(ctx)
                                         var def = program.project.scope.FindDef(k)
                                         if def != nil {
-                                                if a, err = p.Value.Strval(ctx); err != nil { break ForPairs }
-                                                if b, err = def.value.Strval(ctx); err != nil { break ForPairs }
+                                                a = p.Value.Strval(ctx)
+                                                b = def.value.Strval(ctx)
                                                 if res := a != b; makeResult != nil {
                                                         values = append(values, makeResult(pos, res))
                                                 } else if !res {
@@ -2279,7 +2069,7 @@ ForPairs:
                         break ForPairs
                 }
         }
-        if err == nil && len(values) > 0 {
+        if len(values) > 0 {
                 result = MakeListOrScalar(pos, values)
         }
         return
@@ -2316,14 +2106,8 @@ func copyRegular(ctx Context, src, dst string, opts *copyopts) (err error) {
         def2.value = MakeString(pos, src)
 
         var head, foot string
-        if opts.head != nil {
-                if head, err = opts.head.Strval(ctx); err != nil { erro(ctx, "%v", err); return }
-                if false { fmt.Fprintf(stderr, "%s: %v => %s\n", opts.head.Position(), opts.head, head) }
-        }
-        if opts.foot != nil {
-                if foot, err = opts.foot.Strval(ctx); err != nil { erro(ctx, "%v", err); return }
-                if false { fmt.Fprintf(stderr, "%s: %v => %s\n", opts.foot.Position(), opts.foot, foot) }
-        }
+        if opts.head != nil { head = opts.head.Strval(ctx) }
+        if opts.foot != nil { foot = opts.foot.Strval(ctx) }
 
         // Compare mod time for update mode
         if opts.files += 1; opts.update {
@@ -2433,17 +2217,8 @@ type modifierCopyFileOpts struct {
         foot Value "f,foot"
 }
 func modifierCopyFile(ctx Context, args... Value) (result Value, brks breakers) {
-        var (
-                opts modifierCopyFileOpts
-                err error
-        )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
-                erro(ctx, "parse opts failed: %v", err).debug(1)
-                return
-        }
+        var opts modifierCopyFileOpts
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
         var target Value
         var source Value
@@ -2470,10 +2245,8 @@ func modifierCopyFile(ctx Context, args... Value) (result Value, brks breakers) 
                         filetime = tv.info.ModTime()
                 }
         default:
-                if filename, err = target.Strval(ctx); err != nil {
-                        erro(ctx, "strval '%v' failed: %v", target, err).debug(1)
-                        return
-                } else if file := project.FindFile(ctx, filename); file != nil {
+                filename = target.Strval(ctx)
+                if file := project.FindFile(ctx, filename); file != nil {
                         target, filename = file, file.fullname()
                         if file.info != nil {
                                 filetime = file.info.ModTime()
@@ -2486,10 +2259,8 @@ func modifierCopyFile(ctx Context, args... Value) (result Value, brks breakers) 
                         srctime = tv.info.ModTime()
                 }
         default:
-                if srcname, err = source.Strval(ctx); err != nil {
-                        erro(ctx, "strval '%v' failed: %v", source, err).debug(1)
-                        return
-                } else if file := project.FindFile(ctx, srcname); file != nil {
+                srcname = source.Strval(ctx)
+                if file := project.FindFile(ctx, srcname); file != nil {
                         source, srcname = file, file.fullname()
                         if file.info != nil { srctime = file.info.ModTime() }
                 }
@@ -2532,11 +2303,11 @@ func modifierCopyFile(ctx Context, args... Value) (result Value, brks breakers) 
                 erro(ctx, "'%s' source file not found", srcname).debug(1)
         } else if !file.info.IsDir() {
                 if opts.mode == 0 { opts.mode = file.info.Mode() }
-                if err = copyFile(ctx, file.info, srcname, filename, copts); err != nil {
+                if err := copyFile(ctx, file.info, srcname, filename, copts); err != nil {
                         erro(ctx, "%v", err).debug(1)
                 }
         } else if opts.recursive {
-                if err = copyDir(ctx, srcname, filename, copts); err != nil {
+                if err := copyDir(ctx, srcname, filename, copts); err != nil {
                         erro(ctx, "%v", err).debug(1)
                 }
         } else {
@@ -2544,9 +2315,7 @@ func modifierCopyFile(ctx Context, args... Value) (result Value, brks breakers) 
         }
 
         if opts.verbose {
-                if err != nil {
-                        prompt(ctx, "… error\n")
-                } else if copts.copied == 0 {
+                if copts.copied == 0 {
                         prompt(ctx, "… Good (%d files)\n", copts.files)
                 } else if copts.copied == 1 {
                         prompt(ctx, "… Copied %d bytes\n", copts.bytes)
@@ -2558,11 +2327,7 @@ func modifierCopyFile(ctx Context, args... Value) (result Value, brks breakers) 
 }
 
 func modifierWriteFile(ctx Context, args... Value) (result Value, brks breakers) {
-        var err error
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        }
+        args = expandmerge2(ctx, expandPlainValue, args...)
 
         var (
                 target, _ = ctx.autoGet("@")
@@ -2570,22 +2335,25 @@ func modifierWriteFile(ctx Context, args... Value) (result Value, brks breakers)
                 f *os.File
         )
         defer func() {
-                if err != nil && filename != "" { os.Remove(filename); f = nil }
+                if filename != "" { os.Remove(filename); f = nil }
                 if f == nil { brks.add(ctx, breakFail).message = fmt.Sprintf("file %s not generated", target) }
         } ()
         if isNil(target) {
                 erro(ctx, "target is undefined").debug(1)
                 return
-        } else if filename, err = fullnameOrStrval(ctx, target); err != nil {
-                erro(ctx, "fullname failed: %v", err).debug(1)
-                return
-        } else if buffer, _ := ctx.autoGet("-"); isNil(buffer) {
+        }
+
+        filename = fullnameOrStrval(ctx, target)
+
+        if buffer, _ := ctx.autoGet("-"); isNil(buffer) {
                 erro(ctx, "buffer value is nil").debug(1)
                 return
-        } else if str, err = buffer.Strval(ctx); err != nil {
-                erro(ctx, "strval buffer failed: %v", err).debug(1)
-                return
-        } else if f, err = os.Create(filename); err != nil {
+        } else {
+                str = buffer.Strval(ctx)
+        }
+
+        var err error
+        if f, err = os.Create(filename); err != nil {
                 erro(ctx, "%v", err).debug(1)
                 return
         } else if _, err = f.WriteString(str); err != nil {
@@ -2611,23 +2379,9 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, brks breakers) {
                 opts modifierReadFileOpts
                 filename string
                 args []Value
-                err error
         )
-        if args, err = expandmerge2(ctx, expandPlainValue, aa...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                erro(ctx, "parse opts failed: %v", err).debug(1)
-                return
-        } else if !opts.fullname {
-                // does nothing
-        } else if args, err = expandmerge2(ctx, expandFullName, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        } else if false {
-                for _, a := range args {
-                        warn(ctx, "%v: %T %v", ctx.Project(), a, a).debug(1)
-                }
+        if args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, aa...)...); opts.fullname {
+                args = expandmerge2(ctx, expandFullName, args...)
         }
 
         var target Value
@@ -2644,31 +2398,18 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, brks breakers) {
                 errostack(ctx, 3, "target for reading is invalid (%T) (%v -> %v)",
                         target, aa, args).debug(10)
                 return
-        } else if filename, err = fullnameOrStrval(ctx, target); err != nil {
-                errostack(ctx, 3, "strval '%v' error: %v",
-                        target, err).of(target).debug(10)
-                return
-        } else if filename == "" {
+        } else if filename = fullnameOrStrval(ctx, target); filename == "" {
                 errostack(ctx, 3, "target filename is empty").of(target).debug(32)
                 return
         }
 
+        var err error
         var bytes []byte
         if bytes, err = ioutil.ReadFile(filename); err == nil {
-                var s, v string
-                if opts.head != nil {
-                        if v, err = opts.head.Strval(ctx); err == nil { s = v } else {
-                                erro(ctx, "%v", err).debug(1)
-                                return
-                        }
-                }
+                var s string
+                if opts.head != nil { s = opts.head.Strval(ctx) }
                 s += string(bytes)
-                if opts.foot != nil {
-                        if v, err = opts.foot.Strval(ctx); err == nil { s += v } else {
-                                erro(ctx, "%v", err).debug(1)
-                                return
-                        }
-                }
+                if opts.foot != nil { s = opts.foot.Strval(ctx) }
                 ctx.autoSet("-", MakeString(ctx.Position(), s))
         } else {
                 brk := brks.add(ctx, breakErro)
@@ -2730,42 +2471,25 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
         var (
                 opts = modifierUpdateFileOpts{ mode: os.FileMode(0640) }
                 filename string
-                err error
+                target Value
         )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
-                erro(ctx, "parse opts failed: %v", err).debug(1)
-                return
-        } else if !opts.full {
-                // does nothing
-        } else if args, err = expandmerge2(ctx, expandFullName, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        }
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        if opts.full { args = expandmerge2(ctx, expandFullName, args...) }
 
-        var target Value
         if len(args) > 0 {
                 target = args[0]
         } else {
                 target, _ = ctx.autoGet("@")
         }
-        if len(args) > 1 { if opts.mode, err = permVal(ctx, args[1], 0600); err != nil {
-                erro(ctx, "perm value '%v' failed: %v", args[1], err).of(args[1]).debug(1)
-                return
-        }}
+        if len(args) > 1 {
+                opts.mode = permVal(ctx, args[1], 0600)
+        }
 
         // Get target filename
         if opts.full {
-                if filename, err = fullnameOrStrval(ctx, target); err != nil {
-                        erro(ctx, "fullnameOrStrval: %v", err).debug(1)
-                        return
-                } else if !filepath.IsAbs(filename) {
-                        var (
-                                projs = closureProjects(ctx)
-                                file *File
-                        )
+                if filename = fullnameOrStrval(ctx, target); !filepath.IsAbs(filename) {
+                        var file *File
+                        var projs = closureProjects(ctx)
                         for _, proj := range projs {
                                 if file = proj.FindFile(ctx, filename); file != nil {
                                         break
@@ -2777,16 +2501,9 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
         } else {
                 switch p := target.(type) {
                 case *File: filename = p.fullname()
-                case *Path:
-                        if filename, err = p.Strval(ctx); err != nil {
-                                erro(ctx, "strval path '%v' failed: %v", p, err).debug(1)
-                                return
-                        }
-                default:
-                        if filename, err = target.Strval(ctx); err != nil {
-                                erro(ctx, "strval '%v' failed: %v", p, err).debug(1)
-                                return
-                        } else if file := ctx.Project().FindFile(ctx, filename); file != nil {
+                case *Path: filename = p.Strval(ctx)
+                default:    filename = target.Strval(ctx)
+                        if file := ctx.Project().FindFile(ctx, filename); file != nil {
                                 target, filename = file, file.fullname()
                         }
                 }
@@ -2800,10 +2517,10 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
                 if p := filepath.Dir(filename); p != "." && p != "/" {
                         if fi, _ := os.Stat(p); fi != nil && !fi.IsDir() {
                                 if e := os.Remove(p); e != nil {
-                                        erro(ctx, "%v", err).debug(1)
+                                        erro(ctx, "%v", e).debug(1)
                                 }
                         }
-                        if err = os.MkdirAll(p, os.FileMode(0755)); err != nil {
+                        if err := os.MkdirAll(p, os.FileMode(0755)); err != nil {
                                 erro(ctx, "%v", err).debug(1)
                                 return
                         }
@@ -2817,10 +2534,7 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
         )
         if value, found := ctx.autoGet("-"); !found || isNil(value) {
                 // no buffer value
-        } else if content, err = value.Strval(ctx); err != nil {
-                erro(ctx, "%v", err).debug(1)
-                return
-        } else if false && strings.Contains(content, `"\"`) {
+        } else if content = value.Strval(ctx); false && strings.Contains(content, `"\"`) {
                 prompt(ctx, "%v: %T\n", filename, value).debug(1)
                 fail(ctx.Position(), "%s", filename)
         } else if er, ok := value.(*ExecResult); ok {
@@ -2832,7 +2546,7 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
         } else if opts.zero {
                 if file := stat(positional(ctx, target.Position()), filename, "", ""); file != nil && file.info != nil && file.info.Size() == 0 {
                         file.info = nil
-                        if err = os.Remove(filename); err != nil {
+                        if err := os.Remove(filename); err != nil {
                                 erro(ctx, "remove file failed: %v", err).debug(1)
                         }
                 }
@@ -2860,7 +2574,11 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
                 warnstack(ctx, 3, "empty content for '%v'", target).debug(6)
         }
 
-        var ( wrote int; same bool )
+        var (
+                wrote int
+                same bool
+                err error
+        )
         if opts.verbose {
                 defer func(st time.Time) {
                         var s string
@@ -2954,20 +2672,14 @@ func modifierWait(ctx Context, args... Value) (result Value, brks breakers) {
         var (
                 opts modifierWaitOpts
                 execRes *ExecResult
-                err error
         )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
-                erro(ctx, "parse opts failed: %v", err).debug(1)
-                return
-        }
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
         var (
                 waitForExecResult = opts.stdout || opts.stderr || opts.status || opts.execRes
                 stampCurrentTarget = !opts.noTarget
                 target, _ = ctx.autoGet("@")
+                err error
         )
         if opts.verbose {
                 defer func (st time.Time) {
@@ -3049,15 +2761,8 @@ func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
         var (
                 opts modifierStampOpts
                 pos = ctx.Position()
-                err error
         )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
-                erro(ctx, "parse opts failed: %v", err)
-                return
-        }
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
         var target = getTargetValue(ctx)
         if isNil(target) {
@@ -3065,9 +2770,10 @@ func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
                 erro(ctx, "stamp(%v) failed", target)
                 errostack(ctx, 6, "%v", ctx).debug(12)
                 return
-        } else if /*files*/_, err = target.stamp(ctx); err == nil {
-                return
         }
+
+        var _, err = target.stamp(ctx)
+        if err == nil { return /* Done! */ }
 
         prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err)
         if opts.next {
@@ -3157,57 +2863,37 @@ func predict(ctx Context, args... Value) (result bool, message string, err error
 ForArgs:
         for _, arg := range args {
                 switch tv := arg.(type) {
-                case *String: message = tv.string; continue ForArgs
-                case *Compound: if message, err = tv.Strval(ctx); err != nil {
-                        erro(ctx, "strval '%v' failed: %v", tv, err).of(tv).debug(1)
-                        return
-                } else { continue ForArgs }}
+                case *String, *Compound:
+                        message = tv.Strval(ctx)
+                        continue ForArgs
+                }
 
-                var va []Value
-                if va, err = expandmerge2(ctx, expandPlainValue, arg); err != nil {
-                        erro(ctx, "merge arg '%v' failed: %v", arg, err).debug(1)
-                        return
-                } else if va, err = parseOpts(ctx, &opts, va...); err != nil {
-                        erro(ctx, "parse opts failed: %v", err).debug(1)
-                        return
-                } else if len(va) == 0 {
+                var va = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, arg)...)
+                if len(va) == 0 {
                         continue ForArgs
                 } else if len(va) == 1 && isTrivial(va[0]) {
                         continue ForArgs
                 }
 
                 if opts.verbose && !opts.verbose0 {
-                        if targetStr, err = fullnameOrStrval(ctx, targetVal); err != nil {
-                                erro(ctx, "fullname-strval '%v' failed: %v", targetVal, err).debug(1)
-                                return
-                        }
+                        targetStr = fullnameOrStrval(ctx, targetVal)
                         prompt(ctx, "checking %v …", filepath.Base(targetStr))
                         opts.verbose0 = true
                 }
 
                 if !opts.and && result { break }
                 if !opts.and || (opts.and && result) { for i, a := range va {
-                        var (
-                                name string
-                                val Value
-                                tru bool
-                        )
+                        var tru bool
                         if g, ok := a.(*Group); !ok {
                                 // preserve the value of 'a'
                         } else if len(g.Elems) == 0 {
                                 erro(ctx, "predictor is empty group").at(g.position).debug(1)
                                 return
-                        } else if name, err = g.Elems[0].Strval(ctx); err != nil {
-                                erro(ctx, "strval predictor failed: %v", err).of(g.Elems[0]).debug(1)
-                                return
-                        } else if pret, ok := predictors[name]; !ok {
-                                erro(ctx, "predictor '%s' undefined (%T %v)", name, a, a).at(g.position).debug(1)
-                                return
-                        } else if val, err = pret(positional(ctx, g.Elems[0].Position()), g.Elems[1:]...); err != nil {
-                                erro(ctx, "prediction '%v' failed: %v", g.Elems[0], err).of(a).debug(1)
+                        } else if pret, ok := predictors[g.Elems[0].Strval(ctx)]; !ok {
+                                erro(ctx, "predictor '%s' undefined (%T %v)", g.Elems[0], a, a).at(g.position).debug(1)
                                 return
                         } else {
-                                a = val // reset the value of 'a'
+                                a = pret(positional(ctx, g.Elems[0].Position()), g.Elems[1:]...)
                         }
 
                         if a == nil {
@@ -3216,10 +2902,7 @@ ForArgs:
                         } else if p, ok := a.(*prediction); ok {
                                 if p.reason != "" { reasons = append(reasons, p.reason) }
                                 tru = p.bool
-                        } else if tru, err = a.True(ctx); err != nil {
-                                erro(ctx, "truthify '%v' failed: %v", a, err).of(a).debug(1)
-                                return
-                        } else if tru {
+                        } else if tru = a.True(ctx); tru {
                                 reasons = append(reasons, fmt.Sprintf("#%v", i+1))
                         }
 
@@ -3252,7 +2935,7 @@ func modifierAssert(ctx Context, args... Value) (result Value, brks breakers) {
                         errostack(ctx, 8, "(%T):", ctx).debug(6)
                 } else {
                         var target, _ = ctx.autoGet("@")
-                        var vals, _ = expandmerge2(ctx, expandPlainValue, args...)
+                        var vals = expandmerge2(ctx, expandPlainValue, args...)
                         erro(ctx, "assertion failed: %v (target = %s)", msg, target)
                         erro(ctx, "assertion args: %v", args)
                         erro(ctx, "assertion args: %v (expandmerged)", vals)
@@ -3291,18 +2974,10 @@ func modifierCase(ctx Context, args... Value) (result Value, brks breakers) {
 }
 
 func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
-        var (
-                opts = ctx.dirtyOpts()
-                deps []Value
-                err error
-        )
+        var opts = ctx.dirtyOpts()
         if len(target.updatedDeps(ctx)) > 0 { return true }
         if v, found := ctx.autoGet("^"); found && !isTrivial(v) { a = append(a, v) }
-        if deps, err = expandmerge2(ctx, expandPlainValue, a...); err != nil {
-                erro(ctx, "%v", err).debug(1)
-                return
-        }
-        for _, dep := range deps {
+        for _, dep := range expandmerge2(ctx, expandPlainValue, a...) {
                 var mat bool = len(opts.pats) == 0
                 if !mat { for _, pat := range opts.pats { if mat, _, _ = pat.match(ctx, dep); mat { break }}}
                 if mat && (dep.updated(ctx) || dep.stat(ctx).mod().After(target.stat(ctx).mod())) {
@@ -3320,32 +2995,28 @@ type predictionOutdatedOpts struct {
         verboseOutdated bool "vo,verbose-outdated"
         silent bool "s,silent"
 }
-func predictionOutdated(ctx Context, args... Value) (result Value, err error) {
+func predictionOutdated(ctx Context, args... Value) (result Value) {
         var (
                 opts predictionOutdatedOpts
                 target Value
                 targetFullname string
                 reason string
                 outdated bool
+                err error
         )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                erro(ctx, "parse opts failed: %v", err).debug(1)
-                return
-        } else if target, _, _, err = wait(ctx); err != nil {
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+
+        if target, _, _, err = wait(ctx); err != nil {
                 erro(ctx, "waiting traversal failed: %v", err).debug(1)
                 return
         }
 
-        if false { warn(ctx, "%T %v %v", target, target, target.updatedDeps(ctx)).debug(1) }
         if outdated = len(target.updatedDeps(ctx)) > 0; outdated {
                 reason = "updated prerequisites"
-        } else if targetFullname, err = fullnameOrStrval(ctx, target); err != nil {
-                erro(ctx, "strval '%v' failed: %v", target, err).debug(1)
-                return
-        } else if outdated = !exists(ctx, target); outdated {
+        }
+
+        targetFullname = fullnameOrStrval(ctx, target)
+        if outdated = !exists(ctx, target); outdated {
                 reason = "target not exists"
         } else if outdated = isDirty(ctx, target, args...); outdated {
                 reason = "dirty"
@@ -3364,10 +3035,7 @@ func predictionOutdated(ctx Context, args... Value) (result Value, err error) {
                         var file2 string
                         if isTrivial(depend) {
                                 // does nothing
-                        } else if file2, err = fullnameOrStrval(ctx, depend); err != nil {
-                                erro(ctx, "strval '%v' failed: %v", depend, err).debug(1)
-                                return
-                        } else if file2 != "" {
+                        } else if file2 = fullnameOrStrval(ctx, depend); file2 != "" {
                                 // see: same, err = crc64CompareFileChecksum(ctx, targetFullname, file2)
                                 // TODO.1: load saved checksum for depend, set outdated if no such
                                 // TODO.2: calculate checksum for depend and compare with the loaded
@@ -3395,7 +3063,7 @@ func predictionOutdated(ctx Context, args... Value) (result Value, err error) {
         return
 }
 
-func predictionNoLoop(ctx Context, args... Value) (result Value, err error) {
+func predictionNoLoop(ctx Context, args... Value) (result Value) {
         var loop bool
         var target, _ = ctx.autoGet("@")
         for caller := ctx.traversal().caller(); caller != nil; caller = caller.caller() {
@@ -3421,15 +3089,9 @@ func predictionNoLoop(ctx Context, args... Value) (result Value, err error) {
 type predictionTarget1stVisitOpts struct {
         silent bool "s,silent"
 }
-func predictionTarget1stVisit(ctx Context, args... Value) (result Value, err error) {
-        var ( opts predictionTarget1stVisitOpts )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
-                erro(ctx, "parse opts failed: %v", err).debug(1)
-                return
-        }
+func predictionTarget1stVisit(ctx Context, args... Value) (result Value) {
+        var opts predictionTarget1stVisitOpts
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
         var target, _ = ctx.autoGet("@")
         if isNil(target) {
@@ -3466,22 +3128,15 @@ type predictionTargetMaxVisitOpts struct {
         debug bool "d,debug;d,debug-trace;d,dump"
         silent bool "s,silent"
 }
-func predictionTargetMaxVisit(ctx Context, args... Value) (result Value, err error) {
-        var ( opts predictionTargetMaxVisitOpts )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
-                erro(ctx, "parse opts failed: %v", err).debug(1)
-                return
-        }
+func predictionTargetMaxVisit(ctx Context, args... Value) (result Value) {
+        var opts predictionTargetMaxVisitOpts
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
         var nth int64
         for _, a := range args {
-                if nth, err = a.Integer(ctx); err != nil {
-                        erro(ctx, "%v", err).debug(1)
-                        return
-                } else if nth <= 0 {
+                if i, e := a.Integer(ctx); e != nil {
+                        erro(ctx, "%v: %v", a, i).debug(1)
+                } else if nth = i; nth <= 0 {
                         erro(ctx, "needs positive number (%v, %s)", a, typeof(a)).debug(1)
                         return
                 }
@@ -3522,22 +3177,13 @@ type modifierGitModifiedOpts struct {
         verbose bool "v,verbose"
 }
 func modifierGitModified(ctx Context, args... Value) (result Value, brks breakers) {
-        var (
-                opts modifierGitModifiedOpts
-                err error
-        )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
-                erro(ctx, "parse opts failed: %v", err).debug(1)
-                return
-        }
+        var opts modifierGitModifiedOpts
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
         var out = new(bytes.Buffer)
         var git = exec.Command("git", "status")
         git.Stdout, git.Stderr = out, os.Stderr
-        if err = git.Run(); err != nil {
+        if err := git.Run(); err != nil {
                 erro(ctx, "git failed: %v", err).debug(1)
                 return
         }
@@ -3554,11 +3200,7 @@ func modifierGitModified(ctx Context, args... Value) (result Value, brks breaker
                         return
                 }
                 for _, a := range args {
-                        var s string
-                        if s, err = a.Strval(ctx); err != nil {
-                                erro(ctx, "strval '%v' failed: %v", err).debug(1)
-                                return
-                        }
+                        var s = a.Strval(ctx)
                         for _, v := range sm {
                                 if false { prompt(ctx, "%s: %s\n%v\n", pos, s, v[1]) }
                                 if s == string(v[1]) {
@@ -3576,22 +3218,13 @@ type modifierGitAheadOpts struct {
         verbose bool "v,verbose"
 }
 func modifierGitAhead(ctx Context, args... Value) (result Value, brks breakers) {
-        var (
-                opts modifierGitAheadOpts
-                err error
-        )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...) ; err != nil {
-                erro(ctx, "parse opts failed: %v", err)
-                return
-        }
+        var opts modifierGitAheadOpts
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
         var out = new(bytes.Buffer)
         var git = exec.Command("git", "status")
         git.Stdout, git.Stderr = out, os.Stderr
-        if err = git.Run(); err != nil {
+        if err := git.Run(); err != nil {
                 erro(ctx, "git: %v", err).debug(1)
                 return
         }
@@ -3631,7 +3264,6 @@ func onceSHA256(ctx Context, opts *modifierOnceOpts, args... Value) (result Valu
         var (
                 program = ctx.program()
                 h = sha256.New()
-                s string
         )
         if true {
                 // NOTE: entry and program are unique, since (once) is for runtime, we use their addresses.
@@ -3640,15 +3272,8 @@ func onceSHA256(ctx Context, opts *modifierOnceOpts, args... Value) (result Valu
                 fmt.Fprintf(h, "%v%v", ctx.Position(), program.position)
         }
 
-        var err error
         for _, a := range args {
-                if s, err = fullnameOrStrval(ctx, a); err != nil {
-                        erro(ctx, "strval '%v' failed: %v", a, err).debug(1)
-                        return
-                } else {
-                        if false { info(ctx, "%v", s).debug(true, 1) }
-                        fmt.Fprintf(h, "%s", s)
-                }
+                fmt.Fprintf(h, "%s", fullnameOrStrval(ctx, a))
         }
 
         var sum HashBytes
@@ -3673,17 +3298,8 @@ type modifierOnceOpts struct {
 func modifierOnce(ctx Context, args... Value) (result Value, brks breakers) {
         // TODO: (once)           --> once for the RuleEntry, aka entry.doneOnce = true
         // TODO: (once -for=$@)   --> once for $@, aka entry.onces[$(expand $@)] = true
-        var (
-                opts modifierOnceOpts
-                err error
-        )
-        if args, err = expandmerge2(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "merge args failed: %v", err).debug(1)
-                return
-        } else if args, err = parseOpts(ctx, &opts, args...); err != nil {
-                erro(ctx, "parse opts failed: %v", err).debug(1)
-                return
-        }
+        var opts modifierOnceOpts
+        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
         var n int
         var target, found = ctx.autoGet("@")

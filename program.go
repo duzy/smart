@@ -199,10 +199,7 @@ func (prog *Program) getModifiers(ctx Context, name string) (ms []*modifier) {
         var g, ok = d.(*modifiergroup)
         if !ok { continue }
         for _, m := range g.modifiers {
-            if s, e := m.name.Strval(ctx); e != nil {
-                erro(ctx, "get modifier name '%v' failed: %v", m.name, e).of(m.name).debug(1)
-                return
-            } else if s == name {
+            if m.name.Strval(ctx) == name {
                 ms = append(ms, m)
             }
         }
@@ -216,19 +213,13 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
     //       [ foo.baaaar ]
     var (
         name string
-        args []Value
-        err error
+        args = expandmerge2(ctx, expandPlainValue, m.name)
     )
-    if args, err = expandmerge2(ctx, expandPlainValue, m.name); err != nil {
-        erro(ctx, "expand modifier name '%v' failed: %v", m.name, err).of(m.name).debug(1)
-        return
-    } else if n := len(args); n == 0 {
+    if n := len(args); n == 0 {
         erro(ctx, "modifier name '%v' is empty", m.name).of(m.name).debug(1)
         return
-    } else if name, err = args[0].Strval(ctx); err != nil {
-        erro(ctx, "strval '%v' failed: %v", args[0], err).of(args[0]).debug(1)
-        return
     } else {
+        name = args[0].Strval(ctx)
         args = append(args[1:], m.args...)
     }
 
@@ -239,7 +230,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
         if len(ctx.traversal().interpreted) == 0 && len(prog.recipes) > 0 && name == "configure" /*&& (isNil(value) || isNone(value))*/ {
             // Evaluate for configure modifier
             if i, ok := dialects["eval"]; ok && i != nil {
-                if err = prog.interpret(ctx, i, args); err != nil {
+                if err := prog.interpret(ctx, i, args); err != nil {
                     var _, ent, _ = entryStr(ctx, ctx.entry())
                     prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
                     erro(ctx, "interpret failed: %v", err)
@@ -268,7 +259,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
             fail(m.Position(), "%s failed for project %s", name, proj)
         }
     } else if i, _ := dialects[name]; i != nil {
-        if err = prog.interpret(ctx, i, args); err != nil {
+        if err := prog.interpret(ctx, i, args); err != nil {
             var _, ent, _ = entryStr(ctx, ctx.entry())
             prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
             erro(ctx, "%s: %v", name, err)
@@ -349,7 +340,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
             for _, target := range merge(targets) {
                 for _, dep := range merge(depends) {
                     var u = dep.updated(ctx)
-                    if s, _ := target.Strval(ctx); strings.HasPrefix(s, "ui/ui.h") {
+                    if s := target.Strval(ctx); strings.HasPrefix(s, "ui/ui.h") {
                         warn(ctx, "%T %v: %T %v; updated = %v", target, target, dep, dep, u).debug(1)
                     }
                     if u { /* TODO: ... */ }
@@ -429,15 +420,11 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     case *Flag: t.print = false // Flag target (-foo) turns off printing automatically
     case *File: //alreadyUpdated = a.info != nil && a.updated
     default:
-        var s string
         if isNil(a) {
             erro(ctx, "%v: nil entry target", target)
             errostack(ctx, 8, "%v", ctx).debug(20)
             return
-        } else if s, err = a.Strval(ctx); err != nil {
-            erro(ctx, "strval '%v' failed: %v", a, err).debug(1)
-            return
-        } else if file := prog.project.FindFile(ctx, s); file != nil {
+        } else if file := prog.project.FindFile(ctx, a.Strval(ctx)); file != nil {
             //alreadyUpdated = file.info != nil && file.updated
             target = file
         }
@@ -587,7 +574,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
             } else {
                 brks = nil;  continue
             }
-            if false { if s, _ := target.Strval(ctx); (
+            if false { if s := target.Strval(ctx); (
                 strings.Contains(s, "llvm-tools-driver") ||
                 strings.Contains(s, "cc1gen_reproducer_main") ||
                 strings.Contains(s, "UnwindLevel1")) {

@@ -27,11 +27,11 @@ func (p *Plain) String() (s string) {
         }
         return
 }
-func (p *Plain) Strval(_ Context) (string, error) { return p.Value, nil }
-func (p *Plain) True(_ Context) (bool, error) { return strings.TrimSpace(p.Value) != "", nil }
-func (p *Plain) Integer(_ Context) (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
-func (p *Plain) Float(_ Context) (float64, error) { return strconv.ParseFloat(p.Value, 64) }
-func (p *Plain) expand(_ Context, _ expandwhat) (val Value, err error) {
+func (p *Plain) Strval(_ Context) string { return p.Value }
+func (p *Plain) True(_ Context) bool { return strings.TrimSpace(p.Value) != "" }
+func (p *Plain) Integer(_ Context) (n int64, e error) { return strconv.ParseInt(p.Value, 10, 64) }
+func (p *Plain) Float(_ Context) (n float64, e error) { return strconv.ParseFloat(p.Value, 64) }
+func (p *Plain) expand(_ Context, _ expandwhat) (val Value) {
         val = MakeString(p.position, p.Value)
         return
 }
@@ -40,9 +40,7 @@ func (p *Plain) cmp(ctx Context, v Value) (res cmpres) {
                 if p.Name == a.Name && p.Value == a.Value {
                         res = cmpEqual
                 }
-        } else if s, err := v.Strval(ctx); err != nil {
-                erro(ctx, `strval "%v" failed: %v`, v, err).debug(1)
-        } else if s == p.Value {
+        } else if v.Strval(ctx) == p.Value {
                 res = cmpEqual
         }
         return
@@ -57,10 +55,7 @@ func (_ *plain) Evaluate(ctx Context, args ...Value) (result Value, err error) {
                 str, name string
         )
         if len(args) > 0 {
-                if name, err = args[0].Strval(ctx); err != nil {
-                        erro(ctx, "%v", err).of(args[0]).debug(1)
-                        return
-                }
+                name = args[0].Strval(ctx)
                 program.language = name
         }
         if str, err = multiline(ctx, program.recipes...); err != nil {
@@ -79,14 +74,9 @@ func multiline(ctx Context, recipes... Value) (res string, err error) {
         var (
                 x = len(recipes)-1
                 w = new(bytes.Buffer)
-                s string
         )
         for n, recipe := range recipes {
-                if s, err = recipe.Strval(ctx); err != nil {
-                        erro(ctx, "%v", err).debug(1)
-                        return
-                }
-                if fmt.Fprint(w, s); n < x { fmt.Fprint(w, "\n") }
+                if fmt.Fprint(w, recipe.Strval(ctx)); n < x { fmt.Fprint(w, "\n") }
         }
         res = w.String()
         return

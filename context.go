@@ -153,20 +153,19 @@ type Context interface {
 func getTargetValue(ctx Context) (res Value) {
   if target, ok := ctx.autoGet("@"); !ok || isNil(target) {
     if false { erro(ctx, "target '%v' is nil", target) }
-  } else if vals, _, err := expandall2(ctx, expandPlainValue, target); err != nil {
-    erro(ctx, "expand target '%v' failed: %v", target, err).of(target)
-  } else if len(vals) == 1 { res = Scalar(vals[0]) } else {
+  } else if vals, _ := expandall2(ctx, expandPlainValue, target); len(vals) == 1 {
+    res = Scalar(vals[0])
+  } else {
     erro(ctx, "target '%v' expaned to many: %v", target, res).of(target)
   }
   return
 }
 
 func getTargetValueString(ctx Context) (val Value, str string) {
-  var err error
   if val = getTargetValue(ctx); isNil(val) {
     if false { erro(ctx, "target '%v' is nil", val) }
-  } else if str, err = fullnameOrStrval(ctx, val); err != nil {
-    erro(ctx, "strval target '%v' failed: %v", val, err).of(val)
+  } else {
+    str = fullnameOrStrval(ctx, val)
   }
   return
 }
@@ -592,8 +591,7 @@ func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
 
   var done bool
   for _, flag := range dc.globe.flags {
-    var ( s string; err error )
-    if s, err = flag.name.Strval(ctx); err != nil { return }
+    var s = flag.name.Strval(ctx)
     var args, _ = dc.globe.args[flag]
     var entries, _ = dc.globe.flagEntries[s]
     for _, entry := range entries {
@@ -627,10 +625,7 @@ func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
       switch t := goal.(type) {
       case *None: // just ignore
       case *Bareword:
-        if entries, err := proj.resolveEntries(ctx, t.string, false, true); err != nil {
-          erro(ctx, "resolve '%s': %s", t.string, err).debug(1)
-          return false
-        } else if entries == nil {
+        if entries := proj.resolveEntries(ctx, t.string, false, true); entries == nil {
           erro(ctx, "no such entry `%s`", t.string).debug(1)
           return false
         } else {
@@ -639,13 +634,8 @@ func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
           }
         }
       case *delegate:
-        if s, err := t.Strval(ctx); err != nil {
-          erro(ctx, "strval '%v' failed: %s", t, err).debug(1)
-          return false
-        } else if entries, err := proj.resolveEntries(ctx, s, false, true); err != nil {
-          erro(ctx, "resolve entry '%s' failed: %s", s, err).debug(1)
-          return false
-        } else if entries == nil {
+        var s = t.Strval(ctx)
+        if entries := proj.resolveEntries(ctx, s, false, true); entries == nil {
           erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug(1)
           return false
         } else {
@@ -654,13 +644,8 @@ func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
           }
         }
       case *Flag:
-        if s, err := t.Strval(ctx); err != nil {
-          erro(ctx, "strval '%v' failed: %s", t, err).debug(1)
-          return false
-        } else if entries, err := proj.resolveEntries(ctx, s, false, true); err != nil {
-          erro(ctx, "resolve entry '%s' failed: %s", s, err).debug(1)
-          return false
-        } else if entries == nil {
+        var s = t.Strval(ctx)
+        if entries := proj.resolveEntries(ctx, s, false, true); entries == nil {
           erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug(1)
           return false
         } else {
@@ -669,15 +654,16 @@ func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
           }
         }
       case *Argumented:
-        if s, err := t.value.Strval(ctx); err != nil {
-          erro(ctx, "strval '%v' failed: %s", t.value, err).debug(1)
-          return false
-        } else {
+        {
           // For examples:
           //     project-name(-clean)
           //     project/spec(-clean)
           //     xxxx()
-          var ( args = merge(t.args...); found int )
+          var (
+            s = t.value.Strval(ctx)
+            args = merge(t.args...)
+            found int
+          )
           for _, p := range dc.globe.projects {
             if p.name == s || p.spec == s { found += 1
               if !collect(p, args) { return false }
@@ -841,9 +827,8 @@ func (ctx *defaultContext) load() (err error) {
     // Relax!
   } else if args = ctx.loader.loadText("@", text); len(args) == 0 {
     // ohh...
-  } else if args, err = parseOpts(ctx, &options, args...); err != nil {
-    erro(ctx, "parse opts failed: %v", err).at(pos).debug(1)
-    return
+  } else {
+    args = parseOpts(ctx, &options, args...)
   }
 
   if v := options.reconfigure; v { options.configure = v }
@@ -900,7 +885,7 @@ func (ctx *defaultContext) load() (err error) {
     switch t := target.(type) {
     case *Pair: ctx.globe.pairs = append(ctx.globe.pairs, t)
     case *Flag: ctx.globe.flags = append(ctx.globe.flags, t)
-      if s, err := t.name.Strval(ctx); err == nil && s == "clean" {
+      if s := t.name.Strval(ctx); s == "clean" {
         mode.position, mode.string = t.position, "clean"
       }
     case *Argumented:
@@ -1042,16 +1027,11 @@ func CommandLine() {
   } else if context.checkErrors(true) > 0 {
     prompt(context, "run work got %d errors\n", context.totalErrors())
   } else if result != nil {
-    var ( s string; err error )
     for i, v := range result {
-      if isNil(v) { continue } else if i > 0 && s != "" {
+      if isNil(v) { continue } else if i > 0 {
         fmt.Fprintf(stderr, ", ")
       }
-      if s, err = v.Strval(context); err != nil {
-        fmt.Fprintf(stderr, "%s [%s]", v, err)
-      } else {
-        fmt.Fprintf(stderr, "%s", s)
-      }
+      fmt.Fprintf(stderr, "%s", v.Strval(context))
     }
     fmt.Fprintf(stderr, "\n")
   }
