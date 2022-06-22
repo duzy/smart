@@ -58,8 +58,8 @@ func (_ *modifier) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (m *modifier) traverse(ctx Context) (brks breakers) {
-        var proj = ctx.Project()
         var verb = false //options.verbose || options.verboseBreaks
+        var proj = ctx.Project()
         ctx = positional(ctx, m.position)
         if brks = ctx.program().modify(ctx, m); !brks.has() {
                 if n := ctx.countErrors(); n > 0 {
@@ -275,9 +275,9 @@ func modifierPrint(ctx Context, args... Value) (result Value, brks breakers) {
 }
 
 type modifierDebugOpts struct {
-        cond Value `if,cond,where,when`
-        info []Value `i,info`
-        warn []Value `w,warn`
+        cond    Value `if,cond,where,when`
+        info  []Value `i,info`
+        warn  []Value `w,warn`
         error []Value `e,err;er,error`
         checkOutdated bool `d,dirty;cd,checkdirty;cd,check-dirty;co,check-outdated`
         s int `s,stack,sn,stack-number`
@@ -288,15 +288,9 @@ func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
         args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
         if opts.cond != nil && !opts.cond.True(ctx) { return }
 
-        for _, v := range opts.info {
-                info(ctx, "%s", v.Strval(ctx)).of(v).debug(1)
-        }
-        for _, v := range opts.warn {
-                warn(ctx, "%s", v.Strval(ctx)).of(v).debug(1)
-        }
-        for _, v := range opts.error {
-                erro(ctx, "%s", v.Strval(ctx)).of(v).debug(1)
-        }
+        for _, v := range opts.info  { info(ctx, "%s", v.Strval(ctx)).of(v).debug(1) }
+        for _, v := range opts.warn  { warn(ctx, "%s", v.Strval(ctx)).of(v).debug(1) }
+        for _, v := range opts.error { erro(ctx, "%s", v.Strval(ctx)).of(v).debug(1) }
 
         var (
                 target , _ = ctx.autoGet("@")
@@ -313,11 +307,7 @@ func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
                         return
                 }
                 for _, dep := range merge(depends, ordered, grepped) {
-                        var dt = dep.stat(ctx).mod()
-                        if false { if s := dep.String(); strings.HasSuffix(s, ".o") {
-                                info(ctx, "%v -> %T %v, %v", target, dep, dep, dt.Sub(tt)).debug(false, 1)
-                        }}
-                        if dt.After(tt) {
+                        if dt := dep.stat(ctx).mod(); dt.After(tt) {
                                 info(ctx, "%v: outdated by %v (%v)", target, dep, dt.Sub(tt)).debug(1)
                         }
                 }
@@ -325,7 +315,7 @@ func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
         if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.error) == 0 {
                 var m = prompt(ctx, "%v: %v target=%v stems=%v depends=%v\n",
                         ctx.Position(), args, target, ctx.stems(), depends)
-                if n := opts.n*2; opts.s > 0 {
+                if n := opts.n * 2; opts.s > 0 {
                         infostack(ctx, opts.s, "").debug(n)
                 } else {
                         m.debug(n)

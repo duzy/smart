@@ -586,7 +586,7 @@ func errostack(ctx Context, n int, s string, a ...interface{}) *diagPoint { retu
 func warnstack(ctx Context, n int, s string, a ...interface{}) *diagPoint { return callstack(ctx, n, diagWarn , s, a...) }
 func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (point *diagPoint) {
     var (
-        proj = ctx.Project()
+        proj  = ctx.Project()
         entry = ctx.entry()
         str, _, _ = entryStr(ctx, entry)
     )
@@ -608,19 +608,23 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
 
     point = ctx.diag(dt, "%v: (project=%v) %v", str, proj, ctx)
     if pc := ctx.programCtx(); pc != nil {
-        var tt, _ = pc.autoGet("@")
         point = point.at(pc.prog.position)
-        for last := pc.prog.position; pc != nil; pc = pc.Context.programCtx() {
-            var n int
-            if true { for next := pc.caller(); next != nil; next = next.caller() {
+
+        var tt, _ = pc.autoGet("@")
+        for last, n := pc.prog.position, 0; pc != nil; pc = pc.Context.programCtx() {
+            for next := pc.caller(); next != nil; next = next.caller() {
                 if t, _ := next.autoGet("@"); t != nil && t.cmp(ctx, tt) == cmpEqual {
                     n += 1;  continue
                 }
-                if next.program() == pc.program() { n += 1; pc = next } else { break }
-            }}
+                if next.program() == pc.program() {
+                    n += 1
+                    pc = next
+                    last = pc.prog.position
+                } else { break }
+            }
 
             var pos = pc.prog.position
-            if !pos.SameLine(&last) {
+            if true /*FIXME: || !pos.SameLine(&last)*/|| pos.IsValid() || last.IsValid() {
                 var str, _, _ = entryStr(pc, pc.entry())
                 if pc != nil { str += " ..." }
                 if n <= 1 {
@@ -765,11 +769,9 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 break ForProjectsConcretes
             }
 
-            // if at, _ := ctx.autoGet("@"); at != nil {
-            //     file, _ = at.(*File) //entry.Target().(*File)
-            // }
-            // if file == nil { file, _ = entry.Target().(*File) }
-            file, _ = entry.Target().(*File)
+            if file, _ = entry.Target().(*File); file == nil {
+                if a, _ := ctx.autoGet("@"); !isTrivial(a) { file, _ = a.(*File) }
+            }
             file_traversed, okay = false, true
 
             if t.has(breakDone) {
@@ -1240,6 +1242,8 @@ const (
 type Value interface {
     Positioner // The position where the value appears (or NoPos).
 
+    kind() kind
+
     // Literal representations of the value.
     String() string
 
@@ -1254,8 +1258,6 @@ type Value interface {
 
     // Float returns the float form of the value.
     Float(Context) (float64, error)
-
-    kind() kind
 
     // Equality compare.
     cmp(Context, Value) cmpres
@@ -1290,11 +1292,11 @@ type Value interface {
     // Stamp the value if it's a file (aka. update FileInfo).
     stamp(Context) ([]*File, error)
 
-    updated(Context,...bool) bool
-    updatedDeps(Context,...Value) []Value
-
     // Delete the file (if it is).
     delete(Context) ([]*File, error)
+
+    updated(Context, ...bool) bool
+    updatedDeps(Context, ...Value) []Value
 
     traverse(Context) breakers
 }
@@ -3884,17 +3886,17 @@ func (p *File) updatedDeps(_ Context, v ...Value) []Value {
 }
 func (p *File) stat(ctx Context) (si *statinfo) {
     var err error
-    if p.info == nil {
-        if p.info, err = os.Stat(p.fullname()); err == nil {
-            // good
-        } else if pe, ok := err.(*fs.PathError); ok {
-            if false {
-                erro(ctx, "File.stat %v: %v", trimPromptString(pe.Path), pe.Err).at(p.position).debug(1)
-            }
-            return
-        } else {
-            erro(ctx, "File.stat failed: %v", err).at(p.position).debug(1)
+    if p.info != nil {
+        // good already
+    } else if p.info, err = os.Stat(p.fullname()); err == nil {
+        // good
+    } else if pe, ok := err.(*fs.PathError); ok {
+        if false {
+            erro(ctx, "File.stat %v: %v", trimPromptString(pe.Path), pe.Err).at(p.position).debug(1)
         }
+        return
+    } else {
+        erro(ctx, "File.stat failed: %v", err).at(p.position).debug(1)
     }
     if err == nil { si = &statinfo{ file: p } }
     return

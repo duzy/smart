@@ -227,7 +227,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
     if f, ok := modifiers[name]; ok {
         var value Value //, _ = ctx.autoGet("-")
         // Special modifier processing (implicit interpretation) before (configure)
-        if len(ctx.traversal().interpreted) == 0 && len(prog.recipes) > 0 && name == "configure" /*&& (isNil(value) || isNone(value))*/ {
+        if len(ctx.traversal().interpreted) == 0 && len(prog.recipes) > 0 && name == "configure" {
             // Evaluate for configure modifier
             if i, ok := dialects["eval"]; ok && i != nil {
                 if err := prog.interpret(ctx, i, args); err != nil {
@@ -248,7 +248,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
                     warnstack(ctx, 5, "").debug(16)
                 }
             }
-            return;
+            return
         } else if hyphen, found := ctx.autoGet("-"); !found || isNil(value) || value == hyphen {
             // does nothing
         } else if ctx.autoSet("-", value); false {
