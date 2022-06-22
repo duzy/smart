@@ -607,11 +607,11 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
     }
 
     point = ctx.diag(dt, "%v: (project=%v) %v", str, proj, ctx)
-    if pc := ctx.programCtx(); pc != nil {
+    if pc := ctx.programContext(); pc != nil {
         point = point.at(pc.prog.position)
 
         var tt, _ = pc.autoGet("@")
-        for last, n := pc.prog.position, 0; pc != nil; pc = pc.Context.programCtx() {
+        for last, n := pc.prog.position, 0; pc != nil; pc = pc.Context.programContext() {
             for next := pc.caller(); next != nil; next = next.caller() {
                 if t, _ := next.autoGet("@"); t != nil && t.cmp(ctx, tt) == cmpEqual {
                     n += 1;  continue
@@ -1407,6 +1407,8 @@ func (p *Argumented) cmp(ctx Context, v Value) (res cmpres) {
         if res = p.value.cmp(ctx, a.value); res == cmpEqual {
             // FIXME: check p.args against a.args?
         }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -1490,14 +1492,22 @@ func (p *Argumented) traverse(ctx Context) (brks breakers) {
 }
 
 type None struct { valbase }
-func (_ *None) cmp(ctx Context, v Value) (res cmpres) {
-    if _, ok := v.(*None); ok { res = cmpEqual }
+func (p *None) cmp(ctx Context, v Value) (res cmpres) {
+    if _, ok := v.(*None); ok {
+        res = cmpEqual
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
+    }
     return
 }
 
 type Nil struct { valbase }
 func (p *Nil) cmp(ctx Context, v Value) (res cmpres) {
-    if _, ok := v.(*Nil); ok { res = cmpEqual }
+    if _, ok := v.(*Nil); ok {
+        res = cmpEqual
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
+    }
     return
 }
 
@@ -1556,12 +1566,16 @@ func (p *Any) cmp(ctx Context, v Value) (res cmpres) {
             if v2, ok := a.value.(Value); ok {
                 res = v1.cmp(ctx, v2)
             }
+        } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+            res = p.cmp(ctx, l.Elems[0])
         }
     case Value:
         if p.value == a {
             res = cmpEqual
         } else if v1, ok := p.value.(Value); ok {
             res = v1.cmp(ctx, a)
+        } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+            res = p.cmp(ctx, l.Elems[0])
         }
     }
     return
@@ -1702,7 +1716,11 @@ func (p *negative) expand(ctx Context, w expandwhat) (res Value) {
     return
 }
 func (p *negative) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*negative); ok { res = p.x.cmp(ctx, a.x) }
+    if a, ok := v.(*negative); ok {
+        res = p.x.cmp(ctx, a.x)
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
+    }
     return
 }
 func (p *negative) True(ctx Context) (res bool) {
@@ -1769,6 +1787,8 @@ func (p *boolean) cmp(ctx Context, v Value) (res cmpres) {
         } else if p.bool && !a.bool {
             res = cmpGreater
         }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -1821,6 +1841,8 @@ func (p *answer) cmp(ctx Context, v Value) (res cmpres) {
         } else if p.bool && !a.bool {
             res = cmpGreater
         }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -1875,6 +1897,8 @@ func (p *option) cmp(ctx Context, v Value) (res cmpres) {
         } else if p.bool && !a.bool {
             res = cmpGreater
         }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -1954,6 +1978,8 @@ func (p *Float) cmp(ctx Context, v Value) (res cmpres) {
         } else if p.float64 > f {
             res = cmpGreater
         }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -2152,6 +2178,8 @@ func (p *URL) cmp(ctx Context, v Value) (res cmpres) {
             if p.Fragment.cmp(ctx, a.Fragment) != cmpEqual { return }
         }
         res = cmpEqual
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -2178,8 +2206,10 @@ func (p *Raw) Float(ctx Context) (f float64, err error) {
     return strconv.ParseFloat(p.string, 64)
 }
 func (p *Raw) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*Raw); ok && p.string == a.string {
-        res = cmpEqual
+    if a, ok := v.(*Raw); ok {
+        if p.string == a.string { res = cmpEqual }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -2223,6 +2253,8 @@ func (p *String) cmp(ctx Context, v Value) (res cmpres) {
         } else /*if p.string > a.string*/ {
             res = cmpGreater
         }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -2267,6 +2299,8 @@ func (p *Punctuation) cmp(ctx Context, v Value) (res cmpres) {
         } else if p.tok < a.tok {
             res = cmpGreater
         }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -2293,6 +2327,8 @@ func (p *Bareword) cmp(ctx Context, v Value) (res cmpres) {
         } else if p.string < a.string {
             res = cmpGreater
         }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -2344,6 +2380,8 @@ func (p *Qualiword) cmp(ctx Context, v Value) (res cmpres) {
             }
             break
         }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -2490,7 +2528,11 @@ func (p *Barecomp) traverse(ctx Context) (brks breakers) {
     return
 }
 func (p *Barecomp) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*Barecomp); ok { res = p.cmpElems(ctx, a.Elems) }
+    if a, ok := v.(*Barecomp); ok {
+        res = p.cmpElems(ctx, a.Elems)
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
+    }
     return
 }
 func (p *Barecomp) patterned(ctx Context) (res bool) {
@@ -2646,7 +2688,11 @@ func (p *Barefile) stat(ctx Context) (si *statinfo) {
     return
 }
 func (p *Barefile) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*Barefile); ok { res = p.Name.cmp(ctx, a.Name) }
+    if a, ok := v.(*Barefile); ok {
+        res = p.Name.cmp(ctx, a.Name)
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
+    }
     return
 }
 func (p *Barefile) patterned(ctx Context) bool { return p.Name.patterned(ctx) }
@@ -2985,8 +3031,10 @@ type GlobMeta struct { valbase ; token.Token }
 func (p *GlobMeta) String() string { return p.Token.String() }
 func (p *GlobMeta) Strval(ctx Context) string { return p.Token.String() }
 func (p *GlobMeta) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*GlobMeta); ok && p.Token == a.Token {
-        res = cmpEqual
+    if a, ok := v.(*GlobMeta); ok {
+        if p.Token == a.Token { res = cmpEqual }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -3001,7 +3049,11 @@ func (p *GlobRange) Strval(ctx Context) (s string) {
 func (p *GlobRange) refs(ctx Context, v Value) bool { return p.Chars.refs(ctx, v) }
 func (p *GlobRange) defs(ctx Context, s ...string) []*Def { return p.Chars.defs(ctx, s...) }
 func (p *GlobRange) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*GlobRange); ok { res = p.Chars.cmp(ctx, a.Chars) }
+    if a, ok := v.(*GlobRange); ok {
+        res = p.Chars.cmp(ctx, a.Chars)
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
+    }
     return
 }
 func (p *GlobRange) expandible(ctx Context, w expandwhat) bool { return p.Chars.expandible(ctx, w) }
@@ -3157,7 +3209,11 @@ func (p *Path) patterned(ctx Context) (result bool) {
     return
 }
 func (p *Path) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*Path); ok { res = p.cmpElems(ctx, a.Elems) }
+    if a, ok := v.(*Path); ok {
+        res = p.cmpElems(ctx, a.Elems)
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
+    }
     return
 }
 func (p *Path) elemStr(ctx Context, o Object, k elemkind) (s string) {
@@ -3526,7 +3582,11 @@ func (p *PathSeg) Strval(ctx Context) (s string) {
     return
 }
 func (p *PathSeg) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*PathSeg); ok && p.rune == a.rune { res = cmpEqual }
+    if a, ok := v.(*PathSeg); ok {
+        if p.rune == a.rune { res = cmpEqual }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
+    }
     return
 }
 func (p *PathSeg) match(ctx Context, i interface{}) (full bool, result string, stems []string) {
@@ -3969,6 +4029,8 @@ func (p *File) cmp(ctx Context, v Value) (res cmpres) {
             s += fmt.Sprintf("\n      b: %s: %s %s", a.name, a.dir, a.sub)
             fmt.Fprintf(stderr, "%s: warning: files may differ: %s != %s :%s\n", p.position, p.name, a.name, s)
         }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -4125,6 +4187,8 @@ func (p *Flag) cmp(ctx Context, v Value) (res cmpres) {
         // ...
     } else if a, ok := v.(*Flag); ok {
         res = p.name.cmp(ctx, a.name)
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -4196,6 +4260,8 @@ func (p *Compound) elemStr(ctx Context, o Object, k elemkind) (s string) {
 func (p *Compound) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Compound); ok {
         if p.Strval(ctx) == a.Strval(ctx) { res = cmpEqual }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -4308,7 +4374,11 @@ func (p *List) stamp(ctx Context) (files []*File, err error) {
 }
 
 func (p *List) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*List); ok { res = p.cmpElems(ctx, a.Elems) }
+    if a, ok := v.(*List); ok {
+        res = p.cmpElems(ctx, a.Elems)
+    } else if len(p.Elems) == 1 {
+        res = p.Elems[0].cmp(ctx, v)
+    }
     return
 }
 
@@ -4399,7 +4469,11 @@ func (p *Group) traverse(ctx Context) (brks breakers) {
     return
 }
 func (p *Group) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*Group); ok { res = p.cmpElems(ctx, a.Elems) }
+    if a, ok := v.(*Group); ok {
+        res = p.cmpElems(ctx, a.Elems)
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
+    }
     return
 }
 func (p *Group) patterned(ctx Context, ) bool { return false }
@@ -4509,6 +4583,8 @@ func (p *Pair) cmp(ctx Context, v Value) (res cmpres) {
                 res = cmpEqual
             }
         }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -4870,6 +4946,8 @@ func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
                 if res = t.cmp(ctx, a.a[i]); res != cmpEqual { return }
             }
         }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     } else if d, ok := p.x.(*Def); ok && len(p.a) == 0 {
         res = d.value.cmp(ctx, v)
     }
@@ -5098,6 +5176,8 @@ func (p *closure) cmp(ctx Context, v Value) (res cmpres) {
                 if res = t.cmp(ctx, a.a[i]); res != cmpEqual { return }
             }
         }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -5252,12 +5332,16 @@ func (p *selection) delete(ctx Context) (file []*File, err error) {
     return
 }
 func (p *selection) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*selection); ok && p.t == a.t {
-        if res = p.o.cmp(ctx, a.o); res == cmpEqual {
-            if res = p.s.cmp(ctx, a.s); res == cmpEqual {
-                // if p.t == a.t { res = cmpEqual }
+    if a, ok := v.(*selection); ok {
+        if p.t == a.t {
+            if res = p.o.cmp(ctx, a.o); res == cmpEqual {
+                if res = p.s.cmp(ctx, a.s); res == cmpEqual {
+                    // if p.t == a.t { res = cmpEqual }
+                }
             }
         }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -5481,6 +5565,8 @@ func (p *PercPattern) cmp(ctx Context, v Value) (res cmpres) {
                 res = cmpEqual
             }
         }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -5595,6 +5681,8 @@ func (p *GlobPattern) cmp(ctx Context, v Value) (res cmpres) {
             }
             res = cmpEqual
         }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -5615,6 +5703,8 @@ func (p *RegexpPattern) stencil(ctx Context, stems []string) (val Value, rest []
 func (p *RegexpPattern) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*RegexpPattern); ok {
         if a != nil { /* FIXME: ... */ }
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }

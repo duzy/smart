@@ -50,12 +50,14 @@ func (p *objbase) Name(ctx Context) string { panic("inquiring name of an unknown
 func (p *objbase) Get(_ Context, name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
 func (p *objbase) rescope(_ Context, scope *Scope) { panic("rescoping unknown object") }
 func (p *objbase) exists() existence { return existenceMatterless }
-func (p *objbase) cmp(_ Context, v Value) (res cmpres) {
+func (p *objbase) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*objbase); ok {
                 assert(ok, "value is not objbase")
                 if p.owner == a.owner && p.scope == a.scope {
                         res = cmpEqual
                 }
+        } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+                res = p.cmp(ctx, l.Elems[0])
         }
         return
 }
@@ -79,12 +81,14 @@ func (p *knownobject) rescope(_ Context, scope *Scope) {
                 }
         }
 }
-func (p *knownobject) cmp(_ Context, v Value) (res cmpres) {
+func (p *knownobject) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*knownobject); ok {
                 assert(ok, "value is not knownobject")
                 if p.owner == a.owner && p.scope == a.scope && p.name == a.name {
                         res = cmpEqual
                 }
+        } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+                res = p.cmp(ctx, l.Elems[0])
         }
         return
 }
@@ -127,6 +131,8 @@ func (p *unresolvedobject) cmp(ctx Context, v Value) (res cmpres) {
                 if p.owner == a.owner && p.scope == a.scope {
                         res = p.name.cmp(ctx, a.name)
                 }
+        } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+                res = p.cmp(ctx, l.Elems[0])
         }
         return
 }
@@ -202,6 +208,8 @@ func (p *ProjectName) cmp(ctx Context, v Value) (res cmpres) {
                 if p.name == a.name && p.project == a.project {
                         res = cmpEqual
                 }
+        } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+                res = p.cmp(ctx, l.Elems[0])
         }
         return
 }
@@ -230,6 +238,8 @@ func (p *ScopeName) cmp(ctx Context, v Value) (res cmpres) {
                 if p.name == a.name && p.scope == a.scope {
                         res = cmpEqual
                 }
+        } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+                res = p.cmp(ctx, l.Elems[0])
         }
         return
 }
@@ -578,7 +588,9 @@ func (d *Def) expand(ctx Context, w expandwhat) (res Value) {
         return
 }
 func (d *Def) cmp(ctx Context, v Value) (res cmpres) {
-        if a, ok := v.(*Def); ok && !isNil(d.value) {
+        if a, ok := v.(*Def); ok {
+                if isNil(d.value) { return }
+
                 var val1, val2 Value
                 if d.origin == DefArg || d.origin == DefAuto {
                         val1, _ = ctx.autoGet(d.name)
@@ -599,6 +611,8 @@ func (d *Def) cmp(ctx Context, v Value) (res cmpres) {
                 } else if !isNil(val2) {
                         res = val1.cmp(ctx, val2)
                 }
+        } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+                res = d.cmp(ctx, l.Elems[0])
         }
         return
 }
@@ -1003,6 +1017,8 @@ func (p *undetermined) cmp(ctx Context, v Value) (res cmpres) {
                                 res = cmpEqual
                         }
                 }
+        } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+                res = p.cmp(ctx, l.Elems[0])
         }
         return
 }
@@ -1028,12 +1044,14 @@ type Builtin struct {
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
 func (p *Builtin) True(_ Context) bool { return p.f != nil }
 func (p *Builtin) Call(ctx Context, a... Value) Value { return p.f(ctx, a...) }
-func (p *Builtin) cmp(_ Context, v Value) (res cmpres) {
+func (p *Builtin) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*Builtin); ok {
                 assert(ok, "value is not Builtin")
                 if /*p.f == a.f &&*/ p.name == a.name {
                         res = cmpEqual
                 }
+        } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+                res = p.cmp(ctx, l.Elems[0])
         }
         return
 }
@@ -1392,6 +1410,8 @@ func (entry *RuleEntry) cmp(ctx Context, v Value) (res cmpres) {
                                 res = cmpEqual
                         }
                 }
+        } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+                res = entry.cmp(ctx, l.Elems[0])
         }
         return
 }
@@ -1450,6 +1470,8 @@ func (p *PatternEntry) cmp(ctx Context, v Value) (res cmpres) {
                 if p.RuleEntry.cmp(ctx, &a.RuleEntry) == cmpEqual {
                         res = cmpEqual
                 }
+        } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+                res = p.cmp(ctx, l.Elems[0])
         }
         return
 }
@@ -1495,6 +1517,8 @@ func (p *stemmed) cmp(ctx Context, v Value) (res cmpres) {
                         if stem != a.Stems[i] { return }
                 }
                 res = p.PatternEntry.cmp(ctx, a.PatternEntry)
+        } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+                res = p.cmp(ctx, l.Elems[0])
         }
         return
 }

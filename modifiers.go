@@ -444,7 +444,7 @@ func modifierClosure(ctx Context, args... Value) (result Value, brks breakers) {
         // Closure the caller program, the context will be restored when execution is finished.
         if t := ctx.traversal(); t != nil && false {
                 t.Context = closureWith(t.Context, pos)
-        } else if pc := ctx.programCtx(); pc != nil {
+        } else if pc := ctx.programContext(); pc != nil {
                 pc.Context = closureWith(pc.Context, pos)
         } else {
                 erro(ctx, "needs closure context: %v", ctx).debug(1)

@@ -121,7 +121,7 @@ type Context interface {
 
   Project() *Project
 
-  programCtx() *programContext
+  programContext() *programContext
   program() *Program
 
   dirtyOpts() *modifierSetDirtyPatsOpts
@@ -479,7 +479,7 @@ func (ctx *defaultContext) stemmedContext() *stemmedContext { return nil }
 func (ctx *defaultContext) Scope() *Scope { return ctx.globe/*.main*/.scope }
 func (ctx *defaultContext) Project() *Project { return ctx.globe.main }
 func (ctx *defaultContext) program() *Program { return nil }
-func (ctx *defaultContext) programCtx() *programContext { return nil }
+func (ctx *defaultContext) programContext() *programContext { return nil }
 func (ctx *defaultContext) Position() (res Position) { res.Filename, res.Line = ctx.workdir, 1; return }
 func (ctx *defaultContext) appendCallerUpdated() bool { return false }
 func (ctx *defaultContext) mustExists() bool { return false }

@@ -569,7 +569,7 @@ func (p *Project) resolveObject(ctx Context, s string) (obj Object) {
   return
 }
 
-func (p *Project) resolveEntries(ctx Context, s string, matchFullSuffix, alwaysResolveBases bool) (entries *ResolveEntries) {
+func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwaysResolveBases bool) (entries *ResolveEntries) {
   var add = func(a ...Entry) {
     if len(a) > 0 {
       if entries == nil { entries = new(ResolveEntries) }
@@ -577,34 +577,59 @@ func (p *Project) resolveEntries(ctx Context, s string, matchFullSuffix, alwaysR
       entries.all = append(entries.all, a[1:]...)
     }
   }
-  for _, entry := range p.concrete {
-    switch target := entry.Target().(type) {
-    case *File:
-      if target.name == s {
-        add(entry)
-      } else if fullname := target.fullname(); filepath.IsAbs(s) && s == fullname {
-        add(entry)
-      } else if !matchFullSuffix {
-        // not matching
-      } else if strings.HasSuffix(fullname, PathSep+filepath.Clean(s)) {
-        add(entry)
+
+  var match = func(entry Entry, name string) (res bool) {
+    var target = entry.Target()
+    if file, ok := target.(*File); ok {
+      if res = file.name == name; !res {
+        var full = file.fullname()
+        if res = filepath.IsAbs(name) && name == full; !res && matchingFullSuffix {
+          res = strings.HasSuffix(full, PathSep+filepath.Clean(name))
+        }
       }
-    default:
-      if sv := target.Strval(ctx); sv == s {
-        add(entry)
+    } else {
+      res = target.Strval(ctx) == name
+    }
+    return
+  }
+
+  var t1, _ = ctx.autoGet("@")
+  ForConcretes: for _, entry := range p.concrete {
+    if !match(entry, s) { continue ForConcretes }
+
+    for pc := ctx.programContext(); pc != nil; { // loop detection
+      if pc.entry() == entry {
+        var t2, _ = pc .autoGet("@")
+        if t1 == t2 || t1.cmp(ctx, t2) == cmpEqual || t1.Strval(ctx) == t2.Strval(ctx) {
+          if false {
+            warn(ctx, "%v: %p %v %T", entry, t1, t1, t1).of(t1)
+            warn(ctx, "%v: %p %v %T", entry, t2, t2, t2).of(t1)
+            warnstack(ctx, 3, "%v: %v, %v %v (same: %v, %v, %v)",
+              entry, s, t1, t2, (t1 == t2), t1.cmp(ctx, t2), t2.cmp(ctx, t1)).debug(1)
+          }
+          continue ForConcretes // break the loop
+        }
+      }
+      if c := pc.inner(); c != nil {
+        pc = c.programContext()
+      } else {
+        break
       }
     }
+
+    add(entry)
   }
+
   if alwaysResolveBases || entries == nil {
     for _, base := range p.bases {
-      if ents := base.resolveEntries(ctx, s, matchFullSuffix, alwaysResolveBases); ents != nil {
+      if ents := base.resolveEntries(ctx, s, matchingFullSuffix, alwaysResolveBases); ents != nil {
         add(ents.all...)
         break
       }
     }
   }
   if p.configure != nil && ctx.configuration() {
-    if ents := p.configure.resolveEntries(ctx, s, matchFullSuffix, true); ents != nil {
+    if ents := p.configure.resolveEntries(ctx, s, matchingFullSuffix, true); ents != nil {
       add(ents.all...)
     }
   }
@@ -612,7 +637,7 @@ func (p *Project) resolveEntries(ctx Context, s string, matchFullSuffix, alwaysR
     /* FAST */
   } else if entries == nil { /* SLOW */
     for _, using := range p.using.list {
-      ents := using.project.resolveEntries(ctx, s, matchFullSuffix, alwaysResolveBases)
+      ents := using.project.resolveEntries(ctx, s, matchingFullSuffix, alwaysResolveBases)
       if ents != nil {
         add(ents.all...)
         break
@@ -623,7 +648,7 @@ func (p *Project) resolveEntries(ctx Context, s string, matchFullSuffix, alwaysR
 }
 
 func (p *Project) resolvePatterns(ctx Context, v Value, s string) (res []*stemmed) {
-  if res = p.resolvePatternsX(ctx, v, s); false && len(res) > 0 {
+  if res = p.resolvePatterns123(ctx, v, s); false && len(res) > 0 {
     for _, t := range res {
       if file, _ := t.target.(*File); file != nil {
         file.position = t.position
@@ -636,7 +661,7 @@ func (p *Project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
   return
 }
 
-func (p *Project) resolvePatternsX(ctx Context, v Value, s string) (res []*stemmed) {
+func (p *Project) resolvePatterns123(ctx Context, v Value, s string) (res []*stemmed) {
   if true  { res = append(res, p.resolvePatterns1(ctx, v, s)...) }
   if true  { res = append(res, p.resolvePatterns2(ctx, v, s)...) }
   if false { res = append(res, p.resolvePatterns3(ctx, v, s)...)/* heavy work, VERY SLOW! */ }
@@ -653,7 +678,7 @@ func (p *Project) resolvePatterns1(ctx Context, val Value, s string) (res []*ste
             warn(sc, "%v: %T %v; %v; %v; %v, %v %v",
               s, t, t, sc.stem.Stems, pat, s == m, m, stems).debug(1)
           }
-          continue ForPatterns
+          continue ForPatterns // break the loop
         }
         if c := sc.inner(); c != nil { sc = c.stemmedContext() } else { break }
       }
@@ -673,17 +698,17 @@ func (p *Project) resolvePatterns1(ctx Context, val Value, s string) (res []*ste
 
 func (p *Project) resolvePatterns2(ctx Context, val Value, s string) (res []*stemmed) {
   for _, base := range p.bases {
-    res = append(res, base.resolvePatternsX(ctx, val, s)...)
+    res = append(res, base.resolvePatterns123(ctx, val, s)...)
   }
   if p.configure != nil && ctx.configuration() {
-    res = append(res, p.configure.resolvePatternsX(ctx, val, s)...)
+    res = append(res, p.configure.resolvePatterns123(ctx, val, s)...)
   }
   return
 }
 
 func (p *Project) resolvePatterns3(ctx Context, val Value, s string) (res []*stemmed) {
   for _, using := range p.using.list {
-    res = append(res, using.project.resolvePatternsX(ctx, val, s)...)
+    res = append(res, using.project.resolvePatterns123(ctx, val, s)...)
   }
   return
 }

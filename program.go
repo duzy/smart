@@ -17,20 +17,17 @@ import (
 type dependPatternUnfit struct {}
 func (*dependPatternUnfit) Error() string { return "pattern unfit" }
 
-type spawnProgramContext struct { programContext }
-func (sc *spawnProgramContext) String() string { return fmt.Sprintf("spawn-program{%s}", sc.Context) }
-
 type programContext struct {
     autoContext
+    mutex sync.Mutex
+    by    modifierSetDirtyPatsOpts
+    brks  breakers
     prog *Program
     params []string // $0, $1, $2, ...
-    mutex sync.Mutex
-    brks breakers
-    _dirtyOpts modifierSetDirtyPatsOpts
 }
 
 func (pc *programContext) inner() Context { return &pc.autoContext }
-func (pc *programContext) caller() *programContext { return pc.Context.programCtx() }
+func (pc *programContext) caller() *programContext { return pc.Context.programContext() }
 //XXX: func (pc *programContext) stems() []string { return nil }
 func (pc *programContext) String() string {
     if fullContextStringer {
@@ -40,7 +37,7 @@ func (pc *programContext) String() string {
         return pc.autoContext.String()
     }
 }
-func (pc *programContext) programCtx() *programContext { return pc }
+func (pc *programContext) programContext() *programContext { return pc }
 func (pc *programContext) program() *Program { return pc.prog }
 func (pc *programContext) Project() *Project {
     if cc, ok := pc.Context.(*closureContext); ok && true {
@@ -66,10 +63,11 @@ func (pc *programContext) spawn() Context {
     case *closureContext, *traverseContext: ctx = t.spawn()
     default: erro(pc, "program needs to spawn %v", ctx).debug(1)
     }
-    return &spawnProgramContext{programContext{autoContext{
-        Context: ctx, defs: pc.defs.clone() }, pc.prog, pc.params, sync.Mutex{},
-        breakers{}, modifierSetDirtyPatsOpts{},
-    }}
+    return &programContext{
+        autoContext{ Context: ctx, defs: pc.defs.clone() },
+        sync.Mutex{}, modifierSetDirtyPatsOpts{}, breakers{},
+        pc.prog, pc.params,
+    }
 }
 func (pc *programContext) appendCallerUpdated() bool { return true }
 func (pc *programContext) mustExists() bool { return false }
@@ -77,7 +75,7 @@ func (pc *programContext) closureScopes() (scopes []*Scope) {
     if cc, ok := pc.Context.(*closureContext); ok {
         if true {
             scopes = cc.closureScopes()
-        } else if up := cc.programCtx(); up != nil {
+        } else if up := cc.programContext(); up != nil {
             scopes = up.closureScopes()
         }
     } else if true {
@@ -89,7 +87,7 @@ func (pc *programContext) closureScopes() (scopes []*Scope) {
     return
 }
 
-func (pc *programContext) dirtyOpts() *modifierSetDirtyPatsOpts { return &pc._dirtyOpts }
+func (pc *programContext) dirtyOpts() *modifierSetDirtyPatsOpts { return &pc.by }
 func (pc *programContext) dirtyMark(vals ...Value) {
     const enableDirtyMark = true
     if !enableDirtyMark {
@@ -314,19 +312,22 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
 
     assert(prog.project == prog.scope.project, "mismatched scope/project")
 
+    var t = traverseContext{
+        Context: cc,
+        execRec: make(map[Value]int),
+        start: time.Now(),
+        print: true,
+    }
+    var pc = programContext{
+        autoContext: autoContext{ Context:&t, defs:make(autoDefMap) },
+        prog: prog,
+    }
+
     var (
-        t = traverseContext{
-            Context: cc,
-            execRec: make(map[Value]int),
-            start: time.Now(),
-            print: true,
-        }
-        pc = programContext{autoContext:autoContext{Context:&t, defs:make(autoDefMap)}, prog:prog}
         ctx Context = &pc
         target Value
         err error
     )
-
     defer func() {
         var (
             targets, _ = ctx.autoGet("@")
@@ -558,7 +559,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
     }}
 
     var (
-        pc = ctx.programCtx()
+        pc = ctx.programContext()
         target, _ = ctx.autoGet("@")
         verb = options.verbose || options.verboseBreaks
     )
