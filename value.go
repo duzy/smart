@@ -696,7 +696,6 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         concreteList []Entry
         stemmedList []*stemmed
         traversed int
-        file_traversed bool
         file *File // if target is file
         err error
     )
@@ -718,7 +717,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 }
             }
             ctx.traversed(prereqValue) // set $< $> $^ or $|
-        } else if !file_traversed {
+        } else {
             ctx.traversed(file) // set $< $> $^ or $|
         }
         if okay && brks.has(breakNext) && traversed > 0 && (file != nil && file.exists()) {
@@ -726,13 +725,13 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         }
         if false && strings.Contains(prereq, "/patchlevel.c") {
             prompt(ctx, "%v: %v\n", targetValue, prereqValue)
-            warnstack(ctx, 5, "%v %v; %v %v %v; %v %v",
-                targetValue, prereqValue, file, okay, brks, file_traversed, projects).
+            warnstack(ctx, 5, "%v %v; %v %v %v; %v",
+                targetValue, prereqValue, file, okay, brks, projects).
                 debug(128)
         }
         if false && file != nil && strings.HasPrefix(file.fullname(), "llvm/") {
-            warnstack(ctx, 5, "%v %v %v; %v",
-                targetValue, prereqValue, file, file_traversed).debug(16)
+            warnstack(ctx, 5, "%v %v %v",
+                targetValue, prereqValue, file).debug(16)
         }
     } ()
 
@@ -772,7 +771,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             if file, _ = entry.Target().(*File); file == nil {
                 if a, _ := ctx.autoGet("@"); !isTrivial(a) { file, _ = a.(*File) }
             }
-            file_traversed, okay = false, true
+            okay = true
 
             if t.has(breakDone) {
                 // brks = brks.not(breakCase, breakNext) // No need for next
@@ -833,7 +832,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 }
                 break ForProjectsPatterns
             } else {
-                file_traversed, okay = false, true
+                okay = true
             }
 
             if t.has(breakDone) {
@@ -904,7 +903,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             if t.has() {
                 errostack(ctx, 5, "%v", t).debug(16)
             } else {
-                file_traversed, okay = true, file.exists()
+                okay = file.exists()
                 traversed += 1
             }
         }
