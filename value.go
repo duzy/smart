@@ -966,13 +966,11 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     } else if okay || brks.has(breakDone) {
         // done
     } else if !ctx.configuration() && (len(ctx.stems()) == 0 || ctx.mustExists()) {
-        if file != nil {
+        if brk := brks.add(ctx, breakErro); file != nil {
             ctx = positional(ctx, file.position)
-            brks.add(ctx, breakErro).
-                error = fileNotFoundError{proj, file}
+            brk.error = fileNotFoundError{proj, file}
         } else {
-            brks.add(ctx, breakErro).
-                error = targetNotFoundError{proj, prereq}
+            brk.error = targetNotFoundError{proj, prereq}
             if prereqValue != nil { ctx = positional(ctx, prereqValue.Position()) }
         }
         if file != nil {
