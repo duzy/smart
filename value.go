@@ -717,7 +717,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 }
             }
             ctx.traversed(prereqValue) // set $< $> $^ or $|
-        } else {
+        } else if /*targetValue != prereqValue && */targetValue != file {
             ctx.traversed(file) // set $< $> $^ or $|
         }
         if okay && brks.has(breakNext) && traversed > 0 && (file != nil && file.exists()) {
