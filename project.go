@@ -787,14 +787,14 @@ func (p *Project) hasBase(proj *Project) (res bool) {
   return
 }
 
-func (p *Project) hasLoaded(ctx Context, proj *Project, breakUseLoop bool) (rp *Project, res, isb bool, err error) {
+func (p *Project) hasLoaded(ctx Context, proj *Project, traveUseLoop bool) (rp *Project, res, isb bool, err error) {
   if options.checkLoadGraph || !options.fastMode {
-    rp, res, isb, err = p.hasLoadedRecur(ctx, p, proj, 1, breakUseLoop)
+    rp, res, isb, err = p.hasLoadedRecur(ctx, p, proj, 1, traveUseLoop)
   }
   return
 }
 
-func (p *Project) hasLoadedRecur(ctx Context, top, proj *Project, depth int, breakUseLoop bool) (rp *Project, res, isb bool, err error) {
+func (p *Project) hasLoadedRecur(ctx Context, top, proj *Project, depth int, traveUseLoop bool) (rp *Project, res, isb bool, err error) {
   if depth > 1 && top == p && true {
     err = fmt.Errorf("loop '%v' (depth=%d)", p.loopLoadPath(), depth)
     erro(ctx, "%v: %v", p, err).at(p.position).debug(128)
@@ -808,13 +808,13 @@ func (p *Project) hasLoadedRecur(ctx Context, top, proj *Project, depth int, bre
   }
   for _, base := range p.bases {
     if isb = base == proj; isb { return }
-    if rp, res, isb, err = base.hasLoadedRecur(ctx, top, proj, depth+1, breakUseLoop); err != nil {
+    if rp, res, isb, err = base.hasLoadedRecur(ctx, top, proj, depth+1, traveUseLoop); err != nil {
       return
     } else if res || isb { rp = base ; return }
   }
   for _, using := range /*p.loads*/p.using.list {
     var imp = using.project
-    if imp == top && !breakUseLoop {
+    if imp == top && !traveUseLoop {
       s := top.loopLoadPath()
       err = fmt.Errorf("loop `%v`", s)
       erro(ctx, "start: %v", top).at(top.position)
@@ -823,7 +823,7 @@ func (p *Project) hasLoadedRecur(ctx Context, top, proj *Project, depth int, bre
       return
     }
     if res = imp == proj; res { rp = imp; return }
-    if rp, res, res, err = imp.hasLoadedRecur(ctx, top, proj, depth+1, breakUseLoop); err != nil {
+    if rp, res, res, err = imp.hasLoadedRecur(ctx, top, proj, depth+1, traveUseLoop); err != nil {
       return
     } else if res { rp = imp; return }
   }
@@ -865,7 +865,7 @@ func (p *Project) isUsingDirectly(proj *Project) (res bool) {
 }
 
 func (p *Project) usees(bases, basesRecur, useeRecur, pre bool) (res []*Project) {
-  if p.opts.breakUseLoop { return }
+  if p.opts.traveUseLoop { return }
   if bases {
     for _, base := range p.bases {
       res = append(res, base.usees(basesRecur, basesRecur, useeRecur, pre)...)

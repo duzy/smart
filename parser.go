@@ -1871,8 +1871,8 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 					// no init entry from .configure
 				} else if _, brks := entry.Execute(ctx); len(brks) > 0 {
 					for _, brk := range brks {
-						if brk.what == breakErro {
-							erro(ctx, "execute '%v' failed: %v", entry, brk.error).of(entry).debug(1)
+						if brk.what == traveFail {
+							erro(ctx, "execute '%v' failed: %v", entry, brk).of(entry).debug(1)
 						}
 					}
 				}
@@ -1890,8 +1890,8 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 						case *RuleEntry:
 							if _, brks := prereq.Execute(ctx); len(brks) > 0 {
 								for _, brk := range brks {
-									if brk.what == breakErro {
-										erro(ctx, "execute '%v' failed: %v", prereq, brk.error).of(prereq).debug(1)
+									if brk.what == traveFail {
+										erro(ctx, "execute '%v' failed: %v", prereq, brk).of(prereq).debug(1)
 									}
 								}
 							}
@@ -2848,7 +2848,7 @@ func (p *parser) parseClause(/*endPos token.Pos*/) {
 type projectDeclOpts struct {
 	final bool `f,final`
 	noDock bool `n,nod;n,nodock;nd,no-dock`
-    breakUseLoop bool `b,break;l,loop`  // don't recursively use this project
+    traveUseLoop bool `b,break;l,loop`  // don't recursively use this project
     multiUseAllowed bool `m,multi`  // this project is used multiple times
 }
 

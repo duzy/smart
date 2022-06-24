@@ -108,8 +108,8 @@ func (ce *configureExecutor) execute(ctx Context, project *Project, entry Entry)
 
     if val, brks := entry.Execute(ctx); len(brks) > 0 {
         for _, brk := range brks {
-            if brk.what == breakErro {
-                erro(ctx, "execute '%v' failed: %v", entry, brk.error).debug(1)
+            if brk.what == traveFail {
+                erro(ctx, "execute '%v' failed: %v", entry, brk).debug(1)
             }
         }
     } else if entry.String() == "-check-file" {
@@ -170,10 +170,10 @@ func (ctx *defaultContext) configure() {
     }
     for entry, _ := range configureInits {
         var vals, brks = entry.Execute(ctx)
-        if len(brks) > 0 {
+        if brks.has() {
             for _, brk := range brks {
-                if brk.what == breakErro {
-                    erro(ctx, "execute '%v' failed: %v", entry, brk.error).of(entry).debug(1)
+                if brk.what == traveFail {
+                    erro(ctx, "execute '%v' failed: %v", entry, brk).of(entry).debug(1)
                 }
             }
         }
@@ -441,7 +441,7 @@ ForInParams:
 
     var (
         reses []Value
-        brks breakers
+        brks travestates
     )
     for _, entry := range entries.all {
         if reses, brks = entry.execute(ctx, params...); ctx.checkErrors(true) > 0 {
@@ -457,14 +457,9 @@ ForInParams:
             warn(ctx, `%v: configure yields value the same as input will be ignored: %v`, entry, result).debug(1)
             result = nil // simply discard the result as it's the same as the input (hyphen) value
         }
-        if brks = brks.not(breakDone); brks.has() {
+        if brks = brks.not(traveDone); brks.has() {
             for i, brk := range brks {
-                switch brk.what {
-                case breakUnkn: erro(ctx, " broken configuration %v for unknown reason", entry).debug(16)
-                case breakErro: erro(ctx, " %d: %v", i, brk.error).debug(1)
-                case breakFail: erro(ctx, " %d: %v", i, brk.message).debug(1)
-                default: erro(ctx, " %d: %v", i, brk.what).debug(16)
-                }
+                erro(ctx, " %d: %v", i, brk).debug(16)
             }
         }
     }
@@ -569,7 +564,7 @@ type modifierConfigureOpts struct {
     accumulate bool `a,accumulate;a,add`
     verbose bool `v,verbose`
 }
-func modifierConfigure(ctx Context, args ...Value) (result Value, _ breakers) {
+func modifierConfigure(ctx Context, args ...Value) (result Value, _ travestates) {
     if options.traceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", ctx, options.reconfigure))) }
 
     var program = ctx.program()
@@ -765,7 +760,7 @@ type configureConvertOpts struct {
 
 type configureConvertArgs func(args []Value, out *bytes.Buffer) []Value
 type configureConvertFunc func(str string, out *bytes.Buffer) error
-func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData configureConvertFunc, opts *configureConvertOpts, args ...Value) (result Value, _ breakers) {
+func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData configureConvertFunc, opts *configureConvertOpts, args ...Value) (result Value, _ travestates) {
     var (
         closured []*Project
         project *Project
@@ -912,7 +907,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
 // 
 //     config.h.in: configure.ac [(configure-input)]
 //     
-func _modifierConfigureInput(ctx Context, args ...Value) (result Value, _ breakers) {
+func _modifierConfigureInput(ctx Context, args ...Value) (result Value, _ travestates) {
     var opts = configureConvertOpts{ mode: os.FileMode(0600) }
     var convert = func(str string, out *bytes.Buffer) (err error) {
         return autoconf(ctx, out, ctx.Project(), str)
@@ -927,7 +922,7 @@ type modifierConfigureInputOpts struct {
     update bool "u,up,update"
     debug bool "d,db,debug"
 }
-func __modifierConfigureInput(ctx Context, args ...Value) (result Value, _ breakers) {
+func __modifierConfigureInput(ctx Context, args ...Value) (result Value, _ travestates) {
     var (
         opts = modifierConfigureInputOpts{ mode:os.FileMode(0640) }
         project = ctx.Project()
@@ -970,7 +965,7 @@ func __modifierConfigureInput(ctx Context, args ...Value) (result Value, _ break
     return
 }
 
-func modifierConfigureInput(ctx Context, args ...Value) (result Value, _ breakers) {
+func modifierConfigureInput(ctx Context, args ...Value) (result Value, _ travestates) {
     var opts = configureConvertOpts{ mode: os.FileMode(0600) }
     var dealArgs = func(args []Value, out *bytes.Buffer) []Value {
         var project = ctx.Project()
@@ -1008,7 +1003,7 @@ func modifierConfigureInput(ctx Context, args ...Value) (result Value, _ breaker
 //
 //     config.h: config.h.in [(configure-file)]
 //
-func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ breakers) {
+func modifierConfigureFile(ctx Context, args ...Value) (result Value, _ travestates) {
     var opts = configureConvertOpts{ mode: os.FileMode(0600) }
     var convert = func(str string, out *bytes.Buffer) (err error) {
         return configure(ctx, out, ctx.Project(), str)
@@ -1026,7 +1021,7 @@ type modifierExtractConfigurationOpts struct {
 //
 //      config.h.in:[(extract-configuration)]: $(wildcard *.cpp)
 //
-func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ breakers) {
+func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ travestates) {
     var (
         pos = ctx.Position()
         opts = modifierExtractConfigurationOpts{ mode:os.FileMode(0640) } // sys default 0666

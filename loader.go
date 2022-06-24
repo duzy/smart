@@ -119,11 +119,11 @@ func (li *loadinfo) absPath() string {
     return filepath.Join(li.absDir, li.baseName)
 }
 
-func (li *loadinfo) breakUseLoop() (result bool) {
+func (li *loadinfo) traveUseLoop() (result bool) {
     var first bool = true
     for _, decl := range li.declares {
         if first || result {
-            result = decl.project.opts.breakUseLoop
+            result = decl.project.opts.traveUseLoop
         }
         if !result { break }
         first = false
@@ -452,28 +452,28 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, a
     loaded, _ = l.loaded[absPath]
 
     // Checking circular loads. See also Project.loopImportPath()!
-    var breakUseLoop bool
+    var traveUseLoop bool
     for i, load := range l.loads {
         if load.absDir == absPath {
             var s string
-            var loop, loopBreakers []*loadinfo
+            var loop, loopTravestates []*loadinfo
             for n := i; n < len(l.loads); n += 1 {
                 var load = l.loads[n]
                 loop = append(loop, load)
-                if load.breakUseLoop() {
-                    loopBreakers = append(loopBreakers, load)
+                if load.traveUseLoop() {
+                    loopTravestates = append(loopTravestates, load)
                     s += "<" + load.specName + "> → "
                 } else {
                     s += load.specName + " → "
                 }
             }
-            if loaded != nil && loaded.opts.breakUseLoop {
+            if loaded != nil && loaded.opts.traveUseLoop {
                 s += "<" + specName + ">"
             } else {
                 s += specName
             }
 
-            if breakUseLoop = (loopBreakers != nil); !breakUseLoop {
+            if traveUseLoop = (loopTravestates != nil); !traveUseLoop {
                 erro(ctx, "%s: loop detected: %s", l.project, s).of(specVal).debug(10)
             } else if options.verboseImport || options.verboseUsing || options.verboseLoads {
                 prompt(ctx, "%s: loop detected: %v\n", l.project, s).debug(10)
@@ -482,7 +482,7 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, a
     }
 
     var scope = l.Scope()
-    if false && breakUseLoop {
+    if false && traveUseLoop {
         if loaded == nil {
             // ...
         } else if _, a := scope.ProjectName(ctx, loaded.name, loaded); a != nil {
@@ -544,7 +544,7 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, a
 
     if loaded != nil && !(/*opts.noVars || */opts.reuse) {
         var ( proj *Project ; res, isb bool )
-        if proj, res, isb, err = l.project.hasLoaded(ctx, loaded, breakUseLoop); err != nil {
+        if proj, res, isb, err = l.project.hasLoaded(ctx, loaded, traveUseLoop); err != nil {
             erro(ctx, "`%s`: %s", specName, err).of(specVal).debug(1)
             return
         } else if isb {
@@ -606,7 +606,7 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, a
 
         if false && loaded.opts.multiUseAllowed {
             // ...
-        } else if proj, res, isb, err = loaded.hasLoaded(ctx, up, breakUseLoop); err != nil {
+        } else if proj, res, isb, err = loaded.hasLoaded(ctx, up, traveUseLoop); err != nil {
             erro(ctx, "load '%s' failed: %s", specName, err).of(specVal).debug(1)
             return
         } else if isb {
@@ -626,7 +626,7 @@ func (l *loader) loadUseSpecName(opts useOpts, specVal Value, specName string, a
             }
         }
 
-        if proj, res, isb, err = up.hasLoaded(ctx, loaded, breakUseLoop); err != nil {
+        if proj, res, isb, err = up.hasLoaded(ctx, loaded, traveUseLoop); err != nil {
             erro(ctx, "load '%s' failed: %s", specName, err).of(specVal).debug(1)
             return
         } else if isb {

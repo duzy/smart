@@ -53,7 +53,7 @@ func (p *using) stat(ctx Context) (si *statinfo) {
         }
         return
 }
-func (p *using) traverse(ctx Context) (_ breakers) {
+func (p *using) traverse(ctx Context) (_ travestates) {
         erro(ctx, "cant traverse 'using' %v", p.project).at(p.position).debug(1)
         return
 }
@@ -65,9 +65,9 @@ func (p *using) traverse(ctx Context) (_ breakers) {
                 return
         }
         if entry := p.project.DefaultEntry(); entry != nil {
-                if p.project.opts.breakUseLoop {
+                if p.project.opts.traveUseLoop {
                         // FIXME: break use loop
-                } else if entry.traverse(pc); pc.hasBreakers() {
+                } else if entry.traverse(pc); pc.hasTravestates() {
                         // ...
                 } else {
                         usingPrepared[p.project] += 1
@@ -243,14 +243,14 @@ func (p *usinglist) expand(ctx Context, w expandwhat) (res Value) {
         }
         return
 }
-func (p *usinglist) traverse(ctx Context) (_ breakers) {
+func (p *usinglist) traverse(ctx Context) (_ travestates) {
         erro(ctx, "cant traverse 'usinglist'").at(p.list[0].position).debug(1)
         return
 }
 /*func (p *usinglist) _traverse(pc *traversal) {
         if options.traceTraversal { defer un(tt(t_traverse, pc, p)) }
         for _, elem := range p.list {
-                if elem.traverse(pc); pc.hasBreakers() { break }
+                if elem.traverse(pc); pc.hasTravestates() { break }
         }
         return
 }*/
@@ -287,7 +287,7 @@ func (p *usinglist) Call(ctx Context, a... Value) (result Value) {
         var targets []Value
         for _, usee := range p.list {
                 if entry := usee.project.DefaultEntry(); entry != nil {
-                        if usee.project.opts.breakUseLoop {
+                        if usee.project.opts.traveUseLoop {
                                 // FIXME: break use loop
                         } else if false {
                                 usingPrepared[usee.project] += 1

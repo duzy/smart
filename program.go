@@ -21,7 +21,8 @@ type programContext struct {
     autoContext
     mutex sync.Mutex
     by    modifierSetDirtyPatsOpts
-    brks  breakers
+    brks  travestates
+    projs []*Project
     prog *Program
     params []string // $0, $1, $2, ...
 }
@@ -39,6 +40,20 @@ func (pc *programContext) String() string {
 }
 func (pc *programContext) programContext() *programContext { return pc }
 func (pc *programContext) program() *Program { return pc.prog }
+func (pc *programContext) projects(ctx Context, projects ...*Project) []*Project {
+    if len(pc.projs) == 0 { pc.projs = closureProjects(ctx) }
+    if len(projects) > 0 {
+        ForProjects: for i, proj := range projects {
+            if i == 0 && proj == nil {
+                pc.projs = nil // reset projects
+                continue
+            }
+            for _, p := range pc.projs { if proj == p { continue ForProjects }}
+            pc.projs = append(pc.projs, proj)
+        }
+    }
+    return pc.projs
+}
 func (pc *programContext) Project() *Project {
     if cc, ok := pc.Context.(*closureContext); ok && true {
         return cc.Project()
@@ -65,8 +80,8 @@ func (pc *programContext) spawn() Context {
     }
     return &programContext{
         autoContext{ Context: ctx, defs: pc.defs.clone() },
-        sync.Mutex{}, modifierSetDirtyPatsOpts{}, breakers{},
-        pc.prog, pc.params,
+        sync.Mutex{}, modifierSetDirtyPatsOpts{}, travestates{},
+        pc.projs, pc.prog, pc.params,
     }
 }
 func (pc *programContext) appendCallerUpdated() bool { return true }
@@ -205,7 +220,7 @@ func (prog *Program) getModifiers(ctx Context, name string) (ms []*modifier) {
     return
 }
 
-func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
+func (prog *Program) modify(ctx Context, m *modifier) (brks travestates) {
     // TODO: using rules in a different project to implement modifiers, e.g.
     //       [ foo.check-preprequisites ]
     //       [ foo.baaaar ]
@@ -238,7 +253,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (brks breakers) {
             }
         }
         if value, brks = f(positional(ctx, m.position), args...); brks.has() {
-            if t := brks.not(breakCase, breakNext, breakDone); false && t.has() {
+            if t := brks.not(traveCase, traveNext, traveDone); false && t.has() {
                 if options.verbose || options.verboseBreaks {
                     var _, ent, _ = entryStr(ctx, ctx.entry())
                     prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
@@ -292,7 +307,7 @@ func (t *orderTraverseContext) traversed(target Value) (targets []Value) {
     return
 }
 
-func (prog *Program) execute(cc Context) (result Value, brks breakers) {
+func (prog *Program) execute(cc Context) (result Value, brks travestates) {
     var (
         args  = cc.arguments()
         entry = cc.entry()
@@ -332,7 +347,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         var (
             targets, _ = ctx.autoGet("@")
             depends, _ = ctx.autoGet("^")
-            tb = brks.not(breakDone, breakNext)
+            tb = brks.not(traveDone, traveNext)
         )
         if isTrivial(targets) { targets = entry.Target() }
         if true || tb.has() {
@@ -354,12 +369,12 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
                 errs = ctx.totalErrors()
             )
             if !ctx.configuration() && cc != nil {
+                brk := brks.add(ctx, traveFail, target)
                 if errs == 1 {
-                    err = fmt.Errorf("execution yields an error for %v", str)
+                    brk.error = fmt.Errorf("execution yields an error for %v", str)
                 } else {
-                    err = fmt.Errorf("execution yields %d errors for %v", errs, str)
+                    brk.error = fmt.Errorf("execution yields %d errors for %v", errs, str)
                 }
-                brks.add(ctx, breakErro).error = err
             }
             if tar != "" {
                 prompt(ctx, "%v: %s, execution failed with %d errors, project %s\n", ent, tar, errs, prog.project)
@@ -444,7 +459,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     }
     defer func(swd string) {
         if e := leave(ctx, prog, enterBack); e != nil {
-            // NOTE: err could be breakCase, breakDone, etc.
+            // NOTE: err could be traveCase, traveDone, etc.
             if err == nil { err = e } else {
                 erro(ctx, "leave project '%v' failed: %v", prog.project, err).debug(1)
             }
@@ -497,7 +512,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     ctx.autoSet(">", nil)
     if brks = prog.traverse(&normalTraverseContext{ ctx }, prog.depends); brks.has() {
         var verb = options.verbose || options.verboseBreaks
-        if t := brks.not(breakCase, breakDone, breakNext); verb && t.has() {
+        if t := brks.not(traveCase, traveDone, traveNext); verb && t.has() {
             var target, _ = ctx.autoGet("@")
             prompt(ctx, "%v: traverse program failed (target=%s; project=%s)\n",
                 entry, target, proj)
@@ -506,7 +521,8 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         }
         return
     } else if errs := ctx.checkErrors(true); errs > 0 {
-        brks.add(positional(ctx, prog.position), breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", ctx.totalErrors())
+        brk := brks.add(positional(ctx, prog.position), traveFail, nil)
+        brk.error = fmt.Errorf("traverse prerequisites failed (%d errors)", ctx.totalErrors())
         prompt(ctx, "%v: execute failed, project %s\n", /*entryStr1(ctx, entry)*/entry, proj)
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, target)
         if warnstack(ctx, 6, "call stack for %v:", target).debug(8); options.failOnErrors {
@@ -519,7 +535,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     ctx.autoSet("|", nil)
     if brks = prog.traverse(&orderTraverseContext{ ctx }, prog.ordered); brks.has() {
         var verb = options.verbose || options.verboseBreaks
-        if t := brks.not(breakCase, breakDone, breakNext); verb && t.has() {
+        if t := brks.not(traveCase, traveDone, traveNext); verb && t.has() {
             var target, _ = ctx.autoGet("@")
             prompt(ctx, "%v: traverse program failed (target=%s; project=%s)\n",
                 entry, target, proj)
@@ -528,7 +544,8 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
         }
         return
     } else if errs := ctx.checkErrors(true); errs > 0 {
-        brks.add(positional(ctx, prog.position), breakFail).message = fmt.Sprintf("traverse prerequisites failed (%d errors)", errs)
+        brk := brks.add(positional(ctx, prog.position), traveFail, nil)
+        brk.error = fmt.Errorf("traverse prerequisites failed (%d errors)", errs)
         prompt(ctx, "%v: execute failed, project %s\n", /*entryStr1(ctx, entry)*/entry, proj)
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, target)
         if warnstack(ctx, -1, "call stack for %v:", target).debug(8); options.failOnErrors {
@@ -550,7 +567,7 @@ func (prog *Program) execute(cc Context) (result Value, brks breakers) {
     return
 }
 
-func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers) {
+func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks travestates) {
     var asyncUnsafe bool = true
     if !asyncUnsafe { for _, prerequisite := range prerequisites {
         if _, ok := prerequisite.(*modifiergroup); !ok {
@@ -565,7 +582,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
     )
     if asyncUnsafe {
         var stems = ctx.stems()
-        var self = func(brk *breaker) bool {
+        var self = func(brk *travestate) bool {
             var t = brk.depend
             return target == t || target.cmp(ctx, t) == cmpEqual
         }
@@ -574,6 +591,10 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
                 brks = pc.brks
             } else {
                 brks = nil;  continue
+            }
+            if false && strings.Contains(target.Strval(ctx), "libunwind") {
+                prompt(ctx, "%v: %v brks=%v stems=%v\n",
+                    target, prerequisite, brks, stems).debug(16)
             }
             if false { if s := target.Strval(ctx); (
                 strings.Contains(s, "llvm-tools-driver") ||
@@ -597,64 +618,46 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
                     warnstack(ctx, 5, "").debug(16)
                 }
                 if len(stems) > 0 {
-                    brks = brks.not(breakErro, breakFail)
-                    brks.add(ctx, breakNext) // add breakNext to try the next pattern
+                    brks = brks.not(traveFail)
+                    brks.add(ctx, traveNext, target) // add traveNext to try the next pattern
                 }
                 break ForPrerequisites
             }
 
-            if t := brks.of(breakDone); true && t.has() {
-                // brks = brks.not(breakCase, breakNext, breakDone)
-                // for _, brk := range t { if self(brk) {
-                //     brks = append(brks, brk) // add back breakDone
-                // }}
-                // break ForPrerequisites
-                brks = brks.not(breakCase, breakNext)
+            if t := brks.of(traveDone); true && t.has() {
+                brks = brks.not(traveCase, traveNext)
                 for _, brk := range t { if self(brk) {
                     break ForPrerequisites
                 }}
-                // continue ForPrerequisites
-                break ForPrerequisites
+                break ForPrerequisites // continue ForPrerequisites
             }
-            if t := brks.of(breakCase); true && t.has() {
-                // brks = brks.not(breakCase, breakNext)
-                // for _, brk := range t { if self(brk) {
-                //     brks = append(brks, brk) // add back breakCase
-                // }}
-                // break ForPrerequisites
-                brks = brks.not(breakNext)
+
+            if t := brks.of(traveCase); true && t.has() {
+                brks = brks.not(traveNext)
                 for _, brk := range t { if self(brk) {
                     break ForPrerequisites
                 }}
-                //continue ForPrerequisites
-                break ForPrerequisites
+                break ForPrerequisites // continue ForPrerequisites
             }
-            if t := brks.of(breakNext); true && t.has() {
-                brks = brks.not(breakNext)
+
+            if t := brks.of(traveNext); true && t.has() {
+                // brks = brks.not(traveNext)
                 for _, brk := range t { if self(brk) {
-                    brks = append(brks, brk) // add back breakNext
+                    brks = append(brks, brk) // add back traveNext
                 }}
                 break ForPrerequisites
             }
 
-            if false { if t := brks.of(breakCase, breakDone, breakNext); t.has() {
-                for _, brk := range t { if !self(brk) {
-                    if len(stems) == 0 {
-                        brks = brks.not(breakCase, breakDone, breakNext)
-                    } else {
-                        brks = brks.not(breakCase, breakDone)
-                    }
-                    if brk.what == breakCase { continue ForPrerequisites }
-                    break ForPrerequisites
-                }}
-            }}
+            if t := brks.of(traveFile); true && t.has() {
+                continue ForPrerequisites
+            }
 
             if brks.has() {
                 prompt(ctx, "%v: %v", target, prerequisite)
                 for _, brk := range brks { erro(ctx, "%v: %v", target, brk) }
                 errostack(ctx, 5, "").debug(16)
             }
-            break // breakDone
+            break // traveDone
         }
     } else if num := len(prerequisites); num > 0 {
         var (
@@ -674,7 +677,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (brks breakers
                     brks = append(brks, t...)
 
                     var proj = ctx.Project()
-                    if t = t.not(breakNext, breakCase, breakDone); t.has() {
+                    if t = t.not(traveNext, traveCase, traveDone); t.has() {
                         for _, brk := range t { warn(ctx, "%v: %v", prerequisite, brk).at(brk.pos) }
                         warnstack(ctx, 5, "%v: %v: %v", proj, ctx.entry(), prerequisite).debug(36)
                     }

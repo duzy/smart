@@ -57,18 +57,17 @@ func (_ *modifier) cmp(ctx Context, v Value) (res cmpres) {
         if _, ok := v.(*modifier); ok { res = cmpEqual }
         return
 }
-func (m *modifier) traverse(ctx Context) (brks breakers) {
+func (m *modifier) traverse(ctx Context) (brks travestates) {
         var verb = false //options.verbose || options.verboseBreaks
-        var proj = ctx.Project()
         ctx = positional(ctx, m.position)
         if brks = ctx.program().modify(ctx, m); !brks.has() {
                 if n := ctx.countErrors(); n > 0 {
-                        var s = fmt.Sprintf("%s: modifier failed with %d errors", m.name, n)
-                        brks.add(ctx, breakFail).message = s
+                        brk := brks.add(ctx, traveFail, nil)
+                        brk.error = fmt.Errorf("%s: modifier failed with %d errors", m.name, n)
                 }
-        } else if t := brks.not(breakCase, breakNext, breakDone); verb && t.has() {
-                prompt(ctx, "%v: %s modify failed for %s\n", ctx.entry(), m.name, proj)
-                for _, brk := range t { warn(ctx, "%v: %s: %v", proj, m.name, brk).at(brk.pos) }
+        } else if t := brks.not(traveCase, traveNext, traveDone); verb && t.has() {
+                prompt(ctx, "%v: %s modify failed for %s\n", ctx.entry(), m.name, ctx.Project())
+                for _, brk := range t { warn(ctx, "%v: %s: %v", ctx.Project(), m.name, brk).at(brk.pos) }
                 warnstack(ctx, 3, "").debug(6)
         }
         return
@@ -103,18 +102,18 @@ func (_ *modifiergroup) cmp(ctx Context, v Value) (res cmpres) {
         if _, ok := v.(*modifiergroup); ok { res = cmpEqual }
         return
 }
-func (g *modifiergroup) traverse(ctx Context) (brks breakers) {
+func (g *modifiergroup) traverse(ctx Context) (brks travestates) {
         for _, m := range g.modifiers {
                 var (
                         ctx = positional(ctx, m.position)
                         proj = ctx.Project()
                 )
                 if t := m.traverse(ctx); t.has() {
-                        brks = append(brks, t...) // collect breakers
+                        brks = append(brks, t...) // collect travestates
                 } else {
                         continue
                 }
-                if t := brks.not(breakCase, breakDone, breakNext); t.has() {
+                if t := brks.not(traveCase, traveDone, traveNext); t.has() {
                         if false && (options.verbose || options.verboseBreaks) {
                                 var _, ent, _ = entryStr(ctx, ctx.entry())
                                 prompt(ctx, "%v: %s failed, project %s\n", ent, m.name, proj)
@@ -122,9 +121,9 @@ func (g *modifiergroup) traverse(ctx Context) (brks breakers) {
                                 warnstack(ctx, 5, "").debug(16)
                         }
                         return
-                } else if t = brks.of(breakCase); t.has() {
+                } else if t = brks.of(traveCase); t.has() {
                         continue // case selected
-                } else if t = brks.of(breakDone, breakNext); t.has() {
+                } else if t = brks.of(traveDone, traveNext); t.has() {
                         break // done or try next rule entry
                 }
         }
@@ -142,7 +141,7 @@ func (g *modifiergroup) String() (s string) {
 }
 
 type (
-        ModifierFunc   func(Context, ...Value) (Value, breakers)
+        ModifierFunc   func(Context, ...Value) (Value, travestates)
         PredictionFunc func(Context, ...Value) (Value)
 )
 
@@ -256,7 +255,7 @@ type modifierPrintOpts struct {
         stderr bool `e,stderr`
         reset  bool `r,reset`
 }
-func modifierPrint(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierPrint(ctx Context, args... Value) (result Value, brks travestates) {
         var (
                 pos = ctx.Position()
                 opts = modifierPrintOpts{ stderr: true }
@@ -283,7 +282,7 @@ type modifierDebugOpts struct {
         s int `s,stack,sn,stack-number`
         n int `c,count,n,num,cn,call-number`
 }
-func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierDebug(ctx Context, args... Value) (result Value, brks travestates) {
         var opts modifierDebugOpts
         args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
         if opts.cond != nil && !opts.cond.True(ctx) { return }
@@ -325,7 +324,7 @@ func modifierDebug(ctx Context, args... Value) (result Value, brks breakers) {
 }
 
 // select element by index from group result: (select 0)
-func modifierSelect(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierSelect(ctx Context, args... Value) (result Value, brks travestates) {
         args = expandmerge2(ctx, expandPlainValue, args...)
         if value, _ := ctx.autoGet("-"); isNil(value) {
                 erro(ctx, "no pipe value $-").debug(1)
@@ -339,7 +338,7 @@ func modifierSelect(ctx Context, args... Value) (result Value, brks breakers) {
         return
 }
 
-func modifierEnv(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierEnv(ctx Context, args... Value) (result Value, brks travestates) {
         args = expandmerge2(ctx, expandPlainValue, args...)
 
         var program = ctx.program()
@@ -375,7 +374,7 @@ type modifierSetOpts struct {
         debug bool `d,debug`
         verbose bool `v,verbose`
 }
-func modifierSet(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierSet(ctx Context, args... Value) (result Value, brks travestates) {
         var (
                 program = ctx.program()
                 none = MakeNone(ctx.Position())
@@ -425,7 +424,7 @@ type modifierSetDirtyPatsOpts struct {
         verbose bool `v,verbose`
         pats []Value
 }
-func modifierSetDirtyPats(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierSetDirtyPats(ctx Context, args... Value) (result Value, brks travestates) {
         var opts = ctx.dirtyOpts()
         opts.pats = parseOpts(ctx, opts, expandmerge2(ctx, expandPlainValue, args...)...)
         return
@@ -436,7 +435,7 @@ type modifierClosureOpts struct {
         dump    bool `d,dump`
         verbose bool `v,verbose`
 }
-func modifierClosure(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierClosure(ctx Context, args... Value) (result Value, brks travestates) {
         var (
                 opts modifierClosureOpts
                 pos = ctx.Position()
@@ -479,7 +478,7 @@ func modifierClosure(ctx Context, args... Value) (result Value, brks breakers) {
 type modifierForOpts struct {
         // ...
 }
-func modifierFor(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierFor(ctx Context, args... Value) (result Value, brks travestates) {
         var opts modifierForOpts
         args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
         // TODO: ...
@@ -491,7 +490,7 @@ type modifierCDOpts struct {
         printEnter bool `e,print-enter`
         printLeave bool `l,print-leave`
 }
-func modifierCD(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierCD(ctx Context, args... Value) (result Value, brks travestates) {
         var opts modifierCDOpts
         args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
@@ -529,7 +528,7 @@ type modifierMkdirOpts struct {
         mode os.FileMode `m,mode`
         verbose bool `v,verbose`
 }
-func modifierMkdir(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierMkdir(ctx Context, args... Value) (result Value, brks travestates) {
         var opts = modifierMkdirOpts{ mode: os.FileMode(0755) }
         args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
@@ -556,7 +555,7 @@ type modifierPathOpts struct {
 }
 // (path $(dir $@))
 // (path /example/path)
-func modifierPath(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierPath(ctx Context, args... Value) (result Value, brks travestates) {
         var opts modifierPathOpts
         args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
@@ -581,12 +580,12 @@ func modifierPath(ctx Context, args... Value) (result Value, brks breakers) {
         return
 }
 
-func modifierSudo(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierSudo(ctx Context, args... Value) (result Value, brks travestates) {
         erro(ctx, "TODO: sudo modifier is not implemented yet").at(ctx.Position()).debug(1)
         return
 }
 
-func parseDependList(ctx Context, dependList *List) (depends *List, brks breakers) {
+func parseDependList(ctx Context, dependList *List) (depends *List, brks travestates) {
         depends = new(List)
         for _, depend := range dependList.Elems {
                 switch d := depend.(type) {
@@ -599,8 +598,8 @@ func parseDependList(ctx Context, dependList *List) (depends *List, brks breaker
                         }
                 case *ExecResult:
                         if d.Status != 0 {
-                                brks.add(ctx, breakFail).
-                                        message = fmt.Sprintf("bad status %v", d.Status)
+                                brk := brks.add(ctx, traveFail, nil)
+                                brk.error = fmt.Errorf("bad status %v", d.Status)
                                 return // target shall be updated
                         } else {
                                 depends.Append(d)
@@ -1226,7 +1225,7 @@ type modifierGrepOpts struct {
         recursive bool `a,all;r,recur;rr,recursive`
         noTraverse bool `n,notraverse;nt,no-traverse;go,grep-only`
 }
-func modifierGrep(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierGrep(ctx Context, args... Value) (result Value, brks travestates) {
         if false && options.noDepsGrep || options.noGrep {
                 return
         }
@@ -1307,7 +1306,7 @@ ForTarget:
                         for _, val := range t.grepped {
                                 if brks = val.traverse(ctx); !brks.has() { continue }
                                 for _, brk := range brks {
-                                        erro(ctx, "%v: %v (%v)", val, brk.message, brk).at(brk.pos)
+                                        erro(ctx, "%v: %v", val, brk).at(brk.pos)
                                 }
                                 erro(ctx, "broken traversal for grepped %v from %v", val, target)
                                 errostack(ctx, 5, "%v", ctx).debug(16)
@@ -1338,7 +1337,7 @@ func (ctx *depContext) String() string {
 }
 func (ctx *depContext) appendCallerUpdated() bool { return false }
 
-func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *File, savedDepsFileName, deps string) (files []Value, brks breakers) {
+func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *File, savedDepsFileName, deps string) (files []Value, brks travestates) {
         const parallel = true
         var (
                 proj = ctx.Project()
@@ -1407,7 +1406,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
                         //continue // dep is the target itself
                 } else if t := file.traverse(ctx); !t.has() {
                         addFile(file)
-                } else if t = t.not(breakCase, breakDone, breakNext); t.has() {
+                } else if t = t.not(traveCase, traveDone, traveNext); t.has() {
                         prompt(ctx, "%v: missing dep\n", file)
                         if savedDepsFile != nil {
                                 var s = filepath.Base(file.name)
@@ -1419,11 +1418,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
                                 brksMux.Unlock()
                                 erro(ctx, `%v: missing "%v"`, targetVal, file).at(depPos)
                                 for _, brk := range t {
-                                        switch brk.what {
-                                        case breakFail: erro(ctx, `%v: broken for "%s": %v`, proj, targetVal, brk.message).at(brk.pos)
-                                        case breakErro: erro(ctx, `%v: broken for "%s", error: %v`, proj, targetVal, brk.error).at(brk.pos)
-                                        default:        erro(ctx, `%v: broken for "%s": %v (%v)`, proj, targetVal, brk.message, brk.what).at(brk.pos)
-                                        }
+                                        erro(ctx, `%v: broken for "%s": %v`, proj, targetVal, brk).at(brk.pos)
                                 }
                                 errostack(ctx, 5, "%v: (%T):", proj, ctx).debug(16)
                         }
@@ -1511,7 +1506,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
         return
 }
 
-func loadSavedDepsAndCheckOutdated(ctx Context, args []string) (savedDepsFileName string, files []Value, brks breakers) {
+func loadSavedDepsAndCheckOutdated(ctx Context, args []string) (savedDepsFileName string, files []Value, brks travestates) {
         var (
                 savedDepsBytes []byte
                 err error
@@ -1541,7 +1536,7 @@ func loadSavedDepsAndCheckOutdated(ctx Context, args []string) (savedDepsFileNam
         return
 }
 
-func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
+func traverseMissingDep(ctx Context, dep string) (res bool, brks travestates) {
         var (
                 okay bool
                 fullname string
@@ -1555,7 +1550,8 @@ func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
         } else if file := proj.FindFile(ctx, dep); file == nil {
                 if false {
                         // FIXME: traverse won't work with 'nil' target value
-                        okay, brks = traverse(ctx, nil, dep)
+                        brks = traverse(ctx, nil, dep)
+                        okay = !brks.has(traveFail)
                 } else {
                         prompt(ctx, "%s: dep is unknown file; project %v\n", dep, proj)
                         erro(ctx, "%v: %s is unknown file", proj, dep)
@@ -1565,22 +1561,16 @@ func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
                 fullname = dep
         } else {
                 brks = file.traverse(ctx)
-                okay = !brks.has(breakErro, breakFail) && file.exists()
+                okay = !brks.has(traveFail) && file.exists()
                 fullname = file.fullname()
         }
-        if brks.has(breakCase, breakNext, breakDone) {
-                brks = brks.not(breakCase, breakNext, breakDone)
+        if brks.has(traveCase, traveNext, traveDone) {
+                brks = brks.not(traveCase, traveNext, traveDone)
                 // TODO: for _, brk := range t { ... }
         }
         if brks.has() {
                 prompt(ctx, "%s: traverse dep failed (okay=%v), project %v\n", fullname, okay, proj)
-                for _, brk := range brks {
-                        switch brk.what {
-                        case breakErro: erro(ctx, "%v: missing %v: %v", proj, dep, brk.error  ).at(brk.pos)
-                        case breakFail: erro(ctx, "%v: missing %v: %v", proj, dep, brk.message).at(brk.pos)
-                        default       : erro(ctx, "%v: missing %v: %v", proj, dep, brk.what   ).at(brk.pos)
-                        }
-                }
+                for _, brk := range brks { erro(ctx, "%v: missing %v: %v", proj, dep, brk.what   ).at(brk.pos) }
                 errostack(ctx, 5, "%v: %v", proj, ctx).debug(10)
         } else {
                 res = okay
@@ -1588,7 +1578,7 @@ func traverseMissingDep(ctx Context, dep string) (res bool, brks breakers) {
         return
 }
 
-func traverseMissingDeps(ctx Context, lastTry string, errBytes []byte) (res bool, tried string, brks breakers) {
+func traverseMissingDeps(ctx Context, lastTry string, errBytes []byte) (res bool, tried string, brks travestates) {
         const promptErrors bool = false
         const promptBeforeTraverse bool = promptErrors && true
         for _, rx := range knownerrors {
@@ -1638,7 +1628,7 @@ type modifierDepsOpts struct {
         flags []Value `f,flags;o,opts`
         cc string `c,cc;c,compiler`
 }
-func modifierDeps(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierDeps(ctx Context, args... Value) (result Value, brks travestates) {
         if options.noDepsGrep || options.noDeps {
                 return
         }
@@ -1789,7 +1779,7 @@ type modifierTouchOpts struct {
         path bool `p,path`
         mode os.FileMode `m,mode`
 }
-func modifierTouch(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierTouch(ctx Context, args... Value) (result Value, brks travestates) {
         var opts modifierTouchOpts // = modifierTouchOpts{ mode: os.FileMode(0755) }
         args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
         if len(args) == 0 {
@@ -1832,11 +1822,11 @@ type modifierCheckOpts struct {
 // (check file=filename.txt)
 // (check dir=directory)
 // (check var=(NAME,VALUE))
-func modifierCheck(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierCheck(ctx Context, args... Value) (result Value, brks travestates) {
         var (
                 pos = ctx.Position()
                 opts modifierCheckOpts
-                optBreak breakind // breaking with good results
+                optBreak travekind // breaking with good results
                 makeResult func(Position,bool) Value // returns results only if non-nil
                 value, _ = ctx.autoGet("-")
                 values []Value
@@ -1846,7 +1836,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, brks breakers) {
 
         args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
-        if opts.good    { optBreak   = breakDone }
+        if opts.good    { optBreak   = traveDone }
         if opts.answer  { makeResult = MakeAnswer }
         if opts.boolean { makeResult = MakeBoolean }
         if opts.silent && makeResult == nil { makeResult = MakeBoolean }
@@ -2206,7 +2196,7 @@ type modifierCopyFileOpts struct {
         head Value "h,head"
         foot Value "f,foot"
 }
-func modifierCopyFile(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierCopyFile(ctx Context, args... Value) (result Value, brks travestates) {
         var opts modifierCopyFileOpts
         args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
@@ -2316,7 +2306,7 @@ func modifierCopyFile(ctx Context, args... Value) (result Value, brks breakers) 
         return
 }
 
-func modifierWriteFile(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierWriteFile(ctx Context, args... Value) (result Value, brks travestates) {
         args = expandmerge2(ctx, expandPlainValue, args...)
 
         var (
@@ -2326,7 +2316,10 @@ func modifierWriteFile(ctx Context, args... Value) (result Value, brks breakers)
         )
         defer func() {
                 if filename != "" { os.Remove(filename); f = nil }
-                if f == nil { brks.add(ctx, breakFail).message = fmt.Sprintf("file %s not generated", target) }
+                if f == nil {
+                        brk := brks.add(ctx, traveFail, target)
+                        brk.error = fmt.Errorf("file %s not generated", target)
+                }
         } ()
         if isNil(target) {
                 erro(ctx, "target is undefined").debug(1)
@@ -2364,7 +2357,7 @@ type modifierReadFileOpts struct {
         head Value "h,head"
         foot Value "f,foot"
 }
-func modifierReadFile(ctx Context, aa... Value) (result Value, brks breakers) {
+func modifierReadFile(ctx Context, aa... Value) (result Value, brks travestates) {
         var (
                 opts modifierReadFileOpts
                 filename string
@@ -2402,11 +2395,11 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, brks breakers) {
                 if opts.foot != nil { s = opts.foot.Strval(ctx) }
                 ctx.autoSet("-", MakeString(ctx.Position(), s))
         } else {
-                brk := brks.add(ctx, breakErro)
+                brk := brks.add(ctx, traveFail, target)
                 brk.error = err
                 if opts.debug {
-                        erro(ctx, "read-file: %T %s (stems=%v)", target, filename, ctx.stems())
-                        errostack(ctx, 5, "%v", err).debug(36)
+                        warn(ctx, "read-file: %T %s (stems=%v)", target, filename, ctx.stems())
+                        warnstack(ctx, 5, "%v", err).debug(36)
                 }
         }
         return
@@ -2457,7 +2450,7 @@ type modifierUpdateFileOpts struct {
         append bool `a,app,append,append-content`
         mode os.FileMode "m,mode"
 }
-func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierUpdateFile(ctx Context, args... Value) (result Value, brks travestates) {
         var (
                 opts = modifierUpdateFileOpts{ mode: os.FileMode(0640) }
                 filename string
@@ -2612,7 +2605,8 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
                 m |= os.O_TRUNC
         }
         if f, err = os.OpenFile(filename, m, opts.mode); err != nil {
-                brks.add(ctx, breakFail).message = fmt.Sprintf("update %v failed", target)
+                brk := brks.add(ctx, traveFail, target)
+                brk.error = fmt.Errorf("update %v failed", target)
                 erro(ctx, "open file failed: %v", err).debug(1)
         } else if f != nil {
                 defer func() {
@@ -2642,7 +2636,8 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, brks breakers
                         erro(ctx, "write content failed: %v", err).debug(1)
                 }
         } else {
-                brks.add(ctx, breakFail).message = fmt.Sprintf("%v not updated", target)
+                brk := brks.add(ctx, traveFail, target)
+                brk.error = fmt.Errorf("%v not updated", target)
         }
         return
 }
@@ -2658,7 +2653,7 @@ type modifierWaitOpts struct {
         execRes bool "x,exec"
         asType string "a,as"
 }
-func modifierWait(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierWait(ctx Context, args... Value) (result Value, brks travestates) {
         var (
                 opts modifierWaitOpts
                 execRes *ExecResult
@@ -2741,13 +2736,13 @@ func reportFileUpdates(ctx Context, start time.Time, files []*File) {
 }
 
 type modifierStampOpts struct {
-        next bool "n,nxt,next" // breakNext if failed to stamp
-        error bool "e,err;e,error" // breakErro if failed to stamp
+        next bool "n,nxt,next" // traveNext if failed to stamp
+        error bool "e,err;e,error" // traveErro if failed to stamp
         prompt bool "m,prompt"
         verbose bool "v,verbose"
         debug int "d,debug"
 }
-func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierStamp(ctx Context, args... Value) (result Value, brks travestates) {
         var (
                 opts modifierStampOpts
                 pos = ctx.Position()
@@ -2768,11 +2763,11 @@ func modifierStamp(ctx Context, args... Value) (result Value, brks breakers) {
         prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err)
         if opts.next {
                 if opts.verbose { warn(ctx, "%v", err).debug(1) }
-                brk := brks.add(ctx, breakNext)
+                brk := brks.add(ctx, traveNext, target)
                 brk.depend, _ = ctx.autoGet(">")
                 err = nil // discard the error
         } else if opts.error {
-                brk := brks.add(ctx, breakErro)
+                brk := brks.add(ctx, traveFail, target)
                 brk.depend, _ = ctx.autoGet(">")
                 brk.error = err
                 if false {
@@ -2909,7 +2904,7 @@ ForArgs:
 }
 
 // (assert condition,'error message...')
-func modifierAssert(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierAssert(ctx Context, args... Value) (result Value, brks travestates) {
         var (
                 res bool
                 msg string
@@ -2918,26 +2913,26 @@ func modifierAssert(ctx Context, args... Value) (result Value, brks breakers) {
         if res, msg, err = predict(ctx, args...); err != nil {
                 erro(ctx, "prediction %v failed: %v", args, err).debug(6)
         } else if !res {
+                var target, _ = ctx.autoGet("@")
                 if msg == "" {
                         for _, a := range args {
                                 erro(ctx, "assertion failed: %v", a).of(a)
                         }
                         errostack(ctx, 8, "(%T):", ctx).debug(6)
                 } else {
-                        var target, _ = ctx.autoGet("@")
                         var vals = expandmerge2(ctx, expandPlainValue, args...)
                         erro(ctx, "assertion failed: %v (target = %s)", msg, target)
                         erro(ctx, "assertion args: %v", args)
                         erro(ctx, "assertion args: %v (expandmerged)", vals)
                         erro(ctx, "assertion context: %v", ctx).debug(6)
                 }
-                brk := brks.add(ctx, breakFail)
-                brk.message = "assertion failure"
+                brk := brks.add(ctx, traveFail, target)
+                brk.error = fmt.Errorf("assertion failure: %v", args)
         }
         return
 }
 
-func modifierCond(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierCond(ctx Context, args... Value) (result Value, brks travestates) {
         var (
                 res bool
                 msg string
@@ -2946,19 +2941,19 @@ func modifierCond(ctx Context, args... Value) (result Value, brks breakers) {
         if res, msg, err = predict(ctx, args...); err != nil {
                 erro(ctx, "predict: %v", err).debug(1)
         } else if !res {
-                brk := brks.add(ctx, breakDone)
-                brk.message = msg
+                brk := brks.add(ctx, traveDone, nil)
+                brk.error = fmt.Errorf("%s", msg)
         }
         return
 }
 
-func modifierCase(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierCase(ctx Context, args... Value) (result Value, brks travestates) {
         if res, msg, err := predict(ctx, args...); err != nil {
                 erro(ctx, "case: %v", err).debug(1)
         } else {
-                brk := brks.add(ctx, breakCase) // select case
-                if !res { brk.what = breakNext } // next case
-                brk.message = msg
+                brk := brks.add(ctx, traveCase, nil) // select case
+                if !res { brk.what = traveNext } // next case
+                brk.error = fmt.Errorf("case: %s", msg)
         }
         return
 }
@@ -3166,7 +3161,7 @@ type modifierGitModifiedOpts struct {
         debug bool "d,debug"
         verbose bool "v,verbose"
 }
-func modifierGitModified(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierGitModified(ctx Context, args... Value) (result Value, brks travestates) {
         var opts modifierGitModifiedOpts
         args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
@@ -3207,7 +3202,7 @@ type modifierGitAheadOpts struct {
         debug bool "d,debug"
         verbose bool "v,verbose"
 }
-func modifierGitAhead(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierGitAhead(ctx Context, args... Value) (result Value, brks travestates) {
         var opts modifierGitAheadOpts
         args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
 
@@ -3250,7 +3245,7 @@ func onceSHA256Test(ctx Context, sum HashBytes) (n int) {
         return onceSHA256Cache[sum]
 }
 
-func onceSHA256(ctx Context, opts *modifierOnceOpts, args... Value) (result Value, brks breakers) {
+func onceSHA256(ctx Context, target Value, opts *modifierOnceOpts, args... Value) (result Value, brks travestates) {
         var (
                 program = ctx.program()
                 h = sha256.New()
@@ -3275,7 +3270,10 @@ func onceSHA256(ctx Context, opts *modifierOnceOpts, args... Value) (result Valu
         } else if opts.verbose {
                 prompt(ctx, "once: (num=%d)\n", num)
         }
-        if num > 1 { brks.add(ctx, breakDone).message = fmt.Sprintf("once (num=%d)", num) }
+        if num > 1 {
+                brk := brks.add(ctx, traveDone, target)
+                brk.error = fmt.Errorf("once (num=%d)", num)
+        }
         return
 }
 
@@ -3285,7 +3283,7 @@ type modifierOnceOpts struct {
         checksum bool `c,cs,checksum,s,sha,sha256,sum,h,hash`
         forval Value `for` // TODO: (once -for=$@)
 }
-func modifierOnce(ctx Context, args... Value) (result Value, brks breakers) {
+func modifierOnce(ctx Context, args... Value) (result Value, brks travestates) {
         // TODO: (once)           --> once for the RuleEntry, aka entry.doneOnce = true
         // TODO: (once -for=$@)   --> once for $@, aka entry.onces[$(expand $@)] = true
         var opts modifierOnceOpts
@@ -3297,10 +3295,10 @@ func modifierOnce(ctx Context, args... Value) (result Value, brks breakers) {
                 errostack(ctx, 5, "once: no target $@, %v", args).debug(16)
                 return
         } else if opts.checksum {
-                result, brks = onceSHA256(ctx, &opts, append([]Value{target}, args...)...)
+                result, brks = onceSHA256(ctx, target, &opts, append([]Value{target}, args...)...)
         } else if n = onceCacheTest(ctx, target); n > 1 {
-                brk := brks.add(ctx, breakDone)
-                brk.message = fmt.Sprintf(`executed %d times`, n)
+                brk := brks.add(ctx, traveDone, target)
+                brk.error = fmt.Errorf(`executed %d times`, n)
         }
 
         if opts.debug {

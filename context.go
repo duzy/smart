@@ -114,13 +114,13 @@ type Context interface {
   inner() Context
   spawn() Context
 
-  breakers() *breakers
+  travestates() *travestates
 
   traversal() *traverseContext
   traversed(target Value) []Value
 
   Project() *Project
-
+  projects(Context, ...*Project) []*Project
   programContext() *programContext
   program() *Program
 
@@ -436,17 +436,21 @@ func (ac *argumentedContext) argumentedSet(args []Value) (prev []Value) {
 }
 
 func executeEntry(ctx Context, entry *RuleEntry, args ...Value) (result []Value, okay bool) {
-  var brks breakers
+  var brks travestates
   if result, brks = entry.Execute(positional(ctx, entry.position), args...); !brks.has() {
     okay = true; return
   }
-  if t := brks.of(breakCase, breakDone, breakNext); t.has() {
-    brks, okay = brks.not(breakNext, breakCase, breakDone), true
-  }
-  if t := brks.of(breakErro, breakFail); t.has() {
-    brks, okay = brks.not(breakFail, breakErro), false
+
+  if t := brks.of(traveFail); t.has() {
+    brks, okay = brks.not(traveFail), false
     for _, brk := range t { erro(ctx, "%v: %v", entry, brk).at(brk.pos).debug(1) }
+    return
   }
+
+  if t := brks.of(traveCase, traveDone, traveNext); t.has() {
+    brks, okay = brks.not(traveNext, traveCase, traveDone), true
+  }
+
   if t := brks; t.has() {
     for _, brk := range t { erro(ctx, "%v: %v", entry, brk).at(brk.pos).debug(1) }
     okay = false
@@ -468,7 +472,7 @@ func (ctx *defaultContext) inner() Context { return nil }
 func (ctx *defaultContext) spawn() Context { return nil }
 func (ctx *defaultContext) auto() *autoContext { return nil }
 func (ctx *defaultContext) closure() *closureContext { return nil }
-func (ctx *defaultContext) breakers() *breakers { return nil }
+func (ctx *defaultContext) travestates() *travestates { return nil }
 func (ctx *defaultContext) traversal() *traverseContext { return nil }
 func (ctx *defaultContext) traversed(target Value) []Value { fail(ctx.Position(), "%v", target); return nil }
 func (ctx *defaultContext) entry() Entry { return nil }
@@ -478,6 +482,10 @@ func (ctx *defaultContext) stemmed() *stemmed { return nil }
 func (ctx *defaultContext) stemmedContext() *stemmedContext { return nil }
 func (ctx *defaultContext) Scope() *Scope { return ctx.globe/*.main*/.scope }
 func (ctx *defaultContext) Project() *Project { return ctx.globe.main }
+func (ctx *defaultContext) projects(_ Context, projs ...*Project) []*Project {
+  if len(projs) > 0 { fail(ctx.Position(), "%v", projs) }
+  return nil
+}
 func (ctx *defaultContext) program() *Program { return nil }
 func (ctx *defaultContext) programContext() *programContext { return nil }
 func (ctx *defaultContext) Position() (res Position) { res.Filename, res.Line = ctx.workdir, 1; return }
@@ -529,7 +537,7 @@ func (ctx *defaultContext) help()       { do_helpscreen(ctx) }
 func (ctx *defaultContext) helpFlags()  { print_flag_trace(ctx) }
 func (ctx *defaultContext) helpConfig() { print_configuration(ctx) }
 
-func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
+func (dc *defaultContext) run() (result []Value, travestates []*travestate) {
   if options.noRun { return }
 
   var main = dc.globe.main
@@ -595,11 +603,11 @@ func (dc *defaultContext) run() (result []Value, breakers []*breaker) {
     var args, _ = dc.globe.args[flag]
     var entries, _ = dc.globe.flagEntries[s]
     for _, entry := range entries {
-      var ( res []Value; brks []*breaker )
+      var ( res []Value; brks []*travestate )
       if res, brks = entry.Execute(positional(ctx, entry.Position()), args...); len(brks) > 0 {
         for _, brk := range brks {
-          if brk.what == breakErro {
-            erro(ctx, "execute '%v' failed: %v", entry, brk.error).at(entry.Position()).debug(1)
+          if brk.what == traveFail {
+            erro(ctx, "execute '%v': %v", entry, brk).at(brk.pos).debug(1)
           }
         }
       }
