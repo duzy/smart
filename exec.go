@@ -49,32 +49,33 @@ var (
 
   //rxCompilationDefaultDirectory = rx(`\-\*\- mode: compilation; default\-directory: "(.+?)" \-\*\-`)
   rxNotTTYDevice = rx(`the input device is not a TTY`)
-  rxNoContainer = rx(`Error.*: No such container: (.*)`)
-  rxNoNetwork = rx(`Error.*: network (.*) not found\.`)
+  rxNoContainer  = rx(`Error.*: No such container: (.*)`)
+  rxNoNetwork    = rx(`Error.*: network (.*) not found\.`)
   rxDockerDaemonNotRunning = rx(`Cannot connect to the Docker daemon at (.*?)\. Is the docker daemon running\?`)
-  rxContainerNotRunning = rx(`Error response from daemon: Container (.*?) is not running`)
-  rxCompilationError = rx(`(.+?):(\d+):(\d+): error: (.+)(?: {2,}\n(.+))?`)
+  rxContainerNotRunning    = rx(`Error response from daemon: Container (.*?) is not running`)
+  rxCompilationError   = rx(`(.+?):(\d+):(\d+): error: (.+)(?: {2,}\n(.+))?`)
   rxCompilationWarning = rx(`(.+?):(\d+):(\d+): warning: (.+)`)
   rxIncludedFrom2 = rx(`In file included from (.+?):(\d+):`)
   rxIncludedFrom3 = rx(`In file included from (.+?):(\d+):(\d+):`)
   rxProtoImportNotFound = rx(`^(.+?\.proto):(\d+):(\d+): Import "(.+?)" was not found or had errors.`)
   rxProtoNameNotDefined = rx(`^(.+?\.proto):(\d+):(\d+): "(.+?)" is not defined.`)
-  rxProtoFileNotFound = rx(`^(.+?\.proto): File not found\.`)
+  rxProtoFileNotFound      = rx(`^(.+?\.proto): File not found\.`)
   rxFatalErrorFileNotFound = rx(`(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`)
-  rxArNoSuchFile = rx(`ar: (.+?): No such file or directory`)
+  rxArNoSuchFile       = rx(`ar: (.+?): No such file or directory`)
   rxArNoArchiveMembers = rx(`ar: no archive members specified`)
   rxBashNoSuchFile = rx(`bash: line ([0-9]+?): (.+?): No such file or directory`)
   // rxClangNoSuchFile = rx(`clang(?:-(.+?))?: error: no such file or directory: '(.+?)'`)
   // rxClangError = rx(`clang(?:-(.+?))?: error: (.+)(?: \(.+\))?`)
-  rxCmdError = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang)(?:-(.+?))?: error: (.+)`)
-  rxCmdWarning = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang): warning: (.+)`)
+  rxCmdError   = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang)(?:-(.+?))?: error: (.+)`)
+  rxCmdWarning = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang)(?:-(.+?))?: warning: (.+)`)
   rxCouldnotParseObj = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`)
-  rxLdLibNotFound = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): library not found for (.+)`)
-  rxTooManyPosArgs = rx(`(.+?): Too many positional arguments specified!`)
+  rxLdLibNotFound    = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): library not found for (.+)`)
+  rxTooManyPosArgs     = rx(`(.+?): Too many positional arguments specified!`)
   rxUndefinedReference = rx(`  +"(.+?)", referenced from:`)
-  rxShellCmdNotFound = rx(`(.+?): (.+?):( command)? not found`)
-  rxIgnoringNonExistentDirectory = rx(`ignoring nonexistent directory "(.*?)"`)
-  rxIgnoringDuplicateDirectory = rx(`ignoring duplicate directory "(.*?)"`)
+  rxShellCmdNotFound   = rx(`(.+?): (.+?):( command)? not found`)
+  rxIgnoringDirectory  = rx(`ignoring (?:duplicate|nonexistent) directory "(.*?)"`)
+  // rxIgnoringNonExistentDirectory = rx(`ignoring nonexistent directory "(.*?)"`)
+  // rxIgnoringDuplicateDirectory   = rx(`ignoring duplicate directory "(.*?)"`)
   rxExitStatus = rx(`exit status (\-?[0-9]+)`)
 
   // NOTE: python standard errors
@@ -519,16 +520,21 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         lpos.Column = v[2].col
         addScannedDiag(diagError, lpos, fmt.Sprintf("%s: command not found", v[2].string))
       }
-    case rxIgnoringNonExistentDirectory:
+    case rxIgnoringDirectory:
       if p.report {
         var dir = v[1].string;  lpos.Column = v[1].col + 1
         addScannedDiag(diagInfo, lpos, fmt.Sprintf(`ignoring nonexistent directory "%v"`, dir))
       }
-    case rxIgnoringDuplicateDirectory:
-      if p.report {
-        var dir = v[1].string;  lpos.Column = v[1].col + 1
-        addScannedDiag(diagInfo, lpos, fmt.Sprintf(`ignoring duplicate directory "%v"`, dir))
-      }
+    // case rxIgnoringNonExistentDirectory:
+    //   if p.report {
+    //     var dir = v[1].string;  lpos.Column = v[1].col + 1
+    //     addScannedDiag(diagInfo, lpos, fmt.Sprintf(`ignoring nonexistent directory "%v"`, dir))
+    //   }
+    // case rxIgnoringDuplicateDirectory:
+    //   if p.report {
+    //     var dir = v[1].string;  lpos.Column = v[1].col + 1
+    //     addScannedDiag(diagInfo, lpos, fmt.Sprintf(`ignoring duplicate directory "%v"`, dir))
+    //   }
     case rxExitStatus:
       if s := v[1].string; s != "0" /*&& p.report*/ {
         // FIXME: the 'exit status' report is not working
