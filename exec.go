@@ -1244,11 +1244,13 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
           break
         }
       }
+
+      var pos = ctx.Position()
       if !logPos.IsValid() && log != nil {
         logPos.Filename = log.filename
         logPos.Line = exeres.Stderr.log.lines + 1
       } else {
-        logPos = ctx.Position()
+        logPos = pos
       }
 
       var str, _, _ = entryStr(ctx, ctx.entry())
@@ -1259,32 +1261,23 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         erro(ctx, "%v: abnormal exit status %d", str, exeres.Status).at(logPos)
       } else if err != nil {
         if opts.silent { err = nil }
-        erro(ctx, "%v: %s", str, err).at(logPos)
+        erro(ctx, "").at(logPos)
       }
 
-      if en > 0 {
-        erro(ctx, "%v: scanned %d known errors", str, en).at(logPos)
-        erro(ctx, "%v: execute failed (%d errors)", str, en)
-        errostack(ctx, 32, "%v: (%T)", str, ctx).debug(6)
+      if diffLogPos := !logPos.Equals(&pos); en > 0 {
+        if diffLogPos { erro(ctx, "%v: %d known errors", str, en).at(logPos) }
+        erro(ctx, "%v: %d known errors", str, en)
+        errostack(ctx, 32, "").debug(32)
       } else if wn > 0 {
-        if false {
-          warn(ctx, "%v: scanned %d known warnings", str, wn).at(logPos)
-          warn(ctx, "%v: execute has %d warnings", str, wn)
-          warnstack(ctx, 3, "%v: %v", str, ctx).debug(1)
-        } else if pos := ctx.Position(); logPos.Equals(&pos) {
-          warn(ctx, "%v: scanned %d known warnings", str, wn)
-          warnstack(ctx, 3, "%v: %v", str, ctx).debug(1)
-        } else {
-          warn(ctx, "%v: scanned %d known warnings", str, wn).at(logPos)
-          warn(ctx, "%v: execute has %d warnings", str, wn)
-          warnstack(ctx, 3, "%v: %v", str, ctx).debug(1)
-        }
+        if diffLogPos { warn(ctx, "%v: %d known warnings", str, wn).at(logPos) }
+        warn(ctx, "%v: %d known warnings", str, wn)
+        warnstack(ctx, 3, "").debug(1)
       } else if in > 0 && opts.infos {
-        info(ctx, "%v: scanned %d known messages", str, in).at(logPos)
-        info(ctx, "%v: execute has %d messages", str, in)
-        infostack(ctx, 8, "%v: %v", str, ctx).debug(1)
+        if diffLogPos { info(ctx, "%v: %d known messages", str, in).at(logPos) }
+        info(ctx, "%v: %d known messages", str, in)
+        infostack(ctx, 8, "").debug(1)
       } else if !opts.retStatus && (err != nil || exeres.Status != 0) {
-        errostack(ctx, 20, "%v: %v:", str, ctx).debug(6)
+        errostack(ctx, 20, "%s", str).debug(6)
       }
 
       if opts.retStatus {

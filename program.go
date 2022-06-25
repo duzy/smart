@@ -141,7 +141,7 @@ func (pc *programContext) dirtyMark(vals ...Value) {
                 t.updated(pc), t.updatedDeps(pc)).debug(0) }
             if false { warn(pc, "dirtyMark: %T %v; %v, %v, %v, %v", t, t, vals, dup,
                 t.updated(pc), t.updatedDeps(pc)).debug(18) }
-         }
+        }
     }
     if enableDirtyMark { pc.Context.dirtyMark(vals...) }
 }

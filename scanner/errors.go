@@ -34,7 +34,7 @@ func (e *Error) Error() (s string) {
     if len(e.Errs) == 1 {
         switch t := e.Errs[0].(type) {
         case *Error:
-            if e.Pos.Equals(&t.Pos) {
+            if e.Pos.Same(&t.Pos) {
                 s = t.Error()
             } else {
                 s = fmt.Sprintf("%s\n%s: …from here", t, e.Pos)
@@ -81,7 +81,7 @@ func (e *Error) Brief() (s string) {
 }
 
 func (e *Error) getErrorAt(pos token.Position) (res *Error) {
-    if pos.Equals(&e.Pos) { return e }
+    if pos.Same(&e.Pos) { return e }
     for _, err := range e.Errs {
         if t, ok := err.(*Error); ok {
             if res = t.getErrorAt(pos); res != nil { return }

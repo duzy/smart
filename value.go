@@ -609,34 +609,31 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
         point = point.at(pc.prog.position)
 
         var tt, _ = pc.autoGet("@")
-        for last, n := pc.prog.position, 0; pc != nil; pc = pc.Context.programContext() {
+        for last, i := &pc.prog.position, 0; pc != nil && n > 0; pc = pc.Context.programContext() {
             for next := pc.caller(); next != nil; next = next.caller() {
-                if t, _ := next.autoGet("@"); t != nil && t.cmp(ctx, tt) == cmpEqual {
-                    n += 1;  continue
+                if t, _ := next.autoGet("@"); t != nil && (
+                    t == tt || t.cmp(ctx, tt) == cmpEqual) {
+                    i += 1;  continue
                 }
-                if next.program() == pc.program() {
-                    n += 1
-                    pc = next
-                    last = pc.prog.position
-                } else { break }
+                if next.program() != pc.program() { break } else {
+                    i, pc, last = i+1, next, &pc.prog.position
+                }
             }
 
-            var pos = pc.prog.position
-            if true /*FIXME: || !pos.SameLine(&last)*/|| pos.IsValid() || last.IsValid() {
-                var str, _, _ = entryStr(pc, pc.entry())
-                if pc != nil { str += " ..." }
-                if n <= 1 {
-                    point = ctx.diag(dt, "%v: %v", proj, str).at(pos)
-                } else {
-                    point = ctx.diag(dt, "%v: %v (repeated %d times)", proj, str, n).at(pos)
-                }
-                last = pos
-                n -= 1
+            var pos = &pc.prog.position
+            if pos.SameLine(last) { continue }
+
+            var str, _, _ = entryStr(pc, pc.entry())
+            if n == 1 && pc.caller() != nil { str += " ..." }
+            if i <= 1 {
+                point = ctx.diag(dt, "%v: %v", proj, str).at(*pos)
+            } else {
+                point = ctx.diag(dt, "%v: %v (repeated %d times)", proj, str, i).at(*pos)
             }
-            if n == 0 {
-                if false && pc != nil { point = ctx.diag(dt, "%v: ...", proj).at(pos) }
-                break
-            }
+
+            if false && pc != nil { point = ctx.diag(dt, "%v: ...", proj).at(*pos) }
+
+            last, n = pos, n-1
         }
     }
     return
@@ -2312,7 +2309,7 @@ func (p *String) stencil(ctx Context, stems []string) (val Value, rest []string)
     return p, stems
 }
 func (p *String) traverse(ctx Context) (brks travestates) {
-    return traverse(ctx, p, p.string)
+    return traverse(positional(ctx, p.position), p, p.string)
 }
 func (p *String) elemStr(_ Context, o Object, k elemkind) (s string) {
     if k&elemNoQuote == 0 { s = `'`+p.string+`'` } else { s = p.string }
@@ -2395,7 +2392,7 @@ func (p *Bareword) stencil(ctx Context, stems []string) (val Value, rest []strin
     return p, stems
 }
 func (p *Bareword) traverse(ctx Context) (brks travestates) {
-    return traverse(ctx, p, p.string)
+    return traverse(positional(ctx, p.position), p, p.string)
 }
 
 type Qualiword struct { valbase; words []string } // foo.bar.zar, foo.&(bar).zar
@@ -2678,24 +2675,6 @@ func (p *Barefile) expand(ctx Context, w expandwhat) (res Value) {
     return
 }
 func (p *Barefile) traverse(ctx Context) (brks travestates) {
-    // if ctx = positional(ctx, p.position); p.File == nil { // it happens if p.Name refers to arguments
-    //     var target = p.Strval(ctx)
-    //     for _, project := range closureProjects(ctx) {
-    //         if p.File = project.FindFile(ctx, target); p.File != nil {
-    //             break
-    //         }
-    //     }
-    //     if p.File == nil {
-    //         erro(ctx, "barefile '%s' not found", target).at(p.position).debug(1)
-    //         return
-    //     }
-    // }
-    // if p.File != nil {
-    //     brks = p.File.traverse(ctx)
-    // } else {
-    //     erro(ctx, "barefile '%s' is nil", p).at(p.position).debug(1)
-    // }
-    // return
     return traverse(positional(ctx, p.position), p, p.Strval(ctx))
 }
 func (p *Barefile) updated(ctx Context, v ...bool) (res bool) {

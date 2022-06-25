@@ -33,7 +33,7 @@ import (
 type Position token.Position
 
 func (pos *Position) Equals(other *Position) bool {
-        return (*token.Position)(pos).Equals((*token.Position)(other))
+        return (*token.Position)(pos).Same((*token.Position)(other))
 }
 
 func (pos *Position) SameLine(other *Position) bool {

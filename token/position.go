@@ -24,13 +24,12 @@ func (p *Position) IsValid() bool {
 	return p.Filename != "" && p.Offset >= 0 && p.Line > 0 && p.Column > 0
 }
 func (p *Position) SameLine(o *Position) bool {
-	return p.Filename == o.Filename && p.Line == o.Line
+	return p == o || (p.Filename == o.Filename && p.Line == o.Line)
 }
-func (p *Position) Equals(o *Position) bool {
-	return p.Filename == o.Filename &&
-		p.Offset == o.Offset &&
-		p.Line == o.Line &&
-		p.Column == o.Column
+func (p *Position) Same(o *Position) bool {
+	return p == o || (
+		p.Filename == o.Filename && p.Line == o.Line &&
+			p.Column == o.Column && p.Offset == o.Offset)
 }
 
 const NoPos Pos = Pos(got.NoPos)
