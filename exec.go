@@ -633,8 +633,8 @@ func (p *ExecResult) runContainerAndRetry(ctx Context) (status int, err error) {
   fmt.Fprintf(sh.Stderr, "\n---- Run container '%s'\n", name)
   if entries := p.container.resolveEntries(ctx, "run", false, false); entries != nil {
     for _, run := range entries.all {
-      if _, brks := run.execute(p.ctx, nil); brks.has() {
-        erro(ctx, "%d travestates", len(brks)).at(p.position).debug(1)
+      if _, traves := run.execute(p.ctx, nil); traves.has() {
+        erro(ctx, "%d travestates", len(traves)).at(p.position).debug(1)
         return
       } //else { p.t.group.Wait() }
     }
@@ -709,8 +709,8 @@ func (p *ExecResult) ensureContainerRunning(ctx Context, containerName string) (
   if err = cmd.Run(); err == nil && foundID == "" {
     if entries := p.container.resolveEntries(ctx, "run", false, false); entries != nil {
       for _, run := range entries.all {
-        if _, brks := run.execute(p.ctx, nil); brks.has() {
-          erro(ctx, "%d travestates", len(brks)).at(p.position).debug(1)
+        if _, traves := run.execute(p.ctx, nil); traves.has() {
+          erro(ctx, "%d travestates", len(traves)).at(p.position).debug(1)
           return
         } //else { p.t.group.Wait() }
       }
@@ -1212,6 +1212,12 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     exeres.Stderr.report = !opts.silent
     exeres.Status, err = exeres.run(positional(ctx, pos))
     if (!opts.silent || opts.debug) && (len(exeres.scannedDiags) > 0 || exeres.Status != 0 || err != nil) {
+      if opts.silent || opts.retStatus {
+        err = nil
+      } else if exeres.Status != 0 {
+        err = &exitstatus{ exeres.Status } // set or convert error
+      }
+
       var en, wn, in int
       for _, rec := range exeres.scannedDiags {
         switch rec.dt {
@@ -1220,9 +1226,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         case diagInfo:  in += rec.num
         }
       }
-      if en == 0 && opts.retStatus {
-        err = nil // discard the "exit status ???" error, we need the status code
-      } else if en > 0 || exeres.Status != 0 || err != nil {
+      if en > 0 || exeres.Status != 0 || err != nil {
         prompt(ctx, "exec: failure (status=%d; err=%v); target=%s\n", exeres.Status, err, targetName)
       } else if wn > 0 {
         prompt(ctx, "%v: %d warnings\n", targetName, wn)
@@ -1243,12 +1247,6 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
           diag(ctx, rec.dt, "%d more...", n).at(rec.lpos)//.debug(1)
           break
         }
-      }
-
-      if opts.silent || opts.retStatus {
-        err = nil
-      } else if exeres.Status != 0 {
-        err = &exitstatus{ exeres.Status } // set or convert error
       }
 
       var pos = ctx.Position()

@@ -178,10 +178,10 @@ func (p *travestate) String() (s string) { //_error
 
 type travestates []*travestate
 
-func (brks *travestates) has(what ...travekind) (res bool) {
-    if len(what) == 0 { res = len(*brks) > 0 } else {
+func (traves *travestates) has(what ...travekind) (res bool) {
+    if len(what) == 0 { res = len(*traves) > 0 } else {
     ForTravestates:
-        for _, brk := range *brks {
+        for _, brk := range *traves {
             for _, w := range what {
                 if brk.what == w {
                     res = true
@@ -193,17 +193,17 @@ func (brks *travestates) has(what ...travekind) (res bool) {
     return
 }
 
-func (brks *travestates) failed() bool {
-    return brks.has(traveFail)
+func (traves *travestates) failed() bool {
+    return traves.has(traveFail)
 }
 
-func (brks *travestates) append(brk *travestate) {
-    *brks = append(*brks, brk)
+func (traves *travestates) append(brk *travestate) {
+    *traves = append(*traves, brk)
 }
 
-func (brks *travestates) not(what ...travekind) (res travestates) {
+func (traves *travestates) not(what ...travekind) (res travestates) {
 ForTravestates:
-    for _, brk := range *brks {
+    for _, brk := range *traves {
         for _, w := range what {
             if brk.what == w { continue ForTravestates }
         }
@@ -212,9 +212,9 @@ ForTravestates:
     return
 }
 
-func (brks *travestates) of(what ...travekind) (res travestates) {
+func (traves *travestates) of(what ...travekind) (res travestates) {
 ForTravestates:
-    for _, brk := range *brks {
+    for _, brk := range *traves {
         for _, w := range what {
             if brk.what == w {
                 res = append(res, brk)
@@ -225,9 +225,9 @@ ForTravestates:
     return
 }
 
-func (brks *travestates) add(ctx Context, what travekind, target Value) *travestate {
+func (traves *travestates) add(ctx Context, what travekind, target Value) *travestate {
     if isTrivial(target) { target, _ = ctx.autoGet("@") }
-    for _, brk := range *brks {
+    for _, brk := range *traves {
         if brk.what == what && brk.target == target {
             return brk
         }
@@ -235,7 +235,7 @@ func (brks *travestates) add(ctx Context, what travekind, target Value) *travest
 
     var pos = ctx.Position()
     var brk = &travestate{ pos:pos, what:what, target:target }
-    if *brks = append(*brks, brk); false {
+    if *traves = append(*traves, brk); false {
         var t = getTargetValue(ctx) // t.String() == "bn/armv8-mont.S" &&
         if what == traveNext && strings.HasSuffix(pos.Filename, "crypto/build.smart") {
             warnstack(ctx, 3, "%v %v", t, ctx).debug(12)
@@ -244,8 +244,8 @@ func (brks *travestates) add(ctx Context, what travekind, target Value) *travest
     return brk
 }
 
-func (brks *travestates) addf(ctx Context, what travekind, s string, a... interface{}) *travestate {
-    brk := brks.add(ctx, what, nil)
+func (traves *travestates) addf(ctx Context, what travekind, s string, a... interface{}) *travestate {
+    brk := traves.add(ctx, what, nil)
     brk.error = fmt.Errorf(s, a...)
     return brk
 }
@@ -670,7 +670,7 @@ func (t *traverseContext) calleeError(err error) {
     }
 }
 
-func traverse(ctx Context, prereqValue Value, prereq string, projects... *Project) (brks travestates) {
+func traverse(ctx Context, prereqValue Value, prereq string, projects... *Project) (traves travestates) {
     var targetValue = getTargetValue(ctx)
     if isNil(targetValue) {
         prompt(ctx, "%s: trivial target\n", prereq)
@@ -686,8 +686,11 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         return
     }
 
-    const db0 = true
-    var dbg = true && strings.Contains(prereq, "llvm-driver-ar")
+    var dbg = false   && (strings.Contains(prereq, "llvm-driver-ar") ||
+        strings.Contains(targetValue.Strval(ctx), "llvm-driver-ar") ||
+        // strings.Contains(targetValue.Strval(ctx), "strstream.cpp.sm") ||
+        false)
+
     var (
         t = ctx.traversal()
         done = make(map[interface{}]bool) // helps to avoid traversed multiple times
@@ -719,31 +722,39 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         } else if /*targetValue != prereqValue && */targetValue != file {
             ctx.traversed(file) // set $< $> $^ or $|
         }
-        if okay && traversed > 0 && (file != nil && file.exists()) && brks.has(traveNext) {
-            brks = brks.not(traveNext)
+        if okay && traversed > 0 && (file != nil && file.exists()) && traves.has(traveNext) {
+            traves = traves.not(traveNext)
         }
-        if false && dbg {
-            prompt(ctx, "%v: %v; (%T: %T)\n", targetValue, prereqValue, targetValue, prereqValue)
-            prompt(ctx, "%v: %v; file=%v okay=%v traversed=%v brks=%v projects=%v\n",
-                targetValue, prereqValue, file, okay, traversed, brks, projects)
+        if true && dbg {
+            prompt(ctx, "%v: %v; (%T: %T; okay=%v)\n",
+                targetValue, prereqValue, targetValue, prereqValue, okay)
+            prompt(ctx, "%v: %v; file=%v okay=%v traversed=%v traves=%v projects=%v\n",
+                targetValue, prereqValue, file, okay, traversed, traves, projects)
             warnstack(ctx, 5, "").debug(64)
         }
         if false && prereq == "libunwind.cpp" {
             prompt(ctx, "%v: %v; (%T: %T)\n", targetValue, prereqValue, targetValue, prereqValue)
-            prompt(ctx, "%v: %v; file=%v okay=%v traversed=%v brks=%v projects=%v\n",
-                targetValue, prereqValue, file, okay, traversed, brks, projects).debug(6)
+            prompt(ctx, "%v: %v; file=%v okay=%v traversed=%v traves=%v projects=%v\n",
+                targetValue, prereqValue, file, okay, traversed, traves, projects).debug(6)
         }
         if false && file != nil && strings.HasPrefix(file.fullname(), "llvm/") {
             warnstack(ctx, 5, "%v %v %v", targetValue, prereqValue, file).debug(16)
         }
     } ()
 
-    if db0 && dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v brks=%v; concretes:\n",
-        targetValue, prereqValue, prereqValue, file, okay, traversed, brks).debug(1) }
+    if dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v traves=%v; concretes:\n",
+        targetValue, prereqValue, prereqValue, file, okay, traversed, traves).debug(1) }
     if true { ForProjectsConcretes: for _, project := range projects {
         var entries = project.resolveEntries(ctx, prereq, t.grepping, false)
-        if entries == nil { continue }
-        concreteList = append(concreteList, entries.all...)
+        if entries != nil && len(entries.all) > 0 {
+            concreteList = append(concreteList, entries.all...)
+            if dbg { prompt(ctx, "%v: %v %T; %v: %v\n",
+                targetValue, prereqValue, prereqValue, project, entries.all).debug(1) }
+        } else {
+            if dbg { prompt(ctx, "%v: %v %T; stat=%v, %v\n",
+                targetValue, prereqValue, prereqValue, prereqValue.stat(ctx), project).debug(1) }
+            continue
+        }
         for _, entry := range entries.all {
             if isNil(entry) && targetValue == entry { continue }
             if v, w := done[entry]; v && w { continue } else { done[entry] = true }
@@ -751,16 +762,14 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 continue // target resolve to itself, does nothing
             }
 
-            var verb = options.verbose || options.verboseBreaks
             var t = entry.traverse(ctx);
-            if dbg {
-                prompt(ctx, "%v: %v, entry=%v file=%v brks=%v project=%v\n",
-                    targetValue, prereqValue, file, entry, t, project).debug(1)
-            }
+            if dbg { prompt(ctx, "%v: %v %T; entry=%v file=%v traves=%v,%v project=%v\n",
+                targetValue, prereqValue, prereqValue, entry, file, traves,t, project).debug(1) }
 
+            var verb = options.verbose || options.verboseBreaks
             if t.failed() {
-                brks = brks.not(traveCase, traveDone, traveNext)
-                brks = append(brks, t.of(traveFail)...)
+                traves = traves.not(traveCase, traveDone, traveNext)
+                traves = append(traves, t.of(traveFail)...)
                 if stems := ctx.stems(); (len(stems) == 0 || verb) && t.has() {
                     prompt(ctx, "%s: traverse entry failed (project=%v, target=%v, stems=%v)\n",
                         entry, project, targetValue, stems)
@@ -776,48 +785,48 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                     }
                 }
                 break ForProjectsConcretes
+            } else {
+                traversed += 1
             }
 
             if file, _ = entry.Target().(*File); file == nil {
                 if a, _ := ctx.autoGet("@"); !isTrivial(a) { file, _ = a.(*File) }
             }
 
-            traversed += 1
-            okay = true
-
-            if t.has(traveDone) {
-                brks = brks.not(traveCase, traveNext) // No need for next
-                for _, brk := range t.of(traveDone) {
-                    if  brk.depend == nil { continue }
-                    if  brk.depend == entry.Target() ||
-                        brk.depend.cmp(ctx, entry.Target()) == cmpEqual {
-                        // brks = append(brks, brk)
-                        break ForProjectsConcretes
-                    }
-                }
-                continue
+            if tt := t.of(traveDone); tt.has() {
+                traves = traves.not(traveCase, traveNext) // No need for next
+                traves = append(traves, tt...)
+                okay = true
+                continue //break ForProjectsConcretes
             }
 
-            if t.has(traveCase) {
-                brks = brks.not(traveCase, traveNext) // No need for next
-                brks = append(brks, t.of(traveCase)...)
+            if tt := t.of(traveCase); tt.has() {
+                traves = traves.not(traveNext) // No need for next
+                traves = append(traves, tt...)
+                okay = true
                 break ForProjectsConcretes
             }
 
-            if t.has(traveNext) {
-                brks = brks.not(traveNext) // keep only one
-                brks = append(brks, t.of(traveNext)...)
+            if tt := t.of(traveNext); tt.has() {
+                traves = traves.not(traveNext) // keep only one
+                traves = append(traves, tt...)
                 continue
             }
 
             if t.has() {
+                prompt(ctx, "%v: %v %T; entry=%v file=%v traves=%v,%v project=%v\n",
+                    targetValue, prereqValue, prereqValue, entry, file, traves,t, project).debug(1)
                 errostack(ctx, 5, "%v", t).debug(16)
+            } else if file != nil {
+                okay = file.exists()
+            } else {
+                okay = true
             }
         }
     }}
 
-    if db0 && dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v brks=%v; patterns:\n",
-        targetValue, prereqValue, prereqValue, file, okay, traversed, brks).debug(1) }
+    if dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v traves=%v; patterns:\n",
+        targetValue, prereqValue, prereqValue, file, okay, traversed, traves).debug(1) }
     if !okay || traversed == 0 { ForProjectsPatterns: for _, project := range projects {
         var patterns = project.resolvePatterns(ctx, prereqValue, prereq)
         if len(patterns) > 0 {
@@ -825,8 +834,9 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             if dbg { prompt(ctx, "%v: %v %T; %v: %v\n",
                 targetValue, prereqValue, prereqValue, project, patterns).debug(1) }
         } else {
-            if dbg { prompt(ctx, "%v: %v %T; %v: %v\n",
+            if dbg { prompt(ctx, "%v: %v %T; stat=%v, %v\n",
                 targetValue, prereqValue, prereqValue, prereqValue.stat(ctx), project).debug(1) }
+            continue
         }
         ForPatterns: for i, entry := range patterns {
             if v, w := done[entry.PatternEntry]; v && w {
@@ -848,15 +858,15 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
 
             var t = entry.traverse(ctx)
             if dbg {
-                prompt(ctx, "%v: %v %T; entry=%v file=%v brks=%v project=%v\n",
+                prompt(ctx, "%v: %v %T; entry=%v file=%v traves=%v project=%v\n",
                     targetValue, prereqValue, prereqValue, entry, file, t, project).debug(1)
-                defer func() { prompt(ctx, "%v: %v %T; entry=%v file=%v brks=%v project=%v\n",
-                    targetValue, prereqValue, prereqValue, entry, file, brks, project).debug(6) } ()
+                defer func() { prompt(ctx, "%v: %v %T; entry=%v file=%v traves=%v project=%v\n",
+                    targetValue, prereqValue, prereqValue, entry, file, traves, project).debug(6) } ()
             }
 
             if t.failed() {
-                brks = brks.not(traveCase, traveDone, traveNext)
-                brks = append(brks, t.of(traveFail)...)
+                traves = traves.not(traveCase, traveDone, traveNext)
+                traves = append(traves, t.of(traveFail)...)
                 if options.verbose || options.verboseBreaks {
                     var ctx = positional(ctx, entry.Position())
                     prompt(ctx, "%s: traverse entry failed (project=%v, target=%v, stems=%v)\n",
@@ -870,7 +880,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             }
 
             if tt := t.of(traveDone); tt.has() {
-                brks = brks.not(traveCase, traveNext)
+                traves = traves.not(traveCase, traveNext)
                 for _, brk := range tt {
                     if t := brk.depend; t != nil && (
                         entry.target == t || entry.target.cmp(ctx, t) == cmpEqual) {
@@ -881,7 +891,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             }
 
             if tt := t.of(traveCase); tt.has() {
-                brks = brks.not(traveCase, traveNext)
+                traves = traves.not(traveCase, traveNext)
                 for _, brk := range tt {
                     if t := brk.depend; t != nil && (
                         entry.target == t || entry.target.cmp(ctx, t) == cmpEqual) {
@@ -892,11 +902,11 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             }
 
             if tt := t.of(traveNext); tt.has() {
-                brks = brks.not(traveNext)
-                if false { prompt(ctx, "%v: %v; entry=%v file=%v brks=%v project=%v\n",
+                traves = traves.not(traveNext)
+                if false { prompt(ctx, "%v: %v; entry=%v file=%v traves=%v project=%v\n",
                     targetValue, prereqValue, entry, file, t, project).debug(1) }
                 for _, brk := range tt {
-                    // brks = append(brks, brk) // add back traveNext
+                    // traves = append(traves, brk) // add back traveNext
                     if t, d := brk.target, brk.depend; t != nil && d != nil &&
                         (prereqValue  == t || prereqValue .cmp(ctx,t) == cmpEqual) &&
                         (entry.target == t || entry.target.cmp(ctx,t) == cmpEqual) {
@@ -913,32 +923,35 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                         break ForProjectsPatterns
                     }
                 }
-                // prompt(ctx, "%v: %v, %v. entry=%v file=%v brks=%v project=%v\n",
+                // prompt(ctx, "%v: %v, %v. entry=%v file=%v traves=%v project=%v\n",
                 //     targetValue, prereqValue, i, entry, file, t, project).debug(1)
                 continue ForPatterns // break ForProjectsPatterns
             }
 
             if t.has() {
-                prompt(ctx, "%v: %v, entry=%v file=%v brks=%v project=%v\n",
+                prompt(ctx, "%v: %v, entry=%v file=%v traves=%v project=%v\n",
                     targetValue, prereqValue, file, t, project)
                 errostack(ctx, 5, "").debug(16)
             }
         }
     }}
 
-    if db0 && dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v brks=%v; find files:\n",
-        targetValue, prereqValue, prereqValue, file, okay, traversed, brks).debug(1) }
+    if dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v traves=%v; find files:\n",
+        targetValue, prereqValue, prereqValue, file, okay, traversed, traves).debug(1) }
     if okay && traversed > 0 {
         return
     } else if f, ok := prereqValue.(*File); ok && f != nil && prereq == f.name {
-        if file, okay = f, f.exists(); okay { return } else {
-            for _, project := range projects {
-                if okay = file.searchInMatchedPaths(ctx, project); okay {
-                    assert(file.exists(), "file must exists at this point")
-                    brk := brks.add(ctx, traveFile, targetValue)
-                    brk.depend = file
-                    return
-                }
+        if file, okay = f, f.exists(); okay {
+            brk := traves.add(ctx, traveFile, targetValue)
+            brk.depend = file
+            return
+        }
+        for _, project := range projects {
+            if okay = file.searchInMatchedPaths(ctx, project); okay {
+                assert(file.exists(), "file must exists at this point")
+                brk := traves.add(ctx, traveFile, targetValue)
+                brk.depend = file
+                return
             }
         }
     } else if !okay /*|| traversed == 0*/ { ForProjectsFiles: for _, project := range projects {
@@ -946,21 +959,22 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             if file.position = ctx.Position(); file.isSysFile() {
                 continue ForProjectsFiles
             } else if okay = file.exists(); okay {
-                brk := brks.add(ctx, traveFile, targetValue)
+                brk := traves.add(ctx, traveFile, targetValue)
                 brk.depend = file
                 return
             } else if okay = file.searchInMatchedPaths(ctx, project); okay {
-                brk := brks.add(ctx, traveFile, targetValue)
+                brk := traves.add(ctx, traveFile, targetValue)
                 brk.depend = file
                 return
             }
         }
     }}
 
-    if db0 && dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v brks=%v; objects:\n",
-        targetValue, prereqValue, prereqValue, file, okay, traversed, brks).debug(1) }
-    if okay && file != nil && file.exists() {
-        return // does nothing
+    if dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v traves=%v; objects:\n",
+        targetValue, prereqValue, prereqValue, file, okay, traversed, traves).debug(1) }
+    if file != nil && file.exists() && !traves.failed() {
+        okay = true
+        return
     } else if traversed == 0 || !okay { ForProjectsObjects: for _, project := range projects {
         var obj = project.resolveObject(ctx, prereq)
         switch obj.(type) {
@@ -970,8 +984,8 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
 
         var t = obj.traverse(ctx);
         if t.failed() {
-            brks = brks.not(traveCase, traveDone, traveNext)
-            brks = append(brks, t.of(traveFail)...)
+            traves = traves.not(traveCase, traveDone, traveNext)
+            traves = append(traves, t.of(traveFail)...)
 
             prompt(ctx, "%v → %T %v\n", prereq, obj, obj)
             for _, brk := range t { warn(ctx, "%v: (%T) %v", obj, obj, brk).at(brk.pos) }
@@ -980,16 +994,16 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         }
 
         if t.has(traveDone) {
-            brks = brks.not(traveCase, traveNext) // No need for next
-            brks = append(brks, t.of(traveDone)...)
+            traves = traves.not(traveCase, traveNext) // No need for next
+            traves = append(traves, t.of(traveDone)...)
             break ForProjectsObjects
         } else if t.has(traveCase) {
-            brks = brks.not(traveNext) // No need for next
-            brks = append(brks, t.of(traveCase)...)
+            traves = traves.not(traveNext) // No need for next
+            traves = append(traves, t.of(traveCase)...)
             break ForProjectsObjects
         } else if t.has(traveNext) {
-            brks = brks.not(traveNext) // keep only one
-            brks = append(brks, t.of(traveNext)...)
+            traves = traves.not(traveNext) // keep only one
+            traves = append(traves, t.of(traveNext)...)
             continue
         }
 
@@ -1013,22 +1027,19 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         prompt(ctx, "%s: traverse failed, project %s\n", prereq, proj)
         errostack(ctx, 6, "%v: %v", proj, ctx).debug(16)
         return
-    } else if okay || brks.has(traveDone) {
+    } else if okay || traves.has(traveDone) {
         return // done
     } else if !ctx.configuration() && (len(ctx.stems()) == 0 || ctx.mustExists()) {
-        if brk := brks.add(ctx, traveFail, targetValue); file != nil {
-            ctx = positional(ctx, file.position)
+        if brk := traves.add(ctx, traveFail, targetValue); file != nil {
             brk.error = fileNotFoundError{proj, file}
+            ctx = positional(ctx, file.position)
         } else {
             brk.error = targetNotFoundError{proj, prereq}
             if prereqValue != nil { ctx = positional(ctx, prereqValue.Position()) }
         }
-        if file != nil {
-            prompt(ctx, "%v: traverse file failed; projects %v, %v (ok=%v)\n", file.fullname(), proj, projects, okay)
-        } else {
-            prompt(ctx, "%v: traverse target failed; projects %v, %v (okay=%v)\n", prereq, proj, projects, okay)
-        }
-        for _, brk := range brks { erro(ctx, "%v: %v: %v", targetValue, prereqValue, brk).at(brk.pos) }
+        prompt(ctx, "%v: %v %T; projects=%v,%v okay=%v traversed=%d file=%v traves=%v\n",
+            targetValue, prereqValue, prereqValue, proj, projects, okay, traversed, file, traves).debug(1)
+        for _, brk := range traves { erro(ctx, "%v: %v: %v", targetValue, prereqValue, brk).at(brk.pos) }
         for i, c := range ctx.closureScopes() { erro(ctx, "%v: closure: %v. %v", proj, i, c) }
         for i, concrete := range concreteList { erro(ctx, "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs())).at(concrete.Position()) }
         for i, stemmed  := range stemmedList  { erro(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position) }
@@ -1039,7 +1050,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     }
 }
 
-func traversePattern(ctx Context, pat Value, projects... *Project) (brks travestates) {
+func traversePattern(ctx Context, pat Value, projects... *Project) (traves travestates) {
     var (
         stems = ctx.stems()
         rest []string
@@ -1060,34 +1071,34 @@ func traversePattern(ctx Context, pat Value, projects... *Project) (brks travest
 
     if false && strings.Contains(val.Strval(ctx), "libunwind") {
         defer func() {
-            prompt(ctx, "%v: %T %v %v stems=%v brks=%v\n",
-                target, val, val, pat, stems, brks).debug(16)
+            prompt(ctx, "%v: %T %v %v stems=%v traves=%v\n",
+                target, val, val, pat, stems, traves).debug(16)
         } ()
     }
 
-    if brks = traverse(ctx, val, val.Strval(ctx), projects...); brks.failed() {
+    if traves = traverse(ctx, val, val.Strval(ctx), projects...); traves.failed() {
         if false { erro(ctx, "%v: traverse pattern failed (%T)", val, val).debug(1) }
-        brks = brks.not(traveCase, traveDone, traveNext)
+        traves = traves.not(traveCase, traveDone, traveNext)
         return
-    } else  if brks.has(traveDone) {
-        brks = brks.not(traveCase, traveNext)
+    } else  if traves.has(traveDone) {
+        traves = traves.not(traveCase, traveNext)
         return
-    } else  if brks.has(traveCase) {
-        brks = brks.not(traveNext)
+    } else  if traves.has(traveCase) {
+        traves = traves.not(traveNext)
         return
-    } else  if brks.has(traveNext) {
-        brks = brks.not(traveNext)
-        warn(ctx, "%v: %v: traverse pattern: %v", val, pat, brks).debug(1)
+    } else  if traves.has(traveNext) {
+        traves = traves.not(traveNext)
+        warn(ctx, "%v: %v: traverse pattern: %v", val, pat, traves).debug(1)
         return
-    } else if brks.has(traveFile) {
-        for _, ts := range brks {
+    } else if traves.has(traveFile) {
+        for _, ts := range traves {
             if ts.depend == val || ts.depend.Strval(ctx) == val.Strval(ctx) {
                 ts.dependPat = pat
             }
         }
         return
     } else if len(stems) > 0 {
-        brk := brks.add(ctx, traveNext, target)
+        brk := traves.add(ctx, traveNext, target)
         brk.dependPat = pat
         brk.depend = val
         return
@@ -1383,7 +1394,7 @@ func (_ *valbase) stamp(ctx Context) (file []*File, err error) { return }
 func (_ *valbase) updated(_ Context, _ ...bool) bool { return false }
 func (_ *valbase) updatedDeps(_ Context, _ ...Value) []Value { return nil }
 func (_ *valbase) delete(ctx Context) (file []*File, err error) { return }
-func (_ *valbase) traverse(ctx Context) (brks travestates) { return }
+func (_ *valbase) traverse(ctx Context) (traves travestates) { return }
 func (_ *valbase) _match(ctx Context, p Value, i interface{}) (full bool, s string, stems []string) {
     var is string
     var v = p.Strval(ctx)
@@ -1500,7 +1511,7 @@ func (p *Argumented) Strval(ctx Context) (s string) {
     return
 }
 
-func (p *Argumented) traverse(ctx Context) (brks travestates) {
+func (p *Argumented) traverse(ctx Context) (traves travestates) {
     //!< IMPORTANT! - Don't merge-expand arguments here!
     //!< Arguments should be passed to program.execute as it is.
     var args []Value
@@ -1740,8 +1751,8 @@ func (p *Any) Strval(ctx Context) (s string) {
     return
 }
 func (p *Any) String() string { return fmt.Sprintf("<%v>", p.value) }
-func (p *Any) traverse(ctx Context) (brks travestates) {
-    if v, ok := p.value.(Value); ok { brks = v.traverse(ctx) }
+func (p *Any) traverse(ctx Context) (traves travestates) {
+    if v, ok := p.value.(Value); ok { traves = v.traverse(ctx) }
     return
 }
 
@@ -1780,8 +1791,8 @@ func (p *negative) Integer(ctx Context) (res int64, _ error) {
     if !p.x.True(ctx) { res = 1 }
     return
 }
-func (p *negative) traverse(ctx Context) (brks travestates) {
-    if p.x != nil { brks = p.x.traverse(ctx) }
+func (p *negative) traverse(ctx Context) (traves travestates) {
+    if p.x != nil { traves = p.x.traverse(ctx) }
     return
 }
 
@@ -2305,7 +2316,7 @@ func (p *String) match(ctx Context, i interface{}) (full bool, s string, stems [
 func (p *String) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
 }
-func (p *String) traverse(ctx Context) (brks travestates) {
+func (p *String) traverse(ctx Context) (traves travestates) {
     return traverse(positional(ctx, p.position), p, p.string)
 }
 func (p *String) elemStr(_ Context, o Object, k elemkind) (s string) {
@@ -2345,7 +2356,7 @@ func (p *Punctuation) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *Punctuation) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
 func (p *Punctuation) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
-func (p *Punctuation) traverse(ctx Context) (brks travestates) { return }
+func (p *Punctuation) traverse(ctx Context) (traves travestates) { return }
 
 type Bareword struct { valbase; string }
 func (p *Bareword) String() string { return p.string }
@@ -2388,7 +2399,7 @@ func (p *Bareword) match(ctx Context, i interface{}) (full bool, s string, stems
 func (p *Bareword) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
 }
-func (p *Bareword) traverse(ctx Context) (brks travestates) {
+func (p *Bareword) traverse(ctx Context) (traves travestates) {
     return traverse(positional(ctx, p.position), p, p.string)
 }
 
@@ -2430,7 +2441,7 @@ func (p *Qualiword) match(ctx Context, i interface{}) (full bool, s string, stem
 func (p *Qualiword) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
 }
-func (p *Qualiword) traverse(ctx Context) (brks travestates) {
+func (p *Qualiword) traverse(ctx Context) (traves travestates) {
     return traverse(positional(ctx, p.position), p, p.Strval(ctx))
 }
 
@@ -2548,7 +2559,7 @@ func (p *Barecomp) expand(ctx Context, w expandwhat) (res Value) {
     }
     return
 }
-func (p *Barecomp) traverse(ctx Context) (brks travestates) {
+func (p *Barecomp) traverse(ctx Context) (traves travestates) {
     return traverse(positional(ctx, p.Position()), p, p.Strval(ctx))
 }
 func (p *Barecomp) cmp(ctx Context, v Value) (res cmpres) {
@@ -2671,7 +2682,7 @@ func (p *Barefile) expand(ctx Context, w expandwhat) (res Value) {
     }
     return
 }
-func (p *Barefile) traverse(ctx Context) (brks travestates) {
+func (p *Barefile) traverse(ctx Context) (traves travestates) {
     return traverse(positional(ctx, p.position), p, p.Strval(ctx))
 }
 func (p *Barefile) updated(ctx Context, v ...bool) (res bool) {
@@ -3175,7 +3186,7 @@ func (p *Path) stat(ctx Context) (si *statinfo) {
     }
     return
 }
-func (p *Path) traverse(ctx Context) (brks travestates) {
+func (p *Path) traverse(ctx Context) (traves travestates) {
     var (
         pathname string
         err error
@@ -3203,9 +3214,9 @@ func (p *Path) traverse(ctx Context) (brks travestates) {
         if strings.HasPrefix(file.String(), "ui/") {
             warn(ctx, "%v %v", file, pathname).debug(1)
         }
-        brks = file.traverse(ctx)
+        traves = file.traverse(ctx)
     } else {
-        brks = traverse(ctx, p, pathname)
+        traves = traverse(ctx, p, pathname)
     }
     return
 }
@@ -3979,7 +3990,7 @@ func (p *File) isSysFile() (res bool) {
     }
     return
 }
-func (p *File) traverse(a_ctx Context) (brks travestates) {
+func (p *File) traverse(a_ctx Context) (traves travestates) {
     if p.isSysFile() { return }
 
     var ctx = positional(a_ctx, p.position)
@@ -4186,7 +4197,7 @@ func (p *Flag) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *Flag) traverse(ctx Context) (brks travestates) {
+func (p *Flag) traverse(ctx Context) (traves travestates) {
     return traverse(ctx, p, p.Strval(positional(ctx, p.position)))
 }
 
@@ -4303,10 +4314,10 @@ func (p *List) expand(ctx Context, w expandwhat) (res Value) {
     }
     return
 }
-func (p *List) traverse(ctx Context) (brks travestates) {
+func (p *List) traverse(ctx Context) (traves travestates) {
     for i, elem := range p.Elems {
-        if brks = elem.traverse(ctx); brks.failed() {
-            var t = brks.not(traveCase, traveNext, traveDone)
+        if traves = elem.traverse(ctx); traves.failed() {
+            var t = traves.not(traveCase, traveNext, traveDone)
             if (options.verbose || options.verboseBreaks || options.debug) && t.has() {
                 prompt(ctx, "List[%v] → %T %v\n", i, elem, elem)
                 for _, brk := range t {
@@ -4453,7 +4464,7 @@ func (p *Group) expand(ctx Context, w expandwhat) (res Value) {
     }
     return
 }
-func (p *Group) traverse(ctx Context) (brks travestates) {
+func (p *Group) traverse(ctx Context) (traves travestates) {
     warn(ctx, "traversing group: %v", p).at(p.position).debug(32)
     return
 }
@@ -4519,7 +4530,7 @@ func (p *Pair) refs(ctx Context, v Value) bool { return p.Key.refs(ctx, v) || p.
 func (p *Pair) defs(ctx Context, s ...string) []*Def {
     return append(p.Key.defs(ctx, s...), p.Value.defs(ctx, s...)...)
 }
-func (p *Pair) traverse(ctx Context) (brks travestates) {
+func (p *Pair) traverse(ctx Context) (traves travestates) {
     erro(ctx, "traversing pair '%v' is undefined", p).at(p.position)
     errostack(positional(ctx, p.position), -1, "pair is not traversible: %v", p).debug(16)
     return
@@ -4667,7 +4678,7 @@ func (p *delegate) defs(ctx Context, s ...string) (res []*Def) {
     }
     return
 }
-func (p *delegate) traverse(ctx Context) (brks travestates) {
+func (p *delegate) traverse(ctx Context) (traves travestates) {
     ctx = positional(ctx, p.position)
     if val := p.expand(ctx, expandPlainValue); isNil(val) {
         warn(ctx, "delegate '%v' expands to nil", p).at(p.position)
@@ -4677,8 +4688,8 @@ func (p *delegate) traverse(ctx Context) (brks travestates) {
             warn(ctx, "delegate '%v' expands to none", p).at(p.position)
             warnstack(ctx, -1, "delegate '%v' expands to <none>", p).debug(16)
         }
-    } else if brks = val.traverse(ctx); len(brks) > 0 {
-        var t = brks.not(traveCase, traveNext, traveDone)
+    } else if traves = val.traverse(ctx); len(traves) > 0 {
+        var t = traves.not(traveCase, traveNext, traveDone)
         if (options.verbose || options.verboseBreaks || options.debug) && t.has() {
             prompt(ctx, "%v → %T %v\n", p, val, val)
             for _, brk := range t {
@@ -4888,8 +4899,8 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (retctx Context, res Value)
             }
         }
     case Executer:
-        if vals, brks := t.Execute(ctx, args...); brks.failed() {
-            for _, brk := range brks {
+        if vals, traves := t.Execute(ctx, args...); traves.failed() {
+            for _, brk := range traves {
                 erro(ctx, "broken '%v': %v", x, brk).at(brk.pos).debug(1)
             }
         } else if len(vals) > 0 {
@@ -5126,13 +5137,13 @@ ClosureTok:
     }
     return
 }
-func (p *closure) traverse(ctx Context) (brks travestates) {
+func (p *closure) traverse(ctx Context) (traves travestates) {
     if val := p.expand(positional(ctx, p.position), expandClosure); isNil(val) {
         warn(ctx, "closure '%v' expands to nil", p).at(p.position).debug(1)
     } else if isNone(val) {
         warn(ctx, "closure '%v' expands to none", p).at(p.position).debug(1)
-    } else if brks = val.traverse(ctx); false && len(brks) > 0 {
-        for _, brk := range brks { warn(ctx, "%v; %v -> %T %v", brk.what, p, val, val).debug(8) }
+    } else if traves = val.traverse(ctx); false && len(traves) > 0 {
+        for _, brk := range traves { warn(ctx, "%v; %v -> %T %v", brk.what, p, val, val).debug(8) }
     }
     return
 }
@@ -5275,13 +5286,13 @@ func (p *selection) expand(ctx Context, w expandwhat) (res Value) {
     if o != p.o || s != p.s { res = &selection{p.valbase,p.t,o,s}}
     return
 }
-func (p *selection) traverse(ctx Context) (brks travestates) {
+func (p *selection) traverse(ctx Context) (traves travestates) {
     ctx = positional(ctx, p.position)
     if val := p.value(ctx); isTrivial(val) {
         warn(ctx, "selected value '%v' is trivial", p).debug(1)
     } else {
         _ = val.updated(ctx) // NOTE: ensure that updated flag is correct (see RuleEntry.updated)
-        brks = val.traverse(ctx)
+        traves = val.traverse(ctx)
     }
     return
 }
@@ -5539,7 +5550,7 @@ DoneVals:
     }
     return
 }
-func (p *PercPattern) traverse(ctx Context) (brks travestates) { return traversePattern(ctx, p) }
+func (p *PercPattern) traverse(ctx Context) (traves travestates) { return traversePattern(ctx, p) }
 func (p *PercPattern) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*PercPattern); ok {
         if p.Prefix.cmp(ctx, a.Prefix) == cmpEqual {
@@ -5652,7 +5663,7 @@ func (p *GlobPattern) stencil(ctx Context, stems []string) (val Value, rest []st
     unreachable(fmt.Sprintf("Unimplemented GlobPattern stencil %v (stems=%v)", p, stems))
     return
 }
-func (p *GlobPattern) traverse(ctx Context) (brks travestates) { return traversePattern(ctx, p) }
+func (p *GlobPattern) traverse(ctx Context) (traves travestates) { return traversePattern(ctx, p) }
 func (p *GlobPattern) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*GlobPattern); ok {
         if len(p.Components) == len(a.Components) {
@@ -5690,7 +5701,7 @@ func (p *RegexpPattern) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *RegexpPattern) traverse(ctx Context) (brks travestates) { return traversePattern(ctx, p) }
+func (p *RegexpPattern) traverse(ctx Context) (traves travestates) { return traversePattern(ctx, p) }
 
 func NewRegexpPattern(pos Position) Value {
     return &RegexpPattern{valbase{pos}} // TODO: RegexpPattern implementation
@@ -5705,7 +5716,7 @@ type Caller interface {
 }
 
 type Executer interface {
-    Execute(ctx Context, args... Value) (result []Value, brks travestates)
+    Execute(ctx Context, args... Value) (result []Value, traves travestates)
 }
 
 type Positioner interface {

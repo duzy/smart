@@ -1869,8 +1869,8 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 			} else {
 				if entry := project.configure.DefaultEntry(); entry == nil {
 					// no init entry from .configure
-				} else if _, brks := entry.Execute(ctx); len(brks) > 0 {
-					for _, brk := range brks {
+				} else if _, traves := entry.Execute(ctx); len(traves) > 0 {
+					for _, brk := range traves {
 						if brk.what == traveFail {
 							erro(ctx, "execute '%v' failed: %v", entry, brk).of(entry).debug(1)
 						}
@@ -1888,8 +1888,8 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
  					for _, dep := range expandmerge2(ctx, expandPlainValue, props[1:]...) {
 						switch prereq := dep.(type) {
 						case *RuleEntry:
-							if _, brks := prereq.Execute(ctx); len(brks) > 0 {
-								for _, brk := range brks {
+							if _, traves := prereq.Execute(ctx); len(traves) > 0 {
+								for _, brk := range traves {
 									if brk.what == traveFail {
 										erro(ctx, "execute '%v' failed: %v", prereq, brk).of(prereq).debug(1)
 									}

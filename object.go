@@ -136,7 +136,7 @@ func (p *unresolvedobject) cmp(ctx Context, v Value) (res cmpres) {
         }
         return
 }
-func (p *unresolvedobject) traverse(ctx Context) (brks travestates) { return }
+func (p *unresolvedobject) traverse(ctx Context) (traves travestates) { return }
 
 func unresolved(p *Project, v Value) *unresolvedobject {
         var pos = v.Position()
@@ -177,13 +177,13 @@ func (p *ProjectName) Call(ctx Context, a... Value) (value Value) {
         return
 }
 
-func (p *ProjectName) traverse(ctx Context) (brks travestates) {
+func (p *ProjectName) traverse(ctx Context) (traves travestates) {
         if entry := p.project.DefaultEntry(); entry == nil {
                 // does nothing
         } else if entry.Class() == UseRuleEntry {
                 // skip :use: rules
-        } else if brks = entry.traverse(ctx); brks.has() {
-                var t = brks.not(traveCase, traveDone, traveNext)
+        } else if traves = entry.traverse(ctx); traves.has() {
+                var t = traves.not(traveCase, traveDone, traveNext)
                 if (false || options.debug) && len(t) > 0 {
                         prompt(ctx, "%v→%v\n", p, entry)
                         for _, brk := range t { warn(ctx, "%v→%v: %v", p, entry, brk).at(brk.pos) }
@@ -940,7 +940,7 @@ func (d *Def) Get(ctx Context, name string) (res Value, err error) {
         }
         return
 }
-func (d *Def) traverse(ctx Context) (brks travestates) {
+func (d *Def) traverse(ctx Context) (traves travestates) {
         var value Value
         if d.origin == DefArg || d.origin == DefAuto {
                 value, _ = ctx.autoGet(d.name)
@@ -949,7 +949,7 @@ func (d *Def) traverse(ctx Context) (brks travestates) {
                 value = d.value
                 d.mutex.Unlock()
         }
-        if value != nil { brks = value.traverse(ctx) }
+        if value != nil { traves = value.traverse(ctx) }
         return
 }
 func (d *Def) stat(ctx Context) (si *statinfo) {
@@ -1004,7 +1004,7 @@ func (p *undetermined) expand(ctx Context, w expandwhat) (res Value) {
         }
         return
 }
-func (p *undetermined) traverse(ctx Context) (brks travestates) { return }
+func (p *undetermined) traverse(ctx Context) (traves travestates) { return }
 func (p *undetermined) exists() existence { return existenceMatterless }
 func (p *undetermined) stat(ctx Context) (si *statinfo) { return }
 func (p *undetermined) stamp(ctx Context) (files []*File, err error) { return }
@@ -1209,7 +1209,7 @@ func (entry *RuleEntry) updatedDeps(ctx Context, v ...Value) []Value {
         return res
 }
 // RuleEntry.Execute executes the rule program only if the target is outdated.
-func (entry *RuleEntry) Execute(ctx Context, a ...Value) (result []Value, brks travestates) {
+func (entry *RuleEntry) Execute(ctx Context, a ...Value) (result []Value, traves travestates) {
         switch entry.class {
         case PatternRuleEntry, PathPattRuleEntry:
                 erro(ctx, "executing pattern entry '%v'", entry.target).debug(1)
@@ -1222,7 +1222,7 @@ func (entry *RuleEntry) Execute(ctx Context, a ...Value) (result []Value, brks t
         }
         return entry.execute(&t, a...)
 }
-func (entry *RuleEntry) execute(cc Context, a... Value) (result []Value, brks travestates) {
+func (entry *RuleEntry) execute(cc Context, a... Value) (result []Value, traves travestates) {
         if cc = (&entryContext{ cc, entry }); len(a) > 0 { cc = &argumentedContext{ cc, a } }
         for _, program := range entry.programs {
                 var pos = program.position
@@ -1231,27 +1231,24 @@ func (entry *RuleEntry) execute(cc Context, a... Value) (result []Value, brks tr
                 var ctx = positional(cc, pos)
                 if res, t := program.execute(ctx); t.failed() {
                         for _, brk := range t { erro(ctx, "%v: %v", entry, brk).debug(1) }
-                        brks = t.not(traveCase, traveDone, traveNext)
+                        traves = t.not(traveCase, traveDone, traveNext)
                         break
                 } else if t.has(traveDone) {
-                        if brks = t.not(traveCase, traveDone, traveNext); isNil(res) {
+                        if traves = t.not(traveCase, traveDone, traveNext); isNil(res) {
                                 prompt(ctx, "%v: nil result\n", entry)
                                 for _, brk := range t { warn(ctx, "%v: %v", entry, brk) }
                                 warnstack(ctx, 5, "").debug(16)
                         } else {
                                 result = append(result, res)
                         }
-                        if entry.String() == "PY_VERSION" {
-                                warn(ctx, "%v: %v", entry, res).debug(1)
-                        }
                         break
                 } else if t.has(traveCase) {
-                        if brks = t.not(traveCase, traveNext); !isNil(res) {
+                        if traves = t.not(traveCase, traveNext); !isNil(res) {
                                 result = append(result, res)
                         }
                         break
                 } else if t.has(traveNext) {
-                        if brks = t.not(traveNext); !isNil(res) {
+                        if traves = t.not(traveNext); !isNil(res) {
                                 result = append(result, res)
                         }
                         continue
@@ -1349,7 +1346,7 @@ func (entry *RuleEntry) expand(ctx Context, w expandwhat) (res Value) {
 }
 func (entry *RuleEntry) delete(ctx Context) (files []*File, err error) { return entry.target.delete(ctx) }
 func (entry *RuleEntry) stamp( ctx Context) (files []*File, err error) { return entry.target.stamp(ctx) }
-func (entry *RuleEntry) traverse(cc Context) (brks travestates) {
+func (entry *RuleEntry) traverse(cc Context) (traves travestates) {
         var (
                 entryPos = entry.Position()
                 target, okay = cc.autoGet("@")
@@ -1372,19 +1369,19 @@ ForPrograms:
                 var ctx = positional(cc, pos)
                 var res, t = prog.execute(ctx)
                 if t.failed() {
-                        brks = append(brks, t.not(traveCase, traveDone, traveNext)...)
+                        traves = append(traves, t.not(traveCase, traveDone, traveNext)...)
                         break ForPrograms
                 } else if !isTrivial(res) {
                         results = append(results, merge(res)...)
                 }
 
                 if t.has(traveCase, traveDone) {
-                        brks = append(brks, t.not(traveNext)...)
+                        traves = append(traves, t.not(traveNext)...)
                         break ForPrograms
                 }
 
                 if t.has(traveNext) {
-                        brks = append(brks, t...)
+                        traves = append(traves, t...)
                         continue ForPrograms
                 }
         }
@@ -1512,7 +1509,7 @@ func (p *stemmed) cmp(ctx Context, v Value) (res cmpres) {
         }
         return
 }
-func (p *stemmed) traverse(ctx Context) (brks travestates) {
+func (p *stemmed) traverse(ctx Context) (traves travestates) {
         var real = p.RuleEntry // TODO: avoid copying the RuleEntry, use p directly
         real.target = p.target
         return real.traverse(&stemmedContext{ ctx, p })

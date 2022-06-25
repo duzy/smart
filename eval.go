@@ -53,15 +53,15 @@ ForRecipes:
                         v = tv.Call(positional(ctx, vals[0].Position()), vals[1:]...)
 
                 case Executer:
-                        var a, brks = tv.Execute(positional(ctx, program.Position()), vals[1:]...)
+                        var a, traves = tv.Execute(positional(ctx, program.Position()), vals[1:]...)
                         if a == nil {
                                 // no return value
-                        } else if tb := brks.not(traveCase, traveDone, traveNext); tb.has() {
-                                brks = tb
+                        } else if tb := traves.not(traveCase, traveDone, traveNext); tb.has() {
+                                traves = tb
                         } else if n := len(a); n == 1 { v = a[0] } else if n > 1 {
                                 v = MakeList(recipe.Position(), a...)
                         }
-                        for _, brk := range brks {
+                        for _, brk := range traves {
                                 erro(ctx, "eval '%v': %v", vals, brk).at(brk.pos).debug(1)
                         }
 

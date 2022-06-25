@@ -106,8 +106,8 @@ func (ce *configureExecutor) execute(ctx Context, project *Project, entry Entry)
 
     result = project
 
-    if val, brks := entry.Execute(ctx); len(brks) > 0 {
-        for _, brk := range brks {
+    if val, traves := entry.Execute(ctx); len(traves) > 0 {
+        for _, brk := range traves {
             if brk.what == traveFail {
                 erro(ctx, "execute '%v' failed: %v", entry, brk).debug(1)
             }
@@ -169,9 +169,9 @@ func (ctx *defaultContext) configure() {
         }
     }
     for entry, _ := range configureInits {
-        var vals, brks = entry.Execute(ctx)
-        if brks.has() {
-            for _, brk := range brks {
+        var vals, traves = entry.Execute(ctx)
+        if traves.has() {
+            for _, brk := range traves {
                 if brk.what == traveFail {
                     erro(ctx, "execute '%v' failed: %v", entry, brk).of(entry).debug(1)
                 }
@@ -441,10 +441,10 @@ ForInParams:
 
     var (
         reses []Value
-        brks travestates
+        traves travestates
     )
     for _, entry := range entries.all {
-        if reses, brks = entry.execute(ctx, params...); ctx.checkErrors(true) > 0 {
+        if reses, traves = entry.execute(ctx, params...); ctx.checkErrors(true) > 0 {
             warn(ctx, `configure '%s' got %d error(s)`, entryName, ctx.totalErrors()).debug(1)
             if options.failOnErrors { fail(pos, "fail by %d errors", ctx.totalErrors()) }
         } else if n := len(reses); n != 1 {
@@ -457,8 +457,8 @@ ForInParams:
             warn(ctx, `%v: configure yields value the same as input will be ignored: %v`, entry, result).debug(1)
             result = nil // simply discard the result as it's the same as the input (hyphen) value
         }
-        if brks = brks.not(traveDone); brks.has() {
-            for i, brk := range brks {
+        if traves = traves.not(traveDone); traves.has() {
+            for i, brk := range traves {
                 erro(ctx, " %d: %v", i, brk).debug(16)
             }
         }

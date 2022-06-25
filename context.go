@@ -436,22 +436,22 @@ func (ac *argumentedContext) argumentedSet(args []Value) (prev []Value) {
 }
 
 func executeEntry(ctx Context, entry *RuleEntry, args ...Value) (result []Value, okay bool) {
-  var brks travestates
-  if result, brks = entry.Execute(positional(ctx, entry.position), args...); !brks.has() {
+  var traves travestates
+  if result, traves = entry.Execute(positional(ctx, entry.position), args...); !traves.has() {
     okay = true; return
   }
 
-  if t := brks.of(traveFail); t.has() {
-    brks, okay = brks.not(traveFail), false
+  if t := traves.of(traveFail); t.has() {
+    traves, okay = traves.not(traveFail), false
     for _, brk := range t { erro(ctx, "%v: %v", entry, brk).at(brk.pos).debug(1) }
     return
   }
 
-  if t := brks.of(traveCase, traveDone, traveNext); t.has() {
-    brks, okay = brks.not(traveNext, traveCase, traveDone), true
+  if t := traves.of(traveCase, traveDone, traveNext); t.has() {
+    traves, okay = traves.not(traveNext, traveCase, traveDone), true
   }
 
-  if t := brks; t.has() {
+  if t := traves; t.has() {
     for _, brk := range t { erro(ctx, "%v: %v", entry, brk).at(brk.pos).debug(1) }
     okay = false
   }
@@ -603,9 +603,9 @@ func (dc *defaultContext) run() (result []Value, travestates []*travestate) {
     var args, _ = dc.globe.args[flag]
     var entries, _ = dc.globe.flagEntries[s]
     for _, entry := range entries {
-      var ( res []Value; brks []*travestate )
-      if res, brks = entry.Execute(positional(ctx, entry.Position()), args...); len(brks) > 0 {
-        for _, brk := range brks {
+      var ( res []Value; traves []*travestate )
+      if res, traves = entry.Execute(positional(ctx, entry.Position()), args...); len(traves) > 0 {
+        for _, brk := range traves {
           if brk.what == traveFail {
             erro(ctx, "execute '%v': %v", entry, brk).at(brk.pos).debug(1)
           }
