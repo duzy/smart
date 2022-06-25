@@ -623,12 +623,13 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
             var pos = &pc.prog.position
             if pos.SameLine(last) { continue }
 
+            var suf string
             var str, _, _ = entryStr(pc, pc.entry())
-            if n == 1 && pc.caller() != nil { str += " ..." }
+            if n == 1 && pc.caller() != nil { suf = " ..." }
             if i <= 1 {
-                point = ctx.diag(dt, "%v: %v", proj, str).at(*pos)
+                point = ctx.diag(dt, "%v: (project=%v)%s", str, proj, suf).at(*pos)
             } else {
-                point = ctx.diag(dt, "%v: %v (repeated %d times)", proj, str, i).at(*pos)
+                point = ctx.diag(dt, "%v: (project=%v, repeated %d times)%s", str, proj, i, suf).at(*pos)
             }
 
             if false && pc != nil { point = ctx.diag(dt, "%v: ...", proj).at(*pos) }
@@ -676,7 +677,6 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         errostack(ctx, 3, "target is <nil>").debug(6)
         return
     }
-    //if len(projects) == 0 { projects = closureProjects(ctx) }
     if len(projects) == 0 { projects = ctx.projects(ctx) }
     if len(projects) == 0 {
         prompt(ctx, "%s: zero closure projects\n", prereq)
@@ -686,9 +686,8 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         return
     }
 
-    // var dbg = true && strings.Contains(prereq, "libunwind")
-    const dbg = false
-
+    const db0 = true
+    var dbg = true && strings.Contains(prereq, "llvm-driver-ar")
     var (
         t = ctx.traversal()
         done = make(map[interface{}]bool) // helps to avoid traversed multiple times
@@ -739,8 +738,8 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         }
     } ()
 
-    if false && dbg { prompt(ctx, "%v: %v file=%v okay=%v traversed=%v brks=%v; concretes:\n",
-        targetValue, prereqValue, file, okay, traversed, brks).debug(1) }
+    if db0 && dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v brks=%v; concretes:\n",
+        targetValue, prereqValue, prereqValue, file, okay, traversed, brks).debug(1) }
     if true { ForProjectsConcretes: for _, project := range projects {
         var entries = project.resolveEntries(ctx, prereq, t.grepping, false)
         if entries == nil { continue }
@@ -817,16 +816,16 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         }
     }}
 
-    if false && dbg { prompt(ctx, "%v: %v file=%v okay=%v traversed=%v brks=%v; patterns:\n",
-        targetValue, prereqValue, file, okay, traversed, brks).debug(1) }
-    if  !okay || traversed == 0 { ForProjectsPatterns: for _, project := range projects {
+    if db0 && dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v brks=%v; patterns:\n",
+        targetValue, prereqValue, prereqValue, file, okay, traversed, brks).debug(1) }
+    if !okay || traversed == 0 { ForProjectsPatterns: for _, project := range projects {
         var patterns = project.resolvePatterns(ctx, prereqValue, prereq)
         if len(patterns) > 0 {
             stemmedList = append(stemmedList, patterns...)
-            if dbg { prompt(ctx, "%v: %v; %v: %v\n",
-                targetValue, prereqValue, project, patterns).debug(1) }
+            if dbg { prompt(ctx, "%v: %v %T; %v: %v\n",
+                targetValue, prereqValue, prereqValue, project, patterns).debug(1) }
         } else {
-            if dbg { prompt(ctx, "%v: %v %T, %v; %v\n",
+            if dbg { prompt(ctx, "%v: %v %T; %v: %v\n",
                 targetValue, prereqValue, prereqValue, prereqValue.stat(ctx), project).debug(1) }
         }
         ForPatterns: for i, entry := range patterns {
@@ -849,12 +848,10 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
 
             var t = entry.traverse(ctx)
             if dbg {
-                prompt(ctx, "%v: %v, entry=%v file=%v brks=%v project=%v\n",
-                    targetValue, prereqValue, entry, file, t, project).debug(1)
-                defer func() {
-                    prompt(ctx, "%v: %v, entry=%v file=%v brks=%v project=%v\n",
-                        targetValue, prereqValue, entry, file, brks, project).debug(6)
-                } ()
+                prompt(ctx, "%v: %v %T; entry=%v file=%v brks=%v project=%v\n",
+                    targetValue, prereqValue, prereqValue, entry, file, t, project).debug(1)
+                defer func() { prompt(ctx, "%v: %v %T; entry=%v file=%v brks=%v project=%v\n",
+                    targetValue, prereqValue, prereqValue, entry, file, brks, project).debug(6) } ()
             }
 
             if t.failed() {
@@ -929,7 +926,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         }
     }}
 
-    if true && dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v brks=%v; find files:\n",
+    if db0 && dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v brks=%v; find files:\n",
         targetValue, prereqValue, prereqValue, file, okay, traversed, brks).debug(1) }
     if okay && traversed > 0 {
         return
@@ -960,7 +957,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         }
     }}
 
-    if true && dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v brks=%v; objects:\n",
+    if db0 && dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v brks=%v; objects:\n",
         targetValue, prereqValue, prereqValue, file, okay, traversed, brks).debug(1) }
     if okay && file != nil && file.exists() {
         return // does nothing

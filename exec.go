@@ -1245,6 +1245,12 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         }
       }
 
+      if opts.silent || opts.retStatus {
+        err = nil
+      } else if exeres.Status != 0 {
+        err = &exitstatus{ exeres.Status } // set or convert error
+      }
+
       var pos = ctx.Position()
       if !logPos.IsValid() && log != nil {
         logPos.Filename = log.filename
@@ -1253,31 +1259,20 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         logPos = pos
       }
 
+      var diffLogPos = !logPos.SameLine(&pos)
       var str, _, _ = entryStr(ctx, ctx.entry())
-      if opts.retStatus {
-        err = nil
-      } else if exeres.Status != 0 {
-        err = &exitstatus{ exeres.Status } // set or convert error
-        erro(ctx, "%v: abnormal exit status %d", str, exeres.Status).at(logPos)
-      } else if err != nil {
-        if opts.silent { err = nil }
-        erro(ctx, "").at(logPos)
-      }
-
-      if diffLogPos := !logPos.Equals(&pos); en > 0 {
+      if (!opts.retStatus && exeres.Status != 0) || en > 0 {
         if diffLogPos { erro(ctx, "%v: %d known errors", str, en).at(logPos) }
-        erro(ctx, "%v: %d known errors", str, en)
+        erro(ctx, "%v: exit status %d (%d known errors)", str, exeres.Status, en)
         errostack(ctx, 32, "").debug(32)
       } else if wn > 0 {
         if diffLogPos { warn(ctx, "%v: %d known warnings", str, wn).at(logPos) }
-        warn(ctx, "%v: %d known warnings", str, wn)
+        warn(ctx, "%v: exit status %d (%d known warnings)", str, exeres.Status, wn)
         warnstack(ctx, 3, "").debug(1)
       } else if in > 0 && opts.infos {
         if diffLogPos { info(ctx, "%v: %d known messages", str, in).at(logPos) }
-        info(ctx, "%v: %d known messages", str, in)
+        info(ctx, "%v: exit status %d (%d known messages)", str, exeres.Status, in)
         infostack(ctx, 8, "").debug(1)
-      } else if !opts.retStatus && (err != nil || exeres.Status != 0) {
-        errostack(ctx, 20, "%s", str).debug(6)
       }
 
       if opts.retStatus {
