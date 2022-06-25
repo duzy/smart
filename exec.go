@@ -64,18 +64,18 @@ var (
   rxArNoSuchFile = rx(`ar: (.+?): No such file or directory`)
   rxArNoArchiveMembers = rx(`ar: no archive members specified`)
   rxBashNoSuchFile = rx(`bash: line ([0-9]+?): (.+?): No such file or directory`)
-  rxClangNoSuchFile = rx(`clang(?:-(.+?))?: error: no such file or directory: '(.+?)'`)
-  //XXX: rxClangError = rx(`clang(?:-(.+?))?: error: (.+)(?: \(.+\))?`)
+  // rxClangNoSuchFile = rx(`clang(?:-(.+?))?: error: no such file or directory: '(.+?)'`)
+  // rxClangError = rx(`clang(?:-(.+?))?: error: (.+)(?: \(.+\))?`)
   rxCmdError = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang)(?:-(.+?))?: error: (.+)`)
   rxCmdWarning = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang): warning: (.+)`)
-  rxLdLibNotFound = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): library not found for (.+)`)
   rxCouldnotParseObj = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`)
+  rxLdLibNotFound = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): library not found for (.+)`)
   rxTooManyPosArgs = rx(`(.+?): Too many positional arguments specified!`)
   rxUndefinedReference = rx(`  +"(.+?)", referenced from:`)
   rxShellCmdNotFound = rx(`(.+?): (.+?):( command)? not found`)
-  rxExitStatus = rx(`exit status (\-?[0-9]+)`)
   rxIgnoringNonExistentDirectory = rx(`ignoring nonexistent directory "(.*?)"`)
   rxIgnoringDuplicateDirectory = rx(`ignoring duplicate directory "(.*?)"`)
+  rxExitStatus = rx(`exit status (\-?[0-9]+)`)
 
   // NOTE: python standard errors
   rxPyErrorTrace = rx(`^\s*File "(.+?)", line (\d+), in (.+)`)
@@ -464,27 +464,26 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         lpos.Column = v[2].col + 1
         addScannedDiag(diagError, lpos, s)
       }
-    case rxClangNoSuchFile:
-      if p.report {
-        var vs string
-        if s := v[1].string; s != "" { vs = "-" + s }
-        var s = fmt.Sprintf("clang%s: no such source file: %s", vs, v[2].string)
-        lpos.Column = v[2].col + 1
-        addScannedDiag(diagError, lpos, s)
-      }
-      /*
-    case rxClangError:
-      if p.report {
-        var vs string
-        if s := v[1].string; s != "" { vs = "-" + s }
-        lpos.Column = v[2].col + 1
-        if false {
-          erro(ctx, "clang%s: %s", vs, v[2].string).at(lpos).debug(1)
-        } else {
-          addScannedDiag(diagError, lpos, fmt.Sprintf("clang%s: %s", vs, v[2].string))
-        }
-        p.res.errs += 1
-      }*/
+    // case rxClangNoSuchFile:
+    //   if p.report {
+    //     var vs string
+    //     if s := v[1].string; s != "" { vs = "-" + s }
+    //     var s = fmt.Sprintf("clang%s: no such source file: %s", vs, v[2].string)
+    //     lpos.Column = v[2].col + 1
+    //     addScannedDiag(diagError, lpos, s)
+    //   }
+    // case rxClangError:
+    //   if p.report {
+    //     var vs string
+    //     if s := v[1].string; s != "" { vs = "-" + s }
+    //     lpos.Column = v[2].col + 1
+    //     if false {
+    //       erro(ctx, "clang%s: %s", vs, v[2].string).at(lpos).debug(1)
+    //     } else {
+    //       addScannedDiag(diagError, lpos, fmt.Sprintf("clang%s: %s", vs, v[2].string))
+    //     }
+    //     p.res.errs += 1
+    //   }
     case rxCmdError:
       if p.report {
         var cs, vs string; cs = v[1].string
@@ -497,15 +496,15 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         lpos.Column = v[2].col + 1
         addScannedDiag(diagWarn, lpos, fmt.Sprintf("%s: %s", v[1].string, v[2].string))
       }
-    case rxLdLibNotFound:
-      if p.report {
-        lpos.Column = v[2].col + 1
-        addScannedDiag(diagError, lpos, v[0].string)
-      }
     case rxCouldnotParseObj:
       if p.report {
         lpos.Column = v[3].col
         addScannedDiag(diagError, lpos, v[3].string)
+      }
+    case rxLdLibNotFound:
+      if p.report {
+        lpos.Column = v[2].col + 1
+        addScannedDiag(diagError, lpos, v[0].string)
       }
     case rxTooManyPosArgs:
       if p.report {
