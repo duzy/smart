@@ -261,7 +261,7 @@ func modifierPrint(ctx Context, args... Value) (result Value, traves travestates
                 opts = modifierPrintOpts{ stderr: true }
                 content string
         )
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
         if value, found := ctx.autoGet("-"); !found || isNil(value) {
                 // ...
         } else {
@@ -284,7 +284,7 @@ type modifierDebugOpts struct {
 }
 func modifierDebug(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierDebugOpts
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
         if opts.cond != nil && !opts.cond.True(ctx) { return }
 
         for _, v := range opts.info  { info(ctx, "%s", v.Strval(ctx)).of(v).debug(1) }
@@ -325,7 +325,7 @@ func modifierDebug(ctx Context, args... Value) (result Value, traves travestates
 
 // select element by index from group result: (select 0)
 func modifierSelect(ctx Context, args... Value) (result Value, traves travestates) {
-        args = expandmerge2(ctx, expandPlainValue, args...)
+        args = mergeExpand(ctx, expandPlainValue, args...)
         if value, _ := ctx.autoGet("-"); isNil(value) {
                 erro(ctx, "no pipe value $-").debug(1)
         } else if g, ok := value.(*Group); ok && len(args) > 0 {
@@ -339,7 +339,7 @@ func modifierSelect(ctx Context, args... Value) (result Value, traves travestate
 }
 
 func modifierEnv(ctx Context, args... Value) (result Value, traves travestates) {
-        args = expandmerge2(ctx, expandPlainValue, args...)
+        args = mergeExpand(ctx, expandPlainValue, args...)
 
         var program = ctx.program()
         var def, alt = program.scope.define(ctx, DefVoid, TheShellEnvarsDef, nil)
@@ -381,7 +381,7 @@ func modifierSet(ctx Context, args... Value) (result Value, traves travestates) 
                 opts modifierSetOpts
                 defs []Value
         )
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 
 ForArgs:
         for _, arg := range args {
@@ -426,7 +426,7 @@ type modifierSetDirtyPatsOpts struct {
 }
 func modifierSetDirtyPats(ctx Context, args... Value) (result Value, traves travestates) {
         var opts = ctx.dirtyOpts()
-        opts.pats = parseOpts(ctx, opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        opts.pats = parseOpts(ctx, opts, mergeExpand(ctx, expandPlainValue, args...)...)
         return
 }
 
@@ -452,7 +452,7 @@ func modifierClosure(ctx Context, args... Value) (result Value, traves travestat
 
         assert(ctx.closure() != nil, "context not closured: %v", ctx)
 
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
         if opts.verbose { info(ctx, "%v: %v", ctx.Project(), ctx).debug(1) }
         if opts.dump { infostack(ctx, -1, "%v: %v", ctx.Project(), ctx).debug(1) }
 
@@ -480,7 +480,7 @@ type modifierForOpts struct {
 }
 func modifierFor(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierForOpts
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
         // TODO: ...
         return
 }
@@ -492,7 +492,7 @@ type modifierCDOpts struct {
 }
 func modifierCD(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierCDOpts
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 
         if opts.printEnter { printEnteringDirectory(ctx) }
         if opts.printLeave { printLeavingDirectory(ctx) }
@@ -530,7 +530,7 @@ type modifierMkdirOpts struct {
 }
 func modifierMkdir(ctx Context, args... Value) (result Value, traves travestates) {
         var opts = modifierMkdirOpts{ mode: os.FileMode(0755) }
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 
         if len(args) == 0 {
                 var target, _ = ctx.autoGet("@")
@@ -557,7 +557,7 @@ type modifierPathOpts struct {
 // (path /example/path)
 func modifierPath(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierPathOpts
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 
         if len(args) == 0 {
                 var target, _ = ctx.autoGet("@")
@@ -1232,8 +1232,8 @@ func modifierGrep(ctx Context, args... Value) (result Value, traves travestates)
 
         var gc grepctx
         gc.fileinc = true // grep files by default
-        args = parseOpts(ctx, &gc.modifierGrepOpts, expandmerge2(ctx, expandPlainValue, args...)...)
-        gc.incs = expandmerge2(ctx, expandPlainValue, gc.incs...)
+        args = parseOpts(ctx, &gc.modifierGrepOpts, mergeExpand(ctx, expandPlainValue, args...)...)
+        gc.incs = mergeExpand(ctx, expandPlainValue, gc.incs...)
         for _, s := range gc.sys { gc.rxs = append(gc.rxs, &greprex{s, true , nil}) }
         for _, s := range gc.reg { gc.rxs = append(gc.rxs, &greprex{s, false, nil}) }
         for _, s := range gc.langs {
@@ -1648,7 +1648,7 @@ func modifierDeps(ctx Context, args... Value) (result Value, traves travestates)
                 erro(ctx, "target '%v' is empty", targetVal).debug(1)
                 return
         } else if args = parseOpts(ctx, &opts, args...); len(args) > 0 {
-                args = expandmerge2(ctx, expandPlainValue, args...)
+                args = mergeExpand(ctx, expandPlainValue, args...)
         }
 
         var files []Value
@@ -1678,7 +1678,7 @@ CorrectCC:
         }
 
         var (
-                flags = expandmerge2(ctx, expandPlainValue, opts.flags...)
+                flags = mergeExpand(ctx, expandPlainValue, opts.flags...)
                 _MM, _MG bool
                 ca []string
         )
@@ -1781,7 +1781,7 @@ type modifierTouchOpts struct {
 }
 func modifierTouch(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierTouchOpts // = modifierTouchOpts{ mode: os.FileMode(0755) }
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
         if len(args) == 0 {
                 if target, found := ctx.autoGet("@"); found && !isTrivial(target) {
                         args = append(args, target)
@@ -1834,7 +1834,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, traves travestates
                 res bool
         )
 
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 
         if opts.good    { optBreak   = traveDone }
         if opts.answer  { makeResult = MakeAnswer }
@@ -2198,7 +2198,7 @@ type modifierCopyFileOpts struct {
 }
 func modifierCopyFile(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierCopyFileOpts
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 
         var target Value
         var source Value
@@ -2307,7 +2307,7 @@ func modifierCopyFile(ctx Context, args... Value) (result Value, traves travesta
 }
 
 func modifierWriteFile(ctx Context, args... Value) (result Value, traves travestates) {
-        args = expandmerge2(ctx, expandPlainValue, args...)
+        args = mergeExpand(ctx, expandPlainValue, args...)
 
         var (
                 target, _ = ctx.autoGet("@")
@@ -2363,8 +2363,8 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, traves travestate
                 filename string
                 args []Value
         )
-        if args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, aa...)...); opts.fullname {
-                args = expandmerge2(ctx, expandFullName, args...)
+        if args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, aa...)...); opts.fullname {
+                args = mergeExpand(ctx, expandFullName, args...)
         }
 
         var target Value
@@ -2456,8 +2456,8 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
                 filename string
                 target Value
         )
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
-        if opts.full { args = expandmerge2(ctx, expandFullName, args...) }
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        if opts.full { args = mergeExpand(ctx, expandFullName, args...) }
 
         if len(args) > 0 {
                 target = args[0]
@@ -2658,7 +2658,7 @@ func modifierWait(ctx Context, args... Value) (result Value, traves travestates)
                 opts modifierWaitOpts
                 execRes *ExecResult
         )
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 
         var (
                 waitForExecResult = opts.stdout || opts.stderr || opts.status || opts.execRes
@@ -2747,7 +2747,7 @@ func modifierStamp(ctx Context, args... Value) (result Value, traves travestates
                 opts modifierStampOpts
                 pos = ctx.Position()
         )
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 
         var target = getTargetValue(ctx)
         if isNil(target) {
@@ -2853,7 +2853,7 @@ ForArgs:
                         continue ForArgs
                 }
 
-                var va = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, arg)...)
+                var va = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, arg)...)
                 if len(va) == 0 {
                         continue ForArgs
                 } else if len(va) == 1 && isTrivial(va[0]) {
@@ -2920,10 +2920,10 @@ func modifierAssert(ctx Context, args... Value) (result Value, traves travestate
                         }
                         errostack(ctx, 8, "(%T):", ctx).debug(6)
                 } else {
-                        var vals = expandmerge2(ctx, expandPlainValue, args...)
+                        var vals = mergeExpand(ctx, expandPlainValue, args...)
                         erro(ctx, "assertion failed: %v (target = %s)", msg, target)
                         erro(ctx, "assertion args: %v", args)
-                        erro(ctx, "assertion args: %v (expandmerged)", vals)
+                        erro(ctx, "assertion args: %v (mergeExpandd)", vals)
                         erro(ctx, "assertion context: %v", ctx).debug(6)
                 }
                 brk := traves.add(ctx, traveFail, target)
@@ -2962,7 +2962,7 @@ func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
         var opts = ctx.dirtyOpts()
         if len(target.updatedDeps(ctx)) > 0 { return true }
         if v, found := ctx.autoGet("^"); found && !isTrivial(v) { a = append(a, v) }
-        for _, dep := range expandmerge2(ctx, expandPlainValue, a...) {
+        for _, dep := range mergeExpand(ctx, expandPlainValue, a...) {
                 var mat bool = len(opts.pats) == 0
                 if !mat { for _, pat := range opts.pats { if mat, _, _ = pat.match(ctx, dep); mat { break }}}
                 if mat && (dep.updated(ctx) || dep.stat(ctx).mod().After(target.stat(ctx).mod())) {
@@ -2989,7 +2989,7 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
                 outdated bool
                 err error
         )
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 
         if target, _, _, err = wait(ctx); err != nil {
                 erro(ctx, "waiting traversal failed: %v", err).debug(1)
@@ -3076,7 +3076,7 @@ type predictionTarget1stVisitOpts struct {
 }
 func predictionTarget1stVisit(ctx Context, args... Value) (result Value) {
         var opts predictionTarget1stVisitOpts
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 
         var target, _ = ctx.autoGet("@")
         if isNil(target) {
@@ -3115,7 +3115,7 @@ type predictionTargetMaxVisitOpts struct {
 }
 func predictionTargetMaxVisit(ctx Context, args... Value) (result Value) {
         var opts predictionTargetMaxVisitOpts
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 
         var nth int64
         for _, a := range args {
@@ -3163,7 +3163,7 @@ type modifierGitModifiedOpts struct {
 }
 func modifierGitModified(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierGitModifiedOpts
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 
         var out = new(bytes.Buffer)
         var git = exec.Command("git", "status")
@@ -3204,7 +3204,7 @@ type modifierGitAheadOpts struct {
 }
 func modifierGitAhead(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierGitAheadOpts
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 
         var out = new(bytes.Buffer)
         var git = exec.Command("git", "status")
@@ -3287,7 +3287,7 @@ func modifierOnce(ctx Context, args... Value) (result Value, traves travestates)
         // TODO: (once)           --> once for the RuleEntry, aka entry.doneOnce = true
         // TODO: (once -for=$@)   --> once for $@, aka entry.onces[$(expand $@)] = true
         var opts modifierOnceOpts
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 
         var n int
         var target, found = ctx.autoGet("@")
@@ -3304,6 +3304,30 @@ func modifierOnce(ctx Context, args... Value) (result Value, traves travestates)
         if opts.debug {
                 warn(ctx, "%T %v %p %v", target, target, target, n)
                 warnstack(positional(ctx, target.Position()), -1, "%p %v %v", target, target, n).debug(16)
+        }
+
+
+        // TODO: new once algorithm:
+        if false {
+                type traverseRec struct {
+                        targets map[Value]int // prerequisites
+                }
+
+                var entry = ctx.entry()
+                var traverseMap = make(map[Entry]*traverseRec)
+
+                if rec, _ := traverseMap[entry]; false {
+                        if rec == nil {
+                                rec = &traverseRec{ make(map[Value]int) }
+                                traverseMap[entry] = rec
+                        }
+                        // TODO: once: if rec.prerequisites[]
+                        if rec.targets[target] += 1; rec.targets[target] > 1 {
+                                n := rec.targets[target]
+                                brk := traves.add(ctx, traveDone, target)
+                                brk.error = fmt.Errorf(`executed %d times`, n)
+                        }
+                }
         }
         return
 }

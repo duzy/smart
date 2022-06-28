@@ -573,7 +573,7 @@ type ExecResult struct {
 
   num int
   ctx Context
-  x *executor
+  x  *executor
   sh *exec.Cmd
   container *Project
 
@@ -794,7 +794,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     pos = ctx.Position()
     cmd = p.cmd
   )
-  if args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...); opts.deprecated {
+  if args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...); opts.deprecated {
     erro(ctx, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug(1)
     return
   } else if !opts.prompt {
@@ -982,7 +982,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     w = expandPlainValue
   )
   if opts.fullname { w |= expandFullName }
-  recipes = expandmerge2(ctx, w, program.recipes...)
+  recipes = mergeExpand(ctx, w, program.recipes...)
 
   for _, recipe := range recipes {
     var str string

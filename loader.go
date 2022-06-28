@@ -295,7 +295,7 @@ func parseUseNameOpts(ctx Context, nameVal Value) (name string, opts useVarOpts)
     if arged, ok := nameVal.(*Argumented); ok {
         var args []Value
 		nameVal, args = arged.value, arged.args
-        opts.args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        opts.args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 	}
 	name = nameVal.Strval(ctx)
     return
@@ -383,7 +383,7 @@ func applyUsingVar(ctx Context, user, usee *Project, nameVal Value) {
             if obj := base.resolveObject(ctx, usingName); isNil(obj) {
                 continue
             } else if d, ok := obj.(*Def); ok && !isTrivial(d.value) {
-                def.append(ctx, obj)
+                def.append(ctx, d.value)
             }
         }
     }
@@ -788,7 +788,7 @@ func iterateArgumentedIdentElems(ctx Context, elems, stems []Value, f func(elems
 func iterateArgumentedIdentifiers(ctx Context, identifier Value, f func(ident Value, stem []Value)) {
     switch t := identifier.(type) {
     case *Argumented:
-        var args = expandmerge2(ctx, expandPlainValue, t.args...)
+        var args = mergeExpand(ctx, expandPlainValue, t.args...)
         iterateArgumentedIdentifiers(ctx, t.value, func(ident Value, stems []Value) {
             var pos = ident.Position()
             for _, arg := range args { f(MakeBarecomp(pos, ident, arg), append(stems, arg)) }
@@ -876,7 +876,7 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
         }
 
     case *Argumented:
-        var args = expandmerge2(ctx, expandPlainValue, t.args...)
+        var args = mergeExpand(ctx, expandPlainValue, t.args...)
         erro(ctx, "TODO: multiple defs: %v %v", t.value, args)
         return
     }
@@ -1005,10 +1005,10 @@ func (l *loader) includeFile(pos Position, opts includeFileOpts, spec Value) {
     )
 
     // Execute the rule entry to update include source.
-    if false { warn(ctx, "include %T %v", spec, spec).debug(1) }
+    if spec.String() == ".sm" { warn(ctx, "include %T %v", spec, spec).debug(1) }
     if entry, ok := spec.(*RuleEntry); ok && entry != nil {
         var ( result []Value; okay bool )
-        if false { warn(ctx, "include %v, %v", entry.programs, entry.programs[0].recipes).debug(1) }
+        if spec.String() == ".sm" { warn(ctx, "include %v, %v", entry, entry.programs[0].depends).debug(16) }
         if result, okay = executeEntry(ctx, entry); !okay {
             erro(ctx, "include entry '%v' failed", entry).debug(1)
             return

@@ -41,7 +41,7 @@ func (p *using) expandible(ctx Context, w expandwhat) (res bool) {
 }
 func (p *using) expand(ctx Context, w expandwhat) (res Value) {
         var ( params []Value; num int )
-        if params, num = expandall2(ctx, w, p.params...); num > 0 {
+        if params, num = expandall(ctx, w, p.params...); num > 0 {
                 res = &using{p.valbase,p.project,params,p.opts}
         }
         return

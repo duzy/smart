@@ -1612,7 +1612,7 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
             return
         }
 
-        for _, val := range expandmerge2(ctx, expandPlainValue, v.Value) {
+        for _, val := range mergeExpand(ctx, expandPlainValue, v.Value) {
             if s = val.Strval(ctx); s == "" { continue }
             specNames = append(specNames, s)
         }
@@ -1783,7 +1783,7 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 	} else if val.expandible(ctx, expandClosure) {
 		pats = []Value{ val }
 	} else {
-		pats = expandmerge2(ctx, expandPlainValue, val)
+		pats = mergeExpand(ctx, expandPlainValue, val)
 	}
 
 	if path == nil {
@@ -1818,7 +1818,7 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 			if pat.expandible(ctx, expandClosure) {
 				patsNew = append(patsNew, pat)
 			} else {
-				patsNew = append(patsNew, expandmerge2(ctx, expandPlainValue, pat)...)
+				patsNew = append(patsNew, mergeExpand(ctx, expandPlainValue, pat)...)
 			}
 		}
 
@@ -1885,7 +1885,7 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 						ce = &configureExecutor{ defs:make(map[string]*Def) }
 					)
 					defer ce.close()
- 					for _, dep := range expandmerge2(ctx, expandPlainValue, props[1:]...) {
+ 					for _, dep := range mergeExpand(ctx, expandPlainValue, props[1:]...) {
 						switch prereq := dep.(type) {
 						case *RuleEntry:
 							if _, traves := prereq.Execute(ctx); len(traves) > 0 {
@@ -2350,7 +2350,7 @@ ForModifiersExpr:
 			continue ForModifiersExpr
 		case *delegate, *closure, *Barecomp, *String:
 			var ctx = positional(p, n.Position())
-			var v = expandmerge2(ctx, expandPlainValue, n)
+			var v = mergeExpand(ctx, expandPlainValue, n)
 			if name = v[0].Strval(ctx); name == "" {
 				erro(p, "name '%v' is empty", n).of(n).debug(1)
 				continue ForModifiersExpr
@@ -2495,14 +2495,14 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 	// NOTE: expand targets to speed up for later usage, it might spend lots of time in
 	// project.entry while matching for entry looked up if not expanded right now.
 	if w := expandPlainValue & ^expandArgedArgs; true {
-		targets, _ = expandall2(ctx, w, targets...)
+		targets, _ = expandall(ctx, w, targets...)
 	} else {
 		var ta []Value
 		for _, t := range targets {
 			if t.expandible(ctx, expandClosure) {
 				if false { info(ctx, "target: %T %v", t, t).of(t) }
 				ta = append(ta, t)
-			} else if a, _ := expandall2(ctx, w, t); a != nil {
+			} else if a, _ := expandall(ctx, w, t); a != nil {
 				ta = append(ta, a...)
 			}
 		}
@@ -2700,7 +2700,8 @@ func (p *parser) callTmpl(t *template, name Value, args []Value) {
 	p.scanner.SetState(t.state)
 	p.pos, p.tok, p.lit = t.pos, t.tok, t.lit
 
-	defer p.closeScope(p.openScope("template expansion ")) // NOTE: comment here will affect loader.def()
+	// NOTE: a new scope is required for template expansion
+	defer p.closeScope(p.openScope("template expansion "))
 
 	var ctx = positional(p, t.name.Position())
 	var params = merge(t.params...)
@@ -2769,7 +2770,7 @@ func (p *parser) parseTemplateClause() (end bool) {
 	}}
 
 	var ctx = positional(p, p.Position())
-	params = expandmerge2(ctx, expandPlainValue, params...)
+	params = mergeExpand(ctx, expandPlainValue, params...)
 
 	var tmpl = &template{ state:p.scanner.State(), pos:p.pos, tok:p.tok, lit:p.lit }
 	if verb == "def" {

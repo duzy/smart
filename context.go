@@ -153,7 +153,7 @@ type Context interface {
 func getTargetValue(ctx Context) (res Value) {
   if target, ok := ctx.autoGet("@"); !ok || isNil(target) {
     if false { erro(ctx, "target '%v' is nil", target) }
-  } else if vals, _ := expandall2(ctx, expandPlainValue, target); len(vals) == 1 {
+  } else if vals, _ := expandall(ctx, expandPlainValue, target); len(vals) == 1 {
     res = Scalar(vals[0])
   } else {
     erro(ctx, "target '%v' expaned to many: %v", target, res).of(target)
@@ -447,12 +447,12 @@ func executeEntry(ctx Context, entry *RuleEntry, args ...Value) (result []Value,
     return
   }
 
-  if t := traves.of(traveCase, traveDone, traveNext); t.has() {
-    traves, okay = traves.not(traveNext, traveCase, traveDone), true
+  if t := traves.of(traveCase, traveDone, traveNext, traveFile); t.has() {
+    traves, okay = traves.not(traveCase, traveDone, traveNext, traveFile), true
   }
 
-  if t := traves; t.has() {
-    for _, brk := range t { erro(ctx, "%v: %v", entry, brk).at(brk.pos).debug(1) }
+  if traves.has() {
+    for _, brk := range traves { erro(ctx, "%v: %v", entry, brk).at(brk.pos).debug(1) }
     okay = false
   }
   return

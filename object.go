@@ -180,11 +180,9 @@ func (p *ProjectName) Call(ctx Context, a... Value) (value Value) {
 func (p *ProjectName) traverse(ctx Context) (traves travestates) {
         if entry := p.project.DefaultEntry(); entry == nil {
                 // does nothing
-        } else if entry.Class() == UseRuleEntry {
-                // skip :use: rules
-        } else if traves = entry.traverse(ctx); traves.has() {
-                var t = traves.not(traveCase, traveDone, traveNext)
-                if (false || options.debug) && len(t) > 0 {
+        } else if traves = entry.traverse(ctx); false && traves.has() {
+                var t = traves.not(traveCase, traveDone, traveNext, traveFile)
+                if (false || options.debug) && t.has() {
                         prompt(ctx, "%v→%v\n", p, entry)
                         for _, brk := range t { warn(ctx, "%v→%v: %v", p, entry, brk).at(brk.pos) }
                         warnstack(ctx, 5, "%v→%v", p, entry).debug(8)
@@ -685,12 +683,12 @@ func (d *Def) set(ctx Context, origin Origin, value Value) {
         var elems []Value
         switch d.origin = origin; d.origin {
         case DefExpand1: // expands delegates
-                elems, _ = expandall2(ctx, expandDelegate, value)
+                elems, _ = expandall(ctx, expandDelegate, value)
                 d.mutex.Lock()
                 d.value = MakeListOrScalar(value.Position(), elems)
                 d.mutex.Unlock()
         case DefExpand2: // expands delegates and closures
-                elems, _ = expandall2(ctx, expandPlainValue/*|expandArgs*/, value)
+                elems, _ = expandall(ctx, expandPlainValue/*|expandArgs*/, value)
                 d.mutex.Lock()
                 d.value = MakeListOrScalar(value.Position(), elems)
                 d.mutex.Unlock()
@@ -737,9 +735,9 @@ func (d *Def) append(ctx Context, va... Value) {
         }
         switch d.origin {
         case DefExpand1: // :=     expands delegates
-                va, _ = expandall2(ctx, expandDelegate, va...)
+                va, _ = expandall(ctx, expandDelegate, va...)
         case DefExpand2: // ::=    expands delegates and closures
-                va, _ = expandall2(ctx, expandDelegate|expandClosure, va...)
+                va, _ = expandall(ctx, expandDelegate|expandClosure, va...)
         }
 
         for _, val := range va {
@@ -1228,36 +1226,11 @@ func (entry *RuleEntry) execute(cc Context, a... Value) (result []Value, traves 
                 var pos = program.position
                 if !pos.IsValid() { pos = entry.Position() }
 
-                var ctx = positional(cc, pos)
-                if res, t := program.execute(ctx); t.failed() {
-                        for _, brk := range t { erro(ctx, "%v: %v", entry, brk).debug(1) }
-                        traves = t.not(traveCase, traveDone, traveNext)
-                        break
-                } else if t.has(traveDone) {
-                        if traves = t.not(traveCase, traveDone, traveNext); isNil(res) {
-                                prompt(ctx, "%v: nil result\n", entry)
-                                for _, brk := range t { warn(ctx, "%v: %v", entry, brk) }
-                                warnstack(ctx, 5, "").debug(16)
-                        } else {
-                                result = append(result, res)
-                        }
-                        break
-                } else if t.has(traveCase) {
-                        if traves = t.not(traveCase, traveNext); !isNil(res) {
-                                result = append(result, res)
-                        }
-                        break
-                } else if t.has(traveNext) {
-                        if traves = t.not(traveNext); !isNil(res) {
-                                result = append(result, res)
-                        }
-                        continue
-                } else if t.has() {
-                        for _, brk := range t { erro(ctx, "%v: %v", entry, brk).debug(1) }
-                        break
-                } else {
-                        result = append(result, res)
-                }
+                var res, t = program.execute(positional(cc, pos))
+                result = append(result, merge(res)...)
+                traves = append(traves, t...)
+                if t.has(traveCase, traveDone, traveFail) { break }
+                // if t.has(traveNext, traveFile) { continue ForPrograms }
         }
         return
 }
@@ -1280,21 +1253,15 @@ func (entry *RuleEntry) recipes() (recipes []Value) {
 }
 func (entry *RuleEntry) refs(ctx Context, v Value) bool {
         if entry.target.refs(ctx, v) { return true }
-        
-        // TODO: do more tests for this to see if we need to fallthrough
-        if false { // FIXME: only check closured agaist target
-                for _, prog := range entry.programs {
-                        // for _, m := range prog.pipline {
-                        //         for _, a := range m.args {
-                        //                 if a.refs(v) { return true }
-                        //         }
-                        // }
-                        for _, depend := range prog.depends {
-                                if depend.refs(ctx, v) { return true }
-                        }
-                        for _, recipe := range prog.recipes {
-                                if recipe.refs(ctx, v) { return true }
-                        }
+
+        return false
+
+        for _, prog := range entry.programs {
+                for _, depend := range prog.depends {
+                        if depend.refs(ctx, v) { return true }
+                }
+                for _, recipe := range prog.recipes {
+                        if recipe.refs(ctx, v) { return true }
                 }
         }
         return false
@@ -1344,13 +1311,13 @@ func (entry *RuleEntry) expand(ctx Context, w expandwhat) (res Value) {
         }
         return
 }
-func (entry *RuleEntry) delete(ctx Context) (files []*File, err error) { return entry.target.delete(ctx) }
-func (entry *RuleEntry) stamp( ctx Context) (files []*File, err error) { return entry.target.stamp(ctx) }
+func (entry *RuleEntry) delete( ctx Context) (files []*File, err error) { return entry.target.delete(ctx) }
+func (entry *RuleEntry) stamp(  ctx Context) (files []*File, err error) { return entry.target.stamp(ctx) }
 func (entry *RuleEntry) traverse(cc Context) (traves travestates) {
         var (
                 entryPos = entry.Position()
                 target, okay = cc.autoGet("@")
-                results []Value
+                result []Value
         )
         if !okay || isTrivial(target) {
                 erro(cc, "$@ is not defined: %v", cc).debug(1)
@@ -1366,24 +1333,11 @@ ForPrograms:
                 var pos = prog.position
                 if !pos.IsValid() { pos = entryPos }
 
-                var ctx = positional(cc, pos)
-                var res, t = prog.execute(ctx)
-                if t.failed() {
-                        traves = append(traves, t.not(traveCase, traveDone, traveNext)...)
-                        break ForPrograms
-                } else if !isTrivial(res) {
-                        results = append(results, merge(res)...)
-                }
-
-                if t.has(traveCase, traveDone) {
-                        traves = append(traves, t.not(traveNext)...)
-                        break ForPrograms
-                }
-
-                if t.has(traveNext) {
-                        traves = append(traves, t...)
-                        continue ForPrograms
-                }
+                var res, t = prog.execute(positional(cc, pos))
+                result = append(result, merge(res)...)
+                traves = append(traves, t...)
+                if t.has(traveCase, traveDone, traveFail) { break ForPrograms }
+                // if t.has(traveNext, traveFile) { continue ForPrograms }
         }
         return
 }
@@ -1413,7 +1367,7 @@ func (entry *RuleEntry) stencil(ctx Context, stems []string) (val Value, rest []
 }
 
 func (entry *RuleEntry) option(ctx Context) (res bool, infos []Value) {
-        ForProgram: for _, program := range entry.programs {
+        ForPrograms: for _, program := range entry.programs {
                 if !program.configure { continue }
                 for _, depend := range program.depends {
                         g, ok := depend.(*modifiergroup)
@@ -1434,7 +1388,7 @@ func (entry *RuleEntry) option(ctx Context) (res bool, infos []Value) {
                                                 infos = append(infos, v)
                                         }
                                         res = true
-                                        break ForProgram
+                                        break ForPrograms
                                 }
                         }
                 }

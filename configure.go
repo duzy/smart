@@ -445,15 +445,20 @@ ForInParams:
     )
     for _, entry := range entries.all {
         if reses, traves = entry.execute(ctx, params...); ctx.checkErrors(true) > 0 {
-            warn(ctx, `configure '%s' got %d error(s)`, entryName, ctx.totalErrors()).debug(1)
+            warn(ctx, "%v", entry).at(entry.Position())
+            warnstack(ctx, 5, `configure '%s' got %d error(s)`,
+                entryName, ctx.totalErrors()).debug(1)
             if options.failOnErrors { fail(pos, "fail by %d errors", ctx.totalErrors()) }
         } else if n := len(reses); n != 1 {
-            if n == 0 {
+            if true { // just bypass, no configuration results - <nil>
+                if false { warn(ctx, "%v", entry).at(entry.Position()).debug(1) }
+            } else if erro(ctx, "%v", entry).at(entry.Position()); n == 0 {
                 errostack(ctx, 5, `configure "%s" has no results`, entryName).debug(32)
             } else {
                 errostack(ctx, 5, `configure "%s" has multiple results (%d)`, entryName, n).debug(32)
             }
         } else if result = reses[0]; !isNil(result) && result == hyphenVal {
+            warn(ctx, "%v", entry).at(entry.Position())
             warn(ctx, `%v: configure yields value the same as input will be ignored: %v`, entry, result).debug(1)
             result = nil // simply discard the result as it's the same as the input (hyphen) value
         }
@@ -483,7 +488,7 @@ func configureDo(ctx Context, opts *modifierConfigureOpts, target Value, name Va
 
 ForArgs:
     for _, arg := range args {
-        for _, elem := range expandmerge2(ctx, expandPlainValue, arg) {
+        for _, elem := range mergeExpand(ctx, expandPlainValue, arg) {
             switch tv := elem.(type) {
             case *None, *Nil: continue
             case *Pair:
@@ -575,7 +580,7 @@ func modifierConfigure(ctx Context, args ...Value) (result Value, _ travestates)
 
     var pos = ctx.Position()
     var opts modifierConfigureOpts
-    args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+    args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 
     if program.project.configure == nil {
         if program.project.name == "configure" {
@@ -767,7 +772,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         filename string
         file *File
     )
-    args = parseOpts(ctx, opts, expandmerge2(ctx, expandPlainValue, args...)...)
+    args = parseOpts(ctx, opts, mergeExpand(ctx, expandPlainValue, args...)...)
     if target, found := ctx.autoGet("@"); !found || isTrivial(target) {
         erro(ctx, " target '@' is not defined").debug(1)
         return
@@ -927,14 +932,14 @@ func __modifierConfigureInput(ctx Context, args ...Value) (result Value, _ trave
         opts = modifierConfigureInputOpts{ mode:os.FileMode(0640) }
         project = ctx.Project()
     )
-    args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+    args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
     if target, found := ctx.autoGet("@"); !found || isTrivial(target) {
         erro(ctx, " target '@' is not defined").debug(1)
         return
     }
 
     if def, ok := project.scope.Lookup("configure.names").(*Def); ok {
-        args = append(args, expandmerge2(ctx, expandPlainValue, def.value)...)
+        args = append(args, mergeExpand(ctx, expandPlainValue, def.value)...)
     }
 
     var configs = make(map[string]*Def)
@@ -970,7 +975,7 @@ func modifierConfigureInput(ctx Context, args ...Value) (result Value, _ travest
     var dealArgs = func(args []Value, out *bytes.Buffer) []Value {
         var project = ctx.Project()
         if def, ok := project.scope.Lookup("configure.names").(*Def); ok {
-            args = append(args, expandmerge2(ctx, expandPlainValue, def.value)...)
+            args = append(args, mergeExpand(ctx, expandPlainValue, def.value)...)
         }
 
         var configs = make(map[string]*Def)
@@ -1027,7 +1032,7 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ t
         opts = modifierExtractConfigurationOpts{ mode:os.FileMode(0640) } // sys default 0666
         pats []Value
     )
-    for _, arg := range parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...) {
+    for _, arg := range parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...) {
         switch a := arg.(type) {
         case *Group: pats = append(pats, a.Elems...)
         default:     pats = append(pats, a)
@@ -1081,7 +1086,7 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ t
         depends, sources []Value
     )
     if value, _ := ctx.autoGet("^"); !isTrivial(value) {
-        depends = expandmerge2(ctx, expandPlainValue, value)
+        depends = mergeExpand(ctx, expandPlainValue, value)
     }
     for _, depend := range depends {
         var a []Value

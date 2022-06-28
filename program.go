@@ -226,7 +226,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
     //       [ foo.baaaar ]
     var (
         name string
-        args = expandmerge2(ctx, expandPlainValue, m.name)
+        args = mergeExpand(ctx, expandPlainValue, m.name)
     )
     if n := len(args); n == 0 {
         erro(ctx, "modifier name '%v' is empty", m.name).of(m.name).debug(1)
@@ -472,7 +472,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
         var defaultVal = prog.defaultVal
         prog.defaultVal = nil
 
-        if !isNil(result) && !isNone(result) {
+        if /*!isNil(result) && !isNone(result)*/!isTrivial(result) {
             // good!
         } else if result, _ = ctx.autoGet("-"); !isNil(result) {
             // good!
@@ -480,7 +480,9 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
             result = defaultVal
         }
 
-        if cc != nil { if p := cc.program(); p != nil && !isNil(result) { p.defaultVal = result }}
+        if cc != nil { if p := cc.program(); p != nil && !isNil(result) {
+            p.defaultVal = result
+        }}
     } (prog.project.changedWD)
 
     if alreadyUpdated {
@@ -510,51 +512,38 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     ctx.autoSet("^", nil)
     ctx.autoSet("<", nil)
     ctx.autoSet(">", nil)
-    if traves = prog.traverse(&normalTraverseContext{ ctx }, prog.depends); traves.has() {
-        var verb = options.verbose || options.verboseBreaks
-        if t := traves.not(traveCase, traveDone, traveNext); verb && t.has() {
-            var target, _ = ctx.autoGet("@")
-            prompt(ctx, "%v: traverse program failed (target=%s; project=%s)\n",
-                entry, target, proj)
-            for _, brk := range t { warn(ctx, `%v: %s: %v`, proj, target, brk).at(brk.pos) }
-            warnstack(ctx, 5, "%v: %v", proj, ctx).debug(16)
-        }
-        return
-    } else if errs := ctx.checkErrors(true); errs > 0 {
+    traves = prog.traverse(&normalTraverseContext{ ctx }, prog.depends)
+    if errs := ctx.checkErrors(true); errs > 0 {
         brk := traves.add(positional(ctx, prog.position), traveFail, nil)
         brk.error = fmt.Errorf("traverse prerequisites failed (%d errors)", ctx.totalErrors())
-        prompt(ctx, "%v: execute failed, project %s\n", /*entryStr1(ctx, entry)*/entry, proj)
+        prompt(ctx, "%v: execute failed, project %s; traves=%v\n", /*entryStr1(ctx, entry)*/entry, proj, traves)
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, target)
         if warnstack(ctx, 6, "call stack for %v:", target).debug(8); options.failOnErrors {
             fail(prog.position, "fail by %d errors", ctx.totalErrors())
         }
         return
+    } else if traves.has(traveCase, traveDone, traveFail) {
+        return
     }
 
     // Update order-only prerequisites
     ctx.autoSet("|", nil)
-    if traves = prog.traverse(&orderTraverseContext{ ctx }, prog.ordered); traves.has() {
-        var verb = options.verbose || options.verboseBreaks
-        if t := traves.not(traveCase, traveDone, traveNext); verb && t.has() {
-            var target, _ = ctx.autoGet("@")
-            prompt(ctx, "%v: traverse program failed (target=%s; project=%s)\n",
-                entry, target, proj)
-            for _, brk := range t { warn(ctx, `%v: %s: %v`, proj, target, brk).at(brk.pos) }
-            warnstack(ctx, 5, "%v: %v", proj, ctx).debug(16)
-        }
-        return
-    } else if errs := ctx.checkErrors(true); errs > 0 {
+    traves = prog.traverse(&orderTraverseContext{ ctx }, prog.ordered)
+    if errs := ctx.checkErrors(true); errs > 0 {
         brk := traves.add(positional(ctx, prog.position), traveFail, nil)
         brk.error = fmt.Errorf("traverse prerequisites failed (%d errors)", errs)
-        prompt(ctx, "%v: execute failed, project %s\n", /*entryStr1(ctx, entry)*/entry, proj)
+        prompt(ctx, "%v: execute failed, project %s; traves=%v\n", /*entryStr1(ctx, entry)*/entry, proj, traves)
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, target)
         if warnstack(ctx, -1, "call stack for %v:", target).debug(8); options.failOnErrors {
             fail(prog.position, "fail by %d errors", ctx.totalErrors())
         }
         return
+    } else if traves.has(traveCase, traveDone, traveFail) {
+        return
     }
 
-    if h, ok := ctx.autoGet("-"); len(t.interpreted) == 0 && len(prog.recipes) > 0 && (!ok || isNil(h) || isNone(h)) {
+    if h, ok := ctx.autoGet("-"); len(t.interpreted) == 0 && len(prog.recipes) > 0 &&
+        (!ok || isNil(h) /*|| isNone(h)*/) {
         // Using the default statements interpreter (aka. evaluation).
         if i, ok := dialects["eval"]; ok && i != nil {
             if err := prog.interpret(ctx, i, nil); err != nil {
@@ -577,21 +566,20 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
 
     var (
         pc = ctx.programContext()
-        target, _ = ctx.autoGet("@")
         verb = options.verbose || options.verboseBreaks
     )
     if asyncUnsafe {
         var stems = ctx.stems()
-        var self = func(brk *travestate) bool {
-            var t = brk.depend
-            return target == t || target.cmp(ctx, t) == cmpEqual
-        }
         ForPrerequisites: for _, prerequisite := range prerequisites {
             if pc.traves = prerequisite.traverse(ctx); pc.traves.has() {
                 traves = pc.traves
             } else {
                 traves = nil;  continue
             }
+
+            // NOTE: must fetch $@ after every prerequisite traversal, because
+            // NOTE: a modifier prerequisite may change it in this iteration
+            var target, _ = ctx.autoGet("@")
             if false && (
                 strings.Contains(target.Strval(ctx), "llvm-tools-ar") ||
                 strings.Contains(prerequisite.Strval(ctx), "llvm-tools-ar") ||
@@ -610,19 +598,19 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                 strings.Contains(s, "UnwindLevel1")) {
                 prompt(ctx, "%v: %T %v %v %v\n",
                     target, prerequisite, prerequisite, ctx.entry().Target(), ctx.stems())
-                for _, brk := range traves {
-                    prompt(ctx, "%v: %v %v\n", target, self(brk), brk)
-                    warn(ctx, "%v", brk.target).of(brk.target)
-                    warn(ctx, "%v", brk.depend).of(brk.depend)
+                for _, s := range traves {
+                    prompt(ctx, "%v: %v\n", target, s)
+                    warn(ctx, "%v", s.target).of(s.target)
+                    warn(ctx, "%v", s.depend).of(s.depend)
                 }
                 warnstack(ctx, 3, "").of(prerequisite).debug(32)
             }}
 
-            if traves.failed() {
+            if t := traves.of(traveFail); true && t.has() {
                 if verb {
                     var proj = ctx.Project()
                     prompt(ctx, "%v: failed, project %s, stems=%v\n", prerequisite, proj, stems)
-                    for _, brk := range traves { warn(ctx, "%v: %v", target, brk).at(brk.pos) }
+                    for _, s := range traves { warn(ctx, "%v: %v", target, s).at(s.pos) }
                     warnstack(ctx, 5, "").debug(16)
                 }
                 if len(stems) > 0 {
@@ -634,37 +622,51 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
 
             if t := traves.of(traveDone); true && t.has() {
                 traves = traves.not(traveCase, traveNext)
-                for _, brk := range t { if self(brk) {
-                    break ForPrerequisites
-                }}
-                break ForPrerequisites // continue ForPrerequisites
+                for _, s := range t {
+                    if g := s.target; g != nil &&
+                        (target == g || target.cmp(ctx, g) == cmpEqual) {
+                        traves = traves.not(traveDone)
+                        break ForPrerequisites
+                    }
+                }
+                traves = traves.not(traveDone)
             }
 
             if t := traves.of(traveCase); true && t.has() {
                 traves = traves.not(traveNext)
-                for _, brk := range t { if self(brk) {
-                    break ForPrerequisites
-                }}
-                break ForPrerequisites // continue ForPrerequisites
+                for _, s := range t {
+                    if g := s.target; g != nil &&
+                        (target == g || target.cmp(ctx, g) == cmpEqual) {
+                        break ForPrerequisites
+                    }
+                }
+                traves = traves.not(traveCase)
             }
 
             if t := traves.of(traveNext); true && t.has() {
-                for _, brk := range t { if self(brk) {
-                    traves = append(traves, brk) // add back traveNext
-                }}
-                break ForPrerequisites
+                for _, s := range t {
+                    if g := s.target; g != nil &&
+                        (target == g || target.cmp(ctx, g) == cmpEqual) {
+                        break ForPrerequisites
+                    } else if d := s.depend; d != nil &&
+                        (target == d || target.cmp(ctx, d) == cmpEqual) {
+                        continue ForPrerequisites
+                    }
+                }
+                traves = traves.not(traveNext)
             }
 
-            if t := traves.of(traveFile); true && t.has() {
-                continue ForPrerequisites
+            if t := traves.of(traveFile); t.has() {
+                traves = traves.not(traveFile)
             }
 
             if traves.has() {
-                prompt(ctx, "%v: %v", target, prerequisite)
-                for _, brk := range traves { erro(ctx, "%v: %v", target, brk) }
+                var g, _ = ctx.autoGet("@")
+                prompt(ctx, "%v: %v: %v\n", target, g, prerequisite)
+                for i, s := range traves { erro(ctx, "%v(%v): %d. %v", target, g, i, s) }
                 errostack(ctx, 5, "").debug(16)
+                break ForPrerequisites
             }
-            break // traveDone
         }
     } else if num := len(prerequisites); num > 0 {
         var (
@@ -672,6 +674,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
             wg sync.WaitGroup
         )
         for _, prerequisite := range prerequisites {
+            var target, _ = ctx.autoGet("@")
             warn(ctx, "%v: %T %v %v %v\n",
                 target, prerequisite, prerequisite,
                 ctx.entry().Target(), ctx.stems()).debug(1)
@@ -685,7 +688,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
 
                     var proj = ctx.Project()
                     if t = t.not(traveNext, traveCase, traveDone); t.has() {
-                        for _, brk := range t { warn(ctx, "%v: %v", prerequisite, brk).at(brk.pos) }
+                        for _, s := range t { warn(ctx, "%v: %v", prerequisite, s).at(s.pos) }
                         warnstack(ctx, 5, "%v: %v: %v", proj, ctx.entry(), prerequisite).debug(36)
                     }
                 }

@@ -21,7 +21,7 @@ func (p *evaluer) Evaluate(ctx Context, args ...Value) (result Value, err error)
 
         var list []Value
         var opts evaluerOpts
-        args = parseOpts(ctx, &opts, expandmerge2(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 
 ForRecipes:
         for _, recipe := range program.recipes {
@@ -30,7 +30,7 @@ ForRecipes:
 
                 var (
                         ctx = positional(ctx, recipe.Position())
-                        vals = expandmerge2(ctx, w, recipe)
+                        vals = mergeExpand(ctx, w, recipe)
                 )
                 if n := len(vals); n < 1 {
                         list = append(list, recipe)
