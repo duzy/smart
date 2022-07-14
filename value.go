@@ -1286,56 +1286,6 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     }
 }
 
-func _traversePattern(ctx Context, pat Value, projects... *Project) (traves travestates) {
-    var (
-        stems = ctx.stems()
-        rest []string
-        val Value
-    )
-    if val, rest = pat.stencil(ctx, stems); /*isTrivial*/isNil(val) {
-        erro(ctx, "empty stencil: %v %v", pat, ctx.stems()).debug(1)
-        return
-    } else if false && val.patterned(ctx) {
-        erro(ctx, "stencil failed: %v -> %T %v; stems=%v", pat, val, val, ctx.stems()).debug(1)
-        return
-    } else if len(rest) > 0 {
-        erro(ctx, "partial stencil: %v: %T %v, %v, %v", pat, val, val, rest, ctx.stems()).debug(1)
-        return
-    }
-
-    if traves = traverse(ctx, val, val.Strval(ctx), projects...); traves.has(traveFail) {
-        if false { erro(ctx, "%v: traverse pattern failed (%T)", val, val).debug(1) }
-        // traves = traves.not(traveCase, traveDone, traveNext)
-        return
-    } else if traves.has(traveDone) {
-        // traves = traves.not(traveCase, traveNext)
-        return
-    } else if traves.has(traveCase) {
-        // traves = traves.not(traveNext)
-        return
-    } else if traves.has(traveNext) {
-        // traves = traves.not(traveNext)
-        warn(ctx, "%v: %v: traverse pattern: %v", val, pat, traves).debug(1)
-        return
-    } else if traves.has(traveFile) {
-        for _, s := range traves {
-            if s.depend == val || s.depend.Strval(ctx) == val.Strval(ctx) {
-                s.dependPat = pat
-            }
-        }
-        return
-    } else if len(stems) > 0 {
-        warn(ctx, "%T %v %v", val, val, traves).debug(1)
-        s := traves.add(ctx, traveNext, nil)
-        s.dependPat = pat
-        s.depend = val
-        return
-    } else {
-        warn(ctx, "%v: %v: traverse pattern without stems", val, pat).debug(1)
-        return
-    }
-}
-
 func getHashDir(ctx Context, k []byte) string {
     var dir string
     if program := ctx.program(); program != nil {
