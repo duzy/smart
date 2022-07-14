@@ -749,7 +749,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         errostack(ctx, 3, "target is <nil>").debug(6)
         return
     }
-    if false && strings.Contains(prereq, "polly/Config/config.h") {
+    if false && strings.Contains(prereq, "ItaniumNodes.def") {
         warn(ctx, "%T %v", targetValue, targetValue)
         warn(ctx, "%T %v", prereqValue, prereqValue)
         warnstack(ctx, 3, "").debug(16)
@@ -804,20 +804,33 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 prereqValue, stems).debug(8)
             return
         }
-
-        for _, project := range projects {
-            if file = project.FindFile(ctx, prereq); file != nil {
-                prereqValue = file
-                break
-            }
-        }
     } else {
         if prereq == "" { if prereq = prereqValue.Strval(ctx); prereq == "" {
             errostack(ctx, 3, "%v: %v: empty prerequisite, stems=%v",
                 targetValue, prereqValue, ctx.stems()).debug(8)
             return
         }}
+
         file, _ = prereqValue.(*File)
+    }
+
+    if file == nil { for _, project := range projects {
+            if file = project.FindFile(ctx, prereq); file != nil {
+                prereqValue = file
+                break
+            }
+    }}
+    if file == nil { if _, ok := prereqValue.(*Path); ok /*&& filepath.IsAbs(prereq)*/ {
+       if file = stat(ctx, prereq, "", ""); file != nil {
+          prereqValue = file
+       }
+    }}
+
+    if false && strings.Contains(prereq, "ItaniumNodes.def") {
+        warn(ctx, "%T %v", targetValue, targetValue)
+        warn(ctx, "%T %v", prereqValue, prereqValue)
+        warn(ctx, "%v in %v", file, projects)
+        warnstack(ctx, 3, "").debug(16)
     }
 
     const db0 = false
