@@ -2394,7 +2394,6 @@ func asFile(ctx Context, a Value, projects ...*Project) (f *File) {
         case *List     : if len(t.Elems) == 1   { return asFile(ctx, t.Elems[0]) }
         case *RuleEntry:                          return asFile(ctx, t.target  )
         case *String: // NOTE: Finding string here is slow! It's acceptable to keep string.
-                // fallthrough
         case *Bareword, *Barecomp, *Path:
                 if len(projects) == 0 { projects = closureProjects(ctx) }
                 for _, proj := range projects {
@@ -2804,7 +2803,6 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                 closured = closureProjects(ctx)
                 opts builtinRemoveOpts
                 names []string
-                proj *Project
                 str string
                 ok bool
         )
@@ -2834,13 +2832,22 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                                         return
                                 }
                         }
+                        continue
                 } else if file, str, ok = asOptFullname(ctx, a, closured...); !ok || str == "" {
+                        if file == nil && str != "" { for _, proj := range closured {
+                                if file = proj.FindFile(ctx, str); file != nil { break }
+                        }}
+                        if file != nil { ok = true } else
                         if opts.all {
-                                warnstack(ctx, 3, "%v: not a file: %s (%T)", proj, str, a).debug(8)
+                                warn(ctx, "not a file: %v (%T)", a, a)
+                                warn(ctx, "not a file: %s (%v)", str, file)
+                                warn(ctx, "%in %v", closured)
+                                warnstack(ctx, 3, "").debug(8)
                         } else {
-                                erro(ctx, "%v: not a file: %v (%T)", proj, a, a)
-                                erro(ctx, "%v: not a file: %v (%v)", proj, str, file)
-                                errostack(ctx, 3, "%v", ctx).debug(16)
+                                erro(ctx, "not a file: %v (%T)", a, a)
+                                erro(ctx, "not a file: %v (%v)", str, file)
+                                erro(ctx, "in %v", closured)
+                                errostack(ctx, 3, "").debug(16)
                                 break
                         }
                 } else {
