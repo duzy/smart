@@ -337,6 +337,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     }
 
     assert(prog.project == prog.scope.project, "mismatched scope/project")
+    prog.dirt = "" // reset "dirt" -- the 'dirty' reasons
 
     var t = traverseContext{
         Context: cc,
