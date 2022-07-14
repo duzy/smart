@@ -2859,13 +2859,15 @@ func predict(ctx Context, args... Value) (result bool, message string, err error
 
         var (
                 opts predictOpts
-                reasons []string
+                reasons = make(map[string]int)
         )
         defer func() { if opts.verbose {
                 var status string
-                if reasons != nil {
-                        s := strings.Join(reasons, ",")
-                        if s != "" { status = s }
+                for reason, n := range reasons {
+                        if status != "" { status += ", " }
+                        if n == 1 { status += reason } else {
+                                status += fmt.Sprintf("%s (%d)", reason, n)
+                        }
                 }
                 if status == "" {
                         var s string
@@ -2917,10 +2919,10 @@ ForArgs:
                                 warn(ctx, "predictor %v is <nil>", arg).debug(1)
                                 continue // skip
                         } else if p, ok := a.(*prediction); ok {
-                                if p.reason != "" { reasons = append(reasons, p.reason) }
+                                if p.reason != "" { reasons[p.reason] += 1 }
                                 tru = p.bool
                         } else if tru = a.True(ctx); tru {
-                                reasons = append(reasons, fmt.Sprintf("#%v", i+1))
+                                reasons[fmt.Sprintf("#%v", i+1)] += 1
                         }
 
                         if opts.and { // logical 'and' mode
