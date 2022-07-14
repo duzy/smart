@@ -462,9 +462,9 @@ ForInParams:
             warn(ctx, `%v: configure yields value the same as input will be ignored: %v`, entry, result).debug(1)
             result = nil // simply discard the result as it's the same as the input (hyphen) value
         }
-        if traves = traves.not(traveDone); traves.has() {
-            for i, brk := range traves {
-                erro(ctx, " %d: %v", i, brk).debug(16)
+        if traves = traves.not(traveDone,traveFile); traves.has() {
+            for i, s := range traves {
+                erro(ctx, "%v: %d. %v", entry, i, s).debug(16)
             }
         }
     }
