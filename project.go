@@ -65,6 +65,10 @@ func (filemap *FileMap) Match(ctx Context, str string) (matched bool, pattern Va
 }
 
 func (filemap *FileMap) match(ctx Context, pat Value, str string) (matched bool, pre string) {
+  if false && pat.String() == "$(name).tex" {
+    matched, pattern, pre := pat.match(ctx, str)
+    warn(ctx, "%T %v %s ; %v -> %v %v '%v'", pat, pat, pat.Strval(ctx), str, matched, pattern, pre).debug(1)
+  }
   if matched, _, _ = pat.match(ctx, str); !matched && !(isNone(pat) || isNil(pat)) {
     if n := strings.Index(str, PathSep); n < 0 { return }
     // NOTE: Dealing with these files:
@@ -479,6 +483,7 @@ ForFilemaps:
   for _, filemap := range p.filemaps(ctx, /*true*/baseFiles, false) {
     // Match the represented file name.
     var matched, pattern, pre = filemap.Match(ctx, name) // TODO: performance
+    // warn(ctx, "%T %v ; %v -> %v %v '%v'", filemap, filemap, name, matched, pattern, pre).debug(1)
     if !matched { continue ForFilemaps }
     if f, ok := pattern.(*File); ok {
       file = f; break ForFilemaps
@@ -593,9 +598,10 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
     return
   }
 
+  var found Entry
   var t1, _ = ctx.autoGet("@")
   ForConcretes: for _, entry := range p.concrete {
-    if !match(entry, s) { continue ForConcretes }
+    if match(entry, s) { found = entry } else { continue ForConcretes }
 
     for pc := ctx.programContext(); pc != nil; { // loop detection
       if pc.entry() == entry {
@@ -619,6 +625,7 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
 
     add(entry)
   }
+  if entries == nil && found != nil { add(found) }
 
   if alwaysResolveBases || entries == nil {
     for _, base := range p.bases {

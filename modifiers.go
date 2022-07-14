@@ -32,6 +32,10 @@ const (
         TheShellStatusDef = "shell→status" // status code of execution
 )
 
+type generalOpts struct {
+        debug   int "d,db,debug" // NOTE: compatible with 'bool'
+        verbose bool "v,verb,verbose"
+}
 type modifier struct {
         valbase
         name Value
@@ -58,17 +62,11 @@ func (_ *modifier) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (m *modifier) traverse(ctx Context) (traves travestates) {
-        var verb = false //options.verbose || options.verboseBreaks
         ctx = positional(ctx, m.position)
-        if traves = ctx.program().modify(ctx, m); !traves.has() {
-                if n := ctx.countErrors(); n > 0 {
-                        brk := traves.add(ctx, traveFail, nil)
-                        brk.error = fmt.Errorf("%s: modifier failed with %d errors", m.name, n)
-                }
-        } else if t := traves.not(traveCase, traveNext, traveDone); verb && t.has() {
-                prompt(ctx, "%v: %s modify failed for %s\n", ctx.entry(), m.name, ctx.Project())
-                for _, brk := range t { warn(ctx, "%v: %s: %v", ctx.Project(), m.name, brk).at(brk.pos) }
-                warnstack(ctx, 3, "").debug(6)
+        traves = ctx.program().modify(ctx, m)
+        if n := ctx.checkErrors(true); n > 0 { // if n := ctx.countErrors(); n > 0 {
+                brk := traves.add(ctx, traveFail, nil)
+                brk.error = fmt.Errorf("%s: %d errors counted", m.name, n)
         }
         return
 }
@@ -104,27 +102,26 @@ func (_ *modifiergroup) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (g *modifiergroup) traverse(ctx Context) (traves travestates) {
         for _, m := range g.modifiers {
-                var (
-                        ctx = positional(ctx, m.position)
-                        proj = ctx.Project()
-                )
+                var ctx = positional(ctx, m.position)
                 if t := m.traverse(ctx); t.has() {
                         traves = append(traves, t...) // collect travestates
                 } else {
                         continue
                 }
-                if t := traves.not(traveCase, traveDone, traveNext); t.has() {
-                        if false && (options.verbose || options.verboseBreaks) {
+                if t := traves.of(traveFail); t.has() {
+                        return
+                } else if t = traves.not(traveCase, traveDone, traveNext); t.has() {
+                        if true || (options.verbose || options.verboseBreaks) {
                                 var _, ent, _ = entryStr(ctx, ctx.entry())
-                                prompt(ctx, "%v: %s failed, project %s\n", ent, m.name, proj)
-                                for _, brk := range t { warn(ctx, "%v: %s: %v", proj, m.name, brk).at(brk.pos) }
+                                warn(ctx, "%v: %s failed\n", ent, m.name)
+                                for _, s := range t { warn(ctx, "%v: %v", m.name, s).at(s.pos) }
                                 warnstack(ctx, 5, "").debug(16)
                         }
-                        return
+                        break
                 } else if t = traves.of(traveCase); t.has() {
                         continue // case selected
                 } else if t = traves.of(traveDone, traveNext); t.has() {
-                        break // done or try next rule entry
+                        return // done or try next rule entry
                 }
         }
         return
@@ -278,6 +275,7 @@ type modifierDebugOpts struct {
         info  []Value `i,info`
         warn  []Value `w,warn`
         error []Value `e,err;er,error`
+        verbose bool `v,verbose`
         checkOutdated bool `d,dirty;cd,checkdirty;cd,check-dirty;co,check-outdated`
         s int `s,stack,sn,stack-number`
         n int `c,count,n,num,cn,call-number`
@@ -312,8 +310,18 @@ func modifierDebug(ctx Context, args... Value) (result Value, traves travestates
                 }
         }
         if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.error) == 0 {
-                var m = prompt(ctx, "%v: %v target=%v stems=%v depends=%v\n",
-                        ctx.Position(), args, target, ctx.stems(), depends)
+                var m *diagPoint
+                if len(args) == 0 {
+                        m = prompt(ctx, "%v: target=%v stems=%v depends=%v\n",
+                                ctx.Position(), target, ctx.stems(), depends)
+                } else if opts.verbose {
+                        m = prompt(ctx, "%v: %v ; target=%v stems=%v depends=%v\n",
+                                ctx.Position(), args, target, ctx.stems(), depends)
+                } else if len(args) == 1 {
+                        m = prompt(ctx, "%v: %v\n", ctx.Position(), args[0])
+                } else {
+                        m = prompt(ctx, "%v: %v\n", ctx.Position(), args)
+                }
                 if n := opts.n * 2; opts.s > 0 {
                         infostack(ctx, opts.s, "").debug(n)
                 } else {
@@ -371,7 +379,7 @@ func modifierEnv(ctx Context, args... Value) (result Value, traves travestates) 
 //     [(set name)]          clear $(name)
 //     [(set -)]             clear $-
 type modifierSetOpts struct {
-        debug bool `d,debug`
+        debug   bool `d,debug`
         verbose bool `v,verbose`
 }
 func modifierSet(ctx Context, args... Value) (result Value, traves travestates) {
@@ -2351,8 +2359,8 @@ func modifierWriteFile(ctx Context, args... Value) (result Value, traves travest
 }
 
 type modifierReadFileOpts struct {
-        debug bool "d,debug"
-        verbose bool "v,verbose"
+        debug    bool "d,debug"
+        verbose  bool "v,verbose"
         fullname bool "f,full,fullname"
         head Value "h,head"
         foot Value "f,foot"
@@ -2360,14 +2368,17 @@ type modifierReadFileOpts struct {
 func modifierReadFile(ctx Context, aa... Value) (result Value, traves travestates) {
         var (
                 opts modifierReadFileOpts
-                filename string
                 args []Value
         )
         if args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, aa...)...); opts.fullname {
                 args = mergeExpand(ctx, expandFullName, args...)
         }
 
-        var target Value
+        var (
+                file *File
+                filename string
+                target Value
+        )
         if n := len(args); n > 1 {
                 erro(ctx, "too many files: %v", args).debug(1)
                 return
@@ -2381,7 +2392,18 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, traves travestate
                 errostack(ctx, 3, "target for reading is invalid (%T) (%v -> %v)",
                         target, aa, args).debug(10)
                 return
-        } else if filename = fullnameOrStrval(ctx, target); filename == "" {
+        } else if file, filename, _ = fullname(ctx, target); file == nil {
+                if depend, found := ctx.autoGet(">"); found && !isTrivial(depend) {
+                        s := traves.add(ctx, traveFail, target)
+                        s.error = traveTargetNotDefinedFile
+                        s.depend = depend
+                } else if true {
+                        prompt(ctx, "%v: not defined as file\n", target.Strval(ctx))
+                        erro(ctx, "(%T) %v", target, target)
+                        errostack(ctx, 8, "").debug(64)
+                }
+                return
+        } else if filename == "" {
                 errostack(ctx, 3, "target filename is empty").of(target).debug(32)
                 return
         }
@@ -2397,10 +2419,10 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, traves travestate
         } else {
                 brk := traves.add(ctx, traveFail, target)
                 brk.error = err
-                if opts.debug {
-                        warn(ctx, "read-file: %T %s (stems=%v)", target, filename, ctx.stems())
-                        warnstack(ctx, 5, "%v", err).debug(36)
-                }
+        }
+        if opts.debug && err != nil {
+                warn(ctx, "%v: %v ; stems=%v\n", target, err, ctx.stems())
+                warnstack(ctx, 5, "").debug(36)
         }
         return
 }
@@ -2471,15 +2493,25 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
         // Get target filename
         if opts.full {
                 if filename = fullnameOrStrval(ctx, target); !filepath.IsAbs(filename) {
-                        var file *File
+                        var ( file *File ; s string )
                         var projs = closureProjects(ctx)
                         for _, proj := range projs {
                                 if file = proj.FindFile(ctx, filename); file != nil {
+                                        s = file.fullname()
                                         break
                                 }
                         }
-                        warnstack(ctx, 5, "undefined file: %T %v (%v in %v)",
-                                target, target, file, projs).debug(16)
+                        if filepath.IsAbs(s) {
+                                filename = s // good!
+                        } else if file != nil {
+                                prompt(ctx, "%v: %T %v; projects=%v\n",
+                                        file.fullname(), target, target, projs)
+                                errostack(ctx, 5, "fullname is incorrect").debug(16)
+                        } else {
+                                prompt(ctx, "%v: %T; file=%v projects=%v\n",
+                                        target, target, file, projs)
+                                warnstack(ctx, 5, "").debug(16)
+                        }
                 }
         } else {
                 switch p := target.(type) {
@@ -2763,13 +2795,13 @@ func modifierStamp(ctx Context, args... Value) (result Value, traves travestates
         prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err)
         if opts.next {
                 if opts.verbose { warn(ctx, "%v", err).debug(1) }
-                brk := traves.add(ctx, traveNext, target)
-                brk.depend, _ = ctx.autoGet(">")
+                s := traves.add(ctx, traveNext, target)
+                s.depend, _ = ctx.autoGet(">")
                 err = nil // discard the error
         } else if opts.error {
-                brk := traves.add(ctx, traveFail, target)
-                brk.depend, _ = ctx.autoGet(">")
-                brk.error = err
+                s := traves.add(ctx, traveFail, target)
+                s.depend, _ = ctx.autoGet(">")
+                s.error = err
                 if false {
                         prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err)
                         erro(ctx, "stamp(%v) error")
@@ -2803,11 +2835,11 @@ type predictOpts struct {
 }
 func predict(ctx Context, args... Value) (result bool, message string, err error) {
         var (
-                targetVal, _ = ctx.autoGet("@")
+                target, _ = ctx.autoGet("@")
                 targetStr string
                 num int64
         )
-        if isTrivial(targetVal) {
+        if isTrivial(target) {
                 errostack(ctx, 5, "target is trivial, %v", ctx).debug(10)
                 return
         }
@@ -2815,12 +2847,12 @@ func predict(ctx Context, args... Value) (result bool, message string, err error
                 if tarVal, _ := caller.autoGet("@"); isNil(tarVal) {
                         // top level execution, aka via RuleEntry.Execute(...)
                 } else if true {
-                        var same = targetVal == tarVal
+                        var same = target == tarVal
                         if !same && false {
-                                same = (targetVal.cmp(ctx, tarVal) == cmpEqual)
+                                same = (target.cmp(ctx, tarVal) == cmpEqual)
                         }
                         if same { num += 1 }
-                } else if n := caller.execRec[targetVal]; n > 0 {
+                } else if n := caller.execRec[target]; n > 0 {
                         num += int64(n)
                 }
         }
@@ -2843,7 +2875,7 @@ func predict(ctx Context, args... Value) (result bool, message string, err error
                         status += fmt.Sprintf(" (result=%v)", result)
                 }
                 prompt(ctx, "… %s\n", status)
-        } } ()
+        }} ()
 
 ForArgs:
         for _, arg := range args {
@@ -2861,7 +2893,7 @@ ForArgs:
                 }
 
                 if opts.verbose && !opts.verbose0 {
-                        targetStr = fullnameOrStrval(ctx, targetVal)
+                        targetStr = fullnameOrStrval(ctx, target)
                         prompt(ctx, "checking %v …", filepath.Base(targetStr))
                         opts.verbose0 = true
                 }
@@ -2926,8 +2958,8 @@ func modifierAssert(ctx Context, args... Value) (result Value, traves travestate
                         erro(ctx, "assertion args: %v (mergeExpandd)", vals)
                         erro(ctx, "assertion context: %v", ctx).debug(6)
                 }
-                brk := traves.add(ctx, traveFail, target)
-                brk.error = fmt.Errorf("assertion failure: %v", args)
+                s := traves.add(ctx, traveFail, target)
+                s.error = fmt.Errorf("assertion failure: %v", args)
         }
         return
 }
@@ -2941,19 +2973,45 @@ func modifierCond(ctx Context, args... Value) (result Value, traves travestates)
         if res, msg, err = predict(ctx, args...); err != nil {
                 erro(ctx, "predict: %v", err).debug(1)
         } else if !res {
-                brk := traves.add(ctx, traveDone, nil)
-                brk.error = fmt.Errorf("%s", msg)
+                s := traves.add(ctx, traveDone, nil)
+                if msg != "" { s.error = fmt.Errorf("%s", msg) }
+                s.prog = ctx.program()
         }
+        // var target, _ = ctx.autoGet("@")
+        // if strings.Contains(target.Strval(ctx), "Unwind") {
+        //         var v, _ = ctx.autoGet("^")
+        //         var d = target.updatedDeps(ctx)
+        //         prompt(ctx, "cond:%v: %v: %v; %v, %v; %v\n",
+        //                 args, target, v, res, traves, d)
+        // }
         return
 }
 
+type modifierCaseOpts struct {
+        debug   bool `d,debug`
+        verbose bool `v,verbose`
+}
 func modifierCase(ctx Context, args... Value) (result Value, traves travestates) {
+        var opts modifierCaseOpts
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+
         if res, msg, err := predict(ctx, args...); err != nil {
-                erro(ctx, "case: %v", err).debug(1)
+                erro(ctx, "case: (res=%v) %v", res, err).debug(1)
         } else {
-                brk := traves.add(ctx, traveCase, nil) // select case
-                if !res { brk.what = traveNext } // next case
-                brk.error = fmt.Errorf("case: %s", msg)
+                var w travekind
+                if res { w = traveCase } else { w = traveNext }
+
+                var s = traves.add(ctx, w, nil) // trave 'case' or 'next'
+                if msg != "" { s.error = fmt.Errorf("%s", msg) }
+                s.prog = ctx.program()
+
+                if opts.verbose {
+                        var a, _ = ctx.autoGet("@")
+                        prompt(ctx, "%v: %v (msg=%s)", a, w, msg)
+                }
+                if opts.debug {
+                        warn(ctx, "%v", w)
+                }
         }
         return
 }
@@ -2973,15 +3031,15 @@ func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
 }
 
 type predictionOutdatedOpts struct {
-        checksum bool "c,checksum;c,crc"
-        debug bool "d,debug"
-        verbose bool "v,verbose"
-        verboseUpdated bool "vu,verbose-updated"
+        generalOpts
+        checksum bool "c,cs,checksum,crc"
+        verboseUpdated  bool "vu,verbose-updated"
         verboseOutdated bool "vo,verbose-outdated"
-        silent bool "s,silent"
+        silent   bool "s,silent"
 }
 func predictionOutdated(ctx Context, args... Value) (result Value) {
         var (
+                program = ctx.program()
                 opts predictionOutdatedOpts
                 target Value
                 targetFullname string
@@ -3005,8 +3063,8 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
                 reason = "target not exists"
         } else if outdated = isDirty(ctx, target, args...); outdated {
                 reason = "dirty"
-        } else if outdated, err = isRecipesOutdated(ctx); err != nil {
-                erro(ctx, "isRecipesOutdated: %v", err).debug(1)
+        } else if outdated, err = isRecipesChanged(ctx, target); err != nil {
+                erro(ctx, "isRecipesChanged: %v", err).debug(1)
                 return
         } else if outdated {
                 reason = "recipes changed"
@@ -3029,7 +3087,7 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
                 }
         }
 
-        if opts.verbose || (opts.verboseOutdated && outdated) || (opts.verboseUpdated && !outdated) {
+        if opts.debug>0 || opts.verbose || (opts.verboseOutdated && outdated) || (opts.verboseUpdated && !outdated) {
                 var ( t = ctx.traversal(); m, s string )
                 if outdated { m = "outdated" } else { m = "updated" }
                 if s = time.Now().Sub(t.start).String(); reason != "" {
@@ -3039,12 +3097,20 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
                         ts = trimPromptString(targetFullname)
                         n = len(t.targets) + len(t.grepped)
                 )
-                prompt(ctx, "%s …… %s (%d files in %s; update=%v)\n",
-                        ts, m, n, s, outdated).debug(opts.debug, 6)
+                if db := opts.debug>0; db && !opts.verbose {
+                        warn(ctx, "%s (%T) (%s) …… %s (%d files in %s, debug=%d)",
+                                ts, target, targetFullname, m, n, s, opts.debug).debug(opts.debug * 2)
+                } else {
+                        prompt(ctx, "%s …… %s (%d files in %s)\n",
+                                ts, m, n, s).debug(db, 6)
+                }
         }
 
         if opts.silent { reason = "" }
-        result = MakePrediction(ctx.Position(), outdated, reason)
+        if result = MakePrediction(ctx.Position(), outdated, reason); outdated {
+                if program.dirt != "" { reason = program.dirt + "; " + reason }
+                program.dirt = reason
+        }
         return
 }
 
@@ -3226,16 +3292,87 @@ func modifierGitAhead(ctx Context, args... Value) (result Value, traves travesta
 
 var (
         onceMutex sync.Mutex
-        onceCache = make(map[Value]int,64)
+        onceCache0 map[Entry]map[Value]int
+        onceCache1 map[*Program]map[Value]int
         onceSHA256Mutex sync.Mutex
         onceSHA256Cache = make(map[HashBytes]int,64)
 )
 
-func onceCacheTest(ctx Context, tv Value) (n int) {
-        onceMutex.Lock()
-        onceCache[tv] += 1
-        onceMutex.Unlock()
-        return onceCache[tv]
+func onceCacheTest0(ctx Context, target Value) (n int) {
+        var (
+                entry = ctx.entry()
+                rec map[Value]int
+        )
+        if stemmed, ok := entry.(*stemmed); ok {
+                entry = stemmed.PatternEntry
+        }
+
+        onceMutex.Lock(); defer onceMutex.Unlock()
+        if onceCache0 == nil {
+                onceCache0 = make(map[Entry]map[Value]int,64)
+        }
+        if rec, _ = onceCache0[entry]; rec == nil {
+                rec = make(map[Value]int)
+                onceCache0[entry] = rec
+        }
+
+        rec[target] += 1
+        n = rec[target]
+        return
+}
+
+func onceCacheTest1(ctx Context, target Value) (n int) {
+        var (
+                program = ctx.program()
+                rec map[Value]int
+        )
+
+        onceMutex.Lock(); defer onceMutex.Unlock()
+        if onceCache1 == nil {
+                onceCache1 = make(map[*Program]map[Value]int,64)
+        }
+        if rec, _ = onceCache1[program]; rec == nil {
+                rec = make(map[Value]int)
+                onceCache1[program] = rec
+        }
+
+        rec[target] += 1
+        n = rec[target]
+        return
+}
+
+func onceCacheTest2(ctx Context, target Value) (n int) {
+        var (
+                program = ctx.program()
+                h = sha256.New()
+                entry = ctx.entry()
+        )
+        if stemmed, ok := entry.(*stemmed); ok {
+                entry = stemmed.PatternEntry
+        }
+
+        // NOTE: ensure 'entry', 'program' and 'target' are unique.
+        if true {
+                fmt.Fprintf(h, "%p", program)
+        } else if false {
+                // FIXME: not unique combination
+                fmt.Fprintf(h, "%p", entry)
+        } else {
+                // FIXME: not unique combination
+                fmt.Fprintf(h, "%p%p", entry, program)
+        }
+
+        for _, t := range merge(target) {
+                if f, ok := t.(*File); ok {
+                        fmt.Fprintf(h, "%s", f.fullname())
+                } else {
+                        fmt.Fprintf(h, "%s", t.Strval(ctx))
+                }
+        }
+
+        var sum HashBytes
+        copy(sum[:], h.Sum(nil))
+        return onceSHA256Test(ctx, sum)
 }
 
 func onceSHA256Test(ctx Context, sum HashBytes) (n int) {
@@ -3245,14 +3382,19 @@ func onceSHA256Test(ctx Context, sum HashBytes) (n int) {
         return onceSHA256Cache[sum]
 }
 
-func onceSHA256(ctx Context, target Value, opts *modifierOnceOpts, args... Value) (result Value, traves travestates) {
+func onceSHA256(ctx Context, target Value, opts *modifierOnceOpts, args... Value) (n int) {
         var (
                 program = ctx.program()
+                entry = ctx.entry()
                 h = sha256.New()
         )
+        if stemmed, ok := entry.(*stemmed); ok {
+                entry = stemmed.PatternEntry
+        }
+
         if true {
                 // NOTE: entry and program are unique, since (once) is for runtime, we use their addresses.
-                fmt.Fprintf(h, "%p%p", ctx.entry(), program)
+                fmt.Fprintf(h, "%p%p", entry, program)
         } else {
                 fmt.Fprintf(h, "%v%v", ctx.Position(), program.position)
         }
@@ -3263,18 +3405,7 @@ func onceSHA256(ctx Context, target Value, opts *modifierOnceOpts, args... Value
 
         var sum HashBytes
         copy(sum[:], h.Sum(nil))
-
-        var num = onceSHA256Test(ctx, sum)
-        if opts.debug {
-                info(ctx, "%T: (once: num=%d)\n", ctx, num)
-        } else if opts.verbose {
-                prompt(ctx, "once: (num=%d)\n", num)
-        }
-        if num > 1 {
-                brk := traves.add(ctx, traveDone, target)
-                brk.error = fmt.Errorf("once (num=%d)", num)
-        }
-        return
+        return onceSHA256Test(ctx, sum)
 }
 
 type modifierOnceOpts struct {
@@ -3286,26 +3417,42 @@ type modifierOnceOpts struct {
 func modifierOnce(ctx Context, args... Value) (result Value, traves travestates) {
         // TODO: (once)           --> once for the RuleEntry, aka entry.doneOnce = true
         // TODO: (once -for=$@)   --> once for $@, aka entry.onces[$(expand $@)] = true
-        var opts modifierOnceOpts
+        var (
+                n int
+                opts modifierOnceOpts
+                target, found = ctx.autoGet("@")
+        )
         args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 
-        var n int
-        var target, found = ctx.autoGet("@")
+        const onceAlgo = 2 // avaialbe: 0, 1, 2
         if !found || isTrivial(target) {
                 errostack(ctx, 5, "once: no target $@, %v", args).debug(16)
                 return
         } else if opts.checksum {
-                result, traves = onceSHA256(ctx, target, &opts, append([]Value{target}, args...)...)
-        } else if n = onceCacheTest(ctx, target); n > 1 {
-                brk := traves.add(ctx, traveDone, target)
-                brk.error = fmt.Errorf(`executed %d times`, n)
+                n = onceSHA256(ctx, target, &opts, append([]Value{target}, args...)...)
+        } else if onceAlgo == 2 {
+                n = onceCacheTest2(ctx, target)
+        } else if onceAlgo == 1 {
+                n = onceCacheTest1(ctx, target)
+        } else {
+                n = onceCacheTest0(ctx, target)
         }
+
+        if n > 1 {
+                s := traves.add(ctx, traveDone, target)
+                s.error = fmt.Errorf(`executed %d times`, n)
+                s.prog = ctx.program()
+        }
+
+        // if strings.Contains(target.Strval(ctx), "Unwind") {
+        //         var v, _ = ctx.autoGet("^")
+        //         prompt(ctx, "once: %v: %v, %v, %v\n", target, traves, v, n)
+        // }
 
         if opts.debug {
                 warn(ctx, "%T %v %p %v", target, target, target, n)
                 warnstack(positional(ctx, target.Position()), -1, "%p %v %v", target, target, n).debug(16)
         }
-
 
         // TODO: new once algorithm:
         if false {
@@ -3324,8 +3471,9 @@ func modifierOnce(ctx Context, args... Value) (result Value, traves travestates)
                         // TODO: once: if rec.prerequisites[]
                         if rec.targets[target] += 1; rec.targets[target] > 1 {
                                 n := rec.targets[target]
-                                brk := traves.add(ctx, traveDone, target)
-                                brk.error = fmt.Errorf(`executed %d times`, n)
+                                s := traves.add(ctx, traveDone, target)
+                                s.error = fmt.Errorf(`executed %d times`, n)
+                                s.prog = ctx.program()
                         }
                 }
         }

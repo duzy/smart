@@ -425,14 +425,20 @@ func digitVal(ch rune) int {
 func (s *Scanner) scanMantissa(base int) {
 	if digitVal(s.ch) < base { // first digit
 		s.next()
-		for s.ch == '_' || digitVal(s.ch) < base {
-			if s.ch == '_' {
-				if s.next(); s.ch == '_' {
-					s.error(s.offset-1, "invalid digit group")
-					break
+		if true {
+			for digitVal(s.ch) < base { s.next() }
+		} else {
+			// NOTE: disable '_' number separaters as ParseInt not support it and
+			//       it's not recoverable from ints back to strings.
+			for s.ch == '_' || digitVal(s.ch) < base {
+				if s.ch == '_' {
+					if s.next(); s.ch == '_' {
+						s.error(s.offset-1, "invalid digit group")
+						break
+					}
+				} else {
+					s.next()
 				}
-			} else {
-				s.next()
 			}
 		}
 	}

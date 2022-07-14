@@ -53,29 +53,27 @@ var (
   rxNoNetwork    = rx(`Error.*: network (.*) not found\.`)
   rxDockerDaemonNotRunning = rx(`Cannot connect to the Docker daemon at (.*?)\. Is the docker daemon running\?`)
   rxContainerNotRunning    = rx(`Error response from daemon: Container (.*?) is not running`)
-  rxCompilationError   = rx(`(.+?):(\d+):(\d+): error: (.+)(?: {2,}\n(.+))?`)
-  rxCompilationWarning = rx(`(.+?):(\d+):(\d+): warning: (.+)`)
-  rxIncludedFrom2 = rx(`In file included from (.+?):(\d+):`)
-  rxIncludedFrom3 = rx(`In file included from (.+?):(\d+):(\d+):`)
-  rxProtoImportNotFound = rx(`^(.+?\.proto):(\d+):(\d+): Import "(.+?)" was not found or had errors.`)
-  rxProtoNameNotDefined = rx(`^(.+?\.proto):(\d+):(\d+): "(.+?)" is not defined.`)
+  rxCompilationError       = rx(`(.+?):(\d+):(\d+): error: (.+)(?: {2,}\n(.+))?`)
+  rxCompilationWarning     = rx(`(.+?):(\d+):(\d+): warning: (.+)`)
+  rxIncludedFrom2          = rx(`In file included from (.+?):(\d+):`)
+  rxIncludedFrom3          = rx(`In file included from (.+?):(\d+):(\d+):`)
+  rxProtoImportNotFound    = rx(`^(.+?\.proto):(\d+):(\d+): Import "(.+?)" was not found or had errors.`)
+  rxProtoNameNotDefined    = rx(`^(.+?\.proto):(\d+):(\d+): "(.+?)" is not defined.`)
   rxProtoFileNotFound      = rx(`^(.+?\.proto): File not found\.`)
   rxFatalErrorFileNotFound = rx(`(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`)
   rxArNoSuchFile       = rx(`ar: (.+?): No such file or directory`)
   rxArNoArchiveMembers = rx(`ar: no archive members specified`)
-  rxBashNoSuchFile = rx(`bash: line ([0-9]+?): (.+?): No such file or directory`)
+  rxBashNoSuchFile     = rx(`bash: line ([0-9]+?): (.+?): No such file or directory`)
   // rxClangNoSuchFile = rx(`clang(?:-(.+?))?: error: no such file or directory: '(.+?)'`)
-  // rxClangError = rx(`clang(?:-(.+?))?: error: (.+)(?: \(.+\))?`)
-  rxCmdError   = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang)(?:-(.+?))?: error: (.+)`)
-  rxCmdWarning = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld|clang)(?:-(.+?))?: warning: (.+)`)
-  rxCouldnotParseObj = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`)
-  rxLdLibNotFound    = rx(`(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): library not found for (.+)`)
+  // rxClangError      = rx(`clang(?:-(.+?))?: error: (.+)(?: \(.+\))?`)
+  rxCmdError           = rx(`((?:clang|(?:[^\.]+\.)?l?ld|wasm)(?:\-.+?)?): error: (.+)`)
+  rxCmdWarning         = rx(`((?:clang|(?:[^\.]+\.)?l?ld|wasm)(?:\-.+?)?): warning: (.+)`)
+  rxCouldnotParseObj   = rx(`((?:clang|(?:[^\.]+\.)?l?ld|wasm)(?:\-.+?)?): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`)
+  rxLdLibNotFound      = rx(`((?:clang|(?:[^\.]+\.)?l?ld|wasm)(?:\-.+?)?): library not found for (.+)`)
   rxTooManyPosArgs     = rx(`(.+?): Too many positional arguments specified!`)
   rxUndefinedReference = rx(`  +"(.+?)", referenced from:`)
   rxShellCmdNotFound   = rx(`(.+?): (.+?):( command)? not found`)
-  rxIgnoringDirectory  = rx(`ignoring (?:duplicate|nonexistent) directory "(.*?)"`)
-  // rxIgnoringNonExistentDirectory = rx(`ignoring nonexistent directory "(.*?)"`)
-  // rxIgnoringDuplicateDirectory   = rx(`ignoring duplicate directory "(.*?)"`)
+  rxIgnoringDirectory  = rx(`ignoring (duplicate|nonexistent) directory "(.*?)"`)
   rxExitStatus = rx(`exit status (\-?[0-9]+)`)
 
   // NOTE: python standard errors
@@ -273,6 +271,12 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
       for _, rx := range knownerrors {
         if rx == nil { continue }
         if all := rx.FindAllSubmatch(line, -1); all != nil {
+          // var result = make(map[string]string) // `(?P<first>\d+)\.(\d+).(?P<second>\d+)`
+          // for i, name := range rx.SubexpNames() {
+          //   if i != 0 && name != "" {
+          //     result[name] = match[i]
+          //   }
+          // }
           var ( a [][]knownMatchCap; c int )
           for _, m := range all { // [][][]byte
             var v []knownMatchCap // captures
@@ -488,9 +492,8 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
     case rxCmdError:
       if p.report {
         var cs, vs string; cs = v[1].string
-        if s := v[2].string; s != "" { vs = "-" + s }
-        lpos.Column = v[3].col + 1
-        addScannedDiag(diagError, lpos, fmt.Sprintf("%s%s: %s", cs, vs, v[3].string))
+        lpos.Column = v[2].col + 1
+        addScannedDiag(diagError, lpos, fmt.Sprintf("%s%s: %s", cs, vs, v[2].string))
       }
     case rxCmdWarning:
       if p.report {
@@ -499,8 +502,8 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       }
     case rxCouldnotParseObj:
       if p.report {
-        lpos.Column = v[3].col
-        addScannedDiag(diagError, lpos, v[3].string)
+        lpos.Column = v[2].col
+        addScannedDiag(diagError, lpos, v[2].string)
       }
     case rxLdLibNotFound:
       if p.report {
@@ -522,19 +525,9 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       }
     case rxIgnoringDirectory:
       if p.report {
-        var dir = v[1].string;  lpos.Column = v[1].col + 1
+        var dir = v[2].string;  lpos.Column = v[2].col + 1
         addScannedDiag(diagInfo, lpos, fmt.Sprintf(`ignoring nonexistent directory "%v"`, dir))
       }
-    // case rxIgnoringNonExistentDirectory:
-    //   if p.report {
-    //     var dir = v[1].string;  lpos.Column = v[1].col + 1
-    //     addScannedDiag(diagInfo, lpos, fmt.Sprintf(`ignoring nonexistent directory "%v"`, dir))
-    //   }
-    // case rxIgnoringDuplicateDirectory:
-    //   if p.report {
-    //     var dir = v[1].string;  lpos.Column = v[1].col + 1
-    //     addScannedDiag(diagInfo, lpos, fmt.Sprintf(`ignoring duplicate directory "%v"`, dir))
-    //   }
     case rxExitStatus:
       if s := v[1].string; s != "0" /*&& p.report*/ {
         // FIXME: the 'exit status' report is not working
@@ -749,16 +742,15 @@ func (p *ExecResult) run(ctx Context) (status int, err error) {
 
 type (
   executorOpts struct {
+    generalOpts
     deprecated  bool `v,vo;w,ve;a,a;d,dump`
-    debug       bool `d,debug`
     infos       bool `sci,scan-infos`
-    silent      bool `s,silent` // silent errors
-    verboseSrc  bool `vs,verbose-source`
+    silentErrs  bool `s,silent,silent-errors` // silent errors
     tieStdout   bool `to,tie-out,tie-stdout` // tied with log
     tieStderr   bool `te,tie-err,tie-stderr` // tied with log
-    bufStdout   bool "o,stdout;bo,buffer-stdout;so,save-stdout"
-    bufStderr   bool "e,stderr;be,buffer-stderr;se,save-stderr"
-    stdin       bool "i,stdin;in,input"
+    bufStdout   bool `o,stdout;bo,buffer-stdout;so,save-stdout`
+    bufStderr   bool `e,stderr;be,buffer-stderr;se,save-stderr`
+    stdin       bool `i,stdin;in,input`
     stamp       bool `st,stamp;sf,stamp-file`
     noStamp     bool `ns,nostamp,no-stamp,no-stamp-file`
     wait        bool `w,wr,wait,waitres,wait-res,waitresult,wait-result` // wait for execution finished
@@ -770,10 +762,11 @@ type (
     scanStdout  bool `so,scan-stdout,scan-out`
     scanStderr  bool `se,scan-stderr,scan-err`
     parallel    bool `par,parallel,no-order`
-    path        bool "p,path"
-    noCD        bool "n,nocd"
+    path        bool `p,path`
+    noCD        bool `n,nocd`
     prompt      bool `pm,prompt;m,msg`
-    promStr     string "c,cmd;m,msg"
+    promptSrc   bool `ps,prompt-src,prompt-source;vs,verbose-source`
+    promStr     string `c,cmd;m,msg`
     tie         string `t,tie` // all, both, stdout, stderr, out, err
     workDir     string `cd,change-dir,wd,workdir,work-dir,work-directory`
     logFileName *optFullname "l,log"
@@ -806,6 +799,8 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   case "all"   , "both": opts.tieStdout, opts.tieStderr = true, true
   }
 
+  // defer func() { warn(ctx, "%v", cmd).debug(8) } ()
+
   var (
     t = ctx.traversal()
     program = ctx.program()
@@ -829,21 +824,21 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   } else if ms := program.getModifiers(ctx, "stamp"); len(ms) > 0 {
     switch target.(type) {
     case *Barefile, *File, *Path:
-      warn(ctx, "use (shell -stamp) instead of stamp modifier (%T %v)", target, target).at(ms[0].position).debug(1)
+      warn(ctx, "use (shell -stamp) instead of stamp modifier (%T %v)",
+        target, target).at(ms[0].position).debug(1)
+    default:
+      warn(ctx, "no need to use (shell -stamp) here",
+        target, target).at(ms[0].position).debug(1)
     }
   } else if ms := program.getModifiers(ctx, "wait"); len(ms) > 0 {
     // should be good to work
-  } else if !(opts.stamp || opts.noStamp || opts.silent) {
+  } else if !(opts.stamp || opts.noStamp || opts.silentErrs) {
     warn(ctx, "add -stamp to (shell); target=%v (%T)", target, target).debug(1)
   }
 
   if (opts.retStdout && opts.retStatus) || (opts.retStderr && opts.retStatus) {
     erro(ctx, "cannot have both status and stdout|stderr at the same time (try -so or -se)").debug(1)
     return
-  }
-
-  if strings.HasSuffix(targetName, "external.google.tensorflow.prototext") {
-    defer func() { warn(ctx, "%v", target).debug(10) } ()
   }
 
   var (
@@ -914,7 +909,6 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     cmd = "docker"
   }
 
-
   // Fixes work directory conflicts. It happens
   // sometimes even the 'sh.Dir' is set to cwd.
   // Because the current work directory is not
@@ -984,10 +978,32 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   if opts.fullname { w |= expandFullName }
   recipes = mergeExpand(ctx, w, program.recipes...)
 
-  for _, recipe := range recipes {
-    var str string
+  for i, recipe := range recipes {
     if !recipePos.IsValid() { recipePos = recipe.Position() }
-    if str = strings.TrimRightFunc(recipe.Strval(ctx), unicode.IsSpace); str == "" {
+
+    var str = recipe.Strval(ctx)
+    if false && strings.Contains(str, "llvm-driver-objcopy.cpp") {
+      var vals = mergeExpand(ctx, w, recipe.(*Compound).Elems...)
+      warn(ctx, "%v %T", program.recipes[i], program.recipes[i])
+      warn(ctx, "%v %T", recipe, recipe)
+      warn(ctx, "%v", vals)
+      warn(ctx, "%v", str)
+      for _, val := range vals {
+        if true {
+          warn(ctx, "%T %v", val, val)
+        } else if val.Strval(ctx) == "llvm-driver-objcopy.cpp" {
+          warn(ctx, "%T %v", val, val)
+          if c, ok := val.(*Barecomp); ok {
+            for _, val := range c.Elems {
+              warn(ctx, "%T %v", val, val)
+            }
+          }
+        }
+      }
+      warnstack(ctx, 3, "").debug(1)
+    }
+
+    if str = strings.TrimRightFunc(str, unicode.IsSpace); str == "" {
       source += "\n" // an empty line
       continue
     } else if source += str; strings.HasSuffix(source, "\\") {
@@ -1029,8 +1045,8 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
 
   var (
     logPos Position
-    log *ExecLog
     logFile *os.File
+    log *ExecLog
   )
   if opts.logFileName != nil { log = &ExecLog{ filename: opts.logFileName.string } }
   if opts.bufStdout || opts.retStdout { exeres.Stdout.Buf = new(bytes.Buffer) }
@@ -1077,7 +1093,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     if false && log.filename != "" && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
       os.Remove(log.filename)
     }
-    if !opts.silent && caller != nil && err != nil { caller.calleeError(err) }
+    if !opts.silentErrs && caller != nil && err != nil { caller.calleeError(err) }
     exeres.Stdout.res = nil
     exeres.Stderr.res = nil
     exeres.container = nil
@@ -1089,18 +1105,18 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     if !opts.stamp || ctx.configuration() {
       // no stamp for target files
     } else if err != nil {
-      var files, _ = target.delete(ctx)
-      prompt(ctx, "%v: %v (won't stamp)\n", target, err)
+      var files, e = target.delete(ctx)
+      prompt(ctx, "%v: %v (deleted %d files)\n", target, err, len(files))
+      if e != nil { erro(ctx, `%v: delete: %v`, target, e) }
       for _, file := range files {
         var fullname = file.fullname()
         if s := file.String(); s == fullname {
           erro(ctx, `%v: deleted`, s)
         } else {
-          erro(ctx, `%v: deleted "%v"`, s, fullname)
+          erro(ctx, `%v: deleted: %v`, s, fullname)
         }
       }
-      errostack(ctx, 3, `%v: (%T)`, target, ctx).debug(6)
-      if /*opts.fail*/true { fail(target.Position(), `"%v" deleted`, target) }
+      errostack(ctx, 3, ``).debug(6)
       return
     } else if files, err := target.stamp(t); err != nil {
       if pe, ok := err.(*fs.PathError); ok { err = fmt.Errorf(`"%v" not found`, target)
@@ -1112,8 +1128,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         prompt(ctx, "%v:1: see logs for \"%s\"\n", opts.logFileName.string, target)
       }
       erro(ctx, `stamp "%v" failed`, target)
-      errostack(ctx, 6, `%v: %v`, target, ctx).debug(10)
-      if /*opts.fail*/true { fail(target.Position(), `"%v" not generated`, target) }
+      errostack(ctx, 6, ``).debug(10)
       return
     } else if opts.report {
       reportFileUpdates(ctx, t.start, files)
@@ -1142,8 +1157,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
           st += err.Error()
         }
       }
-      prompt(ctx, "%s%s (%v, stdout=%d bytes, stderr=%d bytes)\n", ps, st, time.Now().Sub(start),
-        exeres.Stdout.wrote, exeres.Stderr.wrote)
+      var s string
+      if t := program.dirt; t != "" { s = "; " + t }
+      prompt(ctx, "%s%s (%v, stdout=%d bytes, stderr=%d bytes%s)\n",
+        ps, st, time.Now().Sub(start), exeres.Stdout.wrote, exeres.Stderr.wrote, s)
     }
   } ()
 
@@ -1152,7 +1169,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     var pos = positions[i]
     if strings.HasPrefix(src, "@") {
       src = src[1:]
-    } else if opts.verboseSrc && !opts.prompt {
+    } else if opts.promptSrc && !opts.prompt {
       var s string = src
       s = strings.Replace(s, "\n", "\\n", -1)
       s = strings.Replace(s, "\\\\n", "\\\n", -1)
@@ -1186,7 +1203,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         return
       } else if s, _ := os.Getwd(); s == workDir { break }
     }}
-    if !opts.silent || opts.prompt || opts.verboseSrc {
+    if !opts.silentErrs || opts.prompt || opts.promptSrc {
       exeres.printEnteringOnFirstWrote = true
     }
 
@@ -1202,17 +1219,18 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     }
     if p.opt != "" { exeres.sh.Args = append(exeres.sh.Args, p.opt) }
     if src   != "" { exeres.sh.Args = append(exeres.sh.Args, src) }
-    if opts.debug {
+    if opts.debug > 0 {
       warn(ctx, "%v: %v", ctx.entry(), target).at(program.position)
       warn(ctx, "context: %v", t)
-      warn(ctx, "exec:\n%v", exeres.sh).debug(1)
+      warn(ctx, "exec:\n%v", exeres.sh).debug(opts.debug*2)
     }
 
-    exeres.Stdout.report = !opts.silent
-    exeres.Stderr.report = !opts.silent
+    exeres.Stdout.report = !opts.silentErrs
+    exeres.Stderr.report = !opts.silentErrs
     exeres.Status, err = exeres.run(positional(ctx, pos))
-    if (!opts.silent || opts.debug) && (len(exeres.scannedDiags) > 0 || exeres.Status != 0 || err != nil) {
-      if opts.silent || opts.retStatus {
+    if false { warn(ctx, "%v: %v --> %v", cmd, src, exeres.Status).debug(1) }
+    if (!opts.silentErrs || opts.debug>0) && (len(exeres.scannedDiags) > 0 || exeres.Status != 0 || err != nil) {
+      if opts.silentErrs || opts.retStatus {
         err = nil
       } else if exeres.Status != 0 {
         err = &exitstatus{ exeres.Status } // set or convert error
@@ -1235,7 +1253,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       for i, rec := range exeres.scannedDiags {
         if !opts.infos && rec.dt == diagInfo { continue }
         if !logPos.IsValid() { logPos = rec.lpos }
-        if i == 0 && !rec.position.Equals(&rec.lpos) {
+        if i == 0 && !rec.position.Same(&rec.lpos) {
           diag(ctx, rec.dt, rec.msg).at(rec.lpos)//.debug(1)
         }
         if rec.num > 1 {
@@ -1261,15 +1279,18 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       var str, _, _ = entryStr(ctx, ctx.entry())
       if (!opts.retStatus && exeres.Status != 0) || en > 0 {
         if diffLogPos { erro(ctx, "%v: %d known errors", str, en).at(logPos) }
-        erro(ctx, "%v: exit status %d (%d known errors)", str, exeres.Status, en)
+        erro(ctx, "%v: exit status %d", str, exeres.Status).at(positions[i])
+        erro(ctx, "%v: %d known errors", str, en)
         errostack(ctx, 32, "").debug(32)
       } else if wn > 0 {
         if diffLogPos { warn(ctx, "%v: %d known warnings", str, wn).at(logPos) }
-        warn(ctx, "%v: exit status %d (%d known warnings)", str, exeres.Status, wn)
+        warn(ctx, "%v: exit status %d", str, exeres.Status).at(positions[i])
+        warn(ctx, "%v: %d known warnings", str, wn)
         warnstack(ctx, 3, "").debug(1)
       } else if in > 0 && opts.infos {
         if diffLogPos { info(ctx, "%v: %d known messages", str, in).at(logPos) }
-        info(ctx, "%v: exit status %d (%d known messages)", str, exeres.Status, in)
+        info(ctx, "%v: exit status %d", str, exeres.Status).at(positions[i])
+        info(ctx, "%v: %d known messages", str, in)
         infostack(ctx, 8, "").debug(1)
       }
 

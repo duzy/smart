@@ -757,7 +757,13 @@ func (p *parser) parseRegexpExpr() (x Value) {
 func (p *parser) parseKeyValueExpr(x Value) *Pair {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Pair")) }
 	position := p.Position(); p._next()
-	return MakePair(position, x, p.parseExpr(false))
+	var y Value
+	if p.isEndOfList(false) {
+		y = MakeNil(position)
+	} else {
+		y = p.parseExpr(false)
+	}
+	return MakePair(position, x, y)
 }
 
 func (p *parser) parseFlagExpr(lhs bool) *Flag {
@@ -801,8 +807,10 @@ func (p *parser) parseBasicLit(lhs bool) (v Value) {
 	case token.STRING: end += 2
 	}
 	p._next()
+
 	// ESCAPE is handled in value.EscapeChar
     var position = Position(p.file.Position(pos))
+	defer checkPanicsErrors(positional(p, position)) // panics from parse{int,float,hex,...}
     switch tok {
     case token.BAR: erro(p, "`|` is deprecated, changed the modifiers!").at(p.positionAt(pos))
     case token.BIN:      v = ParseBin(position, lit)
@@ -2138,6 +2146,7 @@ SwitchDialect:
 	case "", "eval", "value":
 		p.scanner.LeaveCompoundLineContext()
 		p.next(true) // skip RECIPE or SEMICOLON and parse in list mode
+		position = p.Position()
 		if isList = true; !p.isEndOfLine() {
 			defer p.setbit(p.setbit(parsingBuiltinCommand))
 
@@ -2204,6 +2213,7 @@ SwitchDialect:
 
 	default:
 		p.next(true) // skip RECIPE or SEMICOLON and parse in line-string mode
+		position = p.Position()
 		for !p.isEndOfLine() {
 			var bits = p.setbit(parsingRecipeText)
 			var x Value
@@ -2229,7 +2239,7 @@ SwitchDialect:
     }
 }
 
-func (p *parser) parseModifySetVar(args []Value) (err error) {
+func (p *parser) parseVarModifier(args []Value) (err error) {
 	// Parsing (var a=xxx,b=yyy) definitions
 	for _, elem := range args[1:] {
 		var kv, ok = elem.(*Pair)
@@ -2337,7 +2347,7 @@ ForModifiersExpr:
 		switch n := group.Elems[0].(type) {
 		case *Bareword:
 			if name = n.string; name == "var" {
-				p.parseModifySetVar(group.Elems)
+				p.parseVarModifier(group.Elems)
 				continue ForModifiersExpr
 			} else if name == "configure" {
 				p.defineConfigureTargets()
@@ -2433,29 +2443,24 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 	}
 
 	var (
+		position = p.Position()
+		ctx = positional(p, position)
+
 		// TODO: doc = p.leadComment
 		depends []Value
 		ordered []Value
 		recipes []Value
 		scopeComment string
 	)
-
-	p.params = nil
-	p.dialect = ""
-
 	switch special {
 	case specialRuleUse:
 		scopeComment = fmt.Sprintf(usecomment)
 	default:
 		scopeComment = fmt.Sprintf("rule %v", targets)
 	}
-
-	var (
-		position = p.Position()
-		ctx = positional(p, position)
-	)
-
 	defer p.closeScope(p.openScope(scopeComment))
+	p.params = nil
+	p.dialect = ""
 
 	for _, s := range automatics {
 		var def, alt = p.def(position, s)
@@ -2560,9 +2565,9 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		params:   params,
 		position: position,
 		config:   p.configure,
-		targets:  barefileize(ctx, targets...),
-		depends:  barefileize(ctx, depends...),
-		ordered:  barefileize(ctx, ordered...),
+		targets:  barefilize(ctx, targets...),
+		depends:  barefilize(ctx, depends...),
+		ordered:  barefilize(ctx, ordered...),
 		recipes:  recipes,
 		options:  options,
 		special:  special,

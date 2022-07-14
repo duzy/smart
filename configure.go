@@ -375,21 +375,21 @@ func executeConfigureEntry(ctx Context, opts *modifierConfigureOpts, entryName s
     }
 
     var (
-        commonOpts commonConfigureOpts
+        commOpts commonConfigureOpts
         params []Value
         pos = ctx.Position()
         hyphenVal, /*hyphenFound*/_ = ctx.autoGet("-")
         verbose = opts.verbose
     )
 
-    paramsOrig = parseOpts(ctx, &commonOpts, paramsOrig...)
+    paramsOrig = parseOpts(ctx, &commOpts, paramsOrig...)
 
     // Reset the result/output def '-'?
     // NOTE: have to reset hyphen to ensure configured value is saved
-    if !commonOpts.noResetHyphen { ctx.autoSet("-", nil) }
+    if !commOpts.noResetHyphen { ctx.autoSet("-", nil) }
 
     // verbose mode is on if silent flag was not set
-    if !verbose && !commonOpts.silent { verbose = !commonOpts.silent }
+    if !verbose && !commOpts.silent { verbose = !commOpts.silent }
 
     var (
         programs = entries.Programs()
@@ -765,63 +765,37 @@ type configureConvertOpts struct {
 
 type configureConvertArgs func(args []Value, out *bytes.Buffer) []Value
 type configureConvertFunc func(str string, out *bytes.Buffer) error
-func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData configureConvertFunc, opts *configureConvertOpts, args ...Value) (result Value, _ travestates) {
+func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData configureConvertFunc, opts *configureConvertOpts, args ...Value) (result Value, traves travestates) {
     var (
-        closured []*Project
-        project *Project
+        closured = closureProjects(ctx)
         filename string
         file *File
     )
     args = parseOpts(ctx, opts, mergeExpand(ctx, expandPlainValue, args...)...)
     if target, found := ctx.autoGet("@"); !found || isTrivial(target) {
-        erro(ctx, " target '@' is not defined").debug(1)
+        erro(ctx, "'@' is not defined").debug(1)
         return
-    } else if file, _ = target.(*File); file == nil {
-        var s string = target.Strval(ctx)
-
-        if closured == nil { closured = closureProjects(ctx) }
-        for _, p := range closured {
-            if file = p.FindFile(ctx, s); file != nil { project = p
-                if opts.verbose && opts.debug {
-                    info(ctx, "%v: file %v\n", p, file).debug(1)
-                }
-                break
-            }
+    } else if file, filename, _ = fullname(ctx, target, closured...); file == nil {
+        if depend, found := ctx.autoGet(">"); found && !isTrivial(depend) {
+            s := traves.add(ctx, traveFail, target)
+            s.error = traveTargetNotDefinedFile
+            s.depend = depend
+        } else if true {
+            prompt(ctx, "%v: not defined as file\n", target.Strval(ctx))
+            erro(ctx, "(%T) %v", target, target)
+            errostack(ctx, 8, "").debug(64)
         }
-
-        if file == nil {
-            prompt(ctx, "%v: configure-file failed\n", s)
-            erro(ctx, "%v: %v", s, closured)
-            errostack(ctx, 8, "target '%s' is not a file", s).debug(16)
-            return
-        }
-    }
-
-    if file == nil {
-        erro(ctx, " no file target").debug(1)
         return
-    } else if filename, _ = fullname(ctx, file); filename == "" {
-        erro(ctx, " `%v` has empty filename", file).debug(1)
+    } else if filename == "" {
+        errostack(ctx, 3, "%v: empty fullname: `%v`", target, file).debug(1)
         return
-    } else if !filepath.IsAbs(filename) {
-        // fix: find the the full filename and set file target
-        if closured == nil { closured = closureProjects(ctx) }
-        for _, p := range closured {
-            if f := p.FindFile(ctx, filename); f != nil {
-                var prev Value
-                file, filename, project = f, f.fullname(), p
-                if prev, _ = ctx.autoSet("@", file); opts.debug {
-                    info(ctx, "configure-file: %v: %s->%s (prev=%v)", p, f, filename, prev).debug(1)
-                }
-                break
-            }
-        }
+    } else if prev, _ := ctx.autoSet("@", file); opts.debug {
+        info(ctx, "configure-file: %s->%s (prev=%v)", file, filename, prev).debug(1)
     }
     if file.info == nil { if f := stat(ctx, filename, "", ""); f != nil { file.info = f.info }}
-    if project == nil { project = ctx.Project() }
     if opts.debug && file != nil {
-        var tv, _ = ctx.autoGet("@")
-        info(ctx, "configure-file: %v: %v (%s) (%v, %v)", project, tv, file.fullname(), ctx.Project(), ctx).debug(1)
+        var t, _ = ctx.autoGet("@")
+        info(ctx, "configure-file: %v: %v (%s) (%v)", t, file.fullname(), closured).debug(1)
     }
 
     // Check previously configured files, we only configure once unless

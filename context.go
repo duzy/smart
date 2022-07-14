@@ -410,7 +410,7 @@ func (pc *positionalContext) autoGet(name string) (res Value, found bool) {
 }
 func positional(ctx Context, pos Position) Context {
   if ctx == nil { panic("nil inner context") }
-  if pc, ok := ctx.(*positionalContext); ok && pos.Equals(&pc.position) {
+  if pc, ok := ctx.(*positionalContext); ok && pos.Same(&pc.position) {
      return ctx;
   }
   return &positionalContext{ ctx, pos }
@@ -1036,7 +1036,9 @@ func CommandLine() {
     prompt(context, "run work got %d errors\n", context.totalErrors())
   } else if result != nil {
     for i, v := range result {
-      if s := strings.TrimSpace(v.Strval(context)); s == "" {
+      if s := ""; isNil(v) {
+        s = "<nil>"
+      } else if s = strings.TrimSpace(v.Strval(context)); s == "" {
         continue
       } else if i == 0 {
         fmt.Fprintf(stderr, "%s", s)

@@ -924,6 +924,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
     }
 
     var prog = &Program{
+        language: l.dialect,
         project:  l.project,
         scope:    progScope,
         params:   params,
@@ -1802,7 +1803,7 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *pars
         var panics, _ = checkPanicsErrors(positional(l, pos), true)
         if proj := l.project; panics > 0 {
             if err != nil { erro(l, "panics with error: %v", panics, err) }
-            if proj.position.Equals(&pos) {
+            if proj.position.Same(&pos) {
                 erro(l, "failed: got %d panics from %v (%s)", panics, proj, proj.spec).debug(128)
             } else {
                 erro(l, "failed: got %d panics from %v (%s)", panics, proj, proj.spec)

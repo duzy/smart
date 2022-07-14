@@ -32,7 +32,7 @@ import (
 
 type Position token.Position
 
-func (pos *Position) Equals(other *Position) bool {
+func (pos *Position) Same(other *Position) bool {
         return (*token.Position)(pos).Same((*token.Position)(other))
 }
 
@@ -62,6 +62,7 @@ var builtins = map[string]BuiltinFunc {
         `position`:     builtinPosition,
         `date`:         builtinDate,
 
+        `debug`:        builtinDebug,
         `error`:        builtinError,
         //`warning`:      builtinWarning,
 
@@ -380,7 +381,7 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                                 return
                         }
 
-                        if _, s, _, ok = asOptFullname(ctx, nil, x); ok && s != "" {
+                        if _, s, ok = asOptFullname(ctx, x/*, projects...*/); ok && s != "" {
                                 val.Set(reflect.ValueOf(&optFullname{ s, x }))
                         } else {
                                 var tv, _ = ctx.autoGet("@")
@@ -478,7 +479,14 @@ func parseOpts(ctx Context, iOpts interface{}, args... Value) (rest []Value) {
                 for i := 0; i < otyp.NumField(); i += 1 {
                         var ft = otyp.Field(i)
                         var fv = opts.Field(i)
-                        rest = parseOpt(ctx, ft.Tag, fv, rest...)
+                        if ft.Name == "generalOpts" && fv.Kind() == reflect.Struct &&
+                                fv.Type().String() == "smart.generalOpts" {
+                                var base = (*generalOpts)(unsafe.Pointer(fv.UnsafeAddr()))
+                                rest = parseOpts(ctx, base, rest...)
+                                if false { prompt(ctx, "%v: %v ; %v -> %v", ft.Name, *base, args, rest).debug(1) }
+                        } else {
+                                rest = parseOpt(ctx, ft.Tag, fv, rest...)
+                        }
                 }
         } else {
                 erro(ctx, "opts is not ptr of struct: %v", opts.Kind()).at(pos).debug(1)
@@ -601,6 +609,23 @@ func builtinDate(ctx Context, args... Value) (res Value) {
         } else {
                 res = MakeDate(pos, t)
         }
+        return
+}
+
+type builtinDebugOpts struct {
+        s int `s,stack`
+        n int `n,num`
+}
+func builtinDebug(ctx Context, args... Value) (res Value) {
+        var opts builtinDebugOpts
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+
+        var s bytes.Buffer
+        for i, a := range args {
+                if i > 0 { fmt.Fprintf(&s, " ") }
+                fmt.Fprintf(&s, "%s", a.Strval(ctx))
+        }
+        warnstack(ctx, opts.s, "%s", s.String()).debug(opts.n)
         return
 }
 
@@ -1714,15 +1739,11 @@ type builtinPatsubstOpts struct {
 //   $(var:suffix=replacement)
 func builtinPatsubst(ctx Context, args... Value) (res Value) {
         var (
-                proj = ctx.Project()
                 opts builtinPatsubstOpts
                 list []Value
                 arg0 []Value
         )
-        if proj == nil {
-                erro(ctx, "unknown current context").debug(1)
-                return
-        } else if len(args) < 3 {
+        if len(args) < 3 {
                 erro(ctx, "not enough arguments").debug(1)
                 return
         }
@@ -1753,6 +1774,8 @@ func builtinPatsubst(ctx Context, args... Value) (res Value) {
                 }
         }
 
+        var proj = ctx.Project()
+        var closured = closureProjects(ctx)
         // Using the most derived context for correct &(...)
         //defer setclosure(setclosure(cloctx.unshift(proj.scope)))
 
@@ -1775,7 +1798,7 @@ ForSources:
                         }
                 } else if opts.full {
                         var ( s string; ok bool )
-                        if _, s, _, ok = asOptFullname(ctx, proj, src); s == "" {
+                        if _, s, ok = asOptFullname(ctx, src, closured...); s == "" {
                                 erro(ctx, "fullname '%v' is empty", src).of(src)
                                 erro(ctx, "called from here", src).debug(1)
                                 return
@@ -2363,64 +2386,52 @@ func builtinDecodeBase64(ctx Context, args... Value) (res Value) {
         return
 }
 
-func asFile(ctx Context, a Value) (f *File) {
+func asFile(ctx Context, a Value, projects ...*Project) (f *File) {
         switch t := a.(type) {
         case *File     : f = t
         case *Barefile : f = t.File
-        case *Def      : if t.value != nil    { return asFile(ctx, t.value   ) }
-        case *List     : if len(t.Elems) == 1 { return asFile(ctx, t.Elems[0]) }
-        case *RuleEntry:                        return asFile(ctx, t.target  )
+        case *Def      : if !isTrivial(t.value) { return asFile(ctx, t.value   ) }
+        case *List     : if len(t.Elems) == 1   { return asFile(ctx, t.Elems[0]) }
+        case *RuleEntry:                          return asFile(ctx, t.target  )
+        case *String: // NOTE: Finding string here is slow! It's acceptable to keep string.
+                // fallthrough
         case *Bareword, *Barecomp, *Path:
-                for _, proj := range closureProjects(ctx) {
-                        if f = proj.FindFile(ctx, t.Strval(ctx)); f != nil {
-                                break
-                        }
+                if len(projects) == 0 { projects = closureProjects(ctx) }
+                for _, proj := range projects {
+                        if f = proj.FindFile(ctx, t.Strval(ctx)); f != nil { break }
                 }
         }
         return
 }
 
-func fullname1(ctx Context, a Value) (s string, ok bool) {
-        if f := asFile(ctx, a); f == nil {
+func fullname(ctx Context, a Value, projects ...*Project) (f *File, s string, ok bool) {
+        if f = asFile(ctx, a, projects...); f == nil {
                 // no fullname
         } else if s = f.fullname(); filepath.IsAbs(s) {
                 ok = true
         } else {
-                s = ""
+                // s = ""
         }
         return
 }
 
-func fullname(ctx Context, a Value) (s string, ok bool) {
-        var v = a.expand(ctx, expandFullName)
-        if isNil(v) { v = a }
-        s, ok = fullname1(ctx, v)
-        return
-}
-
-func fullnameOrStrval(ctx Context, a Value) (s string) {
+func fullnameOrStrval(ctx Context, a Value, projects ...*Project) (s string) {
         var ok bool
-        if s, ok = fullname(ctx, a); !ok {
+        if _, s, ok = fullname(ctx, a, projects...); !ok {
                 s = a.Strval(ctx)
         }
         return
 }
 
 // see optFullname and parseOpt
-func asOptFullname(ctx Context, proj *Project, val Value) (rp *Project, s string, file *File, ok bool) {
-        if proj == nil { proj = ctx.Project() }
-        if s, ok = fullname(ctx, val); ok {
+func asOptFullname(ctx Context, val Value, projects ...*Project) (file *File, s string, ok bool) {
+        if file, s, ok = fullname(ctx, val, projects...); ok {
                 // done
-        } else if proj == nil {
-                erro(ctx, "no current project to find file '%v'", val).of(val).debug(1)
         } else if s = val.Strval(ctx); s == "" {
                 // ...
         } else if filepath.IsAbs(s) {
                 ok = true
-        } else if file = proj.FindFile(ctx, s); file != nil {
-                s, ok = file.fullname(), true
         }
-        rp = proj
         return
 }
 
@@ -2429,8 +2440,8 @@ type builtinFullNameOpts struct {
 }
 func builtinFullName(ctx Context, args... Value) (res Value) {
         var (
+                closured = closureProjects(ctx)
                 opts builtinFullNameOpts
-                proj *Project
                 l []Value
                 s string
                 ok bool
@@ -2443,7 +2454,7 @@ func builtinFullName(ctx Context, args... Value) (res Value) {
                                 warn(ctx, "%T %v", a, a).debug(opts.debug,1)
                         }
                 }
-                if proj, s, _, ok = asOptFullname(ctx, proj, a); ok || s != "" {
+                if _, s, ok = asOptFullname(ctx, a, closured...); ok || s != "" {
                         l = append(l, MakeString(a.Position(), s))
                 } else {
                         l = append(l, a)
@@ -2790,6 +2801,7 @@ type builtinRemoveOpts struct {
 }
 func builtinRemove(ctx Context, args... Value) (res Value) {
         var (
+                closured = closureProjects(ctx)
                 opts builtinRemoveOpts
                 names []string
                 proj *Project
@@ -2822,7 +2834,7 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                                         return
                                 }
                         }
-                } else if proj, str, file, ok = asOptFullname(ctx, proj, a); !ok || str == "" {
+                } else if file, str, ok = asOptFullname(ctx, a, closured...); !ok || str == "" {
                         if opts.all {
                                 warnstack(ctx, 3, "%v: not a file: %s (%T)", proj, str, a).debug(8)
                         } else {
@@ -2856,9 +2868,9 @@ type builtinRemoveAllOpts struct {
 }
 func builtinRemoveAll(ctx Context, args... Value) (res Value) {
         var (
+                closured = closureProjects(ctx)
                 opts builtinRemoveAllOpts
                 names []string
-                proj *Project
                 str string
                 ok bool
         )
@@ -2877,7 +2889,7 @@ func builtinRemoveAll(ctx Context, args... Value) (res Value) {
                                         return
                                 }
                         }
-                } else if proj, str, _, ok = asOptFullname(ctx, proj, a); !ok || str == "" {
+                } else if _, str, ok = asOptFullname(ctx, a, closured...); !ok || str == "" {
                         erro(ctx, "%v is not a file", a).debug(1)
                         break
                 } else {
@@ -3461,6 +3473,7 @@ func wildcardPathPatsInDir3(ctx Context, opts *wildcardOpts, pats ...Value) (fil
                         if full, _, _ := x.match(ctx, name); full { continue forNames }
                 }
                 for _, pat := range pats {
+                        var ctx = positional(ctx, pat.Position())
                         var p, ok = pat.(*Path)
                         if !ok || len(p.Elems) <= 1 {
                                 var full, s, stems = pat.match(ctx, name)
@@ -3614,9 +3627,9 @@ type builtinReadFileOpts struct {
 }
 func builtinReadFile(ctx Context, args... Value) (res Value) {
         var (
+                closured = closureProjects(ctx)
                 pos = ctx.Position()
                 opts builtinReadFileOpts
-                proj *Project
                 l []Value
         )
         for _, a := range parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...) {
@@ -3628,7 +3641,7 @@ func builtinReadFile(ctx Context, args... Value) (res Value) {
                         ok bool
                 )
                 if !apos.IsValid() { apos = pos }
-                if proj, str, _, ok = asOptFullname(ctx, proj, a); !ok || str == "" {
+                if _, str, ok = asOptFullname(ctx, a, closured...); !ok || str == "" {
                         erro(ctx, "%v is not a file", a).at(apos).debug(1)
                         break
                 } else if s, err = ioutil.ReadFile(str); err != nil {
@@ -3717,7 +3730,7 @@ ForArgs:
 }
 
 func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Time) (err error) {
-        var filename, _ = fullname(ctx, file)
+        var _, filename, _ = fullname(ctx, file)
         if  filename == "" {
                 erro(ctx, "touch: file fullname of '%v' is empty", file, err).of(file).debug(1)
                 return
@@ -3910,10 +3923,11 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                         val Value
                 )
                 if def = project.config(ctx, name); def == nil {
-                        if true { warnstack(ctx, 5, "%v undefined", name).debug(6) }
+                        if true { warn(ctx, "%v undefined", name).debug(1) }
                         continue
                 } else if val = def.Call(ctx); isTrivial(val) {
-                        if true { warnstack(ctx, 5, "%v is trivial", name).of(def).debug(6) }
+                        if true { warn(ctx, "%v is trivial (%T)", name, val).
+                                of(def).debug(1) }
                         continue
                 }
 

@@ -12,12 +12,12 @@ import (
     "path/filepath"
     "runtime/debug" // debug.PrintStack()
     "runtime"
-	"unicode/utf8"
+    "unicode/utf8"
     "net/url"
     "reflect"
     "strconv"
     "strings"
-	"errors"
+    "errors"
     "bytes"
     "io/fs"
     "sync"
@@ -50,7 +50,7 @@ const (
     existenceConfirmed
     existenceNegated
 )
-const expandArgumentedTraverse = true
+const traverseArgumentedExpand = true
 const (
     expandDelegate expandwhat = 1<<iota // $(...)  ->  ......
     expandClosure   // &(...)            ->  $(...)
@@ -87,14 +87,14 @@ func (v existence) String() (s string) {
 
 // A Comment node represents a single #-style comment.
 type Comment struct {
-	Pos Position // position of "#" starting the comment
-	Text  string // comment text (excluding '\n')
+    Pos Position // position of "#" starting the comment
+    Text  string // comment text (excluding '\n')
 }
 
 // A CommentGroup represents a sequence of comments
 // with no other tokens and no empty lines between.
 type CommentGroup struct {
-	List []*Comment // len(List) > 0
+    List []*Comment // len(List) > 0
 }
 
 func (g *CommentGroup) Position() Position { return g.List[0].Pos }
@@ -127,8 +127,13 @@ ForStatInfos:
     return
 }
 
+var (
+    traveTargetNotDefinedFile = fmt.Errorf("target not defined as file")
+)
+
 const ( // larger value higher priority
     traveUnkn travekind = iota
+    traveObj  // found object
     traveFile // exists file
     traveNext // (cond ...) and (case ...)
     traveCase // (case ...) selected
@@ -141,6 +146,7 @@ type travekind int
 func (k travekind) String() (s string) {
     switch k {
     case traveUnkn: s = "trave.unkn"
+    case traveObj : s = "trave.obj"
     case traveFile: s = "trave.file"
     case traveNext: s = "trave.next"
     case traveDone: s = "trave.done"
@@ -152,6 +158,7 @@ func (k travekind) String() (s string) {
 
 type travestate struct {
     pos Position
+    prog *Program
     what travekind
     error error
     target, depend, dependPat Value
@@ -164,19 +171,39 @@ func (p *travestate) String() (s string) { //_error
     case traveNext: s = "next"
     case traveCase: s = "case"
     case traveFile: s = "file"
-    case traveFail:
-        if p.error != nil { s = "error: " + p.error.Error() } else {
-            s = "failure" // "break with assertion failure"
+    case traveFail: s = "fail"
+    case traveObj : s = "obj"
+    }
+    if !isNil(p.target)    { s = fmt.Sprintf("%s@%s", s, p.target) } //⇒
+    if !isNil(p.dependPat) { s = fmt.Sprintf("%s:%s"  , s, p.dependPat) }
+    if !isNil(p.depend)    { s = fmt.Sprintf("%s>%s", s, p.depend) } //⇒
+    if false && p.pos.IsValid() { s = fmt.Sprintf("%s: %s", p.pos, s) }
+    if p.error != nil {
+        if pe, ok := p.error.(*os.PathError); ok {
+            s += ":" + pe.Err.Error()
+        } else if e := p.error.Error(); e != "" {
+            s += ":" + e
         }
     }
-    if !isNil(p.target)    { s = fmt.Sprintf("%s:@⇒%s", s, p.target) }
-    if !isNil(p.dependPat) { s = fmt.Sprintf("%s:%%⇒%s", s, p.dependPat) }
-    if !isNil(p.depend)    { s = fmt.Sprintf("%s:>⇒%s", s, p.depend) }
-    if false && p.pos.IsValid() { s = fmt.Sprintf("%s: %s", p.pos, s) }
     return
 }
 
 type travestates []*travestate
+
+func (p travestates) String() (s string) {
+    const x = 5
+    s = "["
+    for i, t := range p {
+        if i > 0 { s += " " }
+        s += t.String()
+        if i == x && len(p) > x {
+            s += fmt.Sprintf(" …%d…", len(p)-x)
+            break
+        }
+    }
+    s += "]"
+    return
+}
 
 func (traves *travestates) has(what ...travekind) (res bool) {
     if len(what) == 0 { res = len(*traves) > 0 } else {
@@ -193,8 +220,22 @@ func (traves *travestates) has(what ...travekind) (res bool) {
     return
 }
 
-func (traves *travestates) append(s *travestate) {
+func (traves *travestates) append(s *travestate) *travestates {
     *traves = append(*traves, s)
+    return traves
+}
+
+func (traves *travestates) remove(ss ...*travestate) *travestates {
+    var res travestates
+ForTravestates:
+    for _, s := range ss {
+        for _, t := range *traves {
+            if s == t { continue ForTravestates }
+        }
+        res = append(res, s)
+    }
+    *traves = res
+    return traves
 }
 
 func (traves *travestates) not(what ...travekind) (res travestates) {
@@ -213,6 +254,28 @@ ForTravestates:
     for _, s := range *traves {
         for _, w := range what {
             if s.what == w {
+                res = append(res, s)
+                continue ForTravestates
+            }
+        }
+    }
+    return
+}
+
+func (traves *travestates) unique(ctx Context, what ...travekind) (res travestates) {
+ForTravestates:
+    for _, s := range *traves {
+        for _, w := range what {
+            if s.what == w {
+                for _, s2 := range res {
+                    // FIXME: seems not working
+                    if s.what == s2.what && (s == s2 || (true &&
+                        (s.target == s2.target || s.target.cmp(ctx, s2.target) == cmpEqual) &&
+                        (s.depend == s2.depend || (s.depend != nil && s2.depend != nil &&
+                            s.depend.cmp(ctx, s2.depend) == cmpEqual)))) {
+                        continue ForTravestates
+                    }
+                } 
                 res = append(res, s)
                 continue ForTravestates
             }
@@ -584,13 +647,13 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
         entry = ctx.entry()
         str, _, _ = entryStr(ctx, entry)
     )
-    if s != "" {
+    if s != "" && s != "<#" && s != "#>" {
         point = diag(ctx, dt, s, a...)
     } else if entry == nil {
         point = ctx.diag(dt, "in project %v:", proj)
         if false && proj != nil { point.at(proj.position) }
         for last, i := ctx.Position(), ctx.inner(); i != nil; i = i.inner() {
-            if pos := i.Position(); !pos.Equals(&last) {
+            if pos := i.Position(); !pos.Same(&last) {
                 point = ctx.diag(dt, "%v: from here", proj).at(pos)
                 last = pos
             }
@@ -600,9 +663,21 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
         proj = entry.OwnerProject()
     }
 
+    if s == "<#" && len(a) > 0 { for _, t := range a {
+        if v, ok := t.(Value); ok {
+            point = ctx.diag(dt, "%v: %v (%T) (project=%v)", str, v, v, proj).of(v)
+        }
+    }}
+
     point = ctx.diag(dt, "%v: (project=%v) %v", str, proj, ctx)
     if pc := ctx.programContext(); pc != nil {
         point = point.at(pc.prog.position)
+
+        if s == "#>" && len(a) > 0 { for _, t := range a {
+            if v, ok := t.(Value); ok {
+                point = ctx.diag(dt, "%v: %v (%T) (project=%v)", str, v, v, proj).of(v)
+            }
+        }}
 
         var tt, _ = pc.autoGet("@")
         for last, i := &pc.prog.position, 0; pc != nil && n > 0; pc = pc.Context.programContext() {
@@ -666,6 +741,7 @@ func (t *traverseContext) calleeError(err error) {
     }
 }
 
+// traverse - traverse the prerrequiste for the current target $@
 func traverse(ctx Context, prereqValue Value, prereq string, projects... *Project) (traves travestates) {
     var targetValue = getTargetValue(ctx)
     if isNil(targetValue) {
@@ -673,73 +749,150 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         errostack(ctx, 3, "target is <nil>").debug(6)
         return
     }
+    if false && strings.Contains(prereq, "polly/Config/config.h") {
+        warn(ctx, "%T %v", targetValue, targetValue)
+        warn(ctx, "%T %v", prereqValue, prereqValue)
+        warnstack(ctx, 3, "").debug(16)
+    }
+
+    var (
+        prereqPattern Value
+        file *File
+    )
     if len(projects) == 0 { projects = ctx.projects(ctx) }
     if len(projects) == 0 {
         prompt(ctx, "%s: zero closure projects\n", prereq)
         erro(ctx, "no projects to traverse '%v' (%s)", prereqValue, prereq)
         erro(ctx, "%v: closure %v", prereq, len(ctx.closureScopes()))
-        errostack(ctx, 3, "%v: %v", prereq, ctx).debug(8)
+        errostack(ctx, 3, "").debug(8)
         return
+    } else if prereqValue == nil {
+        if prereq != "" {
+            prereqValue = MakeString(ctx.Position(), prereq)
+        } else {
+            errostack(ctx, 3, "prerequisite is none").debug(8)
+            return
+        }
+    } else if prereqValue.patterned(ctx) {
+        var stems = ctx.stems()
+        if len(stems) == 0 {
+            errostack(ctx, 3, "%v: no stems", prereqValue).debug(8)
+            return
+        } else if true {
+            // does nothing
+        } else if prereq != "" {
+            errostack(ctx, 3, "%v: unwanted pattern name: %s",
+                prereqValue, prereq).debug(8)
+            return
+        }
+
+        var rest []string
+        prereqPattern = prereqValue
+        prereqValue, rest = prereqPattern.stencil(ctx, stems)
+        if isTrivial(prereqValue) {
+            errostack(ctx, 3, "%v: empty stencil with %v",
+                prereqPattern, stems).debug(8)
+            return
+        } else if len(rest) > 0 {
+            errostack(ctx, 3, "%v: partial stencil with %v, rest=%v",
+                prereqPattern, stems, rest).debug(8)
+            return
+        } else if prereq != "" {
+            // does nothing
+        } else if prereq = prereqValue.Strval(ctx); prereq == "" {
+            errostack(ctx, 3, "%v: empty prerequisite, stems=%v",
+                prereqValue, stems).debug(8)
+            return
+        }
+
+        for _, project := range projects {
+            if file = project.FindFile(ctx, prereq); file != nil {
+                prereqValue = file
+                break
+            }
+        }
+    } else {
+        if prereq == "" { if prereq = prereqValue.Strval(ctx); prereq == "" {
+            errostack(ctx, 3, "%v: %v: empty prerequisite, stems=%v",
+                targetValue, prereqValue, ctx.stems()).debug(8)
+            return
+        }}
+        file, _ = prereqValue.(*File)
     }
 
     const db0 = false
     var dbg = true && (
         // strings.Contains(prereq, "table-gen"               ) ||
         strings.Contains(prereq, "llvm-tools-objcopy"      ) ||
-        strings.Contains(prereq, "llvm-tools-bitcode-strip") ||
-        strings.Contains(targetValue.Strval(ctx), "llvm-tools-objcopy"      ) ||
-        strings.Contains(targetValue.Strval(ctx), "llvm-tools-bitcode-strip") ||
-        // strings.Contains(targetValue.Strval(ctx), "llvm-driver-ar"         ) ||
-        // strings.Contains(targetValue.Strval(ctx), "strstream.cpp.sm"       ) ||
-        false)
+            strings.Contains(prereq, "llvm-tools-bitcode-strip") ||
+            strings.Contains(targetValue.Strval(ctx), "llvm-tools-objcopy"      ) ||
+            strings.Contains(targetValue.Strval(ctx), "llvm-tools-bitcode-strip") ||
+            // strings.Contains(targetValue.Strval(ctx), "llvm-driver-ar"         ) ||
+            // strings.Contains(targetValue.Strval(ctx), "strstream.cpp.sm"       ) ||
+            false)
 
     dbg = dbg || (false &&
         strings.Contains(prereq, "touch") &&
         strings.Contains(targetValue.Strval(ctx), "stamp") &&
         true)
 
+    const promptTraveEntries = false
+    // const promptTraveEntries = true
+    // var promptTraveEntries = strings.Contains(prereq, "polly/Config/config.h")
+
     var (
+        verb = options.verbose || options.verboseBreaks
         t = ctx.traversal()
-        done = make(map[interface{}]bool) // helps to avoid traversed multiple times
         concreteList []Entry
         stemmedList []*stemmed
-        obj Object
         traversed int
-        file *File // if target is file
+        obj Object
         okay bool
         err error
     )
-    if prereqValue == nil { prereqValue = MakeString(ctx.Position(), prereq) }
     defer func() {
+        var (
+            av = targetValue
+            bv = prereqValue
+        )
+
         // Note that the file maybe not traversed yet at this point.
         // But we still have to check mod-time.
         if file == nil {
-            var (
-                a = targetValue.stat(ctx).mod()
-                b = prereqValue.stat(ctx).mod()
-            )
-            // IsZero() indicates the target not exists
-            if (!a.IsZero() && b.After(a)) || prereqValue.updated(ctx) || prereqValue.updatedDeps(ctx) != nil {
-                if false {
-                    targetValue.updated(ctx, true)
-                } else {
-                    targetValue.updatedDeps(ctx, prereqValue)
-                }
-            }
             ctx.traversed(prereqValue) // set $< $> $^ or $|
         } else if /*targetValue != prereqValue && */targetValue != file {
             ctx.traversed(file) // set $< $> $^ or $|
+            bv = file
+        } else if t := traves.of(traveFile); t.has() { for _, s := range t {
+            if d := s.depend; d != bv && !isTrivial(d) { bv = d }
+        }}
+
+        if !isNil(av) && !isNil(bv) {
+            var (
+                a = av.stat(ctx).mod()
+                b = bv.stat(ctx).mod()
+            )
+            // IsZero() indicates the target not exists
+            if (!a.IsZero() && b.After(a)) || bv.updated(ctx) || bv.updatedDeps(ctx) != nil {
+                if false {
+                    av.updated(ctx, true)
+                } else {
+                    av.updatedDeps(ctx, bv)
+                }
+            }
         }
+
         if file != nil {
             if okay && traversed > 0 && file.exists() && traves.has(traveNext) {
                 traves = traves.not(traveNext)
             }
             if true && !traves.has(traveFile) {
                 trave := traves.add(ctx, traveFile, targetValue)
+                trave.dependPat = prereqPattern
                 trave.depend = file
             }
         }
-        if true && dbg {
+        if false && dbg {
             prompt(ctx, "%v: %v; (%T %T; okay=%v)\n",
                 targetValue, prereqValue, targetValue, prereqValue, okay)
             prompt(ctx, "%v: %v; okay=%v traversed=%v traves=%v projects=%v\n",
@@ -748,299 +901,259 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 targetValue, prereqValue, file.fullname(), file.exists()) }
             warnstack(ctx, 5, "").debug(6)
         }
-        if  strings.Contains(targetValue.Strval(ctx), "Unwind") ||
-            strings.Contains(prereq, "Unwind") { prompt(ctx, "%v: %T: %T %v %v %v\n",
-            targetValue, targetValue, prereqValue, prereqValue,
-            traves, okay) }
+        if false ||
+            // prereq == "llvm-driver-objcopy.cpp" ||
+            // strings.Contains(targetValue.Strval(ctx), "Unwind") ||
+            // strings.Contains(prereq, "Unwind") ||
+            false {
+            prompt(ctx, "%v: %T: %T %v; %v file=%v okay=%v\n",
+                targetValue, targetValue, prereqValue, prereqValue,
+                traves, file, okay)
+            infostack(ctx, 5, "").debug(24)
+        }
     } ()
 
-    if false && dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v traves=%v; concretes:\n",
-        targetValue, prereqValue, prereqValue, file, okay, traversed, traves).debug(1) }
-    if true { ForProjectsConcretes: for _, project := range projects {
-        var entries = project.resolveEntries(ctx, prereq, t.grepping, false)
-        if entries != nil && project.name == "llvm" && targetValue.Strval(ctx) == "stamp" && prereq == "touch" {
-            warn(ctx, "%T %v, %T %v; %v",
-                targetValue, targetValue, prereqValue, prereqValue, entries.all).debug(1)
+    // %.h <-> 'llvm/PassSupport.h' <-> [file@llvm/PassSupport.h>/Volumes/workspace/external/llvm-project/llvm/include/llvm/PassSupport.h file@llvm/PassSupport.h>/Volumes/workspace/external/llvm-project/llvm/include/llvm/PassSupport.h done@llvm/PassSupport.h file@llvm/PassSupport.h>/Volumes/workspace/external/llvm-project/llvm/include/llvm/PassSupport.h done@llvm/PassSupport.h]
+    var nonFilePrereqTravedFile = func (s *travestate) (res bool, resFile *File) {
+        if file == nil { // the prereqValue is not a *File (eg a *String)
+            // and the trave target is a *File with the name matched
+            if f, ok := s.target.(*File); ok && f.name == prereq {
+                res, resFile = true, f
+            }
         }
+        return
+    }
+
+    type traveResT int
+    const (
+        traveResContinue traveResT = iota
+        traveResBreak
+        traveResReturn
+    )
+    var trave = func (project *Project, entry Entry, pattern bool) (result traveResT) {
+        traversed += 1
+        traves = nil
+
+        var t = entry.traverse(ctx)
+        if false && strings.Contains(prereq, "llvm-driver-objcopy.o") {
+            if s, ok := entry.(*stemmed); ok {
+                warn(ctx, "%v: %v: %v %v", prereq, s.PatternEntry, entry, t).of(entry).debug(1)
+            } else {
+                warn(ctx, "%v: %v %v", prereq, entry, t).of(entry).debug(1)
+            }
+        }
+        if !t.has() { return traveResContinue }
+        if promptTraveEntries || false && t.has(traveFail, traveNext) {
+            var g = targetValue.Strval(ctx)
+            if s, ok := entry.(*stemmed); ok {
+                prompt(ctx, "%v:(%T): %T %v ⇒ %v\n",
+                    g, targetValue, prereqValue, prereqValue, s.PatternEntry)
+            } else {
+                prompt(ctx, "%v:(%T): %T %v ⇒ %v\n",
+                    g, targetValue, prereqValue, prereqValue, entry)
+            }
+            prompt(ctx, "%v:(%T): %v\n", g, targetValue, t)
+            infostack(ctx, 5, "<#", prereqValue).debug(1)
+            defer func() { prompt(ctx, "%v:(%T): %v\n", g, targetValue, t).debug(32) } ()
+        }
+
+        // NOTE: collect travestates from t according to each trave type
+
+        if tt := t.of(traveFail); tt.has() {
+            if !pattern || verb {
+                var stems = ctx.stems()
+                prompt(ctx, "%s: traverse entry failed (project=%v, target=%v, stems=%v)\n",
+                    entry, project, targetValue, stems)
+                warn(ctx, "%v (%T) (by %v, in %v)", entry, entry.Target(), targetValue,
+                    entry.OwnerProject()).of(entry)
+                for _, s := range traves { warn(ctx, "%v: %v: %v",
+                    targetValue, entry, s).at(s.pos) }
+                if n, m := 5, 16; len(stems) == 0 {
+                    errostack(ctx, n, "#>", prereqValue).debug(m)
+                } else {
+                    warnstack(ctx, n, "#>", prereqValue).debug(m)
+                }
+            }
+            for _, s := range tt {
+                if g := s.target; g != nil &&
+                    (prereqValue == g || prereqValue.cmp(ctx, g) == cmpEqual) &&
+                    true {
+                    warn(ctx, "%v (%T) (by %v, in %v)", entry, entry.Target(), targetValue,
+                        entry.OwnerProject()).of(entry).debug(1)
+                    return traveResContinue
+                }
+            }
+            return traveResReturn
+        }
+
+        if tt := t.of(traveCase, traveDone); tt.has() {
+            for _, s := range tt {
+                if /*s.what == traveDone*/true { if ok, f := nonFilePrereqTravedFile(s); ok {
+                    okay, file = true, f
+                    if false { prompt(ctx, "filed: %T %v: %T %v : %T %v ; %v\n",
+                        targetValue, targetValue, prereqValue, prereqValue,
+                        s.target, s.target, s).debug(1) }
+                    return traveResReturn
+                }}
+                // if g, d := s.target, s.depend; g != nil && d != nil &&
+                if g := s.target; g != nil &&
+                    // (targetValue == g || targetValue.cmp(ctx, g) == cmpEqual) &&
+                    // (prereqValue == d || prereqValue.cmp(ctx, d) == cmpEqual) &&
+                    // (targetValue == d || targetValue.cmp(ctx, d) == cmpEqual) &&
+                    (prereqValue == g || prereqValue.cmp(ctx, g) == cmpEqual) &&
+                    true {
+                    // traves = traves.not(traveCase, traveDone)
+                    okay = true
+                    return traveResReturn
+                }
+            }
+        }
+
+        // NOTE: foo foo.o [next@foo.o>foo.c]
+        // NOTE: foo.pdf foo.tex [next@foo.tex:%%.org>foo.org]
+        if tt := t.of(traveNext); tt.has() {
+            const dbgNext = false
+            var stemmedThisTarget bool
+            if s := ctx.stemmed(); s != nil && s.target != nil {
+                stemmedThisTarget = s.target.cmp(ctx, targetValue) == cmpEqual
+            }
+            for _, s := range tt {
+                if g := s.target; g == nil {
+                    prompt(ctx, "%v: %v\n", targetValue.Strval(ctx), t)
+                    erro(ctx, "%v: %v %v %v\n", targetValue.Strval(ctx),
+                        prereqPattern, prereqValue, pattern)
+                    errostack(ctx, 5, "").debug(1)
+                } else if true &&
+                    (targetValue == g || targetValue.cmp(ctx, g) == cmpEqual) {
+                    if dbgNext || false {
+                        prompt(ctx, "%v: %v\n", targetValue.Strval(ctx), t)
+                        prompt(ctx, "%v: %v %v (%v,%v)\n", targetValue.Strval(ctx),
+                            prereqPattern, prereqValue, pattern, stemmedThisTarget)
+                        info(ctx, "%T %v ; %v", prereqValue, prereqValue, ctx.stemmed())
+                        infostack(ctx, 5, "").of(prereqValue).debug(1)
+                    }
+                    if /*pattern && */stemmedThisTarget {
+                        traves = append(traves, s) // collect the state
+                    }
+                    return traveResContinue // try the next pattern
+                } else if true &&
+                    (prereqValue == g || prereqValue.cmp(ctx, g) == cmpEqual) {
+                    if dbgNext {
+                        prompt(ctx, "%v: %v\n", targetValue.Strval(ctx), t)
+                        prompt(ctx, "%v: %v %v (%v,%v)\n", targetValue.Strval(ctx),
+                            prereqPattern, prereqValue, pattern, stemmedThisTarget)
+                        info(ctx, "%T %v %v", prereqValue, prereqValue, ctx.stemmed())
+                        infostack(ctx, 5, "").of(prereqValue).debug(1)
+                    }
+                    if pattern && stemmedThisTarget {
+                        // IMPORTANT NOTE: traveNext state should be remained
+                        //   This traveNext state muse be returned, so that the
+                        //   (*Program).traverse func can break it's loop properly.
+                        traves = append(traves, s) // collect the state
+                    }
+                    return traveResContinue // try the next pattern
+                }
+            }
+        }
+
+        // NOTE: *smart.File memory.o <-> [file@memory.o>memory.cpp file@memory.o>...]
+        if tt := t.of(traveFile); tt.has() {
+            for _, s := range tt {
+                if ok, f := nonFilePrereqTravedFile(s); ok {
+                    okay, file = true, f
+                    return traveResReturn // file processed
+                } else if g := s.target; g != nil &&
+                    (prereqValue == g || prereqValue.cmp(ctx, g) == cmpEqual) &&
+                    true {
+
+                    // NOTE: only 'okay' if files exists, it can continue trying other
+                    //       rules if not.
+                    if file != nil && file.exists() {
+                        if f, ok = s.depend.(*File); ok && f != nil {
+                            okay = f.exists()
+                        } else {
+                            okay = true
+                        }
+                    }
+
+                    var op = traveResReturn // assuming file processed
+                    if !okay && !entry.hasRecipes() {
+                        op = traveResContinue
+                    }
+                    return op
+                } else if _, ok := prereqValue.(*String); false && ok {
+                    if file == nil { prompt(ctx, "nonfile: %T %v: %T %v : %T %v ; %v\n",
+                        targetValue, targetValue, prereqValue, prereqValue,
+                        s.target, s.target, s).debug(1) }
+                }
+            }
+        }
+
+        return
+    }
+
+    ForProjectsConcretes: for _, project := range projects {
+        var entries = project.resolveEntries(ctx, prereq, t.grepping, false)
         if entries != nil && len(entries.all) > 0 {
             concreteList = append(concreteList, entries.all...)
-            if dbg { prompt(ctx, "%v: %v %T; project=%v concretes=%v\n",
-                targetValue, prereqValue, prereqValue, project, entries.all).debug(1) }
         } else {
-            if false && dbg { prompt(ctx, "%v: %v %T; stat=%v, %v\n",
-                targetValue, prereqValue, prereqValue, prereqValue.stat(ctx), project).debug(1) }
-            continue
+            continue ForProjectsConcretes
         }
-        ForEntries: for i, entry := range entries.all {
-            if isNil(entry) && targetValue == entry {
-                if dbg { prompt(ctx, "%v: %v %T; project=%v concrete=%v\n",
-                    targetValue, prereqValue, prereqValue, project, entry).debug(1) }
-                continue
+        if false && strings.Contains(prereq, "llvm-driver-objcopy.o") {
+            for i, entry := range entries.all {
+                warn(ctx, "%d. %T %v (%v)", i, entry, entry, project).debug(1)
             }
-            if v, w := done[entry]; v && w {
-                if dbg { prompt(ctx, "%v: %v %T; project=%v concrete=%v\n",
-                    targetValue, prereqValue, prereqValue, project, entry).debug(1) }
-                continue
+            defer func (p *Project) {
+                // var patterns = p.resolvePatterns(ctx, prereqValue, prereq)
+                // warn(ctx, "%v", patterns)
+                warn(ctx, "%T %v", targetValue, targetValue)
+                warn(ctx, "%T %v ; %v %v", prereqValue, prereqValue, file, file.exists())
+                warn(ctx, "%d, %v, %v ; %v, %v", len(entries.all),
+                    p, traves, okay, traversed).debug(10)
+            } (project)
+        }
+        ForEntries: for _, entry := range entries.all {
+            if !isNil(entry) && targetValue == entry { continue ForEntries }
+            if w, k := targetValue.(*Bareword); k && w.string == prereq {
+                continue ForEntries // target resolve to itself, does nothing
             }
-            if w, ok := targetValue.(*Bareword); ok && w.string == prereq {
-                if dbg { prompt(ctx, "%v: %v %T; project=%v concrete=%v\n",
-                    targetValue, prereqValue, prereqValue, project, entry).debug(1) }
-                continue // target resolve to itself, does nothing
-            }
-            done[entry] = true
-
-            var t = entry.traverse(ctx);    traversed += 1
-            var entryTarget = entry.Target()
-            if file, _ = prereqValue.(*File); file == nil {
-                if file, _ = entryTarget.(*File); file == nil {
-                    // if a, _ := ctx.autoGet("@"); !isTrivial(a) { file, _ = a.(*File) }
-                }
-            }
-            if dbg { prompt(ctx, "%v: %v %T; entry=%v file=%v traves=%v,%v okay=%v traversed=%d project=%v\n",
-                targetValue, prereqValue, prereqValue, entry, file, traves,t, okay, traversed, project).debug(1) }
-
-            var verb = options.verbose || options.verboseBreaks
-            if t.has(traveFail) {
-                traves = traves.not(traveCase, traveDone, traveNext)
-                traves = append(traves, t.of(traveFail)...)
-                if stems := ctx.stems(); (len(stems) == 0 || verb) && t.has() {
-                    prompt(ctx, "%s: traverse entry failed (project=%v, target=%v, stems=%v)\n",
-                        entry, project, targetValue, stems)
-                    warn(ctx, "%v (%T) (by %v, in %v)", entry, entry.Target(), targetValue,
-                        entry.OwnerProject()).of(entry)
-                    for _, s := range t { warn(ctx, "%v: %v: %v",
-                        targetValue, entry, s).at(s.pos) }
-                    if n, m := 5, 16; len(stems) == 0 {
-                        errostack(ctx, n, "").debug(m)
-                    } else {
-                        warnstack(ctx, n, "").debug(m)
-                    }
-                }
-                return //break ForProjectsConcretes
-            }
-
-            if tt := t.of(traveDone); tt.has() {
-                if false { prompt(ctx, "%v: %v %T; traves=%v,%v project=%v\n",
-                    targetValue, prereqValue, prereqValue, traves,t, project).debug(1) }
-                for _, s := range tt {
-                    if g := s.target; g != nil &&
-                        (targetValue == g || targetValue.cmp(ctx, g) == cmpEqual) {
-                        if targetValue.Strval(ctx) == "stamp" && project.name == "llvm" { prompt(ctx, "%v: %v %T; %v, %T; project=%v\n",
-                            targetValue, prereqValue, prereqValue, s, s.target, project).debug(32) }
-                        okay = true
-                        return //break ForProjectsConcretes
-                    }
-                }
-
-                traves = traves.not(traveCase, traveNext)
-                traves = append(traves, tt...)
-                if !okay { okay = file.exists() } //okay = (file == nil || file.exists())
-                if dbg { prompt(ctx, "%v: %v %T; okay=%v traves=%v,%v project=%v\n",
-                    targetValue, prereqValue, prereqValue, okay, traves,t, project).debug(1) }
-                if true {
-                    break ForProjectsConcretes
-                } else {
-                    continue ForEntries
-                }
-            }
-
-            if tt := t.of(traveCase); tt.has() {
-                if false { prompt(ctx, "%v: %v %T; traves=%v,%v project=%v\n",
-                    targetValue, prereqValue, prereqValue, traves,t, project).debug(1) }
-                for _, s := range tt {
-                    if g := s.target; g != nil && (
-                        targetValue == g || targetValue.cmp(ctx, g) == cmpEqual) {
-                        if false { prompt(ctx, "%v: %v %T; traves=%v,%v project=%v\n",
-                            targetValue, prereqValue, prereqValue, traves,t, project).debug(1) }
-                        okay = true
-                        return //break ForProjectsConcretes
-                    }
-                }
-
-                traves = traves.not(traveNext)
-                traves = append(traves, tt...)
-                // okay = true
-
-                if true {
-                    break ForProjectsConcretes
-                } else {
-                    continue
-                }
-            }
-
-            if tt := t.of(traveNext); tt.has() {
-                traves = traves.not(traveNext)
-                // traves = append(traves, tt...) // add back traveNext
-
-                if false { prompt(ctx, "%v: %v; entry=%v file=%v traves=%v project=%v\n",
-                    targetValue, prereqValue, entry, file, t, project).debug(1) }
-                for _, s := range tt {
-                    if t, d := s.target, s.depend; t != nil && d != nil &&
-                        (prereqValue == t || prereqValue.cmp(ctx,t) == cmpEqual) {
-                        if dbg { prompt(ctx, "%v: %v. %v %v\n", targetValue, i, entry, s).debug(1) }
-                        continue ForEntries // try the next pattern
-                    } else if false &&
-                        (targetValue == t || targetValue.cmp(ctx,t) == cmpEqual) &&
-                        (entryTarget == d || entryTarget.cmp(ctx,d) == cmpEqual) {
-                        prompt(ctx, "%v: %v. %v %v\n", targetValue, i, entry, s).debug(1)
-                        continue ForEntries // try the next pattern
-                    } else if false &&
-                        (targetValue  == t || targetValue .cmp(ctx,t) == cmpEqual) {
-                        prompt(ctx, "%v: %v. %v %v\n", targetValue, i, entry, s).debug(1)
-                        break ForProjectsConcretes
-                    }
-                }
-
-                continue ForEntries // break ForProjectsPatterns
-            }
-
-            if t.has() {
-                prompt(ctx, "%v: %v %T; entry=%v file=%v traves=%v,%v project=%v\n",
-                    targetValue, prereqValue, prereqValue, entry, file, traves,t, project).debug(1)
-                errostack(ctx, 5, "%v", t).debug(16)
-            } else if file != nil {
-                okay = file.exists()
-            } else {
-                okay = true
+            switch trave(project, entry, false) {
+            case traveResBreak : break ForEntries
+            case traveResReturn: return
             }
         }
-    }}
+    }
 
-    if false && dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v traves=%v; patterns:\n",
-        targetValue, prereqValue, prereqValue, file, okay, traversed, traves).debug(1) }
     if !okay || traversed == 0 { ForProjectsPatterns: for _, project := range projects {
         var patterns = project.resolvePatterns(ctx, prereqValue, prereq)
         if len(patterns) > 0 {
             stemmedList = append(stemmedList, patterns...)
-            if dbg { prompt(ctx, "%v: %v %T; project=%v patterns=%v\n",
-                targetValue, prereqValue, prereqValue, project, patterns).debug(1) }
         } else {
-            if false && dbg { prompt(ctx, "%v: %v %T; stat=%v, %v\n",
-                targetValue, prereqValue, prereqValue, prereqValue.stat(ctx), project).debug(1) }
-            continue
+            continue ForProjectsPatterns
         }
-        ForPatterns: for i, entry := range patterns {
-            if v, w := done[entry.PatternEntry]; v && w {
-                if dbg { prompt(ctx, "%v: %v. %v (in %v)\n",
-                    targetValue, i, entry, len(patterns)).debug(1) }
-                continue
+        if false && strings.Contains(prereq, "llvm-driver-objcopy.o") {
+            for i, entry := range patterns {
+                warn(ctx, "%d. %v %v (%v)", i, entry.PatternEntry, entry, project).debug(1)
             }
-            if dbg { prompt(ctx, "%v: %v. %v (in %v)\n",
-                targetValue, i, entry, len(patterns)).debug(1) }
-            done[entry.PatternEntry] = true
-
-            if file, _ = entry.target.(*File); file == nil {
-                if file = project.FindFile(ctx, prereq); file != nil {
-                    file.position = entry.position
-                    entry.target = file
-                }
-            }
-
-            var t = entry.traverse(ctx);    traversed += 1
-            if dbg {
-                prompt(ctx, "%v: %v %T; entry=%v file=%v traves=%v project=%v\n",
-                    targetValue, prereqValue, prereqValue, entry, file, t, project).debug(1)
-                defer func() { prompt(ctx, "%v: %v %T; entry=%v file=%v traves=%v project=%v\n",
-                    targetValue, prereqValue, prereqValue, entry, file, traves, project).debug(6) } ()
-            }
-
-            if tt := t.of(traveFail); tt.has() {
-                traves = traves.not(traveCase, traveDone, traveNext)
-                traves = append(traves, tt...)
-                if options.verbose || options.verboseBreaks {
-                    var ctx = positional(ctx, entry.Position())
-                    prompt(ctx, "%s: traverse entry failed (project=%v, target=%v, stems=%v)\n",
-                        entry.target, project, targetValue, entry.Stems)
-                    for _, s := range t { warn(ctx, "%v: %v", entry.target, s).at(s.pos) }
-                    warnstack(ctx, 5, "").debug(16)
-                }
-                return //break ForProjectsPatterns
-            }
-
-            if tt := t.of(traveDone); tt.has() {
-                if false { prompt(ctx, "%v: %v %T; entry=%v file=%v traves=%v,%v project=%v\n",
-                    targetValue, prereqValue, prereqValue, entry, file, traves,t, project).debug(1) }
-                for _, s := range tt {
-                    if g := s.target; g != nil && (
-                        targetValue == g || targetValue.cmp(ctx, g) == cmpEqual) {
-                        if false { prompt(ctx, "%v: %v %T; traves=%v,%v project=%v\n",
-                            targetValue, prereqValue, prereqValue, traves,t, project).debug(1) }
-                        okay = true
-                        return //break ForProjectsPatterns
-                    }
-                }
-
-                traves = traves.not(traveCase, traveNext)
-                traves = append(traves, tt...)
-                if !okay { okay = file.exists() } //okay = (file == nil || file.exists())
-                if dbg { prompt(ctx, "%v: %v %T; traves=%v,%v project=%v\n",
-                    targetValue, prereqValue, prereqValue, traves,t, project).debug(1) }
-                if true {
-                    break ForProjectsPatterns
-                } else {
-                    continue ForPatterns //ForProjectsPatterns
-                }
-            }
-
-            if tt := t.of(traveCase); tt.has() {
-                // traves = traves.not(traveNext)
-                for _, s := range tt {
-                    if g, d := s.target, s.depend; g != nil && d != nil &&
-                        (entry.target == d || entry.target.cmp(ctx, d) == cmpEqual) {
-                        break ForProjectsPatterns
-                    }
-                }
-                traves = traves.not(traveCase, traveNext)
-
-                if true {
-                    break ForProjectsPatterns
-                } else {
-                    continue ForPatterns //ForProjectsPatterns
-                }
-            }
-
-            if tt := t.of(traveNext); tt.has() {
-                traves = traves.not(traveNext)
-
-                if false { prompt(ctx, "%v: %v; entry=%v file=%v traves=%v project=%v\n",
-                    targetValue, prereqValue, entry, file, t, project).debug(1) }
-                for _, s := range tt {
-                    // traves = append(traves, s) // add back traveNext
-                    if t, d := s.target, s.depend; t != nil && d != nil &&
-                        (prereqValue  == t || prereqValue .cmp(ctx,t) == cmpEqual) &&
-                        (entry.target == t || entry.target.cmp(ctx,t) == cmpEqual) {
-                        if dbg { prompt(ctx, "%v: %v. %v %v\n", targetValue, i, entry, s).debug(1) }
-                        continue ForPatterns // try the next pattern
-                    } else if false &&
-                        (targetValue  == t || targetValue .cmp(ctx,t) == cmpEqual) &&
-                        (entry.target == d || entry.target.cmp(ctx,d) == cmpEqual) {
-                        prompt(ctx, "%v: %v. %v %v\n", targetValue, i, entry, s).debug(1)
-                        continue ForPatterns // try the next pattern
-                    } else if false &&
-                        (targetValue  == t || targetValue .cmp(ctx,t) == cmpEqual) {
-                        prompt(ctx, "%v: %v. %v %v\n", targetValue, i, entry, s).debug(1)
-                        break ForProjectsPatterns
-                    }
-                }
-
-                continue ForPatterns // break ForProjectsPatterns
-            }
-
-            if t.has() {
-                prompt(ctx, "%v: %v, entry=%v file=%v traves=%v project=%v\n",
-                    targetValue, prereqValue, file, t, project)
-                errostack(ctx, 5, "").debug(16)
+            defer func (p *Project) {
+                warn(ctx, "%d, %v, %v ; %v, %v", len(patterns),
+                    p, traves, okay, traversed).debug(10)
+            } (project)
+        }
+        ForPatterns: for _, entry := range patterns {
+            switch trave(project, entry, true) {
+            case traveResBreak : break ForPatterns
+            case traveResReturn: return
             }
         }
     }}
 
-    if db0 && dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v traves=%v; find files:\n",
-        targetValue, prereqValue, prereqValue, file, okay, traversed, traves).debug(1) }
     if okay && traversed > 0 {
         return
-    } else if f, ok := prereqValue.(*File); ok && f != nil && prereq == f.name {
-        if file, okay = f, f.exists(); okay {
+    } else if file != nil && prereq == file.name {
+        if okay = file.exists(); okay {
             trave := traves.add(ctx, traveFile, targetValue)
+            trave.dependPat = prereqPattern
             trave.depend = file
             return
         }
@@ -1048,35 +1161,32 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             if okay = file.searchInMatchedPaths(ctx, project); okay {
                 assert(file.exists(), "file must exists at this point")
                 trave := traves.add(ctx, traveFile, targetValue)
+                trave.dependPat = prereqPattern
                 trave.depend = file
                 return
             }
         }
     } else if !okay && traversed == 0 { ForProjectsFiles: for _, project := range projects {
-        if project.name == "llvm" && targetValue.Strval(ctx) == "stamp" && prereq == "touch" {
-            var f = project.FindFile(ctx, prereq)
-            warn(ctx, "%T %v, %v; file=%v okay=%v traversed=%d",
-                targetValue, targetValue, prereq, f, okay, traversed).debug(1)
-        }
         if file = project.FindFile(ctx, prereq); file != nil {
             if file.position = ctx.Position(); file.isSysFile() {
                 continue ForProjectsFiles
             }
             if okay = file.exists(); okay {
                 trave := traves.add(ctx, traveFile, targetValue)
+                trave.dependPat = prereqPattern
                 trave.depend = file
                 return
             }
             if okay = file.searchInMatchedPaths(ctx, project); okay {
                 trave := traves.add(ctx, traveFile, targetValue)
+                trave.dependPat = prereqPattern
                 trave.depend = file
                 return
             }
         }
-    }}
+    } // ForProjectsFiles
+    }
 
-    if false && dbg { prompt(ctx, "%v: %v %T; file=%v okay=%v traversed=%v traves=%v; objects:\n",
-        targetValue, prereqValue, prereqValue, file, okay, traversed, traves).debug(1) }
     if file != nil && file.exists() && !traves.has(traveFail) {
         okay = true
         return
@@ -1086,84 +1196,71 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         default: if isTrivial(obj) { continue ForProjectsObjects }
         }
 
-        var t = obj.traverse(ctx);    traversed += 1
-        if dbg {
-            prompt(ctx, "%v: %v %T; obj=%v file=%v traves=%v project=%v\n",
-                targetValue, prereqValue, prereqValue, obj, file, t, project).debug(1)
-            defer func() { prompt(ctx, "%v: %v %T; obj=%v file=%v traves=%v project=%v\n",
-                targetValue, prereqValue, prereqValue, obj, file, traves, project).debug(6) } ()
-        }
+        traversed += 1
 
-        if tt := t.of(traveFail); tt.has() {
-            traves = traves.not(traveCase, traveDone, traveNext)
-            traves = append(traves, tt...)
+        var t = obj.traverse(ctx)
+        if promptTraveEntries { prompt(ctx, "%v: %T: %T %v %v ; %v\n",
+            targetValue, targetValue, prereqValue, prereqValue, obj, t) }
 
+        okay = true
+        traves = append(traves, t...)
+        s := traves.add(ctx, traveObj, targetValue)
+        s.depend = obj
+
+        if t.has(traveFail) {
             prompt(ctx, "%v → %T %v\n", prereq, obj, obj)
             for _, s := range t { warn(ctx, "%v: (%T) %v", obj, obj, s).at(s.pos) }
             warnstack(ctx, 5, "").debug(8)
-            return //break ForProjectsObjects
-        }
-
-        if tt := t.of(traveDone); tt.has() {
-            if false { prompt(ctx, "%v: %v %T; traves=%v,%v project=%v\n",
-                targetValue, prereqValue, prereqValue, traves,t, project).debug(1) }
-            for _, s := range tt {
-                if g := s.target; g != nil &&
-                    (targetValue == g || targetValue.cmp(ctx, g) == cmpEqual) {
-                    if targetValue.Strval(ctx) == "stamp" && project.name == "llvm" { prompt(ctx, "%v: %v %T; %v, %T %v; project=%v\n",
-                        targetValue, prereqValue, prereqValue, s, s.target, s.target, project).debug(32) }
-                    okay = true
-                    return //break ForProjectsObjects
-                }
-            }
-
-            traves = traves.not(traveCase, traveNext)
-            traves = append(traves, tt...)
-            if !okay { okay = file.exists() } //okay = (file == nil || file.exists())
-            if dbg { prompt(ctx, "%v: %v %T; okay=%v traves=%v,%v project=%v\n",
-                targetValue, prereqValue, prereqValue, okay, traves,t, project).debug(1) }
-            if true {
-                break ForProjectsObjects
-            } else {
-                continue ForProjectsObjects
-            }
-        }
-
-        if tt := t.of(traveCase); tt.has() {
-            traves = traves.not(traveNext)
-            traves = append(traves, tt...)
-            return //break ForProjectsObjects
-        }
-
-        if tt := t.of(traveNext); tt.has() {
-            // traves = traves.not(traveNext)
-            traves = append(traves, tt...)
-            continue
-        }
-
-        if t.has(traveFile) {
-            okay = true
-            return //break ForProjectsObjects
-        }
-
-        if t.has() {
-            errostack(ctx, 5, "%v", t).debug(16)
-        } else if _, ok := obj.(*ProjectName); ok {
-            return // done, no need to check files and patterns
-        } else {
-            okay = true
             return
         }
-    }}
+    } // ForProjectsObjects
+
+        if false && traversed > 0 {
+            for _, project := range projects {
+                e := project.resolveEntries(ctx, prereq, t.grepping, true)
+                o := project.resolveObject(ctx, prereq)
+                prompt(ctx, "%v: %v; %v: %v; %T %v\n", project, project.bases, prereq, e, o, o)
+            }
+            prompt(ctx, "%v: %T: %v %T; projects=%v okay=%v traversed=%d file=%v obj=%v traves=%v\n",
+                targetValue, targetValue, prereqValue, prereqValue,
+                projects, okay, traversed, file, obj, traves)
+            for i, s := range traves { info(ctx, "%v: %v: %d. %v", targetValue, prereqValue, i, s).at(s.pos) }
+            info(ctx, "%T %v; %T %v", targetValue, targetValue, prereqValue, prereqValue).debug(1)
+        }
+
+        if okay { return }
+    }
+
+    // Stat directly for files not in included in "files (...)".
+    if true && !okay && file == nil && obj == nil && !traves.has() {
+        if f := stat(ctx, prereq, "", ""); f != nil && f.exists() {
+            if false { warn(ctx, "%v (%T) is a file (%s)",
+                prereqValue, prereqValue, f.fullname()).debug(6) }
+            trave := traves.add(ctx, traveFile, targetValue)
+            trave.dependPat = prereqPattern
+            trave.depend = f
+            file = f
+            return
+        }
+    }
 
     if proj := ctx.Project(); err != nil {
         prompt(ctx, "%s: traverse failed, project %s\n", prereq, proj)
         errostack(ctx, 6, "%v: %v", proj, ctx).debug(16)
         return
-    } else if okay || traves.has(traveDone) /*|| !traves.has()*/ {
+    } else if okay ||
+        (traversed>0 && !traves.has()) ||
+        traves.has(traveDone) ||
+        ctx.configuration() {
         return // done
-    } else if ctx.configuration() {
+    } else if t := traves.of(traveObj); t.has() && t[0].depend != nil &&
+        t[0].depend.(Object).Name(ctx) == prereq {
         return // done
+    } else if prereqPattern != nil {
+        s := traves.add(ctx, traveNext, targetValue)
+        s.dependPat = prereqPattern
+        s.depend = prereqValue
+        return
     } else if len(ctx.stems()) == 0 || ctx.mustExists() {
         if s := traves.add(ctx, traveFail, targetValue); file != nil {
             s.error = fileNotFoundError{proj, file}
@@ -1172,21 +1269,24 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             s.error = targetNotFoundError{proj, prereq}
             if prereqValue != nil { ctx = positional(ctx, prereqValue.Position()) }
         }
-        prompt(ctx, "%v: %v %T; projects=%v,%v okay=%v traversed=%d file=%v traves=%v\n",
-            targetValue, prereqValue, prereqValue, proj, projects, okay, traversed, file, traves).debug(1)
-        for _, s := range traves { erro(ctx, "%v: %v: %v", targetValue, prereqValue, s).at(s.pos) }
+
+        prompt(ctx, "%v: %T: %v %T; projects=%v,%v okay=%v traversed=%d file=%v traves=%v\n",
+            targetValue, targetValue, prereqValue, prereqValue,
+            proj, projects, okay, traversed, file, traves).
+            debug(1)
+        for i, s := range traves { erro(ctx, "%v: %v: %d. %v", targetValue, prereqValue, i, s).at(s.pos) }
         for i, c := range ctx.closureScopes() { erro(ctx, "%v: closure: %v. %v", proj, i, c) }
         for i, concrete := range concreteList { erro(ctx, "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs())).at(concrete.Position()) }
         for i, stemmed  := range stemmedList  { erro(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position) }
         if obj != nil { erro(ctx, "object: %T %v", obj, obj).at(obj.Position()) }
-        errostack(ctx, 12, "").debug(64)
+        errostack(ctx, 12, "").debug(512)
         return
     } else {
         return
     }
 }
 
-func traversePattern(ctx Context, pat Value, projects... *Project) (traves travestates) {
+func _traversePattern(ctx Context, pat Value, projects... *Project) (traves travestates) {
     var (
         stems = ctx.stems()
         rest []string
@@ -1203,38 +1303,30 @@ func traversePattern(ctx Context, pat Value, projects... *Project) (traves trave
         return
     }
 
-    var target, _ = ctx.autoGet("@")
-
-    if false && strings.Contains(val.Strval(ctx), "libunwind") {
-        defer func() {
-            prompt(ctx, "%v: %T %v %v stems=%v traves=%v\n",
-                target, val, val, pat, stems, traves).debug(16)
-        } ()
-    }
-
     if traves = traverse(ctx, val, val.Strval(ctx), projects...); traves.has(traveFail) {
         if false { erro(ctx, "%v: traverse pattern failed (%T)", val, val).debug(1) }
-        traves = traves.not(traveCase, traveDone, traveNext)
+        // traves = traves.not(traveCase, traveDone, traveNext)
         return
-    } else  if traves.has(traveDone) {
-        traves = traves.not(traveCase, traveNext)
+    } else if traves.has(traveDone) {
+        // traves = traves.not(traveCase, traveNext)
         return
-    } else  if traves.has(traveCase) {
-        traves = traves.not(traveNext)
+    } else if traves.has(traveCase) {
+        // traves = traves.not(traveNext)
         return
-    } else  if traves.has(traveNext) {
-        traves = traves.not(traveNext)
+    } else if traves.has(traveNext) {
+        // traves = traves.not(traveNext)
         warn(ctx, "%v: %v: traverse pattern: %v", val, pat, traves).debug(1)
         return
     } else if traves.has(traveFile) {
-        for _, ts := range traves {
-            if ts.depend == val || ts.depend.Strval(ctx) == val.Strval(ctx) {
-                ts.dependPat = pat
+        for _, s := range traves {
+            if s.depend == val || s.depend.Strval(ctx) == val.Strval(ctx) {
+                s.dependPat = pat
             }
         }
         return
     } else if len(stems) > 0 {
-        s := traves.add(ctx, traveNext, target)
+        warn(ctx, "%T %v %v", val, val, traves).debug(1)
+        s := traves.add(ctx, traveNext, nil)
         s.dependPat = pat
         s.depend = val
         return
@@ -1257,23 +1349,16 @@ func getHashDir(ctx Context, k []byte) string {
     return filepath.Join(dir, ".hash", h[0:1], h[1:2], h[2:3], h[3:])
 }
 
-func getCmdHash(ctx Context, values ...Value) (k, v HashBytes, err error) {
-    var program = ctx.program()
-    var targetVal, targetStr = getTargetValueString(ctx)
-    if isTrivial(targetVal) {
-        erro(ctx, "trivial $@").at(program.position).debug(1)
-        return
-    } else if targetStr == "" {
-        erro(ctx, "trivial $@").at(program.position).debug(1)
-        return
-    }
-
+func getRecipesHash(ctx Context, target Value, values ...Value) (k, v HashBytes, err error) {
     var (
+        // target = getTargetValue(ctx)
+        program = ctx.program()
         key = sha256.New()
         val = sha256.New()
     )
     fmt.Fprintf(key, "%s", program.project.absPath)
-    fmt.Fprintf(key, "%v", targetStr)
+    fmt.Fprintf(key, "%s", program.position)
+    fmt.Fprintf(key, "%s", target.Strval(ctx)) // targetStr
 
     for _, value := range values {
         if false {
@@ -1288,9 +1373,9 @@ func getCmdHash(ctx Context, values ...Value) (k, v HashBytes, err error) {
     return
 }
 
-func updateRecipesHash(ctx Context) (k, v HashBytes, err error) {
+func updateRecipesHash(ctx Context, target Value) (k, v HashBytes, err error) {
     var program = ctx.program()
-    if k, v, err = getCmdHash(ctx, program.recipes...); err != nil {
+    if k, v, err = getRecipesHash(ctx, target, program.recipes...); err != nil {
         erro(ctx, "hashing recipes failed: %v", err).at(program.position).debug(1)
         return
     }
@@ -1319,12 +1404,12 @@ func updateRecipesHash(ctx Context) (k, v HashBytes, err error) {
     return
 }
 
-func isRecipesOutdated(ctx Context) (outdated bool, err error) {
+func isRecipesChanged(ctx Context, target Value) (outdated bool, err error) {
     var k, v HashBytes
     if program := ctx.program(); program == nil {
         erro(ctx, "no program in context %v", ctx).debug(1)
         return
-    } else if k, v, err = getCmdHash(ctx, program.recipes...); err != nil {
+    } else if k, v, err = getRecipesHash(ctx, target, program.recipes...); err != nil {
         erro(ctx, "compute recipes hash failed: %v", err).at(program.position).debug(1)
         return
     }
@@ -1372,14 +1457,14 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
             numRealErrs += 1
         }
         if numRealErrs == 0 { return } // simply return if no real errors
-        if !pos.Equals(&targetPos) {
+        if !pos.Same(&targetPos) {
             var s string; if n > 1 { s = "s" }
             erro(ctx, "%d error%s while waiting prerequisites for '%v'", n, s, target).at(targetPos).debug(1)
         }
 
         var v = target
         if l, ok := v.(*List); ok && l.Len() == 1 { v = l.Elems[0] }
-        if targetValuePos.IsValid() && !targetValuePos.Equals(&targetPos) {
+        if targetValuePos.IsValid() && !targetValuePos.Same(&targetPos) {
             if f, ok := v.(*File); ok && f.filemap != nil {
                 erro(ctx, "waiting for '%v'", target).at(targetValuePos)
                 erro(ctx, "via pattern '%v' (of %v)", v, f.filemap.project).of(f.filemap.patts[0]).debug(1)
@@ -1488,6 +1573,24 @@ type Value interface {
     updatedDeps(Context, ...Value) []Value
 
     traverse(Context) travestates
+}
+
+type valueList []Value
+
+func (vals valueList) contains(val Value) (res bool) {
+    if val != nil {
+        for _, v := range vals {
+            if res = v == val; res { break }
+        }
+    }
+    return
+}
+
+func (vals *valueList) add(val Value) (res *valueList) {
+    if val != nil && !vals.contains(val) {
+        *vals = append(*vals, val)
+    }
+    return vals
 }
 
 type elemkind int
@@ -1651,7 +1754,7 @@ func (p *Argumented) traverse(ctx Context) (traves travestates) {
     //!< IMPORTANT! - Don't merge-expand arguments here!
     //!< Arguments should be passed to program.execute as it is.
     var args []Value
-    if expandArgumentedTraverse {
+    if traverseArgumentedExpand {
         var proj = ctx.Project()
         // NOTE: expand here to avoid args being expanded in the wrong context
         const w = expandPlainValue|expandPairVal|expandPatterned//|expandFullName
@@ -1771,7 +1874,7 @@ func (p *Any) patterned(ctx Context) (res bool) {
     if p.value == nil {
         // does nothing
     } else if v, ok := p.value.(Value); ok {
-       res = v.patterned(ctx)
+        res = v.patterned(ctx)
     }
     return
 }
@@ -2722,17 +2825,24 @@ func (p *Barecomp) match(ctx Context, i interface{}) (full bool, s string, stems
             }
         }
     } else {
-        var ( is string; n int; elem Value )
+        var (
+            n int
+            is string
+            elem Value
+        )
         switch t := i.(type) {
         case string: is = t
-        case Value:  is = t.Strval(ctx)
+        case Value : is = t.Strval(ctx)
         default:
             erro(ctx, "%T: matching unsupported value: %T %v", p, i, i).of(p).debug(1)
             return
         }
         if is == "" { return }
         for n, elem = range p.Elems {
-            var _, t, ss = elem.match(ctx, is)
+            var m, t, ss = elem.match(ctx, is)
+            if false && elem.String() == "$(name)" {
+                warn(ctx, "%T %v %s ; %v -> %v '%v' %v", elem, elem, elem.Strval(ctx), is, m, t, ss).debug(1)
+            }
             if t == "" { break } else {
                 stems = append(stems, ss...)
                 is = is[len(t):]
@@ -2844,6 +2954,8 @@ func (p *Barefile) stat(ctx Context) (si *statinfo) {
 func (p *Barefile) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Barefile); ok {
         res = p.Name.cmp(ctx, a.Name)
+    } else if a, ok := v.(*File); ok && p.File != nil {
+        res = p.File.cmp(ctx, a)
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
@@ -2871,26 +2983,28 @@ func (p *Barefile) stencil(ctx Context, stems []string) (val Value, rest []strin
 }
 
 
-func barefileize(ctx Context, targets ...Value) []Value {
+func barefilize(ctx Context, targets ...Value) []Value {
     var project = ctx.Project()
     for i, target := range targets {
         if target.patterned(ctx) { continue }
         switch t := target.(type) {
         case *Bareword:
             if file := project.FindFile(ctx, t.string); file != nil {
-                targets[i] = &Barefile{ Name:target, File:file }
-                file.position = target.Position()
+                var pos = target.Position()
+                targets[i] = &Barefile{ valbase{pos}, target, file }
+                file.position = pos
             }
-        case *Barecomp:
-            if t.expandible(ctx, expandClosure) || refdef(ctx, t, DefArg) {
+        case *Barecomp, *Path:
+            if t.patterned(ctx) || t.expandible(ctx, expandClosure) || refdef(ctx, t, DefArg) {
                 break
             } else if file := project.FindFile(ctx, t.Strval(ctx)); file != nil {
-                targets[i] = &Barefile{ Name:target, File:file }
-                file.position = target.Position()
+                var pos = target.Position()
+                targets[i] = &Barefile{ valbase{pos}, target, file }
+                file.position = pos
             }
         case *Argumented:
-            t.value = barefileize(ctx, t.value)[0]
-            t.args  = barefileize(ctx, t.args...)
+            t.value = barefilize(ctx, t.value)[0]
+            t.args  = barefilize(ctx, t.args...)
         }
     }
     return targets
@@ -2900,158 +3014,158 @@ var ErrBadPattern = errors.New("syntax error in pattern")
 
 // modified copy of filepath.hasMeta
 func globHasMeta(path string) bool {
-	magicChars := `*?[`
-	if runtime.GOOS != "windows" {
-		magicChars = `*?[\`
-	}
-	return strings.ContainsAny(path, magicChars)
+    magicChars := `*?[`
+    if runtime.GOOS != "windows" {
+        magicChars = `*?[\`
+    }
+    return strings.ContainsAny(path, magicChars)
 }
 
 // modified copy of filepath.getEsc
 func globGetEsc(chunk string) (r rune, nchunk string, err error) {
-	if len(chunk) == 0 || chunk[0] == '-' || chunk[0] == ']' {
-		err = ErrBadPattern
-		return
-	}
-	if chunk[0] == '\\' && runtime.GOOS != "windows" {
-		chunk = chunk[1:]
-		if len(chunk) == 0 {
-			err = ErrBadPattern
-			return
-		}
-	}
-	r, n := utf8.DecodeRuneInString(chunk)
-	if r == utf8.RuneError && n == 1 {
-		err = ErrBadPattern
-	}
-	nchunk = chunk[n:]
-	if len(nchunk) == 0 {
-		err = ErrBadPattern
-	}
-	return
+    if len(chunk) == 0 || chunk[0] == '-' || chunk[0] == ']' {
+        err = ErrBadPattern
+        return
+    }
+    if chunk[0] == '\\' && runtime.GOOS != "windows" {
+        chunk = chunk[1:]
+        if len(chunk) == 0 {
+            err = ErrBadPattern
+            return
+        }
+    }
+    r, n := utf8.DecodeRuneInString(chunk)
+    if r == utf8.RuneError && n == 1 {
+        err = ErrBadPattern
+    }
+    nchunk = chunk[n:]
+    if len(nchunk) == 0 {
+        err = ErrBadPattern
+    }
+    return
 }
 
 // modified copy of filepath.scanChunk
 func globScanChunk(pattern string) (star bool, chunk, rest string) {
-	for len(pattern) > 0 && pattern[0] == '*' {
-		pattern = pattern[1:]
-		star = true // TODO: support both '*' and '**'
-	}
-	inrange := false
-	var i int
+    for len(pattern) > 0 && pattern[0] == '*' {
+        pattern = pattern[1:]
+        star = true // TODO: support both '*' and '**'
+    }
+    inrange := false
+    var i int
 Scan:
-	for i = 0; i < len(pattern); i++ {
-		switch pattern[i] {
-		case '\\':
-			if runtime.GOOS != "windows" {
-				// error check handled in matchChunk: bad pattern.
-				if i+1 < len(pattern) {
-					i++
-				}
-			}
-		case '[':
-			inrange = true
-		case ']':
-			inrange = false
-		case '*':
-			if !inrange {
-				break Scan
-			}
-		}
-	}
-	return star, pattern[0:i], pattern[i:]
+    for i = 0; i < len(pattern); i++ {
+        switch pattern[i] {
+        case '\\':
+            if runtime.GOOS != "windows" {
+                // error check handled in matchChunk: bad pattern.
+                if i+1 < len(pattern) {
+                    i++
+                }
+            }
+        case '[':
+            inrange = true
+        case ']':
+            inrange = false
+        case '*':
+            if !inrange {
+                break Scan
+            }
+        }
+    }
+    return star, pattern[0:i], pattern[i:]
 }
 
 // modified copy of filepath.matchChunk
 // stems: all values matched ? and [...]
 func globMatchChunk(chunk, s string) (stems []string, rest string, ok bool, err error) {
-	// failed records whether the match has failed.
-	// After the match fails, the loop continues on processing chunk,
-	// checking that the pattern is well-formed but no longer reading s.
-	failed := false
-	for len(chunk) > 0 {
-		if !failed && len(s) == 0 {
-			failed = true
-		}
-		switch chunk[0] {
-		case '[':
-			// character class
-			var r rune
-			if !failed {
-				var n int
-				r, n = utf8.DecodeRuneInString(s)
-				s = s[n:]
-			}
-			chunk = chunk[1:]
-			// possibly negated
-			negated := false
-			if len(chunk) > 0 && chunk[0] == '^' {
-				negated = true
-				chunk = chunk[1:]
-			}
-			// parse all ranges
-			match := false
-			nrange := 0
-			for {
-				if len(chunk) > 0 && chunk[0] == ']' && nrange > 0 {
-					chunk = chunk[1:]
-					break
-				}
-				var lo, hi rune
-				if lo, chunk, err = globGetEsc(chunk); err != nil {
-					return stems, "", false, err
-				}
-				hi = lo
-				if chunk[0] == '-' {
-					if hi, chunk, err = globGetEsc(chunk[1:]); err != nil {
-						return stems, "", false, err
-					}
-				}
-				if lo <= r && r <= hi {
-					match = true
-				}
-				nrange++
-			}
-			if match == negated {
-				failed = true
-			} else {
+    // failed records whether the match has failed.
+    // After the match fails, the loop continues on processing chunk,
+    // checking that the pattern is well-formed but no longer reading s.
+    failed := false
+    for len(chunk) > 0 {
+        if !failed && len(s) == 0 {
+            failed = true
+        }
+        switch chunk[0] {
+        case '[':
+            // character class
+            var r rune
+            if !failed {
+                var n int
+                r, n = utf8.DecodeRuneInString(s)
+                s = s[n:]
+            }
+            chunk = chunk[1:]
+            // possibly negated
+            negated := false
+            if len(chunk) > 0 && chunk[0] == '^' {
+                negated = true
+                chunk = chunk[1:]
+            }
+            // parse all ranges
+            match := false
+            nrange := 0
+            for {
+                if len(chunk) > 0 && chunk[0] == ']' && nrange > 0 {
+                    chunk = chunk[1:]
+                    break
+                }
+                var lo, hi rune
+                if lo, chunk, err = globGetEsc(chunk); err != nil {
+                    return stems, "", false, err
+                }
+                hi = lo
+                if chunk[0] == '-' {
+                    if hi, chunk, err = globGetEsc(chunk[1:]); err != nil {
+                        return stems, "", false, err
+                    }
+                }
+                if lo <= r && r <= hi {
+                    match = true
+                }
+                nrange++
+            }
+            if match == negated {
+                failed = true
+            } else {
                 stems = append(stems, string(r))
             }
 
-		case '?':
-			if !failed {
-				if s[0] == filepath.Separator {
-					failed = true
-				}
-				_, n := utf8.DecodeRuneInString(s)
+        case '?':
+            if !failed {
+                if s[0] == filepath.Separator {
+                    failed = true
+                }
+                _, n := utf8.DecodeRuneInString(s)
                 stems = append(stems, s[:n])
-				s = s[n:]
-			}
-			chunk = chunk[1:]
+                s = s[n:]
+            }
+            chunk = chunk[1:]
 
-		case '\\':
-			if runtime.GOOS != "windows" {
-				chunk = chunk[1:]
-				if len(chunk) == 0 {
-					return stems, "", false, ErrBadPattern
-				}
-			}
-			fallthrough
+        case '\\':
+            if runtime.GOOS != "windows" {
+                chunk = chunk[1:]
+                if len(chunk) == 0 {
+                    return stems, "", false, ErrBadPattern
+                }
+            }
+            fallthrough
 
-		default:
-			if !failed {
-				if chunk[0] != s[0] {
-					failed = true
-				}
-				s = s[1:]
-			}
-			chunk = chunk[1:]
-		}
-	}
-	if failed {
-		return stems, "", false, nil
-	}
-	return stems, s, true, nil
+        default:
+            if !failed {
+                if chunk[0] != s[0] {
+                    failed = true
+                }
+                s = s[1:]
+            }
+            chunk = chunk[1:]
+        }
+    }
+    if failed {
+        return stems, "", false, nil
+    }
+    return stems, s, true, nil
 }
 
 // modified copy of filepath.Match
@@ -3059,9 +3173,9 @@ func globMatch(pattern, name string) (matched bool, stems []string, err error) {
     var _pattern, _name = pattern, name
     var dbg = false && (
         (_pattern == "lib*.a" && _name == "libunwind.a") ||
-        (_pattern == "libun????.a" && _name == "libunwind.a") ||
-        (_pattern == "lib[a-z][^0-9]????.a" && _name == "libunwind.a") ||
-        (_pattern == "lib?++.a" && _name == "libc++.a"))
+            (_pattern == "libun????.a" && _name == "libunwind.a") ||
+            (_pattern == "lib[a-z][^0-9]????.a" && _name == "libunwind.a") ||
+            (_pattern == "lib?++.a" && _name == "libc++.a"))
     if dbg {
         if dbg {
             fmt.Fprintf(stderr, "(%v, %v):\n", _pattern, _name)
@@ -3073,61 +3187,61 @@ func globMatch(pattern, name string) (matched bool, stems []string, err error) {
         } ()
     }
 Pattern:
-	for len(pattern) > 0 {
-		var star bool
-		var chunk string
+    for len(pattern) > 0 {
+        var star bool
+        var chunk string
         var _p = pattern
-		star, chunk, pattern = globScanChunk(pattern)
+        star, chunk, pattern = globScanChunk(pattern)
         if dbg {
             fmt.Fprintf(stderr, "    scan: (%v) -> star=%v, chunk=%v, pattern=%v\n", _p, star, chunk, pattern)
         }
-		if star && chunk == "" {
-			// Trailing * matches rest of string unless it has a /.
-			if matched = !strings.Contains(name, PathSep); matched {
+        if star && chunk == "" {
+            // Trailing * matches rest of string unless it has a /.
+            if matched = !strings.Contains(name, PathSep); matched {
                 if false { stems = append(stems, name) }
             }
             return
-		}
-		// Look for match at current position.
-		ss, t, ok, err := globMatchChunk(chunk, name)
+        }
+        // Look for match at current position.
+        ss, t, ok, err := globMatchChunk(chunk, name)
         if dbg {
             fmt.Fprintf(stderr, "    match: (%v, %v) -> ss=%v, t=%v, ok=%v\n", chunk, name, ss, t, ok)
         }
         if err == nil && len(ss) > 0 { stems = append(stems, ss...) }
         // if we're the last chunk, make sure we've exhausted the name
-		// otherwise we'll give a false result even if we could still match
-		// using the star
-		if ok && (len(t) == 0 || len(pattern) > 0) {
+        // otherwise we'll give a false result even if we could still match
+        // using the star
+        if ok && (len(t) == 0 || len(pattern) > 0) {
             name = t
-			continue
-		}
-		if err != nil {
-			return false, stems, err
-		}
+            continue
+        }
+        if err != nil {
+            return false, stems, err
+        }
         if star {
-			// Look for match skipping i+1 bytes. Cannot skip /.
-			for i := 0; i < len(name) && name[i] != filepath.Separator; i++ {
-				ss, t, ok, err := globMatchChunk(chunk, name[i+1:])
+            // Look for match skipping i+1 bytes. Cannot skip /.
+            for i := 0; i < len(name) && name[i] != filepath.Separator; i++ {
+                ss, t, ok, err := globMatchChunk(chunk, name[i+1:])
                 if dbg {
                     fmt.Fprintf(stderr, "    match: name=%v, (%v, %v), %s -> ss=%v, t=%v, ok=%v\n", name, chunk, name[i+1:], name[:i+1], ss, t, ok)
                 }
                 if ok {
                     // if we're the last chunk, make sure we exhausted the name
-					if len(pattern) == 0 && len(t) > 0 {
-						continue
-					}
+                    if len(pattern) == 0 && len(t) > 0 {
+                        continue
+                    }
                     stems = append(stems, name[:i+1])
-					name = t
-					continue Pattern
-				}
-				if err != nil {
-					return false, stems, err
-				}
-			}
-		}
-		return false, stems, nil
-	}
-	return len(name) == 0, stems, nil
+                    name = t
+                    continue Pattern
+                }
+                if err != nil {
+                    return false, stems, err
+                }
+            }
+        }
+        return false, stems, nil
+    }
+    return len(name) == 0, stems, nil
 }
 
 // globMatchFile - Glob matching each component of the filename against the
@@ -3264,20 +3378,6 @@ func (p *Path) expand(ctx Context, w expandwhat) (res Value) {
     }
     return
 }
-func (p *Path) pathname(ctx Context, stems []string) (pathname string, err error) {// the addressed file target
-    var (
-        val Value
-        rest []string // unmatched path segmants
-    )
-    if len(stems) == 0 || !p.patterned(ctx) {
-        pathname = p.Strval(ctx)
-    } else if val, rest = p.stencil(ctx, stems); len(rest) > 0 {
-        //err = errorf(p.position, "partial match: %v", rest)
-    } else {
-        pathname = val.Strval(ctx)
-    }
-    return
-}
 func (p *Path) delete(ctx Context) (files []*File, err error) {
     var pathname string
     if positionalValueCtx { ctx = positional(ctx, p.position) }
@@ -3308,53 +3408,25 @@ func (p *Path) stamp(ctx Context) (files []*File, err error) {
     return
 }
 func (p *Path) stat(ctx Context) (si *statinfo) {
-    var (
-        pathname string // the addressed file target
-        err error
-    )
     ctx = positional(ctx, p.position)
-    if pathname, err = p.pathname(ctx, ctx.stems()); err != nil {
-        erro(ctx, "pathname error: %v", err)
-    } else if pathname == "" {
-        erro(ctx, "pathname is empty: %v", p)
-    } else if file := stat(ctx, pathname, "", "", nil); file != nil {
-        si = &statinfo{ file: file }
+
+    var file *File
+    if p.patterned(ctx) {
+        if val, rest := p.stencil(ctx, ctx.stems()); len(rest) > 0 {
+            erro(ctx, "partial match: %v", rest)
+            return
+        } else {
+            file = stat(ctx, val.Strval(ctx), "", "", nil)
+        }
+    } else {
+        file = stat(ctx, p.Strval(ctx), "", "", nil)
     }
+
+    if file != nil { si = &statinfo{ file:file }}
     return
 }
 func (p *Path) traverse(ctx Context) (traves travestates) {
-    var (
-        pathname string
-        err error
-    )
-
-    ctx = positional(ctx, p.position)
-
-    if p.patterned(ctx) && len(ctx.stems()) == 0 {
-        var a, _ = ctx.autoGet("@")
-        var s, _ = ctx.autoGet("*")
-        prompt(ctx, "%v: no stems for pattern: %v\n", a, p)
-        prompt(ctx, "%v: $*=%v, stemmed=%v\n", a, s, ctx.stemmed())
-        errostack(ctx, 3, "%v", p).at(p.position).debug(64)
-        return
-    } else if pathname, err = p.pathname(ctx, ctx.stems()); err == nil && pathname == "" {
-        erro(ctx, "path %v matches no target", p).at(p.position).debug(1)
-        return
-    } else if err != nil {
-        erro(ctx, "compute pathname failed: %v", err).at(p.position).debug(1)
-        return
-    }
-
-    // Stat the file by pathname.
-    if file := stat(ctx, pathname, "", ""/*, nil*/); file != nil {
-        if strings.HasPrefix(file.String(), "ui/") {
-            warn(ctx, "%v %v", file, pathname).debug(1)
-        }
-        traves = file.traverse(ctx)
-    } else {
-        traves = traverse(ctx, p, pathname)
-    }
-    return
+    return traverse(ctx, p, "")
 }
 func (p *Path) patterned(ctx Context) (result bool) {
     for _, seg := range p.Elems {
@@ -3791,7 +3863,9 @@ var filecache = make(map[string]*filebase) // File.fullname() -> File
 
 func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File) {
     var (
-        base *filebase ; stub *filestub ; fullname string
+        base *filebase
+        stub *filestub
+        fullname string
     )
 
     statmutex.Lock(); defer statmutex.Unlock()
@@ -3800,9 +3874,9 @@ func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
     if dir != "" { dir = filepath.Clean(dir) }
     if sub != "" { sub = filepath.Clean(sub) }
     if false {
-        t := strings.HasPrefix(name, "./")
+        var t = strings.HasPrefix(name, "./")
         if name!= "" { name = filepath.Clean(name) }
-        if t { name = "./" + name }
+        if t         { name = "./" + name }
     }
 
     if filepath.IsAbs(name) {
@@ -4150,12 +4224,15 @@ func (p *File) traverse(a_ctx Context) (traves travestates) {
         afterFilemapProject:
         }
     }
+
     return traverse(ctx, p, p.name)
 }
 
 func (p *File) cmp(ctx Context, v Value) (res cmpres) {
     if isTrivial(v) {
         // noop
+    } else if a, ok := v.(*Barefile); ok {
+        if a.File != nil { return p.cmp(ctx, a.File) }
     } else if a, ok := v.(*File); ok {
         if a == nil {
             //assert(a != nil, "nil file")
@@ -4388,7 +4465,7 @@ func (p *Compound) elemStr(ctx Context, o Object, k elemkind) (s string) {
         s = s[i+1:]
         if _, err = buf.WriteString(esc); err != nil {
             erro(ctx, "%v", err).of(p)
-			return
+            return
         }
         i = strings.IndexAny(s, escapedChars)
     }
@@ -4407,8 +4484,8 @@ func (p *Compound) cmp(ctx Context, v Value) (res cmpres) {
 }
 
 type List struct {
-        position Position
-        elements
+    position Position
+    elements
 }
 func (_ *List) kind() kind { return valOther }
 func (p *List) Position() (pos Position) { return p.position }
@@ -4451,16 +4528,16 @@ func (p *List) expand(ctx Context, w expandwhat) (res Value) {
     return
 }
 func (p *List) traverse(ctx Context) (traves travestates) {
-    for i, elem := range p.Elems {
-        if traves = elem.traverse(ctx); traves.has(traveFail) {
-            var t = traves.not(traveCase, traveNext, traveDone)
-            if (options.verbose || options.verboseBreaks || options.debug) && t.has() {
-                prompt(ctx, "List[%v] → %T %v\n", i, elem, elem)
-                for _, s := range t {
-                    warn(ctx, "[%v] %v: %v", i, elem, s).at(s.pos)
-                }
-                warnstack(ctx, 5, "%T %v", elem, elem).debug(16)
-            }
+    for _, elem := range p.Elems {
+        var t = elem.traverse(ctx)
+        traves = append(traves, t...)
+        if _, ok := elem.(*modifiergroup); ok && t.has(traveNext) {
+            warn(ctx, "%T %v", elem, elem).debug(1)
+        }
+        if _, ok := elem.(*modifier); ok && t.has(traveNext) {
+            warn(ctx, "%T %v", elem, elem).debug(1)
+        }
+        if t.has(/*traveCase, traveNext, traveDone, */traveFail) {
             break
         }
     }
@@ -4819,24 +4896,13 @@ func (p *delegate) traverse(ctx Context) (traves travestates) {
     if val := p.expand(ctx, expandPlainValue); isNil(val) {
         warn(ctx, "delegate '%v' expands to nil", p).at(p.position)
         warnstack(ctx, -1, "delegate '%v' expands to <nil>", p).debug(16)
-    } else if isNone(val) {
+    } else if isTrivial(val) {
         if false {
             warn(ctx, "delegate '%v' expands to none", p).at(p.position)
             warnstack(ctx, -1, "delegate '%v' expands to <none>", p).debug(16)
         }
-    } else if traves = val.traverse(ctx); len(traves) > 0 {
-        var t = traves.not(traveCase, traveNext, traveDone)
-        if (options.verbose || options.verboseBreaks || options.debug) && t.has() {
-            prompt(ctx, "%v → %T %v\n", p, val, val)
-            for _, s := range t {
-                warn(ctx, "%v: %v", p, s).at(s.pos)
-            }
-            warnstack(ctx, 5, "%v: %T", p, val).debug(16)
-        }
-    } else if false && strings.HasSuffix(val.String(), ".a") {
-        var v, _ = ctx.autoGet("^")
-        warn(ctx, "%v: %v", p, val)
-        warn(ctx, "%v: %v", p, v).debug(1)
+    } else {
+        traves = val.traverse(ctx)
     }
     return
 }
@@ -5053,6 +5119,14 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (retctx Context, res Value)
     retctx = ctx
     return
 }
+func (p *delegate) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
+    if v := p.expand(ctx, expandPlainValue); v != nil {
+        return v.match(ctx, i)
+    } else {
+        erro(ctx, "%v: expand to nil", p).debug(1)
+    }
+    return
+}
 func (p *delegate) stat(ctx Context) (si *statinfo) {
     erro(ctx, "cant stat delegate %v, must expand it first", p).at(p.position).debug(16)
     return
@@ -5123,6 +5197,14 @@ func (p *closure) expandible(ctx Context, w expandwhat) (res bool) {
                 if res = a.expandible(ctx, w); res { break }
             }
         }
+    }
+    return
+}
+func (p *closure) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
+    if v := p.expand(ctx, expandPlainValue); v != nil {
+        return v.match(ctx, i)
+    } else {
+        erro(ctx, "%v: expand to nil", p).debug(1)
     }
     return
 }
@@ -5278,8 +5360,8 @@ func (p *closure) traverse(ctx Context) (traves travestates) {
         warn(ctx, "closure '%v' expands to nil", p).at(p.position).debug(1)
     } else if isNone(val) {
         warn(ctx, "closure '%v' expands to none", p).at(p.position).debug(1)
-    } else if traves = val.traverse(ctx); false && len(traves) > 0 {
-        for _, s := range traves { warn(ctx, "%v; %v -> %T %v", s.what, p, val, val).debug(8) }
+    } else {
+        traves = val.traverse(ctx)
     }
     return
 }
@@ -5348,20 +5430,20 @@ func (p *selection) defs(ctx Context, s ...string) []*Def {
     return append(p.o.defs(ctx, s...), p.s.defs(ctx, s...)...)
 }
 /*
-func (p *selection) objectName(ctx Context) (s string) {
+   func (p *selection) objectName(ctx Context) (s string) {
     switch t := p.o.(type) {
-    case Object: s = t.Name(ctx)
+case Object: s = t.Name(ctx)
     }
     return
-}
-func (p *selection) propName(ctx Context) (s string) {
+    }
+    func (p *selection) propName(ctx Context) (s string) {
     switch t := p.s.(type) {
-    case Object: s = t.Name(ctx)
-    case *Bareword: s = t.string
-    case *String: s = t.string
+case Object: s = t.Name(ctx)
+case *Bareword: s = t.string
+case *String: s = t.string
     }
     return
-}
+    }
 */
 func (p *selection) object(ctx Context) (o Object) {
     if s, ok := p.o.(*selection); ok {
@@ -5393,7 +5475,7 @@ func (p *selection) value(ctx Context) (v Value) {
         } else {
             var e error
             if v, e = o.Get(ctx, s); e != nil {
-               erro(ctx, "%v", e).debug(1)
+                erro(ctx, "%v", e).debug(1)
             }
         }
     } else /*if o == nil*/ {
@@ -5483,14 +5565,14 @@ func (p *selection) elemStr(ctx Context, o Object, k elemkind) (s string) {
 }
 
 /*
-type partialMatcher interface {
+   type partialMatcher interface {
     partialMatch(i interface{}) (result string, rest, stems []string, err error)
-}
+    }
 
-// TODO: endingMatcher is not implemented (e.g. $(trim-suffix .%, a.xxx b.xxx))
-type endingMatcher interface {
+   // TODO: endingMatcher is not implemented (e.g. $(trim-suffix .%, a.xxx b.xxx))
+   type endingMatcher interface {
     endingMatch(i interface{}) (result string, rest, stems []string, err error)
-}
+    }
 */
 
 // Pattern
@@ -5498,7 +5580,7 @@ type endingMatcher interface {
     Value
     match(i interface{}) (s string, stems []string, err error)
     stencil(stems []string) (s string, rest []string, err error)
-}*/
+    }*/
 
 // PercPattern represents percent pattern expressions (e.g. '%.o')
 type PercPattern struct {
@@ -5584,7 +5666,7 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
                 break
             }
         }
-   } else if a <= b {
+    } else if a <= b {
         if s := p.Suffix.Strval(ctx); strings.HasSuffix(rep[a:], s) {
             if b -= len(s); a < b {
                 stems = append(stems, rep[a:b])
@@ -5682,7 +5764,7 @@ DoneVals:
     }
     return
 }
-func (p *PercPattern) traverse(ctx Context) (traves travestates) { return traversePattern(ctx, p) }
+func (p *PercPattern) traverse(ctx Context) (traves travestates) { return traverse(ctx, p, "") }
 func (p *PercPattern) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*PercPattern); ok {
         if p.Prefix.cmp(ctx, a.Prefix) == cmpEqual {
@@ -5795,7 +5877,7 @@ func (p *GlobPattern) stencil(ctx Context, stems []string) (val Value, rest []st
     unreachable(fmt.Sprintf("Unimplemented GlobPattern stencil %v (stems=%v)", p, stems))
     return
 }
-func (p *GlobPattern) traverse(ctx Context) (traves travestates) { return traversePattern(ctx, p) }
+func (p *GlobPattern) traverse(ctx Context) (traves travestates) { return traverse(ctx, p, "") }
 func (p *GlobPattern) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*GlobPattern); ok {
         if len(p.Components) == len(a.Components) {
@@ -5833,7 +5915,7 @@ func (p *RegexpPattern) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *RegexpPattern) traverse(ctx Context) (traves travestates) { return traversePattern(ctx, p) }
+func (p *RegexpPattern) traverse(ctx Context) (traves travestates) { return traverse(ctx, p, "") }
 
 func NewRegexpPattern(pos Position) Value {
     return &RegexpPattern{valbase{pos}} // TODO: RegexpPattern implementation

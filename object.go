@@ -178,15 +178,8 @@ func (p *ProjectName) Call(ctx Context, a... Value) (value Value) {
 }
 
 func (p *ProjectName) traverse(ctx Context) (traves travestates) {
-        if entry := p.project.DefaultEntry(); entry == nil {
-                // does nothing
-        } else if traves = entry.traverse(ctx); false && traves.has() {
-                var t = traves.not(traveCase, traveDone, traveNext, traveFile)
-                if (false || options.debug) && t.has() {
-                        prompt(ctx, "%v→%v\n", p, entry)
-                        for _, brk := range t { warn(ctx, "%v→%v: %v", p, entry, brk).at(brk.pos) }
-                        warnstack(ctx, 5, "%v→%v", p, entry).debug(8)
-                }
+        if entry := p.project.DefaultEntry(); entry != nil {
+                traves = entry.traverse(ctx)
         }
         return
 }
@@ -341,7 +334,7 @@ func (ac *autoContext) autoGet(name string) (res Value, found bool) {
                 res, found = def.value, ok
         } else if ic = ac.inner(); ic == nil {
                 warn(ac, "missing: %v in %v", name, ac).debug(32)
-        } else if res, found = ic.autoGet(name); expandArgumentedTraverse || found || isTrivial(res) {
+        } else if res, found = ic.autoGet(name); traverseArgumentedExpand || found || isTrivial(res) {
                 // Done!
         } else if false {
                 for /*ic = ic.inner()*/; ic != nil; ic = ic.inner() {
@@ -1127,6 +1120,8 @@ type Entry interface {
         Programs() []*Program
         setPrograms([]*Program)
 
+        hasRecipes() bool
+
         //isTrivial(Context) bool // draws prerequisites only, no recipes
 
         option(Context) (bool, []Value)
@@ -1222,6 +1217,7 @@ func (entry *RuleEntry) Execute(ctx Context, a ...Value) (result []Value, traves
 }
 func (entry *RuleEntry) execute(cc Context, a... Value) (result []Value, traves travestates) {
         if cc = (&entryContext{ cc, entry }); len(a) > 0 { cc = &argumentedContext{ cc, a } }
+ForPrograms:
         for _, program := range entry.programs {
                 var pos = program.position
                 if !pos.IsValid() { pos = entry.Position() }
@@ -1229,8 +1225,10 @@ func (entry *RuleEntry) execute(cc Context, a... Value) (result []Value, traves 
                 var res, t = program.execute(positional(cc, pos))
                 result = append(result, merge(res)...)
                 traves = append(traves, t...)
-                if t.has(traveCase, traveDone, traveFail) { break }
-                // if t.has(traveNext, traveFile) { continue ForPrograms }
+                if t.has(traveFail) { break ForPrograms }
+                for _, s := range t.of(traveCase, traveDone) {
+                        if s.prog == program { break ForPrograms }
+                }
         }
         return
 }
@@ -1248,6 +1246,12 @@ func (entry *RuleEntry) recipes() (recipes []Value) {
                 for _, recipe := range prog.recipes {
                         recipes = append(recipes, recipe)
                 }
+        }
+        return
+}
+func (entry *RuleEntry) hasRecipes() (res bool) {
+        for _, prog := range entry.programs {
+                if res = len(prog.recipes) > 0; res { break }
         }
         return
 }
@@ -1336,8 +1340,10 @@ ForPrograms:
                 var res, t = prog.execute(positional(cc, pos))
                 result = append(result, merge(res)...)
                 traves = append(traves, t...)
-                if t.has(traveCase, traveDone, traveFail) { break ForPrograms }
-                // if t.has(traveNext, traveFile) { continue ForPrograms }
+                if t.has(traveFail) { break ForPrograms }
+                for _, s := range t.of(traveCase, traveDone) {
+                        if s.prog == prog { break ForPrograms }
+                }
         }
         return
 }

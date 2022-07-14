@@ -50,11 +50,11 @@ func (s FailedAssertion) Error() string { return string(s) }
 func (s Unreachable) Error() string { return string(s) }
 
 func (e targetNotFoundError) Error() string {
-    return fmt.Sprintf("%s: %v target not found", e.project.name, e.target)
+    return fmt.Sprintf("%s: %v: target not found", e.project.name, e.target)
 }
 
 func (e pathNotFoundError) Error() string {
-    return fmt.Sprintf("%s: %v path not found", e.project.name, e.path)
+    return fmt.Sprintf("%s: %v: path not found", e.project.name, e.path)
 }
 
 func (e fileNotFoundError) Error() string {
