@@ -2436,11 +2436,13 @@ func asOptFullname(ctx Context, val Value, projects ...*Project) (file *File, s 
 }
 
 func asOptFullname2(ctx Context, val Value, projects ...*Project) (file *File, s string, ok bool) {
-        if file, s, ok = asOptFullname(ctx, val, projects...); file == nil && s != "" {
-                switch val.(type) {
-                case *String, *Compound:
-                        for _, proj := range projects {
-                                if file = proj.FindFile(ctx, s); file != nil { break }
+        if file, s, ok = asOptFullname(ctx, val, projects...);
+        file == nil && s != "" && !filepath.IsAbs(s) {
+                for _, proj := range projects {
+                        if file = proj.FindFile(ctx, s); file != nil {
+                                s = file.fullname()
+                                ok = filepath.IsAbs(s)
+                                break
                         }
                 }
         }
@@ -2448,7 +2450,7 @@ func asOptFullname2(ctx Context, val Value, projects ...*Project) (file *File, s
 }
 
 type builtinFullNameOpts struct {
-        debug int `d,debug`
+        generalOpts
 }
 func builtinFullName(ctx Context, args... Value) (res Value) {
         var (
@@ -2477,8 +2479,8 @@ func builtinFullName(ctx Context, args... Value) (res Value) {
 }
 
 type builtinBaseOpts struct {
-        debug int `d,debug`
-        fullname bool `f,full;fn,fullname` // unused
+        generalOpts
+        fullname bool `f,fn,full,fullname` // unused
 }
 func basex(ctx Context, n int, args... Value) (res Value) {
         var (
@@ -3566,9 +3568,9 @@ type wildcardOpts struct {
         baseFiles bool `b,base,bases;bf,base-files`
         usedFiles bool `u,used;u,using;uf,used-files`
         name bool `s,str,string;n,name`
-        exclude []Value `x,ex,exclude,except,not`
-        dir string `di,dir,directory`
+        exclude []Value `x,ex,excl,exclude,except,no,not`
         filetype string `ft,filetype,file-type` // dir, file, etc.
+        dir string `di,dir,directory`
 }
 func builtinWildcard(ctx Context, args... Value) (res Value) {
         var (
