@@ -2429,7 +2429,20 @@ func asOptFullname(ctx Context, val Value, projects ...*Project) (file *File, s 
         } else if s = val.Strval(ctx); s == "" {
                 // ...
         } else if filepath.IsAbs(s) {
+                file = stat(ctx, s, "", "")
                 ok = true
+        }
+        return
+}
+
+func asOptFullname2(ctx Context, val Value, projects ...*Project) (file *File, s string, ok bool) {
+        if file, s, ok = asOptFullname(ctx, val, projects...); file == nil && s != "" {
+                switch val.(type) {
+                case *String, *Compound:
+                        for _, proj := range projects {
+                                if file = proj.FindFile(ctx, s); file != nil { break }
+                        }
+                }
         }
         return
 }
@@ -2453,7 +2466,7 @@ func builtinFullName(ctx Context, args... Value) (res Value) {
                                 warn(ctx, "%T %v", a, a).debug(opts.debug,1)
                         }
                 }
-                if _, s, ok = asOptFullname(ctx, a, closured...); ok || s != "" {
+                if _, s, ok = asOptFullname2(ctx, a, closured...); ok || s != "" {
                         l = append(l, MakeString(a.Position(), s))
                 } else {
                         l = append(l, a)
@@ -2833,10 +2846,7 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                                 }
                         }
                         continue
-                } else if file, str, ok = asOptFullname(ctx, a, closured...); !ok || str == "" {
-                        if file == nil && str != "" { for _, proj := range closured {
-                                if file = proj.FindFile(ctx, str); file != nil { break }
-                        }}
+                } else if file, str, ok = asOptFullname2(ctx, a, closured...); !ok || str == "" {
                         if file != nil { ok = true } else
                         if opts.all {
                                 warn(ctx, "not a file: %v (%T)", a, a)
@@ -2896,7 +2906,7 @@ func builtinRemoveAll(ctx Context, args... Value) (res Value) {
                                         return
                                 }
                         }
-                } else if _, str, ok = asOptFullname(ctx, a, closured...); !ok || str == "" {
+                } else if _, str, ok = asOptFullname2(ctx, a, closured...); !ok || str == "" {
                         erro(ctx, "%v is not a file", a).debug(1)
                         break
                 } else {
@@ -3648,7 +3658,7 @@ func builtinReadFile(ctx Context, args... Value) (res Value) {
                         ok bool
                 )
                 if !apos.IsValid() { apos = pos }
-                if _, str, ok = asOptFullname(ctx, a, closured...); !ok || str == "" {
+                if _, str, ok = asOptFullname2(ctx, a, closured...); !ok || str == "" {
                         erro(ctx, "%v is not a file", a).at(apos).debug(1)
                         break
                 } else if s, err = ioutil.ReadFile(str); err != nil {
