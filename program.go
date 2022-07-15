@@ -7,12 +7,14 @@
 package smart
 
 import (
+    "path/filepath"
     "io/fs"
-    //"strconv"
+    // "strconv"
     "strings"
     "sync"
     "time"
     "fmt"
+    "os"
 )
 
 type dependPatternUnfit struct {}
@@ -314,6 +316,61 @@ func (t *normalTraverseContext) traversed(target Value) (targets []Value) {
 func (t *orderTraverseContext) traversed(target Value) (targets []Value) {
     if targets = t.Context.traversed(target); len(targets) > 0 {
         t.autoSet("|", MakeList(t.Position(), targets...))
+    }
+    return
+}
+
+func (prog *Program) workDir(ctx Context) (workDir string) {
+    if prog.changedWD == "" {
+        var o Object
+        if _, o = prog.scope.Find("CWD"); isTrivial(o) {
+            if _, o = prog.scope.Find("/"); isTrivial(o) {
+                erro(ctx, "both $(CWD) and $/ are trivial").debug(1)
+                return
+            }
+        }
+        if def, ok := o.(*Def); ok {
+            if v := def.Call(ctx); !isTrivial(v) {
+                workDir = v.Strval(ctx)
+            } else {
+                erro(ctx, "%v is trivial", def.name).debug(1)
+            }
+        }
+    } else if filepath.IsAbs(prog.changedWD) {
+        workDir = prog.changedWD
+    } else {
+        workDir = filepath.Join(prog.project.absPath, prog.changedWD)
+    }
+    return
+}
+
+func (prog *Program) env(ctx Context) (env []string, osi int) {
+      var envars []*Pair // disclosed values
+    if def, _ := prog.scope.Lookup(TheShellEnvarsDef).(*Def); def != nil {
+        if l, _ := def.value.(*List); l != nil {
+            for _, v := range l.Elems {
+                var t Value
+                if t = v.expand(ctx, expandClosure); isNil(t) { t = v }
+                if p, ok := t.(*Pair); ok {
+                    envars = append(envars, p)
+                } else {
+                    erro(ctx, "env expecting pairs: %T", t).of(t).debug(1)
+                    return
+                }
+            }
+        }
+    }
+
+    env = os.Environ()
+    osi = len(env)
+    for _, p := range envars {
+        var (
+            k = p.Key.Strval(ctx)
+            v = p.Value.Strval(ctx)
+        )
+        // if i > 0 { envstr += " && " }
+        // envstr += fmt.Sprintf(`%s=%s`, k, strconv.Quote(v))
+        env = append(env, fmt.Sprintf("%s=%s", k, v))
     }
     return
 }

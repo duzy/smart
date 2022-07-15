@@ -916,29 +916,9 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   var workDir string
   if opts.workDir != "" {
     workDir = opts.workDir
-  } else if program.changedWD == "" {
-    var (
-      cwd string
-      o Object
-      v Value
-    )
-    if _, o = program.scope.Find("CWD"); isNil(o) {
-      if _, o = program.scope.Find("/"); isNil(o) {
-        erro(ctx, "'CWD' and '/' is undefined").debug(1)
-        return
-      }
-    }
-    if v = o.(*Def).Call(positional(ctx, program.position)); isNil(v) || isNone(v) {
-      erro(ctx, "CWD is <nil>").debug(1)
-      return
-    } else if cwd = v.Strval(ctx); cwd == "" {
-      erro(ctx, "CWD is empty").debug(1)
-      return
-    }
-  } else if filepath.IsAbs(program.changedWD) {
-    workDir = program.changedWD
-  } else {
-    workDir = filepath.Join(program.project.absPath, program.changedWD)
+  } else if workDir = program.workDir(ctx); workDir == "" {
+    erro(ctx, "CWD is empty").debug(1)
+    return
   }
 
   if opts.path {
@@ -947,22 +927,6 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
         erro(ctx, "make path '%s' for target failed: %v", s, err).of(target).debug(1)
         return
-      }
-    }
-  }
-
-  var envars []*Pair // disclosed values
-  if def, _ := program.scope.Lookup(TheShellEnvarsDef).(*Def); def != nil {
-    if l, _ := def.value.(*List); l != nil {
-      for _, v := range l.Elems {
-        var t Value
-        if t = v.expand(ctx, expandClosure); isNil(t) { t = v }
-        if p, ok := t.(*Pair); ok {
-          envars = append(envars, p)
-        } else {
-          erro(ctx, "env expecting pairs: %T", t).of(t).debug(1)
-          return
-        }
       }
     }
   }
@@ -1030,17 +994,14 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   }
 
   var (
+    env, envSep = program.env(ctx)
     envstr string
-    envs []string = os.Environ()
   )
-  for i, p := range envars {
-    var (
-      k = p.Key.Strval(ctx)
-      v = p.Value.Strval(ctx)
-    )
+  for i, s := range env[envSep:] {
     if i > 0 { envstr += " && " }
-    envstr += fmt.Sprintf(`%s=%s`, k, strconv.Quote(v))
-    envs = append(envs, fmt.Sprintf("%s=%s", k, v))
+    if k := strings.Index(s, "="); k > 0 {
+      envstr += fmt.Sprintf(`%s%s`, s[:k+1], strconv.Quote(s[k+2:]))
+    }
   }
 
   var (
@@ -1209,8 +1170,8 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
 
     exeres.container = container
     exeres.sh = exec.Command(cmd, aa...)
-    exeres.sh.Dir = workDir
-    exeres.sh.Env = envs // always set command work directory
+    exeres.sh.Dir = workDir // always set command work directory
+    exeres.sh.Env = env
     exeres.sh.Stdout = &exeres.Stdout
     exeres.sh.Stderr = &exeres.Stderr
     if opts.stdin {

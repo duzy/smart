@@ -10,7 +10,7 @@ import (
         "extbit.io/smart/token"
         "encoding/base64"
         "path/filepath"
-        //"hash/crc64"
+        // "hash/crc64"
         "io/ioutil"
         "net/http"
         "os/exec"
@@ -20,7 +20,7 @@ import (
         "strconv"
         "unicode"
         "unsafe"
-        //"errors"
+        // "errors"
         "regexp"
         "bytes"
         "bufio"
@@ -3560,15 +3560,15 @@ func wildcardPathPatsInDir(ctx Context, opts *wildcardOpts, pats ...Value) (file
 }
 
 type wildcardOpts struct {
+        generalOpts
         includeMissing bool `im,includemissing;m,include-missing`
         errorMissing bool `em,errormissing;e,error-missing`
-        baseFiles bool `b,base;b,bases;bf,base-files`
+        baseFiles bool `b,base,bases;bf,base-files`
         usedFiles bool `u,used;u,using;uf,used-files`
-        verbose bool `v,verbose`
-        name bool `s,str;str,string;n,name`
+        name bool `s,str,string;n,name`
         exclude []Value `x,ex,exclude,except,not`
-        dir string `d,dir;dir,directory`
-        filetype string `ft,filetype,file-type,t,type` // dir, file, etc.
+        dir string `di,dir,directory`
+        filetype string `ft,filetype,file-type` // dir, file, etc.
 }
 func builtinWildcard(ctx Context, args... Value) (res Value) {
         var (
@@ -3583,6 +3583,12 @@ func builtinWildcard(ctx Context, args... Value) (res Value) {
         }
         if args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...); len(opts.exclude) > 0 {
                 opts.exclude = mergeExpand(ctx, expandPlainValue, opts.exclude...)
+        }
+
+        if opts.timing {
+                defer func(t time.Time) {
+                        info(ctx, "wildcard time: %v", time.Now().Sub(t)).debug(1)
+                } (time.Now())
         }
 
         if opts.dir != "" {

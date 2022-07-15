@@ -21,6 +21,7 @@ import (
         "path/filepath"
         "regexp"
         "strings"
+        "syscall"
         "sync"
         "time"
 )
@@ -33,8 +34,9 @@ const (
 )
 
 type generalOpts struct {
-        debug   int "d,db,debug" // NOTE: compatible with 'bool'
-        verbose bool "v,verb,verbose"
+        debug   int  `d,db,debug` // NOTE: compatible with 'bool'
+        verbose bool `v,verb,verbose`
+        timing  bool `t,time,timing`
 }
 type modifier struct {
         valbase
@@ -186,6 +188,8 @@ var (
                 `cond`:         modifierCond,
 
                 `once`:         modifierOnce,
+
+                `fork`:         modifierFork,
 
                 `git-ahead`:    modifierGitAhead,
                 `git-modified`: modifierGitModified,
@@ -3222,6 +3226,79 @@ func predictionTargetMaxVisit(ctx Context, args... Value) (result Value) {
         } else { s = fmt.Sprintf("%d visits", num+1) }
 
         result = MakePrediction(ctx.Position(), num<nth, s)
+        return
+}
+
+type modifierForkOpts struct {
+        generalOpts
+        workDir string `w,wd,workdir,work-dir`
+}
+func _modifierFork(ctx Context, args... Value) (result Value, traves travestates) {
+        var (
+                opts modifierForkOpts
+                attr syscall.ProcAttr
+                argv []string
+                prog = ctx.program()
+        )
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        for _, a := range args { argv = append(argv, a.Strval(ctx)) }
+
+        if opts.workDir != "" {
+                attr.Dir = opts.workDir
+        } else if attr.Dir = prog.workDir(ctx); attr.Dir == "" {
+                erro(ctx, "empty workdir").debug(1)
+                return
+        }
+        attr.Env, _ = prog.env(ctx)
+        attr.Files = []uintptr{ // FIXME: see Cmd.Start() for files pipes
+                os.Stdin .Fd(),
+                os.Stdout.Fd(),
+                os.Stderr.Fd(),
+        }
+
+        if exe, err := os.Executable(); err != nil {
+                erro(ctx, "fork: %v: %v", os.Args[0], err).debug(1)
+        } else if pid, err := syscall.ForkExec(exe, argv, &attr); err != nil {
+                erro(ctx, "fork: %v: %v", exe, err).debug(1)
+        } else if pid == 0 {
+                erro(ctx, "fork: pid is zero").debug(1)
+        } else {
+                // TODO: status code, etc.
+        }
+        return
+}
+func modifierFork(ctx Context, args... Value) (result Value, traves travestates) {
+        var (
+                prog = ctx.program()
+                opts modifierForkOpts
+                argv []string
+                wd string
+        )
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        for _, a := range args { argv = append(argv, a.Strval(ctx)) }
+
+        if opts.workDir != "" {
+                wd = opts.workDir
+        } else if wd = prog.workDir(ctx); wd == "" {
+                erro(ctx, "empty workdir").debug(1)
+                return
+        }
+
+        var exe, err = os.Executable()
+        if err != nil {
+                erro(ctx, "fork: %v: %v", os.Args[0], err).debug(1)
+                return
+        }
+
+        var cmd = exec.Command(exe, argv...)
+        cmd.Stdout, cmd.Stderr = stdout, stderr
+        cmd.Env, _ = prog.env(ctx)
+
+        if err = cmd.Run(); err != nil {
+                erro(ctx, "fork: %v: %v", exe, err).debug(1)
+        } else {
+                // TODO: status code, etc.
+        }
         return
 }
 
