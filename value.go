@@ -885,7 +885,6 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 a = av.stat(ctx).mod()
                 b = bv.stat(ctx).mod()
             )
-            // IsZero() indicates the target not exists
             if (!a.IsZero() && b.After(a)) || bv.updated(ctx) || bv.updatedDeps(ctx) != nil {
                 if false {
                     av.updated(ctx, true)
@@ -918,10 +917,11 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             // prereq == "llvm-driver-objcopy.cpp" ||
             // strings.Contains(targetValue.Strval(ctx), "Unwind") ||
             // strings.Contains(prereq, "Unwind") ||
+            // strings.Contains(prereq, "ui/apple/metal.o") ||
             false {
-            prompt(ctx, "%v: %T: %T %v; %v file=%v okay=%v\n",
+            prompt(ctx, "%v: %T: %T %v ; %v file=%v okay=%v rules=(%d,%d)\n",
                 targetValue, targetValue, prereqValue, prereqValue,
-                traves, file, okay)
+                traves, file, okay, len(concreteList), len(stemmedList))
             infostack(ctx, 5, "").debug(24)
         }
     } ()
@@ -948,12 +948,13 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         traves = nil
 
         var t = entry.traverse(ctx)
-        if false && strings.Contains(prereq, "llvm-driver-objcopy.o") {
+        if false && strings.Contains(prereq, "ui/apple/metal") {
             if s, ok := entry.(*stemmed); ok {
                 warn(ctx, "%v: %v: %v %v", prereq, s.PatternEntry, entry, t).of(entry).debug(1)
             } else {
                 warn(ctx, "%v: %v %v", prereq, entry, t).of(entry).debug(1)
             }
+            defer func() { prompt(ctx, "%v: %v\n", targetValue, result).debug(6) } ()
         }
         if !t.has() { return traveResContinue }
         if promptTraveEntries || false && t.has(traveFail, traveNext) {
@@ -1079,9 +1080,10 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                     (prereqValue == g || prereqValue.cmp(ctx, g) == cmpEqual) &&
                     true {
 
+                    // NOTE:2: turn of this so that files get updated if changed
                     // NOTE: only 'okay' if files exists, it can continue trying other
                     //       rules if not.
-                    if file != nil && file.exists() {
+                    if false && file != nil && file.exists() {
                         if f, ok = s.depend.(*File); ok && f != nil {
                             okay = f.exists()
                         } else {
@@ -1090,7 +1092,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                     }
 
                     var op = traveResReturn // assuming file processed
-                    if !okay && !entry.hasRecipes() {
+                    if !okay || !entry.hasRecipes() {
                         op = traveResContinue
                     }
                     return op
@@ -1132,7 +1134,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             }
             switch trave(project, entry, false) {
             case traveResBreak : break ForEntries
-            case traveResReturn: return
+            case traveResReturn: break ForEntries //return
             }
         }
     }
@@ -1245,7 +1247,9 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     }
 
     // Stat directly for files not in included in "files (...)".
-    if true && !okay && file == nil && obj == nil && !traves.has() {
+    if !okay && file != nil && file.exists() {
+        okay = true
+    } else if true && !okay && file == nil && obj == nil && !traves.has() {
         if f := stat(ctx, prereq, "", ""); f != nil && f.exists() {
             if false { warn(ctx, "%v (%T) is a file (%s)",
                 prereqValue, prereqValue, f.fullname()).debug(6) }
