@@ -654,8 +654,8 @@ func (d *Def) set(ctx Context, origin Origin, value Value) {
         if d.origin == DefArg || d.origin == DefAuto {
                 var pos = ctx.Position()
                 if !pos.IsValid() { pos = d.position }
-                if ctx.autoSet(d.name, value); false {
-                        warn(ctx, "setting auto '%s' failed (value=%v)", d.name, value).at(pos).debug(6)
+                if _, ok := ctx.autoSet(d.name, value); !ok {
+                        d.value = value
                 }
                 return
         } else if origin != DefExpand1 && origin != DefExpand2 && !isNil(value) && value.refs(ctx, d) {
