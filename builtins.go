@@ -474,20 +474,25 @@ func parseOpts(ctx Context, iOpts interface{}, args... Value) (rest []Value) {
         if opts := reflect.ValueOf(iOpts); opts.Kind() != reflect.Ptr {
                 erro(ctx, "opts must be ptr: %v", opts.Kind()).at(pos).debug(1)
         } else if opts = opts.Elem(); opts.Kind() == reflect.Struct {
-                var otyp = opts.Type()
+                var (
+                        otyp = opts.Type()
+                        gen *generalOpts
+                )
                 if false { info(ctx, "opts: %v, %v", opts.Kind(), otyp).at(pos) }
                 for i := 0; i < otyp.NumField(); i += 1 {
                         var ft = otyp.Field(i)
                         var fv = opts.Field(i)
                         if ft.Name == "generalOpts" && fv.Kind() == reflect.Struct &&
                                 fv.Type().String() == "smart.generalOpts" {
-                                var base = (*generalOpts)(unsafe.Pointer(fv.UnsafeAddr()))
-                                rest = parseOpts(ctx, base, rest...)
-                                if false { prompt(ctx, "%v: %v ; %v -> %v", ft.Name, *base, args, rest).debug(1) }
+                                gen = (*generalOpts)(unsafe.Pointer(fv.UnsafeAddr()))
+                                rest = parseOpts(ctx, gen, rest...)
+                                if false { prompt(ctx, "%v: %v ; %v -> %v", ft.Name, *gen, args, rest).debug(1) }
                         } else {
                                 rest = parseOpt(ctx, ft.Tag, fv, rest...)
                         }
                 }
+                if gen == nil { return }
+                if gen.fullname { rest = mergeExpand(ctx, expandFullName, rest...) }
         } else {
                 erro(ctx, "opts is not ptr of struct: %v", opts.Kind()).at(pos).debug(1)
         }
@@ -758,9 +763,9 @@ func builtinLess(ctx Context, args... Value) (res Value) {
 }
 
 type builtinMatchOpts struct {
+        generalOpts
         regexps []*regexp.Regexp `r,re,rx,reg,regex,regexp`
         negated bool `n,ne,neg,negated,negative`
-        full bool `f,full;fm,full-match;fm,fullmatch`
 }
 // $(match rx1 rx2 rx3, a b c d...)
 func builtinMatch(ctx Context, args... Value) (res Value) {
@@ -792,7 +797,7 @@ ForValList:
                 }
                 for _, pat := range patList {
                         var matched, s, _ = pat.match(ctx, str)
-                        if !matched { matched = !opts.full && s != "" }
+                        if !matched { matched = !opts.fullname && s != "" }
                         if opts.negated { matched = !matched }
                         if matched {
                                 res = MakeBoolean(pos, true)
@@ -1724,7 +1729,7 @@ func builtinSubst(ctx Context, args... Value) (res Value) {
 }
 
 type builtinPatsubstOpts struct {
-        full bool `full,fullname`
+        generalOpts
         fullfiles bool `ff,fullfile;ff,fullfiles`
         files bool `f,file;fs,files`
         cleanPath bool `c,clean;c,cleanpath`
@@ -1789,14 +1794,14 @@ ForSources:
                         if file, ok := src.(*File); ok {
                                 source = file
                         } else if file = proj.FindFile(ctx, src.Strval(ctx)); file != nil {
-                                if (opts.full || opts.fullfiles) && !filepath.IsAbs(file.name) {
+                                if (opts.fullname || opts.fullfiles) && !filepath.IsAbs(file.name) {
                                         if !file.change("", "", file.fullname()) {
                                                 warn(ctx, "changing fullname failed: %v", file).debug(1)
                                         }
                                 }
                                 source = file
                         }
-                } else if opts.full {
+                } else if opts.fullname {
                         var ( s string; ok bool )
                         if _, s, ok = asOptFullname(ctx, src, closured...); s == "" {
                                 erro(ctx, "fullname '%v' is empty", src).of(src)
@@ -2480,7 +2485,6 @@ func builtinFullName(ctx Context, args... Value) (res Value) {
 
 type builtinBaseOpts struct {
         generalOpts
-        fullname bool `f,fn,full,fullname` // unused
 }
 func basex(ctx Context, n int, args... Value) (res Value) {
         var (
@@ -2512,7 +2516,7 @@ func builtinBase8(ctx Context, args... Value) Value { return basex(ctx, 8, args.
 func builtinBase9(ctx Context, args... Value) Value { return basex(ctx, 9, args...) }
 
 type builtinDirOpts struct {
-        fullname bool `f,full;fn,fullname`
+        generalOpts
 }
 func dirx(ctx Context, n int, args... Value) (res Value) {
         var (
@@ -3031,18 +3035,15 @@ foo: foobar
 	symlink -pluv $< $@
 */
 type builtinSymlinkOpts struct {
+        generalOpts
         path bool `p,path`
-        full bool `fn,fullname;full,fullname`
         force bool `f,force`
         update bool `u,update`
         relative bool `r,relative;l,rel`
-        verbose bool `v,verbose`
 }
 func builtinSymlink(ctx Context, args... Value) (res Value) {
         var opts builtinSymlinkOpts
-        if args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...); opts.full {
-                args = mergeExpand(ctx, expandFullName, args...)
-        }
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
 ForArgs:
         for i, na := 0, len(args); i < na; i += 1 {
                 var (
@@ -3055,20 +3056,14 @@ ForArgs:
                 case *Pair: // symlink oldName=newName oldName=>newName...
                         oldNameVal, newNameVal = t.Key, t.Value
                 case *Group: // symlink (-u oldName newName) (-v oldName newName)...
-                        if aa = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, t.Elems...)...); opts.full {
-                                aa = mergeExpand(ctx, expandFullName, aa...)
-                        }
-                        if len(aa) != 2 {
+                        if aa = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, t.Elems...)...); len(aa) != 2 {
                                 erro(ctx, "expects two values for group").of(t).debug(1)
                                 return
                         } else {
                                 oldNameVal, newNameVal = aa[0], aa[1]
                         }
                 case *List: // XXX: symlink old new, old new, ...
-                        if aa = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, t.Elems...)...); opts.full {
-                                aa = mergeExpand(ctx, expandFullName, aa...)
-                        }
-                        if len(aa) != 2 {
+                        if aa = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, t.Elems...)...); len(aa) != 2 {
                                 erro(ctx, "expects two values for list").of(t).debug(1)
                                 return
                         } else {

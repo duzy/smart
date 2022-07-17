@@ -34,9 +34,10 @@ const (
 )
 
 type generalOpts struct {
-        debug   int  `d,db,debug` // NOTE: compatible with 'bool'
-        verbose bool `v,verb,verbose`
-        timing  bool `t,time,timing`
+        debug    int  `d,db,debug` // NOTE: compatible with 'bool'
+        verbose  bool `v,verb,verbose`
+        timing   bool `t,time,timing`
+        fullname bool `f,fn,full,fullname`
 }
 type modifier struct {
         valbase
@@ -385,13 +386,11 @@ func modifierEnv(ctx Context, args... Value) (result Value, traves travestates) 
 //     [(set name)]          clear $(name)
 //     [(set -)]             clear $-
 type modifierSetOpts struct {
-        debug   bool `d,debug`
-        verbose bool `v,verbose`
+        generalOpts
 }
 func modifierSet(ctx Context, args... Value) (result Value, traves travestates) {
         var (
                 program = ctx.program()
-                none = MakeNone(ctx.Position())
                 opts modifierSetOpts
                 defs []Value
         )
@@ -400,7 +399,7 @@ func modifierSet(ctx Context, args... Value) (result Value, traves travestates) 
 ForArgs:
         for _, arg := range args {
                 var (
-                        value Value = none
+                        value Value
                         name string
                         def *Def
                 )
@@ -411,13 +410,9 @@ ForArgs:
                         if value = a.Value.expand(ctx, expandPlainValue); isNil(value) {
                                 value = a.Value
                         }
-                        if entry := ctx.entry(); false && name == "@" && entry != nil && entry.String() == "archive" {
-                                info(ctx, "%v -> %v", a.Value, value)
-                                info(ctx, "%s", ctx).debug(10)
-                        }
                 case *Flag:
-                        name = a.name.Strval(ctx)
-                        if value = none; name == "" { name = "-" }
+                        value = MakeNone(a.Position())
+                        if name = a.name.Strval(ctx); name == "" { name = "-" }
                 default:
                         erro(ctx, "%T `%s` is unsupported (try: foo=value)", arg, arg).debug(1)
                         return
@@ -2365,9 +2360,7 @@ func modifierWriteFile(ctx Context, args... Value) (result Value, traves travest
 }
 
 type modifierReadFileOpts struct {
-        debug    bool "d,debug"
-        verbose  bool "v,verbose"
-        fullname bool "f,full,fullname"
+        generalOpts
         head Value "h,head"
         foot Value "f,foot"
 }
@@ -2376,9 +2369,7 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, traves travestate
                 opts modifierReadFileOpts
                 args []Value
         )
-        if args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, aa...)...); opts.fullname {
-                args = mergeExpand(ctx, expandFullName, args...)
-        }
+        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, aa...)...)
 
         var (
                 file *File
@@ -2426,9 +2417,9 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, traves travestate
                 brk := traves.add(ctx, traveFail, target)
                 brk.error = err
         }
-        if opts.debug && err != nil {
+        if opts.debug > 0 && err != nil {
                 warn(ctx, "%v: %v ; stems=%v\n", target, err, ctx.stems())
-                warnstack(ctx, 5, "").debug(36)
+                warnstack(ctx, 5, "").debug(opts.debug)
         }
         return
 }
@@ -2470,9 +2461,7 @@ func crc64CompareFileChecksum(ctx Context, filename1, filename2 string) (same bo
 }
 
 type modifierUpdateFileOpts struct {
-        debug bool `d,debug`
-        verbose bool `v,verbose`
-        full bool `f,fn,full,fullname`
+        generalOpts
         path bool `p,path,md,makedir,make-dir,mp,makepath,make-path`
         zero bool `z,zero;e,empty;az,allow-zero;ae,allow-empty`
         append bool `a,app,append,append-content`
@@ -2485,7 +2474,6 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
                 target Value
         )
         args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
-        if opts.full { args = mergeExpand(ctx, expandFullName, args...) }
 
         if len(args) > 0 {
                 target = args[0]
@@ -2497,7 +2485,7 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
         }
 
         // Get target filename
-        if opts.full {
+        if opts.fullname {
                 if filename = fullnameOrStrval(ctx, target); !filepath.IsAbs(filename) {
                         var ( file *File ; s string )
                         var projs = closureProjects(ctx)
@@ -2530,9 +2518,9 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
                 }
         }
 
-        if opts.debug {
+        if opts.debug > 0 {
                 warnstack(ctx, 5, "update-file: %v (fullname=%v, project=%v)",
-                        target, filename, ctx.Project()).debug(12)
+                        target, filename, ctx.Project()).debug(opts.debug)
         }
         if opts.path { // Make path (mkdir -p)
                 if p := filepath.Dir(filename); p != "." && p != "/" {
@@ -2591,8 +2579,8 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
                         erro(ctx, "empty content for '%s' (at %s)", s, filename).debug(1)
                 }
                 return
-        } else if opts.verbose || opts.debug {
-                warnstack(ctx, 3, "empty content for '%v'", target).debug(6)
+        } else if opts.verbose || opts.debug > 0 {
+                warnstack(ctx, 3, "empty content for '%v'", target).debug(opts.debug)
         }
 
         var (
@@ -2605,14 +2593,14 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
                         var s string
                         if err != nil { s = err.Error() } else if same {
                                 if true { return } else { s = "unchanged" }
-                        } else if opts.debug {
+                        } else if opts.debug > 0 {
                                 s = fmt.Sprintf("changed (%d bytes, %s)", wrote, filename)
                         } else {
                                 s = fmt.Sprintf("changed (%d bytes)", wrote)
                         }
                         //printEnteringDirectory(ctx)
                         prompt(ctx, "update %v …… %s (in %v)\n", trimPromptString(target.String()), s, time.Now().Sub(st)).
-                                debug(opts.debug, 6)
+                                debug(opts.debug)
                 } (time.Now())
         }
 

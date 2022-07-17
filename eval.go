@@ -9,8 +9,7 @@ package smart
 // evaluer evaluates smart statements
 type evaluer struct { accumulation bool }
 type evaluerOpts struct {
-        debug bool `d,debug`
-        fullname bool `f,fn,full,fullname`
+        generalOpts
 }
 func (p *evaluer) Evaluate(ctx Context, args ...Value) (result Value, err error) {
         var program = ctx.program()
