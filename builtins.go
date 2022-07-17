@@ -3948,9 +3948,9 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                         val Value
                 )
                 if def = project.config(ctx, name); def == nil {
-                        if true { warn(ctx, "%v undefined", name).debug(1) }
+                        if true { warnstack(ctx, 3, "%v undefined", name).debug(1) }
                         continue
-                } else if val = def.Call(ctx); isTrivial(val) {
+                } else if val = def.Call(ctx); false && isTrivial(val) {
                         if true { warn(ctx, "%v is trivial (%T)", name, val).
                                 of(def).debug(1) }
                         continue

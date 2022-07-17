@@ -4657,8 +4657,14 @@ func (p *Group) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *Group) patterned(ctx Context, ) bool { return false }
-func (p *Group) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
-func (p *Group) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
+func (p *Group) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
+    // TODO: for _, elem := range { elem.match(ctx, i) }
+    return
+}
+func (p *Group) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    // TODO: for _, elem := range { elem.match(ctx, i) }
+    return p, stems
+}
 
 func parseGroupValue(ctx Context, g *Group) (result Value) {
     if len(g.Elems) == 0 { return g } else {

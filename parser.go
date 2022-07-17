@@ -1989,54 +1989,19 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 		generic = genericoptions{ keyword: keyword }
 	)
 
-	if false { for p.tok == token.MINUS {
-		var (
-			x = p.parseExpr(false)
-			ctx = positional(p, x.Position())
-			conds []Value
-		)
-		switch t := x.(type) {
-		case *Argumented:
-			if flag, ok := t.value.(*Flag); !ok {
-				// does nothing
-			} else if s := flag.name.Strval(ctx); s == "cond" || s == "if" {
-				conds = t.args
-			}
-		case *Pair:
-			if flag, ok := t.Key.(*Flag); !ok {
-				// does nothing
-			} else if s := flag.name.Strval(ctx); s == "cond" || s == "if" {
-				if g, ok := t.Value.(*Group); ok {
-					conds = g.Elems
-				} else {
-					conds = append(conds, t.Value)
-				}
-			}
+	for p.tok == token.MINUS {
+		var x = p.parseExpr(false)
+		var ctx = positional(p, x.Position())
+		if a := parseOpts(ctx, &opts, x); len(a) > 0 {
+			generic.options = append(generic.options, a...)
 		}
-		if conds == nil {
-			generic.options = append(generic.options, x)
-			continue
-		}
-		for _, cond := range conds {
-			if t := cond.True(ctx); !t {
-				generic.dontOperate = true
-				break
-			}
-		}
-	}} else {
-		for p.tok == token.MINUS {
-			var x = p.parseExpr(false)
-			var ctx = positional(p, x.Position())
-			if a := parseOpts(ctx, &opts, x); len(a) > 0 {
-				generic.options = append(generic.options, a...)
-			}
-		}
-		for _, cond := range opts.conds {
-			var ctx = positional(p, cond.Position())
-			if t := cond.True(ctx); !t {
-				generic.dontOperate = true
-				break
-			}
+
+	}
+	for _, cond := range opts.conds {
+		var ctx = positional(p, cond.Position())
+		if t := cond.True(ctx); !t {
+			generic.dontOperate = true
+			break
 		}
 	}
 

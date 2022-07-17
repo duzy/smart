@@ -509,8 +509,10 @@ func (ctx *defaultContext) colonResolve(name string) (obj Object, found bool) {
 func (ctx *defaultContext) closureResolveAuto(name string) (obj Object, found bool) { return ctx.colonResolve(name) }
 func (ctx *defaultContext) autoArgs(_ []*Def, _ []Value) ([]string, error) { return nil, nil }
 func (ctx *defaultContext) autoSet(name string, val Value) (res Value, ok bool) {
-  prompt(ctx, "%v: can't set auto in default context, value=%v\n", name, val)
-  errostack(ctx, 8, `(%T): %v`, ctx, name).debug(64)
+  if false {
+    prompt(ctx, "%v: can't set auto in default context, value=%v\n", name, val)
+    errostack(ctx, 8, `(%T): %v`, ctx, name).debug(64)
+  }
   return
 }
 func (ctx *defaultContext) autoGet(name string) (res Value, found bool) {
