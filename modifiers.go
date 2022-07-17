@@ -186,6 +186,8 @@ var (
                 `assert`:       modifierAssert,
                 `case`:         modifierCase,
                 `cond`:         modifierCond,
+                `if`:           modifierCond,
+                `where`:        modifierCond,
 
                 `once`:         modifierOnce,
 
