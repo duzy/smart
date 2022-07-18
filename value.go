@@ -838,7 +838,9 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                     s.depend = prereqFile
                 }
             }
-            if true {
+            if _, ok := targetValue.(*File); ok {
+                // silent
+            } else if true {
                 prompt(ctx, "%v: %v: recursion detected, consider using [(once)] to avoid\n",
                     targetValue, prereqValue)
                 warn(ctx, "recursion: %T %v", prereqValue, prereqValue)//.of(prereqValue)
