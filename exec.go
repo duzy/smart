@@ -758,7 +758,6 @@ type (
     retStdout   bool `ro,return-stdout,result-stdout,stdout`
     retStderr   bool `re,return-stderr,result-stderr,stderr`
     retStatus   bool `rs,return-status,result-status,status`
-    fullname    bool `f,fn,full,fullname` // expand fullname
     scanStdout  bool `so,scan-stdout,scan-out`
     scanStderr  bool `se,scan-stderr,scan-err`
     parallel    bool `par,parallel,no-order`

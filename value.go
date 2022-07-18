@@ -828,10 +828,10 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     }}
 
     // Recursion detection -- simply return to break it if this happens.
-    for c := ctx.programContext(); c != nil; c = c.caller() {
+    if true { for c := ctx.programContext(); c != nil; c = c.caller() {
         if t, ok := c.autoGet("@"); ok && t.cmp(c, prereqValue) == cmpEqual {
             if false {
-                s := traves.add(ctx, traveDone, targetValue)
+                s := traves.add(ctx, /* traveNext */traveDone, targetValue)
                 if s.dependPat = prereqPattern; prereqFile == nil {
                     s.depend = prereqValue
                 } else {
@@ -848,7 +848,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             }
             return
         }
-    }
+    }}
 
     if false && strings.Contains(prereq, "ItaniumNodes.def") {
         warn(ctx, "%T %v", targetValue, targetValue)
