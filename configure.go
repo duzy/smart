@@ -755,12 +755,11 @@ func walkFiles(ctx Context, root string, pats []Value, fn filewalkFunc) error {
 var configuredFiles = make(map[string]*Scope,8)
 
 type configureConvertOpts struct {
+    generalOpts
     mode os.FileMode `m,mode`
     makePath bool `p,path`
     reconfig bool `r,reconfig`
-    verbose bool `v,verbose`
     update bool `u,update`
-    debug bool `d,debug`
 }
 
 type configureConvertArgs func(args []Value, out *bytes.Buffer) []Value
@@ -789,13 +788,13 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
     } else if filename == "" {
         errostack(ctx, 3, "%v: empty fullname: `%v`", target, file).debug(1)
         return
-    } else if prev, _ := ctx.autoSet("@", file); opts.debug {
-        info(ctx, "configure-file: %s->%s (prev=%v)", file, filename, prev).debug(1)
+    } else if prev, _ := ctx.autoSet("@", file); opts.debug>0 {
+        info(ctx, "configure-file: %s->%s (prev=%v)", file, filename, prev).debug(opts.debug)
     }
     if file.info == nil { if f := stat(ctx, filename, "", ""); f != nil { file.info = f.info }}
-    if opts.debug && file != nil {
+    if opts.debug>0 && file != nil {
         var t, _ = ctx.autoGet("@")
-        info(ctx, "configure-file: %v: %v (%s) (%v)", t, file.fullname(), closured).debug(1)
+        info(ctx, "configure-file: %v: %v (%s) (%v)", t, file.fullname(), closured).debug(opts.debug)
     }
 
     // Check previously configured files, we only configure once unless
@@ -874,7 +873,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         }
     }
 
-    if opts.debug {
+    if opts.debug>0 {
         status = fmt.Sprintf("configured (%s, %d bytes)", filename, data.Len())
     } else {
         status = fmt.Sprintf("configured (%d bytes)", data.Len())

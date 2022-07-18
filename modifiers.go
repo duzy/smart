@@ -2493,8 +2493,11 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
         // Get target filename
         if opts.fullname {
                 if filename = fullnameOrStrval(ctx, target); !filepath.IsAbs(filename) {
-                        var ( file *File ; s string )
-                        var projs = closureProjects(ctx)
+                        var (
+                                projs = closureProjects(ctx)
+                                file *File
+                                s string
+                        )
                         for _, proj := range projs {
                                 if file = proj.FindFile(ctx, filename); file != nil {
                                         s = file.fullname()
@@ -2675,14 +2678,13 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
 }
 
 type modifierWaitOpts struct {
-        debug bool `d,debug`
-        verbose bool "v,verbose"
-        stdout bool "o,stdout"
-        stderr bool "e,stderr"
-        status bool "s,status"
-        trim bool "t,trim" // trim heading and tailing spaces of the result
+        generalOpts
+        stdout   bool "o,stdout"
+        stderr   bool "e,stderr"
+        status   bool "s,status"
+        trim     bool "t,trim" // trim heading and tailing spaces of the result
+        execRes  bool "x,exec"
         noTarget bool `nt,no-target`
-        execRes bool "x,exec"
         asType string "a,as"
 }
 func modifierWait(ctx Context, args... Value) (result Value, traves travestates) {
@@ -2702,7 +2704,7 @@ func modifierWait(ctx Context, args... Value) (result Value, traves travestates)
                 defer func (st time.Time) {
                         var s string; if err != nil { s = "fail" } else { s = "done" }
                         prompt(ctx, "Wait %v …… %s, result=%v\n", target, s, execRes).debug(opts.debug, 1)
-                        if opts.debug { info(ctx, "%v", execRes).debug(6) }
+                        if opts.debug>0 { info(ctx, "%v", execRes).debug(opts.debug) }
                 } (time.Now())
         }
 
