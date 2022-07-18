@@ -468,24 +468,28 @@ ForArgs:
         return
 }
 
-func parseOpts(ctx Context, iOpts interface{}, args... Value) (rest []Value) {
-        var pos = ctx.Position()
-        rest = args // NOTE: set the returning args first of all!
+func parseOpts(ctx Context, iOpts interface{}, w expandwhat, args... Value) (rest []Value) {
+        if w == expandNone {
+                rest = args // NOTE: set the returning args first of all!
+        } else {
+                rest = mergeExpand(ctx, w, args...)
+        }
+
         if opts := reflect.ValueOf(iOpts); opts.Kind() != reflect.Ptr {
-                erro(ctx, "opts must be ptr: %v", opts.Kind()).at(pos).debug(1)
+                erro(ctx, "opts must be ptr: %v", opts.Kind()).debug(1)
         } else if opts = opts.Elem(); opts.Kind() == reflect.Struct {
                 var (
                         otyp = opts.Type()
                         gen *generalOpts
                 )
-                if false { info(ctx, "opts: %v, %v", opts.Kind(), otyp).at(pos) }
+                if false { info(ctx, "opts: %v, %v", opts.Kind(), otyp) }
                 for i := 0; i < otyp.NumField(); i += 1 {
                         var ft = otyp.Field(i)
                         var fv = opts.Field(i)
                         if ft.Name == "generalOpts" && fv.Kind() == reflect.Struct &&
                                 fv.Type().String() == "smart.generalOpts" {
                                 gen = (*generalOpts)(unsafe.Pointer(fv.UnsafeAddr()))
-                                rest = parseOpts(ctx, gen, rest...)
+                                rest = parseOpts(ctx, gen, w, rest...)
                                 if false { prompt(ctx, "%v: %v ; %v -> %v", ft.Name, *gen, args, rest).debug(1) }
                         } else {
                                 rest = parseOpt(ctx, ft.Tag, fv, rest...)
@@ -494,7 +498,7 @@ func parseOpts(ctx Context, iOpts interface{}, args... Value) (rest []Value) {
                 if gen == nil { return }
                 if gen.fullname { rest = mergeExpand(ctx, expandFullName, rest...) }
         } else {
-                erro(ctx, "opts is not ptr of struct: %v", opts.Kind()).at(pos).debug(1)
+                erro(ctx, "opts is not ptr of struct: %v", opts.Kind()).debug(1)
         }
         return
 }
@@ -565,8 +569,7 @@ func builtinPosition(ctx Context, args... Value) (res Value) {
                 opts builtinPositionOpts
                 vals []Value
         )
-        args = mergeExpand(ctx, expandPlainValue, args...)
-        args = parseOpts(ctx, &opts, args...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         if opts.filename {
                 vals = append(vals, MakeString(pos, pos.Filename))
@@ -594,8 +597,7 @@ func builtinDate(ctx Context, args... Value) (res Value) {
                 pos = ctx.Position()
                 opts = builtinDateOpts{ }
         )
-        args = mergeExpand(ctx, expandPlainValue, args...)
-        args = parseOpts(ctx, &opts, args...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         if t := time.Now(); len(args) > 0 {
                 var vals []Value
@@ -623,7 +625,7 @@ type builtinDebugOpts struct {
 }
 func builtinDebug(ctx Context, args... Value) (res Value) {
         var opts builtinDebugOpts
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         var s bytes.Buffer
         for i, a := range args {
@@ -692,12 +694,6 @@ func builtinDefor(ctx Context, args... Value) (res Value) {
 
 func builtinOr(ctx Context, args... Value) (res Value) {
         for _, a := range args {
-                if false { if entry := ctx.entry(); entry != nil && entry.String() == "HAVE_TERMINFO" {
-                        v := a.expand(ctx, expandPlainValue)
-                        b := a.True(ctx)
-                        i := v.True(ctx)
-                        info(ctx, "or: %T %v -> %T %v -> %v, %v", a, a, v, v, b, i).of(a).debug(1)
-                }}
                 if v := a.True(ctx); v {
                         res = a
                         break
@@ -778,7 +774,7 @@ func builtinMatch(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        patList = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args[0])...)
+        patList = parseOpts(ctx, &opts, expandPlainValue, args[0])
         valList = mergeExpand(ctx, expandPlainValue, args[1:]...)
 
         var pos = ctx.Position()
@@ -974,7 +970,7 @@ func builtinAuto(ctx Context, args... Value) (res Value) {
                 opts builtinAutoOpts
                 vals []Value
         )
-        for _, a := range parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...) {
+        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
                 var ( name string; val Value )
                 name = a.Strval(ctx)
                 for c := ctx; c != nil; c = c.inner() {
@@ -1002,7 +998,7 @@ func builtinValue(ctx Context, args... Value) (res Value) {
                 opts builtinValueOpts
                 vals []Value
         )
-        for _, a := range parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...) {
+        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
                 var (
                         name string
                         val Value
@@ -1029,7 +1025,7 @@ func builtinCall_failure(ctx Context, args... Value) (res Value) {
                 opts builtinCallOpts
                 vals []Value
         )
-        if args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...); len(args) > 0 {
+        if args = parseOpts(ctx, &opts, expandPlainValue, args...); len(args) > 0 {
                 var ( name string; val Value )
                 if name = args[0].Strval(ctx); opts.closure {
                         for _, scope := range ctx.closureScopes() {
@@ -1060,7 +1056,7 @@ func builtinClosure(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        names = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args[0])...)
+        names = parseOpts(ctx, &opts, expandPlainValue, args[0])
         if len(names) < 1 {
                 erro(ctx, "no names: %v", args[0]).debug(1)
                 return
@@ -1125,7 +1121,7 @@ func builtinWhich(ctx Context, args... Value) (res Value) {
                 opts builtinWhichOpts
                 vals []Value
         )
-        for _, a := range parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...) {
+        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
                 if s, err := exec.LookPath(a.Strval(ctx)); err != nil {
                         erro(ctx, "%v", err).debug(1)
                         return
@@ -1146,7 +1142,7 @@ func builtinServeHttp(ctx Context, args... Value) (res Value) {
                 opts = builtinServeHttpOpts{ port:80 }
         )
 
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         var server = &http.Server{}
         server.Addr = fmt.Sprintf("%s:%d", opts.host, opts.port)
@@ -1251,7 +1247,7 @@ func builtinAppend(ctx Context, args... Value) (result Value) {
                 return
         }
 
-        vars = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args[0])...)
+        vars = parseOpts(ctx, &opts, expandPlainValue, args[0])
         if list = mergeExpand(ctx, expandPlainValue, args[1:]...); len(list) == 0 {
                 warn(ctx, "append no values").debug(1)
                 return
@@ -1327,7 +1323,7 @@ type builtinUniqueOpts struct {
 func builtinUnique(ctx Context, args... Value) (res Value) {
         var opts builtinUniqueOpts
         if len(args) > 0 {
-                args = append(parseOpts(ctx, &opts, merge(args[0])...), args[1:]...)
+                args = append(parseOpts(ctx, &opts, 0, merge(args[0])...), args[1:]...)
         }
         if opts.unexpand {
                 args = merge(args...)
@@ -1635,7 +1631,7 @@ func filterValues1(ctx Context, neg bool, args... Value) (res Value) {
                         vals, pats []Value
                         i int
                 )
-                if pats = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args[0])...); len(pats) > 0 {
+                if pats = parseOpts(ctx, &opts, expandPlainValue, args[0]); len(pats) > 0 {
                         i = 1 // good
                 } else if pats = mergeExpand(ctx, expandPlainValue, args[1]); len(pats) == 0 {
                         erro(ctx, "no patterns: %v", args).debug(1)
@@ -1755,7 +1751,7 @@ func builtinPatsubst(ctx Context, args... Value) (res Value) {
 
         const infos = false
 
-        arg0 = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args[0])...)
+        arg0 = parseOpts(ctx, &opts, expandPlainValue, args[0])
 
         // TODO: support flags -name and -full for name-only and full-name-only matching
         var srcPats, dstPats, sources []Value
@@ -2118,7 +2114,7 @@ func builtinTrimExt(ctx Context, args... Value) (res Value) {
                 list []Value
                 ext string
         )
-        for i, a := range parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...) {
+        for i, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
                 if i == 0 { pos = a.Position() }
                 if s := a.Strval(ctx); s != "" {
                         if i == 0 && len(args) > 1 {
@@ -2147,7 +2143,7 @@ func builtinExt(ctx Context, args... Value) (res Value) {
                 opts builtinExtOpts
                 list []Value
         )
-        for _, a := range parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...) {
+        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
                 list = append(list, MakeString(a.Position(), filepath.Ext(a.Strval(ctx))))
         }
         res = MakeListOrScalar(pos, list)
@@ -2167,7 +2163,7 @@ func builtinPrintf(ctx Context, args... Value) (res Value) {
         if len(args) < 1 {
                 erro(ctx, "not enough args, try $(printf 'format', ...)").debug(1)
                 return
-        } else if vals = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args[0])...); len(vals) != 1 {
+        } else if vals = parseOpts(ctx, &opts, expandPlainValue, args[0]); len(vals) != 1 {
                 erro(ctx, "not enough args, try $(printf 'format', ...)").debug(1)
                 return
         } else {
@@ -2281,7 +2277,7 @@ func builtinContains(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        vals = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args[0])...)
+        vals = parseOpts(ctx, &opts, expandPlainValue, args[0])
         list = mergeExpand(ctx, expandPlainValue, args[1:]...)
 
         var ( n = 0; x = len(vals); va []Value )
@@ -2465,7 +2461,7 @@ func builtinFullName(ctx Context, args... Value) (res Value) {
                 s string
                 ok bool
         )
-        for _, a := range parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...) {
+        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
                 if opts.debug > 0 {
                         if f, ok := a.(*File); ok {
                                 warn(ctx, "dir=%v sub=%v name=%v", f.dir, f.sub, f.name).debug(opts.debug)
@@ -2492,7 +2488,7 @@ func basex(ctx Context, n int, args... Value) (res Value) {
                 opts builtinBaseOpts
                 l []Value
         )
-        for _, a := range parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...) {
+        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
                 s := fullnameOrStrval(ctx, a)
                 d := filepath.Dir(s)
                 s = filepath.Base(s)
@@ -2525,7 +2521,7 @@ func dirx(ctx Context, n int, args... Value) (res Value) {
                 l []Value
                 s string
         )
-        for _, a := range parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...) {
+        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
                 if opts.fullname {
                         s = fullnameOrStrval(ctx, a)
                 } else {
@@ -2546,7 +2542,7 @@ func undirx(ctx Context, n int, args... Value) (res Value) {
                 l []Value
                 s string
         )
-        for _, a := range parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...) {
+        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
                 if opts.fullname {
                         s = fullnameOrStrval(ctx, a)
                 } else {
@@ -2825,7 +2821,7 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                 str string
                 ok bool
         )
-        for _, a := range parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...) {
+        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
                 var (
                         ctx = positional(ctx, a.Position())
                         file *File
@@ -2897,7 +2893,7 @@ func builtinRemoveAll(ctx Context, args... Value) (res Value) {
                 str string
                 ok bool
         )
-        for _, a := range parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...) {
+        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
                 var ctx = positional(ctx, a.Position())
                 if a.patterned(ctx) {
                         var err error
@@ -2986,7 +2982,7 @@ type builtinLinkOpts struct {
 }
 func builtinLink(ctx Context, args... Value) (res Value) {
         var opts builtinLinkOpts
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         oldname, newname string
@@ -3043,7 +3039,7 @@ type builtinSymlinkOpts struct {
 }
 func builtinSymlink(ctx Context, args... Value) (res Value) {
         var opts builtinSymlinkOpts
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 ForArgs:
         for i, na := 0, len(args); i < na; i += 1 {
                 var (
@@ -3056,14 +3052,14 @@ ForArgs:
                 case *Pair: // symlink oldName=newName oldName=>newName...
                         oldNameVal, newNameVal = t.Key, t.Value
                 case *Group: // symlink (-u oldName newName) (-v oldName newName)...
-                        if aa = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, t.Elems...)...); len(aa) != 2 {
+                        if aa = parseOpts(ctx, &opts, expandPlainValue, t.Elems...); len(aa) != 2 {
                                 erro(ctx, "expects two values for group").of(t).debug(1)
                                 return
                         } else {
                                 oldNameVal, newNameVal = aa[0], aa[1]
                         }
                 case *List: // XXX: symlink old new, old new, ...
-                        if aa = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, t.Elems...)...); len(aa) != 2 {
+                        if aa = parseOpts(ctx, &opts, expandPlainValue, t.Elems...); len(aa) != 2 {
                                 erro(ctx, "expects two values for list").of(t).debug(1)
                                 return
                         } else {
@@ -3170,7 +3166,7 @@ func builtinStat(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         var (
                 pos = ctx.Position()
@@ -3259,7 +3255,7 @@ func builtinFile(ctx Context, args... Value) (res Value) {
                 list []Value
         )
 
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         if opts.caller && false {
                 // program -> closure -> traversal -> ...
@@ -3301,7 +3297,7 @@ func builtinGlob(ctx Context, args... Value) (res Value) {
                 proj *Project
         )
 
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         var cwd string // TODO: get current work directory
         if proj = ctx.Project(); proj == nil {
@@ -3578,7 +3574,7 @@ func builtinWildcard(ctx Context, args... Value) (res Value) {
                 erro(ctx, "unknown most derived context").debug(1)
                 return
         }
-        if args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...); len(opts.exclude) > 0 {
+        if args = parseOpts(ctx, &opts, expandPlainValue, args...); len(opts.exclude) > 0 {
                 opts.exclude = mergeExpand(ctx, expandPlainValue, opts.exclude...)
         }
 
@@ -3652,7 +3648,7 @@ func builtinReadFile(ctx Context, args... Value) (res Value) {
                 opts builtinReadFileOpts
                 l []Value
         )
-        for _, a := range parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...) {
+        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
                 var (
                         apos = a.Position()
                         str string
@@ -3690,7 +3686,7 @@ func builtinWriteFile(ctx Context, args... Value) (res Value) {
                 opts builtinWriteFileOpts
         )
         if len(args) > 0 {
-                var va = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args[1])...)
+                var va = parseOpts(ctx, &opts, expandPlainValue, args[1])
                 args = append(va, args[1:]...)
         }
 ForArgs:
@@ -3804,7 +3800,7 @@ func builtinTouchFile(ctx Context, args... Value) (res Value) {
         // $(touch-file filename)
         // $(touch-file -p filename)
         var opts = builtinTouchFileOpts{ mode: os.FileMode(0600) }
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
         for i := 0; i < len(args); i += 1 {
                 if err := touch(ctx, args[i], uint32(opts.mode), opts.path); err != nil {
                         erro(ctx, "%v", err).debug(1)
@@ -3834,7 +3830,7 @@ func builtinGrep(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        if vals = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args[0])...); nargs == 2 {
+        if vals = parseOpts(ctx, &opts, expandPlainValue, args[0]); nargs == 2 {
                 args = args[1:]
         } else if nargs == 3 {
                 result = args[1]

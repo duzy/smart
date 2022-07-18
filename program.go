@@ -301,7 +301,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
     return
 }
 
-const maxCallDepth  = 32 //64
+const maxCallRecursion  = 32 //64
 
 type normalTraverseContext struct { Context }
 type orderTraverseContext struct { Context }
@@ -432,7 +432,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
                 }
             } 
         }
-        if ctx.checkErrors(true) > 0  {
+        if ctx.checkErrors(true) > 0 {
             var (
                 str, ent, tar = entryStr(ctx, entry)
                 errs = ctx.totalErrors()
@@ -458,20 +458,35 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
 
     if cc != nil {
         var depth int
-        for c := cc.traversal(); c != nil; c = c.caller() {
-            if c.program() == prog { if depth += 1; depth == maxCallDepth { break }}
+        if false {
+            for c := cc.traversal(); c != nil; c = c.caller() {
+                if c.program() == prog {
+                    if depth += 1; depth == maxCallRecursion { break }
+                }
+            }
+        } else {
+            for c := cc.programContext(); c != nil; c = c.caller() {
+                if c.program() == prog {
+                    if depth += 1; depth == maxCallRecursion { break }
+                }
+            }
         }
-        if depth < maxCallDepth {
+        if depth < maxCallRecursion {
             // continues
-        } else if c := cc.traversal(); c != nil {
-            for tt, _ := c.autoGet("@"); c != nil; c = c.caller() {
+        } else if c := /*cc.traversal()*/cc.programContext(); c != nil {
+            var tt, _ = c.autoGet("@")
+            prompt(ctx, "%v: max recursion call (%d)\n", fullnameOrStrval(ctx, tt), depth)
+            warn(ctx, "max recursion call (%d)\n", depth).of(tt).debug(1)
+
+            const collapse = false
+            for ; c != nil; c = c.caller() {
                 var n int
-                for next := c.caller(); next != nil; next = next.caller() {
+                if collapse { for next := c.caller(); next != nil; next = next.caller() {
                     if t, _ := next.autoGet("@"); t != nil && t.cmp(ctx, tt) == cmpEqual {
                         n += 1;  continue
                     }
                     if next.program() == c.program() { n += 1; c = next } else { break }
-                }
+                }}
 
                 var t, _ = c.autoGet("@")
                 if prog := c.program(); prog == nil {
@@ -479,14 +494,20 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
                     break
                 } else if pos := prog.position; n > 0 {
                     erro(ctx, "%v (repeated %d times)", t, n).at(pos)
-                } else if depth -= 1; maxCallDepth - depth > 5 {
-                    erro(ctx, "%v ...", t).at(pos)
+                } else if !collapse {
+                    var d, _ = c.autoGet(">")
+                    erro(ctx, "%v : %v", t, d).at(pos)
+                } else if depth -= 1; maxCallRecursion - depth > 5 {
+                    erro(ctx, "%v ... (%d)", t, maxCallRecursion - depth).at(pos)
                     break
                 } else {
-                    erro(ctx, "%v", t).at(pos)
+                    var d, _ = c.autoGet(">")
+                    erro(ctx, "%v : %v", t, d).at(pos)
                 }
+
+                ctx.checkErrors(true) // dump immediately
             }
-            errostack(ctx, depth, "%v: max call depth", entry).debug(512)
+            errostack(ctx, depth, "#>", entry).debug(512)
             if false { fail(prog.position, "max call depth") }
             return
         }

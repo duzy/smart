@@ -1599,7 +1599,7 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
         specNames []string
 		opts useOpts
 	)
-	args = parseOpts(ctx, &opts, args...)
+	args = parseOpts(ctx, &opts, 0, args...)
 	for _, a := range args {
 		if _, ok := a.(*Flag); ok || true {
 			erro(ctx, "unkown use opts: %T %v", a, a).of(a).debug(1)
@@ -1677,7 +1677,7 @@ func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ 
 		opts includeFileOpts
 		// TODO: comment = p.lineComment
 	)
-	if vals := parseOpts(p, &opts, generic.options...); len(vals) > 0 {
+	if vals := parseOpts(p, &opts, 0, generic.options...); len(vals) > 0 {
 		// ...
 	}
 
@@ -1784,7 +1784,7 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 		opts filesOpts
 		pats []Value
 	)
-	parseOpts(ctx, &opts, generic.options...)
+	parseOpts(ctx, &opts, 0, generic.options...)
 
 	if g, ok := val.(*Group); ok {
 		pats = g.Elems
@@ -1992,7 +1992,7 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 	for p.tok == token.MINUS {
 		var x = p.parseExpr(false)
 		var ctx = positional(p, x.Position())
-		if a := parseOpts(ctx, &opts, x); len(a) > 0 {
+		if a := parseOpts(ctx, &opts, 0, x); len(a) > 0 {
 			generic.options = append(generic.options, a...)
 		}
 
@@ -2916,7 +2916,7 @@ func (p *parser) parseFile() *parsedFile {
 			if !pos.IsValid() { pos = opt.Position() }
 		}
 		if !pos.IsValid() { pos = p.Position() }
-		if a := parseOpts(ctx, &opts, optVals...); len(a) > 0 {
+		if a := parseOpts(ctx, &opts, 0, optVals...); len(a) > 0 {
 			for _, v := range a {
 				erro(p, "unknown option '%v'", v).of(v).debug(1)
 			}
@@ -3040,7 +3040,7 @@ func (p *parser) parseFile() *parsedFile {
 
 					var (
 						ctx = positional(p, param.Position())
-						t = parseOpts(ctx, &opts, param)
+						t = parseOpts(ctx, &opts, 0, param)
 					)
 					if keyword == token.PACKAGE || opts.final {
 						// No bases for PACKAGE or final project

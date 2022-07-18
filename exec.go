@@ -787,7 +787,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     pos = ctx.Position()
     cmd = p.cmd
   )
-  if args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...); opts.deprecated {
+  if args = parseOpts(ctx, &opts, expandPlainValue, args...); opts.deprecated {
     erro(ctx, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug(1)
     return
   } else if !opts.prompt {

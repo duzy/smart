@@ -382,7 +382,7 @@ func executeConfigureEntry(ctx Context, opts *modifierConfigureOpts, entryName s
         verbose = opts.verbose
     )
 
-    paramsOrig = parseOpts(ctx, &commOpts, paramsOrig...)
+    paramsOrig = parseOpts(ctx, &commOpts, 0, paramsOrig...)
 
     // Reset the result/output def '-'?
     // NOTE: have to reset hyphen to ensure configured value is saved
@@ -580,7 +580,7 @@ func modifierConfigure(ctx Context, args ...Value) (result Value, _ travestates)
 
     var pos = ctx.Position()
     var opts modifierConfigureOpts
-    args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+    args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
     if program.project.configure == nil {
         if program.project.name == "configure" {
@@ -771,7 +771,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         filename string
         file *File
     )
-    args = parseOpts(ctx, opts, mergeExpand(ctx, expandPlainValue, args...)...)
+    args = parseOpts(ctx, opts, expandPlainValue, args...)
     if target, found := ctx.autoGet("@"); !found || isTrivial(target) {
         erro(ctx, "'@' is not defined").debug(1)
         return
@@ -906,7 +906,7 @@ func __modifierConfigureInput(ctx Context, args ...Value) (result Value, _ trave
         opts = modifierConfigureInputOpts{ mode:os.FileMode(0640) }
         project = ctx.Project()
     )
-    args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+    args = parseOpts(ctx, &opts, expandPlainValue, args...)
     if target, found := ctx.autoGet("@"); !found || isTrivial(target) {
         erro(ctx, " target '@' is not defined").debug(1)
         return
@@ -1006,7 +1006,7 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ t
         opts = modifierExtractConfigurationOpts{ mode:os.FileMode(0640) } // sys default 0666
         pats []Value
     )
-    for _, arg := range parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...) {
+    for _, arg := range parseOpts(ctx, &opts, expandPlainValue, args...) {
         switch a := arg.(type) {
         case *Group: pats = append(pats, a.Elems...)
         default:     pats = append(pats, a)

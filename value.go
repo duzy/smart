@@ -52,7 +52,8 @@ const (
 )
 const traverseArgumentedExpand = true
 const (
-    expandDelegate expandwhat = 1<<iota // $(...)  ->  ......
+    expandNone expandwhat = 1<<iota
+    expandDelegate  // $(...)  ->  ......
     expandClosure   // &(...)            ->  $(...)
     expandSelection // foo->bar          -> ...
     expandAuto      // TODO: $0 $1 $3 $@ $<    -> ...       TODO: auto -> placeholder
@@ -616,8 +617,8 @@ func (t *traverseContext) traversal() *traverseContext { return t }
 func (t *traverseContext) traversed(target Value) (targets []Value) {
     if !isTrivial(target) {
         t.targets = append(t.targets, target)
-        targets = t.targets
     }
+    targets = t.targets
     return
 }
 
@@ -757,7 +758,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
 
     var (
         prereqPattern Value
-        file *File
+        prereqFile *File
     )
     if len(projects) == 0 { projects = ctx.projects(ctx) }
     if len(projects) == 0 {
@@ -811,25 +812,48 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             return
         }}
 
-        file, _ = prereqValue.(*File)
+        prereqFile, _ = prereqValue.(*File)
     }
 
-    if file == nil { for _, project := range projects {
-            if file = project.FindFile(ctx, prereq); file != nil {
-                prereqValue = file
+    if prereqFile == nil { for _, project := range projects {
+            if prereqFile = project.FindFile(ctx, prereq); prereqFile != nil {
+                prereqValue = prereqFile
                 break
             }
     }}
-    if file == nil { if _, ok := prereqValue.(*Path); ok /*&& filepath.IsAbs(prereq)*/ {
-       if file = stat(ctx, prereq, "", ""); file != nil {
-          prereqValue = file
+    if prereqFile == nil { if _, ok := prereqValue.(*Path); ok /*&& filepath.IsAbs(prereq)*/ {
+       if prereqFile = stat(ctx, prereq, "", ""); prereqFile != nil {
+          prereqValue = prereqFile
        }
     }}
+
+    // Recursion detection -- simply return to break it if this happens.
+    for c := ctx.programContext(); c != nil; c = c.caller() {
+        if t, ok := c.autoGet("@"); ok && t.cmp(c, prereqValue) == cmpEqual {
+            if false {
+                s := traves.add(ctx, traveDone, targetValue)
+                if s.dependPat = prereqPattern; prereqFile == nil {
+                    s.depend = prereqValue
+                } else {
+                    s.depend = prereqFile
+                }
+            }
+            if true {
+                prompt(ctx, "%v: %v: recursion detected, consider using [(once)] to avoid\n",
+                    targetValue, prereqValue)
+                warn(ctx, "recursion: %T %v", prereqValue, prereqValue)//.of(prereqValue)
+                warn(ctx, "recursion: %T %v", targetValue, targetValue)//.of(targetValue)
+                warn(ctx, "recursion: %v : %v ; in %v", targetValue, prereqFile, projects)
+                warnstack(ctx, 3, "").debug(16)
+            }
+            return
+        }
+    }
 
     if false && strings.Contains(prereq, "ItaniumNodes.def") {
         warn(ctx, "%T %v", targetValue, targetValue)
         warn(ctx, "%T %v", prereqValue, prereqValue)
-        warn(ctx, "%v in %v", file, projects)
+        warn(ctx, "%v in %v", prereqFile, projects)
         warnstack(ctx, 3, "").debug(16)
     }
 
@@ -871,11 +895,11 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
 
         // Note that the file maybe not traversed yet at this point.
         // But we still have to check mod-time.
-        if file == nil {
+        if prereqFile == nil {
             ctx.traversed(prereqValue) // set $< $> $^ or $|
-        } else if /*targetValue != prereqValue && */targetValue != file {
-            ctx.traversed(file) // set $< $> $^ or $|
-            bv = file
+        } else if /*targetValue != prereqValue && */targetValue != prereqFile {
+            ctx.traversed(prereqFile) // set $< $> $^ or $|
+            bv = prereqFile
         } else if t := traves.of(traveFile); t.has() { for _, s := range t {
             if d := s.depend; d != bv && !isTrivial(d) { bv = d }
         }}
@@ -894,14 +918,14 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             }
         }
 
-        if file != nil {
-            if okay && traversed > 0 && file.exists() && traves.has(traveNext) {
+        if prereqFile != nil {
+            if okay && traversed > 0 && prereqFile.exists() && traves.has(traveNext) {
                 traves = traves.not(traveNext)
             }
             if true && !traves.has(traveFile) {
                 trave := traves.add(ctx, traveFile, targetValue)
                 trave.dependPat = prereqPattern
-                trave.depend = file
+                trave.depend = prereqFile
             }
         }
         if false && dbg {
@@ -909,8 +933,8 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 targetValue, prereqValue, targetValue, prereqValue, okay)
             prompt(ctx, "%v: %v; okay=%v traversed=%v traves=%v projects=%v\n",
                 targetValue, prereqValue, okay, traversed, traves, projects)
-            if file != nil { prompt(ctx, "%v: %v; file=%v exists=%v\n",
-                targetValue, prereqValue, file.fullname(), file.exists()) }
+            if prereqFile != nil { prompt(ctx, "%v: %v; file=%v exists=%v\n",
+                targetValue, prereqValue, prereqFile.fullname(), prereqFile.exists()) }
             warnstack(ctx, 5, "").debug(6)
         }
         if false ||
@@ -921,14 +945,14 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             false {
             prompt(ctx, "%v: %T: %T %v ; %v file=%v okay=%v rules=(%d,%d)\n",
                 targetValue, targetValue, prereqValue, prereqValue,
-                traves, file, okay, len(concreteList), len(stemmedList))
+                traves, prereqFile, okay, len(concreteList), len(stemmedList))
             infostack(ctx, 5, "").debug(24)
         }
     } ()
 
     // %.h <-> 'llvm/PassSupport.h' <-> [file@llvm/PassSupport.h>/Volumes/workspace/external/llvm-project/llvm/include/llvm/PassSupport.h file@llvm/PassSupport.h>/Volumes/workspace/external/llvm-project/llvm/include/llvm/PassSupport.h done@llvm/PassSupport.h file@llvm/PassSupport.h>/Volumes/workspace/external/llvm-project/llvm/include/llvm/PassSupport.h done@llvm/PassSupport.h]
     var nonFilePrereqTravedFile = func (s *travestate) (res bool, resFile *File) {
-        if file == nil { // the prereqValue is not a *File (eg a *String)
+        if prereqFile == nil { // the prereqValue is not a *File (eg a *String)
             // and the trave target is a *File with the name matched
             if f, ok := s.target.(*File); ok && f.name == prereq {
                 res, resFile = true, f
@@ -1003,7 +1027,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         if tt := t.of(traveCase, traveDone); tt.has() {
             for _, s := range tt {
                 if /*s.what == traveDone*/true { if ok, f := nonFilePrereqTravedFile(s); ok {
-                    okay, file = true, f
+                    okay, prereqFile = true, f
                     if false { prompt(ctx, "filed: %T %v: %T %v : %T %v ; %v\n",
                         targetValue, targetValue, prereqValue, prereqValue,
                         s.target, s.target, s).debug(1) }
@@ -1074,7 +1098,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         if tt := t.of(traveFile); tt.has() {
             for _, s := range tt {
                 if ok, f := nonFilePrereqTravedFile(s); ok {
-                    okay, file = true, f
+                    okay, prereqFile = true, f
                     return traveResReturn // file processed
                 } else if g := s.target; g != nil &&
                     (prereqValue == g || prereqValue.cmp(ctx, g) == cmpEqual) &&
@@ -1083,7 +1107,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                     // NOTE:2: turn of this so that files get updated if changed
                     // NOTE: only 'okay' if files exists, it can continue trying other
                     //       rules if not.
-                    if false && file != nil && file.exists() {
+                    if false && prereqFile != nil && prereqFile.exists() {
                         if f, ok = s.depend.(*File); ok && f != nil {
                             okay = f.exists()
                         } else {
@@ -1097,7 +1121,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                     }
                     return op
                 } else if _, ok := prereqValue.(*String); false && ok {
-                    if file == nil { prompt(ctx, "nonfile: %T %v: %T %v : %T %v ; %v\n",
+                    if prereqFile == nil { prompt(ctx, "nonfile: %T %v: %T %v : %T %v ; %v\n",
                         targetValue, targetValue, prereqValue, prereqValue,
                         s.target, s.target, s).debug(1) }
                 }
@@ -1122,7 +1146,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 // var patterns = p.resolvePatterns(ctx, prereqValue, prereq)
                 // warn(ctx, "%v", patterns)
                 warn(ctx, "%T %v", targetValue, targetValue)
-                warn(ctx, "%T %v ; %v %v", prereqValue, prereqValue, file, file.exists())
+                warn(ctx, "%T %v ; %v %v", prereqValue, prereqValue, prereqFile, prereqFile.exists())
                 warn(ctx, "%d, %v, %v ; %v, %v", len(entries.all),
                     p, traves, okay, traversed).debug(10)
             } (project)
@@ -1165,44 +1189,44 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
 
     if okay && traversed > 0 {
         return
-    } else if file != nil && prereq == file.name {
-        if okay = file.exists(); okay {
+    } else if prereqFile != nil && prereq == prereqFile.name {
+        if okay = prereqFile.exists(); okay {
             trave := traves.add(ctx, traveFile, targetValue)
             trave.dependPat = prereqPattern
-            trave.depend = file
+            trave.depend = prereqFile
             return
         }
         for _, project := range projects {
-            if okay = file.searchInMatchedPaths(ctx, project); okay {
-                assert(file.exists(), "file must exists at this point")
+            if okay = prereqFile.searchInMatchedPaths(ctx, project); okay {
+                assert(prereqFile.exists(), "file must exists at this point")
                 trave := traves.add(ctx, traveFile, targetValue)
                 trave.dependPat = prereqPattern
-                trave.depend = file
+                trave.depend = prereqFile
                 return
             }
         }
     } else if !okay && traversed == 0 { ForProjectsFiles: for _, project := range projects {
-        if file = project.FindFile(ctx, prereq); file != nil {
-            if file.position = ctx.Position(); file.isSysFile() {
+        if prereqFile = project.FindFile(ctx, prereq); prereqFile != nil {
+            if prereqFile.position = ctx.Position(); prereqFile.isSysFile() {
                 continue ForProjectsFiles
             }
-            if okay = file.exists(); okay {
+            if okay = prereqFile.exists(); okay {
                 trave := traves.add(ctx, traveFile, targetValue)
                 trave.dependPat = prereqPattern
-                trave.depend = file
+                trave.depend = prereqFile
                 return
             }
-            if okay = file.searchInMatchedPaths(ctx, project); okay {
+            if okay = prereqFile.searchInMatchedPaths(ctx, project); okay {
                 trave := traves.add(ctx, traveFile, targetValue)
                 trave.dependPat = prereqPattern
-                trave.depend = file
+                trave.depend = prereqFile
                 return
             }
         }
     } // ForProjectsFiles
     }
 
-    if file != nil && file.exists() && !traves.has(traveFail) {
+    if prereqFile != nil && prereqFile.exists() && !traves.has(traveFail) {
         okay = true
         return
     } else if !okay && traversed == 0 { ForProjectsObjects: for _, project := range projects {
@@ -1238,7 +1262,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             }
             prompt(ctx, "%v: %T: %v %T; projects=%v okay=%v traversed=%d file=%v obj=%v traves=%v\n",
                 targetValue, targetValue, prereqValue, prereqValue,
-                projects, okay, traversed, file, obj, traves)
+                projects, okay, traversed, prereqFile, obj, traves)
             for i, s := range traves { info(ctx, "%v: %v: %d. %v", targetValue, prereqValue, i, s).at(s.pos) }
             info(ctx, "%T %v; %T %v", targetValue, targetValue, prereqValue, prereqValue).debug(1)
         }
@@ -1247,16 +1271,16 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     }
 
     // Stat directly for files not in included in "files (...)".
-    if !okay && file != nil && file.exists() {
+    if !okay && prereqFile != nil && prereqFile.exists() {
         okay = true
-    } else if true && !okay && file == nil && obj == nil && !traves.has() {
+    } else if true && !okay && prereqFile == nil && obj == nil && !traves.has() {
         if f := stat(ctx, prereq, "", ""); f != nil && f.exists() {
             if false { warn(ctx, "%v (%T) is a file (%s)",
                 prereqValue, prereqValue, f.fullname()).debug(6) }
             trave := traves.add(ctx, traveFile, targetValue)
             trave.dependPat = prereqPattern
             trave.depend = f
-            file = f
+            prereqFile = f
             return
         }
     }
@@ -1279,9 +1303,9 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         s.depend = prereqValue
         return
     } else if len(ctx.stems()) == 0 || ctx.mustExists() {
-        if s := traves.add(ctx, traveFail, targetValue); file != nil {
-            s.error = fileNotFoundError{proj, file}
-            ctx = positional(ctx, file.position)
+        if s := traves.add(ctx, traveFail, targetValue); prereqFile != nil {
+            s.error = fileNotFoundError{proj, prereqFile}
+            ctx = positional(ctx, prereqFile.position)
         } else {
             s.error = targetNotFoundError{proj, prereq}
             if prereqValue != nil { ctx = positional(ctx, prereqValue.Position()) }
@@ -1289,7 +1313,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
 
         prompt(ctx, "%v: %T: %v %T; projects=%v,%v okay=%v traversed=%d file=%v traves=%v\n",
             targetValue, targetValue, prereqValue, prereqValue,
-            proj, projects, okay, traversed, file, traves).
+            proj, projects, okay, traversed, prereqFile, traves).
             debug(1)
         for i, s := range traves { erro(ctx, "%v: %v: %d. %v", targetValue, prereqValue, i, s).at(s.pos) }
         for i, c := range ctx.closureScopes() { erro(ctx, "%v: closure: %v. %v", proj, i, c) }

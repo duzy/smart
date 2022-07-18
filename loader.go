@@ -295,7 +295,7 @@ func parseUseNameOpts(ctx Context, nameVal Value) (name string, opts useVarOpts)
     if arged, ok := nameVal.(*Argumented); ok {
         var args []Value
 		nameVal, args = arged.value, arged.args
-        opts.args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        opts.args = parseOpts(ctx, &opts, expandPlainValue, args...)
 	}
 	name = nameVal.Strval(ctx)
     return
@@ -1460,7 +1460,7 @@ func (l *loader) declare(keyword token.Token, ident *Barecomp, identStr string, 
         }
     }
 
-    declOpts = parseOpts(ctx, &dec.project.opts, declOpts...)
+    declOpts = parseOpts(ctx, &dec.project.opts, 0, declOpts...)
     dec.backscope = l.Scope()
     l.useesExecuted = nil
     l.project = dec.project

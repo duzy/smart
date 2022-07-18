@@ -838,7 +838,7 @@ func (ctx *defaultContext) load() (err error) {
   } else if args = ctx.loader.loadText("@", text); len(args) == 0 {
     // ohh...
   } else {
-    args = parseOpts(ctx, &options, args...)
+    args = parseOpts(ctx, &options, 0, args...)
   }
 
   if v := options.reconfigure; v { options.configure = v }

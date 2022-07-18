@@ -255,6 +255,7 @@ func promptShellResult(ctx Context, value Value, n int) {
 }
 
 type modifierPrintOpts struct {
+        generalOpts
         stdout bool `o,stdout`
         stderr bool `e,stderr`
         reset  bool `r,reset`
@@ -265,7 +266,7 @@ func modifierPrint(ctx Context, args... Value) (result Value, traves travestates
                 opts = modifierPrintOpts{ stderr: true }
                 content string
         )
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
         if value, found := ctx.autoGet("-"); !found || isNil(value) {
                 // ...
         } else {
@@ -278,18 +279,18 @@ func modifierPrint(ctx Context, args... Value) (result Value, traves travestates
 }
 
 type modifierDebugOpts struct {
+        generalOpts
         cond    Value `if,cond,where,when`
         info  []Value `i,info`
         warn  []Value `w,warn`
         error []Value `e,err;er,error`
-        verbose bool `v,verbose`
         checkOutdated bool `d,dirty;cd,checkdirty;cd,check-dirty;co,check-outdated`
         s int `s,stack,sn,stack-number`
         n int `c,count,n,num,cn,call-number`
 }
 func modifierDebug(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierDebugOpts
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
         if opts.cond != nil && !opts.cond.True(ctx) { return }
 
         for _, v := range opts.info  { info(ctx, "%s", v.Strval(ctx)).of(v).debug(1) }
@@ -394,13 +395,13 @@ func modifierSet(ctx Context, args... Value) (result Value, traves travestates) 
                 opts modifierSetOpts
                 defs []Value
         )
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
 ForArgs:
         for _, arg := range args {
                 var (
-                        value Value
                         name string
+                        value Value
                         def *Def
                 )
                 switch a := arg.(type) {
@@ -430,19 +431,19 @@ ForArgs:
 }
 
 type modifierSetDirtyPatsOpts struct {
-        verbose bool `v,verbose`
+        generalOpts
         pats []Value
 }
 func modifierSetDirtyPats(ctx Context, args... Value) (result Value, traves travestates) {
         var opts = ctx.dirtyOpts()
-        opts.pats = parseOpts(ctx, opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        opts.pats = parseOpts(ctx, opts, expandPlainValue, args...)
         return
 }
 
 // create closure context for the traversal
 type modifierClosureOpts struct {
+        generalOpts
         dump    bool `d,dump`
-        verbose bool `v,verbose`
 }
 func modifierClosure(ctx Context, args... Value) (result Value, traves travestates) {
         var (
@@ -461,7 +462,7 @@ func modifierClosure(ctx Context, args... Value) (result Value, traves travestat
 
         assert(ctx.closure() != nil, "context not closured: %v", ctx)
 
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
         if opts.verbose { info(ctx, "%v: %v", ctx.Project(), ctx).debug(1) }
         if opts.dump { infostack(ctx, -1, "%v: %v", ctx.Project(), ctx).debug(1) }
 
@@ -485,23 +486,24 @@ func modifierClosure(ctx Context, args... Value) (result Value, traves travestat
 }
 
 type modifierForOpts struct {
-        // ...
+        generalOpts
 }
 func modifierFor(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierForOpts
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
         // TODO: ...
         return
 }
 
 type modifierCDOpts struct {
+        generalOpts
         makePath bool `p,path`
         printEnter bool `e,print-enter`
         printLeave bool `l,print-leave`
 }
 func modifierCD(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierCDOpts
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         if opts.printEnter { printEnteringDirectory(ctx) }
         if opts.printLeave { printLeavingDirectory(ctx) }
@@ -534,12 +536,12 @@ func modifierCD(ctx Context, args... Value) (result Value, traves travestates) {
 }
 
 type modifierMkdirOpts struct {
+        generalOpts
         mode os.FileMode `m,mode`
-        verbose bool `v,verbose`
 }
 func modifierMkdir(ctx Context, args... Value) (result Value, traves travestates) {
         var opts = modifierMkdirOpts{ mode: os.FileMode(0755) }
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         if len(args) == 0 {
                 var target, _ = ctx.autoGet("@")
@@ -560,13 +562,13 @@ func modifierMkdir(ctx Context, args... Value) (result Value, traves travestates
 }
 
 type modifierPathOpts struct {
-        // TODO: options required
+        generalOpts
 }
 // (path $(dir $@))
 // (path /example/path)
 func modifierPath(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierPathOpts
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         if len(args) == 0 {
                 var target, _ = ctx.autoGet("@")
@@ -715,11 +717,11 @@ func (g *greptouch) work(ctx Context, gc *grepctx) (err error) {
                 }
                 if file.info == nil && !file.isSysFile() {
                         if file.info, _ = os.Stat(file.Strval(ctx)); file.info == nil { continue }
-                        if gc.debug { warn(ctx, "'%v' info is nil (%s)", file, file.fullname()) }
+                        if gc.debug>0 { warn(ctx, "'%v' info is nil (%s)", file, file.fullname()) }
                 }
                 if file.info == nil {/* ... */} else
                 if t := file.info.ModTime(); t.After(tt) {
-                        if gc.debug { warn(ctx, "touch %v → %v (%v)", g.target, file, t) }
+                        if gc.debug>0 { warn(ctx, "touch %v → %v (%v)", g.target, file, t) }
                         if tt != t { tt = t }
                 }
         }
@@ -808,8 +810,10 @@ func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name str
                         sys = isNone(f.name) || isNil(f.name)
                 }
         }
-        if!sys && gc.debug {
-                erro(ctx, "%v: %v → %v (exists=%v, sys=%v, from %v)\n", ctx.entry(), gc.target, name, file.exists(), sys, ctx.Project()).debug(1)
+        if!sys && gc.debug>0 {
+                erro(ctx, "%v: %v → %v (exists=%v, sys=%v, from %v)\n",
+                        ctx.entry(), gc.target, name, file.exists(), sys, ctx.Project()).
+                        debug(gc.debug)
         }
         if sys || file.exists() { return }
 
@@ -865,14 +869,16 @@ func searchGrepped(ctx Context, gp Position, gc *grepctx, sys bool, name string)
                                 erro(ctx, "%v", err).debug(1)
                                 return
                         }
-                        if false || gc.debug {
-                                warn(ctx, "'%v' info is nil (%s)", file, file.fullname()).debug(1)
+                        if false || gc.debug>0 {
+                                warn(ctx, "'%v' info is nil (%s)",
+                                        file, file.fullname()).debug(gc.debug)
                         }
                 }
                 if file.info == nil {/* ... */} else
                 if tv := file.info.ModTime(); tv.After(tt) {
-                        if true || gc.debug {
-                                warn(ctx, "touch %v → %v (%v)", gc.target, file, tv).debug(1)
+                        if true || gc.debug>0 {
+                                warn(ctx, "touch %v → %v (%v)",
+                                        gc.target, file, tv).debug(gc.debug)
                         }
                         tv = launchTime //time.Now() // ...
                         if err, tt = os.Chtimes(gc.targetFullName, tv, tv), tv; err != nil {
@@ -1110,7 +1116,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
                 gc.done[gc.targetFullName] += 1
         }
         if n, done := gc.done[gc.targetFullName]; done && n > 1 {
-                if gc.debug { erro(ctx, "%v (done %v)", gc.targetFullName, n).debug(1) }
+                if gc.debug>0 { erro(ctx, "%v (done %v)", gc.targetFullName, n).debug(gc.debug) }
                 return
         }
 
@@ -1133,7 +1139,8 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
                         warn(ctx, "grebbed zero files: %v", gc.targetFullName).debug(6)
                 }
                 gc.files = restore
-                if gc.debug { erro(ctx, "grepped: %s → %v (grepped=%v) (saved=%s)\n", gc.target, touch.files, len(t.grepped), gc.savedGrepFile).debug(1) }
+                if gc.debug>0 { erro(ctx, "grepped: %s → %v (grepped=%v) (saved=%s)\n",
+                        gc.target, touch.files, len(t.grepped), gc.savedGrepFile).debug(gc.debug) }
                 for _, gc.target = range touch.files {
                         if t.grepped = append(t.grepped, gc.target); !gc.recursive {
                                 continue
@@ -1162,7 +1169,8 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
                 grepcacheM.Unlock()
         }
         if cached && len(gc.files) > 0 {
-                if gc.debug { erro(ctx, "grepcache: %v → %v", gc.targetFullName, gc.files).debug(1) }
+                if gc.debug>0 { erro(ctx, "grepcache: %v → %v",
+                        gc.targetFullName, gc.files).debug(gc.debug) }
                 return
         } else if infos {
                 info(ctx, "grepcache: %s files=%d", gc.targetFullName, len(gc.files)).debug(1)
@@ -1222,8 +1230,7 @@ var stopgrep = 0
 //
 // https://github.com/google/re2/wiki/Syntax
 type modifierGrepOpts struct {
-        debug bool `d,debug`
-        verbose bool `v,verbose`
+        generalOpts
         discard bool `c,cast;dc,discard;dm,discard-missing;im,ignore-missing`
         fileinc bool `f,file;f,files` // work with the 'incs' field
         langs []string `l,lang;lan,language`
@@ -1241,7 +1248,7 @@ func modifierGrep(ctx Context, args... Value) (result Value, traves travestates)
 
         var gc grepctx
         gc.fileinc = true // grep files by default
-        args = parseOpts(ctx, &gc.modifierGrepOpts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &gc.modifierGrepOpts, expandPlainValue, args...)
         gc.incs = mergeExpand(ctx, expandPlainValue, gc.incs...)
         for _, s := range gc.sys { gc.rxs = append(gc.rxs, &greprex{s, true , nil}) }
         for _, s := range gc.reg { gc.rxs = append(gc.rxs, &greprex{s, false, nil}) }
@@ -1271,8 +1278,8 @@ func modifierGrep(ctx Context, args... Value) (result Value, traves travestates)
                 targets = append(targets, target)
         }}
 
-        if gc.debug {
-                warn(ctx, "grep files: %v %v %v\n", target, gc.rxs, args).debug(1)
+        if gc.debug > 0 {
+                warn(ctx, "grep files: %v %v %v\n", target, gc.rxs, args).debug(gc.debug)
         }
         if gc.verbose {
                 defer func(ts time.Time) {
@@ -1628,8 +1635,7 @@ func (mdc *modifierDepsContext) spawn() Context { return &modifierDepsContext{md
 func (mdc *modifierDepsContext) mustExists() bool { return true }
 
 type modifierDepsOpts struct {
-        debug bool `d,debug`
-        verbose bool `v,verbose`
+        generalOpts
         useClang bool `cl,clang`
         useGcc bool `g,gcc`
         addMissing bool `am,add-missing;mg,missing-goal;MG,MissingGoal`
@@ -1656,8 +1662,8 @@ func modifierDeps(ctx Context, args... Value) (result Value, traves travestates)
         } else if targetStr == "" {
                 erro(ctx, "target '%v' is empty", targetVal).debug(1)
                 return
-        } else if args = parseOpts(ctx, &opts, args...); len(args) > 0 {
-                args = mergeExpand(ctx, expandPlainValue, args...)
+        } else {
+                args = parseOpts(ctx, &opts, expandPlainValue, args...)
         }
 
         var files []Value
@@ -1790,7 +1796,7 @@ type modifierTouchOpts struct {
 }
 func modifierTouch(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierTouchOpts // = modifierTouchOpts{ mode: os.FileMode(0755) }
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
         if len(args) == 0 {
                 if target, found := ctx.autoGet("@"); found && !isTrivial(target) {
                         args = append(args, target)
@@ -1843,7 +1849,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, traves travestates
                 res bool
         )
 
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         if opts.good    { optBreak   = traveDone }
         if opts.answer  { makeResult = MakeAnswer }
@@ -2207,7 +2213,7 @@ type modifierCopyFileOpts struct {
 }
 func modifierCopyFile(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierCopyFileOpts
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         var target Value
         var source Value
@@ -2369,7 +2375,7 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, traves travestate
                 opts modifierReadFileOpts
                 args []Value
         )
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, aa...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, aa...)
 
         var (
                 file *File
@@ -2473,7 +2479,7 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
                 filename string
                 target Value
         )
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         if len(args) > 0 {
                 target = args[0]
@@ -2684,7 +2690,7 @@ func modifierWait(ctx Context, args... Value) (result Value, traves travestates)
                 opts modifierWaitOpts
                 execRes *ExecResult
         )
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         var (
                 waitForExecResult = opts.stdout || opts.stderr || opts.status || opts.execRes
@@ -2773,7 +2779,7 @@ func modifierStamp(ctx Context, args... Value) (result Value, traves travestates
                 opts modifierStampOpts
                 pos = ctx.Position()
         )
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         var target = getTargetValue(ctx)
         if isNil(target) {
@@ -2881,7 +2887,7 @@ ForArgs:
                         continue ForArgs
                 }
 
-                var va = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, arg)...)
+                var va = parseOpts(ctx, &opts, expandPlainValue, arg)
                 if len(va) == 0 {
                         continue ForArgs
                 } else if len(va) == 1 && isTrivial(va[0]) {
@@ -2989,7 +2995,7 @@ type modifierCaseOpts struct {
 }
 func modifierCase(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierCaseOpts
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         if res, msg, err := predict(ctx, args...); err != nil {
                 erro(ctx, "case: (res=%v) %v", res, err).debug(1)
@@ -3043,7 +3049,7 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
                 outdated bool
                 err error
         )
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         if target, _, _, err = wait(ctx); err != nil {
                 erro(ctx, "waiting traversal failed: %v", err).debug(1)
@@ -3138,7 +3144,7 @@ type predictionTarget1stVisitOpts struct {
 }
 func predictionTarget1stVisit(ctx Context, args... Value) (result Value) {
         var opts predictionTarget1stVisitOpts
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         var target, _ = ctx.autoGet("@")
         if isNil(target) {
@@ -3177,7 +3183,7 @@ type predictionTargetMaxVisitOpts struct {
 }
 func predictionTargetMaxVisit(ctx Context, args... Value) (result Value) {
         var opts predictionTargetMaxVisitOpts
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         var nth int64
         for _, a := range args {
@@ -3230,7 +3236,7 @@ func _modifierFork(ctx Context, args... Value) (result Value, traves travestates
                 argv []string
                 prog = ctx.program()
         )
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
         for _, a := range args { argv = append(argv, a.Strval(ctx)) }
 
         if opts.workDir != "" {
@@ -3264,7 +3270,7 @@ func modifierFork(ctx Context, args... Value) (result Value, traves travestates)
                 argv []string
                 wd string
         )
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
         for _, a := range args { argv = append(argv, a.Strval(ctx)) }
 
         if opts.workDir != "" {
@@ -3298,7 +3304,7 @@ type modifierGitModifiedOpts struct {
 }
 func modifierGitModified(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierGitModifiedOpts
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         var out = new(bytes.Buffer)
         var git = exec.Command("git", "status")
@@ -3339,7 +3345,7 @@ type modifierGitAheadOpts struct {
 }
 func modifierGitAhead(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierGitAheadOpts
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         var out = new(bytes.Buffer)
         var git = exec.Command("git", "status")
@@ -3491,7 +3497,7 @@ func modifierOnce(ctx Context, args... Value) (result Value, traves travestates)
                 opts modifierOnceOpts
                 target, found = ctx.autoGet("@")
         )
-        args = parseOpts(ctx, &opts, mergeExpand(ctx, expandPlainValue, args...)...)
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
         const onceAlgo = 2 // avaialbe: 0, 1, 2
         if !found || isTrivial(target) {

@@ -734,7 +734,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, patte
   var closured = target.expandible(ctx, expandClosure)
   if special == specialRuleUse && !closured {
     var opts entryOpts
-    parseOpts(ctx, &opts, options...)
+    parseOpts(ctx, &opts, 0, options...)
 
     /*var userule = &useRuleEntry{
       RuleEntry{
