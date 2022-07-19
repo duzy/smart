@@ -59,7 +59,7 @@ type commandLineOpts struct {
   checkLoadGraph  bool `ckld,check-loads`
 
   cleanConf       bool `cc,clean-conf,clean-configure`
-  configure       bool `conf,configure`                     // optionConfigure
+  configure       bool `c,con,conf,configure`               // optionConfigure
   reconfigure     bool `rc,rec,reconf,reconfig,reconfigure` // optionReconfig
 
   saveGrepSource  bool `savgs,save-grep-source`

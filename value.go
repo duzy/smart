@@ -28,9 +28,11 @@ import (
 )
 
 const (
-    enable_assertions = true
-    enable_grep_bench = true
+    enable_assertions  = true
+    enable_grep_bench  = true
     positionalValueCtx = true
+    traveseDetectLoops = true // turn on/off traverse loop detection
+    traveseLoopBreakState = traveUnkn // eg traveNext or traveDone
 )
 
 type (
@@ -750,10 +752,14 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         errostack(ctx, 3, "target is <nil>").debug(6)
         return
     }
+
+    // NOTE: Don't delete, keep this segment! To safe time for future debugging traversal.
     if false && strings.Contains(prereq, "ItaniumNodes.def") {
-        warn(ctx, "%T %v", targetValue, targetValue)
-        warn(ctx, "%T %v", prereqValue, prereqValue)
-        warnstack(ctx, 3, "").debug(16)
+        prompt(ctx, "%v : %v\n", targetValue, prereqValue)
+        warn(ctx, "@: %T %v", targetValue, targetValue)
+        warn(ctx, ">: %T %v", prereqValue, prereqValue)
+        warn(ctx, ">: in %v", projects)
+        warnstack(ctx, 3, "").debug(10)
     }
 
     var (
@@ -828,17 +834,26 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     }}
 
     // Recursion detection -- simply return to break it if this happens.
-    if true { for c := ctx.programContext(); c != nil; c = c.caller() {
+    if traveseDetectLoops { if targetValue.cmp(ctx, prereqValue) == cmpEqual {
+        prompt(ctx, "%v: %v: self dependency, consider using [(once)] to avoid\n",
+            targetValue, prereqValue)
+        warn(ctx, "recursion: %T %v", prereqValue, prereqValue)//.of(prereqValue)
+        warn(ctx, "recursion: %T %v", targetValue, targetValue)//.of(targetValue)
+        warn(ctx, "recursion: %v : %v ; in %v", targetValue, prereqFile, projects)
+        warnstack(ctx, 3, "").debug(16)
+        return
+    }}
+    if traveseDetectLoops { for c := ctx.programContext(); c != nil; c = c.caller() {
         if t, ok := c.autoGet("@"); ok && t.cmp(c, prereqValue) == cmpEqual {
-            if false {
-                s := traves.add(ctx, /* traveNext */traveDone, targetValue)
+            if traveseLoopBreakState != traveUnkn {
+                var s = traves.add(ctx, traveseLoopBreakState, targetValue)
                 if s.dependPat = prereqPattern; prereqFile == nil {
                     s.depend = prereqValue
                 } else {
                     s.depend = prereqFile
                 }
             }
-            if _, ok := targetValue.(*File); ok {
+            if f := asFile(ctx, targetValue, projects...); f != nil {
                 // silent
             } else if true {
                 prompt(ctx, "%v: %v: recursion detected, consider using [(once)] to avoid\n",
@@ -852,11 +867,17 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         }
     }}
 
+    // NOTE: Don't delete, keep this segment! To safe time for future debugging traversal.
+    // NOTE: Open this segment will draw very clear traverse path of a prerequisite.
     if false && strings.Contains(prereq, "ItaniumNodes.def") {
-        warn(ctx, "%T %v", targetValue, targetValue)
-        warn(ctx, "%T %v", prereqValue, prereqValue)
-        warn(ctx, "%v in %v", prereqFile, projects)
-        warnstack(ctx, 3, "").debug(16)
+        var s string
+        if f := prereqFile; f != nil { s = "(" + f.dir + "," + f.sub + ")" }
+        prompt(ctx, "%v : %v ; pattern=%v , file=%v%s\n", //, ctx.stemmed()
+            targetValue, prereqValue, prereqPattern, prereqFile, s)
+        warn(ctx, "@: %T %v", targetValue, targetValue)
+        warn(ctx, ">: %T %v", prereqValue, prereqValue)
+        warn(ctx, ">: %v in %v", prereqFile, projects)
+        warnstack(ctx, 3, "").debug(10)
     }
 
     const db0 = false

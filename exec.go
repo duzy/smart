@@ -802,7 +802,8 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
 
   var (
     t = ctx.traversal()
-    program = ctx.program()
+    programCtx = ctx.programContext()
+    program = programCtx.program()
     target = getTargetValue(ctx)
     targetName string
   )
@@ -1118,7 +1119,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         }
       }
       var s string
-      if t := program.dirt; t != "" { s = "; " + t }
+      if t := programCtx.dirt; t != "" { s = "; " + t }
       prompt(ctx, "%s%s (%v, stdout=%d bytes, stderr=%d bytes%s)\n",
         ps, st, time.Now().Sub(start), exeres.Stdout.wrote, exeres.Stderr.wrote, s)
     }

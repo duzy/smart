@@ -3617,6 +3617,9 @@ func builtinWildcard(ctx Context, args... Value) (res Value) {
         return
 }
 
+type builtinReadDirOpts struct {
+        generalOpts
+}
 func builtinReadDir(ctx Context, args... Value) (res Value) {
         var l []Value
         for _, a := range args {
@@ -3637,6 +3640,7 @@ func builtinReadDir(ctx Context, args... Value) (res Value) {
 }
 
 type builtinReadFileOpts struct {
+        generalOpts
         trim bool `t,trim;ta,trim-all`
         trimLeft bool `tl,trim-left`
         trimRight bool `tr,trim-right`
@@ -3677,14 +3681,13 @@ func builtinReadFile(ctx Context, args... Value) (res Value) {
 }
 
 type builtinWriteFileOpts struct {
+        generalOpts
         path bool `p,path`
 }
 func builtinWriteFile(ctx Context, args... Value) (res Value) {
         // $(write-file filename,content)
         // $(write-file -p filename,content)
-        var (
-                opts builtinWriteFileOpts
-        )
+        var opts builtinWriteFileOpts
         if len(args) > 0 {
                 var va = parseOpts(ctx, &opts, expandPlainValue, args[1])
                 args = append(va, args[1:]...)
@@ -3793,8 +3796,9 @@ func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Tim
 }
 
 type builtinTouchFileOpts struct {
-        path bool `p,path`
+        generalOpts
         mode os.FileMode `m,mode;fm,filemode;fm,file-mode`
+        path bool `p,path`
 }
 func builtinTouchFile(ctx Context, args... Value) (res Value) {
         // $(touch-file filename)
@@ -3813,6 +3817,7 @@ func builtinTouchFile(ctx Context, args... Value) (res Value) {
 // $(grep 'status=1',$@)
 // $(grep 'status=([0-9]+)',$1,$@)
 type builtinGrepOpts struct {
+        generalOpts
         //val Value `c,cap,capture,v,val,value,r,res,result`
 }
 func builtinGrep(ctx Context, args... Value) (res Value) {
@@ -3941,9 +3946,16 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                 if def = project.config(ctx, name); def == nil {
                         if true { warnstack(ctx, 3, "%v undefined", name).debug(1) }
                         continue
-                } else if val = def.Call(ctx); false && isTrivial(val) {
-                        if true { warn(ctx, "%v is trivial (%T)", name, val).
-                                of(def).debug(1) }
+                } else if val = def.Call(ctx); isNil(val) {
+                        if true { warn(ctx, "%v is nil (%T)", name, val).of(def).debug(1) }
+                        if cf := project.configuration(ctx); cf == nil {
+                                erro(ctx, "%v: configuration file not defined", name, cf).of(def).debug(1)
+                                return
+                        } else if !cf.exists() {
+                                prompt(ctx, "%s: file not exists (for %v)\n", cf.fullname(), name)
+                                erro(ctx, "%v: configuration file not exists, try -conf first", name).of(def).debug(1)
+                                return
+                        }
                         continue
                 }
 

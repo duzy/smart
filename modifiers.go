@@ -34,10 +34,11 @@ const (
 )
 
 type generalOpts struct {
-        debug    int  `d,db,debug` // NOTE: compatible with 'bool'
+        stackNum int  `sn,stack,stacknum,stack-num,stack-number,`
+        debug    int  `d,db,dbg,debug` // NOTE: compatible with 'bool'
         verbose  bool `v,verb,verbose`
         timing   bool `t,time,timing`
-        fullname bool `f,fn,full,fullname`
+        fullname bool `f,fn,fu,ful,full,fullname`
 }
 type modifier struct {
         valbase
@@ -283,7 +284,7 @@ type modifierDebugOpts struct {
         cond    Value `if,cond,where,when`
         info  []Value `i,info`
         warn  []Value `w,warn`
-        error []Value `e,err;er,error`
+        error []Value `e,er,err,error`
         checkOutdated bool `d,dirty;cd,checkdirty;cd,check-dirty;co,check-outdated`
         s int `s,stack,sn,stack-number`
         n int `c,count,n,num,cn,call-number`
@@ -3043,7 +3044,7 @@ type predictionOutdatedOpts struct {
 }
 func predictionOutdated(ctx Context, args... Value) (result Value) {
         var (
-                program = ctx.program()
+                programCtx = ctx.programContext()
                 opts predictionOutdatedOpts
                 target Value
                 targetFullname string
@@ -3112,8 +3113,8 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
 
         if opts.silent { reason = "" }
         if result = MakePrediction(ctx.Position(), outdated, reason); outdated {
-                if program.dirt != "" { reason = program.dirt + "; " + reason }
-                program.dirt = reason
+                if programCtx.dirt != "" { reason = programCtx.dirt + "; " + reason }
+                programCtx.dirt = reason
         }
         return
 }

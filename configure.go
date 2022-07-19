@@ -754,23 +754,27 @@ func walkFiles(ctx Context, root string, pats []Value, fn filewalkFunc) error {
 
 var configuredFiles = make(map[string]*Scope,8)
 
-type configureConvertOpts struct {
-    generalOpts
-    mode os.FileMode `m,mode`
-    makePath bool `p,path`
-    reconfig bool `r,reconfig`
-    update bool `u,update`
-}
-
-type configureConvertArgs func(args []Value, out *bytes.Buffer) []Value
-type configureConvertFunc func(str string, out *bytes.Buffer) error
+type (
+    configureConvertArgs func(args []Value, out *bytes.Buffer) []Value
+    configureConvertFunc func(str string, out *bytes.Buffer) error
+    configureConvertOpts struct {
+        generalOpts
+        mode     os.FileMode `m,mode`
+        makePath bool `p,path`
+        mustConf bool `mc,mustconfig,mustconf,must-conf,must-config,nc,needsconfig,needs-config`
+        reconfig bool `r,reconfig`
+        update   bool `u,update`
+    }
+)
 func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData configureConvertFunc, opts *configureConvertOpts, args ...Value) (result Value, traves travestates) {
     var (
         closured = closureProjects(ctx)
         filename string
         file *File
     )
+
     args = parseOpts(ctx, opts, expandPlainValue, args...)
+
     if target, found := ctx.autoGet("@"); !found || isTrivial(target) {
         erro(ctx, "'@' is not defined").debug(1)
         return
@@ -788,13 +792,30 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
     } else if filename == "" {
         errostack(ctx, 3, "%v: empty fullname: `%v`", target, file).debug(1)
         return
-    } else if prev, _ := ctx.autoSet("@", file); opts.debug>0 {
-        info(ctx, "configure-file: %s->%s (prev=%v)", file, filename, prev).debug(opts.debug)
     }
+
+    if prev, _ := ctx.autoSet("@", file); opts.debug>0 {
+        info(ctx, "configure-file: %s->%s (%T %v -> %T %v)",
+            file, filename, prev, prev, file, file).debug(opts.debug)
+    }
+
     if file.info == nil { if f := stat(ctx, filename, "", ""); f != nil { file.info = f.info }}
     if opts.debug>0 && file != nil {
         var t, _ = ctx.autoGet("@")
         info(ctx, "configure-file: %v: %v (%s) (%v)", t, file.fullname(), closured).debug(opts.debug)
+    }
+
+    if f := ctx.Project().configuration(ctx); f == nil || !f.exists() {
+        prompt(ctx, "%v: %v\n", filename, file)
+        if opts.mustConf {
+            var d = opts.debug ; if d == 0 { d = 1 }
+            errostack(ctx, opts.stackNum, "no configuration (%v), try -conf first, in %v",
+                f, ctx.Project()).debug(d)
+            return
+        } else if true {
+            warnstack(ctx, opts.stackNum, "no configuration (%v), try -conf first, in %v",
+                f, ctx.Project()).debug(opts.debug)
+        }
     }
 
     // Check previously configured files, we only configure once unless
@@ -824,8 +845,14 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         }
     }}
     if data.Len() == 0 {
-        erro(ctx, "no input data").debug(6)
+        var t, _ = ctx.autoGet("@")
+        prompt(ctx, "%v: %v\n", filename, t)
+        erro(ctx, "no configuration data").debug(6)
         return
+    } else if f := ctx.Project().configuration(ctx); (f == nil || !f.exists()) && opts.debug>0 {
+        var t, _ = ctx.autoGet("@")
+        // NOTE: TrimSpace to ease emacs *compilation* parse errors
+        prompt(ctx, "%v: %v\n%s\n", filename, t, strings.TrimSpace(data.String())).debug(1)
     }
 
     var ( status string; same bool )
@@ -836,8 +863,13 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
             } else if status == "" {
                 status = fmt.Sprintf("outdated (%s)", filename)
             }
+
+            var d = time.Now().Sub(st)
+            var t, _ = ctx.autoGet("@")
             printEnteringDirectory(ctx)
-            prompt(ctx, "update %v …… %s (in %v)\n", trimPromptString(filename), status, time.Now().Sub(st)).debug(opts.debug, 6)
+            prompt(ctx, "update %v …… %s (in %v)\n",
+                trimPromptString(filename), status, d)
+            if opts.debug>0 { infostack(ctx, opts.stackNum, "%v (%v)", t, d).debug(opts.debug) }
         } (time.Now())
     }
 

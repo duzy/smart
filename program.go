@@ -27,6 +27,7 @@ type programContext struct {
     projs []*Project
     prog *Program
     params []string // $0, $1, $2, ...
+    dirt string // reason of outdated
 }
 
 func (pc *programContext) inner() Context { return &pc.autoContext }
@@ -83,7 +84,7 @@ func (pc *programContext) spawn() Context {
     return &programContext{
         autoContext{ Context: ctx, defs: pc.defs.clone() },
         sync.Mutex{}, modifierSetDirtyPatsOpts{}, //travestates{},
-        pc.projs, pc.prog, pc.params,
+        pc.projs, pc.prog, pc.params, pc.dirt,
     }
 }
 func (pc *programContext) appendCallerUpdated() bool { return true }
@@ -159,7 +160,6 @@ type Program struct {
     defaultVal Value
     language string
     changedWD string
-    dirt string // reason of outdated
     configure bool
 }
 
@@ -394,7 +394,6 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     }
 
     assert(prog.project == prog.scope.project, "mismatched scope/project")
-    prog.dirt = "" // reset "dirt" -- the 'dirty' reasons
 
     var t = traverseContext{
         Context: cc,
@@ -749,7 +748,8 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                                 warn(ctx, "%v", traves).debug(1)
                             }
                         } else {
-                            erro(ctx, "  %v", s).at(s.pos)
+                            prompt(ctx, "%v: %v: %v\n", target, depend, s)
+                            erro(ctx, "%v", s).at(s.pos)
                             erro(ctx, "1. %T %v %s", target, target, target.Strval(ctx)).of(target)
                             erro(ctx, "2. %T %v %s", depend, depend, depend.Strval(ctx)).of(depend)
                             erro(ctx, "3. %T %v %v", s.depend, s.depend, dependMine).of(s.depend)
