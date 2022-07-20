@@ -60,6 +60,7 @@ var configurationOps = map[string] func(Context, map[string]Value, ...Value) (Va
     "dump":    configureDump,
     "opt":     configureOption,
     "option":  configureOption,
+    "pkg":     configurePackage,
     "package": configurePackage,
 }
 
