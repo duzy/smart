@@ -768,6 +768,7 @@ type (
 )
 func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData configureConvertFunc, opts *configureConvertOpts, args ...Value) (result Value, traves travestates) {
     var (
+        project = ctx.Project()
         closured = closureProjects(ctx)
         filename string
         file *File
@@ -805,16 +806,18 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         info(ctx, "configure-file: %v: %v (%s) (%v)", t, file.fullname(), closured).debug(opts.debug)
     }
 
-    if f := ctx.Project().configuration(ctx); f == nil || !f.exists() {
+    if len(project.configs) == 0 {
+        // no need to check configuration
+    } else if f := project.configuration(ctx); f == nil || !f.exists() {
         prompt(ctx, "%v: %v\n", filename, file)
         if opts.mustConf {
             var d = opts.debug ; if d == 0 { d = 1 }
             errostack(ctx, opts.stackNum, "no configuration (%v), try -conf first, in %v",
-                f, ctx.Project()).debug(d)
+                f, project).debug(d)
             return
         } else if true {
             warnstack(ctx, opts.stackNum, "no configuration (%v), try -conf first, in %v",
-                f, ctx.Project()).debug(opts.debug)
+                f, project).debug(opts.debug)
         }
     }
 
