@@ -715,14 +715,26 @@ func builtinAnd(ctx Context, args... Value) (res Value) {
 
 // $(not x y z) => (not (or x y z))
 // $(not x,y,z) => (and (not x) (not y) (not z))
+type builtinNotOpts struct {
+        generalOpts
+}
 func builtinNot(ctx Context, args... Value) (res Value) {
-        var t bool
+        var (
+                opts builtinNotOpts
+                t bool
+        )
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
         for _, a := range args { if t = a.True(ctx); t { break }}
         res = MakeBoolean(ctx.Position(), !t)
         return
 }
 
+type builtinNotEqualOpts struct {
+        generalOpts
+}
 func builtinNotEqual(ctx Context, args... Value) (res Value) {
+        var opts builtinNotEqualOpts
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
         if n := len(args); n != 2 {
                 erro(ctx, "wrong number of arguments, try: $(not-equal <value-list>,<regexp-list>)")
         } else if args[0].cmp(ctx, args[1]) != cmpEqual {
@@ -731,7 +743,12 @@ func builtinNotEqual(ctx Context, args... Value) (res Value) {
         return
 }
 
+type builtinEqualOpts struct {
+        generalOpts
+}
 func builtinEqual(ctx Context, args... Value) (res Value) {
+        var opts builtinEqualOpts
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
         if n := len(args); n != 2 {
                 erro(ctx, "wrong number of arguments, try: $(equal <value-list>,<regexp-list>)")
         } else if cmp := args[0].cmp(ctx, args[1]); cmp == cmpEqual {
@@ -740,7 +757,12 @@ func builtinEqual(ctx Context, args... Value) (res Value) {
         return
 }
 
+type builtinGreaterOpts struct {
+        generalOpts
+}
 func builtinGreater(ctx Context, args... Value) (res Value) {
+        var opts builtinGreaterOpts
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
         if n := len(args); n != 2 {
                 erro(ctx, "wrong number of arguments, try: $(greater <value-list>,<regexp-list>)")
         } else if cmp := args[0].cmp(ctx, args[1]); cmp == cmpGreater {
@@ -749,7 +771,12 @@ func builtinGreater(ctx Context, args... Value) (res Value) {
         return
 }
 
+type builtinLessOpts struct {
+        generalOpts
+}
 func builtinLess(ctx Context, args... Value) (res Value) {
+        var opts builtinLessOpts
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
         if n := len(args); n != 2 {
                 erro(ctx, "wrong number of arguments, try: $(less <value-list>,<regexp-list>)")
         } else if cmp := args[0].cmp(ctx, args[1]); cmp == cmpSmaller {

@@ -125,9 +125,11 @@ func (ce *configureExecutor) execute(ctx Context, project *Project, entry Entry)
             /*if d.value.cmp(def.value) != cmpEqual {
                     erro(ctx, "'%s' already configured: %v", d.name, d.value).at(entry.Position())
                     return
-                }*/
+            }*/
             return //continue
-        } else { ce.defs[s] = def }
+        } else {
+            ce.defs[s] = def
+        }
         if def.value == nil {
             // Set <nil> value with exec-assigning ('!=')
             // to a None value.
