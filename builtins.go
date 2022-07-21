@@ -88,6 +88,7 @@ var builtins = map[string]BuiltinFunc {
         `ifne`:         builtinBranchIfNE,
 
         `foreach`:      builtinForEach,
+        `count`:        builtinCount,
 
         `env`:          builtinEnv,
         // DEPRECATED: `call`:         builtinCall,
@@ -968,6 +969,26 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
                 }
         }
         res = MakeListOrScalar(pos, resList)
+        return
+}
+
+type builtinCountOpts struct {
+        generalOpts
+        bool bool `b,bool,boolean`
+        nb int `b,bool,boolean`
+}
+func builtinCount(ctx Context, args... Value) (res Value) {
+        var (
+                opts builtinCountOpts
+                num int64
+        )
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        for _, a := range args {
+                if opts.nb>0 && opts.bool == a.True(ctx) {
+                        num += 1
+                }
+        }
+        res = MakeInt(ctx.Position(), num)
         return
 }
 
