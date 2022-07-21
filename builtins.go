@@ -68,7 +68,8 @@ var builtins = map[string]BuiltinFunc {
 
         //`assert`: builtinAssert,
 
-        `defor`:        builtinDefor,
+        // $(defor) (aka. defined-or)
+        `defor`:        builtinDefOr, // $(defor $(x),$(y),$(z))  <=>  $(if $(defined $(x)),$(x),...)
         `or`:           builtinOr,
         `and`:          builtinAnd,
         //`xor`:          builtinXor,
@@ -92,6 +93,7 @@ var builtins = map[string]BuiltinFunc {
         // DEPRECATED: `call`:         builtinCall,
         //`auto`:         builtinAuto,
         `closure`:      builtinClosure,
+        `defs`:         builtinDefList,
         `value`:        builtinValue,
         `var`:          builtinValue,
         `list`:         builtinList,
@@ -681,7 +683,7 @@ func builtinSureValue(ctx Context, args... Value) Value {
 }
 
 // $(defor $(x),$(y),$(z)) is identical to $(if $(defined $(x)),$(x),...)
-func builtinDefor(ctx Context, args... Value) (res Value) {
+func builtinDefOr(ctx Context, args... Value) (res Value) {
         for _, a := range mergeExpand(ctx, expandPlainValue, args...) {
                 var _, unresolved = a.(*unresolvedobject)
                 if unresolved { continue } else {
@@ -1107,6 +1109,49 @@ func builtinClosure(ctx Context, args... Value) (res Value) {
                 } else {
                         vals = append(vals, def.Call(ctx, args[1:]...))
                 }
+        }
+        return MakeListOrScalar(ctx.Position(), vals)
+}
+
+type builtinDefListOpts struct {
+        rxs []*regexp.Regexp `r,re,rx,reg,regex,regexp`
+        not   *regexp.Regexp `nr,neg,not,ex,except,exclude`
+        rn int `rn`
+        n int `n,num,g`
+}
+func builtinDefList(ctx Context, args... Value) (res Value) {
+        var (
+                opts builtinDefListOpts
+                strs []string
+                vals []Value
+        )
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        ForDefs: for name, _ := range ctx.Project().scope.elems {
+                if len(opts.rxs) == 0 {
+                        strs = append(strs, name)
+                        if opts.n>0 && len(strs) == opts.n {
+                                break
+                        } else {
+                                continue
+                        }
+                }
+                if opts.not != nil && opts.not.MatchString(name) {
+                        continue
+                }
+                for _, rx := range opts.rxs {
+                        var sm = rx.FindStringSubmatch(name)
+                        if len(sm)>0 && opts.rn<len(sm) {
+                                strs = append(strs, sm[opts.rn])
+                                if opts.n>0 && len(strs) == opts.n {
+                                        break ForDefs
+                                } else {
+                                        continue ForDefs
+                                }
+                        }
+                }
+        }
+        for _, str := range strs {
+                vals = append(vals, MakeString(ctx.Position(), str))
         }
         return MakeListOrScalar(ctx.Position(), vals)
 }
@@ -3851,7 +3896,7 @@ func builtinGrep(ctx Context, args... Value) (res Value) {
         var (
                 opts builtinGrepOpts
                 vals, list []Value
-                rxs []*regexp.Regexp
+                rxs []*regexp.Regexp // TODO: move it into builtinGrepOpts
                 result Value
                 nargs int
                 err error
