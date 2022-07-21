@@ -839,12 +839,10 @@ ForValList:
 func builtinBranchCase(ctx Context, args... Value) (res Value) {
         for _, arg := range merge(args...) {
                 if g, ok := arg.(*Group); ok && len(g.Elems)>0 {
-                        if t := g.Elems[0].True(ctx); t {
-                                if len(g.Elems) > 1 {
-                                        res = MakeListOrScalar(arg.Position(), g.Elems[2:])
-                                } else {
-                                        res = MakeNone(arg.Position())
-                                }
+                        var v = g.Elems[0].expand(ctx, expandPlainValue)
+                        if isNil(v) { v = g.Elems[0] }
+                        if v.True(ctx) {
+                                res = MakeListOrScalar(arg.Position(), g.Elems[1:])
                                 return
                         }
                 } else {
@@ -858,7 +856,9 @@ func builtinBranchCase(ctx Context, args... Value) (res Value) {
 // $(if cond, true-value, else-value, ...)
 func builtinBranchIf(ctx Context, args... Value) (res Value) {
         if n := len(args); n > 1 {
-                if t := args[0].True(ctx); t {
+                var v = args[0].expand(ctx, expandPlainValue)
+                if isNil(v) { v = args[0] }
+                if args[0].True(ctx) {
                         res = args[1]
                 } else if n > 1 {
                         res = MakeListOrScalar(ctx.Position(), args[2:])
@@ -870,12 +870,17 @@ func builtinBranchIf(ctx Context, args... Value) (res Value) {
 func builtinBranchIfEq(ctx Context, args... Value) (res Value) {
         if n := len(args); n > 2 {
                 var (
-                        s1, s2 string
                         a, b Value
+                        equal bool
                 )
                 if a = args[0].expand(ctx, expandPlainValue); isNil(a) { a = args[0] }
                 if b = args[1].expand(ctx, expandDelegate  ); isNil(b) { b = args[1] }
-                if s1, s2 = a.Strval(ctx), b.Strval(ctx); s1 == s2 {
+                if true {
+                        equal = a.cmp(ctx, b) == cmpEqual
+                } else {
+                        equal = a.Strval(ctx) == b.Strval(ctx)
+                }
+                if equal {
                         res = args[2]
                 } else if n > 3 {
                         res = MakeListOrScalar(ctx.Position(), args[3:])
@@ -887,12 +892,17 @@ func builtinBranchIfEq(ctx Context, args... Value) (res Value) {
 func builtinBranchIfNE(ctx Context, args... Value) (res Value) {
         if n := len(args); n > 2 {
                 var (
-                        s1, s2 string
                         a, b Value
+                        equal bool
                 )
                 if a = args[0].expand(ctx, expandPlainValue); isNil(a) { a = args[0] }
                 if b = args[1].expand(ctx, expandDelegate  ); isNil(b) { b = args[1] }
-                if s1, s2 = a.Strval(ctx), b.Strval(ctx); s1 != s2 {
+                if true {
+                        equal = a.cmp(ctx, b) == cmpEqual
+                } else {
+                        equal = a.Strval(ctx) == b.Strval(ctx)
+                }
+                if !equal {
                         res = args[2]
                 } else if n > 3 {
                         res = MakeListOrScalar(ctx.Position(), args[3:])
