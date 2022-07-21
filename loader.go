@@ -1083,6 +1083,7 @@ func (l *loader) closureScopes() (scopes []*Scope) {
     scopes = append(l.closureContext.closureScopes(), l.Scope())
     return
 }
+
 func (l *loader) openScope(comment string) (scopes []*Scope) {
     if false && options.traceLaunch { defer un(trace(t_launch, "loader.openScope")) }
     var pos Position

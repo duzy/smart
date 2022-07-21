@@ -1123,7 +1123,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 					errostack(p, 5, "%v: %v", proj, ctx).of(name).debug(16)
 				} else {
 					erro(p, "%v: resolved '%v' is nil", proj, name).of(name)
-					errostack(p, 5, "%v: %v", proj, ctx).of(name).debug(16)
+					errostack(p, 5, "%v: %v", proj, ctx).of(name).debug(32)
 				}
 			} else if sel, ok := resolved.(*selection); ok && sel != nil {
 				obj, okay = sel, true
@@ -2603,12 +2603,14 @@ func (p *parser) parseSpecialRuleClause() Value {
 	}
 }
 
-func (p *parser) expandForeach(t *template, vars map[string]Value, params []Value/*, endPos token.Pos*/) {
+func (p *parser) templateBlock(t *template, vars map[string]Value, expandParams []Value) {
 	p.scanner.SetState(t.state)
 	p.pos, p.tok, p.lit = t.pos, t.tok, t.lit
 
 	// TODO: deal with params
-	defer p.closeScope(p.openScope("template expansion ")) // NOTE: comment here will affect loader.def()
+
+	// NOTE: comment here will affect loader.def()
+	defer p.closeScope(p.openScope("template block "))
 
 	var ctx = positional(p, p.Position())
 	for s, v := range vars {
@@ -2618,16 +2620,15 @@ func (p *parser) expandForeach(t *template, vars map[string]Value, params []Valu
 		}
 	}
 
-	//p.stop = endPos
 	for p.tok != token.EOF && p.pos < p.stop {
 		switch p.tok {
 		case token.LINEND: p.next(true)
 		default: p.parseClause(/*endPos*/)
 		}
 	}
-	//p.stop = 0
 }
-func (p *parser) expandTemplate(/*endPos token.Pos, */params []Value) {
+
+func (p *parser) templateExpand(params []Value) {
 	defer func(pos token.Pos, tok token.Token, lit string, state scanner.ScanState) {
 		p.pos, p.tok, p.lit	 = pos, tok, lit
 		p.scanner.SetState(state)
@@ -2639,29 +2640,44 @@ func (p *parser) expandTemplate(/*endPos token.Pos, */params []Value) {
 		l = len(p.templates)
 		t = p.templates[l-1]
 	)
-	switch t.verb {
+	switch p.templates = p.templates[:l]; t.verb {
 	case "foreach":
-		for _, a := range t.params {
-			p.expandForeach(t, map[string]Value{ "_" : a }, params/*, endPos*/)
+		for _, elem := range mergeExpand(p, expandPlainValue, t.params...) {
+			if isTrivial(elem) { continue }
+			p.templateBlock(t, map[string]Value{ "_" : elem }, params)
 		}
 	case "for":
 		for _, a := range t.params {
-			if pair, ok := a.(*Pair); ok {
-				var s = pair.Key.Strval(positional(p, pair.Key.Position()))
-				if g, ok := pair.Value.(*Group); ok {
-					for _, v := range g.Elems {
-						p.expandForeach(t, map[string]Value{ s : v }, params/*, endPos*/)
-					}
-				} else {
-					p.expandForeach(t, map[string]Value{ s : pair.Value }, params/*, endPos*/)
-				}
+			var (
+				pos Position
+				elems []Value
+				s string
+			)
+			if pair, ok := a.(*Pair); !ok {
+				erro(p, "unexpected value: %T %v", a, a).of(a).debug(1)
+				return
+			} else if s = pair.Key.Strval(positional(p, pair.Key.Position())); s == "" {
+				erro(p, "empty key: %T %v", pair.Key, pair.Key).of(a).debug(1)
+				return
+			} else if g, ok := pair.Value.(*Group); ok {
+				pos = pair.Value.Position()
+				elems = g.Elems
+			} else {
+				pos = pair.Value.Position()
+				elems = append(elems, pair.Value)
+			}
+
+			var ctx = positional(p, pos)
+			for _, elem := range mergeExpand(ctx, expandPlainValue, elems...) {
+				if isTrivial(elem) { continue }
+				p.templateBlock(t, map[string]Value{ s : elem }, params)
 			}
 		}
 	default:
 		erro(p, "expand template %v: %v", t.verb, params).at(p.Position()).debug(1)
 	}
 }
-func (p *parser) callTmpl(t *template, name Value, args []Value) {
+func (p *parser) callTemplate(t *template, name Value, args []Value) {
 	defer func(pos token.Pos, tok token.Token, lit string, state scanner.ScanState) {
 		p.pos, p.tok, p.lit	 = pos, tok, lit
 		p.scanner.SetState(state)
@@ -2671,7 +2687,7 @@ func (p *parser) callTmpl(t *template, name Value, args []Value) {
 	p.pos, p.tok, p.lit = t.pos, t.tok, t.lit
 
 	// NOTE: a new scope is required for template expansion
-	defer p.closeScope(p.openScope("template expansion "))
+	defer p.closeScope(p.openScope("template call "))
 
 	var ctx = positional(p, t.name.Position())
 	var params = merge(t.params...)
@@ -2691,25 +2707,26 @@ func (p *parser) callTmpl(t *template, name Value, args []Value) {
 		}
 	}
 }
-func (p *parser) callTemplate(name Value, args []Value) {
+func (p *parser) templateCall(name Value, args []Value) {
 	for _, tmpl := range p.templates {
 		if tmpl.name != nil && tmpl.name.cmp(p, name) == cmpEqual {
-			p.callTmpl(tmpl, name, args)
+			p.callTemplate(tmpl, name, args)
 			return
 		}
 	}
 	erro(p, "undefined template: %v", name).of(name).debug(1)
 }
 func (p *parser) parseTemplateClause() (end bool) {
-	var pos = p.pos
+	var pos, stop = p.pos, p.stop
 	p.expect(token.TEMPLATE) // expect and skip 'template'
 	p.skipSpaces()
 
 	var (
 		verb string
 		arged *Argumented
+		op = p.parseExpr(false)
 	)
-	var op = p.parseExpr(false); p.skipSpaces()
+	p.skipSpaces()
 	if w, ok := op.(*Bareword); ok {
 		verb = w.string
 	} else if arged, ok = op.(*Argumented); !ok {
@@ -2717,11 +2734,9 @@ func (p *parser) parseTemplateClause() (end bool) {
 		return
 	}
 
-	var params = p.parseExprList(false); p.expect(token.LINEND)
-	if false { defer un(tracef(t_traverse, "parseTemplateClause(%v, %v, %v)", verb, len(params), pos)) }
-
 	switch verb {
 	case "end":
+		p.expect(token.LINEND)
 		if len(p.templates) == 0 {
 			erro(p, "end template with no previous def").of(op).debug(1)
 			return
@@ -2730,14 +2745,20 @@ func (p *parser) parseTemplateClause() (end bool) {
 		tmpl.end, tmpl.endPos = &end, pos
 		return true
 	case "expand":
+		params := p.parseExprList(false)
+		p.expect(token.LINEND)
 		p.stop = pos
-		p.expandTemplate(/*pos, */params)
-		p.stop = 0
+		p.templateExpand(params)
+		p.stop = stop
 		return true
 	case "": if arged != nil {
-		p.callTemplate(arged.value, arged.args)
+		p.expect(token.LINEND)
+		p.templateCall(arged.value, arged.args)
 		return true
 	}}
+
+	var params = p.parseExprList(false)
+	p.expect(token.LINEND)
 
 	var ctx = positional(p, p.Position())
 	params = mergeExpand(ctx, expandPlainValue, params...)
@@ -2764,15 +2785,14 @@ ForToken:
 		switch p._next(); p.tok {
 		case token.SPACE:
 		case token.LINEND: newline = true
-		case token.TEMPLATE:
-			if newline && p.parseTemplateClause() { break ForToken }
+		case token.TEMPLATE: if newline && p.parseTemplateClause() { break ForToken }
 		default: newline = false
 		}
 	}
 	return
 }
 
-func (p *parser) parseClause(/*endPos token.Pos*/) {
+func (p *parser) parseClause() {
 	if false { defer un(tracef(t_traverse, "parseClause(%v, %v)", p.tok, p.pos)) }
 	var position = p.Position()
 	switch p.tok {
