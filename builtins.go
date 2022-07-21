@@ -83,6 +83,7 @@ var builtins = map[string]BuiltinFunc {
         `greater`:      builtinGreater,
         `less`:         builtinLess,
 
+        `case`:         builtinBranchCase,
         `if`:           builtinBranchIf,
         `ifeq`:         builtinBranchIfEq,
         `ifne`:         builtinBranchIfNE,
@@ -829,6 +830,26 @@ ForValList:
                                 res = MakeBoolean(pos, true)
                                 break ForValList
                         }
+                }
+        }
+        return
+}
+
+// $(case (a 'xxx') (b 'yyy') (c 'zzz') (yes 'else'))
+func builtinBranchCase(ctx Context, args... Value) (res Value) {
+        for _, arg := range merge(args...) {
+                if g, ok := arg.(*Group); ok && len(g.Elems)>0 {
+                        if t := g.Elems[0].True(ctx); t {
+                                if len(g.Elems) > 1 {
+                                        res = MakeListOrScalar(arg.Position(), g.Elems[2:])
+                                } else {
+                                        res = MakeNone(arg.Position())
+                                }
+                                return
+                        }
+                } else {
+                        erro(ctx, "unexpected case: %T %v", arg, arg).debug(1)
+                        return
                 }
         }
         return
