@@ -35,8 +35,9 @@ const (
 	parsingFilesSpec // files ( ... )
 	parsingSpecialRule // e.g. :use ...:
 	//parsingColonName // e.g. $:use:
-	parsingBuiltinCommand // recipe builtin command
+	parsingRecipeBuiltin // recipe builtin command
 	parsingRecipeText
+	parsingRecipe = parsingRecipeBuiltin | parsingRecipeText
 
 	// The composingNo* bits control the composing priority!
 	composingNoArg    = composingSELECT_PROP | composingDOT | composingDOTDOT | composingPATH | composingPERC
@@ -288,15 +289,23 @@ func (p *parser) _next() {
 }
 
 func (p *parser) next(skipWS bool) {
-	if p._next(); skipWS && p.tok == token.SPACE { p._next() }
+	if p._next(); skipWS { p.skipSpaces() }
+	// if p._next(); skipWS && p.tok == token.SPACE { p._next() }
+	// if p._next(); skipWS {
+	// 	if p.tok == token.SPACE ||
+	// 		(p.tok == token.RECIPE && p.bits&parsingRecipeBuiltin != 0) {
+	// 		p._next()
+	// 	}
+	// }
 }
 
 func (p *parser) skipSpaces() {
 	for p.lineComment == nil && p.tok != token.EOF {
-		if p.tok == token.SPACE  { p._next() } else
-		if p.tok == token.ESCAPE && p.lit == "\n" {
+		if p.tok == token.SPACE || (p.tok == token.RECIPE && p.bits&parsingRecipeBuiltin != 0) {
+			p._next()
+		} else if p.tok == token.ESCAPE && p.lit == "\n" {
 			if p._next(); p.tok == token.LINEND { break }
-			if p.bits&parsingBuiltinCommand != 0 {
+			if p.bits&parsingRecipeBuiltin != 0 {
 				TokFor: for p.tok != token.EOF {
 					switch p.tok {
 					case token.RECIPE: // TODO: using p.isRecipeStart()
@@ -513,7 +522,7 @@ func (p *parser) isEndOfList(lhs bool) bool {
 	if p.lineComment != nil || p.tok.IsListDelim() || (lhs && p.tok.IsAssign()) {
 		return true
 	}
-	if (p.bits&parsingRecipeText != 0) && p.tok == token.RECIPE { // TODO: using p.isRecipeStart()
+	if (p.bits&parsingRecipe != 0) && p.tok == token.RECIPE { // TODO: using p.isRecipeStart()
 		return true
 	}
 	return false
@@ -1036,8 +1045,8 @@ func (p *parser) parseClosureDelegate() (result Value) {
 	if t_traverse.enabled {	defer un(trace(t_traverse, "ClosureDelegate")) }
 
 	// FIXME: push p.bits before entering a $(...) or &(...)
-	defer func(a parsingBits) { p.bits = a } (p.bits)
-	p.bits = 0 // start with zero bits
+	// defer func(a parsingBits) { p.bits = a } (p.bits)
+	// p.bits = p.bits & (parsingCompound | parsingFilesSpec | parsingRecipe)
 
 	var (
 		ctx = positional(p, p.Position())
@@ -1378,6 +1387,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x Value) {
 
 func (p *parser) parseComposedExpr(lhs bool) (x Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Composed")) }
+
 	switch x = p.parseUnaryExpr(lhs); p.tok { // check composible expressions
 	case token.SELECT_PROP, token.SELECT_PROG1, token.SELECT_PROG2: // foo->bar  foo=>bar  foo~>bar
 		if p.bits&composingNoSelect == 0 {
@@ -1414,7 +1424,7 @@ func (p *parser) parseComposedExpr(lhs bool) (x Value) {
 			}
 		}
 	case token.COLON:
-		if (p.bits&parsingBuiltinCommand != 0 || !lhs) && p.bits&composingNoURL == 0 {
+		if (p.bits&parsingRecipe != 0 || !lhs) && p.bits&composingNoURL == 0 {
 			if isKnownURLScheme(x.Strval(positional(p, p.Position()))) {
 				x = p.parseURLExpr(lhs, x)
 			}
@@ -2113,7 +2123,7 @@ SwitchDialect:
 		p.next(true) // skip RECIPE or SEMICOLON and parse in list mode
 		position = p.Position()
 		if isList = true; !p.isEndOfLine() {
-			defer p.setbit(p.setbit(parsingBuiltinCommand))
+			defer p.setbit(p.setbit(parsingRecipeBuiltin))
 
 			var (
 				isValue = p.dialect == "value"
@@ -2123,20 +2133,20 @@ SwitchDialect:
 				erro(p, "parsed value is nil").at(position)
 			} else if isValue {
 				// no resolving commands
-			} else if t, ok := x.(*Bareword); ok {
-				if _, sym, err := p.resolveObject(t); err != nil {
-					erro(p, "resolve '%v' failed: %v", x, err).at(position)
-				} else if isTrivial(sym) {
-					erro(p, "resolved '%v' (from %v) is nil", t.string, x).of(x)
-				} else if false {
-					erro(p, "builtin command no more supported, use $(%s ...) instead", t.string).of(x)
-				} else if b, ok := sym.(*Builtin); !ok {
-					erro(p, "'%s' is not a command (%s)", t.string, typeof(sym)).of(x)
-				} else if b.flag&builtinCommand == 0 {
-					erro(p, "'%s' is not a command, use $(%s ...) instead", t.string, t.string).of(x)
-				} else {
-					x = sym
-				}
+			} else if t, ok := x.(*Bareword); !ok {
+				// does nothing
+			} else if _, sym, err := p.resolveObject(t); err != nil {
+				erro(p, "resolve '%v' failed: %v", x, err).at(position)
+			} else if isTrivial(sym) {
+				erro(p, "resolved '%v' (from %v) is nil", t.string, x).of(x)
+			} else if false {
+				erro(p, "builtin command no more supported, use $(%s ...) instead", t.string).of(x)
+			} else if b, ok := sym.(*Builtin); !ok {
+				erro(p, "'%s' is not a command (%s)", t.string, typeof(sym)).of(x)
+			} else if b.flag&builtinCommand == 0 {
+				erro(p, "'%s' is not a command, use $(%s ...) instead", t.string, t.string).of(x)
+			} else {
+				x = sym
 			}
 
 			if !isValue && p.tok.IsAssign() {
