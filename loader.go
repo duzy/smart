@@ -942,8 +942,10 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
             err error
         )
         if isTrivial(target) {
-            erro(ctx, "trivial target").debug(1)
-            return
+            if true { continue } else {
+                erro(ctx, "trivial target; %v", clause.targets).debug(1)
+                return
+            }
         }
 
         var args []Value // e.g. for pattern filtering
