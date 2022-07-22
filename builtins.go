@@ -2347,7 +2347,6 @@ func builtinPrintf(ctx Context, args... Value) (res Value) {
                         }
                 }
         }
-        warn(ctx, "%v %v %s", f, a, fmt.Sprintf(f, a...)).debug(1)
         res = MakeString(pos, fmt.Sprintf(f, a...))
         return
 }
