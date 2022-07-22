@@ -2469,8 +2469,9 @@ func crc64CompareFileChecksum(ctx Context, filename1, filename2 string) (same bo
 
 type modifierUpdateFileOpts struct {
         generalOpts
-        path bool `p,path,md,makedir,make-dir,mp,makepath,make-path`
-        zero bool `z,zero;e,empty;az,allow-zero;ae,allow-empty`
+        path   bool `p,path,md,makedir,make-dir,mp,makepath,make-path`
+        zero   bool `z,zero;e,empty;az,allow-zero;ae,allow-empty`
+        keep   bool `k,keep;keep-file`
         append bool `a,app,append,append-content`
         mode os.FileMode "m,mode"
 }
@@ -2563,7 +2564,13 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
         if content != "" {
                 // good to go
         } else if opts.zero {
-                if file := stat(positional(ctx, target.Position()), filename, "", ""); file != nil && file.info != nil && file.info.Size() == 0 {
+                if opts.verbose || opts.debug > 0 {
+                        warnstack(ctx, 3, "empty content for '%v'", target).debug(opts.debug)
+                }
+        } else {
+                if opts.keep {
+                        // keep file
+                } else if file := stat(positional(ctx, target.Position()), filename, "", ""); file != nil && file.info != nil && file.info.Size() == 0 {
                         file.info = nil
                         if err := os.Remove(filename); err != nil {
                                 erro(ctx, "remove file failed: %v", err).debug(1)
@@ -2589,8 +2596,6 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
                         erro(ctx, "empty content for '%s' (at %s)", s, filename).debug(1)
                 }
                 return
-        } else if opts.verbose || opts.debug > 0 {
-                warnstack(ctx, 3, "empty content for '%v'", target).debug(opts.debug)
         }
 
         var (
