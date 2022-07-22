@@ -2298,21 +2298,15 @@ func builtinPrintf(ctx Context, args... Value) (res Value) {
                 f = vals[0].Strval(ctx)
         }
 
+        var i int
         var a []interface{}
-ForArgs:
-        for i, v := range mergeExpand(ctx, expandPlainValue, args[1:]...) {
-                if i == 0 { pos = v.Position() }
-                for ; i < len(f); {
-                        if f[i] != '%' {
-                                if i += 1; i < len(f) {
-                                        continue
-                                } else {
-                                        continue ForArgs
-                                }
-                        }
+        ForArgs: for n, v := range mergeExpand(ctx, expandPlainValue, args[1:]...) {
+                if n == 0 { pos = v.Position() }
+                ForFmt: for i < len(f) {
+                        if f[i] != '%' { i += 1; continue }
                         for i += 1; i < len(f); i += 1 {
                                 switch f[i] {
-                                case '%': continue ForArgs
+                                case '%': continue ForFmt
                                 case '+', '-', '#', ' ', '.', '0', '1', '2', '3',
                                         '4', '5', '6', '7', '8', '9': continue
                                 case 'c', 'd', 'o', 'O', 'q', 'U':
@@ -2338,11 +2332,13 @@ ForArgs:
                                                 }
                                                 continue ForArgs
                                         case valOther:
-                                                a = append(a, v.Strval(ctx))
+                                                if t, e := strconv.Atoi(v.Strval(ctx)) ; e == nil { a = append(a, t) } else {
+                                                        erro(ctx, "%v: %v", v, e).debug(1)
+                                                }
                                                 continue ForArgs
                                         }
                                 case 'v':
-                                        a = append(a, v.Strval(ctx))
+                                        a = append(a, v/* .Strval(ctx) */)
                                         continue ForArgs
                                 case 't', 'T':
                                         a = append(a, v)
@@ -2351,6 +2347,7 @@ ForArgs:
                         }
                 }
         }
+        warn(ctx, "%v %v %s", f, a, fmt.Sprintf(f, a...)).debug(1)
         res = MakeString(pos, fmt.Sprintf(f, a...))
         return
 }
