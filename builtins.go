@@ -1529,7 +1529,7 @@ func builtinQuoteJoin(ctx Context, args... Value) (res Value) {
         }
         if l := len(args); l > 0 {
                 var fields []string
-                for _, a := range args {
+                for _, a := range args[1:] {
                         if v := a.Strval(ctx); v != "" { fields = append(fields, v) }
                 }
                 res = MakeString(ctx.Position(), strconv.Quote(strings.Join(fields, sep)))
@@ -1539,12 +1539,16 @@ func builtinQuoteJoin(ctx Context, args... Value) (res Value) {
         return
 }
 
+// $(split-string .,1.2.3)
 func builtinSplitString(ctx Context, args... Value) (res Value) {
         args = mergeExpand(ctx, expandPlainValue, args...)
         if l := len(args); l > 0 {
-                var fields []Value
-                for _, a := range args {
-                        if s := a.Strval(ctx); s != "" {
+                var (
+                        fields []Value
+                        sep = args[0].Strval(ctx)
+                )
+                for _, a := range args[1:] {
+                        for _, s := range strings.Split(a.Strval(ctx), sep) {
                                 fields = append(fields, MakeString(a.Position(), s))
                         }
                 }
@@ -2259,7 +2263,7 @@ func builtinTrimExt(ctx Context, args... Value) (res Value) {
 }
 
 type builtinExtOpts struct {
-
+        generalOpts
 }
 func builtinExt(ctx Context, args... Value) (res Value) {
         var (
@@ -2275,7 +2279,7 @@ func builtinExt(ctx Context, args... Value) (res Value) {
 }
 
 type builtinPrintfOpts struct {
-
+        generalOpts
 }
 func builtinPrintf(ctx Context, args... Value) (res Value) {
         var (
@@ -3765,8 +3769,8 @@ func builtinReadDir(ctx Context, args... Value) (res Value) {
 
 type builtinReadFileOpts struct {
         generalOpts
-        trim bool `t,trim;ta,trim-all`
-        trimLeft bool `tl,trim-left`
+        trim      bool `ta,trim,trim-all`
+        trimLeft  bool `tl,trim-left`
         trimRight bool `tr,trim-right`
 }
 func builtinReadFile(ctx Context, args... Value) (res Value) {
