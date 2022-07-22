@@ -1796,7 +1796,7 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *pars
         return
     }
 
-    defer func(saved *parser, m Mode) {
+    defer func(t time.Time, saved *parser, m Mode) {
         var pos Position
         if l.parser != nil && l.parser.file != nil {
             pos = l.Position()
@@ -1815,8 +1815,14 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *pars
         } else if err != nil {
             erro(l, "parse file failed: %v", err).debug(128)
         }
+
+        if d := time.Now().Sub(t); d > 2999*time.Millisecond {
+            prompt(l, "%s:1:note: slow loading: %v\n", filename, d)
+            info(l, "load time: %v", d).debug(1)
+        }
+
         l.parser.loader, l.parser, l.mode = nil, saved, m
-    } (l.parser, l.mode)
+    } (time.Now(), l.parser, l.mode)
 
     // set the current parser
     l.parser = new(parser)

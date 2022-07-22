@@ -1825,8 +1825,8 @@ func modifierTouch(ctx Context, args... Value) (result Value, traves travestates
 }
 
 type modifierCheckOpts struct {
-        debug bool `d,debug`
-        verbose bool `v,verbose`
+        generalOpts
+        trim bool `trim,trim-string`
         answer bool `a,answer`
         boolean bool `b,boolean;r,result`
         silent bool `s,slient`
@@ -1951,13 +1951,13 @@ ForPairs:
                                 if good { s = "Yes" } else { s = "No" }
                                 prompt(ctx, "… %s (%d)\n", s, exeres.Status)
                         }
-                        if opts.debug {
+                        if opts.debug>0 {
                                 var tar, _ = ctx.autoGet("@")
                                 var val, _ = ctx.autoGet("-")
                                 warn(ctx, "%v: %v", ctx.entry(), tar).at(program.position)
                                 warn(ctx, "status=%v", exeres.Status)
                                 warn(ctx, "hyphen=%v", val)
-                                warn(ctx, "context: %v", ctx).debug(1)
+                                warn(ctx, "context: %v", ctx).debug(opts.debug)
                         }
 
                         if makeResult != nil {
@@ -1977,13 +1977,13 @@ ForPairs:
                         if opts.verbose {
                                 prompt(ctx, "checking %s (status=%d) … ", key, exeres.Status)
                         }
-                        if opts.debug {
+                        if opts.debug>0 {
                                 var tar, _ = ctx.autoGet("@")
                                 var val, _ = ctx.autoGet("-")
                                 warn(ctx, "%v: %v", ctx.entry(), tar).at(program.position)
                                 warn(ctx, "status=%v", exeres.Status)
                                 warn(ctx, "hyphen=%v", val)
-                                warn(ctx, "context: %v", ctx).debug(1)
+                                warn(ctx, "context: %v", ctx).debug(opts.debug)
                         }
 
                         var v *bytes.Buffer
@@ -1999,6 +1999,7 @@ ForPairs:
                         }
 
                         str = p.Value.Strval(ctx)
+                        if opts.trim { str = strings.TrimSpace(str) }
 
                         if res := v.String() == str; makeResult != nil {
                                 values = append(values, makeResult(pos, res))
@@ -2424,7 +2425,7 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, traves travestate
                 brk := traves.add(ctx, traveFail, target)
                 brk.error = err
         }
-        if opts.debug > 0 && err != nil {
+        if opts.debug>0 && err != nil {
                 warn(ctx, "%v: %v ; stems=%v\n", target, err, ctx.stems())
                 warnstack(ctx, 5, "").debug(opts.debug)
         }

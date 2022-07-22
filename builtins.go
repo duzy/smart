@@ -835,18 +835,29 @@ ForValList:
         return
 }
 
-// $(case (a 'xxx') (b 'yyy') (c 'zzz') (yes 'else'))
+// 1: $(case     (a 'xxx') (b 'yyy') (c 'zzz') (yes 'else'))
+// 2: $(case val (a 'xxx') (b 'yyy') (c 'zzz'))
 func builtinBranchCase(ctx Context, args... Value) (res Value) {
-        for _, arg := range merge(args...) {
+        var val Value
+        if args = merge(args...); len(args) == 0 {
+                return
+        } else if _, ok := args[0].(*Group); !ok {
+                val = args[0]
+                args = args[1:]
+        }
+        for _, arg := range args {
                 if g, ok := arg.(*Group); ok && len(g.Elems)>0 {
                         var v = g.Elems[0].expand(ctx, expandPlainValue)
                         if isNil(v) { v = g.Elems[0] }
-                        if v.True(ctx) {
+                        if val == nil && v.True(ctx) {
+                                res = MakeListOrScalar(arg.Position(), g.Elems[1:])
+                                return
+                        } else if val != nil && val.cmp(ctx, v) == cmpEqual {
                                 res = MakeListOrScalar(arg.Position(), g.Elems[1:])
                                 return
                         }
                 } else {
-                        erro(ctx, "unexpected case: %T %v", arg, arg).debug(1)
+                        erro(ctx, "unexpected case: %T %v", arg, arg).of(arg).debug(1)
                         return
                 }
         }

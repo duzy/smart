@@ -14,6 +14,7 @@ import (
 	"strings"
 	"unicode"
 	"sync"
+	"time"
 	"fmt"
 )
 
@@ -2744,6 +2745,12 @@ func (p *parser) parseTemplateClause() (end bool) {
 		return
 	}
 
+	defer func(t time.Time) {
+        if d := time.Now().Sub(t); d > 1999*time.Millisecond {
+            info(p, "%s: slow: %v", verb, d).of(op).debug(1)
+        }
+	} (time.Now())
+
 	switch verb {
 	case "end":
 		p.expect(token.LINEND)
@@ -2855,7 +2862,7 @@ type projectDeclOpts struct {
 
 func (p *parser) parseFile() *parsedFile {
 	if options.traceLaunch { defer un(trace(t_launch, "parser.parseFile")) }
-	if t_traverse.enabled { defer un(trace(t_traverse, "File '"+p.file.Name()+"'")) }
+	if t_traverse.enabled  { defer un(trace(t_traverse, "File '"+p.file.Name()+"'")) }
     if false { defer un(tracef(t_traverse, "parseFile(%s)", p.file.Name())) }
 
 	// Don't bother parsing the rest if we had errors scanning the first token.
@@ -2867,16 +2874,16 @@ func (p *parser) parseFile() *parsedFile {
 		ident *Barecomp //Bareword
 		identStr string
 		implicitBase string // aka. foo.bar.Baz implicitly load base 'foo/bar'
-		keyword = p.tok
+		keyword  = p.tok
 		filename = p.file.Name()
 		position = p.Position()
 		ctx = positional(p, position)
 	)
 	defer p.closeScope(p.openScope(fmt.Sprintf("file %s", filename)))
 	/*if filename == confinitFilename {
-                abs, rel = context.workdir, "."
-                tmp = joinTmpPath(context.workdir, rel)
-        } else*/ {
+        abs, rel = context.workdir, "."
+        tmp = joinTmpPath(context.workdir, rel)
+	} else*/ {
 		if p.mode&Flat != 0 {
 			abs = p.Project().absPath
 		} else {
