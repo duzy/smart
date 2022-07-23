@@ -1008,20 +1008,20 @@ func (l *loader) includeFile(pos Position, opts includeFileOpts, spec Value) {
     )
 
     // Execute the rule entry to update include source.
-    if spec.String() == ".sm" { warn(ctx, "include %T %v", spec, spec).debug(1) }
+    if false && spec.String() == ".sm" { warn(ctx, "include %T %v", spec, spec).debug(1) }
     if entry, ok := spec.(*RuleEntry); ok && entry != nil {
-        var ( result []Value; okay bool )
-        if spec.String() == ".sm" { warn(ctx, "include %v, %v", entry, entry.programs[0].depends).debug(16) }
+        var (
+            result []Value
+            okay bool
+        )
         if result, okay = executeEntry(ctx, entry); !okay {
             erro(ctx, "include entry '%v' failed", entry).debug(1)
             return
         } else if result != nil && opts.verbose {
             info(ctx, "include %v: %v", entry, result).debug(1)
         }
-        if false {
-            warn(ctx, "include %T %v: %v", entry.target, entry.target, result).
-                at(pos).debug(1)
-        }
+        if false { warn(ctx, "include %T %v: %v", entry.target, entry.target, result).
+            at(pos).debug(1) }
         spec = entry.target
     }
 
@@ -1034,7 +1034,13 @@ func (l *loader) includeFile(pos Position, opts includeFileOpts, spec Value) {
             return
         }
     default:
-        if specName = spec.Strval(ctx); filepath.IsAbs(specName) {
+        if specName = spec.Strval(ctx); specName == "" {
+            erro(ctx, "include: empty string: %v", spec).of(spec)
+            errostack(ctx, 5, "").debug(16)
+            return
+        } else if file := l.project.FindFile(ctx, specName); file != nil && file.exists() {
+            fullname = file.fullname()
+        } else if filepath.IsAbs(specName) {
             fullname = specName
         } else {
             fullname = filepath.Join(linfo.absDir, specName)
@@ -1042,7 +1048,7 @@ func (l *loader) includeFile(pos Position, opts includeFileOpts, spec Value) {
     }
 
     if specName == "" {
-        erro(ctx, "`%v` is empty string", spec).debug(1)
+        erro(ctx, "include: empty string: %v", spec).debug(10)
         return
     }
 

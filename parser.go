@@ -787,7 +787,8 @@ func (p *parser) parseFlagExpr(lhs bool) *Flag {
 	p._next() // skip dash '-'
 
 	// Flag expressions, excluding "-)" "-]" "-}" "-\n", "-=", "-:", etc.
-	if p.isEndOfLine() || p.isEndOfList(false) {
+	if p.isEndOfLine() || p.isEndOfList(false) ||
+		p.tok == token.SPACE || p.tok == token.RECIPE {
 		x = MakeNil(position)
 	} else if false {
 		x = p.parseExpr(false)
@@ -1683,25 +1684,23 @@ loadSpecNames:
 func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ int) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Spec")) }
 
-	var (
-		x = p.parseExpr(false)
-		opts includeFileOpts
-		// TODO: comment = p.lineComment
-	)
+	// TODO: comment = p.lineComment
+
+	var opts includeFileOpts
 	if vals := parseOpts(p, &opts, 0, generic.options...); len(vals) > 0 {
 		// ...
 	}
 
-	if _, ok := x.(*File); ok {
-		// does nothing
-	} else if file := p.project.FindFile(p, x.Strval(p)); file != nil {
-		x = file
-	} else if val := x.expand(p, expandPlainValue); !isNil(val) && val != x {
-		x = val
-	}
-
+	var x = p.parseExpr(false)
 	if p.skipSpaces(); p.tok == token.COLON {
 		if false { warn(p, "%v: %v; %v %v; %v", p, p.project, generic.options, opts, x).debug(1) }
+		if file, ok := x.(*File); ok {
+			// does nothing
+		} else if file = p.project.FindFile(p, x.Strval(p)); file != nil {
+			x = file
+		} else if val := x.expand(p, expandPlainValue); !isNil(val) && val != x {
+			x = val
+		}
 		x = p.parseRuleEntry(specialRuleNor, nil, []Value{x}) // this should return a RuleEntry
 		if false { warn(p, "%v: %v; %T %v; %v %v", p, p.project, x, x, p.tok, p.lit).debug(1) }
 	}
@@ -1712,9 +1711,7 @@ func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ 
 }
 
 func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
-	if options.noImportFiles {
-		return
-	}
+	if options.noImportFiles { return }
 
 	var (
 		opts = useOpts{ noVars:true, reuse:true, public:public }

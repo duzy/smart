@@ -836,22 +836,41 @@ ForValList:
 }
 
 // 1: $(case     (a 'xxx') (b 'yyy') (c 'zzz') (yes 'else'))
-// 2: $(case val (a 'xxx') (b 'yyy') (c 'zzz'))
+// 2: $(case val (a 'xxx') (b 'yyy') (c 'zzz') ('if none or nil'))
+// 3: $(case val (a 'xxx') (b 'yyy') (c 'zzz') (- 'if none or nil'))
 func builtinBranchCase(ctx Context, args... Value) (res Value) {
         var val Value
         if args = merge(args...); len(args) == 0 {
                 return
         } else if _, ok := args[0].(*Group); !ok {
-                val = args[0]
+                val = args[0].expand(ctx, expandPlainValue)
                 args = args[1:]
         }
+
+        var def []Value
         for _, arg := range args {
                 if g, ok := arg.(*Group); ok && len(g.Elems)>0 {
+                        if n := len(g.Elems); val != nil && isNone(val) && n == 1 {
+                                res = g.Elems[0]
+                                return
+                        } else if n == 1 {
+                                def = append(def, g.Elems[0])
+                                continue
+                        }
+
                         var v = g.Elems[0].expand(ctx, expandPlainValue)
                         if isNil(v) { v = g.Elems[0] }
                         if val == nil && v.True(ctx) {
                                 res = MakeListOrScalar(arg.Position(), g.Elems[1:])
                                 return
+                        } else if val != nil && (isNone(val) || isNil(val)) {
+                                if isNone(v) || isNil(v) {
+                                        res = MakeListOrScalar(arg.Position(), g.Elems[1:])
+                                        return
+                                } else if f, ok := v.(*Flag); ok && isNil(f.name) {
+                                        res = MakeListOrScalar(arg.Position(), g.Elems[1:])
+                                        return
+                                }
                         } else if val != nil && val.cmp(ctx, v) == cmpEqual {
                                 res = MakeListOrScalar(arg.Position(), g.Elems[1:])
                                 return
@@ -861,6 +880,8 @@ func builtinBranchCase(ctx Context, args... Value) (res Value) {
                         return
                 }
         }
+
+        if len(def) > 0 { res = MakeListOrScalar(ctx.Position(), def) }
         return
 }
 
