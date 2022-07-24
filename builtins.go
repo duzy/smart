@@ -1037,8 +1037,7 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
 
 type builtinCountOpts struct {
         generalOpts
-        bool bool `b,bool,boolean`
-        nb int `b,bool,boolean`
+        vals []Value `v,val,value`
 }
 func builtinCount(ctx Context, args... Value) (res Value) {
         var (
@@ -1046,8 +1045,11 @@ func builtinCount(ctx Context, args... Value) (res Value) {
                 num int64
         )
         args = parseOpts(ctx, &opts, expandPlainValue, args...)
-        for _, a := range args {
-                if opts.nb>0 && opts.bool == a.True(ctx) {
+
+        var x = len(opts.vals)
+        for i, a := range args {
+                if (opts.vals == nil && a.True(ctx)) || (x>0 &&
+                        cmpEqual == opts.vals[i % x].cmp(ctx, a)) {
                         num += 1
                 }
         }
