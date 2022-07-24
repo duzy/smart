@@ -2719,6 +2719,13 @@ func (p *parser) templateExpand(params []Value) {
 			count += 1
 		}
 	case "for": // for name1=(val1 val2 val3 ...) name2=(val1 val2 val3)
+		var (
+			vars = make(map[string]struct{
+				// pos Position
+				elems []Value
+			})
+			num int
+		)
 		for _, a := range t.params {
 			var (
 				pos Position
@@ -2739,12 +2746,21 @@ func (p *parser) templateExpand(params []Value) {
 				elems = append(elems, pair.Value)
 			}
 
-			var ctx = positional(p, pos)
-			for _, elem := range mergeExpand(ctx, expandPlainValue, elems...) {
-				if isTrivial(elem) { continue }
-				p.templateBlock(t, map[string]Value{ s : elem }, params)
-				count += 1
+			var m = vars[s]
+			m.elems = mergeExpand(positional(p, pos), expandPlainValue, elems...)
+			if n := len(m.elems); n > num { num = n }
+			vars[s] = m // overwrite
+		}
+		for i := 0; i < num; i += 1 {
+			var m = make(map[string]Value)
+			for name, s := range vars {
+				var elem Value
+				if i < len(s.elems) { elem = s.elems[i] }
+				if false { warn(p, "%s %v", name, elem) }
+				m[name] = elem
 			}
+			p.templateBlock(t, m, params)
+			count += 1
 		}
 	default:
 		erro(p, "expand template %v: %v", t.verb, params).at(p.Position()).debug(1)
