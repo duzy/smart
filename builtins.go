@@ -3023,7 +3023,7 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                         if opts.all {
                                 warn(ctx, "not a file: %v (%T)", a, a)
                                 warn(ctx, "not a file: %s (%v)", str, file)
-                                warn(ctx, "%in %v", closured)
+                                warn(ctx, "in %v", closured)
                                 warnstack(ctx, 3, "").debug(8)
                         } else {
                                 erro(ctx, "not a file: %v (%T)", a, a)
