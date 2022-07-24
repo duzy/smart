@@ -58,6 +58,7 @@ func (filemap *FileMap) Patterns(ctx Context) (pats []Value) {
 
 // Match split filename into list and match each part with the pattern correspondingly.
 func (filemap *FileMap) Match(ctx Context, str string) (matched bool, pattern Value, pre string) {
+  // TODO: escape file matching for 'String' and "Compound" values
   for _, pat := range filemap.Patterns(ctx) {
     if matched, pre = filemap.match(ctx, pat, str); matched { pattern = pat; break }
   }
@@ -65,6 +66,7 @@ func (filemap *FileMap) Match(ctx Context, str string) (matched bool, pattern Va
 }
 
 func (filemap *FileMap) match(ctx Context, pat Value, str string) (matched bool, pre string) {
+  // TODO: escape file matching for 'String' and "Compound" values
   if false && pat.String() == "$(name).tex" {
     matched, pattern, pre := pat.match(ctx, str)
     warn(ctx, "%T %v %s ; %v -> %v %v '%v'", pat, pat, pat.Strval(ctx), str, matched, pattern, pre).debug(1)
@@ -541,14 +543,14 @@ func (p *Project) FindFile(ctx Context, name string) (file *File) {
   return p.matchFile(ctx, name, true)
 }
 
-func (p *Project) isFileName(ctx Context, s string) (res bool) {
-  if len(s) > 0 {
-    for _, filemap := range p.filemaps(ctx, true, true) {
-      if res, _, _ = filemap.Match(ctx, s); res { break }
-    }
-  }
-  return
-}
+// func (p *Project) isFileName(ctx Context, s string) (res bool) {
+//   if len(s) > 0 {
+//     for _, filemap := range p.filemaps(ctx, true, true) {
+//       if res, _, _ = filemap.Match(ctx, s); res { break }
+//     }
+//   }
+//   return
+// }
 
 func (p *Project) DefaultEntry() (entry Entry) {
   if len(p.concrete) > 0 { entry = p.concrete[0] }

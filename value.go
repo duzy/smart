@@ -821,12 +821,17 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         prereqFile, _ = prereqValue.(*File)
     }
 
-    if prereqFile == nil { for _, project := range projects {
-            if prereqFile = project.FindFile(ctx, prereq); prereqFile != nil {
-                prereqValue = prereqFile
-                break
-            }
-    }}
+
+    if prereqFile == nil { if _, ok := prereqValue.(*String); ok {
+        // escape file parsing
+    } else if _, ok := prereqValue.(*Compound); ok {
+        // escape file parsing
+    } else { for _, project := range projects {
+        if prereqFile = project.FindFile(ctx, prereq); prereqFile != nil {
+            prereqValue = prereqFile
+            break
+        }
+    }}}
     if prereqFile == nil { if _, ok := prereqValue.(*Path); ok /*&& filepath.IsAbs(prereq)*/ {
        if prereqFile = stat(ctx, prereq, "", ""); prereqFile != nil {
           prereqValue = prereqFile
@@ -1246,8 +1251,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 return
             }
         }
-    } // ForProjectsFiles
-    }
+    }} // ForProjectsFiles
 
     if prereqFile != nil && prereqFile.exists() && !traves.has(traveFail) {
         okay = true

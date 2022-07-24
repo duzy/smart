@@ -524,6 +524,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     switch target = entry.Target(); a := target.(type) {
     case *Flag: t.print = false // Flag target (-foo) turns off printing automatically
     case *File: //alreadyUpdated = a.info != nil && a.updated
+    case *String, *Compound: // NOTE: escape 'String' and "Compound" values from file searching
     default:
         if isNil(a) {
             erro(ctx, "%v: nil entry target", target)

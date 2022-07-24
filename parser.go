@@ -10,12 +10,15 @@ import (
 	"extbit.io/smart/token"
 	"extbit.io/smart/scanner"
 	"path/filepath"
+	"runtime/pprof"
+	"runtime"
 	"strconv"
 	"strings"
 	"unicode"
 	"sync"
 	"time"
 	"fmt"
+	"os"
 )
 
 type parsingBits uint
@@ -1688,26 +1691,23 @@ func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ 
 
 	var opts includeFileOpts
 	if vals := parseOpts(p, &opts, 0, generic.options...); len(vals) > 0 {
-		// ...
+		// TODO: deal with the unparsed generic options
 	}
 
 	var x = p.parseExpr(false)
 	if p.skipSpaces(); p.tok == token.COLON {
-		if false { warn(p, "%v: %v; %v %v; %v", p, p.project, generic.options, opts, x).debug(1) }
-		if file, ok := x.(*File); ok {
-			// does nothing
-		} else if file = p.project.FindFile(p, x.Strval(p)); file != nil {
+		switch x.(type) {
+		case *File, *String, *Compound: // escape from file searching
+		default: if file := p.project.FindFile(p, x.Strval(p)); file != nil {
 			x = file
 		} else if val := x.expand(p, expandPlainValue); !isNil(val) && val != x {
 			x = val
-		}
+		}}
+
 		x = p.parseRuleEntry(specialRuleNor, nil, []Value{x}) // this should return a RuleEntry
-		if false { warn(p, "%v: %v; %T %v; %v %v", p, p.project, x, x, p.tok, p.lit).debug(1) }
 	}
 
-	if !generic.dontOperate {
-		p.includeFile(p.Position(), opts, x)
-	}
+	if !generic.dontOperate { p.includeFile(p.Position(), opts, x) }
 }
 
 func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
@@ -2611,6 +2611,7 @@ func (p *parser) parseSpecialRuleClause() Value {
 	}
 }
 
+var pprofCounter int
 func (p *parser) templateBlock(t *template, vars map[string]Value, expandParams []Value) {
 	p.scanner.SetState(t.state)
 	p.pos, p.tok, p.lit = t.pos, t.tok, t.lit
@@ -2619,6 +2620,34 @@ func (p *parser) templateBlock(t *template, vars map[string]Value, expandParams 
 
 	// NOTE: comment here will affect loader.def()
 	defer p.closeScope(p.openScope("template block "))
+	if false { pprofCounter += 1
+		var (
+			profCpu = fmt.Sprintf("template-%05d.cpu.prof", pprofCounter)
+			profMem = fmt.Sprintf("template-%05d.mem.prof", pprofCounter)
+			fCpu *os.File
+			e error
+		)
+		if fCpu, e = os.Create(profCpu); e != nil {
+			erro(p, "%T: %v", e, e).debug(1)
+			return
+		} else if e = pprof.StartCPUProfile(fCpu); e != nil {
+			erro(p, "%v: %v", profCpu, e).debug(1)
+			fCpu.Close() ; return
+		}
+		defer func() {
+			pprof.StopCPUProfile()
+			fCpu.Close()
+
+			var fMem, e = os.Create(profMem)
+			if e != nil { erro(p, "%v", e).debug(1) }
+
+			runtime.GC() // update memory statistics
+			e = pprof.WriteHeapProfile(fMem)
+			fMem.Close()
+
+			if e != nil { erro(p, "%v: %v", profMem, e).debug(1) }
+		} ()
+	}
 
 	var ctx = positional(p, p.Position())
 	for s, v := range vars {
@@ -2637,24 +2666,59 @@ func (p *parser) templateBlock(t *template, vars map[string]Value, expandParams 
 }
 
 func (p *parser) templateExpand(params []Value) {
-	defer func(pos token.Pos, tok token.Token, lit string, state scanner.ScanState) {
+	var count int64
+	defer func(t time.Time, pos token.Pos, tok token.Token, lit string, state scanner.ScanState) {
+        if d := time.Now().Sub(t); d > 1999*time.Millisecond {
+			var c = time.Duration(count)
+            infostack(p, 3, "slow: %v, %d * %v, prof-%d", d, count, d/c, pprofCounter).debug(1)
+        }
 		p.pos, p.tok, p.lit	 = pos, tok, lit
 		p.scanner.SetState(state)
-	} (p.pos, p.tok, p.lit, p.scanner.State())
+	} (time.Now(), p.pos, p.tok, p.lit, p.scanner.State())
 
-	// template foreach val1 val2 val3 val4 ...
-	// template for name1=(val1 val2 val3 ...) name2=(val1 val2 val3)
+	// TODO: parseOpts(params) -> add option to turn off asFile in Context
+
+	if true { pprofCounter += 1
+		var (
+			profCpu = fmt.Sprintf("template-%05d.cpu.prof", pprofCounter)
+			profMem = fmt.Sprintf("template-%05d.mem.prof", pprofCounter)
+			fCpu *os.File
+			e error
+		)
+		if fCpu, e = os.Create(profCpu); e != nil {
+			erro(p, "%T: %v", e, e).debug(1)
+			return
+		} else if e = pprof.StartCPUProfile(fCpu); e != nil {
+			erro(p, "%v: %v", profCpu, e).debug(1)
+			fCpu.Close() ; return
+		}
+		defer func() {
+			pprof.StopCPUProfile()
+			fCpu.Close()
+
+			var fMem, e = os.Create(profMem)
+			if e != nil { erro(p, "%v", e).debug(1) }
+
+			runtime.GC() // update memory statistics
+			e = pprof.WriteHeapProfile(fMem)
+			fMem.Close()
+
+			if e != nil { erro(p, "%v: %v", profMem, e).debug(1) }
+		} ()
+	}
+
 	var (
 		l = len(p.templates)
 		t = p.templates[l-1]
 	)
 	switch p.templates = p.templates[:l]; t.verb {
-	case "foreach":
+	case "foreach": // foreach val1 val2 val3 val4 ...
 		for _, elem := range mergeExpand(p, expandPlainValue, t.params...) {
 			if isTrivial(elem) { continue }
 			p.templateBlock(t, map[string]Value{ "_" : elem }, params)
+			count += 1
 		}
-	case "for":
+	case "for": // for name1=(val1 val2 val3 ...) name2=(val1 val2 val3)
 		for _, a := range t.params {
 			var (
 				pos Position
@@ -2679,6 +2743,7 @@ func (p *parser) templateExpand(params []Value) {
 			for _, elem := range mergeExpand(ctx, expandPlainValue, elems...) {
 				if isTrivial(elem) { continue }
 				p.templateBlock(t, map[string]Value{ s : elem }, params)
+				count += 1
 			}
 		}
 	default:
@@ -2686,10 +2751,15 @@ func (p *parser) templateExpand(params []Value) {
 	}
 }
 func (p *parser) callTemplate(t *template, name Value, args []Value) {
-	defer func(pos token.Pos, tok token.Token, lit string, state scanner.ScanState) {
+	var count int64
+	defer func(t time.Time, pos token.Pos, tok token.Token, lit string, state scanner.ScanState) {
+        if d := time.Now().Sub(t); d > 1999*time.Millisecond {
+			var c = time.Duration(count)
+            infostack(p, 3, "%v: slow: %v, %v, %d*%v", name, d, count, d/c).debug(1)
+        }
 		p.pos, p.tok, p.lit	 = pos, tok, lit
 		p.scanner.SetState(state)
-	} (p.pos, p.tok, p.lit, p.scanner.State())
+	} (time.Now(), p.pos, p.tok, p.lit, p.scanner.State())
 
 	p.scanner.SetState(t.state)
 	p.pos, p.tok, p.lit = t.pos, t.tok, t.lit
@@ -2741,12 +2811,6 @@ func (p *parser) parseTemplateClause() (end bool) {
 		erro(p, "unknown template verb: %v", op).of(op).debug(1)
 		return
 	}
-
-	defer func(t time.Time) {
-        if d := time.Now().Sub(t); d > 1999*time.Millisecond {
-            info(p, "%s: slow: %v", verb, d).of(op).debug(1)
-        }
-	} (time.Now())
 
 	switch verb {
 	case "end":

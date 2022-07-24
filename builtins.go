@@ -2550,7 +2550,9 @@ func asFile(ctx Context, a Value, projects ...*Project) (f *File) {
         case *Def      : if !isTrivial(t.value) { return asFile(ctx, t.value   ) }
         case *List     : if len(t.Elems) == 1   { return asFile(ctx, t.Elems[0]) }
         case *RuleEntry:                          return asFile(ctx, t.target  )
-        case *String: // NOTE: Finding string here is slow! It's acceptable to keep string.
+        case *String, *Compound:
+                // NOTE: escape 'string' and "compound" values from file parsing
+                // NOTE: for optimization
         case *Bareword, *Barecomp, *Path:
                 if len(projects) == 0 { projects = closureProjects(ctx) }
                 for _, proj := range projects {
@@ -2582,8 +2584,14 @@ func fullnameOrStrval(ctx Context, a Value, projects ...*Project) (s string) {
 // see optFullname and parseOpt
 func asOptFullname(ctx Context, val Value, projects ...*Project) (file *File, s string, ok bool) {
         if file, s, ok = fullname(ctx, val, projects...); ok {
-                // done
-        } else if s = val.Strval(ctx); s == "" {
+                return
+        }
+
+        switch val.(type) {
+        case *String, *Compound: return
+        }
+
+        if s = val.Strval(ctx); s == "" {
                 // ...
         } else if filepath.IsAbs(s) {
                 file = stat(ctx, s, "", "")
@@ -2593,8 +2601,12 @@ func asOptFullname(ctx Context, val Value, projects ...*Project) (file *File, s 
 }
 
 func asOptFullname2(ctx Context, val Value, projects ...*Project) (file *File, s string, ok bool) {
-        if file, s, ok = asOptFullname(ctx, val, projects...);
-        file == nil && s != "" && !filepath.IsAbs(s) {
+        file, s, ok = asOptFullname(ctx, val, projects...)
+        if !ok && file == nil && s != "" && !filepath.IsAbs(s) {
+                switch val.(type) {
+                case *String, *Compound: return
+                }
+
                 for _, proj := range projects {
                         if file = proj.FindFile(ctx, s); file != nil {
                                 s = file.fullname()
@@ -3369,36 +3381,6 @@ func builtinStat(ctx Context, args... Value) (res Value) {
         res = MakeListOrScalar(pos, reses)
         return
 }
-
-/*func builtinFileSource(ctx Context, args... Value) (res Value) {
-        var ( pos = ctx.Position(); err error )
-        if args, err = mergeExpand(ctx, expandPlainValue, args...); err != nil {
-                erro(ctx, "expand args failed: %v", err).debug(1)
-                return
-        }
-
-        var proj = ctx.Project()//current()
-        if proj == nil {
-                erro(ctx, "unknown current context").debug(1)
-                return
-        }
-
-        var l []Value
-        for _, a := range args {
-                var str string
-                if str, err = a.Strval(ctx); err != nil {
-                        erro(ctx, "strval '%v' failed: %v", err).debug(1)
-                        return
-                }
-                if file := proj.FindFile(ctx, str); file != nil {
-                        l = append(l, MakeString(a.Position(), file.sub))
-                }
-        }
-        if err == nil {
-                res = MakeListOrScalar(ctx.Position(), l)
-        }
-        return
-}*/
 
 type builtinFileOpts struct {
         caller bool `c,caller;cc,callercontext;cc,caller-context`

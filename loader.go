@@ -1823,8 +1823,7 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *pars
         }
 
         if d := time.Now().Sub(t); d > 2999*time.Millisecond {
-            prompt(l, "%s:1:note: slow loading: %v\n", filename, d)
-            info(l, "load time: %v", d).debug(1)
+            info(l, "slow loading: %v", d).debug(1)
         }
 
         l.parser.loader, l.parser, l.mode = nil, saved, m
