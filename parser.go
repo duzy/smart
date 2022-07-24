@@ -2678,7 +2678,7 @@ func (p *parser) templateExpand(params []Value) {
 
 	// TODO: parseOpts(params) -> add option to turn off asFile in Context
 
-	if true { pprofCounter += 1
+	if false { pprofCounter += 1
 		var (
 			profCpu = fmt.Sprintf("template-%05d.cpu.prof", pprofCounter)
 			profMem = fmt.Sprintf("template-%05d.mem.prof", pprofCounter)
