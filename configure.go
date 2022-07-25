@@ -491,24 +491,23 @@ func configureDo(ctx Context, opts *modifierConfigureOpts, target Value, name Va
         return
     }
 
-ForArgs:
-    for _, arg := range args {
-        for _, elem := range mergeExpand(ctx, expandPlainValue, arg) {
-            switch tv := elem.(type) {
-            case *None, *Nil: continue
-            case *Pair:
-                params = append(params, tv)
-                continue ForArgs
-            case *Raw, *String, *Compound:
-                params = append(params, MakePair(pos, MakeBareword(pos, "INFO"), tv))
-                infos = append(infos, tv)
-                continue ForArgs
-            default:
-                erro(ctx, " parameter '%v' of %T is unsupported", tv, tv).of(arg).debug(1)
-                return
-            }
+    for _, arg := range mergeExpand(ctx, expandPlainValue, args...) {
+        if isTrivial(arg) { continue }
+        switch t := arg.(type) {
+        case *Pair: params = append(params, t)
+        case *Raw, *String, *Compound:
+            params = append(params, MakePair(pos, MakeBareword(pos, "INFO"), t))
+            infos = append(infos, t)
+        default:
+            erro(ctx, " unsupported parameter: $T %v", t, t).of(arg).debug(1)
+            return
         }
     }
+    if false { if s := target.Strval(ctx); s == "foobar" {
+        warn(ctx, "%v: %v", s, args)
+        warn(ctx, "%v: %v", s, mergeExpand(ctx, expandPlainValue, args...))
+        warn(ctx, "%v: %v", s, params).debug(1)
+    }}
 
     defer func() {
         // if err != nil {
@@ -571,8 +570,8 @@ ForArgs:
 //     (configure -symbol(symbol,include='<xxx.h>'))
 //     (configure -compiles(info="..."))
 type modifierConfigureOpts struct {
+    generalOpts
     accumulate bool `a,accumulate;a,add`
-    verbose bool `v,verbose`
 }
 func modifierConfigure(ctx Context, args ...Value) (result Value, _ travestates) {
     if options.traceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", ctx, options.reconfigure))) }
