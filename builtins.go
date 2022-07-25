@@ -1886,20 +1886,18 @@ func builtinSubst(ctx Context, args... Value) (res Value) {
         return
 }
 
+// $(patsubst pattern,replacement,text)
+// TODO: supports: $(var:pattern=replacement)
+// TODO: supports: $(var:suffix=replacement)
 type builtinPatsubstOpts struct {
         generalOpts
+        files     bool `f,file;fs,files`
         fullfiles bool `ff,fullfile;ff,fullfiles`
-        files bool `f,file;fs,files`
         cleanPath bool `c,clean;c,cleanpath`
         baseFiles bool `b,base;b,bases;bf,base-files`
         usedFiles bool `u,used;u,using;uf,used-files`
         noFileMap bool `n,no-filemap`
 }
-
-// $(patsubst pattern,replacement,text)
-// TODO:
-//   $(var:pattern=replacement)
-//   $(var:suffix=replacement)
 func builtinPatsubst(ctx Context, args... Value) (res Value) {
         var (
                 opts builtinPatsubstOpts
@@ -1939,8 +1937,6 @@ func builtinPatsubst(ctx Context, args... Value) (res Value) {
 
         var proj = ctx.Project()
         var closured = closureProjects(ctx)
-        // Using the most derived context for correct &(...)
-        //defer setclosure(setclosure(cloctx.unshift(proj.scope)))
 
         var filemaps []*FileMap
         if !opts.noFileMap { filemaps = proj.filemaps(ctx, opts.baseFiles, opts.usedFiles) }
@@ -2046,8 +2042,18 @@ ForSources:
                                 list = append(list, file)
                                 continue ForDstPats
 
-                        default:
+                        case *String, *Compound:
                                 list = append(list, MakeString(pos, name))
+                                continue ForDstPats
+
+                        default:
+                                if strings.Contains(name, PathSep) {
+                                        list = append(list, MakePathStr(pos, name))
+                                } else if true {
+                                        list = append(list, MakeBareword(pos, name))
+                                } else {
+                                        list = append(list, MakeString(pos, name))
+                                }
                                 continue ForDstPats
                         }
                 }
@@ -3698,7 +3704,7 @@ type wildcardOpts struct {
         errorMissing bool `em,errormissing;e,error-missing`
         baseFiles bool `b,base,bases;bf,base-files`
         usedFiles bool `u,used;u,using;uf,used-files`
-        name bool `s,str,string;n,name`
+        name bool `s,str,string;n,name;bare`
         exclude []Value `x,ex,excl,exclude,except,no,not`
         filetype string `ft,filetype,file-type` // dir, file, etc.
         dir string `di,dir,directory`
@@ -3732,25 +3738,21 @@ func builtinWildcard(ctx Context, args... Value) (res Value) {
         }
 
         var vals []Value
-        if opts.name {
-        LoopFiles1:
-                for _, file := range files {
-                        for _, x := range opts.exclude {
-                                if ok, _, _ := x.match(ctx, file); ok {
-                                        continue LoopFiles1
-                                }
+ForFiles:
+        for _, file := range files {
+                for _, x := range opts.exclude {
+                        if ok, _, _ := x.match(ctx, file); ok {
+                                continue ForFiles
                         }
-                        vals = append(vals, MakeString(file.position, file.name))
                 }
-        } else {
-        LoopFiles2:
-                for _, file := range files {
-                        for _, x := range opts.exclude {
-                                if ok, _, _ := x.match(ctx, file); ok {
-                                        continue LoopFiles2
-                                }
-                        }
+                if !opts.name {
                         vals = append(vals, file)
+                } else if strings.Contains(file.name, PathSep) {
+                        vals = append(vals, MakePathStr(file.position, file.name))
+                } else if true {
+                        vals = append(vals, MakeBareword(file.position, file.name))
+                } else {
+                        vals = append(vals, MakeString(file.position, file.name))
                 }
         }
         res = MakeListOrScalar(ctx.Position(), vals)
