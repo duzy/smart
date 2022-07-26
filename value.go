@@ -762,9 +762,12 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         warnstack(ctx, 3, "").debug(10)
     }
 
+    const objectsFirst = true
+
     var (
         prereqPattern Value
         prereqFile *File
+        prereqObj Object
     )
     if len(projects) == 0 { projects = ctx.projects(ctx) }
     if len(projects) == 0 {
@@ -818,14 +821,18 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             return
         }}
 
-        prereqFile, _ = prereqValue.(*File)
+        var ok bool
+        if prereqFile, ok = prereqValue.(*File); ok {
+            // good
+        } else if prereqObj, ok = prereqValue.(Object); ok {
+            info(ctx, "%T %v %s", prereqObj, prereqObj, prereq).debug(1)
+        }
     }
 
-
     if prereqFile == nil { if _, ok := prereqValue.(*String); ok {
-        // escape file parsing
+        // escape file parsing for optimizaition
     } else if _, ok := prereqValue.(*Compound); ok {
-        // escape file parsing
+        // escape file parsing for optimizaition
     } else { for _, project := range projects {
         if prereqFile = project.FindFile(ctx, prereq); prereqFile != nil {
             prereqValue = prereqFile
@@ -977,6 +984,50 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             infostack(ctx, 5, "").debug(24)
         }
     } ()
+
+    var searchObjects = func() {
+    ForProjectsObjects:
+        for _, project := range projects {
+            switch obj = project.resolveObject(ctx, prereq); obj.(type) {
+            case *Def: continue ForProjectsObjects
+            default: if isTrivial(obj) { continue ForProjectsObjects }
+            }
+
+            traversed += 1
+
+            var t = obj.traverse(ctx)
+            if promptTraveEntries { prompt(ctx, "%v: %T: %T %v %v ; %v\n",
+                targetValue, targetValue, prereqValue, prereqValue, obj, t) }
+
+            okay = true
+            traves = append(traves, t...)
+            s := traves.add(ctx, traveObj, targetValue)
+            s.depend = obj
+
+            if t.has(traveFail) {
+                prompt(ctx, "%v → %T %v\n", prereq, obj, obj)
+                for _, s := range t { warn(ctx, "%v: (%T) %v", obj, obj, s).at(s.pos) }
+                warnstack(ctx, 5, "").debug(8)
+                return
+            }
+        } // ForProjectsObjects
+
+        if false && traversed > 0 {
+            for _, project := range projects {
+                e := project.resolveEntries(ctx, prereq, t.grepping, true)
+                o := project.resolveObject(ctx, prereq)
+                prompt(ctx, "%v: %v; %v: %v; %T %v\n", project, project.bases, prereq, e, o, o)
+            }
+            prompt(ctx, "%v: %T: %v %T; projects=%v okay=%v traversed=%d file=%v obj=%v traves=%v\n",
+                targetValue, targetValue, prereqValue, prereqValue,
+                projects, okay, traversed, prereqFile, obj, traves)
+            for i, s := range traves { info(ctx, "%v: %v: %d. %v", targetValue, prereqValue, i, s).at(s.pos) }
+            info(ctx, "%T %v; %T %v", targetValue, targetValue, prereqValue, prereqValue).debug(1)
+        }
+    }
+    if objectsFirst {
+        if searchObjects(); okay { return }
+    }
 
     // %.h <-> 'llvm/PassSupport.h' <-> [file@llvm/PassSupport.h>/Volumes/workspace/external/llvm-project/llvm/include/llvm/PassSupport.h file@llvm/PassSupport.h>/Volumes/workspace/external/llvm-project/llvm/include/llvm/PassSupport.h done@llvm/PassSupport.h file@llvm/PassSupport.h>/Volumes/workspace/external/llvm-project/llvm/include/llvm/PassSupport.h done@llvm/PassSupport.h]
     var nonFilePrereqTravedFile = func (s *travestate) (res bool, resFile *File) {
@@ -1256,45 +1307,10 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     if prereqFile != nil && prereqFile.exists() && !traves.has(traveFail) {
         okay = true
         return
-    } else if !okay && traversed == 0 { ForProjectsObjects: for _, project := range projects {
-        switch obj = project.resolveObject(ctx, prereq); obj.(type) {
-        case *Def: continue ForProjectsObjects
-        default: if isTrivial(obj) { continue ForProjectsObjects }
-        }
-
-        traversed += 1
-
-        var t = obj.traverse(ctx)
-        if promptTraveEntries { prompt(ctx, "%v: %T: %T %v %v ; %v\n",
-            targetValue, targetValue, prereqValue, prereqValue, obj, t) }
-
-        okay = true
-        traves = append(traves, t...)
-        s := traves.add(ctx, traveObj, targetValue)
-        s.depend = obj
-
-        if t.has(traveFail) {
-            prompt(ctx, "%v → %T %v\n", prereq, obj, obj)
-            for _, s := range t { warn(ctx, "%v: (%T) %v", obj, obj, s).at(s.pos) }
-            warnstack(ctx, 5, "").debug(8)
-            return
-        }
-    } // ForProjectsObjects
-
-        if false && traversed > 0 {
-            for _, project := range projects {
-                e := project.resolveEntries(ctx, prereq, t.grepping, true)
-                o := project.resolveObject(ctx, prereq)
-                prompt(ctx, "%v: %v; %v: %v; %T %v\n", project, project.bases, prereq, e, o, o)
-            }
-            prompt(ctx, "%v: %T: %v %T; projects=%v okay=%v traversed=%d file=%v obj=%v traves=%v\n",
-                targetValue, targetValue, prereqValue, prereqValue,
-                projects, okay, traversed, prereqFile, obj, traves)
-            for i, s := range traves { info(ctx, "%v: %v: %d. %v", targetValue, prereqValue, i, s).at(s.pos) }
-            info(ctx, "%T %v; %T %v", targetValue, targetValue, prereqValue, prereqValue).debug(1)
-        }
-
-        if okay { return }
+    } else if objectsFirst || okay || traversed>0 {
+        // does nothing
+    } else if searchObjects(); okay {
+        return
     }
 
     // Stat directly for files not in included in "files (...)".
