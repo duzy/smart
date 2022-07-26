@@ -429,7 +429,7 @@ ForInParams:
         }
 
         for _, par := range prog.params {
-            if par.name == strings.ToUpper(key) {
+            if par.name == key || par.name == strings.ToUpper(key) {
                 params = append(params, MakePair(pos, MakeBareword(pos, par.name), value))
                 continue ForInParams
             }
