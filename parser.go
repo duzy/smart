@@ -2752,29 +2752,21 @@ func (p *parser) templateExpand(t *template, params []Value) {
 			var m = vars[s]
 			m.elems = mergeExpand(positional(p, pos), expandPlainValue, elems...)
 			if n := len(m.elems); n > num { num = n }
-			// if s == "member" { if s := p.Scope().Lookup("struct"); s != nil {
-			// 	info(p, "%v: %v -> %v %d", s, elems, m.elems, num).debug(1)
-			// }}
 			vars[s] = m // overwrite
 		}
 		for i := 0; i < num; i += 1 {
+			var _1trivial bool
 			var m = make(map[string]Value)
 			for name, s := range vars {
 				var elem Value
 				if i < len(s.elems) { elem = s.elems[i] }
 				if false { warn(p, "%s %v", name, elem) }
+				_1trivial = isTrivial(elem)
 				m[name] = elem
-				// if name == "member" { if s := p.Scope().Lookup("struct"); s != nil {
-				// 	info(p, "%v %v %d", s, elem, i).debug(1)
-				// }}
 			}
+			_1trivial = _1trivial && len(m) == 1
 
-			// var    s1 = p.Scope().Lookup("struct")
-			// var _, s2 = p.Scope().Find(  "struct")
-			// var d = info(p, "%v %d/%d ; %v %v", t.params, i, num, s1, s2)
-			// if s1 == nil && s2 == nil { d.debug(16) } else { d.debug(6) }
-
-			p.templateBlock(t, m, params)
+			if len(m) > 0 && !_1trivial { p.templateBlock(t, m, params) }
 			count += 1
 		}
 	default:
