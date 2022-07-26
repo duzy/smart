@@ -387,6 +387,7 @@ func (ac *autoContext) autoSet(name string, val Value) (res Value, okay bool) {
 func (ac *autoContext) autoArgs(params []*Def, args []Value) (names []string, err error) {
         var (
                 argnum int // setup named/number parameters ($1, $2, etc.)
+                compactArgs []Value // compacted args: combine duplicated pairs
                 namedParam = func(name string) (res bool) {
                         for _, param := range params {
                                 if res = param.name == name; res { break }
@@ -394,7 +395,22 @@ func (ac *autoContext) autoArgs(params []*Def, args []Value) (names []string, er
                         return
                 }
         )
-        for _, a := range args {
+        ForArgs: for _, a := range args {
+                if p, ok := a.(*Pair); ok { for _, ca := range compactArgs {
+                        if c, ok := ca.(*Pair); ok && p.Key.cmp(ac, c.Key) == cmpEqual {
+                                var vals = merge(p.Value)
+                                if l, ok := c.Value.(*List); ok {
+                                        l.Elems = append(l.Elems, vals...)
+                                } else {
+                                        c.Value = MakeList(c.Position(),
+                                                append(merge(c.Value), vals...)...)
+                                }
+                                continue ForArgs
+                        }
+                }}
+                compactArgs = append(compactArgs, a)
+        }
+        for _, a := range compactArgs {
                 var (
                         id = strconv.Itoa(argnum+1)
                         name string

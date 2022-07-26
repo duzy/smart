@@ -2710,11 +2710,6 @@ func (p *parser) templateExpand(t *template, params []Value) {
 		} ()
 	}
 
-	// var (
-	// 	l = len(p.templates)
-	// 	t = p.templates[l-1]
-	// )
-	// p.templates = p.templates[:l-1];
 	switch t.verb {
 	case "foreach": // foreach val1 val2 val3 val4 ...
 		for _, elem := range mergeExpand(p, expandPlainValue, t.params...) {

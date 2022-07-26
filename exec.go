@@ -746,6 +746,7 @@ type (
     deprecated  bool `v,vo;w,ve;a,a;d,dump`
     infos       bool `sci,scan-infos`
     silentErrs  bool `s,silent,silent-errors` // silent errors
+    zeroErrs    bool `ze,zero-errors` // require zero error scaned from STDERR
     tieStdout   bool `to,tie-out,tie-stdout` // tied with log
     tieStderr   bool `te,tie-err,tie-stderr` // tied with log
     bufStdout   bool `o,stdout;bo,buffer-stdout;so,save-stdout`
@@ -757,7 +758,7 @@ type (
     report      bool `r,report;rs,report-stamp;vs,verbose-stamp`
     retStdout   bool `ro,return-stdout,result-stdout,stdout`
     retStderr   bool `re,return-stderr,result-stderr,stderr`
-    retStatus   bool `rs,return-status,result-status,status`
+    retStatus   bool `rs,return-status,result-status,status` // may work with zero-errors
     scanStdout  bool `so,scan-stdout,scan-out`
     scanStderr  bool `se,scan-stderr,scan-err`
     parallel    bool `par,parallel,no-order`
@@ -1256,7 +1257,11 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       }
 
       if opts.retStatus {
-        res = append(res, MakeInt(logPos, int64(exeres.Status)))
+        if opts.zeroErrs && en == 0 && err == nil {
+          res = append(res, MakeInt(logPos, int64(exeres.Status)))
+        } else {
+          res = append(res, MakeNone(logPos))
+        }
       } else if exeres.Status != 0 || err != nil {
         break
       }

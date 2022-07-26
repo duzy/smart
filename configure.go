@@ -418,16 +418,23 @@ ForInParams:
             return
         }
 
-        var key = pair.Key.Strval(ctx)
+        var (
+            key = pair.Key.Strval(ctx)
+            value = pair.Value
+        )
+        if _, ok := value.(*Compound); ok {
+            value = MakeString(pos, value.Strval(ctx))
+        } else if v := value.expand(ctx, expandPlainValue); v != nil && v != value {
+            value = v
+        }
+
         for _, par := range prog.params {
-            if par.name == key {
-                params = append(params, a)
-                continue ForInParams
-            } else if par.name == strings.ToUpper(key) {
-                params = append(params, MakePair(pos, MakeBareword(pos, par.name), pair.Value))
+            if par.name == strings.ToUpper(key) {
+                params = append(params, MakePair(pos, MakeBareword(pos, par.name), value))
                 continue ForInParams
             }
         }
+
         if key == "INFO" {
             if false && verbose { prompt(ctx, "%s", pair.Value) }
         } else if true {
@@ -441,6 +448,10 @@ ForInParams:
             return
         }
     }
+    if false { if s := target.Strval(ctx); s == "HAVE_FUN_SENDFILE" {
+        warn(ctx, "%v: %v", s, paramsOrig)
+        warn(ctx, "%v: %v", s, params).debug(1)
+    }}
 
     ctx = &configureContext{ ctx }
 
@@ -503,20 +514,13 @@ func configureDo(ctx Context, opts *modifierConfigureOpts, target Value, name Va
             return
         }
     }
-    if false { if s := target.Strval(ctx); s == "foobar" {
+    if false { if s := target.Strval(ctx); s == "HAVE_FUN_SENDFILE" {
         warn(ctx, "%v: %v", s, args)
         warn(ctx, "%v: %v", s, mergeExpand(ctx, expandPlainValue, args...))
         warn(ctx, "%v: %v", s, params).debug(1)
     }}
 
     defer func() {
-        // if err != nil {
-        //     if e, ok := err.(*scanner.Error); ok {
-        //         configMessageDone(ctx, "… (%v)", e.Brief())
-        //     } else {
-        //         configMessageDone(ctx, "… (%v)", err)
-        //     }
-        // } else
         if isNil(result) {
             configMessageDone(ctx, "… <nil>")
         } else if isNone(result) {

@@ -4511,7 +4511,9 @@ func (p *List) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *List) Strval(ctx Context) (s string) {
     var x = 0
     for _, e := range p.Elems {
-        if v := e.Strval(ctx); v != "" {
+        if e == nil {
+            // TODO: special process for nil elements in a list??
+        } else if v := e.Strval(ctx); v != "" {
             if 0 < x { s += " " }
             s += v
             x += 1

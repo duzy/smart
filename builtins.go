@@ -1015,7 +1015,7 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
                                 erro(ctx, "'_' in '%v' not expanded: %v", a, v).of(a).debug(true, 1)
                                 return
                         }
-                        if isNil(v) || isUndef(v) || isNone(v) {
+                        if isTrivial(v) {
                                 // ignore
                         } else if s, ok := v.(*String); ok && s.string == "" {
                                 // ignore
