@@ -290,6 +290,9 @@ func (p *parser) _next() {
 			p.leadComment = comment
 		}
 	}
+	// if p.tok != token.LINEND && p.lineComment != nil {
+	// 	p.tok = token.LINEND
+	// }
 }
 
 func (p *parser) next(skipWS bool) {
@@ -308,7 +311,7 @@ func (p *parser) skipSpaces() {
 		if p.tok == token.SPACE || (p.tok == token.RECIPE && p.bits&parsingRecipeBuiltin != 0) {
 			p._next()
 		} else if p.tok == token.ESCAPE && p.lit == "\n" {
-			if p._next(); p.tok == token.LINEND { break }
+			if p._next(); p.tok == token.LINEND || p.lineComment != nil { break }
 			if p.bits&parsingRecipeBuiltin != 0 {
 				TokFor: for p.tok != token.EOF {
 					switch p.tok {
@@ -345,7 +348,7 @@ func (p *parser) expected(pos token.Pos, msg string, a... interface{}) {
 			}
 		}
 	}
-	erro(p, msg).at(p.positionAt(pos)).debug(16)
+	erro(p, msg).at(p.positionAt(pos)).debug(24)
 }
 
 func (p *parser) expect(tok token.Token) token.Pos {
@@ -564,10 +567,10 @@ func (p *parser) parseDependList() (list []Value) {
 // If lhs is set, result list elements which are identifiers are not resolved.
 func (p *parser) parseExprList(lhs bool) (list []Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "List")) }
-	for p.skipSpaces(); !p.isEndOfList(lhs); {
+	for p.skipSpaces(); !p.isEndOfList(lhs); p.skipSpaces() {
 		p.skipSpaces()
 		list = append(list, p.parseExpr(lhs))
-		p.skipSpaces()
+		// p.skipSpaces()
 		// If there's a comment right after the parsed expression, we break
 		// the expression list to treat the end-of-line comment like a LINEND.
 		if p.lineComment != nil  { break }
@@ -823,7 +826,7 @@ func (p *parser) parseBasicLit(lhs bool) (v Value) {
 	p._next()
 
 	// ESCAPE is handled in value.EscapeChar
-    var position = Position(p.file.Position(pos))
+    var position = p.positionAt(pos)
 	defer checkPanicsErrors(positional(p, position)) // panics from parse{int,float,hex,...}
     switch tok {
     case token.BAR: erro(p, "`|` is deprecated, changed the modifiers!").at(p.positionAt(pos))
@@ -1860,100 +1863,123 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 	}
 }
 
+func (p *parser) evalConfiguration(ctx Context, generic *genericoptions, props []Value) {
+	if project := p.Project(); project == nil {
+		erro(ctx, "configuration: nil project").debug(1)
+	} else if project.configure == nil {
+		erro(ctx, "configuration: no .configure for %v", project).debug(1)
+	} else {
+		if entry := project.configure.DefaultEntry(); entry == nil {
+			// no init entry from .configure
+		} else if _, traves := entry.Execute(ctx); len(traves) > 0 {
+			for _, brk := range traves {
+				if brk.what == traveFail {
+					erro(ctx, "execute '%v' failed: %v", entry, brk).of(entry).debug(1)
+				}
+			}
+		}
+		if project.configured {
+			prompt(ctx, "configuration: %v already configured\n", project)
+		} else {
+			var (
+				okay bool
+				cp *Project
+				ce = &configureExecutor{ defs:make(map[string]*Def) }
+			)
+			defer ce.close()
+			for _, dep := range mergeExpand(ctx, expandPlainValue, props[1:]...) {
+				switch prereq := dep.(type) {
+				case *RuleEntry:
+					if _, traves := prereq.Execute(ctx); len(traves) > 0 {
+						for _, brk := range traves {
+							if brk.what == traveFail {
+								erro(ctx, "execute '%v' failed: %v", prereq, brk).of(prereq).debug(1)
+							}
+						}
+					}
+				default:
+					erro(p, "prerequisite: unsupported %T %v", dep, dep).debug(1)
+				}
+			}
+			for _, entry := range project.configs {
+				if cp, okay = ce.execute(ctx, cp, entry); !okay {
+					erro(ctx, "configure '%v' failed", entry).debug(1)
+					break
+				}
+			}
+			project.configured = true // let defaultContext.configure skip
+		}
+	}
+}
+
 func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int) {
 	var (
 		ctx Context = p
 		props = p.parseDirectiveSpec()
-		resolved Value
+		prop0, resolved Value
 		name string
 		err error
 	)
-	if prop0 := props[0]; isNil(prop0) {
+
+	if generic.dontOperate {
+		return
+	}
+	if prop0 = props[0]; isNil(prop0) {
 		erro(ctx, "illegal").debug(1)
-	} else if position := prop0.Position(); !position.IsValid() {
+		return
+	}
+
+	var position = prop0.Position()
+	if !position.IsValid() {
 		erro(ctx, "command name '%v' has invalid position", prop0).debug(1)
-	} else if ctx = positional(ctx, position); ctx == nil {
-		erro(ctx, "%v: nil positional", prop0).debug(1)
-	} else if name, resolved, err = p.resolveObject(prop0); err != nil {
+		return
+	} else {
+		ctx = positional(ctx, position)
+	}
+
+	if name, resolved, err = p.resolveObject(prop0); err != nil {
 		erro(ctx, "resolve '%v' failed: %v", prop0, err).debug(1)
+		return
 	} else if isTrivial(resolved) {
-		if name == "configuration" {// NOTE: see also defaultContext.configure()
-			if generic.dontOperate {
-				return
-			} else if project := p.Project(); project == nil {
-				erro(ctx, "configuration: nil project").debug(1)
-			} else if project.configure == nil {
-				erro(ctx, "configuration: no .configure for %v", project).debug(1)
-			} else {
-				if entry := project.configure.DefaultEntry(); entry == nil {
-					// no init entry from .configure
-				} else if _, traves := entry.Execute(ctx); len(traves) > 0 {
-					for _, brk := range traves {
-						if brk.what == traveFail {
-							erro(ctx, "execute '%v' failed: %v", entry, brk).of(entry).debug(1)
-						}
-					}
-				}
-				if project.configured {
-					prompt(ctx, "configuration: %v already configured\n", project)
-				} else {
-					var (
-						okay bool
-						cp *Project
-						ce = &configureExecutor{ defs:make(map[string]*Def) }
-					)
-					defer ce.close()
- 					for _, dep := range mergeExpand(ctx, expandPlainValue, props[1:]...) {
-						switch prereq := dep.(type) {
-						case *RuleEntry:
-							if _, traves := prereq.Execute(ctx); len(traves) > 0 {
-								for _, brk := range traves {
-									if brk.what == traveFail {
-										erro(ctx, "execute '%v' failed: %v", prereq, brk).of(prereq).debug(1)
-									}
-								}
-							}
-						default:
-							erro(p, "prerequisite: unsupported %T %v", dep, dep).debug(1)
-						}
-					}
-					for _, entry := range project.configs {
-						if cp, okay = ce.execute(ctx, cp, entry); !okay {
-							erro(ctx, "configure '%v' failed", entry).debug(1)
-							break
-						}
-					}
-					project.configured = true // let defaultContext.configure skip
-				}
-			}
-		} else {
-			erro(ctx, "resolved '%v' is nil (options = %v)", prop0, *generic).debug(1)
+		if name == "configuration" {
+			// NOTE: see also defaultContext.configure()
+			p.evalConfiguration(positional(ctx, position), generic, props)
+			return
 		}
-	} else if b, ok := resolved.(*Builtin); !ok {
+		erro(ctx, "resolved '%v' is nil (options = %v)", prop0, *generic).debug(1)
+		return
+	}
+
+	if b, ok := resolved.(*Builtin); !ok {
 		erro(ctx, "resolved '%v' is not a command (%s)", prop0, typeof(resolved)).debug(1)
+		return
 	} else if b.flag&builtinCommand == 0 {
 		erro(ctx, "resolved builtin '%v' is not a command", prop0).debug(1)
-	} else if !generic.dontOperate { //p.evalspec(spec)
-        // At the point of `eval` was represented, the closure context
-        // might be empty. So we start closure with the current scope.
-        //defer setclosure(setclosure(cloctx.unshift(p.scope)))
-		var res Value
-        switch op := prop0.(type) {
-        case Caller: res = op.Call(ctx, props[1:]...)
-        default:
-            var name = op.Strval(ctx)
-			if _, obj := p.Scope().Find(name); obj == nil {
-                erro(p, "`%s` undefined", name).debug(1)
-            } else if f, _ := obj.(Caller); f == nil {
-                erro(p, "`%T` is not caller (%s)", obj, name).debug(1)
-            } else {
-                res = f.Call(ctx, props[1:]...)
-            }
-        }
-		if !isNil(res) {
-			// TODO: using res value
+		return
+	}
+
+	//p.evalspec(spec)
+
+	// At the point of `eval` was represented, the closure context
+	// might be empty. So we start closure with the current scope.
+	//defer setclosure(setclosure(cloctx.unshift(p.scope)))
+	var res Value
+	switch op := prop0.(type) {
+	case Caller:
+		res = op.Call(ctx, props[1:]...)
+	default:
+		var name = op.Strval(ctx)
+		if _, obj := p.Scope().Find(name); obj == nil {
+			erro(p, "`%s` undefined", name).debug(1)
+		} else if f, _ := obj.(Caller); f == nil {
+			erro(p, "`%T` is not caller (%s)", obj, name).debug(1)
+		} else {
+			res = f.Call(ctx, props[1:]...)
 		}
- 	}
+	}
+	if !isNil(res) {
+		// TODO: using res value
+	}
 }
 
 func (p *parser) parseDirectiveSpec() (props []Value) {
@@ -1964,29 +1990,26 @@ func (p *parser) parseDirectiveSpec() (props []Value) {
 		comment *CommentGroup
 	)
 
-	p.skipSpaces()
-
-	// Parse the directive expression
-	props = append(props, p.parseExpr(false))
-
 ParamsParseLoop: // Parse the directive parameters
 	for p.tok != token.EOF {
-		if p.skipSpaces(); p.lineComment != nil { comment = p.lineComment; break }
-		switch p.tok {
-		case token.SELECT_PROG1, token.COMMA, token.LINEND, token.RPAREN, token.RBRACE, token.RCOLON:
-			break ParamsParseLoop
+		switch p.skipSpaces(); p.tok {
+		case token.COMMA, token.LINEND, token.RPAREN, token.RBRACE, token.RCOLON,
+			token.SELECT_PROG1: break ParamsParseLoop
 		}
+
+		if p.lineComment != nil {
+			comment = p.lineComment
+			break
+		}
+
 		props = append(props, p.parseExpr(false))
-		if p.skipSpaces(); p.tok == token.LINEND { break }
-		if p.lineComment != nil { comment = p.lineComment; break }
 	}
-	if comment != nil {
-		// TODO: ...
-	}
+	if comment != nil { /* TODO: directive documments */ }
 	return
 }
 
 type genericClauseOpts struct {
+	generalOpts
 	conds []Value `cond,if,where`
 }
 func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseSpecFunc) {
@@ -1998,27 +2021,22 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 		opts genericClauseOpts // TODO: merge genericClauseOpts and genericoptions
 		generic = genericoptions{ keyword: keyword }
 	)
-
 	for p.tok == token.MINUS {
 		var x = p.parseExpr(false)
 		var ctx = positional(p, x.Position())
 		if a := parseOpts(ctx, &opts, 0, x); len(a) > 0 {
 			generic.options = append(generic.options, a...)
 		}
-
 	}
 	for _, cond := range opts.conds {
-		var ctx = positional(p, cond.Position())
-		if t := cond.True(ctx); !t {
+		if t := cond.True(positional(p, cond.Position())); !t {
 			generic.dontOperate = true
 			break
 		}
 	}
 
 	if p.skipSpaces(); p.tok == token.LPAREN {
-		//lparen = p.pos
 		p.next(true)
-		if false { fmt.Fprintf(stderr, "%v: GenericSpec.1: %v(%s)\n", p.file.Position(p.pos), p.tok, p.lit) }
 		for iota := 0; p.tok != token.RPAREN && p.tok != token.EOF && (p.stop == 0 || p.pos < p.stop); iota++ {
 			// TODO: collect documentation comments
 			for p.tok == token.SPACE || p.tok == token.LINEND { p.next(true) }
@@ -2026,28 +2044,27 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 			f(p.leadComment, &generic, iota)
 			if p.tok == token.COMMA || p.tok == token.LINEND { p.next(true) }
 		}
-		/*rparen = */p.expect(token.RPAREN)
-		if p.tok != token.EOF { p.expectLinend() }
-	} else {
-		if false { fmt.Fprintf(stderr, "%v: GenericSpec.3: %v(%s)\n", p.file.Position(p.pos), p.tok, p.lit) }
-		/*for*/if iota := 0; p.tok != token.LINEND && p.tok != token.EOF && (p.stop == 0 || p.pos < p.stop)/*; iota++*/ {
-			f(nil, &generic, iota)
-			if p.lineComment != nil { /*break*/ }
-
-			// Checking for `include xxx:[...]`
-			/* FIXME: if inc, _ := spec.(*ast.IncludeSpec); inc != nil && len(inc.Props) > 0 {
-				if p, ok := inc.Props[0].(*ast.IncludeRuleClause); ok && p != nil {
-					goto GoodEnd
-				}
-			}*/
-
-			if p.tok == token.COMMA { p.next(true) }
-		}
-		if p.tok != token.EOF && (p.stop == 0 || p.pos < p.stop) {
+		if p.expect(token.RPAREN); p.tok != token.EOF {
 			p.expectLinend()
 		}
+		return
 	}
-	//GoodEnd:
+
+	if p.tok != token.LINEND && p.tok != token.EOF && (p.stop == 0 || p.pos < p.stop) {
+		if f(nil, &generic, 0); p.lineComment != nil { /* break */ }
+
+		// // Checking for `include xxx:[...]`
+		// FIXME: if inc, _ := spec.(*ast.IncludeSpec); inc != nil && len(inc.Props) > 0 {
+		// 	if p, ok := inc.Props[0].(*ast.IncludeRuleClause); ok && p != nil {
+		// 		goto GoodEnd
+		// 	}
+		// }
+
+		if p.tok == token.COMMA { p.next(true) }
+	}
+	if p.tok != token.EOF && (p.stop == 0 || p.pos < p.stop) {
+		if p.lineComment == nil { p.expectLinend() }
+	}
 }
 
 func (p *parser) parseDefineClause(tok token.Token, ident Value) (def *Def) {
@@ -2618,7 +2635,7 @@ func (p *parser) templateBlock(t *template, vars map[string]Value, expandParams 
 	p.scanner.SetState(t.state)
 	p.pos, p.tok, p.lit = t.pos, t.tok, t.lit
 
-	// TODO: deal with params
+	// TODO: deal with expandParams
 
 	// NOTE: comment here will affect loader.def()
 	if false { pprofCounter += 1
@@ -2650,7 +2667,7 @@ func (p *parser) templateBlock(t *template, vars map[string]Value, expandParams 
 		} ()
 	}
 
-	defer p.closeScope(p.openScope("template block "))
+	defer p.closeScope(p.openScope("template block"))
 
 	var ctx = positional(p, p.Position())
 	for s, v := range vars {
@@ -2661,9 +2678,11 @@ func (p *parser) templateBlock(t *template, vars map[string]Value, expandParams 
 	}
 
 	for p.tok != token.EOF && p.pos < p.stop {
-		switch p.tok {
-		case token.LINEND: p.next(true)
-		default: p.parseClause()
+		if p.tok == token.LINEND ||
+			(p.tok == token.COMMENT && p.lineComment != nil) {
+			p.next(true)
+		} else {
+			p.parseClause()
 		}
 	}
 }
@@ -2797,9 +2816,11 @@ func (p *parser) callTemplate(t *template, name Value, args []Value) {
 	}
 
 	for p.tok != token.EOF && p.pos < t.endPos {
-		switch p.tok {
-		case token.LINEND: p.next(true)
-		default: p.parseClause(/*t.endPos*/)
+		if p.tok == token.LINEND ||
+			(p.tok == token.COMMENT && p.lineComment != nil) {
+			p.next(true)
+		} else {
+			p.parseClause()
 		}
 	}
 }
@@ -2812,9 +2833,8 @@ func (p *parser) templateCall(name Value, args []Value) {
 	}
 	erro(p, "undefined template: %v", name).of(name).debug(1)
 }
-func (p *parser) parseTemplateClause() (end bool) {
-	// var pos, stop = p.pos, p.stop
-	var pos = p.pos
+func (p *parser) parseTemplateClause() {
+	var starting = p.Position()
 	p.expect(token.TEMPLATE) // expect and skip 'template'
 	p.skipSpaces()
 
@@ -2823,8 +2843,10 @@ func (p *parser) parseTemplateClause() (end bool) {
 		arged *Argumented
 		op = p.parseExpr(false)
 	)
-	p.skipSpaces()
-	if w, ok := op.(*Bareword); ok {
+	if p.skipSpaces(); p.tok == token.EOF {
+		erro(p, "unexpected end of file after %v", op).of(op).debug(1)
+		return
+	} else if w, ok := op.(*Bareword); ok {
 		verb = w.string
 	} else if arged, ok = op.(*Argumented); !ok {
 		erro(p, "unknown template verb: %v", op).of(op).debug(1)
@@ -2832,45 +2854,28 @@ func (p *parser) parseTemplateClause() (end bool) {
 	}
 
 	switch verb {
-	// case "end":
-	// 	p.expect(token.LINEND)
-	// 	if len(p.templates) == 0 {
-	// 		erro(p, "end template with no previous def").of(op).debug(1)
-	// 		return
-	// 	}
-	// 	tmpl,end := p.templates[len(p.templates)-1], p.scanner.State()
-	// 	tmpl.end, tmpl.endPos = &end, pos
-	// 	return true
-	// case "expand":
-	// 	params := p.parseExprList(false)
-	// 	p.expect(token.LINEND)
-	// 	p.stop = pos
-	// 	p.templateExpand(params)
-	// 	p.stop = stop
-	// 	return true
 	case "end", "expand":
-		erro(p, "unexpeded verb: %s", verb).of(op).debug(1)
+		erro(p, "unexpected verb: %s", verb).of(op).debug(1)
 		return
 	case "": if arged != nil {
 		p.expect(token.LINEND)
 		p.templateCall(arged.value, arged.args)
-		return true
+		return //true
 	}}
 
 	var params = p.parseExprList(false)
 	// DONT: p.expect(token.LINEND)
 
-	var ctx = positional(p, p.Position())
-	params = mergeExpand(ctx, expandPlainValue, params...)
+	// TODO: parse template options - parseOpts
+	params = mergeExpand(p, expandPlainValue, params...)
 
 	var tmpl = &template{ state:p.scanner.State(), pos:p.pos, tok:p.tok, lit:p.lit }
 	if verb == "def" {
 		if len(params) != 1 {
-			erro(p, "too many def params: %v", params).at(p.positionAt(pos))
+			erro(p, "too many def params: %v", params).at(starting)
 			return
-		}
-		if arged, ok := params[0].(*Argumented); !ok {
-			erro(p, "too many def params: %v", params).at(p.positionAt(pos))
+		} else if arged, ok := params[0].(*Argumented); !ok {
+			erro(p, "too many def params: %v", params).at(starting)
 			return
 		} else {
 			tmpl.name, tmpl.params = arged.value, arged.args
@@ -2878,56 +2883,52 @@ func (p *parser) parseTemplateClause() (end bool) {
 		}
 	} else {
 		tmpl.verb, tmpl.params = verb, params
-		// p.templates = append(p.templates, tmpl)
 	}
-	// if verb == "for" {
-	// 	warn(p, "%v: %v %v ; %v", verb, tmpl.params, len(p.templates), p.tok).debug(1)
-	// }
 
-	var (
-		nested int
-		newline = p.tok == token.LINEND //|| p.lineComment != nil
-	)
+	var nested int
 	for p.tok != token.EOF {
-		if p.lineComment == nil { p._next() } else { newline = true }
-		switch p.tok {
-		case token.TEMPLATE: if newline {
-			var pos, stop = p.pos, p.stop
-			p.next(true)
-			if false { warn(p, "%v: %v %s ; %v", verb, p.tok, p.lit, nested) }
-			if p.tok == token.BAREWORD {
-				if p.lit == "def" || p.lit == "for" || p.lit == "foreach" {
-					nested += 1
-				} else if p.lit == "expand" { if nested > 0 {
-					nested -= 1
-				} else {
-					p.next(true) // consumes the 'expand'
-					params := p.parseExprList(false)
-					p.expect(token.LINEND)
-					p.stop = pos
-					p.templateExpand(tmpl, params)
-					p.stop = stop
-					return true
-				}} else if p.lit == "end" { if nested > 0 {
-					nested -= 1
-				} else {
-					p.next(true) // consumes the 'end'
-					p.expect(token.LINEND)
-					state := p.scanner.State()
-					tmpl.end, tmpl.endPos = &state, pos
-					return true
-				}}
-			}
-			newline = p.tok == token.LINEND
-		} else {
-			warn(p, "%v: %v %s ; %v", verb, p.tok, p.lit, nested)
+		var newline = p.tok == token.LINEND || p.lineComment != nil
+		if p.lineComment == nil { p._next() } //else { newline = true }
+		if !newline || p.tok != token.TEMPLATE {
+			// info(p, "unexpected %v: %v (verb=%s, nested=%v, newline=%v)",
+			// 	p.tok, p.lit, verb, nested, newline).debug(1)
+			continue
 		}
-		case token.SPACE:
-		case token.LINEND: newline = true
-		default: newline = false
+
+		var pos, stop = p.pos, p.stop
+		if p.next(true); p.tok != token.BAREWORD {
+			erro(p, "unexpected %v: %v (nested=%v)",
+				p.tok, p.lit, nested).debug(1)
+			return
+		}
+
+		if p.lit == "def" || p.lit == "for" || p.lit == "foreach" {
+			nested += 1
+		} else if p.lit == "expand" && (verb == "for" ||
+			verb == "foreach") { if nested > 0 {
+			nested -= 1
+		} else {
+			p.next(true) // consumes the 'expand'
+			params := p.parseExprList(false)
+			p.expect(token.LINEND)
+			p.stop = pos
+			p.templateExpand(tmpl, params)
+			p.stop = stop
+			return //true
+		}} else if p.lit == "end" && (verb == "def") { if nested > 0 {
+			nested -= 1
+		} else {
+			p.next(true) // consumes the 'end'
+			p.expect(token.LINEND)
+			state := p.scanner.State()
+			tmpl.end, tmpl.endPos = &state, pos
+			return //true
+		}} else {
+			erro(p, "unexpected template: %v (verb=%s, nested=%v)",
+				p.tok, verb, nested).debug(1)
+			return
 		}
 	}
-	return
 }
 
 func (p *parser) parseClause() {
@@ -2957,6 +2958,7 @@ func (p *parser) parseClause() {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Clause(?)")) }
 
 	var x = p.parseExpr(true); p.skipSpaces()
+
 	if p.tok.IsAssign() {
 		p.parseDefine(x)
 		return
@@ -2977,7 +2979,7 @@ func (p *parser) parseClause() {
 type projectDeclOpts struct {
 	final bool `f,final`
 	noDock bool `n,nod;n,nodock;nd,no-dock`
-    traveUseLoop bool `b,break;l,loop`  // don't recursively use this project
+    traveUseLoop bool `b,break;l,loop` // don't recursively use this project
     multiUseAllowed bool `m,multi`  // this project is used multiple times
 }
 
@@ -3067,7 +3069,11 @@ func (p *parser) parseFile() *parsedFile {
 		p.next(true)
 
 		// Options are *Flag or *Pair of a Flag.
-		var ( opts projectDeclOpts; optVals []Value; pos Position )
+		var (
+			opts projectDeclOpts
+			optVals []Value
+			pos Position
+		)
 		for p.tok == token.MINUS {
 			var opt = p.parseExpr(false);  p.skipSpaces()
 			optVals = append(optVals, opt)
@@ -3263,9 +3269,11 @@ func (p *parser) parseFile() *parsedFile {
 		if p.mode&ImportsOnly == 0 {
 			// rest of module body
 			for p.tok != token.EOF {
-				switch p.tok {
-				case token.LINEND: p.next(true) // skip empty lines
-				default: p.parseClause(/*token.NoPos*/)
+				if p.tok == token.LINEND ||
+					(p.tok == token.COMMENT && p.lineComment != nil) {
+					p.next(true)
+				} else {
+					p.parseClause()
 				}
 			}
 		}
