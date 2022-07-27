@@ -79,6 +79,7 @@ var (
   // NOTE: python standard errors
   rxPyErrorTrace = rx(`^\s*File "(.+?)", line (\d+), in (.+)`)
   rxPyModuleNotFoundError = rx(`ModuleNotFoundError: No module named '(.*?)'`)
+  rxPyFileNotFoundError = rx(`FileNotFoundError: \[Errno (\d+)\] No such file or directory: '(.*?)'`)
 
   workingMutex = new(sync.Mutex)
   working atomic.Value // number of working executions
@@ -545,6 +546,11 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       if p.report {
         var name = v[1].string;  lpos.Column = v[1].col + 1
         addScannedDiag(diagError, lpos, fmt.Sprintf(`no python module named "%v"`, name))
+      }
+    case rxPyFileNotFoundError:
+      if p.report {
+        var name = v[2].string;  lpos.Column = v[2].col + 1
+        addScannedDiag(diagError, lpos, fmt.Sprintf(`no such file or directory "%v"`, name))
       }
     }
     if err != nil { break }
