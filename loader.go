@@ -791,7 +791,10 @@ func iterateArgumentedIdentifiers(ctx Context, identifier Value, f func(ident Va
         var args = mergeExpand(ctx, expandPlainValue, t.args...)
         iterateArgumentedIdentifiers(ctx, t.value, func(ident Value, stems []Value) {
             var pos = ident.Position()
-            for _, arg := range args { f(MakeBarecomp(pos, ident, arg), append(stems, arg)) }
+            for _, arg := range args {
+                if isTrivial(arg) { continue }
+                f(MakeBarecomp(pos, ident, arg), append(stems, arg))
+            }
         })
     case *Barecomp:
         iterateArgumentedIdentElems(ctx, t.Elems, nil, func(elems, stems []Value) {
@@ -1710,7 +1713,12 @@ func (l *loader) assign(tok token.Token, def *Def, alt Object, value Value) {
             erro(ctx, "can't append value '%v' to: %v", value, def).debug(1)
         }
     case token.SHI_ASSIGN: //  =+
-        if !def.value.refs(ctx, value) {
+        if isTrivial(value) {
+            // NOOP
+        } else if def.value.refs(ctx, value) {
+            erro(ctx, "self-ref value: %v -> %v ; %s, %s",
+                def.value, value, def.value.Strval(ctx), value.Strval(ctx)).debug(1)
+        } else {
             var tail = def.value
             def.val(ctx, value)
             def.append(ctx, merge(tail)...)
@@ -1722,43 +1730,36 @@ func (l *loader) assign(tok token.Token, def *Def, alt Object, value Value) {
                 vals []Value
                 sub = merge(value)
             )
+        ForOldVals:
             for _, val := range merge(def.value) {
-                var b bool
                 for _, v := range sub {
-                    if b = val.cmp(ctx, v) == cmpEqual; b { break }
+                    if val.cmp(ctx, v) == cmpEqual { continue ForOldVals }
                 }
-                if !b { vals = append(vals, val) }
+                vals = append(vals, val)
             }
             def.value = MakeList(def.position, vals...)
         }
-    case token.SAD_ASSIGN: // -+=
-        var vals []Value
+    case token.SAD_ASSIGN, token.SSH_ASSIGN: // -+=, -=+
+        var (
+            vals []Value
+            newVals = merge(value)
+        )
         if !isTrivial(def.value) {
-            var sub = merge(value)
+        ForOldVals1:
             for _, val := range merge(def.value) {
-                var b bool
-                for _, v := range sub {
-                    if b = val.cmp(ctx, v) == cmpEqual; b { break }
+                for _, v := range newVals {
+                    if val.cmp(ctx, v) == cmpEqual { continue ForOldVals1 }
                 }
-                if !b { vals = append(vals, val) }
+                vals = append(vals, val)
             }
-            vals = append(vals, sub...)
+        }
+        if token.SAD_ASSIGN == tok {
+            vals = append(vals, newVals...) // -+=
+        } else {
+            vals = append(newVals, vals...) // -=+
         }
         def.value = MakeList(def.position, vals...)
-    case token.SSH_ASSIGN: // -=+
-        var vals []Value
-        if !isTrivial(def.value) {
-            var sub = merge(value)
-            for _, val := range merge(def.value) {
-                var b bool
-                for _, v := range sub {
-                    if b = val.cmp(ctx, v) == cmpEqual; b { break }
-                }
-                if !b { vals = append(vals, val) }
-            }
-            vals = append(sub, vals...)
-        }
-        def.value = MakeList(def.position, vals...)
+        if false { info(ctx, "%v %v ; %v", def.name, value, vals).debug(1) }
     }
     return
 }
