@@ -764,7 +764,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         prereqObj Object
     )
     // NOTE: Don't delete, keep this segment! To safe time for future debugging traversal.
-    if false && strings.Contains(prereq, "symlink") {
+    if false && /*strings.Contains(prereq, "clang")*/prereq == "clang" {
         prompt(ctx, "%v : %v\n", targetValue, prereqValue)
         warn(ctx, "@: %T %v", targetValue, targetValue)
         warn(ctx, ">: %T %v", prereqValue, prereqValue)
@@ -995,6 +995,12 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     ForProjectsObjects:
         for _, project := range projects {
             switch obj = project.resolveObject(ctx, prereq); obj.(type) {
+            case *ProjectName: if objectsFirst {
+                switch prereqValue.(type) {
+                case *String, *Compound: return // let it find rule entries
+                }
+                if prereqFile != nil { return }  // let it find rule entries
+            }
             case *Builtin, *Def, *ScopeName, *unresolvedobject:
                 continue ForProjectsObjects
             default: if isTrivial(obj) { continue ForProjectsObjects }
@@ -1327,8 +1333,8 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     }
 
     // Stat directly for files not in included in "files (...)".
-    if !okay && prereqFile != nil && prereqFile.exists() {
-        okay = true
+    if !okay && prereqFile != nil && prereqFile.exists() && !traves.has() {
+        return // done
     } else if true && !okay && prereqFile == nil && prereqObj == nil && !traves.has() {
         if f := stat(ctx, prereq, "", ""); f != nil && f.exists() {
             if false { warn(ctx, "%v (%T) is a file (%s)",
@@ -1373,9 +1379,23 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             if prereqValue != nil { ctx = positional(ctx, prereqValue.Position()) }
         }
 
-        prompt(ctx, "%v:(%T): %T %v; okay=%v traversed=%d file=%v projects=%v\n",
-            targetValue, targetValue, prereqValue, prereqValue,
-            okay, traversed, prereqFile, projects).debug(1)
+        if prereqFile != nil && prereqValue != prereqFile {
+            prompt(ctx, "%v:(%T): %T %v; okay=%v traversed=%d file=%v projects=%v\n",
+                targetValue, targetValue, prereqValue, prereqValue,
+                okay, traversed, prereqFile, projects).debug(1)
+        } else if prereqFile != nil {
+            prompt(ctx, "%v:(%T): %T %v; okay=%v traversed=%d path=%s projects=%v\n",
+                targetValue, targetValue, prereqValue, prereqValue,
+                okay, traversed, prereqFile.fullname(), projects).debug(1)
+        } else if prereqObj != nil {
+            prompt(ctx, "%v:(%T): %T %v; okay=%v traversed=%d obj=%v projects=%v\n",
+                targetValue, targetValue, prereqValue, prereqValue,
+                okay, traversed, prereqObj, projects).debug(1)
+        } else {
+            prompt(ctx, "%v:(%T): %T %v; okay=%v traversed=%d projects=%v\n",
+                targetValue, targetValue, prereqValue, prereqValue,
+                okay, traversed, projects).debug(1)
+        }
         for i, s := range traves { erro(ctx, "%v: %v: %d. %v", targetValue, prereqValue, i, s).at(s.pos) }
         for i, c := range ctx.closureScopes() { erro(ctx, "%v: closure: %v. %v", proj, i, c) }
         for i, concrete := range concreteList { erro(ctx, "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs())).at(concrete.Position()) }
