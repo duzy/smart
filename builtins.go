@@ -3358,6 +3358,7 @@ ForArgs:
 }
 
 type builtinStatOpts struct {
+        generalOpts
         dir bool `d,dir`
         file bool `f,file`
         symbol bool `s,symlink;sym,symbol`
@@ -3421,6 +3422,7 @@ func builtinStat(ctx Context, args... Value) (res Value) {
 }
 
 type builtinFileOpts struct {
+        generalOpts
         caller bool `c,caller;cc,callercontext;cc,caller-context`
         report bool `r,report;r,reportmissing;rm,report-missing;e,error`
 }

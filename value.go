@@ -756,15 +756,6 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         return
     }
 
-    // NOTE: Don't delete, keep this segment! To safe time for future debugging traversal.
-    if false && strings.Contains(prereq, "ItaniumNodes.def") {
-        prompt(ctx, "%v : %v\n", targetValue, prereqValue)
-        warn(ctx, "@: %T %v", targetValue, targetValue)
-        warn(ctx, ">: %T %v", prereqValue, prereqValue)
-        warn(ctx, ">: in %v", projects)
-        warnstack(ctx, 3, "").debug(10)
-    }
-
     const objectsFirst = true
 
     var (
@@ -772,6 +763,17 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         prereqFile *File
         prereqObj Object
     )
+    // NOTE: Don't delete, keep this segment! To safe time for future debugging traversal.
+    if false && strings.Contains(prereq, "symlink") {
+        prompt(ctx, "%v : %v\n", targetValue, prereqValue)
+        warn(ctx, "@: %T %v", targetValue, targetValue)
+        warn(ctx, ">: %T %v", prereqValue, prereqValue)
+        warn(ctx, ">: in %v", projects)
+        warnstack(ctx, 3, "").debug(10)
+        defer func() { warn(ctx, "%v : %v, %v, %v (%T)", targetValue,
+            prereqValue, prereqFile, prereqObj, prereqObj).debug(10) } ()
+    }
+
     if len(projects) == 0 { projects = ctx.projects(ctx) }
     if len(projects) == 0 {
         prompt(ctx, "%s: zero closure projects\n", prereq)
@@ -921,7 +923,6 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         concreteList []Entry
         stemmedList []*stemmed
         traversed int
-        obj Object
         okay bool
         err error
     )
@@ -989,20 +990,24 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     } ()
 
     var searchObjects = func() {
+        var obj Object
+
     ForProjectsObjects:
         for _, project := range projects {
             switch obj = project.resolveObject(ctx, prereq); obj.(type) {
-            case *Def: continue ForProjectsObjects
+            case *Builtin, *Def, *ScopeName, *unresolvedobject:
+                continue ForProjectsObjects
             default: if isTrivial(obj) { continue ForProjectsObjects }
             }
 
-            traversed += 1
+            prereqObj = obj
 
             var t = obj.traverse(ctx)
             if promptTraveEntries { prompt(ctx, "%v: %T: %T %v %v ; %v\n",
                 targetValue, targetValue, prereqValue, prereqValue, obj, t) }
 
             okay = true
+            traversed += 1
             traves = append(traves, t...)
             s := traves.add(ctx, traveObj, targetValue)
             s.depend = obj
@@ -1324,7 +1329,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     // Stat directly for files not in included in "files (...)".
     if !okay && prereqFile != nil && prereqFile.exists() {
         okay = true
-    } else if true && !okay && prereqFile == nil && obj == nil && !traves.has() {
+    } else if true && !okay && prereqFile == nil && prereqObj == nil && !traves.has() {
         if f := stat(ctx, prereq, "", ""); f != nil && f.exists() {
             if false { warn(ctx, "%v (%T) is a file (%s)",
                 prereqValue, prereqValue, f.fullname()).debug(6) }
@@ -1375,7 +1380,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         for i, c := range ctx.closureScopes() { erro(ctx, "%v: closure: %v. %v", proj, i, c) }
         for i, concrete := range concreteList { erro(ctx, "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs())).at(concrete.Position()) }
         for i, stemmed  := range stemmedList  { erro(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position) }
-        if obj != nil { erro(ctx, "object: %T %v", obj, obj).at(obj.Position()) }
+        if obj := prereqObj; obj != nil { erro(ctx, "object: %T %v", obj, obj).at(obj.Position()) }
         errostack(ctx, 12, "").debug(512)
         return
     } else {
