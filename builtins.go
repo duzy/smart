@@ -122,6 +122,7 @@ var builtins = map[string]BuiltinFunc {
         `fields`:               builtinFields,
 
         //`usee`:       builtinUsee,
+        `uses`:         builtinUses,
 
         `path`:         builtinPath,
         `string`:       builtinString,
@@ -1723,6 +1724,35 @@ func builtinUsee(ctx Context, args... Value) (result Value) {
         }
         if err == nil {
                 result = MakeListOrScalar(ctx.Position(), list)
+        }
+        return
+}
+
+type builtinUsesOpts struct {
+       generalOpts
+}
+func builtinUses(ctx Context, args... Value) (result Value) {
+        var proj = ctx.Project() //current()
+        if proj == nil {
+                erro(ctx, "unknown current context").debug(1)
+                return
+        }
+
+        var found bool
+        var opts builtinUsesOpts
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+
+ForArgs:
+        for _, arg := range args {
+                var s = arg.Strval(ctx)
+                for _, u := range proj.using.list {
+                        if found = u.project.name == s; found {
+                                break ForArgs
+                        }
+                }
+        }
+        if found {
+                result = MakeBoolean(ctx.Position(), found)
         }
         return
 }
