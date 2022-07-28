@@ -657,6 +657,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
 
     // const dbg = true
     const dbg = false
+
     var (
         stems = ctx.stems()
         g,  _ = ctx.autoGet("@")

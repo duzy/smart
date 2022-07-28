@@ -327,7 +327,7 @@ func modifierDebug(ctx Context, args... Value) (result Value, traves travestates
                         m = prompt(ctx, "%v: %v ; target=%v stems=%v depends=%v\n",
                                 ctx.Position(), args, target, ctx.stems(), depends)
                 } else if len(args) == 1 {
-                        m = prompt(ctx, "%v: %v\n", ctx.Position(), args[0])
+                        m = prompt(ctx, "%v: %v (%T)\n", ctx.Position(), args[0], args[0])
                 } else {
                         m = prompt(ctx, "%v: %v\n", ctx.Position(), args)
                 }
