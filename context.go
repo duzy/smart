@@ -447,8 +447,8 @@ func executeEntry(ctx Context, entry *RuleEntry, args ...Value) (result []Value,
     return
   }
 
-  if t := traves.of(traveCase, traveDone, traveNext, traveFile); t.has() {
-    traves, okay = traves.not(traveCase, traveDone, traveNext, traveFile), true
+  if t := traves.of(traveCase, traveDone, traveNext, traveRule, traveFile); t.has() {
+    traves, okay = traves.not(traveCase, traveDone, traveNext, traveRule, traveFile), true
   }
 
   if traves.has() {

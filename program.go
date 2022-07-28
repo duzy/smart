@@ -670,7 +670,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
         // NOTE: warnings if travestates go too large
         if true {
             // does nothing
-        } else if tt := traves.of(traveObj, traveFile); len(tt) > 100 {
+        } else if tt := traves.of(traveObj, traveRule, traveFile); len(tt) > 100 {
             prompt(ctx, "%v: traves=%d\n", g, len(traves))
             for i, s := range traves {
                 prompt(ctx, "%v: %d. %v\n", g, i, s)
@@ -818,6 +818,11 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
 
             if tt := t.of(traveFile); tt.has() {
                 // traves = traves.not(traveFile)
+                continue
+            }
+
+            if tt := t.of(traveRule); tt.has() {
+                // traves = traves.not(traveRule)
                 continue
             }
 

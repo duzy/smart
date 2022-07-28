@@ -137,6 +137,7 @@ var (
 const ( // larger value higher priority
     traveUnkn travekind = iota
     traveObj  // found object
+    traveRule // found object
     traveFile // exists file
     traveNext // (cond ...) and (case ...)
     traveCase // (case ...) selected
@@ -150,6 +151,7 @@ func (k travekind) String() (s string) {
     switch k {
     case traveUnkn: s = "trave.unkn"
     case traveObj : s = "trave.obj"
+    case traveRule: s = "trave.rule"
     case traveFile: s = "trave.file"
     case traveNext: s = "trave.next"
     case traveDone: s = "trave.done"
@@ -175,10 +177,11 @@ func (p *travestate) String() (s string) { //_error
     case traveCase: s = "case"
     case traveFile: s = "file"
     case traveFail: s = "fail"
+    case traveRule: s = "rule"
     case traveObj : s = "obj"
     }
     if !isNil(p.target)    { s = fmt.Sprintf("%s@%s", s, p.target) } //⇒
-    if !isNil(p.dependPat) { s = fmt.Sprintf("%s:%s"  , s, p.dependPat) }
+    if !isNil(p.dependPat) { s = fmt.Sprintf("%s:%s", s, p.dependPat) }
     if !isNil(p.depend)    { s = fmt.Sprintf("%s>%s", s, p.depend) } //⇒
     if false && p.pos.IsValid() { s = fmt.Sprintf("%s: %s", p.pos, s) }
     if p.error != nil {
@@ -1051,6 +1054,11 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         traves = nil
 
         var t = entry.traverse(ctx)
+        {
+            s := traves.add(ctx, traveRule, targetValue);
+            s.depend = entry
+        }
+
         if false && strings.Contains(prereq, "ui/apple/metal") {
             if s, ok := entry.(*stemmed); ok {
                 warn(ctx, "%v: %v: %v %v", prereq, s.PatternEntry, entry, t).of(entry).debug(1)
@@ -1332,13 +1340,19 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         prompt(ctx, "%s: traverse failed, project %s\n", prereq, proj)
         errostack(ctx, 6, "%v: %v", proj, ctx).debug(16)
         return
-    } else if okay ||
-        (traversed>0 && !traves.has()) ||
-        traves.has(traveDone) ||
-        ctx.configuration() {
+    } else if okay {
+        return // done
+    } else if traves.has(traveDone) {
+        return // done
+    } else if ctx.configuration() {
+        return // done
+    } else if t := traves.of(traveRule); t.has() && t[0].depend != nil &&
+        t[0].depend.(Entry).Name(ctx) == prereq {
         return // done
     } else if t := traves.of(traveObj); t.has() && t[0].depend != nil &&
         t[0].depend.(Object).Name(ctx) == prereq {
+        return // done
+    } else if false && (traversed>0 && !traves.has()) {
         return // done
     } else if prereqPattern != nil {
         s := traves.add(ctx, traveNext, targetValue)
@@ -1354,10 +1368,9 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             if prereqValue != nil { ctx = positional(ctx, prereqValue.Position()) }
         }
 
-        prompt(ctx, "%v: %T: %v %T; projects=%v,%v okay=%v traversed=%d file=%v traves=%v\n",
+        prompt(ctx, "%v:(%T): %T %v; okay=%v traversed=%d file=%v projects=%v\n",
             targetValue, targetValue, prereqValue, prereqValue,
-            proj, projects, okay, traversed, prereqFile, traves).
-            debug(1)
+            okay, traversed, prereqFile, projects).debug(1)
         for i, s := range traves { erro(ctx, "%v: %v: %d. %v", targetValue, prereqValue, i, s).at(s.pos) }
         for i, c := range ctx.closureScopes() { erro(ctx, "%v: closure: %v. %v", proj, i, c) }
         for i, concrete := range concreteList { erro(ctx, "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs())).at(concrete.Position()) }

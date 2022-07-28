@@ -1115,6 +1115,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       var (
         ps = opts.promStr
         st = trimPromptString(targetName)
+        s string
       )
       if caller == nil {
         if st += " …… "; err == nil {
@@ -1125,10 +1126,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
           st += err.Error()
         }
       }
-      var s string
-      if t := programCtx.dirt; t != "" { s = "; " + t }
-      prompt(ctx, "%s%s (%v, stdout=%d bytes, stderr=%d bytes%s)\n",
-        ps, st, time.Now().Sub(start), exeres.Stdout.wrote, exeres.Stderr.wrote, s)
+      if n := exeres.Stdout.wrote; n > 0 { s += fmt.Sprintf(", stdout=%d bytes", n) }
+      if n := exeres.Stderr.wrote; n > 0 { s += fmt.Sprintf(", stderr=%d bytes", n) }
+      if t := programCtx.dirt; t != "" { s += "; " + t }
+      prompt(ctx, "%s%s (%v%s)\n", ps, st, time.Now().Sub(start), s)
     }
   } ()
 
