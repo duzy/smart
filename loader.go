@@ -1701,7 +1701,10 @@ func (l *loader) assign(tok token.Token, def *Def, alt Object, value Value) {
     case token.ADD_ASSIGN: //  +=
         if isTrivial(value) {
             // NOOP
-        } else if isTrivial(def.value) || !def.value.refs(ctx, value) {
+        } else if def.value.refs(ctx, value) {
+            erro(ctx, "self-ref value: %v -> %v ; %s, %s",
+                def.value, value, def.value.Strval(ctx), value.Strval(ctx)).debug(1)
+        } else if /*isTrivial(def.value)*/true {
             def.append(ctx, value)
         } else {
             erro(ctx, "can't append value '%v' to: %v", value, def).debug(1)
