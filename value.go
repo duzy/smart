@@ -5545,10 +5545,19 @@ func (p *selection) value(ctx Context) (v Value) {
         /*if n, ok := o.(*ProjectName); ok && n != nil && n.project != nil {
             defer setclosure(setclosure(cloctx.unshift(n.project.scope)))
         }*/
-        var s = p.s.Strval(ctx)
+        var (
+            s = p.s.Strval(ctx)
+            optional = strings.HasSuffix(s, "?")
+        )
+        if optional { s = strings.TrimSuffix(s, "?") }
         if pn, ok := o.(*ProjectName); ok && (p.t == token.SELECT_PROG1 || p.t == token.SELECT_PROG2) {
             if entries := pn.project.resolveEntries(ctx, s, false, false); entries == nil {
-                erro(ctx, "selection.value: no entry `%s` (%+v)", s, p.String()).at(p.position)
+                if optional {
+                    v = unresolved(pn.project, MakeBareword(p.s.Position(), s))
+                } else {
+                    erro(ctx, "selection.value: no entry `%s` (%+v)",
+                        s, p.String()).at(p.position)
+                }
             } else {
                 v = entries
             }
@@ -5556,6 +5565,8 @@ func (p *selection) value(ctx Context) (v Value) {
             var e error
             if v, e = o.Get(ctx, s); e != nil {
                 erro(ctx, "%v", e).debug(1)
+            } else if optional && isNil(v) {
+                v = unresolved(pn.project, MakeBareword(p.s.Position(), s))
             }
         }
     } else /*if o == nil*/ {

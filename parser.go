@@ -470,8 +470,8 @@ func (p *parser) parseSelect(lhs Value) (res Value) {
 				return
 			}
         default:
-            if name, o, err := p.resolveObject(lhs); err != nil {
-				erro(p, "resolve '%v' failed: %v", lhs, err).at(lhs.Position())
+            if name, o := p.resolveObject(lhs); false {
+				erro(p, "resolve '%v' failed", lhs).at(lhs.Position())
 				erro(p, "parser is here (tok=%s)", tok).at(position)
 				erro(p, "parser to go here (tok=%s, lit=%s)", p.tok, p.lit).at(p.Position()).debug(8)
                 return
@@ -488,8 +488,8 @@ func (p *parser) parseSelect(lhs Value) (res Value) {
             }
         }
     case *Barecomp: // for cases like '.foo'
-        if name, o, err := p.resolveObject(t); err != nil {
-			erro(p, "resolve selection object '%v' (%s) error: %v", lhs, name, err).of(lhs).debug(1)
+        if name, o := p.resolveObject(t); false {
+			erro(p, "resolve selection object '%v' (%s) error", lhs, name).of(lhs).debug(1)
 			return
         } else if !isNil(o) {
 			lhs = o
@@ -1116,12 +1116,15 @@ func (p *parser) parseClosureDelegate() (result Value) {
 			}
 			return
 		}
+
 		switch lTok {
 		case token.LPAREN:
-			if str, resolved, err = p.resolveObject(name); err != nil {
-				erro(p, "resolve '%v' (%s) failed: %v", name, str, err).at(name.Position()).debug(1)
+			if str, resolved = p.resolveObject(name); false {
+				erro(p, "resolve '%v' (%s) failed", name, str).at(name.Position()).debug(1)
+				return
 			} else if str == "" {
 				erro(p, "name '%v' is empty", name).at(name.Position()).debug(1)
+				return
 			} else if isNil(resolved) {
 				if p.isIncludingConf {
 					// Create an empty Def if it's referred in configuration.sm.
@@ -1278,13 +1281,10 @@ func (p *parser) parseSpecialClosureDelegate(lhs bool) Value {
 	var (
 		position = p.positionAt(pos)
 		name = MakeBareword(position, s)
-		nameStr, resolved, err = p.resolveObject(name)
+		nameStr, resolved = p.resolveObject(name)
 		obj Object
 	)
-	if err != nil {
-		erro(p, "resolve '%v' failed: %v", name, err).of(name).debug(6)
-		return MakeNil(position)
-	} else if resolved == nil {
+	if resolved == nil {
 		erro(p, "'%v' is undefined", name).of(name).debug(6)
 		return MakeNil(position)
 	} else if nameStr == "" {
@@ -1918,7 +1918,6 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 		props = p.parseDirectiveSpec()
 		prop0, resolved Value
 		name string
-		err error
 	)
 
 	if generic.dontOperate {
@@ -1937,8 +1936,8 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 		ctx = positional(ctx, position)
 	}
 
-	if name, resolved, err = p.resolveObject(prop0); err != nil {
-		erro(ctx, "resolve '%v' failed: %v", prop0, err).debug(1)
+	if name, resolved = p.resolveObject(prop0); false {
+		erro(ctx, "resolve '%v' failed", prop0).debug(1)
 		return
 	} else if isTrivial(resolved) {
 		if name == "configuration" {
@@ -2152,8 +2151,8 @@ SwitchDialect:
 				// no resolving commands
 			} else if t, ok := x.(*Bareword); !ok {
 				// does nothing
-			} else if _, sym, err := p.resolveObject(t); err != nil {
-				erro(p, "resolve '%v' failed: %v", x, err).at(position)
+			} else if _, sym := p.resolveObject(t); false {
+				erro(p, "resolve '%v' failed", x).at(position)
 			} else if isTrivial(sym) {
 				erro(p, "resolved '%v' (from %v) is nil", t.string, x).of(x)
 			} else if false {

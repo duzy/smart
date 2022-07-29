@@ -1643,23 +1643,35 @@ func (l *loader) OpenNamedScope(name, comment string) (scopes []*Scope) {
     return
 }
 
-func (l *loader) resolveObject(value Value) (name string, result Value, err error) {
+func (l *loader) resolveObject(value Value) (name string, result Value) {
     var pos = value.Position()
     if !pos.IsValid() { pos = l.Position() }
     if _, ok := value.(*selection); ok {
         panic(failure{pos,"resolving a selection"})
     }
 
+    var optional bool
     var ctx = positional(l, pos)
     if name = value.Strval(ctx); name == "" {
         erro(ctx, "name '%v' is empty", name).debug(1)
-    } else if l.Scope() == nil {
+        return
+    } else if optional = strings.HasSuffix(name, "?"); optional {
+        name = strings.TrimSuffix(name, "?")
+    }
+
+    if l.Scope() == nil {
         erro(ctx, "nil scope to resolve '%v'", name).debug(1)
+        return
     } else if _, result = l.Scope().Find(name); !isNil(result) {
         // okay!
     } else if project := l.project; project == nil {
         erro(ctx, "nil project to resolve '%v'", name).debug(1)
+        return
     } else if result = project.resolveObject(ctx, name); isNil(result) {
+        if optional {
+            result = unresolved(project, MakeBareword(pos, name))
+            return
+        }
         if false { erro(ctx, "%v: resolved object '%v' is nil", project, name).debug(1) }
         //erro(ctx, "%v: resolved object '%v' is nil", project, name).debug(1)
     }
