@@ -2037,12 +2037,13 @@ func builtinSubst(ctx Context, args... Value) (res Value) {
 // TODO: supports: $(var:suffix=replacement)
 type builtinPatsubstOpts struct {
         generalOpts
-        files     bool `f,file;fs,files`
+        files     bool `fi,file,fs,files`
+        findFiles bool `find,find-file`
         fullfiles bool `ff,fullfile;ff,fullfiles`
         cleanPath bool `c,clean;c,cleanpath`
-        baseFiles bool `b,base;b,bases;bf,base-files`
-        usedFiles bool `u,used;u,using;uf,used-files`
-        noFileMap bool `n,no-filemap`
+        baseFiles bool `b,base;b,bases;bf,base-files,search-bases`
+        usedFiles bool `u,used;u,using;uf,used-files,search-usees`
+        noFileMap bool `nm,no-filemap`
 }
 func builtinPatsubst(ctx Context, args... Value) (res Value) {
         var (
@@ -2090,7 +2091,7 @@ func builtinPatsubst(ctx Context, args... Value) (res Value) {
 ForSources:
         for _, src := range sources {
                 var source interface{} = src
-                if opts.files || opts.fullfiles {
+                if opts.findFiles || opts.fullfiles {
                         if file, ok := src.(*File); ok {
                                 source = file
                         } else if file = proj.FindFile(ctx, src.Strval(ctx)); file != nil {
@@ -2116,8 +2117,12 @@ ForSources:
                         }
                 }
 
-                var srcPat Value
-                var ( matched bool; str string; stems []string )
+                var (
+                        matched bool
+                        srcPat Value
+                        str string
+                        stems []string
+                )
         ForSrcPats:
                 for _, srcPat = range srcPats {
                         if matched, str, stems = srcPat.match(ctx, source); matched {
@@ -2149,7 +2154,8 @@ ForSources:
                                 name = filepath.Clean(name)
                         }
 
-                        // Deal with special source value
+                        // Deal with source value types
+                        // TODO: consider opts.files
                         var pos = dst.Position()
                         switch t := src.(type) {
                         case *File:
@@ -2191,7 +2197,16 @@ ForSources:
                         case *String, *Compound:
                                 list = append(list, MakeString(pos, name))
                                 continue ForDstPats
-
+                        case *Path:
+                                list = append(list, MakePathStr(pos, name))
+                                continue ForDstPats
+                        case *Bareword, *Barecomp:
+                                if strings.Contains(name, PathSep) {
+                                        list = append(list, MakePathStr(pos, name))
+                                } else {
+                                        list = append(list, MakeBareword(pos, name))
+                                }
+                                continue ForDstPats
                         default:
                                 if strings.Contains(name, PathSep) {
                                         list = append(list, MakePathStr(pos, name))
