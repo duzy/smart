@@ -2607,16 +2607,16 @@ func (p *String) Float(ctx Context) (f float64, err error) {
     return strconv.ParseFloat(p.string, 64)
 }
 func (p *String) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*String); ok {
-        if p.string == a.string {
+    switch t := v.(type) {
+    case *Group:
+    case *List: if len(t.Elems) == 1 { res = p.cmp(ctx, t.Elems[0]) }
+    default: if s := t.Strval(ctx); p.string == s {
             res = cmpEqual
-        } else if p.string < a.string {
+        } else if p.string < s {
             res = cmpSmaller
-        } else /*if p.string > a.string*/ {
+        } else /*if p.string > s*/ {
             res = cmpGreater
         }
-    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
-        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }

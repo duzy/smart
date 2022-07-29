@@ -845,6 +845,7 @@ ForValList:
 // 1: $(case     (a 'xxx') (b 'yyy') (c 'zzz') (yes 'else'))
 // 2: $(case val (a 'xxx') (b 'yyy') (c 'zzz') ('if none or nil'))
 // 3: $(case val (a 'xxx') (b 'yyy') (c 'zzz') (- 'if none or nil'))
+// 4: $(case val (a 'xxx') (b 'yyy') (c -) (- -))
 func builtinBranchCase(ctx Context, args... Value) (res Value) {
         var val Value
         if args = merge(args...); len(args) == 0 {
@@ -865,23 +866,31 @@ func builtinBranchCase(ctx Context, args... Value) (res Value) {
                                 continue
                         }
 
+                        var collect bool
                         var v = g.Elems[0].expand(ctx, expandPlainValue)
                         if isNil(v) { v = g.Elems[0] }
                         if val == nil && v.True(ctx) {
-                                res = MakeListOrScalar(arg.Position(), g.Elems[1:])
-                                return
-                        } else if val != nil && (isNone(val) || isNil(val)) {
-                                if isNone(v) || isNil(v) {
-                                        res = MakeListOrScalar(arg.Position(), g.Elems[1:])
-                                        return
+                                collect = true
+                        } else if val != nil && isTrivial(val) {
+                                if isTrivial(v) {
+                                        collect = true
                                 } else if f, ok := v.(*Flag); ok && isNil(f.name) {
-                                        res = MakeListOrScalar(arg.Position(), g.Elems[1:])
-                                        return
+                                        collect = true
                                 }
                         } else if val != nil && val.cmp(ctx, v) == cmpEqual {
-                                res = MakeListOrScalar(arg.Position(), g.Elems[1:])
-                                return
+                                collect = true
+                        } else if false && val != nil {
+                                warn(ctx, "%v %v %v %v", val, v, g, val.cmp(ctx, v))
                         }
+                        if !collect { continue }
+
+                        var vals []Value
+                        for _, v := range g.Elems[1:] {
+                                if f, ok := v.(*Flag); ok && isNil(f.name) { continue }
+                                vals = append(vals, v)
+                        }
+                        res = MakeListOrScalar(arg.Position(), vals)
+                        return
                 } else {
                         erro(ctx, "unexpected case: %T %v", arg, arg).of(arg).debug(1)
                         return
