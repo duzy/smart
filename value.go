@@ -2954,7 +2954,7 @@ func (p *Barecomp) Combine(ctx Context, x Value) {
 }
 
 // Barefile works like an alias of a File, the Strval() is identical to File.
-type Barefile struct {
+type Barefile struct { // TODO: remove this type
     valbase
     Name Value
     File *File

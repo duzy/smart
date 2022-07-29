@@ -2922,10 +2922,12 @@ func (p *parser) parseTemplateClause() {
 			state := p.scanner.State()
 			tmpl.end, tmpl.endPos = &state, pos
 			return //true
-		}} else {
+		}} else if false {
 			erro(p, "unexpected template: %v (verb=%s, nested=%v)",
 				p.tok, verb, nested).debug(1)
 			return
+		} else {
+			continue
 		}
 	}
 }

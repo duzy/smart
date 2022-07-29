@@ -2754,13 +2754,7 @@ func fullnameOrStrval(ctx Context, a Value, projects ...*Project) (s string) {
 func asOptFullname(ctx Context, val Value, projects ...*Project) (file *File, s string, ok bool) {
         if file, s, ok = fullname(ctx, val, projects...); ok {
                 return
-        }
-
-        switch val.(type) {
-        case *String, *Compound: return
-        }
-
-        if s = val.Strval(ctx); s == "" {
+        } else if s = val.Strval(ctx); s == "" {
                 // ...
         } else if filepath.IsAbs(s) {
                 file = stat(ctx, s, "", "")
@@ -2775,7 +2769,6 @@ func asOptFullname2(ctx Context, val Value, projects ...*Project) (file *File, s
                 switch val.(type) {
                 case *String, *Compound: return
                 }
-
                 for _, proj := range projects {
                         if file = proj.FindFile(ctx, s); file != nil {
                                 s = file.fullname()
@@ -3099,7 +3092,7 @@ func builtinChdir(ctx Context, args... Value) (res Value) {
 }
 
 type builtinRenameOpts struct {
-        // TODO: ...
+        generalOpts
 }
 func builtinRename(ctx Context, args... Value) (res Value) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
@@ -3146,9 +3139,8 @@ func builtinRename(ctx Context, args... Value) (res Value) {
 }
 
 type builtinRemoveOpts struct {
+        generalOpts
         all bool `a,all;r,recursive`
-        debug bool `d,debug`
-        verbose bool `v,verbose`
 }
 func builtinRemove(ctx Context, args... Value) (res Value) {
         var (
@@ -3173,7 +3165,7 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                         }
                         for _, s := range names {
                                 if opts.verbose { prompt(ctx, "remove %s\n", s) }
-                                if opts.debug   { info(ctx, "remove %s", s).debug(1) }
+                                if opts.debug>0 { info(ctx, "remove %s", s).debug(opts.debug) }
                                 if opts.all {
                                         err = os.RemoveAll(s)
                                 } else {
@@ -3189,19 +3181,17 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                         if file != nil { ok = true } else
                         if opts.all {
                                 warn(ctx, "not a file: %v (%T)", a, a)
-                                warn(ctx, "not a file: %s (%v)", str, file)
                                 warn(ctx, "in %v", closured)
-                                warnstack(ctx, 3, "").debug(8)
+                                warnstack(ctx, 3, "").debug(32)
                         } else {
                                 erro(ctx, "not a file: %v (%T)", a, a)
-                                erro(ctx, "not a file: %v (%v)", str, file)
                                 erro(ctx, "in %v", closured)
-                                errostack(ctx, 3, "").debug(16)
+                                errostack(ctx, 3, "").debug(32)
                                 break
                         }
                 } else {
                         if opts.verbose { prompt(ctx, "remove %s\n", str) }
-                        if opts.debug   { warn(ctx, "remove %s", str).debug(1) }
+                        if opts.debug>0 { warn(ctx, "remove %s", str).debug(opts.debug) }
                         if opts.all {
                                 err = os.RemoveAll(str)
                         } else {
