@@ -107,8 +107,12 @@ var builtins = map[string]BuiltinFunc {
         `serve-http`:   builtinServeHttp,
         `serve-https`:  builtinServeHttps,
 
-        //`plus`:    builtinPlus,
-        //`minus`:   builtinMinus,
+        `plus`:     builtinPlus,
+        `minus`:    builtinMinus,
+        `multiply`: builtinMultiply,
+        `mul`:      builtinMultiply,
+        `divide`:   builtinDivide,
+        `div`:      builtinDivide,
 
         `quote`:                builtinQuote,
         `quote-join`:           builtinQuoteJoin,
@@ -1390,10 +1394,10 @@ func builtinPrintln(ctx Context, args... Value) (res Value) {
 }
 
 type builtinAppendOpts struct {
+        generalOpts
         auto bool `a,auto`
         closure bool `c,closure`
         string bool `s,str;s,string`
-        verbose bool `v,verbose`
 }
 func builtinAppend(ctx Context, args... Value) (result Value) {
         var (
@@ -1448,32 +1452,113 @@ func builtinAppend(ctx Context, args... Value) (result Value) {
         return
 }
 
-func builtinPlus(ctx Context, args... Value) (result Value) {
-        var num int64
-        for _, a := range args {
-                if i, e := a.Integer(ctx); e == nil { num += i } else {
-                        erro(ctx, "%v: %v", a, e).debug(1)
-                }
-        }
-        return MakeInt(ctx.Position(), num)
+type builtinMathOpts struct {
+        generalOpts
+        int bool `i,int,integer`
 }
-
-func builtinMinus(ctx Context, args... Value) (result Value) {
-        var num int64
-        for i, a := range args {
-                if v, e := a.Integer(ctx); e != nil {
-                        erro(ctx, "%v: %v", a, e).debug(1)
-                        return
-                } else if i == 0 {
-                        num = v
-                } else {
-                        num -= v
+func builtinPlus(ctx Context, args... Value) (result Value) {
+        var opts builtinMathOpts
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        if opts.int {
+                var num int64
+                for n, a := range args {
+                        if i, e := a.Integer(ctx); e == nil {
+                                if n == 0 { num = i } else { num += i }
+                        } else {
+                                erro(ctx, "%v: %v", a, e).debug(1)
+                        }
                 }
+                return MakeInt(ctx.Position(), num)
+        } else {
+                var num float64
+                for n, a := range args {
+                        if f, e := a.Float(ctx); e == nil {
+                                if n == 0 { num = f } else { num += f }
+                        } else {
+                                erro(ctx, "%v: %v", a, e).debug(1)
+                        }
+                }
+                return MakeFloat(ctx.Position(), num)
         }
-        return MakeInt(ctx.Position(), num)
+}
+func builtinMinus(ctx Context, args... Value) (result Value) {
+        var opts builtinMathOpts
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        if opts.int {
+                var num int64
+                for n, a := range args {
+                        if i, e := a.Integer(ctx); e == nil {
+                                if n == 0 { num = i } else { num -= i }
+                        } else {
+                                erro(ctx, "%v: %v", a, e).debug(1)
+                        }
+                }
+                return MakeInt(ctx.Position(), num)
+        } else {
+                var num float64
+                for n, a := range args {
+                        if f, e := a.Float(ctx); e == nil {
+                                if n == 0 { num = f } else { num -= f }
+                        } else {
+                                erro(ctx, "%v: %v", a, e).debug(1)
+                        }
+                }
+                return MakeFloat(ctx.Position(), num)
+        }
+}
+func builtinMultiply(ctx Context, args... Value) (result Value) {
+        var opts builtinMathOpts
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        if opts.int {
+                var num int64
+                for n, a := range args {
+                        if i, e := a.Integer(ctx); e == nil {
+                                if n == 0 { num = i } else { num *= i }
+                        } else {
+                                erro(ctx, "%v: %v", a, e).debug(1)
+                        }
+                }
+                return MakeInt(ctx.Position(), num)
+        } else {
+                var num float64
+                for n, a := range args {
+                        if f, e := a.Float(ctx); e == nil {
+                                if n == 0 { num = f } else { num *= f }
+                        } else {
+                                erro(ctx, "%v: %v", a, e).debug(1)
+                        }
+                }
+                return MakeFloat(ctx.Position(), num)
+        }
+}
+func builtinDivide(ctx Context, args... Value) (result Value) {
+        var opts builtinMathOpts
+        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        if opts.int {
+                var num int64
+                for n, a := range args {
+                        if i, e := a.Integer(ctx); e == nil {
+                                if n == 0 { num = i } else { num /= i } // FIXME: NaN
+                        } else {
+                                erro(ctx, "%v: %v", a, e).debug(1)
+                        }
+                }
+                return MakeInt(ctx.Position(), num)
+        } else {
+                var num float64
+                for n, a := range args {
+                        if f, e := a.Float(ctx); e == nil {
+                                if n == 0 { num = f } else { num /= f } // FIXME: NaN
+                        } else {
+                                erro(ctx, "%v: %v", a, e).debug(1)
+                        }
+                }
+                return MakeFloat(ctx.Position(), num)
+        }
 }
 
 type builtinUniqueOpts struct {
+        generalOpts
 	reverse bool `r,rev,reverse`
 	keepAuto bool `a,auto,keepauto,keep-auto`
         unexpand bool `un,ue,unexpand,ne,noexpand,no-expand`

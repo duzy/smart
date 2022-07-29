@@ -216,18 +216,23 @@ func (ctx *defaultContext) configure() {
     return
 }
 
-func (p *Project) openConfiguration(ctx Context, ) (file *os.File, err error) {
+func (p *Project) openConfiguration(ctx Context) (file *os.File, err error) {
     // defer setclosure(setclosure(cloctx.unshift(p.scope)))
     if f := p.configuration(ctx); f == nil {
-        erro(ctx, "nil configuration file for %v", p).at(p.position).debug(1)
+        erro(ctx, "nil configuration file for %v", p).debug(1)
+        return
     } else if s := f.fullname(); s == "" {
-        erro(ctx, "empty configuration file name: %v", f).at(p.position).debug(1)
+        erro(ctx, "empty configuration file name: %v", f).debug(1)
+        return
     } else if err = os.MkdirAll(filepath.Dir(s), os.FileMode(0755)); err != nil {
-        erro(ctx, "make path %s failed: %v", filepath.Dir(s), err).at(p.position).debug(1)
+        erro(ctx, "make path %s failed: %v", filepath.Dir(s), err).debug(1)
+        return
     } else if file, err = os.OpenFile(s, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600)); err != nil {
-        erro(ctx, "open configuration %s failed: %v", s, err).at(p.position).debug(1)
+        erro(ctx, "open configuration %s failed: %v", s, err).debug(1)
+        return
+    } else {
+        return
     }
-    return
 }
 
 func configPrintf(ctx Context, str string, args... interface{}) {
