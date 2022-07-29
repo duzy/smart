@@ -1347,30 +1347,71 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         }
     }
 
-    if proj := ctx.Project(); err != nil {
+    var proj = ctx.Project()
+    if err != nil {
         prompt(ctx, "%s: traverse failed, project %s\n", prereq, proj)
         errostack(ctx, 6, "%v: %v", proj, ctx).debug(16)
         return
-    } else if okay {
+    }
+
+    if okay {
         return // done
     } else if traves.has(traveDone) {
         return // done
     } else if ctx.configuration() {
         return // done
-    } else if t := traves.of(traveRule); t.has() && t[0].depend != nil &&
-        t[0].depend.(Entry).Name(ctx) == prereq {
-        return // done
-    } else if t := traves.of(traveObj); t.has() && t[0].depend != nil &&
-        t[0].depend.(Object).Name(ctx) == prereq {
-        return // done
-    } else if false && (traversed>0 && !traves.has()) {
-        return // done
-    } else if prereqPattern != nil {
+    }
+
+    if t := traves.of(traveRule); t.has() && t[0].depend != nil {
+        if s, ok := t[0].depend.(*stemmed); ok {
+            if false {
+                for i, concrete := range concreteList {
+                    warn(ctx, "concrete: %d. %v (%d programs)", i,
+                        concrete, len(concrete.Programs())).at(concrete.Position())
+                }
+                for i, stemmed  := range stemmedList {
+                    warn(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position)
+                }
+                warn(ctx, "%v %s", s.Name(ctx), prereq).debug(1)
+            }
+            if true { // NOTE: add traveNext or not seems the same (not better)
+                s := traves.add(ctx, traveNext, targetValue)
+                s.dependPat = prereqPattern
+                s.depend = prereqValue
+            }
+            return
+        }
+        if t[0].depend.(Entry).Name(ctx) == prereq {
+            return // done
+        }
+    }
+    if t := traves.of(traveObj); t.has() && t[0].depend != nil {
+        if t[0].depend.(Object).Name(ctx) == prereq {
+            return // done
+        }
+    }
+
+    if prereqPattern != nil {
+        if false {
+            for i, concrete := range concreteList {
+                warn(ctx, "concrete: %d. %v (%d programs)", i,
+                    concrete, len(concrete.Programs())).at(concrete.Position())
+            }
+            for i, stemmed  := range stemmedList {
+                warn(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position)
+            }
+            warn(ctx, "%v %s", prereqPattern, prereq).debug(1)
+        }
         s := traves.add(ctx, traveNext, targetValue)
         s.dependPat = prereqPattern
         s.depend = prereqValue
         return
-    } else if len(ctx.stems()) == 0 || ctx.mustExists() {
+    }
+
+    if false && (traversed>0 && !traves.has()) {
+        return // done
+    }
+    if len(ctx.stems()) == 0 || ctx.mustExists() {
         if s := traves.add(ctx, traveFail, targetValue); prereqFile != nil {
             s.error = fileNotFoundError{proj, prereqFile}
             ctx = positional(ctx, prereqFile.position)
