@@ -838,9 +838,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         if okay && closure != nil && !opts.reconfig { return }
     }
     //if closure == nil { closure = ctx.closcop }
-    defer func(s string, c *Scope) {
-        configuredFiles[s] = c
-    } (filename, closure)
+    defer func(s string, c *Scope) { configuredFiles[s] = c } (filename, closure)
 
     var data bytes.Buffer
     if buffer, _ := ctx.autoGet("-"); !isNil(buffer) {

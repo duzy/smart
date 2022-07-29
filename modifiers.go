@@ -2421,6 +2421,7 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, traves travestate
                 s += string(bytes)
                 if opts.foot != nil { s = opts.foot.Strval(ctx) }
                 ctx.autoSet("-", MakeString(ctx.Position(), s))
+                ctx.autoSet("-file", file)
         } else {
                 brk := traves.add(ctx, traveFail, target)
                 brk.error = err

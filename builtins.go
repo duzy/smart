@@ -4100,10 +4100,19 @@ func (project *Project) config(ctx Context, name string) (def *Def) {
 
 func (project *Project) configExpand(ctx Context, s string) (result string, err error) {
         var (
+                pos Position
                 res = new(bytes.Buffer)
-                index = 0
+                index, line = 0, 0
         )
+        if v, _ := ctx.autoGet("-file"); v != nil {
+                pos.Filename = v.(*File).fullname()
+                // warn(ctx, "%T %v %v", v, v, pos)
+        }
         for _, m := range rxConfigRef.FindAllStringSubmatchIndex(s, -1) {
+                line += strings.Count(s[index:m[0]], "\n")
+                pos.Line = 1 + line
+                pos.Column = m[0] - index - strings.LastIndex(s[index:m[0]], "\n")
+
                 fmt.Fprint(res, s[index:m[0]])
                 index = m[1] // reset index immediately to keep forward
 
@@ -4118,7 +4127,10 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                         val Value
                 )
                 if def = project.config(ctx, name); def == nil {
-                        if true { warnstack(ctx, 3, "%v undefined", name).debug(1) }
+                        if true {
+                                prompt(ctx, "%v: %v undefined\n", pos, name)
+                                warnstack(ctx, 3, "in %v", project).debug(6)
+                        }
                         continue
                 } else if val = def.Call(ctx); isNil(val) {
                         if true { warn(ctx, "%v is nil (%T)", name, val).of(def).debug(1) }
@@ -4170,6 +4182,7 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
                 erro(ctx, "%v", err).debug(1)
                 return
         }
+
         for _, m := range rxConfigure.FindAllStringSubmatchIndex(str, -1) {
                 if _, err = out.WriteString(str[index:m[0]]); err != nil {
                         erro(ctx, "%v", err).debug(1)
