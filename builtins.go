@@ -129,6 +129,8 @@ var builtins = map[string]BuiltinFunc {
         `uses`:         builtinUses,
 
         `path`:         builtinPath,
+        `bare`:         builtinBare, // different from builtinBareword, for files, etc.
+        `bareword`:     builtinBareword,
         `string`:       builtinString,
         `strings`:      builtinStrings,
         `strip`:        builtinStrip,
@@ -1851,6 +1853,35 @@ func builtinPath(ctx Context, args... Value) (result Value) {
                 list = append(list, MakePathStr(pos, a.Strval(ctx)))
         }
         result = MakeListOrScalar(pos, list)
+        return
+}
+
+func builtinBare(ctx Context, args... Value) (result Value) {
+        var vals []Value
+        for _, a := range mergeExpand(ctx, expandPlainValue, args...) {
+                var val Value
+                switch a.(type) {
+                case *String, *Compound:
+                        val = MakeBareword(a.Position(), a.Strval(ctx));
+                default: val = a
+                }
+                vals = append(vals, val)
+        }
+        result = MakeListOrScalar(ctx.Position(), vals)
+        return
+}
+
+func builtinBareword(ctx Context, args... Value) (result Value) {
+        var vals []Value
+        for _, a := range mergeExpand(ctx, expandPlainValue, args...) {
+                var val Value
+                switch a.(type) {
+                case *Bareword: val = a
+                default: val = MakeBareword(a.Position(), a.Strval(ctx));
+                }
+                vals = append(vals, val)
+        }
+        result = MakeListOrScalar(ctx.Position(), vals)
         return
 }
 
