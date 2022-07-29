@@ -3867,7 +3867,8 @@ type wildcardOpts struct {
         errorMissing bool `em,errormissing;e,error-missing`
         baseFiles bool `b,base,bases;bf,base-files`
         usedFiles bool `u,used;u,using;uf,used-files`
-        name bool `s,str,string;n,name;bare`
+        names bool `n,name,names;bare`
+        strs bool `s,str,strs,string,strings`
         exclude []Value `x,ex,excl,exclude,except,no,not`
         filetype string `ft,filetype,file-type` // dir, file, etc.
         dir string `di,dir,directory`
@@ -3901,21 +3902,20 @@ func builtinWildcard(ctx Context, args... Value) (res Value) {
         }
 
         var vals []Value
-ForFiles:
-        for _, file := range files {
+        ForFiles: for _, file := range files {
                 for _, x := range opts.exclude {
                         if ok, _, _ := x.match(ctx, file); ok {
                                 continue ForFiles
                         }
                 }
-                if !opts.name {
+                if !(opts.names || opts.strs) {
                         vals = append(vals, file)
+                } else if opts.strs {
+                        vals = append(vals, MakeString(file.position, file.name))
                 } else if strings.Contains(file.name, PathSep) {
                         vals = append(vals, MakePathStr(file.position, file.name))
-                } else if true {
-                        vals = append(vals, MakeBareword(file.position, file.name))
                 } else {
-                        vals = append(vals, MakeString(file.position, file.name))
+                        vals = append(vals, MakeBareword(file.position, file.name))
                 }
         }
         res = MakeListOrScalar(ctx.Position(), vals)
