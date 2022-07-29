@@ -2974,7 +2974,16 @@ func (p *parser) parseClause() {
 		return
 	}
 
-	erro(p, "bad clause: %v (%s) after %v", p.tok, p.lit, list).debug(6)
+	var isIncludingConf = p.isIncludingConf
+	// for pp := p.loader.parser; !isIncludingConf && pp != nil && pp != p; {
+	// 	isIncludingConf = pp.isIncludingConf
+	// 	pp = p.loader.parser
+	// }
+	if isIncludingConf {
+		warn(p, "bad clause: %v (kit=%s) after %v", p.tok, p.lit, list).debug(10)
+	} else {
+		erro(p, "bad clause: %v (lit=%s) after %v", p.tok, p.lit, list).debug(10)
+	}
 }
 
 type projectDeclOpts struct {

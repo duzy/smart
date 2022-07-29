@@ -1000,7 +1000,8 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
 }
 
 type includeFileOpts struct {
-    verbose bool `v,verb,verbose`
+    generalOpts
+    isConfiguration bool
 }
 func (l *loader) includeFile(pos Position, opts includeFileOpts, spec Value) {
     var (
@@ -1058,7 +1059,7 @@ func (l *loader) includeFile(pos Position, opts includeFileOpts, spec Value) {
     var absDir, baseName = filepath.Split(fullname)
     defer func(mode Mode) { l.mode = mode } (l.mode) // Must restore parse mode!
     defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
-    if _, err = l.ParseFile(fullname, nil, parseMode|Flat); err != nil {
+    if _, err = l.parseFile(fullname, nil, parseMode|Flat, &opts); err != nil {
         prompt(ctx, "%v: %v\n", fullname, specName)
         erro(ctx, "include error occurred (from %v)", fullname)
         errostack(ctx, 5, "%v", ctx).debug(16)
@@ -1542,6 +1543,7 @@ func (l *loader) loadProjectConfiguration(ident *Barecomp, identStr string, decl
             prompt(ctx, "Configuration for %s (%s)\n", l.project, l.project.spec).debug(1)
         }
         var opts includeFileOpts
+        opts.isConfiguration = true
         l.isIncludingConf = true
         l.includeFile(pos, opts, file)
         l.isIncludingConf = false
@@ -1808,6 +1810,10 @@ func readSource(filename string, src interface{}) ([]byte, error) {
 // the corresponding ast.File node. The source code may be provided via
 // the filename of the source file, or via the src parameter.
 func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *parsedFile, err error) {
+    return l.parseFile(filename, src, mode, nil)
+}
+
+func (l *loader) parseFile(filename string, src interface{}, mode Mode, incOpts *includeFileOpts) (f *parsedFile, err error) {
     if options.traceLaunch { defer un(trace(t_launch, "loader.ParseFile")) }
 
     var text []byte
@@ -1849,6 +1855,9 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *pars
     l.parser = new(parser)
     l.parser.init(l, filename, text)
     l.mode = mode
+    if incOpts != nil {
+        l.parser.isIncludingConf = incOpts.isConfiguration
+    }
 
     // set result values
     if f = l.parser.parseFile(); f == nil {
