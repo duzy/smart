@@ -1799,12 +1799,12 @@ func (p *Argumented) expandible(ctx Context, w expandwhat) (res bool) {
 }
 func (p *Argumented) expand(ctx Context, w expandwhat) (res Value) {
     var (
+        args []Value = p.args
         val Value
-        args []Value
         num int
     )
     if val = p.value.expand(ctx, w); isNil(val) { val = p.value }
-    if w&expandArgedArgs != 0 { args, num = expandall(ctx, w, p.args...) }
+    if w&expandArgedArgs != 0 { args, num = expandall(ctx, w, args...) }
     if val != p.value || num > 0 { res = &Argumented{ val, args }}
     return
 }
