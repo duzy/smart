@@ -811,8 +811,9 @@ func (l *loader) determine(position Position, tok token.Token, identifier, value
     var ctx Context = positional(l, position)
     iterateArgumentedIdentifiers(ctx, identifier, func(ident Value, stems []Value) {
         var def = l.determine1(ctx, tok, ident, value)
-        if false && l.project.name == "lld.tools.lld" && strings.HasPrefix(ident.String(), "ldlibs") {
-            warn(ctx, "%v -> %v, %v -> %v", identifier, ident, stems, def).of(ident).debug(1)
+        if false && l.project.name == "variant_base" && strings.HasPrefix(ident.String(), "using.") {
+            warn(ctx, "%v -> %v, %v -> %v ; %v",
+                identifier, ident, stems, def, value).of(ident).debug(1)
         }
         defs = append(defs, def)
     })
@@ -831,7 +832,16 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
             return
         }
 
-    case *Bareword, *Barecomp, *Qualiword, *Path, *Flag:
+    case *Argumented:
+        var args = mergeExpand(ctx, expandPlainValue, t.args...)
+        erro(ctx, "TODO: multiple defs: %v %v", t.value, args)
+        return
+
+    case *Group:
+        erro(ctx, "TODO: multiple defs: %v", t.Elems)
+        return
+
+    default: //case *Bareword, *Barecomp, *Qualiword, *Path, *Flag:
         var name = t.Strval(ctx)
         if _, ok := builtins[name]; ok {
             erro(ctx, "`%v` (%v) is builtin name", identifier, name)
@@ -878,10 +888,6 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
             }
         }
 
-    case *Argumented:
-        var args = mergeExpand(ctx, expandPlainValue, t.args...)
-        erro(ctx, "TODO: multiple defs: %v %v", t.value, args)
-        return
     }
     if def == nil {
         erro(ctx, "def is nil for '%v' of %T", identifier, identifier).debug(1)

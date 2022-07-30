@@ -731,10 +731,11 @@ func (d *Def) append(ctx Context, va... Value) {
                         // Appending Def value is not recommended, but if it does, we
                         // make a warning here to give a chance for further optimization.
                         warn(ctx, "%v; (%v)", d, d.origin)
-                        warnstack(ctx, 5, "%v: append a Def value: %v", d.name, def).debug(16)
+                        warnstack(ctx, 5, "%v: append Def value: %v",
+                                d.name, def).at(d.position).debug(10)
                 }
                 if def == d || def.value.refs(ctx, d) {
-                        warnstack(ctx, 5, "%v: append recursive variable '%s'", d.owner, d.name).debug(6)
+                        errostack(ctx, 5, "%v: append recursive variable '%s'", d.owner, d.name).debug(6)
                         return
                 }
                 switch d.origin {
@@ -742,6 +743,7 @@ func (d *Def) append(ctx Context, va... Value) {
                 default: va[i] = MakeDelegate(/*val.Position()*/pos, token.LPAREN, def)
                 }
         }
+
         switch d.origin {
         case DefExpand1: // :=     expands delegates
                 va, _ = expandall(ctx, expandDelegate, va...)
