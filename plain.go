@@ -16,10 +16,11 @@ import (
 // Value returned by (plain) modifier.
 type Plain struct {
         valbase
-        Name, Value string
+        Name string
+        Value *String
 }
 func (p *Plain) String() (s string) {
-        var value = strings.Replace(p.Value, "'", "\\'", -1)
+        var value = strings.Replace(p.Value.string, "'", "\\'", -1)
         if p.Name == "" {
                 s = fmt.Sprintf("(plain '%s')", value)
         } else {
@@ -27,20 +28,20 @@ func (p *Plain) String() (s string) {
         }
         return
 }
-func (p *Plain) Strval(_ Context) string { return p.Value }
-func (p *Plain) True(_ Context) bool { return strings.TrimSpace(p.Value) != "" }
-func (p *Plain) Integer(_ Context) (n int64, e error) { return strconv.ParseInt(p.Value, 10, 64) }
-func (p *Plain) Float(_ Context) (n float64, e error) { return strconv.ParseFloat(p.Value, 64) }
+func (p *Plain) Strval(_ Context) string { return p.Value.string }
+func (p *Plain) True(_ Context) bool { return strings.TrimSpace(p.Value.string) != "" }
+func (p *Plain) Integer(_ Context) (n int64, e error) { return strconv.ParseInt(p.Value.string, 10, 64) }
+func (p *Plain) Float(_ Context) (n float64, e error) { return strconv.ParseFloat(p.Value.string, 64) }
 func (p *Plain) expand(_ Context, _ expandwhat) (val Value) {
-        val = MakeString(p.position, p.Value)
+        val = p.Value //MakeString(p.position, p.Value)
         return
 }
 func (p *Plain) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*Plain); ok {
-                if p.Name == a.Name && p.Value == a.Value {
+                if p.Name == a.Name && (p.Value == a.Value || p.Value.string == a.Value.string) {
                         res = cmpEqual
                 }
-        } else if v.Strval(ctx) == p.Value {
+        } else if v.Strval(ctx) == p.Value.string {
                 res = cmpEqual
         }
         return
@@ -65,7 +66,7 @@ func (_ *plain) Evaluate(ctx Context, args ...Value) (result Value, err error) {
                 pos = program.recipes[0].Position()
         }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
-        result = &Plain{valbase{pos},name,str}
+        result = &Plain{valbase{pos}, name, MakeString(ctx.Position(), str)}
         if false && ctx.Project().name == "c++" { warn(ctx, "%v", str).debug(1) }
         return
 }

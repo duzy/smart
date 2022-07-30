@@ -50,17 +50,17 @@ func (p *objbase) Name(ctx Context) string { panic("inquiring name of an unknown
 func (p *objbase) Get(_ Context, name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
 func (p *objbase) rescope(_ Context, scope *Scope) { panic("rescoping unknown object") }
 func (p *objbase) exists() existence { return existenceMatterless }
-func (p *objbase) cmp(ctx Context, v Value) (res cmpres) {
-        if a, ok := v.(*objbase); ok {
-                assert(ok, "value is not objbase")
-                if p.owner == a.owner && p.scope == a.scope {
-                        res = cmpEqual
-                }
-        } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
-                res = p.cmp(ctx, l.Elems[0])
-        }
-        return
-}
+// func (p *objbase) cmp(ctx Context, v Value) (res cmpres) {
+//         if a, ok := v.(*objbase); ok {
+//                 assert(ok, "value is not objbase")
+//                 if p.owner == a.owner && p.scope == a.scope {
+//                         res = cmpEqual
+//                 }
+//         } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+//                 res = p.cmp(ctx, l.Elems[0])
+//         }
+//         return
+// }
 
 type knownobject struct { // generally named objects
         objbase
@@ -81,6 +81,7 @@ func (p *knownobject) rescope(_ Context, scope *Scope) {
                 }
         }
 }
+func (p *knownobject) expand(_ Context, _ expandwhat) Value { return p }
 func (p *knownobject) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*knownobject); ok {
                 assert(ok, "value is not knownobject")
@@ -125,6 +126,7 @@ func (p *unresolvedobject) rescope(ctx Context, scope *Scope) {
                 }
         }
 }
+func (p *unresolvedobject) expand(_ Context, _ expandwhat) Value { return p }
 func (p *unresolvedobject) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*unresolvedobject); ok {
                 assert(ok, "value is not unresolvedobject")
@@ -193,6 +195,7 @@ func (p *ProjectName) stat(ctx Context) (si *statinfo) {
         }
         return
 }
+func (p *ProjectName) expand(_ Context, _ expandwhat) Value { return p }
 func (p *ProjectName) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*ProjectName); ok {
                 assert(ok, "value is not ProjectName")
@@ -223,6 +226,7 @@ func (n *ScopeName) Get(ctx Context, name string) (Value, error) {
         }
         return nil, fmt.Errorf("Undefined `%s' in scope `%s'.", name, n.Name(ctx))
 }
+func (p *ScopeName) expand(_ Context, _ expandwhat) Value { return p }
 func (p *ScopeName) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*ScopeName); ok {
                 assert(ok, "value is not ScopeName")
@@ -567,7 +571,7 @@ func (d *Def) expandible(ctx Context, w expandwhat) (res bool) {
 func (d *Def) expand(ctx Context, w expandwhat) (res Value) {
         var (
                 origin = d.origin
-                value0, value1, value2 Value
+                value0 Value
         )
         if origin == DefArg || origin == DefAuto {
                 value0, _ = ctx.autoGet(d.name)
@@ -577,20 +581,14 @@ func (d *Def) expand(ctx Context, w expandwhat) (res Value) {
                 d.mutex.Unlock()
         }
 
-        if isNil(value0) {
+        if res = d; isNil(value0) {
                 return // does nothing
         } else if isNone(value0) {
                 if w&expandDef != 0 { res = value0 }
-        } else if value1 = value0.expand(ctx, w); w&expandDef == 0 {
-                if !isNil(value1) && value1 != value0 {
-                        res = &Def{ knownobject: d.knownobject, origin: origin, value: value1 }
-                }
-        } else if isNil(value1) {
-                res = value0
-        } else if value2 = value1.expand(ctx, w); isNil(value2) {
-                res = value1
-        } else {
-                res = value2
+        } else if value1 := value0.expand(ctx, w); w&expandDef != 0 {
+                res = value1.expand(ctx, w)
+        } else if value1 != value0 {
+                res = &Def{ knownobject: d.knownobject, origin: origin, value: value1 }
         }
         return
 }
@@ -744,11 +742,12 @@ func (d *Def) append(ctx Context, va... Value) {
                 }
         }
 
+        var w = expandDelegate|expandArgs
         switch d.origin {
         case DefExpand1: // :=     expands delegates
-                va, _ = expandall(ctx, expandDelegate, va...)
+                va, _ = expandall(ctx, w, va...)
         case DefExpand2: // ::=    expands delegates and closures
-                va, _ = expandall(ctx, expandDelegate|expandClosure, va...)
+                va, _ = expandall(ctx, w|expandClosure, va...)
         }
 
         for _, val := range va {
@@ -924,10 +923,8 @@ func (d *Def) DiscloseValue(ctx Context) (res Value) {
         d.mutex.Lock()
         if value = d.value; !pos.IsValid() { pos = d.position }
         d.mutex.Unlock()
-        if isNil(value) {
-                // does nothing
-        } else if res = value.expand(ctx, expandClosure); isNil(res) {
-                res = value
+        if !isNil(value) {
+                res = value.expand(ctx, expandClosure)
         }
         return
 }
@@ -1003,13 +1000,14 @@ func (p *undetermined) expandible(ctx Context, w expandwhat) bool {
         return p.identifier.expandible(ctx, w) || p.value.expandible(ctx, w)
 }
 func (p *undetermined) expand(ctx Context, w expandwhat) (res Value) {
-        var i, v Value
-        i = p.identifier.expand(ctx, w)
-        v = p.value.expand(ctx, w)
-        if (!isNil(i) && i != p.identifier) || (!isNil(v) && v != p.value) {
-                if isNil(i) { i = p.identifier }
-                if isNil(v) { v = p.value }
+        var (
+                i = p.identifier.expand(ctx, w)
+                v = p.value.expand(ctx, w)
+        )
+        if i != p.identifier || v != p.value {
                 res = &undetermined{ p.tok, i, v }
+        } else {
+                res = p
         }
         return
 }
@@ -1053,6 +1051,7 @@ type Builtin struct {
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
 func (p *Builtin) True(_ Context) bool { return p.f != nil }
 func (p *Builtin) Call(ctx Context, a... Value) Value { return p.f(ctx, a...) }
+func (p *Builtin) expand(_ Context, _ expandwhat) Value { return p }
 func (p *Builtin) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*Builtin); ok {
                 assert(ok, "value is not Builtin")
@@ -1322,7 +1321,7 @@ func (entry *RuleEntry) expand(ctx Context, w expandwhat) (res Value) {
         }
 
         var target Value
-        if target = entry.target.expand(ctx, w); !isNil(target) && target != entry.target {
+        if target = entry.target.expand(ctx, w); target != entry.target {
                 // TODO: test if programs are needed to be disclosed??
                 res = &RuleEntry{
                         entry.class, target,
@@ -1330,6 +1329,8 @@ func (entry *RuleEntry) expand(ctx Context, w expandwhat) (res Value) {
                         entry.programs,
                         entry.position,
                 }
+        } else {
+                res = entry
         }
         return
 }
@@ -1422,9 +1423,10 @@ func (entry *RuleEntry) option(ctx Context) (res bool, infos []Value) {
 
 type PatternEntry struct { RuleEntry }
 func (p *PatternEntry) expand(ctx Context, w expandwhat) (res Value) {
-        var ent Value
-        if ent = p.RuleEntry.expand(ctx, w); !isNil(ent) && ent != &p.RuleEntry {
+        if ent := p.RuleEntry.expand(ctx, w); ent != &p.RuleEntry {
                 res = &PatternEntry{ *ent.(*RuleEntry) }
+        } else {
+                res = p
         }
         return
 }
@@ -1468,9 +1470,10 @@ func (p *stemmed) String() (s string) {
 }
 func (p *stemmed) Target() Value { return p.target }
 func (p *stemmed) expand(ctx Context, w expandwhat) (res Value) {
-        var v Value
-        if v = p.PatternEntry.expand(ctx, w); !isNil(v) && v != p.PatternEntry {
+        if v := p.PatternEntry.expand(ctx, w); v != p.PatternEntry {
                 res = &stemmed{v.(*PatternEntry), p.target, p.Stems}
+        } else {
+                res = p
         }
         return
 }

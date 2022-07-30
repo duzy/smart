@@ -40,9 +40,10 @@ func (p *using) expandible(ctx Context, w expandwhat) (res bool) {
         return
 }
 func (p *using) expand(ctx Context, w expandwhat) (res Value) {
-        var ( params []Value; num int )
-        if params, num = expandall(ctx, w, p.params...); num > 0 {
+        if params, num := expandall(ctx, w, p.params...); num > 0 {
                 res = &using{p.valbase,p.project,params,p.opts}
+        } else {
+                res = p
         }
         return
 }
@@ -235,11 +236,13 @@ func (p *usinglist) expand(ctx Context, w expandwhat) (res Value) {
         var ( list []*using; num int )
         for _, elem := range p.list {
                 var v = elem.expand(ctx, w)
-                if !isNil(v) { v = elem } else if v != elem { num += 1 }
+                if v != elem { num += 1 }
                 list = append(list, v.(*using))
         }
         if num > 0 {
                 res = &usinglist{ p.name, p.scope, p.owner, list }
+        } else {
+                res = p
         }
         return
 }

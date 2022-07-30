@@ -385,9 +385,7 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                 case reflect.Ptr: switch val.Type().Elem().String() {
                 case "smart.optFullname":
                         var x Value
-                        if x = v.expand(ctx, expandPlainValue|expandFullName); isNil(x) {
-                                x = v
-                        } else if isNone(x) {
+                        if x = v.expand(ctx, expandPlainValue|expandFullName); isNone(x) {
                                 erro(ctx, "expecting file value: %T %v", v, v).of(v).debug(1)
                                 return
                         }
@@ -406,9 +404,7 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                         }
                 case "smart.File":
                         var x Value
-                        if x = v.expand(ctx, expandPlainValue); isNil(x) {
-                                x = v
-                        } else if isNone(x) {
+                        if x = v.expand(ctx, expandPlainValue); isNone(x) {
                                 erro(ctx, "expecting file value: %T %v", v, v).of(v).debug(1)
                                 return
                         }
@@ -779,8 +775,6 @@ func builtinEqual(ctx Context, args... Value) (res Value) {
                 a = args[0].expand(ctx, expandPlainValue)
                 b = args[1].expand(ctx, expandPlainValue)
         )
-        if isNil(a) { a = args[0] }
-        if isNil(b) { b = args[1] }
         if t := a.cmp(ctx, b); t == cmpEqual {
                 res = MakeBoolean(ctx.Position(), true)
         } else if opts.debug>0 {
@@ -889,7 +883,6 @@ func builtinBranchCase(ctx Context, args... Value) (res Value) {
 
                         var collect bool
                         var v = g.Elems[0].expand(ctx, expandPlainValue)
-                        if isNil(v) { v = g.Elems[0] }
                         if val == nil && v.True(ctx) {
                                 collect = true
                         } else if val != nil && isTrivial(val) {
@@ -925,9 +918,7 @@ func builtinBranchCase(ctx Context, args... Value) (res Value) {
 // $(if cond, true-value, else-value, ...)
 func builtinBranchIf(ctx Context, args... Value) (res Value) {
         if n := len(args); n > 1 {
-                var v = args[0].expand(ctx, expandPlainValue)
-                if isNil(v) { v = args[0] }
-                if args[0].True(ctx) {
+                if args[0].expand(ctx, expandPlainValue).True(ctx) {
                         res = args[1]
                 } else if n > 1 {
                         res = MakeListOrScalar(ctx.Position(), args[2:])
@@ -939,11 +930,10 @@ func builtinBranchIf(ctx Context, args... Value) (res Value) {
 func builtinBranchIfEq(ctx Context, args... Value) (res Value) {
         if n := len(args); n > 2 {
                 var (
-                        a, b Value
+                        a = args[0].expand(ctx, expandPlainValue)
+                        b = args[1].expand(ctx, expandDelegate  )
                         equal bool
                 )
-                if a = args[0].expand(ctx, expandPlainValue); isNil(a) { a = args[0] }
-                if b = args[1].expand(ctx, expandDelegate  ); isNil(b) { b = args[1] }
                 if true {
                         equal = a.cmp(ctx, b) == cmpEqual
                 } else {
@@ -961,11 +951,10 @@ func builtinBranchIfEq(ctx Context, args... Value) (res Value) {
 func builtinBranchIfNE(ctx Context, args... Value) (res Value) {
         if n := len(args); n > 2 {
                 var (
-                        a, b Value
+                        a = args[0].expand(ctx, expandPlainValue)
+                        b = args[1].expand(ctx, expandDelegate  )
                         equal bool
                 )
-                if a = args[0].expand(ctx, expandPlainValue); isNil(a) { a = args[0] }
-                if b = args[1].expand(ctx, expandDelegate  ); isNil(b) { b = args[1] }
                 if true {
                         equal = a.cmp(ctx, b) == cmpEqual
                 } else {
@@ -1046,8 +1035,7 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
 
                 var list []Value
                 for _, a := range args[1:] {
-                        var v Value
-                        if v = a.expand(&cc, expandPlainValue|expandPairVal); isNil(v) { v = a }
+                        var v = a.expand(&cc, expandPlainValue|expandPairVal)
                         if true && len(v.defs(&cc, "_")) > 0 {
                                 erro(ctx, "'_' in '%v' not expanded: %v", a, v).of(a).debug(true, 1)
                                 return
@@ -1098,16 +1086,11 @@ func builtinEnv(ctx Context, args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 vals []Value
-                val Value
-                s string
         )
         for _, a := range args {
-                if val = a.expand(ctx, expandDelegate); isNil(val) {
-                        val = a
-                }
-                if isTrivial(val) {
+                if val := a.expand(ctx, expandDelegate); isTrivial(val) {
                         continue
-                } else if s = strings.TrimSpace(val.Strval(ctx)); s != "" {
+                } else if s := strings.TrimSpace(val.Strval(ctx)); s != "" {
                         vals = append(vals, MakeString(pos, os.Getenv(s)))
                 }
         }
