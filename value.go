@@ -4760,7 +4760,11 @@ func (p *Group) Position() Position { return p.valbase.Position() }
 //func (p *Group) Float(ctx Context) (f float64, _ error) { return p.valbase.Float(ctx) }
 //func (p *Group) Integer(ctx Context) (i int64, e error) { return p.valbase.Integer(ctx) }
 func (p *Group) True(ctx Context) (t bool) {
-    t = len(p.Elems) > 0
+    if t = len(p.Elems) > 0; t {
+        for _, elem := range p.Elems {
+            if t = elem.True(ctx); !t { break }
+        }
+    }
     return
 }
 func (_ *Group) kind() kind { return valOther }
@@ -4938,7 +4942,7 @@ type delegate struct {
     l token.Token
     x Value
     a []Value
-    //TODO: patsubst Value // AKA. lhs%=rhs% like in $(var:lhs%=rhs%)
+    //TODO: patsubst Value, aka lhs%=rhs% like in $(var:lhs%=rhs%)
 }
 func (p *delegate) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *delegate) Strval(ctx Context) (s string) {
@@ -5118,6 +5122,20 @@ func (p *delegate) expand(ctx Context, w expandwhat) (res Value) {
         erro(ctx, "expand nil delegation: %v (w=%016b)", p, w).at(p.position).debug(64)
         return
     }
+    if true { defer func() { if o, ok := p.x.(Object); !ok || isNil(o) {
+        warn(ctx, "%v: %T %v", p, p.x, p.x).at(p.x.Position()).debug(1)
+    } else if name := o.Name(ctx); name == ".foobar" && res != nil {
+        var proj = ctx.Project()
+        var val = res.expand(ctx, expandPlainValue)
+        var obj = closureResolveObject(ctx, p.position, name)
+        warn(ctx, "%v: p = %v, %016b", proj, p, w).at(p.Position())
+        warn(ctx, "%v: p.x = %T %v", proj, p.x, p.x).at(p.x.Position())
+        warn(ctx, "%v: res = %T %v", proj, res, res).at(res.Position())
+        warn(ctx, "%v: val = %T %v", proj, val, val).at(res.Position())
+        warn(ctx, "%v: obj = %T %v", proj, obj, obj)
+        if d, ok := res.(*delegate); ok { warn(ctx, "%v: d.x = %T %v", proj, d.x, d.x).at(d.position)/*.debug(1)*/ }
+        warn(ctx, "").debug(32)
+    }}()}
 
     var v Value
     if def, ok := p.x.(*Def); ok && (def.origin == DefAuto) && (w&expandAuto == 0) {
@@ -5220,6 +5238,10 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (retctx Context, res Value)
                 erro(ctx, "calling def '%v' (%v) returns <nil> (def.value=%v %T, %T)",
                     d.name, d.origin, d.value, d.value, ctx).debug(16)
             }
+        }
+        if x.String() == "value" && fmt.Sprintf("%v",p.a) == "[-c &(nam)]" {
+            v := res.expand(ctx, expandPlainValue)
+            info(ctx, "%v %v -> %v => %T %v => %v", p.x, p.a, args, res, res, v).debug(1)
         }
     case Executer:
         if vals, traves := t.Execute(ctx, args...); traves.has(traveFail) {
@@ -5380,17 +5402,20 @@ func (p *closure) expand(ctx Context, w expandwhat) (res Value) {
 }
 func (p *closure) disclose(ctx Context, w expandwhat) (res Value) {
     var x Object
-    if false { defer func() { if name, proj := p.x.(Object).Name(ctx), ctx.Project(); name == "@" {
+    if false { defer func() { if name := p.x.(Object).Name(ctx); len(p.a) < 1 {
+        // if name == "value" { warn(ctx, "%v %v", p.x, p.a) }
+    } else if s := p.a[0].String(); name != "" && s == "-c &(nam)" {
+        var proj = ctx.Project()
         var val = res.expand(ctx, w)
-        var obj = closureResolveObject(ctx, p.position, name)
+        var obj = closureResolveObject(ctx, p.position, p.x.(Object).Name(ctx))
         warn(ctx, "%v: p = %v, %016b", proj, p, w).at(p.Position())
-        warn(ctx, "%v: p.x = %T %v", proj, p.x, p.x).at(p.x.Position())
+        warn(ctx, "%v: p.x = %T %v", proj, p.x, p.x).at(p.Position())
         warn(ctx, "%v: res = %T %v", proj, res, res).at(res.Position())
         warn(ctx, "%v: val = %T %v", proj, val, val).at(res.Position())
         warn(ctx, "%v: obj = %T %v", proj, obj, obj)
         if d, ok := res.(*delegate); ok { warn(ctx, "%v: d.x = %T %v", proj, d.x, d.x).at(d.position)/*.debug(1)*/ }
         warn(ctx, "%v: %s", proj, ctx).debug(32)
-    } } () }
+    }}()}
 
     if u, ok := p.x.(*unresolvedobject); ok && fixUnresolvedObjectClosure {
         var name string

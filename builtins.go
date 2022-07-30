@@ -671,15 +671,18 @@ func builtinWarning(ctx Context, args... Value) (res Value) {
         return
 }
 
+type builtinAssertOpts struct {
+        generalOpts
+}
 func builtinAssert(ctx Context, args... Value) Value {
-        var vals []Value
-        for _, a := range args {
-                if g, ok := a.(*Group); ok {
-                        vals = append(vals, g.Elems...)
-                }
+        var opts builtinAssertOpts
+        if len(args) > 0 {
+                var a = parseOpts(ctx, &opts, /* NOTE: don't expand */0, args[0])
+                args = append(a, args[1:]...)
         }
-        for _, a := range vals { if !a.True(ctx) {
-                erro(ctx, "assertion failed: %v", a).of(a).debug(1)
+        for _, a := range args { if !a.True(ctx) {
+                prompt(ctx, "assertion: failed %v\n", a)
+                erro(ctx, "%v", a).of(a).debug(1)
         }}
         return nil
 }
@@ -759,11 +762,28 @@ type builtinEqualOpts struct {
 }
 func builtinEqual(ctx Context, args... Value) (res Value) {
         var opts builtinEqualOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        if len(args) > 0 {
+                var a = parseOpts(ctx, &opts, /* NOTE: don't expand */0, args[0])
+                if len(a) == 1 { args[0] = a[0] } else {
+                        args[0] = MakeList(args[0].Position(), a...)
+                }
+        }
         if n := len(args); n != 2 {
-                erro(ctx, "wrong number of arguments, try: $(equal <value-list>,<regexp-list>)")
-        } else if cmp := args[0].cmp(ctx, args[1]); cmp == cmpEqual {
+                erro(ctx, "wrong number of arguments: %v", args)
+                erro(ctx, "try: $(equal <value-list>,<regexp-list>)").debug(1)
+                return
+        }
+
+        var (
+                a = args[0].expand(ctx, expandPlainValue)
+                b = args[1].expand(ctx, expandPlainValue)
+        )
+        if isNil(a) { a = args[0] }
+        if isNil(b) { b = args[1] }
+        if t := a.cmp(ctx, b); t == cmpEqual {
                 res = MakeBoolean(ctx.Position(), true)
+        } else if opts.debug>0 {
+                warn(ctx, "%T %v <-> %T %v => %v", a, a, b, b, t).debug(opts.debug)
         }
         return
 }
