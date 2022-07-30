@@ -2724,9 +2724,17 @@ func (p *Bareword) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Bareword); ok {
         if p.string == a.string {
             res = cmpEqual
-        } else if p.string > a.string {
-            res = cmpSmaller
         } else if p.string < a.string {
+            res = cmpSmaller
+        } else {
+            res = cmpGreater
+        }
+    } else if c, ok := v.(*Barecomp); ok {
+        if s := c.Strval(ctx); p.string == s {
+            res = cmpEqual
+        } else if p.string < s {
+            res = cmpSmaller
+        } else {
             res = cmpGreater
         }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
@@ -2853,13 +2861,21 @@ func (p *elements) expandible(ctx Context, w expandwhat) (res bool) {
     return
 }
 func (p *elements) cmpElems(ctx Context, elems []Value) (res cmpres) {
-    if len(p.Elems) == len(elems) {
+    if a, b := len(p.Elems), len(elems); a == b {
         for i, elem := range p.Elems {
-            if elem == nil { continue } else
-            if other := elems[i]; other == nil { continue } else
-            if elem.cmp(ctx, other) != cmpEqual { return cmpUnknown }
+            var other = elems[i]
+            if a, b := isNil(elem), isNil(other); a && b {
+                continue
+            } else if a || b {
+                return
+            }
+            if res = elem.cmp(ctx, other); res != cmpEqual {
+                return
+            }
         }
         res = cmpEqual
+    } else {
+        // TODO: list.cmp: cmpSmaller, cmpGreater
     }
     return
 }
@@ -2917,6 +2933,14 @@ func (p *Barecomp) traverse(ctx Context) (traves travestates) {
 func (p *Barecomp) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Barecomp); ok {
         res = p.cmpElems(ctx, a.Elems)
+    } else if w, ok := v.(*Bareword); ok {
+        if s := p.Strval(ctx); s == w.string {
+            res = cmpEqual
+        } else if s < w.string {
+            res = cmpSmaller
+        } else {
+            res = cmpGreater
+        }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
