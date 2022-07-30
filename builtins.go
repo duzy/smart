@@ -681,8 +681,9 @@ func builtinAssert(ctx Context, args... Value) Value {
                 args = append(a, args[1:]...)
         }
         for _, a := range args { if !a.True(ctx) {
-                prompt(ctx, "assertion: failed %v\n", a)
-                erro(ctx, "%v", a).of(a).debug(1)
+                var v = a.expand(ctx, expandPlainValue)
+                prompt(ctx, "assertion: failed %v => %T %v\n", a, v, v)
+                erro(ctx, "%v => %T", a, v).of(a).debug(1)
         }}
         return nil
 }
