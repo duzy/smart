@@ -948,14 +948,14 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     w = expandPlainValue
   )
   if opts.fullname { w |= expandFullName }
-  recipes = mergeExpand(ctx, w, program.recipes...)
+  recipes = mergex(ctx, w, program.recipes...)
 
   for i, recipe := range recipes {
     if !recipePos.IsValid() { recipePos = recipe.Position() }
 
     var str = recipe.Strval(ctx)
     if false && strings.Contains(str, "llvm-driver-objcopy.cpp") {
-      var vals = mergeExpand(ctx, w, recipe.(*Compound).Elems...)
+      var vals = mergex(ctx, w, recipe.(*Compound).Elems...)
       warn(ctx, "%v %T", program.recipes[i], program.recipes[i])
       warn(ctx, "%v %T", recipe, recipe)
       warn(ctx, "%v", vals)

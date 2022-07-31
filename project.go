@@ -44,11 +44,11 @@ func (filemap *FileMap) Patterns(ctx Context) (pats []Value) {
       }
 
       // FIXME+TODO: this could be time consuming to expand clousre in the filemap
-      /*if pats, err = mergeExpand(ctx, expandPlainValue, pattern); err != nil {
+      /*if pats, err = mergex(ctx, expandPlainValue, pattern); err != nil {
         erro(ctx, "merge pattern '%v' failed: %v", pattern, err).of(pattern)
       } else*/
-      pats, _ = expandall(ctx, expandPlainValue, pattern)
-      pats = mergeExpand(ctx, expandPlainValue, pats...)
+      pats, _ = expand(ctx, expandPlainValue, pattern)
+      pats = mergex(ctx, expandPlainValue, pats...)
     } else {
       pats = append(pats, pattern)
     }
@@ -693,7 +693,7 @@ func (p *Project) resolvePatterns1(ctx Context, val Value, s string) (res []*ste
       }
 
       if ok := false; len(pat.argumented) > 0 {
-        for _, a := range mergeExpand(ctx, expandPlainValue, pat.argumented...) {
+        for _, a := range mergex(ctx, expandPlainValue, pat.argumented...) {
           if ok, _, _ = a.match(ctx, s); ok { break }
         }
         if !ok { continue ForPatterns }

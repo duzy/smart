@@ -1640,7 +1640,7 @@ func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int)
             return
         }
 
-        for _, val := range mergeExpand(ctx, expandPlainValue, v.Value) {
+        for _, val := range mergex(ctx, expandPlainValue, v.Value) {
             if s = val.Strval(ctx); s == "" { continue }
             specNames = append(specNames, s)
         }
@@ -1804,7 +1804,7 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 	} else if val.expandible(ctx, expandClosure) {
 		pats = []Value{ val }
 	} else {
-		pats = mergeExpand(ctx, expandPlainValue, val)
+		pats = mergex(ctx, expandPlainValue, val)
 	}
 
 	if path == nil {
@@ -1839,7 +1839,7 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 			if pat.expandible(ctx, expandClosure) {
 				patsNew = append(patsNew, pat)
 			} else {
-				patsNew = append(patsNew, mergeExpand(ctx, expandPlainValue, pat)...)
+				patsNew = append(patsNew, mergex(ctx, expandPlainValue, pat)...)
 			}
 		}
 
@@ -1887,7 +1887,7 @@ func (p *parser) evalConfiguration(ctx Context, generic *genericoptions, props [
 				ce = &configureExecutor{ defs:make(map[string]*Def) }
 			)
 			defer ce.close()
-			for _, dep := range mergeExpand(ctx, expandPlainValue, props[1:]...) {
+			for _, dep := range mergex(ctx, expandPlainValue, props[1:]...) {
 				switch prereq := dep.(type) {
 				case *RuleEntry:
 					if _, traves := prereq.Execute(ctx); len(traves) > 0 {
@@ -2351,7 +2351,7 @@ ForModifiersExpr:
 			continue ForModifiersExpr
 		case *delegate, *closure, *Barecomp, *String:
 			var ctx = positional(p, n.Position())
-			var v = mergeExpand(ctx, expandPlainValue, n)
+			var v = mergex(ctx, expandPlainValue, n)
 			if name = v[0].Strval(ctx); name == "" {
 				erro(p, "name '%v' is empty", n).of(n).debug(1)
 				continue ForModifiersExpr
@@ -2491,14 +2491,14 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 	// NOTE: expand targets to speed up for later usage, it might spend lots of time in
 	// project.entry while matching for entry looked up if not expanded right now.
 	if w := expandPlainValue & ^expandArgedArgs; true {
-		targets, _ = expandall(ctx, w, targets...)
+		targets, _ = expand(ctx, w, targets...)
 	} else {
 		var ta []Value
 		for _, t := range targets {
 			if t.expandible(ctx, expandClosure) {
 				if false { info(ctx, "target: %T %v", t, t).of(t) }
 				ta = append(ta, t)
-			} else if a, _ := expandall(ctx, w, t); a != nil {
+			} else if a, _ := expand(ctx, w, t); a != nil {
 				ta = append(ta, a...)
 			}
 		}
@@ -2730,7 +2730,7 @@ func (p *parser) templateExpand(t *template, params []Value) {
 
 	switch t.verb {
 	case "foreach": // foreach val1 val2 val3 val4 ...
-		for _, elem := range mergeExpand(p, expandPlainValue, t.params...) {
+		for _, elem := range mergex(p, expandPlainValue, t.params...) {
 			if isTrivial(elem) { continue }
 			p.templateBlock(t, map[string]Value{ "_" : elem }, params)
 			count += 1
@@ -2763,7 +2763,7 @@ func (p *parser) templateExpand(t *template, params []Value) {
 			}
 
 			var m = vars[s]
-			m.elems = mergeExpand(positional(p, pos), expandPlainValue, elems...)
+			m.elems = mergex(positional(p, pos), expandPlainValue, elems...)
 			if n := len(m.elems); n > num { num = n }
 			vars[s] = m // overwrite
 		}
@@ -2866,7 +2866,7 @@ func (p *parser) parseTemplateClause() {
 	// DONT: p.expect(token.LINEND)
 
 	// TODO: parse template options - parseOpts
-	params = mergeExpand(p, expandPlainValue, params...)
+	params = mergex(p, expandPlainValue, params...)
 
 	var tmpl = &template{ state:p.scanner.State(), pos:p.pos, tok:p.tok, lit:p.lit }
 	if verb == "def" {

@@ -237,7 +237,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
     //       [ foo.baaaar ]
     var (
         name string
-        args = mergeExpand(ctx, expandPlainValue, m.name)
+        args = mergex(ctx, expandPlainValue, m.name)
     )
     if n := len(args); n == 0 {
         erro(ctx, "modifier name '%v' is empty", m.name).of(m.name).debug(1)

@@ -102,7 +102,7 @@ func (e *Error) find(err error) int {
     return -1
 }
 
-func (result *Error) Merge(errs ...error) {
+func (result *Error) _Merge(errs ...error) {
 ForErrs:
     for _, err := range errs {
         if v := reflect.ValueOf(err); err == nil || (v.Kind() == reflect.Ptr && v.IsNil()) {
@@ -113,7 +113,7 @@ ForErrs:
 
         if e, ok := err.(*Error); ok {
             if t := result.getErrorAt(e.Pos); t != nil {
-                t.Merge(e.Errs...)
+                t._Merge(e.Errs...)
             } else {
                 for i, f := range result.Errs {
                     if j := e.find(f); j >= 0 {

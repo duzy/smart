@@ -1766,7 +1766,7 @@ type returner struct {
     Values []Value
 }
 func (p *returner) expand(ctx Context, w expandwhat) (res Value) {
-    if vals, num := expandall(ctx, w, p.Values...); num > 0 {
+    if vals, num := expand(ctx, w, p.Values...); num > 0 {
         res = &returner{p.valbase, vals}
     } else {
         res = p
@@ -1811,7 +1811,7 @@ func (p *Argumented) expand(ctx Context, w expandwhat) (res Value) {
         num int
     )
     if w&expandArgedArgs != 0 {
-        args, num = expandall(ctx, w, args...)
+        args, num = expand(ctx, w, args...)
     }
     if val != p.value || num > 0 {
         res = &Argumented{ val, args }
@@ -2978,7 +2978,7 @@ func (p *Barecomp) expand(ctx Context, w expandwhat) (res Value) {
         }
     }
 
-    if elems, num := expandall(ctx, w, p.Elems...); num > 0 {
+    if elems, num := expand(ctx, w, p.Elems...); num > 0 {
         res = &Barecomp{p.valbase, elements{elems}}
     } else {
         res = p
@@ -3658,7 +3658,7 @@ func (p *Path) elemStr(ctx Context, o Object, k elemkind) (s string) {
 
 func expandPathElems(ctx Context, w expandwhat, elems ...Value) (res []Value, num int) {
     var xelems []Value
-    xelems, num = expandall(ctx, w, elems...)
+    xelems, num = expand(ctx, w, elems...)
     for _, elem := range xelems {
         if p, ok := elem.(*Path); ok {
             var ev, n = expandPathElems(ctx, w, p.Elems...)
@@ -3927,7 +3927,7 @@ func (p *Path) stencil(ctx Context, stems []string) (result Value, rest []string
         elems []Value
         changed int
     )
-    for _, seg := range mergeExpand(ctx, expandPlainValue, p.Elems...) {
+    for _, seg := range mergex(ctx, expandPlainValue, p.Elems...) {
         var val Value
         if val, stems = seg.stencil(ctx, stems); !isTrivial(val) {
             if val != seg { changed += 1 }
@@ -4642,7 +4642,7 @@ func (p *Compound) refs(ctx Context, v Value) bool { return p.elements.refs(ctx,
 func (p *Compound) defs(ctx Context, s ...string) []*Def { return p.elements.defs(ctx, s...) }
 func (p *Compound) expandible(ctx Context, w expandwhat) bool { return p.elements.expandible(ctx, w) }
 func (p *Compound) expand(ctx Context, w expandwhat) (res Value) {
-    if elems, num := expandall(ctx, w, p.Elems...); num > 0 {
+    if elems, num := expand(ctx, w, p.Elems...); num > 0 {
         res = &Compound{p.valbase, elements{elems}}
     } else {
         res = p
@@ -4731,7 +4731,7 @@ func (p *List) elemStr(ctx Context, o Object, k elemkind) (s string) {
     return strings.Join(strs, " ")
 }
 func (p *List) expand(ctx Context, w expandwhat) (res Value) {
-    var elems, num = expandall(ctx, w, p.Elems...)
+    var elems, num = expand(ctx, w, p.Elems...)
     if res = p; num > 0 {
         if false && len(elems) == 1 {
             res = elems[0]
@@ -4890,7 +4890,7 @@ func (p *Group) elemStr(ctx Context, o Object, k elemkind) string {
 }
 func (p *Group) expandible(ctx Context, w expandwhat) bool { return p.elements.expandible(ctx, w) }
 func (p *Group) expand(ctx Context, w expandwhat) (res Value) {
-    if elems, num := expandall(ctx, w, p.Elems...); num > 0 {
+    if elems, num := expand(ctx, w, p.Elems...); num > 0 {
         res = &Group{p.valbase, elements{elems}}
     } else {
         res = p
@@ -5192,7 +5192,7 @@ func (p *delegate) value(ctx Context) (v Value) {
 }
 func (p *delegate) args(ctx Context, w expandwhat) (args []Value, num int) {
     if w&expandArgs != 0 {
-        if args, num = expandall(ctx, w, p.a...); len(args) == 0 && num == 0 && len(p.a) > 0 {
+        if args, num = expand(ctx, w, p.a...); len(args) == 0 && num == 0 && len(p.a) > 0 {
             args = p.a
         }
     } else if len(p.a) > 0 {
@@ -5217,7 +5217,7 @@ func (p *delegate) expandible(ctx Context, w expandwhat) (res bool) {
 }
 func (p *delegate) expand(ctx Context, w expandwhat) (res Value) {
     if res = p; isNil(p.x) || isNone(p.x) {
-        erro(ctx, "expand nil delegation: %v (w=%016b)", p, w).at(p.position).debug(64)
+        erro(ctx, "expand nil delegate: %v (w=%016b)", p, w).at(p.position).debug(64)
         return p
     }
 
@@ -6122,7 +6122,7 @@ func (p *GlobPattern) expandible(ctx Context, w expandwhat) (res bool) {
     return
 }
 func (p *GlobPattern) expand(ctx Context, w expandwhat) (res Value) {
-    if components, num := expandall(ctx, w, p.Components...); num > 0 {
+    if components, num := expand(ctx, w, p.Components...); num > 0 {
         res = &GlobPattern{p.valbase, components}
     } else {
         res = p
@@ -6280,8 +6280,8 @@ func merge(args... Value) (elems []Value) {
     return
 }
 
-func mergeExpand(ctx Context, w expandwhat, values ...Value) (res []Value) {
-    res, _ = expandall(ctx, w, values...)
+func mergex(ctx Context, w expandwhat, values ...Value) (res []Value) {
+    res, _ = expand(ctx, w, values...)
     return merge(res...)
 }
 
@@ -6319,7 +6319,7 @@ func permVal(ctx Context, v Value, i uint32) (res os.FileMode) {
     return
 }
 
-func expandall(ctx Context, w expandwhat, values ...Value) (elems []Value, num int) {
+func expand(ctx Context, w expandwhat, values ...Value) (elems []Value, num int) {
     for _, elem := range values {
         var val Value
         if isNil(elem) {
@@ -6344,8 +6344,8 @@ func expandall(ctx Context, w expandwhat, values ...Value) (elems []Value, num i
     return
 }
 
-func ExpandAll(ctx Context, values ...Value) (res []Value) {
-    res, _ = expandall(ctx, expandPlainValue, values...)
+func Expand(ctx Context, values ...Value) (res []Value) {
+    res, _ = expand(ctx, expandPlainValue, values...)
     return
 }
 

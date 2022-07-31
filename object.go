@@ -690,12 +690,12 @@ func (d *Def) set(ctx Context, origin Origin, value Value) {
         var elems []Value
         switch d.origin = origin; d.origin {
         case DefExpand1: // expands delegates
-                elems, _ = expandall(ctx, expandDelegate, value)
+                elems, _ = expand(ctx, expandDelegate, value)
                 d.mutex.Lock()
                 d.value = MakeListOrScalar(value.Position(), elems)
                 d.mutex.Unlock()
         case DefExpand2: // expands delegates and closures
-                elems, _ = expandall(ctx, expandPlainValue/*|expandArgs*/, value)
+                elems, _ = expand(ctx, expandPlainValue/*|expandArgs*/, value)
                 d.mutex.Lock()
                 d.value = MakeListOrScalar(value.Position(), elems)
                 d.mutex.Unlock()
@@ -745,9 +745,9 @@ func (d *Def) append(ctx Context, va... Value) {
         var w = expandDelegate|expandArgs
         switch d.origin {
         case DefExpand1: // :=     expands delegates
-                va, _ = expandall(ctx, w, va...)
+                va, _ = expand(ctx, w, va...)
         case DefExpand2: // ::=    expands delegates and closures
-                va, _ = expandall(ctx, w|expandClosure, va...)
+                va, _ = expand(ctx, w|expandClosure, va...)
         }
 
         for _, val := range va {

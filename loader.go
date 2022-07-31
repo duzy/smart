@@ -788,7 +788,7 @@ func iterateArgumentedIdentElems(ctx Context, elems, stems []Value, f func(elems
 func iterateArgumentedIdentifiers(ctx Context, identifier Value, f func(ident Value, stem []Value)) {
     switch t := identifier.(type) {
     case *Argumented:
-        var args = mergeExpand(ctx, expandPlainValue, t.args...)
+        var args = mergex(ctx, expandPlainValue, t.args...)
         iterateArgumentedIdentifiers(ctx, t.value, func(ident Value, stems []Value) {
             var pos = ident.Position()
             for _, arg := range args {
@@ -833,7 +833,7 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
         }
 
     case *Argumented:
-        var args = mergeExpand(ctx, expandPlainValue, t.args...)
+        var args = mergex(ctx, expandPlainValue, t.args...)
         erro(ctx, "TODO: multiple defs: %v %v", t.value, args)
         return
 

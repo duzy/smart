@@ -507,7 +507,7 @@ func configureDo(ctx Context, opts *modifierConfigureOpts, target Value, name Va
         return
     }
 
-    for _, arg := range mergeExpand(ctx, expandPlainValue, args...) {
+    for _, arg := range mergex(ctx, expandPlainValue, args...) {
         if isTrivial(arg) { continue }
         switch t := arg.(type) {
         case *Pair: params = append(params, t)
@@ -521,7 +521,7 @@ func configureDo(ctx Context, opts *modifierConfigureOpts, target Value, name Va
     }
     if false { if s := target.Strval(ctx); s == "HAVE_FUN_SENDFILE" {
         warn(ctx, "%v: %v", s, args)
-        warn(ctx, "%v: %v", s, mergeExpand(ctx, expandPlainValue, args...))
+        warn(ctx, "%v: %v", s, mergex(ctx, expandPlainValue, args...))
         warn(ctx, "%v: %v", s, params).debug(1)
     }}
 
@@ -958,7 +958,7 @@ func __modifierConfigureInput(ctx Context, args ...Value) (result Value, _ trave
     }
 
     if def, ok := project.scope.Lookup("configure.names").(*Def); ok {
-        args = append(args, mergeExpand(ctx, expandPlainValue, def.value)...)
+        args = append(args, mergex(ctx, expandPlainValue, def.value)...)
     }
 
     var configs = make(map[string]*Def)
@@ -994,7 +994,7 @@ func modifierConfigureInput(ctx Context, args ...Value) (result Value, _ travest
     var dealArgs = func(args []Value, out *bytes.Buffer) []Value {
         var project = ctx.Project()
         if def, ok := project.scope.Lookup("configure.names").(*Def); ok {
-            args = append(args, mergeExpand(ctx, expandPlainValue, def.value)...)
+            args = append(args, mergex(ctx, expandPlainValue, def.value)...)
         }
 
         var configs = make(map[string]*Def)
@@ -1105,7 +1105,7 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ t
         depends, sources []Value
     )
     if value, _ := ctx.autoGet("^"); !isTrivial(value) {
-        depends = mergeExpand(ctx, expandPlainValue, value)
+        depends = mergex(ctx, expandPlainValue, value)
     }
     for _, depend := range depends {
         var a []Value

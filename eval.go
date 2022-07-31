@@ -29,7 +29,7 @@ ForRecipes:
 
                 var (
                         ctx = positional(ctx, recipe.Position())
-                        vals = mergeExpand(ctx, w, recipe)
+                        vals = mergex(ctx, w, recipe)
                 )
                 if n := len(vals); n < 1 {
                         list = append(list, recipe)

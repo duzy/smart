@@ -479,7 +479,7 @@ func parseOpts(ctx Context, iOpts interface{}, w expandwhat, args... Value) (res
         if w == expandNone {
                 rest = args // NOTE: set the returning args first of all!
         } else {
-                rest = mergeExpand(ctx, w, args...)
+                rest = mergex(ctx, w, args...)
         }
 
         if opts := reflect.ValueOf(iOpts); opts.Kind() != reflect.Ptr {
@@ -503,7 +503,7 @@ func parseOpts(ctx Context, iOpts interface{}, w expandwhat, args... Value) (res
                         }
                 }
                 if gen == nil { return }
-                if gen.fullname { rest = mergeExpand(ctx, expandFullName, rest...) }
+                if gen.fullname { rest = mergex(ctx, expandFullName, rest...) }
         } else {
                 erro(ctx, "opts is not ptr of struct: %v", opts.Kind()).debug(1)
         }
@@ -555,7 +555,7 @@ func builtinTypeOf(ctx Context, args... Value) (res Value) {
 
 func builtinDefined(ctx Context, args... Value) (res Value) {
         var ( pos = ctx.Position(); elems []Value )
-        for _, arg := range mergeExpand(ctx, expandPlainValue, args...) {
+        for _, arg := range mergex(ctx, expandPlainValue, args...) {
                 var _, unresolved = arg.(*unresolvedobject)
                 elems = append(elems, MakeBoolean(pos, !unresolved))
         }
@@ -693,7 +693,7 @@ func builtinSureValue(ctx Context, args... Value) Value {
 
 // $(defor $(x),$(y),$(z)) is identical to $(if $(defined $(x)),$(x),...)
 func builtinDefOr(ctx Context, args... Value) (res Value) {
-        for _, a := range mergeExpand(ctx, expandPlainValue, args...) {
+        for _, a := range mergex(ctx, expandPlainValue, args...) {
                 var _, unresolved = a.(*unresolvedobject)
                 if unresolved { continue } else {
                         res = a
@@ -828,7 +828,7 @@ func builtinMatch(ctx Context, args... Value) (res Value) {
         }
 
         patList = parseOpts(ctx, &opts, expandPlainValue, args[0])
-        valList = mergeExpand(ctx, expandPlainValue, args[1:]...)
+        valList = mergex(ctx, expandPlainValue, args[1:]...)
 
         var pos = ctx.Position()
 ForValList:
@@ -978,7 +978,7 @@ func builtinFor(ctx Context, args... Value) (res Value) {
         var (
                 defs []*Def
                 vals []Value
-                values = mergeExpand(ctx, expandPlainValue, args[0])
+                values = mergex(ctx, expandPlainValue, args[0])
         )
 
         var scope = ctx.Globe().scope
@@ -999,7 +999,7 @@ func builtinFor(ctx Context, args... Value) (res Value) {
         var list []Value
         var pos = ctx.Position()
         for _, a := range args[1:] {
-                if values = mergeExpand(ctx, expandPlainValue, a); len(values) == 0 {
+                if values = mergex(ctx, expandPlainValue, a); len(values) == 0 {
                         list = append(list, MakeNone(pos))
                 } else if len(values) == 1 {
                         list = append(list, values[0])
@@ -1021,7 +1021,7 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 cc = autoContext{ Context:ctx, defs:make(autoDefMap) }
-                values = mergeExpand(ctx, expandPlainValue, args[0])
+                values = mergex(ctx, expandPlainValue, args[0])
                 resList []Value
         )
         for _, val := range values {
@@ -1426,7 +1426,7 @@ func builtinAppend(ctx Context, args... Value) (result Value) {
         }
 
         vars = parseOpts(ctx, &opts, expandPlainValue, args[0])
-        if list = mergeExpand(ctx, expandPlainValue, args[1:]...); len(list) == 0 {
+        if list = mergex(ctx, expandPlainValue, args[1:]...); len(list) == 0 {
                 warn(ctx, "append no values").debug(1)
                 return
         }
@@ -1589,11 +1589,11 @@ func builtinUnique(ctx Context, args... Value) (res Value) {
         } else if opts.plain {
                 var x = expandPlainValue
                 if opts.keepAuto { x &= ^expandAuto }
-                args = mergeExpand(ctx, x, args...)
+                args = mergex(ctx, x, args...)
         } else {
                 var x = expandDelegate | expandPathStr | expandPairVal
                 if opts.keepAuto { x &= ^expandAuto }
-                args = mergeExpand(ctx, x, args...)
+                args = mergex(ctx, x, args...)
         }
 
         var list []Value
@@ -1627,9 +1627,9 @@ func builtinJoin(ctx Context, args... Value) (res Value) {
                         sep string
                 )
                 if l < 2 {
-                        vals = mergeExpand(ctx, expandPlainValue, args...)
+                        vals = mergex(ctx, expandPlainValue, args...)
                 } else {
-                        vals = mergeExpand(ctx, expandPlainValue, args[:l-1]...)
+                        vals = mergex(ctx, expandPlainValue, args[:l-1]...)
                         sep = args[l-1].Strval(ctx)
                 }
                 for _, a := range vals {
@@ -1641,7 +1641,7 @@ func builtinJoin(ctx Context, args... Value) (res Value) {
 }
 
 func builtinQuote(ctx Context, args... Value) (res Value) {
-        args = mergeExpand(ctx, expandPlainValue, args...)
+        args = mergex(ctx, expandPlainValue, args...)
         if l := len(args); l > 0 {
                 var fields []string
                 for _, a := range args {
@@ -1656,7 +1656,7 @@ func builtinQuote(ctx Context, args... Value) (res Value) {
 
 func builtinQuoteJoin(ctx Context, args... Value) (res Value) {
         var sep string
-        args = mergeExpand(ctx, expandPlainValue, args...)
+        args = mergex(ctx, expandPlainValue, args...)
 
         if l := len(args); l > 1 {
                 sep = args[l-1].Strval(ctx)
@@ -1676,7 +1676,7 @@ func builtinQuoteJoin(ctx Context, args... Value) (res Value) {
 
 // $(split-string .,1.2.3)
 func builtinSplitString(ctx Context, args... Value) (res Value) {
-        args = mergeExpand(ctx, expandPlainValue, args...)
+        args = mergex(ctx, expandPlainValue, args...)
         if l := len(args); l > 0 {
                 var (
                         fields []Value
@@ -1871,7 +1871,7 @@ func builtinPath(ctx Context, args... Value) (result Value) {
 
 func builtinBare(ctx Context, args... Value) (result Value) {
         var vals []Value
-        for _, a := range mergeExpand(ctx, expandPlainValue, args...) {
+        for _, a := range mergex(ctx, expandPlainValue, args...) {
                 var val Value
                 switch a.(type) {
                 case *String, *Compound:
@@ -1886,7 +1886,7 @@ func builtinBare(ctx Context, args... Value) (result Value) {
 
 func builtinBareword(ctx Context, args... Value) (result Value) {
         var vals []Value
-        for _, a := range mergeExpand(ctx, expandPlainValue, args...) {
+        for _, a := range mergex(ctx, expandPlainValue, args...) {
                 var val Value
                 switch a.(type) {
                 case *Bareword: val = a
@@ -1910,7 +1910,7 @@ func builtinString(ctx Context, args... Value) (result Value) {
 
 func builtinStrings(ctx Context, args... Value) (result Value) {
         var strs []Value
-        for _, a := range mergeExpand(ctx, expandPlainValue, args...) {
+        for _, a := range mergex(ctx, expandPlainValue, args...) {
                 strs = append(strs, MakeString(a.Position(), a.Strval(ctx)))
         }
         result = MakeListOrScalar(ctx.Position(), strs)
@@ -1954,7 +1954,7 @@ func filterValues1(ctx Context, neg bool, args... Value) (res Value) {
                 )
                 if pats = parseOpts(ctx, &opts, expandPlainValue, args[0]); len(pats) > 0 {
                         i = 1 // good
-                } else if pats = mergeExpand(ctx, expandPlainValue, args[1]); len(pats) == 0 {
+                } else if pats = mergex(ctx, expandPlainValue, args[1]); len(pats) == 0 {
                         erro(ctx, "no patterns: %v", args).debug(1)
                         return
                 } else {
@@ -1966,7 +1966,7 @@ func filterValues1(ctx Context, neg bool, args... Value) (res Value) {
                         return
                 }
 
-                vals = mergeExpand(ctx, expandPlainValue, args[i:]...)
+                vals = mergex(ctx, expandPlainValue, args[i:]...)
                 if vals, err = filterValues(ctx, pats, opts, neg, vals...); err == nil {
                         res = MakeListOrScalar(pos, vals)
                 }
@@ -1989,7 +1989,7 @@ func builtinFilterOut(ctx Context, args... Value) (res Value) {
 
 func builtinSubstring(ctx Context, args... Value) (res Value) {
         var pos = ctx.Position()
-        args = mergeExpand(ctx, expandPlainValue, args...)
+        args = mergex(ctx, expandPlainValue, args...)
 
         var list []Value
         if n := len(args); n > 1 {
@@ -2036,7 +2036,7 @@ func builtinSubst(ctx Context, args... Value) (res Value) {
                         s1 = args[0].Strval(ctx)
                         s2 = args[1].Strval(ctx)
                 )
-                for _, arg := range mergeExpand(ctx, expandDelegate, args[2:]...) {
+                for _, arg := range mergex(ctx, expandDelegate, args[2:]...) {
                         var s = strings.Replace(arg.Strval(ctx), s1, s2, -1)
                         list = append(list, MakeString(pos, s))
                 }
@@ -2077,17 +2077,17 @@ func builtinPatsubst(ctx Context, args... Value) (res Value) {
         var srcPats, dstPats, sources []Value
         if len(arg0) > 0 {
                 srcPats = arg0
-                dstPats = mergeExpand(ctx, expandPlainValue, args[1])
-                sources = mergeExpand(ctx, expandPlainValue, args[2:]...)
+                dstPats = mergex(ctx, expandPlainValue, args[1])
+                sources = mergex(ctx, expandPlainValue, args[2:]...)
                 if infos {
                         info(ctx, "src: %v", srcPats)
                         info(ctx, "dst: %v", dstPats)
                         info(ctx, "%v", sources).debug(1)
                 }
         } else {
-                srcPats = mergeExpand(ctx, expandPlainValue, args[1])
-                dstPats = mergeExpand(ctx, expandPlainValue, args[2])
-                sources = mergeExpand(ctx, expandPlainValue, args[3:]...)
+                srcPats = mergex(ctx, expandPlainValue, args[1])
+                dstPats = mergex(ctx, expandPlainValue, args[2])
+                sources = mergex(ctx, expandPlainValue, args[3:]...)
                 if infos {
                         info(ctx, "src: %v", srcPats)
                         info(ctx, "dst: %v", dstPats)
@@ -2250,7 +2250,7 @@ func builtinTitle(ctx Context, args... Value) (res Value) {
                 pos = ctx.Position()
                 list []Value
         )
-        for i, a := range mergeExpand(ctx, expandPlainValue, args...) {
+        for i, a := range mergex(ctx, expandPlainValue, args...) {
                 if i == 0 { pos = a.Position() }
                 if s := a.Strval(ctx); s != "" {
                         list = append(list, MakeString(a.Position(), strings.Title(s)))
@@ -2265,7 +2265,7 @@ func builtinUpperCase(ctx Context, args... Value) (res Value) {
                 pos = ctx.Position()
                 list []Value
         )
-        for i, a := range mergeExpand(ctx, expandPlainValue, args...) {
+        for i, a := range mergex(ctx, expandPlainValue, args...) {
                 if i == 0 { pos = a.Position() }
                 if s := a.Strval(ctx); s != "" {
                         list = append(list, MakeString(a.Position(), strings.ToUpper(s)))
@@ -2280,7 +2280,7 @@ func builtinLowerCase(ctx Context, args... Value) (res Value) {
                 pos = ctx.Position()
                 list []Value
         )
-        for _, a := range mergeExpand(ctx, expandPlainValue, args...) {
+        for _, a := range mergex(ctx, expandPlainValue, args...) {
                 if s := a.Strval(ctx); s != "" {
                         list = append(list, MakeString(a.Position(), strings.ToLower(s)))
                 }
@@ -2295,7 +2295,7 @@ func builtinTrim(ctx Context, args... Value) (res Value) {
                 cutset string
                 list []Value
         )
-        for i, a := range mergeExpand(ctx, expandPlainValue, args...) {
+        for i, a := range mergex(ctx, expandPlainValue, args...) {
                 if i == 0 { pos = a.Position() }
                 if s := a.Strval(ctx); s != "" {
                         if i == 0 {
@@ -2317,7 +2317,7 @@ func builtinTrimLeft(ctx Context, args... Value) (res Value) {
                 cutset string
                 list []Value
         )
-        for i, a := range mergeExpand(ctx, expandPlainValue, args...) {
+        for i, a := range mergex(ctx, expandPlainValue, args...) {
                 if i == 0 { pos = a.Position() }
                 if s := a.Strval(ctx); s != "" {
                         if i == 0 {
@@ -2339,7 +2339,7 @@ func builtinTrimRight(ctx Context, args... Value) (res Value) {
                 cutset string
                 list []Value
         )
-        for i, a := range mergeExpand(ctx, expandPlainValue, args...) {
+        for i, a := range mergex(ctx, expandPlainValue, args...) {
                 if i == 0 { pos = a.Position() }
                 if s := a.Strval(ctx); s != "" {
                         if i == 0 {
@@ -2365,12 +2365,12 @@ func builtinTrimPrefix(ctx Context, args... Value) (res Value) {
                 err error
         )
         if len(args) == 0 { return }
-        prefixs = mergeExpand(ctx, expandPlainValue, args[0])
+        prefixs = mergex(ctx, expandPlainValue, args[0])
 
         if len(args) == 1 {
                 if len(prefixs) > 1 { values = prefixs[1:] }
         } else {
-                values = mergeExpand(ctx, expandPlainValue, args[1:]...)
+                values = mergex(ctx, expandPlainValue, args[1:]...)
         }
 
         if len(values) == 0 {
@@ -2429,7 +2429,7 @@ func builtinTrimSuffix(ctx Context, args... Value) (res Value) {
                 cutset, s string
                 list []Value
         )
-        for i, a := range mergeExpand(ctx, expandPlainValue, args...) {
+        for i, a := range mergex(ctx, expandPlainValue, args...) {
                 if i == 0 { pos = a.Position() }
                 if s = a.Strval(ctx); s != "" {
                         if i == 0 {
@@ -2514,7 +2514,7 @@ func builtinPrintf(ctx Context, args... Value) (res Value) {
 
         var i int
         var a []interface{}
-        ForArgs: for n, v := range mergeExpand(ctx, expandPlainValue, args[1:]...) {
+        ForArgs: for n, v := range mergex(ctx, expandPlainValue, args[1:]...) {
                 if n == 0 { pos = v.Position() }
                 ForFmt: for i < len(f) {
                         if f[i] != '%' { i += 1; continue }
@@ -2616,7 +2616,7 @@ func builtinContains(ctx Context, args... Value) (res Value) {
         }
 
         vals = parseOpts(ctx, &opts, expandPlainValue, args[0])
-        list = mergeExpand(ctx, expandPlainValue, args[1:]...)
+        list = mergex(ctx, expandPlainValue, args[1:]...)
 
         var ( n = 0; x = len(vals); va []Value )
         for _, val := range vals {
@@ -3888,7 +3888,7 @@ func builtinWildcard(ctx Context, args... Value) (res Value) {
                 return
         }
         if args = parseOpts(ctx, &opts, expandPlainValue, args...); len(opts.exclude) > 0 {
-                opts.exclude = mergeExpand(ctx, expandPlainValue, opts.exclude...)
+                opts.exclude = mergex(ctx, expandPlainValue, opts.exclude...)
         }
 
         if opts.timing {
@@ -4161,7 +4161,7 @@ func builtinGrep(ctx Context, args... Value) (res Value) {
                 }
         }
 
-        vals = mergeExpand(ctx, expandPlainValue, args...)
+        vals = mergex(ctx, expandPlainValue, args...)
 
         var pos = ctx.Position()
         var cc = autoContext{ Context:ctx, defs:make(autoDefMap) }
@@ -4349,7 +4349,7 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
                                 s = fmt.Sprintf("#undef %s", name)
                         } else if isNil(def.value) || isNone(def.value) {
                                 s = fmt.Sprintf("#undef %s /* %v */", name, def.value)
-                        } else if va, _ = expandall(ctx, expandPlainValue, def.value); len(va) == 1 {
+                        } else if va, _ = expand(ctx, expandPlainValue, def.value); len(va) == 1 {
                                 switch v := va[0].(type) {
                                 case *answer, *boolean:
                                         if b := v.True(ctx); b {

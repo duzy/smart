@@ -342,7 +342,7 @@ func modifierDebug(ctx Context, args... Value) (result Value, traves travestates
 
 // select element by index from group result: (select 0)
 func modifierSelect(ctx Context, args... Value) (result Value, traves travestates) {
-        args = mergeExpand(ctx, expandPlainValue, args...)
+        args = mergex(ctx, expandPlainValue, args...)
         if value, _ := ctx.autoGet("-"); isNil(value) {
                 erro(ctx, "no pipe value $-").debug(1)
         } else if g, ok := value.(*Group); ok && len(args) > 0 {
@@ -356,7 +356,7 @@ func modifierSelect(ctx Context, args... Value) (result Value, traves travestate
 }
 
 func modifierEnv(ctx Context, args... Value) (result Value, traves travestates) {
-        args = mergeExpand(ctx, expandPlainValue, args...)
+        args = mergex(ctx, expandPlainValue, args...)
 
         var program = ctx.program()
         var def, alt = program.scope.define(ctx, DefVoid, TheShellEnvarsDef, nil)
@@ -1250,7 +1250,7 @@ func modifierGrep(ctx Context, args... Value) (result Value, traves travestates)
         var gc grepctx
         gc.fileinc = true // grep files by default
         args = parseOpts(ctx, &gc.modifierGrepOpts, expandPlainValue, args...)
-        gc.incs = mergeExpand(ctx, expandPlainValue, gc.incs...)
+        gc.incs = mergex(ctx, expandPlainValue, gc.incs...)
         for _, s := range gc.sys { gc.rxs = append(gc.rxs, &greprex{s, true , nil}) }
         for _, s := range gc.reg { gc.rxs = append(gc.rxs, &greprex{s, false, nil}) }
         for _, s := range gc.langs {
@@ -1694,7 +1694,7 @@ CorrectCC:
         }
 
         var (
-                flags = mergeExpand(ctx, expandPlainValue, opts.flags...)
+                flags = mergex(ctx, expandPlainValue, opts.flags...)
                 _MM, _MG bool
                 ca []string
         )
@@ -2324,7 +2324,7 @@ func modifierCopyFile(ctx Context, args... Value) (result Value, traves travesta
 }
 
 func modifierWriteFile(ctx Context, args... Value) (result Value, traves travestates) {
-        args = mergeExpand(ctx, expandPlainValue, args...)
+        args = mergex(ctx, expandPlainValue, args...)
 
         var (
                 target, _ = ctx.autoGet("@")
@@ -2964,10 +2964,10 @@ func modifierAssert(ctx Context, args... Value) (result Value, traves travestate
                         }
                         errostack(ctx, 8, "(%T):", ctx).debug(6)
                 } else {
-                        var vals = mergeExpand(ctx, expandPlainValue, args...)
+                        var vals = mergex(ctx, expandPlainValue, args...)
                         erro(ctx, "assertion failed: %v (target = %s)", msg, target)
                         erro(ctx, "assertion args: %v", args)
-                        erro(ctx, "assertion args: %v (mergeExpandd)", vals)
+                        erro(ctx, "assertion args: %v (mergexd)", vals)
                         erro(ctx, "assertion context: %v", ctx).debug(6)
                 }
                 s := traves.add(ctx, traveFail, target)
@@ -3032,7 +3032,7 @@ func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
         var opts = ctx.dirtyOpts()
         if len(target.updatedDeps(ctx)) > 0 { return true }
         if v, found := ctx.autoGet("^"); found && !isTrivial(v) { a = append(a, v) }
-        for _, dep := range mergeExpand(ctx, expandPlainValue, a...) {
+        for _, dep := range mergex(ctx, expandPlainValue, a...) {
                 var mat bool = len(opts.pats) == 0
                 if !mat { for _, pat := range opts.pats { if mat, _, _ = pat.match(ctx, dep); mat { break }}}
                 if mat && (dep.updated(ctx) || dep.stat(ctx).mod().After(target.stat(ctx).mod())) {
