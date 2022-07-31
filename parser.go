@@ -1546,7 +1546,7 @@ SwitchCompose:
 // ----------------------------------------------------------------------------
 // Clauses & Declarations
 
-type parseSpecFunc func(doc *CommentGroup, generic *genericoptions, iota int)
+type parseSpecFunc func(doc *CommentGroup, opts *genericClauseOpts, iota int)
 
 func isValidImport(lit string) bool {
 	const illegalChars = `!"#$%&'()*,:;<=>?[\]^{|}` + "`\uFFFD"
@@ -1605,16 +1605,16 @@ func (p *parser) _parseUseSpecProps(props []Value) (opts useOpts, params []Value
     return
 }
 
-func (p *parser) parseUseSpec(doc *CommentGroup, generic *genericoptions, _ int) {
+func (p *parser) parseUseSpec(doc *CommentGroup, gOpts *genericClauseOpts, _ int) {
 	var props = p.parseDirectiveSpec()
-	if p.imports = append(p.imports, &usespec{ props }); generic.dontOperate {
+	if p.imports = append(p.imports, &usespec{ props }); gOpts.dontOperate {
 		// TODO: maybe give some information
 		return
 	}
 
 	var (
 		ctx = positional(p, p.Position())
-		args = append(generic.options, props[1:]...)
+		args = append(gOpts.vals, props[1:]...)
 		specVal = props[0]
         specNames []string
 		opts useOpts
@@ -1689,13 +1689,14 @@ loadSpecNames:
 	return
 }
 
-func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ int) {
+func (p *parser) parseIncludeSpec(doc *CommentGroup, gOpts *genericClauseOpts, _ int) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Spec")) }
 
 	// TODO: comment = p.lineComment
 
+	warn(p, "%v", gOpts.vals).debug(1)
 	var opts includeFileOpts
-	if vals := parseOpts(p, &opts, 0, generic.options...); len(vals) > 0 {
+	if vals := parseOpts(p, &opts, 0, gOpts.vals...); len(vals) > 0 {
 		// TODO: deal with the unparsed generic options
 	}
 
@@ -1712,7 +1713,7 @@ func (p *parser) parseIncludeSpec(doc *CommentGroup, generic *genericoptions, _ 
 		x = p.parseRuleEntry(specialRuleNor, nil, []Value{x}) // this should return a RuleEntry
 	}
 
-	if !generic.dontOperate { p.includeFile(p.Position(), opts, x) }
+	if !gOpts.dontOperate { p.includeFile(p.Position(), opts, x) }
 }
 
 func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
@@ -1767,7 +1768,7 @@ func (p *parser) importFileMaps1(ctx Context, opts useOpts, projects ...*Project
 type filesOpts struct {
 	public bool `p,pub;p,public`
 }
-func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ int) {
+func (p *parser) parseFilesSpec(doc *CommentGroup, gOpts *genericClauseOpts, _ int) {
 	defer p.setbits(p.setbit(parsingFilesSpec))
 	var props = p.parseDirectiveSpec()
 	if len(props) != 1 {
@@ -1786,7 +1787,7 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 	if p.skipSpaces(); p.lineComment != nil {
 		//spec.Comment = p.lineComment
 	}
-	if generic.dontOperate {
+	if gOpts.dontOperate {
 		// TODO: maybe give some information
 		return
 	}
@@ -1797,7 +1798,7 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 		opts filesOpts
 		pats []Value
 	)
-	parseOpts(ctx, &opts, 0, generic.options...)
+	parseOpts(ctx, &opts, 0, gOpts.vals...)
 
 	if g, ok := val.(*Group); ok {
 		pats = g.Elems
@@ -1863,7 +1864,7 @@ func (p *parser) parseFilesSpec(doc *CommentGroup, generic *genericoptions, _ in
 	}
 }
 
-func (p *parser) evalConfiguration(ctx Context, generic *genericoptions, props []Value) {
+func (p *parser) evalConfiguration(ctx Context, gOpts *genericClauseOpts, props []Value) {
 	if project := p.Project(); project == nil {
 		erro(ctx, "configuration: nil project").debug(1)
 	} else if project.configure == nil {
@@ -1912,7 +1913,7 @@ func (p *parser) evalConfiguration(ctx Context, generic *genericoptions, props [
 	}
 }
 
-func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int) {
+func (p *parser) parseEvalSpec(doc *CommentGroup, gOpts *genericClauseOpts, _ int) {
 	var (
 		ctx Context = p
 		props = p.parseDirectiveSpec()
@@ -1920,7 +1921,7 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 		name string
 	)
 
-	if generic.dontOperate {
+	if gOpts.dontOperate {
 		return
 	}
 	if prop0 = props[0]; isNil(prop0) {
@@ -1942,10 +1943,10 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, generic *genericoptions, _ int
 	} else if isTrivial(resolved) {
 		if name == "configuration" {
 			// NOTE: see also defaultContext.configure()
-			p.evalConfiguration(positional(ctx, position), generic, props)
+			p.evalConfiguration(positional(ctx, position), gOpts, props)
 			return
 		}
-		erro(ctx, "resolved '%v' is nil (options = %v)", prop0, *generic).debug(1)
+		erro(ctx, "resolved '%v' is nil (options = %v)", prop0, *gOpts).debug(1)
 		return
 	}
 
@@ -2010,26 +2011,25 @@ ParamsParseLoop: // Parse the directive parameters
 type genericClauseOpts struct {
 	generalOpts
 	conds []Value `cond,if,where`
+
+    keyword token.Token // e.g. use, files, eval, etc.
+    dontOperate bool // e.g. -cond(false)
+    allVals []Value // all option values (unparsed)
+    vals []Value // remaining option values after parsed
 }
 func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseSpecFunc) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Clause("+keyword.String()+")")) }
 
-	p.skipSpaces()
-
-	var (
-		opts genericClauseOpts // TODO: merge genericClauseOpts and genericoptions
-		generic = genericoptions{ keyword: keyword }
-	)
-	for p.tok == token.MINUS {
-		var x = p.parseExpr(false)
-		var ctx = positional(p, x.Position())
-		if a := parseOpts(ctx, &opts, 0, x); len(a) > 0 {
-			generic.options = append(generic.options, a...)
-		}
+	var opts = genericClauseOpts{ keyword: keyword }
+	for p.skipSpaces(); p.tok == token.MINUS; p.skipSpaces() {
+		opts.allVals = append(opts.allVals, p.parseExpr(false))
 	}
+	opts.vals = parseOpts(p, &opts, /* NO expand! */0, opts.allVals...)
+	if false { warn(p, "%v -> %v", opts.allVals, opts.vals).debug(1) }
+
 	for _, cond := range opts.conds {
 		if t := cond.True(positional(p, cond.Position())); !t {
-			generic.dontOperate = true
+			opts.dontOperate = true
 			break
 		}
 	}
@@ -2040,7 +2040,7 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 			// TODO: collect documentation comments
 			for p.tok == token.SPACE || p.tok == token.LINEND { p.next(true) }
 			if p.tok == token.RPAREN || p.tok == token.EOF { break  }
-			f(p.leadComment, &generic, iota)
+			f(p.leadComment, &opts, iota)
 			if p.tok == token.COMMA || p.tok == token.LINEND { p.next(true) }
 		}
 		if p.expect(token.RPAREN); p.tok != token.EOF {
@@ -2050,7 +2050,7 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 	}
 
 	if p.tok != token.LINEND && p.tok != token.EOF && (p.stop == 0 || p.pos < p.stop) {
-		if f(nil, &generic, 0); p.lineComment != nil { /* break */ }
+		if f(nil, &opts, 0); p.lineComment != nil { /* break */ }
 
 		// // Checking for `include xxx:[...]`
 		// FIXME: if inc, _ := spec.(*ast.IncludeSpec); inc != nil && len(inc.Props) > 0 {

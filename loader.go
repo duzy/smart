@@ -259,13 +259,6 @@ func (l *loader) searchSpecPath(linfo *loadinfo, specName string) (absPath strin
     return
 }
 
-type genericoptions struct {
-    keyword token.Token // e.g. use, files, eval, etc.
-    dontOperate bool // e.g. -cond(false)
-    options []Value // general options
-    verbose bool // TODO: verbose operation
-}
-
 type useOpts struct {
 	noUse    bool `nu,nouse;uu,unuse` // TODO
     noVars   bool `nv,novars;nv,no-vars`
@@ -1007,7 +1000,8 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
 
 type includeFileOpts struct {
     generalOpts
-    isConfiguration bool
+    ifExists bool `ie,if-exists,ifexists`
+    isConfiguration bool // internal
 }
 func (l *loader) includeFile(pos Position, opts includeFileOpts, spec Value) {
     var (
@@ -1037,11 +1031,17 @@ func (l *loader) includeFile(pos Position, opts includeFileOpts, spec Value) {
 
     switch t := spec.(type) {
     case *File:
-        if fullname, specName = t.fullname(), t.name; t.info == nil {
+        if fullname, specName = t.fullname(), t.name; t.info == nil && !opts.ifExists {
             prompt(ctx, "%v: no source file %v, %v\n", fullname, t, t.stat(ctx))
             erro(ctx, "%v: %v", ctx.Project(), t).of(t)
             errostack(ctx, 5, "").debug(16)
             return
+        } else if opts.ifExists {
+            if opts.debug>0 {
+                prompt(ctx, "%v: file not found\n", spec)
+                warn(ctx, "").debug(opts.debug)
+            }
+            return // ignore non-exists files
         }
     default:
         if specName = spec.Strval(ctx); specName == "" {
@@ -1050,13 +1050,18 @@ func (l *loader) includeFile(pos Position, opts includeFileOpts, spec Value) {
             return
         } else if file := l.project.FindFile(ctx, specName); file != nil && file.exists() {
             fullname = file.fullname()
+        } else if opts.ifExists {
+            if opts.debug>0 {
+                prompt(ctx, "%v: file not found\n", file)
+                warn(ctx, "").debug(opts.debug)
+            }
+            return // ignore non-exists files
         } else if filepath.IsAbs(specName) {
             fullname = specName
         } else {
             fullname = filepath.Join(linfo.absDir, specName)
         }
     }
-
     if specName == "" {
         erro(ctx, "include: empty string: %v", spec).debug(10)
         return
@@ -1548,8 +1553,7 @@ func (l *loader) loadProjectConfiguration(ident *Barecomp, identStr string, decl
         } else if options.verbose {
             prompt(ctx, "Configuration for %s (%s)\n", l.project, l.project.spec).debug(1)
         }
-        var opts includeFileOpts
-        opts.isConfiguration = true
+        var opts = includeFileOpts{isConfiguration: true}
         l.isIncludingConf = true
         l.includeFile(pos, opts, file)
         l.isIncludingConf = false
