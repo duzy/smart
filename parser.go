@@ -1694,11 +1694,12 @@ func (p *parser) parseIncludeSpec(doc *CommentGroup, gOpts *genericClauseOpts, _
 
 	// TODO: comment = p.lineComment
 
-	warn(p, "%v", gOpts.vals).debug(1)
-	var opts includeFileOpts
+	var opts = includeFileOpts{ genericClauseOpts: gOpts }
 	if vals := parseOpts(p, &opts, 0, gOpts.vals...); len(vals) > 0 {
 		// TODO: deal with the unparsed generic options
+		warn(p, "unknown opts: %v", vals).debug(1)
 	}
+	if false { warn(p, "%v %v", gOpts.vals, opts.ifExists).debug(1) }
 
 	var x = p.parseExpr(false)
 	if p.skipSpaces(); p.tok == token.COLON {

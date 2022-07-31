@@ -20,6 +20,7 @@ import (
     "fmt"
     "os/exec"
     "os"
+    "io/fs"
 )
 
 const optSortErrors = false
@@ -999,7 +1000,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
 }
 
 type includeFileOpts struct {
-    generalOpts
+    *genericClauseOpts
     ifExists bool `ie,if-exists,ifexists`
     isConfiguration bool // internal
 }
@@ -1031,12 +1032,12 @@ func (l *loader) includeFile(pos Position, opts includeFileOpts, spec Value) {
 
     switch t := spec.(type) {
     case *File:
-        if fullname, specName = t.fullname(), t.name; t.info == nil && !opts.ifExists {
+        if fullname, specName = t.fullname(), t.name; t.info == nil {
             prompt(ctx, "%v: no source file %v, %v\n", fullname, t, t.stat(ctx))
             erro(ctx, "%v: %v", ctx.Project(), t).of(t)
             errostack(ctx, 5, "").debug(16)
             return
-        } else if opts.ifExists {
+        } else if false && opts.ifExists {
             if opts.debug>0 {
                 prompt(ctx, "%v: file not found\n", spec)
                 warn(ctx, "").debug(opts.debug)
@@ -1050,7 +1051,7 @@ func (l *loader) includeFile(pos Position, opts includeFileOpts, spec Value) {
             return
         } else if file := l.project.FindFile(ctx, specName); file != nil && file.exists() {
             fullname = file.fullname()
-        } else if opts.ifExists {
+        } else if false && opts.ifExists {
             if opts.debug>0 {
                 prompt(ctx, "%v: file not found\n", file)
                 warn(ctx, "").debug(opts.debug)
@@ -1070,11 +1071,17 @@ func (l *loader) includeFile(pos Position, opts includeFileOpts, spec Value) {
     var absDir, baseName = filepath.Split(fullname)
     defer func(mode Mode) { l.mode = mode } (l.mode) // Must restore parse mode!
     defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
-    if _, err = l.parseFile(fullname, nil, parseMode|Flat, &opts); err != nil {
-        prompt(ctx, "%v: %v\n", fullname, specName)
-        erro(ctx, "include error occurred (from %v)", fullname)
-        errostack(ctx, 5, "%v", ctx).debug(16)
-        if true { fail(pos, "parse file failed: %s", fullname) }
+    if _, err = l.parseFile(ctx, fullname, nil, parseMode|Flat, &opts); err != nil {
+        if pe, ok := err.(*fs.PathError); ok && opts.ifExists {
+            prompt(ctx, "%v: %v\n", fullname, pe.Err)
+            warn(ctx, "include %v", spec)
+            warnstack(ctx, 5, "").debug(16)
+        } else {
+            prompt(ctx, "%v: %v\n", fullname, err)
+            erro(ctx, "include: %v", spec)
+            errostack(ctx, 5, "").debug(16)
+        }
+        ctx.checkErrors(true) // dump diags immediately
     }
 
     if n := ctx.checkErrors(true); n > 0 {
@@ -1820,17 +1827,24 @@ func readSource(filename string, src interface{}) ([]byte, error) {
 // the corresponding ast.File node. The source code may be provided via
 // the filename of the source file, or via the src parameter.
 func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *parsedFile, err error) {
-    return l.parseFile(filename, src, mode, nil)
+    return l.parseFile(l, filename, src, mode, nil)
 }
 
-func (l *loader) parseFile(filename string, src interface{}, mode Mode, incOpts *includeFileOpts) (f *parsedFile, err error) {
+func (l *loader) parseFile(ctx Context, filename string, src interface{}, mode Mode, incOpts *includeFileOpts) (f *parsedFile, err error) {
     if options.traceLaunch { defer un(trace(t_launch, "loader.ParseFile")) }
 
     var text []byte
     if text, err = readSource(filename, src); err != nil {
-        prompt(l, "%v: %v\n", filename, err)
-        erro(l, "reading source failed: %v", err)
-        errostack(l, 5, "%v", l).debug(32)
+        if _, ok := err.(*fs.PathError); ok && incOpts.ifExists {
+            if incOpts.debug>0 {
+                prompt(ctx, "%v: source file not found\n", filename)
+                warnstack(ctx, 5, "#>", incOpts.allVals[0]).debug(incOpts.debug)
+            }
+        } else {
+            prompt(ctx, "%v: %v\n", filename, err)
+            erro(ctx, "reading source failed: %v (%T)", err, err)
+            errostack(ctx, 5, "").debug(32)
+        }
         return
     }
 
