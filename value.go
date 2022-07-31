@@ -5221,7 +5221,7 @@ func (p *delegate) expand(ctx Context, w expandwhat) (res Value) {
         return p
     }
 
-    if true { defer func() { if o, ok := p.x.(Object); !ok || isNil(o) {
+    if false { defer func() { if o, ok := p.x.(Object); !ok || isNil(o) {
         warn(ctx, "%v: %T %v", p, p.x, p.x).at(p.x.Position()).debug(1)
     } else if name := o.Name(ctx); name == ".test" && res != nil {
         var proj = ctx.Project()
@@ -5323,11 +5323,6 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (retctx Context, res Value)
         } else {
             x = t
         }
-        if false { if s := p.x.String(); s == "main→sources" {
-            warn(ctx, "%v: %T %v", p.x, t.o, t.o)
-            warn(ctx, "%v: %T %v", p.x, x, x)
-            warn(ctx, "%v: %T %v %v", p.x, ctx, ctx, ctx.closureScopes()).debug(1)
-        }}
     }
 
     var args, _ = p.args(ctx, w)
