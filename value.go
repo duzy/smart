@@ -6324,15 +6324,18 @@ func expand(ctx Context, w expandwhat, values ...Value) (elems []Value, num int)
             // TODO: report nil expand ??
         } else if val = elem.expand(ctx, w); isNil(val) || val == elem {
             elems = append(elems, elem)
-        } else if true && val.expandible(ctx, w) {
+        } else if w&expandClosure!=0 && val.expandible(ctx, w) {
             if f, ok := val.(*File); ok {
                 prompt(ctx, "%v: %s\n", f.position, f.name)
                 warnstack(ctx, 6, "incomplete expand: %T %v -> %T %v -> {%v,%v,%v} (w=%016b)",
                     elem, elem, val, val, f.name, f.sub, f.dir, w).of(elem).debug(16)
             } else {
                 var t = val.expand(ctx, w)
-                warnstack(ctx, 6, "incomplete expand: %T %v -> %T %v (equal=%v) -> %v (w=%016b)",
-                    elem, elem, val, val, (elem==val), t, w).of(elem).debug(16)
+                warn(ctx, "incomplete expand: %T %v", elem, elem).of(elem)
+                warn(ctx, "incomplete expand: %T %v", val, val).of(val)
+                warn(ctx, "incomplete expand: (equal=%v) -> %v (w=%016b)",
+                    (elem==val), t, w).of(elem)
+                warnstack(ctx, 6, "").debug(16)
             }
         } else {
             elems = append(elems, val)
