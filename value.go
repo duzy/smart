@@ -2896,10 +2896,15 @@ func (p *elements) expandible(ctx Context, w expandwhat) (res bool) {
     }
     return
 }
-func (p *elements) cmpElems(ctx Context, elems []Value) (res cmpres) {
-    if a, b := len(p.Elems), len(elems); a == b {
-        for i, elem := range p.Elems {
-            var other = elems[i]
+
+func cmpElems(ctx Context, elemsL, elemsR []Value) (res cmpres) {
+    if len(elemsL) != len(elemsR) {
+        elemsL = merge(elemsL...)
+        elemsR = merge(elemsR...)
+    }
+    if a, b := len(elemsL), len(elemsR); a == b {
+        for i, elem := range elemsL {
+            var other = elemsR[i]
             if a, b := isNil(elem), isNil(other); a && b {
                 continue
             } else if a || b {
@@ -2971,7 +2976,7 @@ func (p *Barecomp) traverse(ctx Context) (traves travestates) {
 }
 func (p *Barecomp) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Barecomp); ok {
-        res = p.cmpElems(ctx, a.Elems)
+        res = cmpElems(ctx, p.Elems, a.Elems)
     } else if w, ok := v.(*Bareword); ok {
         if s := p.Strval(ctx); s == w.string {
             res = cmpEqual
@@ -3617,7 +3622,7 @@ func (p *Path) patterned(ctx Context) (result bool) {
 }
 func (p *Path) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Path); ok {
-        res = p.cmpElems(ctx, a.Elems)
+        res = cmpElems(ctx, p.Elems, a.Elems)
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
@@ -4783,7 +4788,16 @@ func (p *List) stamp(ctx Context) (files []*File, err error) {
 
 func (p *List) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*List); ok {
-        res = p.cmpElems(ctx, a.Elems)
+        res = cmpElems(ctx, p.Elems, a.Elems)
+        if false && res != cmpEqual && p.String() == a.String() {
+            for i, elem := range p.Elems {
+                warn(ctx, "L: %v: %d: %T %v", p, i, elem, elem)
+            }
+            for i, elem := range a.Elems {
+                warn(ctx, "R: %v: %d: %T %v", p, i, elem, elem)
+            }
+            warn(ctx, "%v <=> %v", p.Elems, a.Elems).debug(1)
+        }
     } else if len(p.Elems) == 1 {
         res = p.Elems[0].cmp(ctx, v)
     }
@@ -4884,7 +4898,7 @@ func (p *Group) traverse(ctx Context) (traves travestates) {
 }
 func (p *Group) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Group); ok {
-        res = p.cmpElems(ctx, a.Elems)
+        res = cmpElems(ctx, p.Elems, a.Elems)
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
