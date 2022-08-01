@@ -110,7 +110,7 @@ func (pc *programContext) dirtyMark(vals ...Value) {
     const enableDirtyMark = true
     if !enableDirtyMark {
         // does nothing
-    } else if t, _ := pc.autoGet("@"); isTrivial(t) {
+    } else if _, t := pc.autoGet("@"); isTrivial(t) {
         // should not happen, but safely ignoring..
     } else if tt := merge(t); len(tt) == 0 {
         // should not happen, but safely ignoring..
@@ -193,7 +193,7 @@ func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err 
         return
     } else if isNil(value) {
         // disgard nil value
-    } else if prev, ok := ctx.autoSet("-", value); !ok {
+    } else if def, prev := ctx.autoSet("-", value); def == nil {
         var (
             _, ent, _ = entryStr(ctx, ctx.entry())
             nam = intername(i)
@@ -274,7 +274,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
                 }
             }
             return
-        } else if hyphen, found := ctx.autoGet("-"); !found || isNil(value) || value == hyphen {
+        } else if def, hyphen := ctx.autoGet("-"); def == nil || isNil(value) || value == hyphen {
             // does nothing
         } else if ctx.autoSet("-", value); false {
             var _, ent, _ = entryStr(ctx, ctx.entry())
@@ -413,8 +413,8 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     )
     defer func() {
         var (
-            targets, _ = ctx.autoGet("@")
-            depends, _ = ctx.autoGet("^")
+            _, targets = ctx.autoGet("@")
+            _, depends = ctx.autoGet("^")
             tb = traves.not(traveDone, traveNext)
         )
         if isTrivial(targets) { targets = entry.Target() }
@@ -473,7 +473,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
         if depth < maxCallRecursion {
             // continues
         } else if c := /*cc.traversal()*/cc.programContext(); c != nil {
-            var tt, _ = c.autoGet("@")
+            var _, tt = c.autoGet("@")
             prompt(ctx, "%v: max recursion call (%d)\n", fullnameOrStrval(ctx, tt), depth)
             warn(ctx, "max recursion call (%d)\n", depth).of(tt).debug(1)
 
@@ -481,26 +481,26 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
             for ; c != nil; c = c.caller() {
                 var n int
                 if collapse { for next := c.caller(); next != nil; next = next.caller() {
-                    if t, _ := next.autoGet("@"); t != nil && t.cmp(ctx, tt) == cmpEqual {
+                    if _, t := next.autoGet("@"); t != nil && t.cmp(ctx, tt) == cmpEqual {
                         n += 1;  continue
                     }
                     if next.program() == c.program() { n += 1; c = next } else { break }
                 }}
 
-                var t, _ = c.autoGet("@")
+                var _, t = c.autoGet("@")
                 if prog := c.program(); prog == nil {
                     erro(ctx, "%v (@=%v)", entry, tt).at(entry.Position())
                     break
                 } else if pos := prog.position; n > 0 {
                     erro(ctx, "%v (repeated %d times)", t, n).at(pos)
                 } else if !collapse {
-                    var d, _ = c.autoGet(">")
+                    var _, d = c.autoGet(">")
                     erro(ctx, "%v : %v", t, d).at(pos)
                 } else if depth -= 1; maxCallRecursion - depth > 5 {
                     erro(ctx, "%v ... (%d)", t, maxCallRecursion - depth).at(pos)
                     break
                 } else {
-                    var d, _ = c.autoGet(">")
+                    var _, d = c.autoGet(">")
                     erro(ctx, "%v : %v", t, d).at(pos)
                 }
 
@@ -564,7 +564,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
 
         if /*!isNil(result) && !isNone(result)*/!isTrivial(result) {
             // good!
-        } else if result, _ = ctx.autoGet("-"); !isNil(result) {
+        } else if _, result = ctx.autoGet("-"); !isNil(result) {
             // good!
         } else if !isNil(defaultVal) {
             result = defaultVal
@@ -634,7 +634,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
 
     if prog.language != "" || len(t.interpreted) > 0 || len(prog.recipes) == 0 {
         // does nothing
-    } else if h, ok := ctx.autoGet("-"); !ok || isNil(h) {
+    } else if d, h := ctx.autoGet("-"); d == nil || isNil(h) {
         // Using the default statements interpreter (aka. evaluation).
         if i, ok := dialects["eval"]; ok && i != nil {
             if err := prog.interpret(ctx, i, nil); err != nil {
@@ -660,7 +660,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
 
     var (
         stems = ctx.stems()
-        g,  _ = ctx.autoGet("@")
+        _, g = ctx.autoGet("@")
         verb  = options.verbose || options.verboseBreaks
         mu sync.Mutex
         wg sync.WaitGroup
@@ -701,8 +701,8 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
             // NOTE: Must fetch $@ after every prerequisite traverse, because
             // NOTE: a prerequisite modifier may had changed it.
             var (
-                target, _ = ctx.autoGet("@")
-                depend, _ = ctx.autoGet(">")
+                _, target = ctx.autoGet("@")
+                _, depend = ctx.autoGet(">")
             )
             if dbg || false && strings.Contains(prerequisite.Strval(ctx), "%.h.cmake") {
                 warn(ctx, "%v", t).of(prerequisite)
@@ -848,7 +848,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
         return
     } else if num := len(prerequisites); num > 0 {
         for _, prerequisite := range prerequisites {
-            var target, _ = ctx.autoGet("@")
+            var _, target = ctx.autoGet("@")
             warn(ctx, "%v: %T %v %v %v\n",
                 target, prerequisite, prerequisite,
                 ctx.entry().Target(), ctx.stems()).debug(1)

@@ -291,7 +291,7 @@ ForTravestates:
 }
 
 func (traves *travestates) add(ctx Context, what travekind, target Value) *travestate {
-    if isTrivial(target) { target, _ = ctx.autoGet("@") }
+    if isTrivial(target) { _, target = ctx.autoGet("@") }
     for _, s := range *traves {
         if s.what == what && s.target == target {
             return s
@@ -324,50 +324,20 @@ func (pc *prioritizedContext) String() string {
     for _, c := range pc.more { s += fmt.Sprintf(",%s", c) }
     return fmt.Sprintf("prioritized{%s%s}", pc.Context, s)
 }
-func (pc *prioritizedContext) autoGet(name string) (res Value, found bool) {
+func (pc *prioritizedContext) autoGet(name string) (def *Def, res Value) {
     for _, c := range append([]Context{ pc.Context }, pc.more...) {
-        if res, found = c.autoGet(name); found/*!isNil(res)*/ {
+        if def, res = c.autoGet(name); def != nil {
             break
         }
     }
     return
 }
-func (pc *prioritizedContext) autoSet(name string, val Value) (res Value, okay bool) {
+func (pc *prioritizedContext) autoSet(name string, val Value) (def *Def, res Value) {
     for _, c := range append([]Context{ pc.Context }, pc.more...) {
-        if res, okay = c.autoSet(name, val); okay { break }
+        if def, res = c.autoSet(name, val); def != nil { break }
     }
     return
 }
-// func (pc *prioritizedContext) closureGet(name string) (res Value) {
-//     for _, c := range append([]Context{ pc.Context }, pc.more...) {
-//         if res = c.closureGet(name); !(isNil(res) /*|| isNone(res) || isUndef(res)*/) {
-//             break
-//         }
-//     }
-//     return
-// }
-// func (pc *prioritizedContext) closureSet(name string, val Value) (res Value, okay bool) {
-//     for _, c := range append([]Context{ pc.Context }, pc.more...) {
-//         if res, okay = c.closureSet(name, val); okay { break }
-//     }
-//     return
-// }
-// func (pc *prioritizedContext) closureResolveObject(pos Position, name string) (obj Object) {
-//     for _, c := range append([]Context{ pc.Context }, pc.more...) {
-//         if obj = c.closureResolveObject(pos, name); !(isNil(obj) /*|| isNone(res) || isUndef(res)*/) {
-//             break
-//         }
-//     }
-//     return
-// }
-// func (pc *prioritizedContext) closureResolveEntry(pos Position, name string) (entry Entry) {
-//     for _, c := range append([]Context{ pc.Context }, pc.more...) {
-//         if entry = c.closureResolveEntry(pos, name); entry != nil {
-//             break
-//         }
-//     }
-//     return
-// }
 
 func prioritize(ctxs ...Context) (ctx Context) {
     if n := len(ctxs); n > 1 {
@@ -466,22 +436,33 @@ ForScopes:
     return
 }
 
-func closureGet(ctx Context, name string) (res Value) {
+func closureGet(ctx Context, name string) (def *Def) {
     for _, scope := range ctx.closureScopes() {
         if scope.project == nil {
-            if _, res = scope.Find(name); !isNil(res) { break }
+            if _, obj := scope.Find(name); obj == nil {
+                continue
+            } else if def, _ = obj.(*Def); def != nil {
+                return
+            }
         } else {
             var pos = ctx.Position()
             if !pos.IsValid() { pos = scope.position }
             if !pos.IsValid() { pos = scope.project.position }
             if scope != scope.project.scope {
-                if _, res = scope.Find(name); !isNil(res) { break  }
+                if _, obj := scope.Find(name); obj != nil {
+                    if def, _ = obj.(*Def); def != nil {
+                        return
+                    }
+                }
             }
-            if res = scope.project.resolveObject(ctx, name); isNil(res) {
-                res, _ = ctx.autoGet(name)
+            if obj := scope.project.resolveObject(ctx, name); obj == nil {
+                if def, _ = ctx.autoGet(name); def != nil {
+                    return
+                }
+            } else if def, _ = obj.(*Def); def != nil {
+                return
             }
         }
-        if !isNil(res) { break }
     }
     return
 }
@@ -629,7 +610,7 @@ func (t *traverseContext) traversed(target Value) (targets []Value) {
 
 func entryStr(ctx Context, entry Entry) (str, ent, tar string) {
     if !isNil(entry) { ent = entry.Strval(ctx) }
-    if target, found := ctx.autoGet("@"); !found || isTrivial(target) {
+    if def, target := ctx.autoGet("@"); def == nil || isTrivial(target) {
         str = ent // ...
     } else if tar = target.Strval(ctx); ent != tar {
         str = fmt.Sprintf("%s(%s)", ent, tar)
@@ -685,10 +666,10 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
             }
         }}
 
-        var tt, _ = pc.autoGet("@")
+        var _, tt = pc.autoGet("@")
         for last, i := &pc.prog.position, 0; pc != nil && n > 0; pc = pc.Context.programContext() {
             for next := pc.caller(); next != nil; next = next.caller() {
-                if t, _ := next.autoGet("@"); t != nil && (
+                if _, t := next.autoGet("@"); t != nil && (
                     t == tt || t.cmp(ctx, tt) == cmpEqual) {
                     i += 1;  continue
                 }
@@ -861,7 +842,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         return
     }}
     if traveseDetectLoops { for c := ctx.programContext(); c != nil; c = c.caller() {
-        if t, ok := c.autoGet("@"); ok && t.cmp(c, prereqValue) == cmpEqual {
+        if d, t := c.autoGet("@"); d != nil && t.cmp(c, prereqValue) == cmpEqual {
             if traveseLoopBreakState != traveUnkn {
                 var s = traves.add(ctx, traveseLoopBreakState, targetValue)
                 if s.dependPat = prereqPattern; prereqFile == nil {
@@ -1598,7 +1579,7 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
     )
     if optWaitForExecResult {
         // Waiting for command (shell/python/etc.) exec result
-        if bv, has := ctx.autoGet("-"); has && !isNil(bv) && !isNone(bv) {
+        if d, bv := ctx.autoGet("-"); d != nil && !isTrivial(bv) {
             var ok bool
             if execRes, ok = bv.(*ExecResult); ok {
                 //execRes.wg.Wait()
@@ -5044,8 +5025,10 @@ type delegate struct {
 }
 func (p *delegate) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *delegate) Strval(ctx Context) (s string) {
-    if v := p.value(ctx); isNil(v) {
+    if v := p.expand(ctx, expandPlainValue); isNil(v) {
         erro(ctx, "delegate value is nil: %v", p).of(p).debug(1)
+    } else if v == p {
+        erro(ctx, "delegate cant' expand: %v", p).of(p).debug(1)
     } else {
         s = v.Strval(ctx)
     }
@@ -5054,22 +5037,28 @@ func (p *delegate) Strval(ctx Context) (s string) {
 func (p *delegate) True(ctx Context) (t bool) {
     if v := p.expand(ctx, expandPlainValue); isNil(v) {
         erro(ctx, "expand '%v' to nil", p).at(p.position).debug(1)
+    } else if v == p {
+        erro(ctx, "delegate cant' expand: %v", p).of(p).debug(1)
     } else if t = v.True(ctx); false {
         info(ctx, "%v -> %T %v -> %v", p, v, v, t).at(p.position).debug(8)
     }
     return
 }
 func (p *delegate) Integer(ctx Context) (i int64, e error) {
-    if v := p.value(ctx); isNil(v) {
+    if v := p.expand(ctx, expandPlainValue); isNil(v) {
         erro(ctx, "delegate value is nil: %v", p).of(p).debug(1)
+    } else if v == p {
+        erro(ctx, "delegate cant' expand: %v", p).of(p).debug(1)
     } else {
         i, e = v.Integer(ctx)
     }
     return
 }
 func (p *delegate) Float(ctx Context) (f float64, e error) {
-    if v := p.value(ctx); isNil(v) {
+    if v := p.expand(ctx, expandPlainValue); isNil(v) {
         erro(ctx, "nil delegate value: %v", p).of(p).debug(1)
+    } else if v == p {
+        erro(ctx, "delegate cant' expand: %v", p).of(p).debug(1)
     } else {
         f, e = v.Float(ctx)
     }
@@ -5184,18 +5173,12 @@ func (p *delegate) elemStr(ctx Context, o Object, k elemkind) (s string) {
     }
     return
 }
-func (p *delegate) value(ctx Context) (v Value) {
-    if v = p.expand(ctx, expandDelegate); v == p { // d, ok := v.(*delegate); ok && d == p
-        erro(ctx, "self delegation: %v", p).of(p).debug(1)
-    }
-    return
-}
 func (p *delegate) args(ctx Context, w expandwhat) (args []Value, num int) {
-    if w&expandArgs != 0 {
-        if args, num = expand(ctx, w, p.a...); len(args) == 0 && num == 0 && len(p.a) > 0 {
-            args = p.a
-        }
-    } else if len(p.a) > 0 {
+    if len(p.a) < 1 {
+        return // does nothing
+    } else if w&expandArgs == 0 {
+        args = p.a
+    } else if args, num = expand(ctx, w, p.a...); len(args) == 0 && num == 0 {
         args = p.a
     }
     return
@@ -5216,11 +5199,6 @@ func (p *delegate) expandible(ctx Context, w expandwhat) (res bool) {
     return
 }
 func (p *delegate) expand(ctx Context, w expandwhat) (res Value) {
-    if res = p; isNil(p.x) || isNone(p.x) {
-        erro(ctx, "expand nil delegate: %v (w=%016b)", p, w).at(p.position).debug(64)
-        return p
-    }
-
     if false { defer func() { if o, ok := p.x.(Object); !ok || isNil(o) {
         warn(ctx, "%v: %T %v", p, p.x, p.x).at(p.x.Position()).debug(1)
     } else if name := o.Name(ctx); name == ".test" && res != nil {
@@ -5229,18 +5207,28 @@ func (p *delegate) expand(ctx Context, w expandwhat) (res Value) {
         var obj = closureResolveObject(ctx, p.position, name)
         warn(ctx, "%v: p = %v, %016b", proj, p, w).at(p.Position())
         warn(ctx, "%v: p.x = %T %v", proj, p.x, p.x).at(p.x.Position())
+        warn(ctx, "%v: obj = %T %v", proj, obj, obj).at(p.x.Position())
         warn(ctx, "%v: res = %T %v", proj, res, res).at(res.Position())
         warn(ctx, "%v: val = %T %v", proj, val, val).at(res.Position())
-        warn(ctx, "%v: obj = %T %v", proj, obj, obj)
         if d, ok := res.(*delegate); ok { warn(ctx, "%v: d.x = %T %v", proj, d.x, d.x).at(d.position)/*.debug(1)*/ }
-        warn(ctx, "").debug(32)
+        warn(ctx, "").debug(4)
     }}()}
 
-    var v Value
+    if res = p; isNil(p.x) || isNone(p.x) {
+        erro(ctx, "expand nil delegate: %v (w=%016b)", p, w).at(p.position).debug(64)
+        return
+    } else if w&expandClosure == 0 { for _, a := range p.a {
+        if a.expandible(ctx, expandArgs|expandClosure) {
+            if false { info(ctx, "%v %v", p.x, a).debug(1) }
+            return
+        }
+    }}
+
     if def, ok := p.x.(*Def); ok && (def.origin == DefAuto) && (w&expandAuto == 0) {
         // TODO: auto -> placeholder
         //return def, nil
     }
+
     if w&expandDelegate == 0 {
         var x Value
         if u, ok := p.x.(*unresolvedobject); ok && fixUnresolvedObjectDelegate {
@@ -5255,19 +5243,16 @@ func (p *delegate) expand(ctx Context, w expandwhat) (res Value) {
         }
 
         if args, num := p.args(ctx, w); x != p.x || num > 0 {
-            if num == 0 { args = p.a }
-            res = &delegate{p.valbase, p.l, x, args}
-            return
+            return &delegate{p.valbase, p.l, x, args}
         }
         return
-    } else if ctx, res = p.reveal(ctx, w); isNil(res) {
-        res = MakeNone(p.position)
-        return
-    } else if v = res.expand(ctx, w); v != res {
-        res = v
-        return
     }
-    return
+
+    if ctx, res = p.reveal(ctx, w); isNil(res) {
+        return MakeNone(p.position)
+    } else {
+        return res.expand(ctx, w)
+    }
 }
 func (p *delegate) reveal(ctx Context, w expandwhat) (retctx Context, res Value) {
     ctx = positional(ctx, p.position)
@@ -5405,6 +5390,8 @@ func (p *closure) Strval(ctx Context) (s string) {
 
     if val := p.expand(ctx, expandDelegate|expandClosure); isNil(val) {
         if false { warn(ctx, "expand '%v' to nil", p).of(p).debug(1) }
+    } else if val == p {
+        erro(ctx, "closure cant' expand: %v", p).of(p).debug(1)
     } else {
         s = val.Strval(ctx)
     }
@@ -5413,6 +5400,8 @@ func (p *closure) Strval(ctx Context) (s string) {
 func (p *closure) True(ctx Context) (t bool) {
     if v := p.expand(ctx, expandPlainValue); isNil(v) {
         // does nothing
+    } else if v == p {
+        erro(ctx, "closure cant' expand: %v", p).of(p).debug(1)
     } else if t = v.True(ctx); false {
         info(ctx, "%v -> %T %v -> %v", p, v, v, t).at(p.position).debug(8)
     }
@@ -5421,9 +5410,9 @@ func (p *closure) True(ctx Context) (t bool) {
 func (p *closure) elemStr(ctx Context, o Object, k elemkind) (s string) {
     if ctx == nil || k&elemExpand == 0 {
         if s = p.string(ctx, o, k); !(p.l.IsClosure() || p.l.IsDelegate()) { s = "&" + s }
+    } else if v := p.expand(ctx, expandDelegate/*|expandClosure*/); v == p {
+        erro(ctx, "closure cant' expand: %v", p).of(p).debug(1)
     } else {
-        var v = p.expand(ctx, expandDelegate/*|expandClosure*/)
-        if isNil(v) { v = p }
         s = elementString(ctx, o, v, k)
     }
     return
@@ -5439,10 +5428,10 @@ func (p *closure) expandible(ctx Context, w expandwhat) (res bool) {
     return
 }
 func (p *closure) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
-    if v := p.expand(ctx, expandPlainValue); v != nil {
+    if v := p.expand(ctx, expandPlainValue); v != p {
         return v.match(ctx, i)
     } else {
-        erro(ctx, "%v: expand to nil", p).debug(1)
+        erro(ctx, "closure cant' expand: %v", p).of(p).debug(1)
     }
     return
 }

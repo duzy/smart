@@ -246,13 +246,13 @@ func configMessageDone(ctx Context, str string, args... interface{}) {
 
 // -dump
 func configureDump(ctx Context, fields map[string]Value, params ...Value) (result Value) {
-    result, _ = ctx.autoGet("-")
+    _, result = ctx.autoGet("-")
     return
 }
 
 func configureBoolValue(ctx Context) (result bool) {
     var (
-        value, _ = ctx.autoGet("-")
+        _, value = ctx.autoGet("-")
         res Value
     )
     if isNil(value) {
@@ -286,7 +286,7 @@ func configureAnswer(ctx Context, fields map[string]Value, params ...Value) (res
 // -option
 // -option('message...')
 func configureOption(ctx Context, fields map[string]Value, args ...Value) (result Value) {
-    if result, _ = ctx.autoGet("-"); !isNil(result) {
+    if _, result = ctx.autoGet("-"); !isNil(result) {
         var res Value
         if res = result.expand(ctx, expandPlainValue); !isNil(res) && res != result {
             result = res
@@ -446,7 +446,7 @@ ForInParams:
             var params []string
             for _, p := range prog.params { params = append(params, p.name) }
 
-            var at, _ = ctx.autoGet("@")
+            var _, at = ctx.autoGet("@")
             ctx = positional(ctx, a.Position())
             warn(ctx, "ignored param: %T %v; target: %T %v", a, a, at, at)
             warn(ctx, "%v params = %v", at, params).at(prog.position).debug(16)
@@ -614,8 +614,8 @@ func modifierConfigure(ctx Context, args ...Value) (result Value, _ travestates)
         }
     }
 
-    var target, found = ctx.autoGet("@")
-    if !found || isTrivial(target) {
+    var adef, target = ctx.autoGet("@")
+    if adef != nil || isTrivial(target) {
         erro(ctx, " target is trivial: %s", ctx).debug(1)
         return
     }
@@ -649,7 +649,7 @@ func modifierConfigure(ctx Context, args ...Value) (result Value, _ travestates)
 
     var value Value
     if len(args) == 0 { // Empty configuration: (configure)
-        if value, _ = ctx.autoGet("-"); value == nil {
+        if _, value = ctx.autoGet("-"); value == nil {
             erro(ctx, " `%v` not configured (%v)", target, value).debug(1)
             return
         } else if value == def || value.refs(ctx, def) {
@@ -789,11 +789,11 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
 
     args = parseOpts(ctx, opts, expandPlainValue, args...)
 
-    if target, found := ctx.autoGet("@"); !found || isTrivial(target) {
+    if def, target := ctx.autoGet("@"); def == nil || isTrivial(target) {
         erro(ctx, "'@' is not defined").debug(1)
         return
     } else if file, filename, _ = fullname(ctx, target, closured...); file == nil {
-        if depend, found := ctx.autoGet(">"); found && !isTrivial(depend) {
+        if def, depend := ctx.autoGet(">"); def != nil && !isTrivial(depend) {
             s := traves.add(ctx, traveFail, target)
             s.error = traveTargetNotDefinedFile
             s.depend = depend
@@ -808,14 +808,14 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         return
     }
 
-    if prev, _ := ctx.autoSet("@", file); opts.debug>0 {
+    if _, prev := ctx.autoSet("@", file); opts.debug>0 {
         info(ctx, "configure-file: %s->%s (%T %v -> %T %v)",
             file, filename, prev, prev, file, file).debug(opts.debug)
     }
 
     if file.info == nil { if f := stat(ctx, filename, "", ""); f != nil { file.info = f.info }}
     if opts.debug>0 && file != nil {
-        var t, _ = ctx.autoGet("@")
+        var _, t = ctx.autoGet("@")
         info(ctx, "configure-file: %v: %v (%s) (%v)", t, file.fullname(), closured).debug(opts.debug)
     }
 
@@ -846,7 +846,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
     defer func(s string, c *Scope) { configuredFiles[s] = c } (filename, closure)
 
     var data bytes.Buffer
-    if buffer, _ := ctx.autoGet("-"); !isNil(buffer) {
+    if _, buffer := ctx.autoGet("-"); !isNil(buffer) {
         args = append(args, buffer)
     }
     if dealArgs != nil { args = dealArgs(args, &data) }
@@ -859,12 +859,12 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         }
     }}
     if data.Len() == 0 {
-        var t, _ = ctx.autoGet("@")
+        var _, t = ctx.autoGet("@")
         prompt(ctx, "%v: %v\n", filename, t)
         erro(ctx, "no configuration data").debug(6)
         return
     } else if f := ctx.Project().configuration(ctx); (f == nil || !f.exists()) && opts.debug>0 {
-        var t, _ = ctx.autoGet("@")
+        var _, t = ctx.autoGet("@")
         // NOTE: TrimSpace to ease emacs *compilation* parse errors
         prompt(ctx, "%v: %v\n%s\n", filename, t, strings.TrimSpace(data.String())).debug(1)
     }
@@ -879,7 +879,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
             }
 
             var d = time.Now().Sub(st)
-            var t, _ = ctx.autoGet("@")
+            var _, t = ctx.autoGet("@")
             printEnteringDirectory(ctx)
             prompt(ctx, "update %v …… %s (in %v)\n",
                 trimPromptString(filename), status, d)
@@ -952,7 +952,7 @@ func __modifierConfigureInput(ctx Context, args ...Value) (result Value, _ trave
         project = ctx.Project()
     )
     args = parseOpts(ctx, &opts, expandPlainValue, args...)
-    if target, found := ctx.autoGet("@"); !found || isTrivial(target) {
+    if def, target := ctx.autoGet("@"); def == nil || isTrivial(target) {
         erro(ctx, " target '@' is not defined").debug(1)
         return
     }
@@ -1070,7 +1070,7 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ t
     }
 
     var outFile string
-    if target, _ := ctx.autoGet("@"); isNil(target) {
+    if _, target := ctx.autoGet("@"); isNil(target) {
         erro(ctx, " target '@' is undefined").debug(1)
         return
     } else {
@@ -1104,7 +1104,7 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ t
         filterOpts builtinFilterOpts
         depends, sources []Value
     )
-    if value, _ := ctx.autoGet("^"); !isTrivial(value) {
+    if _, value := ctx.autoGet("^"); !isTrivial(value) {
         depends = mergex(ctx, expandPlainValue, value)
     }
     for _, depend := range depends {

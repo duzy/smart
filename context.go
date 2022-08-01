@@ -101,8 +101,8 @@ type Context interface {
   String() string
 
   auto() *autoContext
-  autoGet(string) (Value, bool)
-  autoSet(string, Value) (Value, bool)
+  autoGet(string) (*Def, Value)
+  autoSet(string, Value) (*Def, Value)
   autoArgs([]*Def, []Value) ([]string, error)
 
   closure() *closureContext
@@ -151,7 +151,7 @@ type Context interface {
 }
 
 func getTargetValue(ctx Context) (res Value) {
-  if target, ok := ctx.autoGet("@"); !ok || isNil(target) {
+  if d, target := ctx.autoGet("@"); d != nil || isNil(target) {
     if false { erro(ctx, "target '%v' is nil", target) }
   } else if vals, _ := expand(ctx, expandPlainValue, target); len(vals) == 1 {
     res = Scalar(vals[0])
@@ -403,11 +403,6 @@ func (pc *positionalContext) spawn() Context {
   }
   return &spawnPositionalContext{positionalContext{ ctx, pc.position }}
 }
-func (pc *positionalContext) autoGet(name string) (res Value, found bool) {
-  if pc.Context == nil { panic("nil inner context") }
-  res, found = pc.Context.autoGet(name)
-  return
-}
 func positional(ctx Context, pos Position) Context {
   if ctx == nil { panic("nil inner context") }
   if pc, ok := ctx.(*positionalContext); ok && pos.Same(&pc.position) {
@@ -508,17 +503,20 @@ func (ctx *defaultContext) colonResolve(name string) (obj Object, found bool) {
 }
 func (ctx *defaultContext) closureResolveAuto(name string) (obj Object, found bool) { return ctx.colonResolve(name) }
 func (ctx *defaultContext) autoArgs(_ []*Def, _ []Value) ([]string, error) { return nil, nil }
-func (ctx *defaultContext) autoSet(name string, val Value) (res Value, ok bool) {
+func (ctx *defaultContext) autoSet(name string, val Value) (def *Def, res Value) {
   if false {
     prompt(ctx, "%v: can't set auto in default context, value=%v\n", name, val)
     errostack(ctx, 8, `(%T): %v`, ctx, name).debug(64)
   }
   return
 }
-func (ctx *defaultContext) autoGet(name string) (res Value, found bool) {
-  var obj Object
-  if obj, found = ctx.closureResolveAuto(name); found {
-    if def, ok := obj.(*Def); ok {
+func (ctx *defaultContext) autoGet(name string) (def *Def, res Value) {
+  var (
+    obj Object
+    ok bool
+  )
+  if obj, ok = ctx.closureResolveAuto(name); ok {
+    if def, ok = obj.(*Def); ok {
       res = def.value
     } else {
       res = obj // FIXME: should not return obj directly

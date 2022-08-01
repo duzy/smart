@@ -92,10 +92,10 @@ var builtins = map[string]BuiltinFunc {
         `count`:        builtinCount,
 
         `env`:          builtinEnv,
-        // DEPRECATED: `call`:         builtinCall,
-        //`auto`:         builtinAuto,
         `closure`:      builtinClosure,
         `defs`:         builtinDefList,
+        `call`:         builtinCall,
+        // `auto`:         builtinAuto,
         `value`:        builtinValue,
         `var`:          builtinValue,
         `list`:         builtinList,
@@ -393,7 +393,7 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                         if _, s, ok = asOptFullname(ctx, x/*, projects...*/); ok && s != "" {
                                 val.Set(reflect.ValueOf(&optFullname{ s, x }))
                         } else {
-                                var tv, _ = ctx.autoGet("@")
+                                var _, tv = ctx.autoGet("@")
                                 erro(ctx, "not a file: %v -> %v -> %s (@=%T %v)", v, x, s, tv, tv).of(v)
                                 errostack(ctx, 5, "%v", ctx).debug(16)
                         }
@@ -778,7 +778,9 @@ func builtinEqual(ctx Context, args... Value) (res Value) {
         if t := a.cmp(ctx, b); t == cmpEqual {
                 res = MakeBoolean(ctx.Position(), true)
         } else if opts.debug>0 {
-                warn(ctx, "%T %v <-> %T %v => %v", a, a, b, b, t).debug(opts.debug)
+                warn(ctx, "equal: %v", t)
+                warn(ctx, "%T %v", a, a)
+                warn(ctx, "%T %v", b, b).debug(opts.debug)
         }
         return
 }
@@ -1098,7 +1100,7 @@ func builtinEnv(ctx Context, args... Value) (res Value) {
 }
 
 type builtinAutoOpts struct {
-        //closure bool `c,closure`
+        generalOpts
 }
 func builtinAuto(ctx Context, args... Value) (res Value) {
         var (
@@ -1106,27 +1108,24 @@ func builtinAuto(ctx Context, args... Value) (res Value) {
                 vals []Value
         )
         for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
-                var ( name string; val Value )
+                var (
+                        name string
+                        val Value
+                )
                 name = a.Strval(ctx)
-                for c := ctx; c != nil; c = c.inner() {
-                        //warn(ctx, "%v %T", name, c)
-                        if _, ok := c.(*defaultContext); ok {
-                                val = MakeNone(a.Position())
-                                break
-                        } else if val, _ = c.autoGet(name); !isNil(val) {
-                                warn(ctx, "%v %T %v", a, c, val)
-                                //break
-                        }
-                }
-                warn(ctx, "%v %v", name, ctx)
-                warn(ctx, "%v %T %v", name, val, val).debug(1)
+                _, val = ctx.autoGet(name)
                 vals = append(vals, val)
         }
-        return MakeListOrScalar(ctx.Position(), vals)
+        if len(vals) > 0 {
+                MakeListOrScalar(ctx.Position(), vals)
+        }
+        return
 }
 
+// $(value <name1>,<name2>...)  -- this is specially useful when <name> is a closure.
 type builtinValueOpts struct {
-        closure bool `c,closure`
+        generalOpts
+        closure []bool `c,closure`
 }
 func builtinValue(ctx Context, args... Value) (res Value) {
         var (
@@ -1136,46 +1135,105 @@ func builtinValue(ctx Context, args... Value) (res Value) {
         for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
                 var (
                         name string
+                        closure bool
                         val Value
                 )
-                if name = a.Strval(ctx); opts.closure {
-                        val = closureGet(ctx, name)
+                if len(opts.closure) > 0 {
+                        closure = opts.closure[0]
+                        for _, c := range opts.closure[1:] {
+                                if c = closure && c; !c { break }
+                        }
+                } else if a.expandible(ctx, expandArgs|expandClosure) {
+                        closure = true
+                }
+                if name = a.Strval(ctx); closure {
+                        if def := closureGet(ctx, name); def != nil {
+                                val = def.Call(ctx)
+                                if false {
+                                        info(ctx, "%v: auto=%v", name, ctx.auto())
+                                        info(ctx, "%v: %v", name, def.value)
+                                        info(ctx, "%v: %v", name, val)
+                                        info(ctx, "%v: %v", name,
+                                                def.Call(ctx,
+                                                        MakeBareword(ctx.Position(), "FOO"),
+                                                        MakeBareword(ctx.Position(), "BAR"))).
+                                                debug(64)
+                                }
+                        }
                 } else if scope := ctx.Scope(); scope != nil {
                         if def := scope.FindDef(name); def != nil {
                                 val = def.Call(ctx)
                         }
                 }
-                if isNil(val) { val, _ = ctx.autoGet(name) }
-                if isNil(val) { val = MakeNone(a.Position()) }
+                if val == nil { if def, _ := ctx.autoGet(name); def != nil {
+                        val = def.Call(ctx)
+                }}
+                if val == nil { val = MakeNone(a.Position()) }
                 vals = append(vals, val)
         }
-        return MakeListOrScalar(ctx.Position(), vals)
+        if len(vals) > 0 {
+                res = MakeListOrScalar(ctx.Position(), vals)
+        }
+        return
 }
 
+// $(call <name>,<args>...)  -- this is specially useful when <name> is a closure.
+// NOTE: it's working differently from $(value <name>,<args>...), which is like calling
+// without arguments, and the automatics $1, $2, ... will still be available (delegated)
+// to the callee (<name>).
 type builtinCallOpts struct {
-        closure bool `c,closure`
+        generalOpts
+        closure []bool `c,closure`
 }
-func builtinCall_failure(ctx Context, args... Value) (res Value) {
-        var (
-                opts builtinCallOpts
-                vals []Value
-        )
-        if args = parseOpts(ctx, &opts, expandPlainValue, args...); len(args) > 0 {
-                var ( name string; val Value )
-                if name = args[0].Strval(ctx); opts.closure {
+func builtinCall(ctx Context, args... Value) (res Value) {
+        var opts builtinCallOpts
+        if l, ok := args[0].(*List); ok {
+                l.Elems = parseOpts(ctx, &opts, /* don't expand */0, l.Elems...)
+                if len(l.Elems) == 0 {
+                        erro(ctx, "no callee name: %v", args[0]).debug(1)
+                        return
+                }
+        } else {
+                var a = parseOpts(ctx, &opts, /* don't expand */0, args[0])
+                if len(a) != 1 {
+                        erro(ctx, "invalid callee name: %v", a).debug(1)
+                        return
+                }
+                args[0] = a[0] // overwrite the callee name
+        }
+        if len(args) > 0 {
+                var (
+                        nameVal = args[0]
+                        name string
+                        closure bool
+                        o Caller
+                )
+                if len(opts.closure) > 0 {
+                        closure = opts.closure[0]
+                        for _, c := range opts.closure[1:] {
+                                if c = closure && c; !c { break }
+                        }
+                } else if nameVal.expandible(ctx, expandArgs|expandClosure) {
+                        closure = true
+                }
+                if name = nameVal.Strval(ctx); closure {
                         for _, scope := range ctx.closureScopes() {
                                 if def := scope.FindDef(name); def != nil && !isTrivial(def.value) {
-                                        val = def.Call(ctx, args[1:]...)
+                                        o = def // val = def.Call(ctx, args[1:]...)
                                         break
                                 }
                         }
                 } else if def := ctx.Scope().FindDef(name); def != nil {
-                        val = def.Call(ctx, args[1:]...)
+                        o = def // val = def.Call(ctx, args[1:]...)
                 }
-                if isNil(val) { val = MakeNone(args[0].Position()) }
-                vals = append(vals, val)
+                if res = o.Call(ctx, args[1:]...); res == nil {
+                        // res = MakeNone(nameVal.Position())
+                }
+                return
+        } else {
+                erro(ctx, "no name specified: %v", args[0]).debug(1)
+                return
         }
-        return MakeListOrScalar(ctx.Position(), vals)
 }
 
 type builtinClosureOpts struct {
@@ -1439,12 +1497,12 @@ func builtinAppend(ctx Context, args... Value) (result Value) {
                         break
                 }
                 if opts.closure {
-                        if val := closureGet(ctx, name); !isTrivial(val) {
-                                list = append(merge(val), list...)
+                        if def := closureGet(ctx, name); def != nil && !isTrivial(def.value) {
+                                list = append(merge(def.value), list...)
                         }
                         closureSet(ctx, name, MakeListOrScalar(pos, list))
                 } else if opts.auto {
-                        if val, found := ctx.autoGet(name); found && !isTrivial(val) {
+                        if d, val := ctx.autoGet(name); d != nil && !isTrivial(val) {
                                 list = append(merge(val), list...)
                         }
                         ctx.autoSet(name, MakeListOrScalar(pos, list))
@@ -3413,9 +3471,9 @@ ForArgs:
                                 newNameVal = args[i+1]
                                 i += 1
                         } else {
-                                var a, _ = ctx.autoGet("@")
-                                var l, _ = ctx.autoGet("<")
-                                var r, _ = ctx.autoGet(">")
+                                var _, a = ctx.autoGet("@")
+                                var _, l = ctx.autoGet("<")
+                                var _, r = ctx.autoGet(">")
                                 prompt(ctx, "symlink: args=%v -> %v\n", args, t)
                                 prompt(ctx, "symlink: %v, %v, %v\n", a, l, r)
                                 errostack(ctx, 5, "expects pair of names (%T %v)", t, t).of(t).debug(6)
@@ -4168,14 +4226,14 @@ func builtinGrep(ctx Context, args... Value) (res Value) {
         var greped = func(line int, match []string) (done bool) {
                 var vals []Value
                 for i, s := range match {
-                        if v, ok := cc.autoSet(fmt.Sprintf("%d",i), MakeString(pos, s)); !ok {
+                        if d, v := cc.autoSet(fmt.Sprintf("%d",i), MakeString(pos, s)); d == nil {
                                 erro(ctx, "set $%d to '%s' failed", i, s).debug(1)
                                 return
                         } else { vals = append(vals, v) }
                 }
                 defer func() {
                         for i, v := range vals {
-                                if v, ok := cc.autoSet(fmt.Sprintf("%d",i), v); !ok {
+                                if d, v := cc.autoSet(fmt.Sprintf("%d",i), v); d == nil {
                                         erro(ctx, "restore $%d to '%s' failed", i, v).debug(1)
                                 }
                         }
@@ -4238,7 +4296,7 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                 res = new(bytes.Buffer)
                 index, line = 0, 0
         )
-        if v, _ := ctx.autoGet("-file"); v != nil {
+        if _, v := ctx.autoGet("-file"); v != nil {
                 pos.Filename = v.(*File).fullname()
                 // warn(ctx, "%T %v %v", v, v, pos)
         }

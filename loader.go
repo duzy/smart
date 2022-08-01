@@ -1090,23 +1090,6 @@ func (l *loader) includeFile(pos Position, opts includeFileOpts, spec Value) {
     }
     return
 }
-/*
-func (l *loader) closureGet(name string) (val Value) {
-    if def := l.Scope().FindDef(name); def != nil {
-        val = def.Call(l)
-    }
-    return
-}
-
-func (l *loader) closureSet(name string, val Value) (prev Value, okay bool) {
-    if def := l.Scope().FindDef(name); def != nil {
-        var prev = def.value
-        def.val(l, val)
-        return prev, true
-    }
-    return
-}
-*/
 func (l *loader) closureScopes() (scopes []*Scope) {
     scopes = append(l.closureContext.closureScopes(), l.Scope())
     return
