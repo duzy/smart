@@ -973,7 +973,7 @@ func builtinBranchIfNE(ctx Context, args... Value) (res Value) {
 
 func builtinFor(ctx Context, args... Value) (res Value) {
         if n := len(args); n < 2 {
-                erro(ctx, "not enough arguments, try: $(foreach <list>,<template>)")
+                erro(ctx, "not enough arguments, try: $(for <list>,<template>)")
                 return
         }
 
@@ -1021,7 +1021,10 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
         }
 
         var values = mergex(ctx, expandPlainValue, args[0])
-        if false { info(ctx, "%v %v %v", args, values, ctx.auto()).debug(32) }
+        if false /* && fmt.Sprintf("%v", args) == "[$1 &(.test-foo)$_]" */ {
+                var d, v = ctx.autoGet("_")
+                info(ctx, "%v %v ; %v ; %v", args, values, d, v).debug(32)
+        }
         if len(values) == 0 { return }
 
         var (
@@ -1179,6 +1182,9 @@ func builtinValue(ctx Context, args... Value) (res Value) {
                 }}
                 if val == nil { val = MakeNone(a.Position()) }
                 vals = append(vals, val)
+                if opts.debug>0 {
+                        warn(ctx, "value: %v -> %v -> %v", a, val, vals).debug(opts.debug)
+                }
         }
         if len(vals) > 0 {
                 res = MakeListOrScalar(ctx.Position(), vals)

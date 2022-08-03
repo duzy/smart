@@ -2994,6 +2994,20 @@ func (p *Barecomp) cmp(ctx Context, v Value) (res cmpres) {
         } else {
             res = cmpGreater
         }
+    } else if fR, ok := v.(*Flag); ok {
+        var elems []Value
+        for _, elem := range p.Elems {
+            if !isNil(elem) && !isNone(elem) {
+                elems = append(elems, elem)
+            }
+        }
+        if len(elems) == 2 { if fL, ok := elems[0].(*Flag); ok {
+            if isNil(fL.name) || isNone(fL.name) {
+                res = elems[1].cmp(ctx, fR.name)
+            } else {
+                // FIXME: [-prefix suffix] <=> -prefixsuffix
+            }
+        }}
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
@@ -4607,6 +4621,20 @@ func (p *Flag) cmp(ctx Context, v Value) (res cmpres) {
         // ...
     } else if a, ok := v.(*Flag); ok {
         res = p.name.cmp(ctx, a.name)
+    } else if c, ok := v.(*Barecomp); ok {
+        var elems []Value // right hand side barecomp elements
+        for _, elem := range c.Elems {
+            if !isNil(elem) && !isNone(elem) {
+                elems = append(elems, elem)
+            }
+        }
+        if len(elems) == 2 { if fR, ok := elems[0].(*Flag); ok {
+            if isNil(fR.name) || isNone(fR.name) {
+                res = p.name.cmp(ctx, elems[1])
+            } else {
+                // FIXME: [-prefix suffix] <=> -prefixsuffix
+            }
+        }}
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
@@ -4797,12 +4825,20 @@ func (p *List) stamp(ctx Context) (files []*File, err error) {
 
 func (p *List) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*List); ok {
-        res = compareElems(ctx, p.Elems, a.Elems)
-        if false && res != cmpEqual && p.String() == a.String() {
-            for i, elem := range p.Elems {
+        var elemsL, elemsR []Value
+        if len(p.Elems) == len(a.Elems) {
+            elemsL, elemsR = p.Elems, a.Elems
+        } else {
+            elemsL, elemsR = merge(p.Elems...), merge(a.Elems...)
+        }
+
+        res = compareElems(ctx, elemsL, elemsR)
+
+        if true && res != cmpEqual && p.String() == a.String() {
+            for i, elem := range elemsL {
                 warn(ctx, "L: %v: %d: %T %v", p, i, elem, elem)
             }
-            for i, elem := range a.Elems {
+            for i, elem := range elemsR {
                 warn(ctx, "R: %v: %d: %T %v", p, i, elem, elem)
             }
             warn(ctx, "%v <=> %v", p.Elems, a.Elems).debug(1)
@@ -5041,6 +5077,19 @@ const (
     fixUnresolvedObjectDelegate = true
 )
 
+func containsUndefinedAutos(ctx Context, vals... Value) (d *Def, res bool) {
+    for _, val := range vals {
+        for _, d = range val.defs(ctx) {
+            if d.origin == DefArg || d.origin == DefAuto {
+                if ad, _ := ctx.autoGet(d.name); ad == nil {
+                    return d, true // not ready to reveal (call/execute)
+                }
+            }
+        }
+    }
+    return
+}
+
 // Delegate wraps '$(foo a,b,c)' into Valuer
 type delegate struct {
     valbase
@@ -5204,9 +5253,26 @@ func (p *delegate) args(ctx Context, w expandwhat) (args []Value, num int) {
         return // does nothing
     } else if w&expandArgs == 0 {
         args = p.a
-    } else if args, num = expand(ctx, w, p.a...); len(args) == 0 && num == 0 {
-        args = p.a
+        return
     }
+
+    if false { if args, num = expand(ctx, w, p.a...); len(args) == 0 && num == 0 {
+        args = p.a
+    }} else { for _, a := range p.a {
+        var noExpand bool
+        if w&(expandArgs|expandAuto) != 0 {
+            if d, v := containsUndefinedAutos(ctx, a); v {
+                if false { info(ctx, "undetermined autos: %v : %v", a, d).debug(10) }
+                noExpand = d.origin == DefAuto && w&expandAuto == 0 ||
+                    d.origin == DefArg && w&expandArgs == 0
+            }
+        }
+        if noExpand {
+            args = append(args, a)
+        } else {
+            args = append(args, a.expand(ctx, w))
+        }
+    }}
     return
 }
 func (p *delegate) expandible(ctx Context, w expandwhat) (res bool) {
@@ -5293,14 +5359,9 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (retctx Context, res Value)
     var x Object
     if u, ok := p.x.(*unresolvedobject); ok && fixUnresolvedObjectDelegate {
         // NOTE: return immediately if there are any autos/args not defined yet
-        // TODO: extract this check into func, e.g. hasUndeterminedAutos(u.name)
-        for _, d := range u.name.defs(ctx) {
-            if d.origin == DefArg || d.origin == DefAuto {
-                if ad, _ := ctx.autoGet(d.name); ad == nil {
-                    if false { info(ctx, "undetermined autos: %v : %v", p, d).debug(10) }
-                    return ctx, p // not ready to reveal (call/execute)
-                }
-            }
+        if d, v := containsUndefinedAutos(ctx, u.name); v {
+            if false { info(ctx, "undetermined autos: %v : %v", p, d).debug(10) }
+            return ctx, p // not ready to reveal (call/execute)
         }
 
         var name string
