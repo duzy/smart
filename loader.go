@@ -846,10 +846,9 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
         var prev = l.project.resolveObject(ctx, name)
 
         if def, alt = l.def(identifier.Position(), name); alt == nil {
-            // does nothing...
-        } else if alt != nil && (tok == token.ASSIGN || tok == token.EXC_ASSIGN) {
-            var ( okay bool; ad *Def )
-            if ad, okay = alt.(*Def); !okay {
+            if false { assert(def != nil, "def failed") }
+        } else if tok == token.ASSIGN || tok == token.EXC_ASSIGN {
+            if ad, okay := alt.(*Def); !okay {
                 erro(ctx, "`%v` already defined (%T) (%v,%v)", identifier, alt, alt.OwnerProject(), l.project).debug(1)
                 return
             } else if ad.owner == l.project && ad.origin != DefConfRef {
@@ -858,7 +857,7 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
             } else {
                 def = ad
             }
-        } else if alt != nil {
+        } else {
             def = alt.(*Def)
         }
 
@@ -873,6 +872,11 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
         } else if derived == def || def.value.refs(ctx, derived) {
             // same def
         } else if tok == token.ADD_ASSIGN {
+            // NOTE: We must set the origin from Void to derived origin! If not, the
+            //       Def.Call method will fail to initiate a real 'call' with arguments
+            //       set correctly, (see (*Def).Call for details).
+            if def.origin == DefVoid { def.origin = derived.origin }
+
             if false {
                 // Unshift the delegation to derive value.
                 var delegate = MakeDelegate(ctx.Position(), token.LPAREN, derived)
@@ -887,10 +891,6 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
         erro(ctx, "def is nil for '%v' of %T", identifier, identifier).debug(1)
         return
     }
-
-    // Ensures that all immediate assignments are in the current
-    // project context.
-    //defer setclosure(setclosure(cloctx.unshift(l.scope)))
 
     if !def.position.IsValid() {
         def.position = identifier.Position()

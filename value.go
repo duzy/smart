@@ -5127,7 +5127,7 @@ func (p *delegate) Strval(ctx Context) (s string) {
     if v := p.expand(ctx, expandPlainValue); isNil(v) {
         erro(ctx, "delegate value is nil: %v", p).of(p).debug(1)
     } else if v == p {
-        erro(ctx, "delegate cant' expand: %v", p).of(p).debug(1)
+        erro(ctx, "delegate can't expand: %v", p).of(p).debug(1)
     } else {
         s = v.Strval(ctx)
     }
@@ -5137,7 +5137,7 @@ func (p *delegate) True(ctx Context) (t bool) {
     if v := p.expand(ctx, expandPlainValue); isNil(v) {
         erro(ctx, "expand '%v' to nil", p).at(p.position).debug(1)
     } else if v == p {
-        erro(ctx, "delegate cant' expand: %v", p).of(p).debug(1)
+        erro(ctx, "delegate can't expand: %v", p).of(p).debug(1)
     } else if t = v.True(ctx); false {
         info(ctx, "%v -> %T %v -> %v", p, v, v, t).at(p.position).debug(8)
     }
@@ -5147,7 +5147,7 @@ func (p *delegate) Integer(ctx Context) (i int64, e error) {
     if v := p.expand(ctx, expandPlainValue); isNil(v) {
         erro(ctx, "delegate value is nil: %v", p).of(p).debug(1)
     } else if v == p {
-        erro(ctx, "delegate cant' expand: %v", p).of(p).debug(1)
+        erro(ctx, "delegate can't expand: %v", p).of(p).debug(1)
     } else {
         i, e = v.Integer(ctx)
     }
@@ -5157,7 +5157,7 @@ func (p *delegate) Float(ctx Context) (f float64, e error) {
     if v := p.expand(ctx, expandPlainValue); isNil(v) {
         erro(ctx, "nil delegate value: %v", p).of(p).debug(1)
     } else if v == p {
-        erro(ctx, "delegate cant' expand: %v", p).of(p).debug(1)
+        erro(ctx, "delegate can't expand: %v", p).of(p).debug(1)
     } else {
         f, e = v.Float(ctx)
     }
@@ -5440,9 +5440,10 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (retctx Context, res Value)
     }
 
     var args, _ = p.args(ctx, w)
-    if false && x.String() == "foreach" {
+    // if false && x.String() == "foreach" {
+    if false && p.String() == "$(ldflags shared foo,foobar)" {
         var d, v = ctx.autoGet("_")
-        warn(ctx, "%v : %v %v ; %v ; %v", p.x, p.a, args, d, v).debug(1)
+        warn(ctx, "%T : %v %v ; %v ; %v", x, p.a, args, d, v).debug(1)
     }
 
     switch t := x.(type) {
@@ -5453,10 +5454,8 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (retctx Context, res Value)
                     d.name, d.origin, d.value, d.value, ctx).debug(16)
             }
         }
-        if x.String() == "value" && fmt.Sprintf("%v",p.a) == "[-c &(nam)]" {
-            v := res.expand(ctx, expandPlainValue)
-            info(ctx, "%v %v -> %v => %T %v => %v", p.x, p.a, args, res, res, v).debug(1)
-        }
+        retctx = ctx
+        return
     case Executer:
         if vals, traves := t.Execute(ctx, args...); traves.has(traveFail) {
             for _, s := range traves {
@@ -5467,14 +5466,14 @@ func (p *delegate) reveal(ctx Context, w expandwhat) (retctx Context, res Value)
         } else if false {
             res = MakeNone(x.Position())
         }
+        retctx = ctx
+        return
     default:
         var pos = t.Position()
         if !pos.IsValid() { pos = p.position }
         erro(ctx, "%s: unknown delegation: %T %v -> %T %v", x.Name(ctx), p.x, p.x, x, x).at(pos).debug(32)
+        return
     }
-
-    retctx = ctx
-    return
 }
 func (p *delegate) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
     if v := p.expand(ctx, expandPlainValue); v != nil {
@@ -5525,7 +5524,7 @@ func (p *closure) Strval(ctx Context) (s string) {
     if val := p.expand(ctx, expandDelegate|expandClosure); isNil(val) {
         if false { warn(ctx, "expand '%v' to nil", p).of(p).debug(1) }
     } else if val == p {
-        erro(ctx, "closure cant' expand: %v", p).of(p).debug(1)
+        erro(ctx, "closure can't expand: %v", p).of(p).debug(1)
     } else {
         s = val.Strval(ctx)
     }
@@ -5535,7 +5534,7 @@ func (p *closure) True(ctx Context) (t bool) {
     if v := p.expand(ctx, expandPlainValue); isNil(v) {
         // does nothing
     } else if v == p {
-        erro(ctx, "closure cant' expand: %v", p).of(p).debug(1)
+        erro(ctx, "closure can't expand: %v", p).of(p).debug(1)
     } else if t = v.True(ctx); false {
         info(ctx, "%v -> %T %v -> %v", p, v, v, t).at(p.position).debug(8)
     }
@@ -5545,7 +5544,7 @@ func (p *closure) elemStr(ctx Context, o Object, k elemkind) (s string) {
     if ctx == nil || k&elemExpand == 0 {
         if s = p.string(ctx, o, k); !(p.l.IsClosure() || p.l.IsDelegate()) { s = "&" + s }
     } else if v := p.expand(ctx, expandDelegate/*|expandClosure*/); v == p {
-        erro(ctx, "closure cant' expand: %v", p).of(p).debug(1)
+        erro(ctx, "closure can't expand: %v", p).of(p).debug(1)
     } else {
         s = elementString(ctx, o, v, k)
     }
@@ -5565,7 +5564,7 @@ func (p *closure) match(ctx Context, i interface{}) (full bool, s string, stems 
     if v := p.expand(ctx, expandPlainValue); v != p {
         return v.match(ctx, i)
     } else {
-        erro(ctx, "closure cant' expand: %v", p).of(p).debug(1)
+        erro(ctx, "closure can't expand: %v", p).of(p).debug(1)
     }
     return
 }
@@ -6440,7 +6439,7 @@ func permVal(ctx Context, v Value, i uint32) (res os.FileMode) {
 func expand(ctx Context, w expandwhat, values ...Value) (elems []Value, num int) {
     for _, elem := range values {
         var val Value
-        if isNil(elem) {
+        if elem == nil {
             // TODO: report nil expand ??
         } else if val = elem.expand(ctx, w); isNil(val) || val == elem {
             elems = append(elems, elem)

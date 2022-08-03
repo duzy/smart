@@ -752,6 +752,10 @@ func (d *Def) set(ctx Context, origin Origin, value Value, appendVals... Value) 
                 }*/
         }}
 
+        if false && origin == DefVoid && d.value != nil {
+                warn(ctx, "%v: incorrect origin: %v %v %v",
+                        d.name, d.origin, origin, d.value).debug(32)
+        }
 
         d.mutex.Lock()
         d.origin = origin
@@ -928,14 +932,12 @@ func (d *Def) Call(ctx Context, a... Value) (res Value) {
                 if d.value == nil {
                         // does nothing
                 } else if d.value.expandible(ctx, expandArgs|expandClosure) {
-                        if false && d.name == ".test" {
-                                warn(ctx, "%v: %v", d.name, d.value).debug(1)
-                        }
                         res = d.call(ctx, expandArgs|expandClosure|expandDelegate, a...)
                 } else {
                         res = d.value
                 }
-        default: res = d.value // DefExpand2, DefExecuted, etc.
+        default:
+                res = d.value // DefExpand2, DefExecuted, etc.
         }
         if isNil(res) {
                 // does nothing

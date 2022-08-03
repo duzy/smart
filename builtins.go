@@ -1014,6 +1014,9 @@ func builtinFor(ctx Context, args... Value) (res Value) {
         return
 }
 
+type builtinForEachOpts struct {
+        generalOpts
+}
 func builtinForEach(ctx Context, args... Value) (res Value) {
         if n := len(args); n < 2 {
                 erro(ctx, "not enough arguments ($(foreach <list>,<template>)): %v", n).debug(1)
@@ -1021,8 +1024,8 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
         }
 
         var values = mergex(ctx, expandPlainValue, args[0])
-        if false /* && fmt.Sprintf("%v", args) == "[$1 &(.test-foo)$_]" */ {
-                var d, v = ctx.autoGet("_")
+        if false && fmt.Sprintf("%v", args) == "[$1 $(value -c -d ldflags.$_) $(value -c -d ldflags~&(target.sys).$_)]" {
+                var d, v = ctx.autoGet("1")
                 info(ctx, "%v %v ; %v ; %v", args, values, d, v).debug(32)
         }
         if len(values) == 0 { return }
@@ -1181,8 +1184,7 @@ func builtinValue(ctx Context, args... Value) (res Value) {
                         val = def.Call(ctx)
                 }}
                 if val == nil { val = MakeNone(a.Position()) }
-                vals = append(vals, val)
-                if opts.debug>0 {
+                if vals = append(vals, val); opts.debug>0 {
                         warn(ctx, "value: %v -> %v -> %v", a, val, vals).debug(opts.debug)
                 }
         }
@@ -2668,12 +2670,11 @@ func builtinFindstring(ctx Context, args... Value) (res Value) {
 }
 
 // $(contains a b c, v1 v2 …)
-// $(contains a b c1 -or c2, v1 v2 …)
-// $(contains a b c1 -or c2 -or c3, v1 v2 …)
-// $(contains a b -or=(c1 c2 c3), v1 v2 …)
+// $(contains a b c1 -or c2, v1 v2 …)          -- xx
+// $(contains a b c1 -or c2 -or c3, v1 v2 …)   -- xx
+// $(contains a b -or=(c1 c2 c3), v1 v2 …)     -- xx
 type builtinContainsOpts struct {
-        debug bool `d,debug`
-        verbose bool `v,verb,verbose`
+        generalOpts
         string bool `s,str,string`
         match bool `m,mat,match,p,pat,pattern`
 }
@@ -2691,7 +2692,61 @@ func builtinContains(ctx Context, args... Value) (res Value) {
         vals = parseOpts(ctx, &opts, expandPlainValue, args[0])
         list = mergex(ctx, expandPlainValue, args[1:]...)
 
-        var ( n = 0; x = len(vals); va []Value )
+        var (
+                y int
+                s string
+        )
+
+        // NOTE: returns true if list contains all vals in it's presented order.
+        ForVals: for _, val := range vals {
+                if opts.string { s = val.Strval(ctx)}
+                for _, elem := range list {
+                        if opts.string {
+                                if elem.Strval(ctx) == s {
+                                        y += 1; continue ForVals
+                                }
+                        } else if opts.match {
+                                if full, _, _ := val.match(ctx, elem); full {
+                                        y += 1; continue ForVals
+                                }
+                        } else if elem.cmp(ctx, val) == cmpEqual {
+                                y += 1; continue ForVals
+                        }
+                        if opts.debug>0 && !opts.string && val.Strval(ctx) == elem.Strval(ctx) {
+                                warn(ctx, "wrong: %T %v <-> %T %v", val, val, elem, elem).of(val)
+                        }
+                }
+                if opts.debug>0 {
+                        warn(ctx, "not found: %T %v", val, val).of(val)
+                }
+        }
+
+        var boo = (y == len(vals))
+        if opts.debug>0 && !boo {
+                warn(ctx, "found %d in %v", y, list).debug(opts.debug)
+        }
+        res = MakeBoolean(ctx.Position(), boo)
+        return
+}
+func builtinContains_buggy(ctx Context, args... Value) (res Value) {
+        var (
+                opts builtinContainsOpts
+                vals []Value
+                list []Value
+        )
+        if len(args) < 2 {
+                erro(ctx, "unexpected number of arguments, try $(contains a b c1 -or c2, v1 v2 …)").debug(1)
+                return
+        }
+
+        vals = parseOpts(ctx, &opts, expandPlainValue, args[0])
+        list = mergex(ctx, expandPlainValue, args[1:]...)
+
+        var (
+                n = 0
+                x = len(vals)
+                va []Value
+        )
         for _, val := range vals {
                 var s string
                 switch v := val.(type) {
@@ -2724,7 +2779,10 @@ func builtinContains(ctx Context, args... Value) (res Value) {
                                         var full, r, s = a.match(ctx, v)
                                         if false { warn(ctx, "%v %v; %v %v %v; %v, %v", a, v, full, r, s, n, x).debug(1) }
                                         if !full { continue ForList }
-                                } else if a.cmp(ctx, v) != cmpEqual {
+                                } else if t := a.cmp(ctx, v); t != cmpEqual {
+                                        if opts.debug>0 {
+                                                warn(ctx, "%v %v ; %v ; %v", val, v, a, t).debug(1)
+                                        }
                                         continue ForList
                                 }
                         }
