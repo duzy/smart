@@ -2678,8 +2678,7 @@ func (p *parser) templateBlock(t *template, vars map[string]Value, expandParams 
 	}
 
 	for p.tok != token.EOF && p.pos < p.stop {
-		if p.tok == token.LINEND ||
-			(p.tok == token.COMMENT && p.lineComment != nil) {
+		if p.tok == token.LINEND || (p.tok == token.COMMENT && p.lineComment != nil) {
 			p.next(true)
 		} else {
 			p.parseClause()

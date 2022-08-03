@@ -752,6 +752,7 @@ func (d *Def) set(ctx Context, origin Origin, value Value, appendVals... Value) 
                 }*/
         }}
 
+
         d.mutex.Lock()
         d.origin = origin
         d.value = value
@@ -814,11 +815,9 @@ func (d *Def) append(ctx Context, va... Value) {
 //TODO: func (d *Def) prepend(ctx Context, va... Value) (err error)
 
 func (d *Def) call(ctx Context, w expandwhat, a... Value) (res Value) {
-        var (
-                // w = expandDelegate // NOTE: can't expand closure here (aka. expandClosure)
-                value Value
-        )
-        if ctx = positional(ctx, d.position); d.origin == DefArg || d.origin == DefAuto {
+        var value Value
+        if false { ctx = positional(ctx, d.position) }
+        if d.origin == DefArg || d.origin == DefAuto {
                 switch _, value = ctx.autoGet(d.name); v := value.(type) {
                 case *delegate: if v.x == d { return d.value }
                 case *closure: if v.x == d {
@@ -930,8 +929,7 @@ func (d *Def) Call(ctx Context, a... Value) (res Value) {
                         // does nothing
                 } else if d.value.expandible(ctx, expandArgs|expandClosure) {
                         if false && d.name == ".test" {
-                                var x = d.value.expandible(ctx, expandArgs|expandClosure)
-                                warn(ctx, "%v: %v ; %v", d.name, d.value, x).debug(1)
+                                warn(ctx, "%v: %v", d.name, d.value).debug(1)
                         }
                         res = d.call(ctx, expandArgs|expandClosure|expandDelegate, a...)
                 } else {
@@ -1088,12 +1086,7 @@ type Builtin struct {
 }
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
 func (p *Builtin) True(_ Context) bool { return p.f != nil }
-func (p *Builtin) Call(ctx Context, a... Value) Value {
-        if false && ctx.Project().name == ".base" {
-                info(ctx, "Builtin.Call: %v: auto=%v", p.name, ctx.auto())
-        }
-        return p.f(ctx, a...)
-}
+func (p *Builtin) Call(ctx Context, a... Value) Value { return p.f(ctx, a...) }
 func (p *Builtin) expand(_ Context, _ expandwhat) Value { return p }
 func (p *Builtin) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*Builtin); ok {

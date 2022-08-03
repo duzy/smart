@@ -778,7 +778,7 @@ func builtinEqual(ctx Context, args... Value) (res Value) {
         if t := a.cmp(ctx, b); t == cmpEqual {
                 res = MakeBoolean(ctx.Position(), true)
         } else if opts.debug>0 {
-                warn(ctx, "equal: %v", t)
+                warn(ctx, "equal: cmp: %v", t)
                 warn(ctx, "%T %v", a, a)
                 warn(ctx, "%T %v", b, b).debug(opts.debug)
         }
@@ -1020,12 +1020,17 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
                 return
         }
 
+        var values = mergex(ctx, expandPlainValue, args[0])
+        if false { info(ctx, "%v %v %v", args, values, ctx.auto()).debug(32) }
+        if len(values) == 0 { return }
+
         var (
-                pos = ctx.Position()
                 cc = autoContext{ Context:ctx, defs:make(autoDefMap) }
-                values = mergex(ctx, expandPlainValue, args[0])
+                pos = ctx.Position()
                 resList []Value
         )
+        ctx = &cc
+
         for _, val := range values {
                 if isTrivial(val) {
                         continue // ignore
@@ -1035,10 +1040,13 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
                         cc.autoSet("_", val)
                 }
 
+                if false { warn(ctx, "%T %v -> %v", val, val, args[1:]) }
+
                 var list []Value
                 for _, a := range args[1:] {
-                        var v = a.expand(&cc, expandPlainValue|expandPairVal)
-                        if true && len(v.defs(&cc, "_")) > 0 {
+                        var v = a.expand(ctx, expandArgs|expandPlainValue|expandPairVal)
+                        if false { info(ctx, "%v ; %v -> %v", val, a, v) }
+                        if true && len(v.defs(ctx, "_")) > 0 {
                                 erro(ctx, "'_' in '%v' not expanded: %v", a, v).of(a).debug(true, 1)
                                 return
                         }
@@ -1050,6 +1058,7 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
                                 list = append(list, v)
                         }
                 }
+
                 if n := len(list); n == 0 {
                         resList = append(resList, MakeNone(pos))
                 } else if n == 1 {
