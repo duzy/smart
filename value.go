@@ -3004,8 +3004,20 @@ func (p *Barecomp) cmp(ctx Context, v Value) (res cmpres) {
         if len(elems) == 2 { if fL, ok := elems[0].(*Flag); ok {
             if isNil(fL.name) || isNone(fL.name) {
                 res = elems[1].cmp(ctx, fR.name)
-            } else {
-                // FIXME: [-prefix suffix] <=> -prefixsuffix
+            } else if m, s, t := fL.name.match(ctx, fR.name); m {
+                if isNil(elems[1]) || isNone(elems[1]) { res = cmpEqual }
+            } else if s != "" { // matched prefix
+                var sL = s + elems[1].Strval(ctx)
+                var sR = fR.name.Strval(ctx)
+                if sL == sR {
+                    res = cmpEqual
+                } else if s < sR {
+                    res = cmpSmaller
+                } else {
+                    res = cmpGreater
+                }
+            } else if t != nil {
+                unreachable(p, v)
             }
         }}
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
@@ -4631,8 +4643,20 @@ func (p *Flag) cmp(ctx Context, v Value) (res cmpres) {
         if len(elems) == 2 { if fR, ok := elems[0].(*Flag); ok {
             if isNil(fR.name) || isNone(fR.name) {
                 res = p.name.cmp(ctx, elems[1])
-            } else {
-                // FIXME: [-prefix suffix] <=> -prefixsuffix
+            } else if m, s, t := fR.name.match(ctx, p.name); m {
+                if isNil(elems[1]) || isNone(elems[1]) { res = cmpEqual }
+            } else if s != "" { // matched prefix
+                var sL = p.name.Strval(ctx)
+                var sR = s + elems[1].Strval(ctx)
+                if sL == sR {
+                    res = cmpEqual
+                } else if s < sR {
+                    res = cmpSmaller
+                } else {
+                    res = cmpGreater
+                }
+            } else if t != nil {
+                unreachable(p, v)
             }
         }}
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
