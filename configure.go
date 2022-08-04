@@ -615,7 +615,7 @@ func modifierConfigure(ctx Context, args ...Value) (result Value, _ travestates)
     }
 
     var adef, target = ctx.autoGet("@")
-    if adef != nil || isTrivial(target) {
+    if adef == nil || isTrivial(target) {
         erro(ctx, " target is trivial: %s", ctx).debug(1)
         return
     }

@@ -386,17 +386,12 @@ func (ac *autoContext) autoSet(name string, val Value) (def *Def, res Value) {
                 //ac.mutex.Unlock()
         }
 
-        var pos Position
-        if isNil(val) {
-                if false { erro(ac, "%s: value is <nil>", name).debug(16) }
-                pos = ac.Position()
-        } else {
-                pos = val.Position()
-        }
-
         def.mutex.Lock()
-        def.position = pos
-        def.value = val
+        if def.value = val; val == nil {
+                def.position = ac.Position()
+        } else {
+                def.position = val.Position()
+        }
         def.mutex.Unlock()
         return
 }
@@ -756,10 +751,13 @@ func (d *Def) set(ctx Context, origin Origin, value Value, appendVals... Value) 
                 warn(ctx, "%v: incorrect origin: %v %v %v",
                         d.name, d.origin, origin, d.value).debug(32)
         }
+        if false && d.name == "@" && d.value != nil {
+                warn(ctx, "%v: %v %v %v",
+                        d.name, d.origin, origin, d.value).debug(16)
+        }
 
         d.mutex.Lock()
-        d.origin = origin
-        d.value = value
+        d.origin, d.value = origin, value
         d.mutex.Unlock()
         return
 }

@@ -151,7 +151,7 @@ type Context interface {
 }
 
 func getTargetValue(ctx Context) (res Value) {
-  if d, target := ctx.autoGet("@"); d != nil || isNil(target) {
+  if d, target := ctx.autoGet("@"); d == nil || target == nil {
     if false { erro(ctx, "target '%v' is nil", target) }
   } else if vals, _ := expand(ctx, expandPlainValue, target); len(vals) == 1 {
     res = Scalar(vals[0])

@@ -2554,7 +2554,7 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
                 content string
                 exeres *ExecResult
         )
-        if def, value := ctx.autoGet("-"); def != nil || isNil(value) {
+        if def, value := ctx.autoGet("-"); def == nil || isTrivial(value) {
                 // no buffer value
         } else if content = value.Strval(ctx); false && strings.Contains(content, `"\"`) {
                 prompt(ctx, "%v: %T\n", filename, value).debug(1)

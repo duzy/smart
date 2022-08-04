@@ -731,9 +731,13 @@ func (t *traverseContext) calleeError(err error) {
 // traverse - traverse the prerrequiste for the current target $@
 func traverse(ctx Context, prereqValue Value, prereq string, projects... *Project) (traves travestates) {
     var targetValue = getTargetValue(ctx)
-    if isNil(targetValue) {
-        prompt(ctx, "%s: trivial target\n", prereq)
-        errostack(ctx, 3, "target is <nil>").debug(6)
+    if targetValue == nil {
+        prompt(ctx, "%s: target is nil\n", prereq).of(prereqValue)
+        errostack(ctx, 3, "").debug(6)
+        return
+    } else if isTrivial(targetValue) {
+        prompt(ctx, "%s: target is trivial (%T)\n", prereq, targetValue).of(prereqValue)
+        errostack(ctx, 3, "").debug(6)
         return
     }
 
@@ -1536,9 +1540,13 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
         t.calleeErrsM.Unlock()
     }
 
-    if target = getTargetValue(ctx); isTrivial(target) {
-        erro(ctx, "target is <none>").at(pos)
-        errostack(ctx, 8, "target is <none>").debug(8)
+    if target = getTargetValue(ctx); target == nil {
+        erro(ctx, "target is nil").at(pos)
+        errostack(ctx, 8, "").debug(8)
+        return
+    } else if isTrivial(target) {
+        erro(ctx, "trivial target (%T)", target).at(pos)
+        errostack(ctx, 8, "").debug(8)
         return
     } else if n := len(calleeErrs); n > 0 /*&& t.stems == nil*/ {
         var (
@@ -2774,8 +2782,17 @@ func (p *Bareword) cmp(ctx Context, v Value) (res cmpres) {
         } else {
             res = cmpGreater
         }
-    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
-        res = p.cmp(ctx, l.Elems[0])
+    } else if l, ok := v.(*Path); ok {
+        if len(l.Elems) == 1 { res = p.cmp(ctx, l.Elems[0]) }
+    } else if l, ok := v.(*List); ok {
+        if len(l.Elems) == 1 { res = p.cmp(ctx, l.Elems[0]) }
+    } else if false {
+        // NOTE: find the only valid element (if others are none)
+        for _, elem := range l.Elems {
+            if isNone(elem) { continue }
+            if v == l { v = elem }
+        }
+        if v != l { res = p.cmp(ctx, v) }
     }
     return
 }
@@ -3725,8 +3742,9 @@ func (p *Path) match1(ctx Context, str string) (full bool, result string, stems 
     }
 
     const warns = false
+    //var warns = p.String() == "llvm/%%"
+
     var (
-        //warns = p.String() == "llvm/%%"
         infos = warns
         lenSegs = len(segs)
         lenSrcs = len(srcs)
@@ -3870,9 +3888,13 @@ SegsSrcsLoop:
     if lenRes := len(res); lenRes > 0 { // full or partial matched
         //TODO: if n < lenSegs { rest = strings.Join(segs[n:], PathSep) }
         result = strings.Join(res, PathSep) //NOTE: do NOT use `filepath.Join(res...)` here
-        full = n == lenSegs && m <= lenSrcs &&
-            lenRes == lenSrcs && lenRes >= lenSegs &&
+        full = /* n == lenSegs && */ m <= lenSrcs &&
+            lenSrcs == lenRes && lenSegs <= lenRes &&
             result == str
+        if false && !full && result == str && str == "..." {
+            warn(ctx, "%d/%d, %d/%d, %d: %v (%s)", n, lenSegs, m, lenSrcs, lenRes, res, str)
+            warn(ctx, "%d/%d, %d/%d, %d: %v %v", n, lenSegs, m, lenSrcs, lenRes, srcs, segs).debug(1)
+        }
         if infos { if false {
             warn(ctx, "Path.match: path=%v str=%v res=%v stems=%v -> full=%v result=%v lens=%d,%d", p, str, res, stems, full, result, lenRes, lenSrcs).of(p).debug(1)
         } else {

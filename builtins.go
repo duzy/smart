@@ -677,9 +677,10 @@ func builtinAssert(ctx Context, args... Value) Value {
                 args = append(a, args[1:]...)
         }
         for _, a := range args { if !a.True(ctx) {
+                var d = opts.debug ; if d < 1 { d = 1}
                 var v = a.expand(ctx, expandPlainValue)
                 prompt(ctx, "assertion: failed %v => %T %v\n", a, v, v)
-                erro(ctx, "%v => %T", a, v).of(a).debug(1)
+                erro(ctx, "%v => %T", a, v).of(a).debug(d)
         }}
         return nil
 }
@@ -818,7 +819,8 @@ type builtinMatchOpts struct {
         regexps []*regexp.Regexp `r,re,rx,reg,regex,regexp`
         negated bool `n,ne,neg,negated,negative`
 }
-// $(match rx1 rx2 rx3, a b c d...)
+// $(match val1 val2 val3, a b c d...)
+// $(match -rx=r1 -rx=r2 -rx=r3, a b c d...)
 func builtinMatch(ctx Context, args... Value) (res Value) {
         var (
                 patList, valList []Value
@@ -828,13 +830,15 @@ func builtinMatch(ctx Context, args... Value) (res Value) {
                 erro(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list>,...)").debug(1)
                 return
         }
+        if opts.debug>0 {
+                warn(ctx, "match: args=%v", args)
+        }
 
         patList = parseOpts(ctx, &opts, expandPlainValue, args[0])
         valList = mergex(ctx, expandPlainValue, args[1:]...)
 
         var pos = ctx.Position()
-ForValList:
-        for _, val := range valList {
+        ForValList: for _, val := range valList {
                 if isTrivial(val) { continue ForValList }
 
                 var str = val.Strval(ctx)
@@ -843,7 +847,7 @@ ForValList:
                         if opts.negated { matched = !matched }
                         if matched {
                                 res = MakeBoolean(pos, true)
-                                break ForValList
+                                return
                         }
                 }
                 for _, pat := range patList {
@@ -852,8 +856,13 @@ ForValList:
                         if opts.negated { matched = !matched }
                         if matched {
                                 res = MakeBoolean(pos, true)
-                                break ForValList
+                                return
                         }
+                }
+
+                if opts.debug>0 {
+                        warn(ctx, "match: %v", str)
+                        warn(ctx, "match: %v %T", val, val).debug(1)
                 }
         }
         return
@@ -2131,9 +2140,186 @@ type builtinPatsubstOpts struct {
         cleanPath bool `c,clean;c,cleanpath`
         baseFiles bool `b,base;b,bases;bf,base-files,search-bases`
         usedFiles bool `u,used;u,using;uf,used-files,search-usees`
-        noFileMap bool `nm,no-filemap`
+        noFileMap bool `nm,nomap,no-map,nofiles,no-files,no-filemap`
 }
 func builtinPatsubst(ctx Context, args... Value) (res Value) {
+        var (
+                opts builtinPatsubstOpts
+                srcPats, dstPats, sources []Value
+        )
+
+        // TODO: support flags -name and -full for name-only and full-name-only matching
+        if len(args) < 3 {
+                erro(ctx, "not enough arguments").debug(1)
+                return
+        } else if srcPats = parseOpts(ctx, &opts, 0, args[0]); len(srcPats) == 0 {
+                if len(args) < 4 {
+                        erro(ctx, "not enough arguments").debug(1)
+                        return
+                }
+                srcPats = mergex(ctx, expandPlainValue, args[1])
+                dstPats = mergex(ctx, expandPlainValue, args[2])
+                sources = mergex(ctx, expandPlainValue, args[3:]...)
+        } else {
+                dstPats = mergex(ctx, expandPlainValue, args[1])
+                sources = mergex(ctx, expandPlainValue, args[2:]...)
+        }
+
+        var (
+                proj = ctx.Project()
+                closured = closureProjects(ctx)
+                filemaps []*FileMap
+                list []Value
+        )
+        if !opts.noFileMap { filemaps = proj.filemaps(ctx, opts.baseFiles, opts.usedFiles) }
+
+ForSources:
+        for _, src := range sources {
+                var source interface{} = src
+                if opts.findFiles || opts.fullfiles {
+                        if file, ok := src.(*File); ok {
+                                source = file
+                        } else if file = proj.FindFile(ctx, src.Strval(ctx)); file != nil {
+                                if (opts.fullname || opts.fullfiles) && !filepath.IsAbs(file.name) {
+                                        if !file.change("", "", file.fullname()) {
+                                                warn(ctx, "changing fullname failed: %v", file).debug(1)
+                                        }
+                                }
+                                source = file
+                        }
+                } else if opts.fullname {
+                        var ( s string; ok bool )
+                        if _, s, ok = asOptFullname(ctx, src, closured...); s == "" {
+                                erro(ctx, "fullname '%v' is empty", src).of(src)
+                                erro(ctx, "called from here", src).debug(1)
+                                return
+                        } else if !ok {
+                                erro(ctx, "fullname '%v' failed", src).of(src)
+                                erro(ctx, "called from here", src).debug(1)
+                                return
+                        } else {
+                                source = s
+                        }
+                }
+
+                var (
+                        matched bool
+                        srcPat Value
+                        str string
+                        stems []string
+                )
+        ForSrcPats:
+                for _, srcPat = range srcPats {
+                        if matched, str, stems = srcPat.match(ctx, source); matched {
+                                break ForSrcPats
+                        } else if opts.debug>0 {
+                                warn(ctx, "srcPat=%v (%T)", srcPat, srcPat)
+                                warn(ctx, "source=%v (%T)", source, source)
+                                warn(ctx, "result=%s", str)
+                                warn(ctx, "stems=%v", stems)
+                                warn(ctx, "matched=%v", matched).debug(opts.debug)
+                        }
+                }
+                if !matched {
+                        // Just return the src if no matching.
+                        if !(isNil(src) || isNone(src)) { list = append(list, src) }
+                        continue ForSources
+                }
+
+                // Compose the matched results with stem value.
+        ForDstPats:
+                for _, dst := range dstPats {
+                        var nameVal, /*rest*/_ = dst.stencil(ctx, stems)
+                        if isNil(nameVal) {
+                                erro(ctx, "nil stencil: %T %v (stems=%v)", dst, dst, stems).debug(1)
+                                nameVal = dst
+                        }
+
+                        var name string
+                        if name = nameVal.Strval(ctx); name == "" /*|| len(rest) > 0*/ {
+                                continue ForDstPats
+                        } else if opts.cleanPath {
+                                name = filepath.Clean(name)
+                        }
+
+                        // Deal with source value types
+                        // TODO: consider opts.files
+                        var pos = dst.Position()
+                        switch t := src.(type) {
+                        case *File:
+                                var (
+                                        pre string
+                                        match *FileMap
+                                )
+                                for _, m := range filemaps {
+                                        if ok, _, s := m.Match(ctx, name); ok {
+                                                match, pre = m, s
+                                                break
+                                        }
+                                }
+
+                                var file *File
+                                if match != nil {
+                                        if file = match.stat(ctx, t.dir, pre, name); file != nil {
+                                                assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (t.dir=%s, pre=%s)", file.name, name, t.dir, pre))
+                                        } else if file = match.stat(ctx, proj.absPath, pre, name); file != nil {
+                                                assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (proj.absPath=%s, pre=%s)", file.name, name, proj.absPath, pre))
+                                        } /* else if match.Paths != nil {
+                                                var ( path = match.Paths[0] ; sub string )
+                                                if sub, err = path.Strval(); err != nil { erro(ctx, "%v", err); return }
+                                                if filepath.IsAbs(sub) {
+                                                        file = stat(name, "", sub, nil)
+                                                } else {
+                                                        file = stat(name, sub, t.dir, nil)
+                                                }
+                                        } */
+                                }
+                                if file == nil {
+                                        file = stat(ctx, name, t.sub, t.dir, nil/* okay missing */)
+                                }
+
+                                file.position = srcPat.Position()
+                                list = append(list, file)
+                                continue ForDstPats
+
+                        case *String, *Compound:
+                                list = append(list, MakeString(pos, name))
+                                continue ForDstPats
+                        case *Path:
+                                list = append(list, MakePathStr(pos, name))
+                                continue ForDstPats
+                        case *Bareword, *Barecomp:
+                                if strings.Contains(name, PathSep) {
+                                        list = append(list, MakePathStr(pos, name))
+                                } else {
+                                        list = append(list, MakeBareword(pos, name))
+                                }
+                                continue ForDstPats
+                        default:
+                                if strings.Contains(name, PathSep) {
+                                        list = append(list, MakePathStr(pos, name))
+                                } else if true {
+                                        list = append(list, MakeBareword(pos, name))
+                                } else {
+                                        list = append(list, MakeString(pos, name))
+                                }
+                                continue ForDstPats
+                        }
+                }
+        }
+
+        if opts.debug>0 && len(list) == 0 {
+                warn(ctx, "src: %v", srcPats)
+                warn(ctx, "dst: %v", dstPats)
+                warn(ctx, "val: %v", sources)
+                warn(ctx, "res: %v", list)
+                warnstack(ctx, 3, "").debug(opts.debug)
+        }
+
+        res = MakeListOrScalar(ctx.Position(), list)
+        return
+}
+func builtinPatsubst_buggy(ctx Context, args... Value) (res Value) {
         var (
                 opts builtinPatsubstOpts
                 list []Value
