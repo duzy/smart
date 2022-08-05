@@ -47,15 +47,20 @@ func (p *Plain) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 
-type plain struct {}
-
+type (
+        plain struct {}
+        plainOpts struct {
+                generalOpts
+        }
+)
 func (_ *plain) Evaluate(ctx Context, args ...Value) (result Value, err error) {
         var (
                 program = ctx.program()
                 pos = ctx.Position()
                 str, name string
+                opts plainOpts
         )
-        if len(args) > 0 {
+        if args = parseOpts(ctx, &opts, expandPlainValue, args...); len(args) > 0 {
                 name = args[0].Strval(ctx)
                 program.language = name
         }
@@ -67,7 +72,7 @@ func (_ *plain) Evaluate(ctx Context, args ...Value) (result Value, err error) {
         }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
         result = &Plain{valbase{pos}, name, MakeString(ctx.Position(), str)}
-        if false && ctx.Project().name == "c++" { warn(ctx, "%v", str).debug(1) }
+        if opts.debug>0 { warn(ctx, "%v", str).debug(opts.debug) }
         return
 }
 

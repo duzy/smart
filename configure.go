@@ -388,7 +388,7 @@ func executeConfigureEntry(ctx Context, opts *modifierConfigureOpts, entryName s
         commOpts commonConfigureOpts
         params []Value
         pos = ctx.Position()
-        hyphenVal, /*hyphenFound*/_ = ctx.autoGet("-")
+        hyphen, hyphenVal = ctx.autoGet("-")
         verbose = opts.verbose
     )
 
@@ -410,6 +410,7 @@ func executeConfigureEntry(ctx Context, opts *modifierConfigureOpts, entryName s
         case "LANG":   params = append(params, MakePair(pos, MakeBareword(pos, "LANG"),   MakeString(pos, ctx.program().language)))
         case "TARGET": params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
         case "VALUE":  params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"),  hyphenVal))
+            if hyphen == nil { warn(ctx, "nil hyphen def").debug(1) }
         }
     }
 ForInParams:
@@ -484,9 +485,8 @@ ForInParams:
             result = nil // simply discard the result as it's the same as the input (hyphen) value
         }
         if traves = traves.not(traveDone,traveRule,traveFile); traves.has() {
-            for i, s := range traves {
-                erro(ctx, "%v: %d. %v", entry, i, s).debug(16)
-            }
+            for i, s := range traves { erro(ctx, "%v: %d. %v", entry, i, s) }
+            erro(ctx, "%v: %d trave states", entry, len(traves)).debug(16)
         }
     }
     configured = true

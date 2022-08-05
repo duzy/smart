@@ -442,13 +442,15 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
                     s.error = fmt.Errorf("execution yields %d errors for %v", errs, str)
                 }
             }
-            if tar != "" {
-                prompt(ctx, "%v: %s, execution failed with %d errors, project %s\n", ent, tar, errs, prog.project)
+            if tar != "" && tar != ent {
+                prompt(ctx, "%s: %s: execution with %d errors, project %s\n",
+                    ent, tar, errs, prog.project).debug(1)
             } else {
-                prompt(ctx, "%v: execution failed with %d errors, project %s\n", ent, errs, prog.project)
+                prompt(ctx, "%s: execution with %d errors, project %s\n",
+                    ent, errs, prog.project).debug(1)
             }
-            warn(ctx, `%d errors in execution "%s"`, errs, str)
-            warnstack(ctx, 8, "(%T): %v", ctx, prog.project).debug(32)
+            warn(ctx, `%v: %d errors in execution "%s"`, prog.project, errs, str)
+            warnstack(ctx, 8, "").debug(32)
             if options.failOnErrors { fail(prog.position, "fail by %d errors", errs) }
         }
     } ()
@@ -615,7 +617,8 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
         var _, t = ctx.autoGet("@")
         s := traves.add(positional(ctx, prog.position), traveFail, nil)
         s.error = fmt.Errorf("%d errors counted", errs)
-        prompt(ctx, "%v: execute failed, project %s; traves=%v\n", entry, proj, traves)
+        prompt(ctx, "%v: execute failed, project %s; traves=%v\n",
+            entry, proj, traves).debug(1)
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, t)
         if warnstack(ctx, 6, "").debug(8); true && options.failOnErrors {
             fail(prog.position, "fail by %d errors", ctx.totalErrors())
@@ -632,7 +635,8 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
         var _, t = ctx.autoGet("@")
         s := traves.add(positional(ctx, prog.position), traveFail, nil)
         s.error = fmt.Errorf("%d errors counted", errs)
-        prompt(ctx, "%v: execute failed, project %s; traves=%v\n", entry, proj, traves)
+        prompt(ctx, "%v: execute failed, project %s; traves=%v\n",
+            entry, proj, traves).debug(1)
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, t)
         if warnstack(ctx, 6, "").debug(8); true && options.failOnErrors {
             fail(prog.position, "fail by %d errors", ctx.totalErrors())
@@ -722,7 +726,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                 defer func(v Value) { warn(ctx, "%v", t).of(v).debug(20) } (prerequisite)
             }
 
-            depends.add(depend)
+            if depend != nil { depends.add(depend) }
 
             if tt := t.of(traveFail); tt.has() {
                 var (
@@ -759,12 +763,19 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                                 warn(ctx, "%v", tt)
                                 warn(ctx, "%v", traves).debug(1)
                             }
+                        } else if depend == nil {
+                            prompt(ctx, "%v: %v\n", target, s).debug(1)
+                            erro(ctx, "%v", s).at(s.pos).debug(1)
+                            erro(ctx, "1. %T %v %s", target, target, target.Strval(ctx)).of(target)
+                            erro(ctx, "2. %T %v mine=%v", s.depend, s.depend, dependMine).of(s.depend)
+                            erro(ctx, "3. %T %v", prerequisite, prerequisite).of(prerequisite)
+                            errostack(ctx, 5, "#>").debug(10)
                         } else {
-                            prompt(ctx, "%v: %v: %v\n", target, depend, s)
-                            erro(ctx, "%v", s).at(s.pos)
+                            prompt(ctx, "%v: %v: %v\n", target, depend, s).debug(1)
+                            erro(ctx, "%v", s).at(s.pos).debug(1)
                             erro(ctx, "1. %T %v %s", target, target, target.Strval(ctx)).of(target)
                             erro(ctx, "2. %T %v %s", depend, depend, depend.Strval(ctx)).of(depend)
-                            erro(ctx, "3. %T %v %v", s.depend, s.depend, dependMine).of(s.depend)
+                            erro(ctx, "3. %T %v mine=%v", s.depend, s.depend, dependMine).of(s.depend)
                             erro(ctx, "4. %T %v", prerequisite, prerequisite).of(prerequisite)
                             errostack(ctx, 5, "#>").debug(10)
                         }

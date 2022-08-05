@@ -995,7 +995,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
 
             var t = obj.traverse(ctx)
             if promptTraveEntries { prompt(ctx, "%v: %T: %T %v %v ; %v\n",
-                targetValue, targetValue, prereqValue, prereqValue, obj, t) }
+                targetValue, targetValue, prereqValue, prereqValue, obj, t).debug(1) }
 
             okay = true
             traversed += 1
@@ -1019,7 +1019,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             }
             prompt(ctx, "%v: %T: %v %T; projects=%v okay=%v traversed=%d file=%v obj=%v traves=%v\n",
                 targetValue, targetValue, prereqValue, prereqValue,
-                projects, okay, traversed, prereqFile, obj, traves)
+                projects, okay, traversed, prereqFile, obj, traves).debug(1)
             for i, s := range traves { info(ctx, "%v: %v: %d. %v", targetValue, prereqValue, i, s).at(s.pos) }
             info(ctx, "%T %v; %T %v", targetValue, targetValue, prereqValue, prereqValue).debug(1)
         }
@@ -1221,7 +1221,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         } else {
             continue ForProjectsConcretes
         }
-        if false && strings.Contains(prereq, "llvm-driver-objcopy.o") {
+        if false && strings.Contains(prereq, "test.o") {
             for i, entry := range entries.all {
                 warn(ctx, "%d. %T %v (%v)", i, entry, entry, project).debug(1)
             }
@@ -1396,6 +1396,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     if false && (traversed>0 && !traves.has()) {
         return // done
     }
+
     if len(ctx.stems()) == 0 || ctx.mustExists() {
         if s := traves.add(ctx, traveFail, targetValue); prereqFile != nil {
             s.error = fileNotFoundError{proj, prereqFile}

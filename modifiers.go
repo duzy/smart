@@ -1363,7 +1363,6 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
                 firstWord string
                 err error
         )
-
         var findDepFile = func(name string) (file *File) {
                 if filepath.IsAbs(name) {
                         file = stat(ctx, name, "", "", nil)
@@ -1383,7 +1382,6 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
                 files = append(files, file)
                 filesMux.Unlock()
         }
-
         var (
                 missing = make(map[string]Position)
                 missMux, travesMux sync.Mutex
@@ -1442,11 +1440,12 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
                 } else {
                         addFile(file)
                 }
+
                 var n int
                 if savedDepsFile == nil {
                         if n = dc.checkErrors(true); n > 0 { // aka. dc.points = nil
                                 var s = trimPromptString(targetVal.String())
-                                prompt(ctx, "%v: %d errors counted\n", word, n)
+                                prompt(ctx, "%v: %d errors counted\n", word, n).debug(1)
                                 erro(ctx, `%v: %d errors for "%s", dep "%s"`, proj, n, s, word)
                                 errostack(ctx, 5, `%v: %v`, ctx).debug(6)
                         }
@@ -1455,7 +1454,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
                                 // reset to reduce diags as we wish to continue with the errors
                                 dc.points, dc.errs = nil, 0
                                 var s = trimPromptString(targetVal.String())
-                                prompt(ctx, "%v: %d errors counted\n", word, n)
+                                prompt(ctx, "%v: %d errors counted\n", word, n).debug(1)
                                 if false {
                                         warn(ctx, `%v: %d errors for "%s", dep "%s"`, proj, n, s, word)
                                         warnstack(ctx, 3, `%v: %v`, ctx).debug(6)
@@ -2485,17 +2484,14 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
         )
         args = parseOpts(ctx, &opts, expandPlainValue, args...)
 
-        if len(args) > 0 {
-                target = args[0]
-        } else {
-                _, target = ctx.autoGet("@")
-        }
-        if len(args) > 1 {
-                opts.mode = permVal(ctx, args[1], 0600)
-        }
+        if len(args) > 1 { opts.mode = permVal(ctx, args[1], 0600) }
+        if len(args) > 0 { target = args[0] }
+        if isTrivial(target) { _, target = ctx.autoGet("@") }
 
         // Get target filename
-        if opts.fullname {
+        if isTrivial(target) {
+                errostack(ctx, 5, "no file target to update").debug(16)
+        } else if opts.fullname {
                 if filename = fullnameOrStrval(ctx, target); !filepath.IsAbs(filename) {
                         var (
                                 projs = closureProjects(ctx)
@@ -2559,8 +2555,8 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
         } else if content = value.Strval(ctx); false && strings.Contains(content, `"\"`) {
                 prompt(ctx, "%v: %T\n", filename, value).debug(1)
                 fail(ctx.Position(), "%s", filename)
-        } else if er, ok := value.(*ExecResult); ok {
-                exeres = er
+        } else {
+                exeres, _ = value.(*ExecResult)
         }
 
         if content != "" {
@@ -2592,11 +2588,15 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
                                 erro(ctx, "empty stderr").at(pos)
                         }
                 }
-                if s := target.String(); filepath.IsAbs(s) {
-                        erro(ctx, "empty content for '%s'", s).debug(1)
+
+                if d, v := ctx.autoGet("-"); d == nil || d.value == v {
+                        prompt(ctx, "%s:1: empty content: %v\n", filename, v).debug(1)
                 } else {
-                        erro(ctx, "empty content for '%s' (at %s)", s, filename).debug(1)
+                        prompt(ctx, "%s:1: empty content: %v\n", filename, d)
+                        prompt(ctx, "%s:1: empty content: %v\n", filename, v).debug(1)
                 }
+                erro(ctx, "empty content for '%v'", target)
+                errostack(ctx, 6, "").debug(64)
                 return
         }
 
@@ -2802,7 +2802,7 @@ func modifierStamp(ctx Context, args... Value) (result Value, traves travestates
         var _, err = target.stamp(ctx)
         if err == nil { return /* Done! */ }
 
-        prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err)
+        prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err).debug(1)
         if opts.next {
                 if opts.verbose { warn(ctx, "%v", err).debug(1) }
                 s := traves.add(ctx, traveNext, target)
@@ -2813,11 +2813,11 @@ func modifierStamp(ctx Context, args... Value) (result Value, traves travestates
                 s.depend, _ = ctx.autoGet(">")
                 s.error = err
                 if false {
-                        prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err)
+                        prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err).debug(1)
                         erro(ctx, "stamp(%v) error")
                         errostack(ctx, -1, "%v", ctx).debug(1)
                 } else {
-                        prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err)
+                        prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err).debug(1)
                         warn(ctx, "stamp(%v) error")
                         warnstack(ctx, -1, "%v", ctx).debug(1)
                 }
