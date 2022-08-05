@@ -1025,6 +1025,7 @@ func builtinFor(ctx Context, args... Value) (res Value) {
 
 type builtinForEachOpts struct {
         generalOpts
+        empty bool `e,empty,allow-empty`
 }
 func builtinForEach(ctx Context, args... Value) (res Value) {
         if n := len(args); n < 2 {
@@ -1032,7 +1033,10 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        var values = mergex(ctx, expandPlainValue, args[0])
+        var (
+                opts builtinForEachOpts
+                values = parseOpts(ctx, &opts, expandPlainValue, args[0])
+        )
         if false && fmt.Sprintf("%v", args) == "[$1 $(value -c -d ldflags.$_) $(value -c -d ldflags~&(target.sys).$_)]" {
                 var d, v = ctx.autoGet("1")
                 info(ctx, "%v %v ; %v ; %v", args, values, d, v).debug(32)
@@ -1048,14 +1052,22 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
 
         for _, val := range values {
                 if isTrivial(val) {
-                        continue // ignore
-                } else if s, ok := val.(*String); ok && s.string == "" {
-                        continue // ignore
+                        if !opts.empty { continue }
+                } else if _, ok := val.(*delegate); ok {
+                        // see containsUndefinedAutos
+                        if opts.debug>0 {
+                                warn(ctx, "unexpanded delegate: %T %v", val, val).debug(1)
+                        }
+                        continue
                 } else {
                         cc.autoSet("_", val)
                 }
 
-                if false { warn(ctx, "%T %v -> %v", val, val, args[1:]) }
+                if opts.debug>0 { warn(ctx, "foreach: %T %v -> %v", val, val, args[1:]) }
+                if opts.debug>0 && val.Strval(ctx) == "" && false {
+                        d, v := containsUndefinedAutos(ctx, val)
+                        warn(ctx, "empty: %T %v ; %v %v", val, val, d, v).debug(1)
+                }
 
                 var list []Value
                 for _, a := range args[1:] {
