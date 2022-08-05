@@ -26,11 +26,11 @@ import (
 type commandLineOpts struct {
   help            bool `h,help`
 
-  debug           bool `db,debug`
-  debugErrors     bool `dberro,debug-errors` // optionDebugErrors
-  debugWarns      bool `dbwarn,debug-warns`  // optionDebugWarns
-  debugInfos      bool `dbinfo,debug-infos`  // optionDebugInfos
-  debugPrompt     bool `dbprom,debug-prompt` // optionDebugInfos
+  debug           bool `d,db,debug`
+  debugErrors     bool `de,dberro,debug-errors` // optionDebugErrors
+  debugWarns      bool `dw,dbwarn,debug-warns`  // optionDebugWarns
+  debugInfos      bool `di,dbinfo,debug-infos`  // optionDebugInfos
+  debugPrompt     bool `dp,dbprom,debug-prompt` // optionDebugInfos
 
   autoProfs       bool `ap,autoprof,auto-profiles,auto-profile`
   cpuProf         string `cpuprof,cpu-profile`

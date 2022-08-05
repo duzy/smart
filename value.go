@@ -5149,7 +5149,11 @@ func (p *delegate) Strval(ctx Context) (s string) {
     if v := p.expand(ctx, expandPlainValue); isNil(v) {
         erro(ctx, "delegate value is nil: %v", p).of(p).debug(1)
     } else if v == p {
-        erro(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+        if false {
+            erro(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+        } else if options.debug {
+            warn(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+        }
     } else {
         s = v.Strval(ctx)
     }
@@ -5159,7 +5163,11 @@ func (p *delegate) True(ctx Context) (t bool) {
     if v := p.expand(ctx, expandPlainValue); isNil(v) {
         erro(ctx, "expand '%v' to nil", p).at(p.position).debug(1)
     } else if v == p {
-        erro(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+        if false {
+            erro(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+        } else if options.debug {
+            warn(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+        }
     } else if t = v.True(ctx); false {
         info(ctx, "%v -> %T %v -> %v", p, v, v, t).at(p.position).debug(8)
     }
@@ -5169,7 +5177,11 @@ func (p *delegate) Integer(ctx Context) (i int64, e error) {
     if v := p.expand(ctx, expandPlainValue); isNil(v) {
         erro(ctx, "delegate value is nil: %v", p).of(p).debug(1)
     } else if v == p {
-        erro(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+        if false {
+            erro(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+        } else if options.debug {
+            warn(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+        }
     } else {
         i, e = v.Integer(ctx)
     }
@@ -5179,7 +5191,11 @@ func (p *delegate) Float(ctx Context) (f float64, e error) {
     if v := p.expand(ctx, expandPlainValue); isNil(v) {
         erro(ctx, "nil delegate value: %v", p).of(p).debug(1)
     } else if v == p {
-        erro(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+        if false {
+            erro(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+        } else if options.debug {
+            warn(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+        }
     } else {
         f, e = v.Float(ctx)
     }
