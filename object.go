@@ -573,7 +573,9 @@ func (d *Def) expandible(ctx Context, w expandwhat) (res bool) {
                 d.mutex.Lock()
                 value = d.value
                 d.mutex.Unlock()
-                res = value.expandible(ctx, w)
+                if value != nil {
+                        res = value.expandible(ctx, w)
+                }
         }
         return
 }

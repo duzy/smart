@@ -547,6 +547,10 @@ func (dc *defaultContext) run() (result []Value, travestates []*travestate) {
   }
 
   var ctx Context = &closureContext{dc, []*Scope{main.scope}}
+  if options.verbose {
+    info(ctx, "goal: %v", main).debug(1)
+  }
+
   removeTempDirs(ctx)
 
   if options.cpuProf != "" || options.autoProfs {
@@ -559,6 +563,7 @@ func (dc *defaultContext) run() (result []Value, travestates []*travestate) {
         prof = file.fullname()
       }
     }
+
     if f, e := os.Create(prof); e != nil {
       erro(dc, "%T: %v", e, e).debug(1)
       return

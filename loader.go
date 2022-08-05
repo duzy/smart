@@ -1520,14 +1520,13 @@ func (l *loader) declare(keyword token.Token, ident *Barecomp, identStr string, 
 }
 
 func (l *loader) loadProjectConfiguration(ident *Barecomp, identStr string, declared bool) (result bool) {
-    // FIXES: set cloctx immediately to ensure the right configuration is matched!
-    //defer setclosure(setclosure(cloctx.unshift(l.scope)))
     if false { defer un(tracef(t_traverse, "loadProjectConfiguration(%v)", ident)) }
 
     var (
         pos = ident.Position()
         ctx = positional(l, pos)
     )
+
     // Get configuration file name for the project and include it in flat mode.
     if file := l.project.configuration(ctx); file == nil {
         erro(ctx, "%v: nil configuration file", ident).debug(1)
@@ -1541,11 +1540,10 @@ func (l *loader) loadProjectConfiguration(ident *Barecomp, identStr string, decl
             var cp Position; cp.Filename, cp.Line = file.fullname(), 1
             info(ctx, "%s (%s)", l.project, l.project.spec).at(cp).debug(true, 1)
         } else if options.verbose {
-            prompt(ctx, "Configuration for %s (%s)\n", l.project, l.project.spec).debug(1)
+            info(ctx, "%v for %s (%s)", file, l.project.spec, l.project).debug(16)
         }
-        var opts = includeFileOpts{isConfiguration: true}
         l.isIncludingConf = true
-        l.includeFile(pos, opts, file)
+        l.includeFile(pos, includeFileOpts{isConfiguration: true}, file)
         l.isIncludingConf = false
     }
 
@@ -1564,10 +1562,10 @@ func (l *loader) loadProjectConfiguration(ident *Barecomp, identStr string, decl
 }
 
 func (l *loader) loadProjectContainer(ident *Barecomp, identStr string) (result bool) {
-    // FIXES: set cloctx immediately to ensure the right configuration is matched!
-    //defer setclosure(setclosure(cloctx.unshift(l.scope)))
-
-    var ( pos = ident.Position(); ctx = positional(l, pos) )
+    var (
+        pos = ident.Position()
+        ctx = positional(l, pos)
+    )
     if l.project.name != dotContainer {
         if _, e := os.Stat(".dock"); e == nil {
             erro(ctx, "Must rename .dock into .container !").debug(1)
@@ -1578,6 +1576,9 @@ func (l *loader) loadProjectContainer(ident *Barecomp, identStr string) (result 
         if file := stat(ctx, dotContainer, "", l.project.absPath); file.exists() {
             if !l.loadDotContainer(ident, identStr, file) {
                 //erro(ctx, "declare %s: %s/.container", name, l.project.absPath)
+            }
+            if options.verbose {
+                info(ctx, "%v for %s (%s)\n", file, l.project.spec, l.project).debug(1)
             }
             return
         }
@@ -1809,9 +1810,9 @@ func readSource(filename string, src interface{}) ([]byte, error) {
 // ParseFile parses the source code of a single source file and returns
 // the corresponding ast.File node. The source code may be provided via
 // the filename of the source file, or via the src parameter.
-func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *parsedFile, err error) {
-    return l.parseFile(l, filename, src, mode, nil)
-}
+// func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *parsedFile, err error) {
+//     return l.parseFile(l, filename, src, mode, nil)
+// }
 
 func (l *loader) parseFile(ctx Context, filename string, src interface{}, mode Mode, incOpts *includeFileOpts) (f *parsedFile, err error) {
     if options.traceLaunch { defer un(trace(t_launch, "loader.ParseFile")) }
@@ -1831,6 +1832,14 @@ func (l *loader) parseFile(ctx Context, filename string, src interface{}, mode M
         return
     }
 
+    if options.verbose {
+        if ctx.Position().Filename == filename {
+            info(ctx, "loading ...")
+        } else {
+            prompt(ctx, "%s:1:info: loading ...\n", filename)
+            info(ctx, "loading %v", filename)
+        }
+    }
     defer func(t time.Time, saved *parser, m Mode) {
         var pos Position
         if l.parser != nil && l.parser.file != nil {
@@ -1851,8 +1860,12 @@ func (l *loader) parseFile(ctx Context, filename string, src interface{}, mode M
             erro(l, "parse file failed: %v", err).debug(128)
         }
 
-        if d := time.Now().Sub(t); d > 2999*time.Millisecond {
+        var d = time.Now().Sub(t)
+        if d > 2999*time.Millisecond {
             info(l, "slow loading: %v", d).debug(1)
+        }
+        if options.verbose {
+            info(ctx, "loaded %v (%v)", filename, d).debug(1)
         }
 
         l.parser.loader, l.parser, l.mode = nil, saved, m
@@ -2050,7 +2063,7 @@ ListLoop:
             pos.Filename, pos.Line = filename, 1
 
             var d *diagPoint
-            var src, err = l.ParseFile(filename, nil, mode|parsingDir)
+            var src, err = l.parseFile(ctx, filename, nil, mode|parsingDir, nil)
             if n := ctx.checkErrors(true); n > 0 {
                 if s, n := filepath.Base(filename), n; err == nil {
                     d = erro(ctx, "%d diagnostic errors parsing file '%s'", n, s)
@@ -2095,6 +2108,8 @@ ListLoop:
 
 // loader.Load loads script from a file or source code (string, []byte).
 func (l *loader) load(position Position, specName, absPath string, source interface{}) (result bool) {
+    var ctx Context = positional(l, position)
+
     if options.traceLaunch { defer un(trace(t_launch, "loader.load")) }
     defer func(t time.Time) {
         var d = time.Now().Sub(t)
@@ -2111,10 +2126,10 @@ func (l *loader) load(position Position, specName, absPath string, source interf
     if false && options.verboseLoads { fmt.Fprintf(stderr, "load %s …\n", specName) }
 
     if absPath == "" {
-        erro(l, "no such module `%s' (in paths %v)", specName, l.paths)
+        erro(ctx, "no such module `%s' (in paths %v)", specName, l.paths)
         return
     } else if !filepath.IsAbs(absPath) {
-        erro(l, "invalid abs name `%s' (%s)", absPath, specName)
+        erro(ctx, "invalid abs name `%s' (%s)", absPath, specName)
         return
     }
 
@@ -2122,7 +2137,7 @@ func (l *loader) load(position Position, specName, absPath string, source interf
     if loaded, yes := l.loaded[absPath]; yes {
         if _, a := l.Scope().ProjectName(positional(l, l.Position()), loaded.Name(), loaded); a != nil {
             if val, ok := a.(*ProjectName); !ok || val == nil {
-                erro(l, "`%v` name already taken (%T).", loaded, a)
+                erro(ctx, "`%v` name already taken (%T).", loaded, a)
             }
         }
         result = true
@@ -2132,15 +2147,15 @@ func (l *loader) load(position Position, specName, absPath string, source interf
     var absDir, baseName = filepath.Split(absPath)
     defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
 
-    var doc, err = l.ParseFile(absPath, source, parseMode)
+    var doc, err = l.parseFile(ctx, absPath, source, parseMode, nil)
     if n := l.checkErrors(true); n > 0 {
-        warn(l, "load '%s' got %d errors", specName, n).debug(1)
+        warn(ctx, "load '%s' got %d errors", specName, n).debug(1)
         if options.failOnErrors { fail(l.Position(), "fail by %d errors", l.totalErrors()) }
         return
     } else if err != nil {
-        erro(l, "load: %v", err).debug(1)
+        erro(ctx, "load: %v", err).debug(1)
     } else if doc == nil {
-        erro(l, "load: doc is nil (%s)", absPath).debug(1)
+        erro(ctx, "load: doc is nil (%s)", absPath).debug(1)
     } else {
         result = true
     }
@@ -2247,6 +2262,7 @@ func (l *loader) loadFile(filename string, source interface{}) bool {
     case ".base", ".configure": spec = base
     default: spec, _  = filepath.Rel(l.WorkDir(), dir)
     }
+
     var position Position
     position.Filename = filename
     return l.load(position, spec, filename, source)

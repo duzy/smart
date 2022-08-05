@@ -377,6 +377,7 @@ func (prog *Program) env(ctx Context) (env []string, osi int) {
 
 func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     var (
+        ctx Context = cc
         args  = cc.arguments()
         entry = cc.entry()
         pos   = cc.Position()
@@ -394,6 +395,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     }
 
     assert(prog.project == prog.scope.project, "mismatched scope/project")
+    if options.verbose { info(ctx, "%v: %v", entry, args).debug(1) }
 
     var t = traverseContext{
         Context: cc,
@@ -405,12 +407,8 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
         autoContext: autoContext{ Context:&t, defs:make(autoDefMap) },
         prog: prog,
     }
+    ctx = &pc
 
-    var (
-        ctx Context = &pc
-        target Value
-        err error
-    )
     defer func() {
         var (
             _, targets = ctx.autoGet("@")
@@ -437,7 +435,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
                 errs = ctx.totalErrors()
             )
             if !ctx.configuration() && cc != nil {
-                s := traves.add(ctx, traveFail, target)
+                s := traves.add(ctx, traveFail, targets)
                 if errs == 1 {
                     s.error = fmt.Errorf("execution yields an error for %v", str)
                 } else {
@@ -514,39 +512,51 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
         if stems := cc.stems(); stems != nil { ctx.autoSet("*", MakeString(pos, stems[0])) }
     }
 
+    var alreadyUpdated bool
+
+    // NOTE: set "@" before autoArgs
+    // Select the right target value before setting parameters,
+    // because the target could be overrided by parameters.
+    if target := entry.Target(); target == nil {
+        erro(ctx, "%v: nil entry target", target)
+        errostack(ctx, 8, "").debug(20)
+        return
+    } else {
+        switch a := target.(type) {
+        case *Flag: t.print = false // Flag target (-foo) turns off printing automatically
+        case *File: // alreadyUpdated = a.info != nil && a.updated
+        case *String, *Compound: // NOTE: escape 'String' and "Compound" values from file searching
+        default:
+            if file := prog.project.FindFile(ctx, a.Strval(ctx)); file != nil {
+                // alreadyUpdated = file.info != nil && file.updated
+                target = file
+            }
+        }
+
+        if t.execRec[target] += 1; false { if t.execRec[target] > 1 {
+            if options.traceExec { t_exec.trace(fmt.Sprintf("exec: %v", target)) }
+            return
+        }}
+
+        if options.verbose { info(ctx, "%v: %v", target, args).debug(1) }
+
+        ctx.autoSet("@", target)
+    }
+
+    var err error
     if pc.params, err = pc.autoArgs(prog.params, args); err != nil {
         erro(ctx, "auto args failed: %v", err).debug(1)
         return
     }
 
-    // Select the right target value before setting parameters,
-    // because the target could be overrided by parameters.
-    switch target = entry.Target(); a := target.(type) {
-    case *Flag: t.print = false // Flag target (-foo) turns off printing automatically
-    case *File: //alreadyUpdated = a.info != nil && a.updated
-    case *String, *Compound: // NOTE: escape 'String' and "Compound" values from file searching
-    default:
-        if isNil(a) {
-            erro(ctx, "%v: nil entry target", target)
-            errostack(ctx, 8, "%v", ctx).debug(20)
-            return
-        } else if file := prog.project.FindFile(ctx, a.Strval(ctx)); file != nil {
-            //alreadyUpdated = file.info != nil && file.updated
-            target = file
-        }
-    }
-    ctx.autoSet("@", target)
-
     // Note: must enter work directory (cd) before setting cloctx
-    var (
-        alreadyUpdated bool
-        enterBack *enterec
-    )
+    var enterBack *enterec
     if len(cd.stack) > 0 { enterBack = cd.stack[0] }
     if err = enter(ctx, prog.project.absPath); err != nil {
         erro(ctx, "enter project '%v' failed: %v", prog.project, err).debug(1)
         return
     }
+
     defer func(swd string) {
         if e := leave(ctx, prog, enterBack); e != nil {
             // NOTE: err could be traveCase, traveDone, etc.
@@ -576,8 +586,10 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     } (prog.project.changedWD)
 
     if alreadyUpdated {
-        if options.verbose { info(ctx, "'%v' already updated", target) }
-        if false { warn(ctx, "'%v' already updated", target).debug(1) }
+        if options.verbose {
+            var _, t = ctx.autoGet("@")
+            info(ctx, "'%v' already updated", t)
+        }
         if false { return }
     }
 
@@ -587,14 +599,10 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
 
     if options.traceExec {
         var d = t.depth()
-        var s = fmt.Sprintf("%s: %v (%p, exec.depth=%d)", typeof(target), target, target, d)
+        var _, t = ctx.autoGet("@")
+        var s = fmt.Sprintf("%s: %v (%p, exec.depth=%d)", typeof(t), t, t, d)
         defer un(trace(t_exec, s))
     }
-
-    if t.execRec[target] += 1; false { if t.execRec[target] > 1 {
-        if options.traceExec { t_exec.trace(fmt.Sprintf("exec: %v", target)) }
-        return
-    }}
 
     var proj = ctx.Project()
 
@@ -604,10 +612,11 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     ctx.autoSet(">", nil)
     traves = append(traves, prog.traverse(&normalTraverseContext{ ctx }, prog.depends)...)
     if errs := ctx.checkErrors(true); errs > 0 {
+        var _, t = ctx.autoGet("@")
         s := traves.add(positional(ctx, prog.position), traveFail, nil)
         s.error = fmt.Errorf("%d errors counted", errs)
         prompt(ctx, "%v: execute failed, project %s; traves=%v\n", entry, proj, traves)
-        warn(ctx, "%d errors while traversing prerequisites for %v", errs, target)
+        warn(ctx, "%d errors while traversing prerequisites for %v", errs, t)
         if warnstack(ctx, 6, "").debug(8); true && options.failOnErrors {
             fail(prog.position, "fail by %d errors", ctx.totalErrors())
         }
@@ -620,10 +629,11 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     ctx.autoSet("|", nil)
     traves = append(traves, prog.traverse(&orderTraverseContext{ ctx }, prog.ordered)...)
     if errs := ctx.checkErrors(true); errs > 0 {
+        var _, t = ctx.autoGet("@")
         s := traves.add(positional(ctx, prog.position), traveFail, nil)
         s.error = fmt.Errorf("%d errors counted", errs)
         prompt(ctx, "%v: execute failed, project %s; traves=%v\n", entry, proj, traves)
-        warn(ctx, "%d errors while traversing prerequisites for %v", errs, target)
+        warn(ctx, "%d errors while traversing prerequisites for %v", errs, t)
         if warnstack(ctx, 6, "").debug(8); true && options.failOnErrors {
             fail(prog.position, "fail by %d errors", ctx.totalErrors())
         }
