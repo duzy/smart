@@ -828,7 +828,7 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
 
     case *Argumented:
         var args = mergex(ctx, expandPlainValue, t.args...)
-        erro(ctx, "TODO: multiple defs: %v %v", t.value, args)
+        erro(ctx, "TODO: multiple defs: %v args=%v", t.value, args)
         return
 
     case *Group:
@@ -846,6 +846,7 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
         var prev = l.project.resolveObject(ctx, name)
 
         if def, alt = l.def(identifier.Position(), name); alt == nil {
+            if def == nil { warn(ctx, "%s is undefined, via %v (%)", name, t, t).debug(1) }
             if false { assert(def != nil, "def failed") }
         } else if tok == token.ASSIGN || tok == token.EXC_ASSIGN {
             if ad, okay := alt.(*Def); !okay {
@@ -885,8 +886,8 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
                 def.append(ctx, derived.value)
             }
         }
-
     }
+
     if def == nil {
         erro(ctx, "def is nil for '%v' of %T", identifier, identifier).debug(1)
         return

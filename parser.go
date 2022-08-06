@@ -1077,6 +1077,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 				warn(p, "nil: %v (tok=%v%v, resolved=%T %v)", name, tok, lTok, resolved, resolved).at(name.Position()).debug(6)
 			}
 		} () }
+
 		var (
 			proj = p.Project()
 			err error
@@ -1135,10 +1136,16 @@ func (p *parser) parseClosureDelegate() (result Value) {
 				} else if obj = resolveConfig(name, str); !isNil(obj) {
 					okay = true
 					return
-				} else if tok.IsClosure() || refdef(ctx, name, defany) || name.expandible(ctx, expandClosure) {
+				} else if tok.IsClosure() || name.expandible(ctx, expandClosure|expandDelegate) ||
+					refdef(ctx, name, defany) {
 					obj, okay = unresolved(proj, name), true // recursive delegation or closure
+					if false && str == "configure~darwin.features" && options.debug {
+						warn(ctx, "%s unresolved (%s): %v", name, str, obj).debug(32)
+					}
 					return
-				} else if name.expandible(ctx, expandPlainValue) {
+				}
+
+				if name.expandible(ctx, expandPlainValue) {
 					erro(p, "%v: resolved '%v' (aka %s) is nil", proj, name, str).of(name)
 					errostack(p, 5, "%v: %v", proj, ctx).of(name).debug(16)
 				} else {
@@ -1152,7 +1159,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 				return
 			} else if caller, _ := resolved.(Caller); caller == nil {
 				erro(p, "resolved '%v' is not callable: %T", name, resolved).at(lPos).debug(16)
-			} else if obj, okay = caller.(Object); isNil(obj) || !okay {
+			} else if obj, okay = caller.(Object); !okay {
 				erro(p, "resolved '%v' is not object: %T", name, resolved).at(lPos).debug(16)
 			} else if isNil(obj) {
 				erro(p, "resolved '%v' is nil: %T", name, resolved).at(lPos).debug(16)
@@ -1251,6 +1258,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 			return MakeNil(position)
 		}
 	}
+
 	if isNil(obj) && p.Project().plugin != nil && p.Project().pluginScope != nil {
 		if nameStr == "" && !isNil(name) { nameStr = name.Strval(ctx) }
 		if nameStr == "" {
@@ -1259,6 +1267,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 			obj = p.Project().pluginScope.Lookup(nameStr)
 		}
 	}
+
 	if position := p.positionAt(pos); tok.IsDelegate() {
 		if isNil(obj) {
 			erro(p, "resolved '%v' is nil (%T %v, tok=%v)", name, resolved, resolved, tok).at(name.Position()).debug(1)

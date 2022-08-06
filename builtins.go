@@ -475,10 +475,19 @@ ForArgs:
         return
 }
 
-func parseOpts(ctx Context, iOpts interface{}, w expandwhat, args... Value) (rest []Value) {
-        if w == expandNone {
-                rest = args // NOTE: set the returning args first of all!
+func parseOpts(ctx Context, iOpts interface{}, w expandfacet, args... Value) (rest []Value) {
+        if w&^expandNone == 0 {
+                rest = merge(args...) // NOTE: set the returning args first of all!
         } else {
+                if false && // FIXME: the args[1].expand(ctx, w) causes 'd.x == nil'
+                        w == 0 && len(args)>1 && args[0].String() == "-plain" &&
+                        args[1].String() == "$(configure~$(target.sys).features)" {
+                        var d = args[1].(*delegate)
+                        var t = args[1].expand(ctx, w)
+                        warn(ctx, "%v ; w=%016b", args, w)
+                        warn(ctx, "%T %v %p -> %T %v %p %p", d.x, args[1], d,
+                                t.(*delegate).x, t, t, t.(*delegate)).debug(1)
+                }
                 rest = mergex(ctx, w, args...)
         }
 
@@ -1678,7 +1687,8 @@ type builtinUniqueOpts struct {
 func builtinUnique(ctx Context, args... Value) (res Value) {
         var opts builtinUniqueOpts
         if len(args) > 0 {
-                args = append(parseOpts(ctx, &opts, 0, merge(args[0])...), args[1:]...)
+                args = append(parseOpts(ctx, &opts, 0, merge(args[0])...),
+                        args[1:]...)
         }
         if opts.unexpand {
                 args = merge(args...)
