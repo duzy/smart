@@ -132,7 +132,7 @@ var builtins = map[string]BuiltinFunc {
         `bare`:         builtinBare, // different from builtinBareword, for files, etc.
         `bareword`:     builtinBareword,
         `string`:       builtinString,
-        `strings`:      builtinStrings,
+        `strval`:       builtinStrval,
         `strip`:        builtinStrip,
         `trim`:         builtinTrim,
         `trim-space`:   builtinTrimSpace,
@@ -519,6 +519,33 @@ func parseOpts(ctx Context, iOpts interface{}, w expandfacet, args... Value) (re
         return
 }
 
+func parseHeadArgs(ctx Context, iOpts interface{}, w expandfacet, args... Value) (head, rest []Value) {
+        if len(args) == 0 {
+                // zero args
+        } else if head = parseOpts(ctx, iOpts, w, args[0]); len(head) > 0 {
+                rest = args[1:] //mergex(ctx, w, args[1:]...)
+        } else if len(args) == 1 {
+                // done
+        } else if head = mergex(ctx, w, args[1]); len(args) > 2 {
+                rest = args[2:] //mergex(ctx, w, args[2:]...)
+        }
+        return
+}
+
+func parseHeadArgsMerge(ctx Context, iOpts interface{}, w expandfacet, args... Value) (res []Value) {
+        var head, rest = parseHeadArgs(ctx, iOpts, w, args...)
+        res = append(head, rest...)
+        return
+}
+
+func parseHeadArgsRequired(ctx Context, iOpts interface{}, w expandfacet, args... Value) (head, rest []Value) {
+        head, rest = parseHeadArgs(ctx, iOpts, w, args...)
+        if len(head) == 0 || len(rest) == 0 {
+                erro(ctx, "insufficient number of arguments").debug(6)
+        }
+        return
+}
+
 func typeof(arg interface{}) (s string) {
         switch a := arg.(type) {
         case *List:
@@ -689,7 +716,7 @@ func builtinAssert(ctx Context, args... Value) Value {
                 var d = opts.debug ; if d < 1 { d = 1}
                 var v = a.expand(ctx, expandPlainValue)
                 prompt(ctx, "assertion: failed %v => %T %v\n", a, v, v)
-                erro(ctx, "%v => %T", a, v).of(a).debug(d)
+                erro(ctx, "%T => %T", a, v).of(a).debug(d)
         }}
         return nil
 }
@@ -788,9 +815,9 @@ func builtinEqual(ctx Context, args... Value) (res Value) {
         if t := a.cmp(ctx, b); t == cmpEqual {
                 res = MakeBoolean(ctx.Position(), true)
         } else if opts.debug>0 {
-                warn(ctx, "equal: cmp: %v", t)
-                warn(ctx, "%T %v", a, a)
-                warn(ctx, "%T %v", b, b).debug(opts.debug)
+                warn(ctx, "equal: cmp: %v ; %v", t, args)
+                warn(ctx, "a: %T %v", a, a).of(a)
+                warn(ctx, "b: %T %v", b, b).of(b).debug(opts.debug)
         }
         return
 }
@@ -2004,24 +2031,100 @@ func builtinBareword(ctx Context, args... Value) (result Value) {
         return
 }
 
-func builtinString(ctx Context, args... Value) (result Value) {
-        var s bytes.Buffer
-        for i, a := range args {
-                if i > 0 { s.WriteString(" ") }
-                s.WriteString(a.Strval(ctx))
+type builtinStrOpts struct {
+        generalOpts
+        expand bool `x,e,ex,exp,expand`
+        merge bool `m,merge` // TODO: implement this merge opt
+        join []string `j,join`
+        def []string `def,var`
+}
+func builtinStr(ctx Context, strval bool, args... Value) (result Value) {
+        var opts builtinStrOpts
+        if args = parseHeadArgsMerge(ctx, &opts, 0, args...); len(args)>0 || len(opts.def)>0 {
+                var (
+                        w = expandPlainValue|expandPairVal
+                        t string
+                )
+                if strval || !opts.expand { w = 0 }
+                if len(opts.join)>0 {
+                        var i int
+                        var s bytes.Buffer
+                        for _, name := range opts.def {
+                                if _, o := ctx.Scope().Find(name); o != nil {
+                                        if d, ok := o.(*Def); !ok {
+                                                continue
+                                        } else if v := d.value; v == nil {
+                                                t = "<nil>"
+                                        } else if strval {
+                                                t = v.Strval(ctx)
+                                        } else if w == 0 {
+                                                t = v.String()
+                                        } else {
+                                                t = v.expand(ctx, w).String()
+                                        }
+                                        s.WriteString(t)
+                                        i += 1
+                                }
+                        }
+                        for _, a := range args {
+                                if strval { t = a.Strval(ctx) } else {
+                                        if w == 0 { t = a.String() } else {
+                                                t = a.expand(ctx, w).String()
+                                        }
+                                }
+                                if i > 0 { s.WriteString(opts.join[i % len(opts.join)]) }
+                                s.WriteString(t)
+                                i += 1
+                        }
+                        result = MakeString(ctx.Position(), s.String())
+                } else {
+                        var strs []Value
+                        for _, name := range opts.def {
+                                if _, o := ctx.Scope().Find(name); o != nil {
+                                        if d, ok := o.(*Def); !ok {
+                                                continue
+                                        } else if v := d.value; v == nil {
+                                                t = "<nil>"
+                                        } else if strval {
+                                                t = v.Strval(ctx)
+                                        } else if w == 0 {
+                                                t = v.String()
+                                        } else {
+                                                t = v.expand(ctx, w).String()
+                                        }
+                                        strs = append(strs, MakeString(o.Position(), t))
+                                }
+                        }
+                        for _, a := range args {
+                                if strval { t = a.Strval(ctx) } else {
+                                        if w == 0 { t = a.String() } else {
+                                                t = a.expand(ctx, w).String()
+                                        }
+                                }
+                                strs = append(strs, MakeString(a.Position(), t))
+                        }
+                        result = MakeListOrScalar(ctx.Position(), strs)
+                }
         }
-        result = MakeString(ctx.Position(), s.String())
         return
 }
 
-func builtinStrings(ctx Context, args... Value) (result Value) {
-        var strs []Value
-        for _, a := range mergex(ctx, expandPlainValue, args...) {
-                strs = append(strs, MakeString(a.Position(), a.Strval(ctx)))
-        }
-        result = MakeListOrScalar(ctx.Position(), strs)
-        return
+func builtinStrval(ctx Context, args... Value) (result Value) {
+        return builtinStr(ctx, true, args...)
 }
+
+func builtinString(ctx Context, args... Value) (result Value) {
+        return builtinStr(ctx, false, args...)
+}
+
+// func builtinStrvals(ctx Context, args... Value) (result Value) {
+//         var strs []Value
+//         for _, a := range mergex(ctx, expandPlainValue, args...) {
+//                 strs = append(strs, MakeString(a.Position(), a.Strval(ctx)))
+//         }
+//         result = MakeListOrScalar(ctx.Position(), strs)
+//         return
+// }
 
 type builtinFilterOpts struct {
         stem bool `s,stem;us,use-stem`
@@ -2897,14 +3000,14 @@ func builtinContains(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        vals = parseOpts(ctx, &opts, expandPlainValue, args[0])
-        list = mergex(ctx, expandPlainValue, args[1:]...)
+        vals, list = parseHeadArgsRequired(ctx, &opts, expandPlainValue, args...)
+        if len(vals) == 0 || len(list) == 0 { return }
+        list = mergex(ctx, expandPlainValue, list...)
 
         var (
                 y int
                 s string
         )
-
         // NOTE: returns true if list contains all vals in it's presented order.
         ForVals: for _, val := range vals {
                 if opts.string { s = val.Strval(ctx)}

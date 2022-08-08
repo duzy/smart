@@ -580,19 +580,30 @@ func (d *Def) expandible(ctx Context, w expandfacet) (res bool) {
         return
 }
 func (d *Def) expand(ctx Context, w expandfacet) (res Value) {
+        if d == nil {
+                errostack(ctx, 3, "expand nil def (w=%016b)", w).debug(16)
+                return
+        }
+
+        res = d
+
         var (
-                origin = d.origin
+                origin Origin = d.origin
                 value0 Value
         )
         if origin == DefArg || origin == DefAuto {
-                value0, _ = ctx.autoGet(d.name)
+                var ad *Def
+                if ad, value0 = ctx.autoGet(d.name); ad == nil {
+                        if false { warnstack(ctx, 3, "%v is undefined", d.name).debug(32) }
+                        return
+                }
         } else {
                 d.mutex.Lock()
                 value0 = d.value
                 d.mutex.Unlock()
         }
 
-        if res = d; isNil(value0) {
+        if isNil(value0) {
                 return // does nothing
         } else if isNone(value0) {
                 if w&expandDef != 0 { res = value0 }
@@ -714,27 +725,25 @@ func (d *Def) set(ctx Context, origin Origin, value Value, appendVals... Value) 
                 return
         }
 
-        if value == nil {
-                if len(appendVals) > 0 {
-                        d.mutex.Lock()
-                        value = d.value
-                        d.value = nil // take the value
-                        d.mutex.Unlock()
+        if value == nil { if len(appendVals) > 0 {
+                d.mutex.Lock()
+                value = d.value
+                d.value = nil // take the value
+                d.mutex.Unlock()
 
-                        var pos = appendVals[0].Position()
-                        if isTrivial(value) {
-                                value = MakeListOrScalar(pos, appendVals)
-                        } else if l, ok := value.(*List); ok {
-                                l.Append(appendVals...)
-                        } else {
-                                var vals = []Value{ value }
-                                vals = append(vals, appendVals...)
-                                value = MakeList(pos, vals...)
-                        }
-                } else if origin != DefExecute {
-                        value = MakeNone(d.position)
+                var pos = appendVals[0].Position()
+                if isTrivial(value) {
+                        value = MakeListOrScalar(pos, appendVals)
+                } else if l, ok := value.(*List); ok {
+                        l.Append(appendVals...)
+                } else {
+                        var vals = []Value{ value }
+                        vals = append(vals, appendVals...)
+                        value = MakeList(pos, vals...)
                 }
-        } else { switch origin {
+        } else if origin != DefExecute {
+                value = MakeNone(d.position)
+        }} else { switch origin {
         case DefExpand1: // expands delegates
                 var elems, _ = expand(ctx, expandDelegate, value)
                 value = MakeListOrScalar(value.Position(), elems)
@@ -818,133 +827,91 @@ func (d *Def) append(ctx Context, va... Value) {
 
 //TODO: func (d *Def) prepend(ctx Context, va... Value) (err error)
 
-func (d *Def) call(ctx Context, w expandfacet, a... Value) (res Value) {
-        var value Value
+func (d *Def) call1(ctx Context, w expandfacet, a... Value) (res Value) {
         if false { ctx = positional(ctx, d.position) }
+
+        var final bool
         if d.origin == DefArg || d.origin == DefAuto {
-                switch _, value = ctx.autoGet(d.name); v := value.(type) {
-                case *delegate: if v.x == d { return d.value }
-                case *closure: if v.x == d {
-                        warn(ctx, `self refs: "%v" -> %T %v`, d, value, value)
-                        warn(ctx, "project %v, %v", d.OwnerProject(), d.scope)
-                        warn(ctx, "%v: %v", ctx.Project(), ctx).debug(10)
-                        return d.value
+                var ad *Def
+                if ad, res = ctx.autoGet(d.name); ad != nil && ad == d {
+                        if false && (d.name == "1" || d.name == "2") && res == d.value {
+                                warn(ctx, "selfing: %s %v %v %v ; %p %p",
+                                        d.name, d.origin, d.value, a, d, ad).debug(32)
+                        }
+                        return // selfing
+                }
+                switch t := res.(type) {
+                case *delegate: if t.x == d { res, final = d.value, true } // selfing
+                case  *closure: if t.x == d { res, final = d.value, true } // selfing
+                case       nil:
+                default: if defs := res.defs(ctx, d.name); len(defs) > 0 {
+                        for _, def := range defs { if def == d {
+                                if false { errostack(ctx, 3, `selfing: "%v" -> %T %v ; %v ; %v`,
+                                        d, res, res, defs, a).debug(10) }
+                                final = true  //selfing
+                                break
+                        }}
                 }}
         }
 
-        if value == nil {
+        if res == nil {
                 d.mutex.Lock()
-                value = d.value
+                res = d.value
                 d.mutex.Unlock()
-        } else if defs := value.defs(ctx, d.name); len(defs) > 0 {
-                for _, def := range defs { if def == d {
-                        warn(ctx, `self refs: "%v" -> %T %v -> %v`, d, value, value, defs)
-                        warn(ctx, "project %v, %v", d.OwnerProject(), d.scope)
-                        warn(ctx, "%v: %v", ctx.Project(), ctx).debug(10)
-                        return d.value
-                }}
         }
 
-        if isTrivial(value) || !value.expandible(ctx, w) {
-                return value
+        if final || isTrivial(res) || !res.expandible(ctx, w) {
+                return
+        } else {
+                var ac = autoContext{ Context:ctx, defs:make(autoDefMap) }
+                ac.autoArgs(nil, a)
+                ctx = &ac
+                res = res.expand(ctx, w)
         }
 
-        var ac = autoContext{ Context:ctx, defs:make(autoDefMap) }
-        ac.autoArgs(nil, a)
-        ctx = &ac
-
-        if false && d.name == ".test" { defer func() {
-                // var x = value.expandible(ctx, expandArgs|expandClosure)
-                var v = value.expand(ctx, w)
-                warn(ctx, "%v: %v", d.name, ctx.auto().defs)
-                warn(ctx, "%v: %v ; %v", d.name, value, a)
-                warn(ctx, "%v: %v", d.name, v).debug(1)
-        }()}
-
-        if res = value.expand(ctx, w); isNil(res) {
-                if value.expandible(ctx, w) {
-                        if l, ok := value.(*List); ok {
-                                var infoList func(*List)
-                                infoList = func(l *List) {
-                                        for _, v := range l.Elems {
-                                                if l2, ok := v.(*List); ok { infoList(l2) } else {
-                                                        info(ctx, "%v: %T %v %v", d.name, v, v, v.expandible(ctx, w))
-                                                }
+        if options.debug && res.expandible(ctx, w&^(expandAuto)) {
+                if l, ok := res.(*List); ok {
+                        var warnList func(*List)
+                        warnList = func(l *List) {
+                                for _, v := range l.Elems {
+                                        if l2, ok := v.(*List); ok {
+                                                warnList(l2)
+                                        } else if !isNone(v) && v.expandible(ctx, w) {
+                                                warn(ctx, "%v: not expanded: %T %v (w=%016b)",
+                                                        d.name, v, v, w)
                                         }
                                 }
-                                infoList(l)
                         }
-                        warn(ctx, "%v: expand incomplete (w=%016b): %T %v", d.name, w, value, value)
-                        warn(ctx, "%v: %v", d.name, ctx).debug(16)
-                }
-                res = value
-        }
-        return
-}
-
-func (d *Def) execute(ctx Context, a... Value) (res Value) {
-        var (
-                pos = ctx.Position()
-                origin Origin
-                value Value
-                cmd string
-        )
-        d.mutex.Lock()
-        origin, value = d.origin, d.value
-        if !pos.IsValid() { pos = d.position }
-        d.mutex.Unlock()
-
-        if origin != DefExecute {
-                erro(ctx, "%v: non-execute def: %v", origin, value).debug(1)
-        } else if isNil(value) || isNone(value) {
-                // does nothing
-        } else if cmd = value.Strval(ctx); cmd == "" {
-                warn(ctx, "%v: empty command (value=%v)", origin, value).debug(1)
-                res = MakeNone(pos)
-        } else {
-                // TODO: possibility to run command in the specified container
-                var stdout, stderr bytes.Buffer
-                var sh = exec.Command("sh", "-c", cmd)
-                sh.Stdout, sh.Stderr = &stdout, &stderr
-                if err := sh.Run(); err != nil {
-                        erro(ctx, "%v: execute command failed: %v", origin, err)
-                        erro(ctx, "%v: execute command: %s", origin, cmd).debug(2)
-                        res = MakeNone(pos)
+                        warnList(l)
                 } else {
-                        res = MakeString(pos, strings.TrimSpace(stdout.String()))
+                        warn(ctx, "%v: not expanded: %T %v", d.name, res, res)
                 }
-                stdout.Reset()
-                stderr.Reset()
-                origin = DefExecuted
+                warnstack(ctx, 3, "").debug(16)
         }
-
-        d.mutex.Lock()
-        d.origin, d.value = origin, res
-        d.mutex.Unlock()
         return
 }
 
-func (d *Def) Call(ctx Context, a... Value) (res Value) {
+func (d *Def) call(ctx Context, w expandfacet, a... Value) (res Value) {
         switch d.origin {
-        case DefArg, DefAuto, DefDefault: res = d.call(ctx, expandDelegate, a...)
+        case DefArg, DefAuto, DefDefault: res = d.call1(ctx, w, a...)
         case DefExecute: res = d.execute(ctx, a...)
         case DefExpand1:
-                if d.value == nil {
-                        // does nothing
-                } else if d.value.expandible(ctx, expandArgs|expandClosure) {
-                        res = d.call(ctx, expandArgs|expandClosure|expandDelegate, a...)
-                } else {
+                if isTrivial(d.value) /* || !d.value.expandible(ctx, w) */ {
                         res = d.value
+                } else {
+                        res = d.call1(ctx, w, a...)
                 }
-        default:
-                res = d.value // DefExpand2, DefExecuted, etc.
+        default: // DefExpand2, DefExecuted, etc.
+                res = d.value
         }
-        if isNil(res) {
+
+        if res == nil {
                 // does nothing
         } else if list, ok := res.(*List); !ok {
                 // does nothing
         } else if n := len(list.Elems); n == 0 {
-                var pos = ctx.Position()
+                var pos = list.position
+                if !pos.IsValid() { pos = ctx.Position() }
                 if !pos.IsValid() { pos = d.position }
                 res = MakeNone(pos)
         } else if n == 1 {
@@ -953,18 +920,56 @@ func (d *Def) Call(ctx Context, a... Value) (res Value) {
         return
 }
 
-func (d *Def) DiscloseValue(ctx Context) (res Value) {
+func (d *Def) execute(ctx Context, a... Value) (res Value) {
         var (
-                pos = ctx.Position()
+                origin Origin
                 value Value
+                cmd string
         )
         d.mutex.Lock()
-        if value = d.value; !pos.IsValid() { pos = d.position }
+        origin, value = d.origin, d.value
         d.mutex.Unlock()
-        if !isNil(value) {
-                res = value.expand(ctx, expandClosure)
+
+        if origin != DefExecute {
+                erro(ctx, "%v: non-execute def: %v", origin, value).debug(1)
+                return
+        } else if isTrivial(value) {
+                return // does nothing
+        } else if cmd = value.Strval(ctx); cmd == "" {
+                warn(ctx, "%v: empty command (value=%v)", origin, value).debug(1)
+                return
         }
+
+        // TODO: options for running command in the specified container
+        var (
+                stdout, stderr bytes.Buffer
+                sh = exec.Command("sh", "-c", cmd)
+        )
+        sh.Stdout, sh.Stderr = &stdout, &stderr
+        if err := sh.Run(); err != nil {
+                erro(ctx, "%v: execute command failed: %v", origin, err)
+                erro(ctx, "%v: execute command: %s", origin, cmd).debug(2)
+                stdout.Reset()
+                stderr.Reset()
+                return
+        }
+
+        var pos = value.Position()
+        if !pos.IsValid() { pos = ctx.Position() }
+        res = MakeString(pos, strings.TrimSpace(stdout.String()))
+        stdout.Reset()
+        stderr.Reset()
+
+        d.mutex.Lock()
+        d.origin, d.value = DefExecuted, res
+        d.mutex.Unlock()
         return
+}
+
+func (d *Def) Call(ctx Context, a... Value) (res Value) {
+        // NOTE: expandDelegate is still required for DefExpand1 as some autos
+        //       ($_, $1, $2, etc) may still not expanded.
+        return d.call(ctx, expandArgs|expandClosure|expandDelegate|expandPairVal, a...)
 }
 
 func (d *Def) Get(ctx Context, name string) (res Value, err error) {

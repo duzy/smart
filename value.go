@@ -633,7 +633,6 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
     var (
         proj  = ctx.Project()
         entry = ctx.entry()
-        str, _, _ = entryStr(ctx, entry)
     )
     if s != "" && s != "<#" && s != "#>" {
         point = diag(ctx, dt, s, a...)
@@ -651,44 +650,50 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
         proj = entry.OwnerProject()
     }
 
+    var str, _, _ = entryStr(ctx, entry)
     if s == "<#" && len(a) > 0 { for _, t := range a {
         if v, ok := t.(Value); ok {
-            point = ctx.diag(dt, "%v: %v (%T) (project=%v)", str, v, v, proj).of(v)
+            if str == "" {
+                point = ctx.diag(dt, "%v: %v (%T)", proj, v, v).of(v)
+            } else {
+                point = ctx.diag(dt, "%v: %v: %v (%T)", proj, str, v, v).of(v)
+            }
         }
     }}
 
-    point = ctx.diag(dt, "%v: (project=%v) %v", str, proj, ctx)
-    if pc := ctx.programContext(); pc != nil {
-        point = point.at(pc.prog.position)
+    if true {
+        // does nothing
+    } else if str == "" {
+        point = ctx.diag(dt, "%v: %v", proj, ctx)
+    } else {
+        point = ctx.diag(dt, "%v: %v: %v", proj, str, ctx)
+    }
+
+    if pc := ctx.positional(); pc != nil {
+        point = point.at(pc.position)
 
         if s == "#>" && len(a) > 0 { for _, t := range a {
             if v, ok := t.(Value); ok {
-                point = ctx.diag(dt, "%v: %v (%T) (project=%v)", str, v, v, proj).of(v)
+                if str == "" {
+                    point = ctx.diag(dt, "%v: %v (%T)", proj, v, v).of(v)
+                } else {
+                    point = ctx.diag(dt, "%v: %v: %v (%T)", proj, str, v, v).of(v)
+                }
             }
         }}
 
-        var _, tt = pc.autoGet("@")
-        for last, i := &pc.prog.position, 0; pc != nil && n > 0; pc = pc.Context.programContext() {
-            for next := pc.caller(); next != nil; next = next.caller() {
-                if _, t := next.autoGet("@"); t != nil && (
-                    t == tt || t.cmp(ctx, tt) == cmpEqual) {
-                    i += 1;  continue
-                }
-                if next.program() != pc.program() { break } else {
-                    i, pc, last = i+1, next, &pc.prog.position
-                }
-            }
-
-            var pos = &pc.prog.position
+        for last := &pc.position; pc != nil && n > 0; pc = pc.Context.positional() {
+            var pos = &pc.position
             if pos.SameLine(last) { continue }
 
             var suf string
-            var str, _, _ = entryStr(pc, pc.entry())
             if n == 1 && pc.caller() != nil { suf = " ..." }
-            if i <= 1 {
+            if entry := pc.entry(); entry == nil {
+                point = ctx.diag(dt, "%v%s", proj, suf).at(*pos)
+            } else if str, _, _ := entryStr(pc, entry); str != "" {
                 point = ctx.diag(dt, "%v: (project=%v)%s", str, proj, suf).at(*pos)
             } else {
-                point = ctx.diag(dt, "%v: (project=%v, repeated %d times)%s", str, proj, i, suf).at(*pos)
+                point = ctx.diag(dt, "%v: %v%s", proj, entry, suf).at(*pos)
             }
 
             if false && pc != nil { point = ctx.diag(dt, "%v: ...", proj).at(*pos) }
@@ -3028,6 +3033,7 @@ func (p *Barecomp) cmp(ctx Context, v Value) (res cmpres) {
             } else if s != "" { // matched prefix
                 var sL = s + elems[1].Strval(ctx)
                 var sR = fR.name.Strval(ctx)
+
                 if sL == sR {
                     res = cmpEqual
                 } else if s < sR {
@@ -3041,6 +3047,18 @@ func (p *Barecomp) cmp(ctx Context, v Value) (res cmpres) {
         }}
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if true && l != nil && len(p.Elems)==2 && len(l.Elems)>1 {
+        if pl, ok := p.Elems[1].(*List); ok && len(pl.Elems)>1 {
+            var a = p.Elems[1] // Example: p.Elems=[a- a b c], l.Elems=[z-a b c]
+            // FIXME: avoid 'p.Elems[1] = pl.Elems[0]', the container values are readonly for cmp
+            if p.Elems[1] = pl.Elems[0]; p.cmp(ctx, l.Elems[0]) == cmpEqual {
+                res = compareElems(ctx, pl.Elems[1:], l.Elems[1:])
+            }
+            p.Elems[1] = a
+
+            if false { warn(ctx, "%v %v ; %T %v ; %v",
+                p.Elems, l.Elems, l.Elems[0], l.Elems[0], res).debug(1) }
+        }
     }
     return
 }
@@ -4891,6 +4909,15 @@ func (p *List) cmp(ctx Context, v Value) (res cmpres) {
             }
             warn(ctx, "%v <=> %v", p.Elems, a.Elems).debug(1)
         }
+    } else if c, ok := v.(*Barecomp); ok && len(c.Elems)==2 && len(p.Elems)>1 {
+        if cl, ok := c.Elems[1].(*List); ok && len(cl.Elems)>1 {
+            var a = c.Elems[1] // Example: p.Elems=[z-a b c], c.Elems=[a- a b c]
+            // FIXME: avoid 'c.Elems[1] = cl.Elems[0]', the container values are readonly for cmp
+            if c.Elems[1] = cl.Elems[0]; p.Elems[0].cmp(ctx, c) == cmpEqual {
+                res = compareElems(ctx, cl.Elems[1:], p.Elems[1:])
+            }
+            c.Elems[1] = a
+        }
     } else if len(p.Elems) == 1 {
         res = p.Elems[0].cmp(ctx, v)
     }
@@ -4898,8 +4925,10 @@ func (p *List) cmp(ctx Context, v Value) (res cmpres) {
 }
 
 func (p *List) patterned(ctx Context) (res bool) {
-    if len(p.Elems) == 1 { res = p.Elems[0].patterned(ctx) } else {
-        /* FIXME: apply to each element??
+    if len(p.Elems) == 1 {
+        res = p.Elems[0].patterned(ctx)
+    } else {
+        /* FIXME: check pattern for each element??
         for _, elem := range p.Elems {
           if elem.patterned() { return true }
         }*/
@@ -4908,8 +4937,10 @@ func (p *List) patterned(ctx Context) (res bool) {
 }
 
 func (p *List) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
-    if len(p.Elems) == 1 { full, s, stems = p.Elems[0].match(ctx, i) } else {
-        /* FIXME: apply to each element??
+    if len(p.Elems) == 1 {
+        full, s, stems = p.Elems[0].match(ctx, i)
+    } else {
+        /* FIXME: match for to each element??
         for _, elem := range p.Elems {
           ...
         }*/
@@ -5327,8 +5358,9 @@ func (p *delegate) args(ctx Context, w expandfacet) (args []Value, num int) {
         if w&(expandArgs|expandAuto) != 0 {
             if d, v := containsUndefinedAutos(ctx, a); v {
                 if false { info(ctx, "undetermined autos: %v : %v", a, d).debug(10) }
-                noExpand = d.origin == DefAuto && w&expandAuto == 0 ||
-                    d.origin == DefArg && w&expandArgs == 0
+                noExpand =
+                    (d.origin == DefAuto && w&expandAuto == 0) ||
+                    (d.origin == DefArg  && w&expandArgs == 0)
             }
         }
         if noExpand {
@@ -5341,20 +5373,20 @@ func (p *delegate) args(ctx Context, w expandfacet) (args []Value, num int) {
 }
 func (p *delegate) expandible(ctx Context, w expandfacet) (res bool) {
     if res = w&expandDelegate != 0; !res {
-        if def, ok := p.x.(*Def); ok && (def.origin == DefAuto) && (w&expandAuto == 0) { // TODO: auto -> placeholder
-            res = p.x.expandible(ctx, w) // false
+        if def, ok := p.x.(*Def); ok && (def.origin == DefAuto && w&expandAuto == 0) {
+            res = false // p.x.expandible(ctx, w) // TODO: auto -> placeholder
         } else {
             res = p.x.expandible(ctx, w)
         }
-        if !res && w&expandArgs != 0 {
-            for _, a := range p.a {
-                if res = a.expandible(ctx, w); res { break }
-            }
-        }
+        if !res && w&expandArgs != 0 { for _, a := range p.a {
+            if res = a.expandible(ctx, w); res { break }
+        }}
     }
     return
 }
 func (p *delegate) expand(ctx Context, w expandfacet) (res Value) {
+    ctx = positional(ctx, p.position)
+
     if false { defer func() { if o, ok := p.x.(Object); !ok || isNil(o) {
         warn(ctx, "%v: %T %v", p, p.x, p.x).at(p.x.Position()).debug(1)
     } else if name := o.Name(ctx); name == "foreach" && res != nil {
@@ -5390,10 +5422,31 @@ func (p *delegate) expand(ctx Context, w expandfacet) (res Value) {
         }
     }}
 
-    if def, ok := p.x.(*Def); ok && (def.origin == DefAuto) && (w&expandAuto == 0) {
-        // TODO: auto -> placeholder
-        //return def, nil
+    var db bool
+    if def, ok := p.x.(*Def); ok {
+        if def.origin == DefAuto && w&expandAuto == 0 {
+            // TODO: auto -> placeholder
+            //return def, nil
+        }
+        db = db || (def.name == ".test.x" && def.value != nil && p.String() == "$(.test.x $1,B b)")
+        db = db || (def.name == "_flags"  && def.value != nil && p.String() == "$(_flags $1,c)")
+        if db {
+            var a, n = p.args(ctx, w)
+            warn(ctx, "%016b %016b %016b %v %v %d", w, w&expandClosure, w&expandDelegate, p.a, a, n)
+            warn(ctx, "%v", def.value).debug(1)
+        }
+    } else if bt, ok := p.x.(*Builtin); false && ok {
+        db = db || (bt.name == "foreach" && p.String() == "$(foreach $1 $2,$(value .test.$_) $(value .test~&(.test.s).$_))")
+        if db {
+            var a, n = p.args(ctx, w)
+            warn(ctx, "%016b %016b %016b %v %v %d", w, w&expandClosure, w&expandDelegate, p.a, a, n).debug(1)
+        }
     }
+
+    var final bool
+    if db { defer func() {
+        warn(ctx, "%T %v (final=%v)", res, res, final).debug(32)
+    } () }
 
     if w&expandDelegate == 0 {
         var x Value
@@ -5414,23 +5467,21 @@ func (p *delegate) expand(ctx Context, w expandfacet) (res Value) {
         return
     }
 
-    if ctx, res = p.reveal(ctx, w); isNil(res) {
-        return MakeNone(p.position)
-    } else if res != p {
-        return res.expand(ctx, w)
-    } else {
-        return
-    }
-}
-func (p *delegate) reveal(ctx Context, w expandfacet) (retctx Context, res Value) {
-    ctx = positional(ctx, p.position)
+    if res, final = p.reveal(ctx, w, db); isNil(res) { return MakeNone(p.position) }
+    if db { warn(ctx, "%T %v (final=%v)", res, res, final).debug(1) }
 
+    if !final && res != p { res = res.expand(ctx, w) }
+    if db { warn(ctx, "%T %v.", res, res).debug(1) }
+
+    return
+}
+func (p *delegate) reveal(ctx Context, w expandfacet, db bool) (res Value, final bool) {
     var x Object
     if u, ok := p.x.(*unresolvedobject); ok && fixUnresolvedObjectDelegate {
         // NOTE: return immediately if there are any autos/args not defined yet
         if d, v := containsUndefinedAutos(ctx, u.name); v {
             if false { info(ctx, "undetermined autos: %v : %v", p, d).debug(10) }
-            return ctx, p // not ready to reveal (call/execute)
+            return p, true // not ready to reveal (call/execute)
         }
 
         var name string
@@ -5485,20 +5536,53 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (retctx Context, res Value
     }
 
     var args, _ = p.args(ctx, w)
-    if false && options.debug && x.String() == "unique" {
-        var d, v = ctx.autoGet("_")
-        warn(ctx, "%T : %v -> %v ; %v ; %v", x, p.a, args, d, v).debug(1)
+    if db {
+        warn(ctx, "%v ; args=%v ; %v", p, args,
+            mergex(ctx, expandArgs|expandAuto, args...)).debug(1)
+        defer func() {
+            if d, _ := x.(*Def); d != nil {
+                warn(ctx, "val=%v", d.value)
+            } else {
+                warn(ctx, "obj=%v", x)
+            }
+            warn(ctx, "res=%v", res).debug(16)
+        } ()
     }
 
     switch t := x.(type) {
-    case Caller:
-        if res = t.Call(ctx, args...); isNil(res) {
-            if d, ok := x.(*Def); ok && !isNil(d.value) {
-                erro(ctx, "calling def '%v' (%v) returns <nil> (def.value=%v %T, %T)",
-                    d.name, d.origin, d.value, d.value, ctx).debug(16)
+    case *Def:
+        if t.origin == DefArg || t.origin == DefAuto {
+            if a, v := ctx.autoGet(t.name); a == nil /* && v == nil */ {
+                if false { warn(ctx, "%v (%v) -> %v -> %v", a, v, p, t.value).debug(16) }
+                if v == nil && t.value == nil { return p, true } // selfing
+            } else if a == t {
+                if true { warn(ctx, "%v (%v) -> %v -> %v", a, v, p, t.value).debug(16) }
+                return p, true // selfing
+            } else if v != nil {
+                if defs := v.defs(ctx, t.name); len(defs) > 0 {
+                    for _, def := range defs { if def == t {
+                        // Example:
+                        //     .test.z :=           z-$1
+                        //     .test.y := $(.test.z y-$1)
+                        //     .test.x := $(.test.y x-$1)
+                        //     .test   := $(.test.x a)
+                        //     assert $(equal $(.test foo),z-y-x-a)
+                        if false { warnstack(ctx, 5, `selfing: "%v" -> %T %v ; %v ; %v ; %v`,
+                            t, res, res, defs, a, v).debug(1) }
+                        final = true
+                        break
+                    }}
+                }
+                return v, final // selfing
             }
         }
-        retctx = ctx
+        if res = t.call(ctx, w, args...); res == nil && t.value != nil {
+            errostack(ctx, 3, "%v: %v: calling returns nil (def.value: %T %v)",
+                t.name, t.origin, t.value, t.value).debug(16)
+        }
+        return
+    case Caller:
+        res = t.Call(ctx, args...)
         return
     case Executer:
         if vals, traves := t.Execute(ctx, args...); traves.has(traveFail) {
@@ -5510,7 +5594,6 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (retctx Context, res Value
         } else if false {
             res = MakeNone(x.Position())
         }
-        retctx = ctx
         return
     default:
         var pos = t.Position()

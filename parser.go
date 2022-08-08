@@ -1923,6 +1923,16 @@ func (p *parser) evalConfiguration(ctx Context, gOpts *genericClauseOpts, props 
 	}
 }
 
+func (p *parser) parseAssertSpec(doc *CommentGroup, gOpts *genericClauseOpts, _ int) {
+	var (
+		ctx Context = p
+		props = p.parseDirectiveSpec()
+	)
+	if !gOpts.dontOperate {
+		_ = builtinAssert(ctx, props...)
+	}
+}
+
 func (p *parser) parseEvalSpec(doc *CommentGroup, gOpts *genericClauseOpts, _ int) {
 	var (
 		ctx Context = p
@@ -2954,6 +2964,9 @@ func (p *parser) parseClause() {
 	case token.FILES:
 		p.parseGenericClause(token.FILES, p.expect(token.FILES), p.parseFilesSpec)
 		return
+	case token.ASSERT:
+		p.parseGenericClause(token.ASSERT, p.expect(token.ASSERT), p.parseAssertSpec)
+		return
 	case token.EVAL:
 		p.parseGenericClause(token.EVAL, p.expect(token.EVAL), p.parseEvalSpec)
 		return
@@ -3265,7 +3278,9 @@ func (p *parser) parseFile() *parsedFile {
 				case token.LINEND:
 					p.next(true) // skip empty lines
 				case token.USE:
-					p.parseGenericClause(p.tok, p.expect(p.tok), p.parseUseSpec)
+					p.parseGenericClause(p.tok, p.expect(token.USE), p.parseUseSpec)
+				case token.ASSERT:
+					p.parseGenericClause(p.tok, p.expect(token.ASSERT), p.parseAssertSpec)
 				case token.EVAL:
 					p.parseGenericClause(p.tok, p.expect(token.EVAL), p.parseEvalSpec)
 				default:

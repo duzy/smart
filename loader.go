@@ -893,9 +893,7 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
         return
     }
 
-    if !def.position.IsValid() {
-        def.position = identifier.Position()
-    }
+    def.position = identifier.Position()
     l.assign(tok, def, alt, value)
     return
 }
@@ -1705,7 +1703,10 @@ func (l *loader) def(position Position, name string) (def *Def, alt Object) {
 }
 
 func (l *loader) assign(tok token.Token, def *Def, alt Object, value Value) {
-    var ( pos = l.Position(); ctx = positional(l, pos) )
+    var (
+        pos = l.Position()
+        ctx = positional(l, pos)
+    )
     switch tok {
     case token.ASSIGN:     //   =
         def.set(ctx, DefDefault, value)

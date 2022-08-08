@@ -154,6 +154,7 @@ const (
 	MODULE     // module a
 	CONFIGURE  // configure [...] TODO: use a different keyword
 	USE        // use b
+	ASSERT     // assert clause
 	EVAL       // evaluate a builtin immediately
 	EXPORT     // export ...
 	INCLUDE    // include a.smart
@@ -294,6 +295,7 @@ var tokens = [...]string{
 	MODULE:     "module",
 	CONFIGURE:  "configure",
 	USE:        "use",
+	ASSERT:     "assert",
 	EVAL:       "eval",
 	EXPORT:     "export",
 	INCLUDE:    "include",

@@ -114,6 +114,8 @@ type Context interface {
   inner() Context
   spawn() Context
 
+  positional() *positionalContext
+
   travestates() *travestates
 
   traversal() *traverseContext
@@ -382,9 +384,6 @@ func warn(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx,
 func erro(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagError, f, a...) }
 func prompt(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagPrompt, f, a...) }
 
-type spawnPositionalContext struct { positionalContext }
-func (pc *spawnPositionalContext) String() string { return fmt.Sprintf("spawn-%s", pc.positionalContext.String()) }
-
 type positionalContext struct { Context; position Position }
 func (pc *positionalContext) inner() Context { return pc.Context }
 func (pc *positionalContext) Position() Position { return pc.position }
@@ -396,13 +395,14 @@ func (pc *positionalContext) String() string {
   }
 }
 func (pc *positionalContext) spawn() Context {
-  var ctx = pc.Context
-  switch t := ctx.(type) {
-  case *programContext, *traverseContext, *closureContext: ctx = t.spawn()
-  default: erro(pc, "needs to spawn positional context: %v", ctx).debug(1)
+  switch t := pc.Context.(type) {
+  case *programContext, *traverseContext, *closureContext:
+    return &positionalContext{ t.spawn(), pc.position }
   }
-  return &spawnPositionalContext{positionalContext{ ctx, pc.position }}
+  return pc
 }
+func (pc *positionalContext) caller() *positionalContext { return pc.Context.positional() }
+func (pc *positionalContext) positional() *positionalContext { return pc }
 func positional(ctx Context, pos Position) Context {
   if ctx == nil { panic("nil inner context") }
   if pc, ok := ctx.(*positionalContext); ok && pos.Same(&pc.position) {
@@ -483,6 +483,7 @@ func (ctx *defaultContext) projects(_ Context, projs ...*Project) []*Project {
 }
 func (ctx *defaultContext) program() *Program { return nil }
 func (ctx *defaultContext) programContext() *programContext { return nil }
+func (ctx *defaultContext) positional() *positionalContext { return nil }
 func (ctx *defaultContext) Position() (res Position) { res.Filename, res.Line = ctx.workdir, 1; return }
 func (ctx *defaultContext) appendCallerUpdated() bool { return false }
 func (ctx *defaultContext) mustExists() bool { return false }
