@@ -53,117 +53,125 @@ func convPosition(filename, line, column string) (pos Position) {
         return
 }
 
-type BuiltinFunc func(ctx Context, args... Value) (Value)
+type BuiltinFunc struct {
+        f func(ctx Context, args... Value) (Value)
+        command bool
+        n int // first n args to apply m
+        m expandfacet
+}
 
 var builtins = map[string]BuiltinFunc {
-        `typeof`:       builtinTypeOf,
-        `defined`:      builtinDefined,
+        `typeof`:       BuiltinFunc{builtinTypeof, false, 0, expandZero},
+        `defined`:      BuiltinFunc{builtinDefined, false, 0, expandZero},
 
-        `position`:     builtinPosition,
-        `date`:         builtinDate,
+        `position`:     BuiltinFunc{builtinPosition, false, 0, expandZero},
+        `date`:         BuiltinFunc{builtinDate, false, 0, expandZero},
 
-        `debug`:        builtinDebug,
-        `error`:        builtinError,
-        //`warning`:      builtinWarning,
+        `debug`:        BuiltinFunc{builtinDebug, false, 0, expandZero},
+        `error`:        BuiltinFunc{builtinError, false, 0, expandZero},
+        //`warning`:      BuiltinFunc{builtinWarning, false, 0, expandZero},
 
-        //`assert`: builtinAssert,
+        //`assert`: BuiltinFunc{builtinAssert, false, 0, expandZero},
 
         // $(defor) (aka. defined-or)
-        `defor`:        builtinDefOr, // $(defor $(x),$(y),$(z))  <=>  $(if $(defined $(x)),$(x),...)
-        `or`:           builtinOr,
-        `and`:          builtinAnd,
-        //`xor`:          builtinXor,
-        `not`:          builtinNot,
+        `defor`:        BuiltinFunc{builtinDefOr, false, 0, expandZero}, // $(defor $(x),$(y),$(z))  <=>  $(if $(defined $(x)),$(x),...)
+        `or`:           BuiltinFunc{builtinOr, false, 0, expandZero},
+        `and`:          BuiltinFunc{builtinAnd, false, 0, expandZero},
+        //`xor`:          BuiltinFunc{builtinXor, false, 0, expandZero},
+        `not`:          BuiltinFunc{builtinNot, false, 0, expandZero},
 
-        `not-equal`:    builtinNotEqual,
-        `equal`:        builtinEqual,
-        `equals`:       builtinEqual,
-        `match`:        builtinMatch,
+        `not-equal`:    BuiltinFunc{builtinNotEqual, false, 0, expandZero},
+        `equal`:        BuiltinFunc{builtinEqual, false, 0, expandZero},
+        `equals`:       BuiltinFunc{builtinEqual, false, 0, expandZero},
+        `match`:        BuiltinFunc{builtinMatch, false, 0, expandZero},
 
-        `greater`:      builtinGreater,
-        `less`:         builtinLess,
+        `greater`:      BuiltinFunc{builtinGreater, false, 0, expandZero},
+        `less`:         BuiltinFunc{builtinLess, false, 0, expandZero},
 
-        `case`:         builtinBranchCase,
-        `if`:           builtinBranchIf,
-        `ifeq`:         builtinBranchIfEq,
-        `ifne`:         builtinBranchIfNE,
+        `case`:         BuiltinFunc{builtinCase, false, 0, expandZero},
+        `if`:           BuiltinFunc{builtinIf, false, 0, expandZero},
+        `ifeq`:         BuiltinFunc{builtinIfEq, false, 0, expandZero},
+        `ifne`:         BuiltinFunc{builtinIfNE, false, 0, expandZero},
 
-        `foreach`:      builtinForEach,
-        `count`:        builtinCount,
+        `foreach`:      BuiltinFunc{builtinForEach, false, 1, expandPlaceholders},
+        `count`:        BuiltinFunc{builtinCount, false, 0, expandZero},
 
-        `env`:          builtinEnv,
-        `closure`:      builtinClosure,
-        `defs`:         builtinDefList,
-        `call`:         builtinCall,
-        // `auto`:         builtinAuto,
-        `value`:        builtinValue,
-        `var`:          builtinValue,
-        `list`:         builtinList,
-        `sure-value`:   builtinSureValue,
+        `env`:          BuiltinFunc{builtinEnv, false, 0, expandZero},
+        `closure`:      BuiltinFunc{builtinClosure, false, 0, expandZero},
+        `defs`:         BuiltinFunc{builtinDefList, false, 0, expandZero},
+        `call`:         BuiltinFunc{nil, false, 0, expandZero},
+        `auto`:         BuiltinFunc{nil, false, 0, expandZero},
+        `var`:          BuiltinFunc{nil, false, 0, expandZero},
+        `value`:        BuiltinFunc{builtinValue, false, 0, expandZero},
+        `list`:         BuiltinFunc{builtinList, false, 0, expandZero},
+        `sure-value`:   BuiltinFunc{builtinSureValue, false, 0, expandZero},
 
-        `shell`:        builtinShell,
-        `which`:        builtinWhich,
+        `shell`:        BuiltinFunc{builtinShell, false, 0, expandZero},
+        `which`:        BuiltinFunc{builtinWhich, false, 0, expandZero},
 
-        `serve-http`:   builtinServeHttp,
-        `serve-https`:  builtinServeHttps,
+        `serve-http`:   BuiltinFunc{builtinServeHttp, false, 0, expandZero},
+        `serve-https`:  BuiltinFunc{builtinServeHttps, false, 0, expandZero},
 
-        `plus`:     builtinPlus,
-        `minus`:    builtinMinus,
-        `multiply`: builtinMultiply,
-        `mul`:      builtinMultiply,
-        `divide`:   builtinDivide,
-        `div`:      builtinDivide,
+        `plus`:     BuiltinFunc{builtinPlus, false, 0, expandZero},
+        `minus`:    BuiltinFunc{builtinMinus, false, 0, expandZero},
+        `multiply`: BuiltinFunc{builtinMultiply, false, 0, expandZero},
+        `mul`:      BuiltinFunc{builtinMultiply, false, 0, expandZero},
+        `divide`:   BuiltinFunc{builtinDivide, false, 0, expandZero},
+        `div`:      BuiltinFunc{builtinDivide, false, 0, expandZero},
 
-        `quote`:                builtinQuote,
-        `quote-join`:           builtinQuoteJoin,
-        `split-string`:         builtinSplitString,
-        `split-quote`:          builtinSplitQuote,
-        `split-quote-join`:     builtinSplitQuoteJoin,
-        `split-join-quote`:     builtinSplitJoinQuote,
-        `unique`:               builtinUnique,
-        `join`:                 builtinJoin, // concat
-        `field`:                builtinField,
-        `fields`:               builtinFields,
+        `quote`:                BuiltinFunc{builtinQuote, false, 0, expandZero},
+        `quote-join`:           BuiltinFunc{builtinQuoteJoin, false, 0, expandZero},
+        `split-string`:         BuiltinFunc{builtinSplitString, false, 0, expandZero},
+        `split-quote`:          BuiltinFunc{builtinSplitQuote, false, 0, expandZero},
+        `split-quote-join`:     BuiltinFunc{builtinSplitQuoteJoin, false, 0, expandZero},
+        `split-join-quote`:     BuiltinFunc{builtinSplitJoinQuote, false, 0, expandZero},
+        `unique`:               BuiltinFunc{builtinUnique, false, 0, expandZero},
+        `join`:                 BuiltinFunc{builtinJoin, false, 0, expandZero}, // concat
+        `field`:                BuiltinFunc{builtinField, false, 0, expandZero},
+        `fields`:               BuiltinFunc{builtinFields, false, 0, expandZero},
 
-        //`usee`:       builtinUsee,
-        `uses`:         builtinUses,
+        //`usee`:       BuiltinFunc{builtinUsee, false, 0, expandZero},
+        `uses`:         BuiltinFunc{builtinUses, false, 0, expandZero},
 
-        `path`:         builtinPath,
-        `bare`:         builtinBare, // different from builtinBareword, for files, etc.
-        `bareword`:     builtinBareword,
-        `string`:       builtinString,
-        `strval`:       builtinStrval,
-        `strip`:        builtinStrip,
-        `trim`:         builtinTrim,
-        `trim-space`:   builtinTrimSpace,
-        `trim-left`:    builtinTrimLeft,
-        `trim-right`:   builtinTrimRight,
-        `trim-prefix`:  builtinTrimPrefix,
-        `trim-suffix`:  builtinTrimSuffix,
-        `trim-ext`:     builtinTrimExt,
+        `path`:         BuiltinFunc{builtinPath, false, 0, expandZero},
+        `bare`:         BuiltinFunc{builtinBare, false, 0, expandZero}, // different from builtinBareword, for files, etc.
+        `bareword`:     BuiltinFunc{builtinBareword, false, 0, expandZero},
+        `string`:       BuiltinFunc{builtinString, false, 0, expandZero},
+        `strval`:       BuiltinFunc{builtinStrval, false, 0, expandZero},
+        `strip`:        BuiltinFunc{builtinStrip, false, 0, expandZero},
+        `trim`:         BuiltinFunc{builtinTrim, false, 0, expandZero},
+        `trim-space`:   BuiltinFunc{builtinTrimSpace, false, 0, expandZero},
+        `trim-left`:    BuiltinFunc{builtinTrimLeft, false, 0, expandZero},
+        `trim-right`:   BuiltinFunc{builtinTrimRight, false, 0, expandZero},
+        `trim-prefix`:  BuiltinFunc{builtinTrimPrefix, false, 0, expandZero},
+        `trim-suffix`:  BuiltinFunc{builtinTrimSuffix, false, 0, expandZero},
+        `trim-ext`:     BuiltinFunc{builtinTrimExt, false, 0, expandZero},
 
-        `printf`:       builtinPrintf,
+        `ext`:          BuiltinFunc{builtinExt, false, 0, expandZero},
 
-        `ext`:          builtinExt,
+        `addprefix`:    BuiltinFunc{builtinAddPrefix, false, 0, expandZero},
+        `addsuffix`:    BuiltinFunc{builtinAddSuffix, false, 0, expandZero},
 
-        `uppercase`:    builtinUpperCase,
-        `lowercase`:    builtinLowerCase,
-        `title`:        builtinTitle,
+        `printf`:       BuiltinFunc{builtinPrintf, false, 0, expandZero},
 
-        `indent`:       builtinIndent,
+        `uppercase`:    BuiltinFunc{builtinUpperCase, false, 0, expandZero},
+        `lowercase`:    BuiltinFunc{builtinLowerCase, false, 0, expandZero},
+        `title`:        BuiltinFunc{builtinTitle, false, 0, expandZero},
 
-        `substring`:    builtinSubstring,
+        `indent`:       BuiltinFunc{builtinIndent, false, 0, expandZero},
+
+        `substring`:    BuiltinFunc{builtinSubstring, false, 0, expandZero},
 
         // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
-        `subst`:        builtinSubst,
-        `patsubst`:     builtinPatsubst,
+        `subst`:        BuiltinFunc{builtinSubst, false, 0, expandZero},
+        `patsubst`:     BuiltinFunc{builtinPatsubst, false, 0, expandZero},
 
-        `contains`:     builtinContains,
-        `filter`:       builtinFilter,
-        `filter-out`:   builtinFilterOut,
+        `contains`:     BuiltinFunc{builtinContains, false, 0, expandZero},
+        `filter`:       BuiltinFunc{builtinFilter, false, 0, expandZero},
+        `filter-out`:   BuiltinFunc{builtinFilterOut, false, 0, expandZero},
 
-        `encode-base64`:builtinEncodeBase64,
-        `decode-base64`:builtinDecodeBase64,
+        `encode-base64`:BuiltinFunc{builtinEncodeBase64, false, 0, expandZero},
+        `decode-base64`:BuiltinFunc{builtinDecodeBase64, false, 0, expandZero},
 
         /* TODO:
         `encode-base32`
@@ -178,100 +186,103 @@ var builtins = map[string]BuiltinFunc {
         `decode-csv` */
 
         // Fullname of a file or identical to the input
-        `fullname`:   builtinFullName,
+        `fullname`:   BuiltinFunc{builtinFullName, false, 0, expandZero},
 
-        `base`:       builtinBase,
-        `base2`:      builtinBase2,
-        `base3`:      builtinBase3,
-        `base4`:      builtinBase4,
-        `base5`:      builtinBase5,
-        `base6`:      builtinBase6,
-        `base7`:      builtinBase7,
-        `base8`:      builtinBase8,
-        `base9`:      builtinBase9,
+        `base`:       BuiltinFunc{builtinBase, false, 0, expandZero},
+        `base2`:      BuiltinFunc{builtinBase2, false, 0, expandZero},
+        `base3`:      BuiltinFunc{builtinBase3, false, 0, expandZero},
+        `base4`:      BuiltinFunc{builtinBase4, false, 0, expandZero},
+        `base5`:      BuiltinFunc{builtinBase5, false, 0, expandZero},
+        `base6`:      BuiltinFunc{builtinBase6, false, 0, expandZero},
+        `base7`:      BuiltinFunc{builtinBase7, false, 0, expandZero},
+        `base8`:      BuiltinFunc{builtinBase8, false, 0, expandZero},
+        `base9`:      BuiltinFunc{builtinBase9, false, 0, expandZero},
 
-        `dir`:        builtinDir,
-        `dir2`:       builtinDir2,
-        `dir3`:       builtinDir3,
-        `dir4`:       builtinDir4,
-        `dir5`:       builtinDir5,
-        `dir6`:       builtinDir6,
-        `dir7`:       builtinDir7,
-        `dir8`:       builtinDir8,
-        `dir9`:       builtinDir9,
-        `dirs`:       builtinDirs, // do `dir` n times
+        `dir`:        BuiltinFunc{builtinDir, false, 0, expandZero},
+        `dir2`:       BuiltinFunc{builtinDir2, false, 0, expandZero},
+        `dir3`:       BuiltinFunc{builtinDir3, false, 0, expandZero},
+        `dir4`:       BuiltinFunc{builtinDir4, false, 0, expandZero},
+        `dir5`:       BuiltinFunc{builtinDir5, false, 0, expandZero},
+        `dir6`:       BuiltinFunc{builtinDir6, false, 0, expandZero},
+        `dir7`:       BuiltinFunc{builtinDir7, false, 0, expandZero},
+        `dir8`:       BuiltinFunc{builtinDir8, false, 0, expandZero},
+        `dir9`:       BuiltinFunc{builtinDir9, false, 0, expandZero},
+        `dirs`:       BuiltinFunc{builtinDirs, false, 0, expandZero}, // do `dir` n times
 
-        `undir`:      builtinUndir,
-        `undir2`:     builtinUndir2,
-        `undir3`:     builtinUndir3,
-        `undir4`:     builtinUndir4,
-        `undir5`:     builtinUndir5,
-        `undir6`:     builtinUndir6,
-        `undir7`:     builtinUndir7,
-        `undir8`:     builtinUndir8,
-        `undir9`:     builtinUndir9,
-        `undirs`:     builtinUndirs, // do `undir` n times
+        `undir`:      BuiltinFunc{builtinUndir, false, 0, expandZero},
+        `undir2`:     BuiltinFunc{builtinUndir2, false, 0, expandZero},
+        `undir3`:     BuiltinFunc{builtinUndir3, false, 0, expandZero},
+        `undir4`:     BuiltinFunc{builtinUndir4, false, 0, expandZero},
+        `undir5`:     BuiltinFunc{builtinUndir5, false, 0, expandZero},
+        `undir6`:     BuiltinFunc{builtinUndir6, false, 0, expandZero},
+        `undir7`:     BuiltinFunc{builtinUndir7, false, 0, expandZero},
+        `undir8`:     BuiltinFunc{builtinUndir8, false, 0, expandZero},
+        `undir9`:     BuiltinFunc{builtinUndir9, false, 0, expandZero},
+        `undirs`:     BuiltinFunc{builtinUndirs, false, 0, expandZero}, // do `undir` n times
 
-        `dir-chop`:   builtinDirChop,
+        `dir-chop`:   BuiltinFunc{builtinDirChop, false, 0, expandZero},
 
-        `relative-dir`: builtinRelativeDir,
+        `relative-dir`: BuiltinFunc{builtinRelativeDir, false, 0, expandZero},
 
         // TODO: move these into builtin package `os'
-        // `mkdir`:      builtinMkdir,     // os/file.go
-        // `mkdir-all`:  builtinMkdirAll,  // os/path.go
-        // `chdir`:      builtinChdir,     // os/file.go
-        // `rename`:     builtinRename,    // os/file.go
-        // `remove`:     builtinRemove,    // os/file_*.go
-        // `remove-all`: builtinRemoveAll, // os/path.go
-        // `truncate`:   builtinTruncate,  // os/file_*.go
-        // `link`:       builtinLink,      // os/file_*.go
-        // `symlink`:    builtinSymlink,   // os/file_*.go
+        // `mkdir`:      BuiltinFunc{builtinMkdir, false, 0, expandZero},     // os/file.go
+        // `mkdir-all`:  BuiltinFunc{builtinMkdirAll, false, 0, expandZero},  // os/path.go
+        // `chdir`:      BuiltinFunc{builtinChdir, false, 0, expandZero},     // os/file.go
+        // `rename`:     BuiltinFunc{builtinRename, false, 0, expandZero},    // os/file.go
+        // `remove`:     BuiltinFunc{builtinRemove, false, 0, expandZero},    // os/file_*.go
+        // `remove-all`: BuiltinFunc{builtinRemoveAll, false, 0, expandZero}, // os/path.go
+        // `truncate`:   BuiltinFunc{builtinTruncate, false, 0, expandZero},  // os/file_*.go
+        // `link`:       BuiltinFunc{builtinLink, false, 0, expandZero},      // os/file_*.go
+        // `symlink`:    BuiltinFunc{builtinSymlink, false, 0, expandZero},   // os/file_*.go
 
-        `file`:       builtinFile,
-        `stat`:       builtinStat,// stat (deprecates file-exists)
-        `glob`:       builtinGlob,
-        `wildcard`:   builtinWildcard,
+        `file`:       BuiltinFunc{builtinFile, false, 0, expandZero},
+        `stat`:       BuiltinFunc{builtinStat, false, 0, expandZero},// stat (deprecates file-exists)
+        `glob`:       BuiltinFunc{builtinGlob, false, 0, expandZero},
+        `wildcard`:   BuiltinFunc{builtinWildcard, false, 0, expandZero},
 
         // TODO: move these into builtin package 'io/ioutil'
-        `read-dir`:   builtinReadDir,   // io/ioutil/ioutil.go
-        `read-file`:  builtinReadFile,  // io/ioutil/ioutil.go
-        // `write-file`: builtinWriteFile, // io/ioutil/ioutil.go
-        // `touch-file`: builtinTouchFile,
+        `read-dir`:   BuiltinFunc{builtinReadDir, false, 0, expandZero},   // io/ioutil/ioutil.go
+        `read-file`:  BuiltinFunc{builtinReadFile, false, 0, expandZero},  // io/ioutil/ioutil.go
+        // `write-file`: BuiltinFunc{builtinWriteFile, false, 0, expandZero}, // io/ioutil/ioutil.go
+        // `touch-file`: BuiltinFunc{builtinTouchFile, false, 0, expandZero},
 
-        `grep`:       builtinGrep,
+        `grep`:       BuiltinFunc{builtinGrep, false, 1, expandDigits},
 
-        // `return`:     builtinReturn,
+        // `return`:     BuiltinFunc{builtinReturn, false, 0, expandZero},
 }
 
 var commands = map[string]BuiltinFunc {
-        `print`:        builtinPrint,
-        `printl`:       builtinPrintl,
-        `println`:      builtinPrintln,
-        //`printf`:       builtinPrintf,
+        `print`:        BuiltinFunc{builtinPrint, true, 0, expandZero},
+        `printl`:       BuiltinFunc{builtinPrintl, true, 0, expandZero},
+        `println`:      BuiltinFunc{builtinPrintln, true, 0, expandZero},
+        //`printf`:       BuiltinFunc{builtinPrintf, true, 0, expandZero},
 
-        `assert`:       builtinAssert,
+        `assert`:       BuiltinFunc{builtinAssert, true, 0, expandZero},
 
-        //`error`:        builtinError,
-        `warning`:      builtinWarning,
+        //`error`:        BuiltinFunc{builtinError, true, 0, expandZero},
+        `warning`:      BuiltinFunc{builtinWarning, true, 0, expandZero},
 
-        `append`:       builtinAppend,
+        `push-context`: BuiltinFunc{builtinPushContext, true, 0, expandZero},
+        `pop-context`:  BuiltinFunc{builtinPopContext, true, 0, expandZero},
 
-        //`read-dir`:     builtinReadDir,   // io/ioutil/ioutil.go
-        //`read-file`:    builtinReadFile,  // io/ioutil/ioutil.go
-        `write-file`:   builtinWriteFile, // io/ioutil/ioutil.go
-        `touch-file`:   builtinTouchFile,
+        `append`:       BuiltinFunc{builtinAppend, true, 0, expandZero},
 
-        `mkdir`:        builtinMkdir,     // os/file.go
-        `mkdir-all`:    builtinMkdirAll,  // os/path.go
-        `chdir`:        builtinChdir,     // os/file.go
-        `rename`:       builtinRename,    // os/file.go
-        `remove`:       builtinRemove,    // os/file_*.go
-        `remove-all`:   builtinRemoveAll, // os/path.go
-        `truncate`:     builtinTruncate,  // os/file_*.go
-        `link`:         builtinLink,      // os/file_*.go
-        `symlink`:      builtinSymlink,   // os/file_*.go
+        //`read-dir`:     BuiltinFunc{builtinReadDir, true, 0, expandZero},   // io/ioutil/ioutil.go
+        //`read-file`:    BuiltinFunc{builtinReadFile, true, 0, expandZero},  // io/ioutil/ioutil.go
+        `write-file`:   BuiltinFunc{builtinWriteFile, true, 0, expandZero}, // io/ioutil/ioutil.go
+        `touch-file`:   BuiltinFunc{builtinTouchFile, true, 0, expandZero},
 
-        `return`:       builtinReturn,
+        `mkdir`:        BuiltinFunc{builtinMkdir, true, 0, expandZero},     // os/file.go
+        `mkdir-all`:    BuiltinFunc{builtinMkdirAll, true, 0, expandZero},  // os/path.go
+        `chdir`:        BuiltinFunc{builtinChdir, true, 0, expandZero},     // os/file.go
+        `rename`:       BuiltinFunc{builtinRename, true, 0, expandZero},    // os/file.go
+        `remove`:       BuiltinFunc{builtinRemove, true, 0, expandZero},    // os/file_*.go
+        `remove-all`:   BuiltinFunc{builtinRemoveAll, true, 0, expandZero}, // os/path.go
+        `truncate`:     BuiltinFunc{builtinTruncate, true, 0, expandZero},  // os/file_*.go
+        `link`:         BuiltinFunc{builtinLink, true, 0, expandZero},      // os/file_*.go
+        `symlink`:      BuiltinFunc{builtinSymlink, true, 0, expandZero},   // os/file_*.go
+
+        `return`:       BuiltinFunc{builtinReturn, true, 0, expandZero},
 }
 
 func RegisterBuiltins(m map[string]BuiltinFunc) (err error) {
@@ -356,7 +367,7 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
         set = func(val reflect.Value, v Value) {
                 switch val.Kind() {
                 case reflect.Bool:
-                        val.SetBool(v.True(ctx))
+                        if t := v == nil || v.True(ctx); true { val.SetBool(t) }
                 case reflect.Float32, reflect.Float64:
                         if t, e := v.Float(ctx); e == nil { val.SetFloat(t) } else {
                                 erro(ctx, "%v: %v", v, e).debug(1)
@@ -385,7 +396,7 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                 case reflect.Ptr: switch val.Type().Elem().String() {
                 case "smart.optFullname":
                         var x Value
-                        if x = v.expand(ctx, expandPlainValue|expandFullName); isNone(x) {
+                        if x = v.expand(ctx, plain|expandFullName); isNone(x) {
                                 erro(ctx, "expecting file value: %T %v", v, v).of(v).debug(1)
                                 return
                         }
@@ -393,8 +404,8 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                         if _, s, ok = asOptFullname(ctx, x/*, projects...*/); ok && s != "" {
                                 val.Set(reflect.ValueOf(&optFullname{ s, x }))
                         } else {
-                                var _, tv = ctx.autoGet("@")
-                                erro(ctx, "not a file: %v -> %v -> %s (@=%T %v)", v, x, s, tv, tv).of(v)
+                                var tv = ctx.autoGet("@")
+                                erro(ctx, "not a file: %v -> %v -> %s (@=%T %v)", v, x, s, tv.value, tv).of(v)
                                 errostack(ctx, 5, "%v", ctx).debug(16)
                         }
 
@@ -404,7 +415,7 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                         }
                 case "smart.File":
                         var x Value
-                        if x = v.expand(ctx, expandPlainValue); isNone(x) {
+                        if x = v.expand(ctx, plain); isNone(x) {
                                 erro(ctx, "expecting file value: %T %v", v, v).of(v).debug(1)
                                 return
                         }
@@ -450,9 +461,9 @@ ForArgs:
                         // don't parse patterns, e.g. -I%
                 } else if flag, okay = arg.(*Flag); okay {
                         value = MakeBoolean(flag.position, true)
-                } else if pair, ok := arg.(*Pair); ok {
+                } else if pair, y := arg.(*Pair); y {
                         if flag, okay = pair.Key.(*Flag); okay { value = pair.Value }
-                } else if aa, ok := arg.(*Argumented); ok {
+                } else if aa, y := arg.(*Argumented); y {
                         if flag, okay = aa.value.(*Flag); okay {
                                 value = MakeListOrScalar(aa.Position(), aa.args)
                         }
@@ -552,7 +563,7 @@ func typeof(arg interface{}) (s string) {
                 if n := len(a.Elems); n == 1 {
                         switch v := a.Elems[0].(type) {
                         case *delegate: // FIXME: recursively undelegate types
-                                if d, _ := v.x.(*Def); d != nil {
+                                if d, _ := v.x.(*def); d != nil {
                                         s = fmt.Sprintf("%T", d.value) //s = d.value.Type().String()
                                         s = strings.ReplaceAll(strings.TrimPrefix(s, "*"), "smart.", "")
                                 } else {
@@ -576,26 +587,98 @@ func typeof(arg interface{}) (s string) {
         return
 }
 
-func builtinTypeOf(ctx Context, args... Value) (res Value) {
-        var ( pos = ctx.Position(); elems []Value; s string )
-        for _, arg := range args {
+type builtinTypeofOpts struct {
+        generalOpts
+        expand bool `x,e,ex,exp,expand`
+}
+func builtinTypeof(ctx Context, args... Value) (res Value) {
+        var (
+                pos = ctx.Position()
+                opts builtinTypeofOpts
+                elems []Value
+        )
+        for _, arg := range parseHeadArgsMerge(ctx, &opts, 0, args...) {
+                if opts.expand { arg = arg.expand(ctx, plain) }
                 // Arguments are passed in a list:
                 //   $(fun abc)                 args: (abc)
                 //   $(fun a,b,c)               args: (a),(b),(c)
                 //   $(fun a b c,1 2 3)         args: (a b c),(1 2 3)
-                s = typeof(arg)
-                elems = append(elems, MakeString(pos, s))
+                elems = append(elems, MakeString(pos, typeof(arg)))
         }
         return MakeListOrScalar(pos, elems)
 }
 
+type builtinDefinedOpts struct {
+        generalOpts
+}
 func builtinDefined(ctx Context, args... Value) (res Value) {
-        var ( pos = ctx.Position(); elems []Value )
-        for _, arg := range mergex(ctx, expandPlainValue, args...) {
+        var (
+                pos = ctx.Position()
+                opts builtinDefinedOpts
+                elems []Value
+        )
+        for _, arg := range parseHeadArgsMerge(ctx, &opts, 0, args...) {
                 var _, unresolved = arg.(*unresolvedobject)
                 elems = append(elems, MakeBoolean(pos, !unresolved))
         }
         return MakeListOrScalar(pos, elems)
+}
+
+type builtinPushContextOpts struct {
+        generalOpts
+}
+func builtinPushContext(ctx Context, args... Value) (res Value) {
+        var (
+                scope = ctx.Scope()
+                dc = ctx.defaultContext()
+                opts builtinPushContextOpts
+                m map[string]*def
+        )
+        for _, arg := range parseHeadArgsMerge(ctx, &opts, plain, args...) {
+                var s = arg.Strval(ctx)
+                if s == "" { continue }
+                if m == nil { m = make(map[string]*def) }
+
+                var t *def
+                if o := scope.Lookup(s); o != nil { if d, ok := o.(*def); ok {
+                        t = new(def) ; *t = *d
+                }}
+                m[s] = t
+        }
+        dc.stack = append(dc.stack, m)
+        return
+}
+
+type builtinPopContextOpts struct {
+        generalOpts
+}
+func builtinPopContext(ctx Context, args... Value) (res Value) {
+        var (
+                dc = ctx.defaultContext()
+                l = len(dc.stack)
+        )
+        if l == 0 { return }
+
+        var (
+                scope = ctx.Scope()
+                m = dc.stack[l-1]
+                opts builtinPopContextOpts
+        )
+        for _, arg := range parseHeadArgsMerge(ctx, &opts, plain, args...) {
+                warn(ctx, "unused argument: %T %v", arg, arg).debug(1)
+                break
+        }
+        for s, d := range m {
+                if d == nil { if s == "" { continue }
+                        scope.mutex.Lock()
+                        delete(scope.elems, s)
+                        scope.mutex.Unlock()
+                } else if o := scope.Lookup(d.name); o != nil { if t, ok := o.(*def); ok {
+                        *t = *d
+                }}
+        }
+        dc.stack = dc.stack[0:l-1]
+        return
 }
 
 type builtinPositionOpts struct {
@@ -612,7 +695,7 @@ func builtinPosition(ctx Context, args... Value) (res Value) {
                 opts builtinPositionOpts
                 vals []Value
         )
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         if opts.filename {
                 vals = append(vals, MakeString(pos, pos.Filename))
@@ -640,7 +723,7 @@ func builtinDate(ctx Context, args... Value) (res Value) {
                 pos = ctx.Position()
                 opts = builtinDateOpts{ }
         )
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         if t := time.Now(); len(args) > 0 {
                 var vals []Value
@@ -668,7 +751,7 @@ type builtinDebugOpts struct {
 }
 func builtinDebug(ctx Context, args... Value) (res Value) {
         var opts builtinDebugOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         var s bytes.Buffer
         for i, a := range args {
@@ -708,15 +791,17 @@ type builtinAssertOpts struct {
 }
 func builtinAssert(ctx Context, args... Value) Value {
         var opts builtinAssertOpts
-        if len(args) > 0 {
-                var a = parseOpts(ctx, &opts, /* NOTE: don't expand */0, args[0])
-                args = append(a, args[1:]...)
-        }
+        if len(args) > 0 { args = append(parseOpts(ctx, &opts,
+                /* NOTE: don't expand */expandZero, args[0]), args[1:]...) }
+        var d = opts.debug ; if d < 1 { d = 1 + 3 }
         for _, a := range args { if !a.True(ctx) {
-                var d = opts.debug ; if d < 1 { d = 1}
-                var v = a.expand(ctx, expandPlainValue)
-                prompt(ctx, "assertion: failed %v => %T %v\n", a, v, v)
-                erro(ctx, "%T => %T", a, v).of(a).debug(d)
+                var v = a.expand(ctx, plain)
+                prompt(ctx, "assertion: %T %v -> %T %v\n", a, a, v, v)
+                if opts.warn {
+                        warn(ctx, "").of(a).debug(d)
+                } else {
+                        erro(ctx, "").of(a).debug(d)
+                }
         }}
         return nil
 }
@@ -730,7 +815,7 @@ func builtinSureValue(ctx Context, args... Value) Value {
 
 // $(defor $(x),$(y),$(z)) is identical to $(if $(defined $(x)),$(x),...)
 func builtinDefOr(ctx Context, args... Value) (res Value) {
-        for _, a := range mergex(ctx, expandPlainValue, args...) {
+        for _, a := range mergex(ctx, plain, args...) {
                 var _, unresolved = a.(*unresolvedobject)
                 if unresolved { continue } else {
                         res = a
@@ -771,8 +856,18 @@ func builtinNot(ctx Context, args... Value) (res Value) {
                 opts builtinNotOpts
                 t bool
         )
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
-        for _, a := range args { if t = a.True(ctx); t { break }}
+        if len(args)>0 {
+                if _, y := args[0].(unexpanded); y {
+                        // NOTE: no opts from unexpanded value
+                        // TODO: apply this rule to parseOpts
+                } else if a := parseOpts(ctx, &opts, plain, args[0]); len(a)>0 {
+                        args = append(a, args...)
+                }
+                if opts.debug>0 { for i, a := range args {
+                        warn(ctx, "%v. %T %v", i, a, a) }}
+                for _, a := range args { if t = a.True(ctx); t { break }}
+                if n := opts.debug; n>0 { warnstack(ctx, 3, "").debug(n) }
+        }
         res = MakeBoolean(ctx.Position(), !t)
         return
 }
@@ -782,9 +877,9 @@ type builtinNotEqualOpts struct {
 }
 func builtinNotEqual(ctx Context, args... Value) (res Value) {
         var opts builtinNotEqualOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
         if n := len(args); n != 2 {
-                erro(ctx, "wrong number of arguments, try: $(not-equal <value-list>,<regexp-list>)")
+                erro(ctx, "wrong number of arguments, try: $(not-equal <value-list>,<value-list>)")
         } else if args[0].cmp(ctx, args[1]) != cmpEqual {
                 res = MakeBoolean(ctx.Position(), true)
         }
@@ -804,20 +899,29 @@ func builtinEqual(ctx Context, args... Value) (res Value) {
         }
         if n := len(args); n != 2 {
                 erro(ctx, "wrong number of arguments: %v", args)
-                erro(ctx, "try: $(equal <value-list>,<regexp-list>)").debug(1)
+                erro(ctx, "try: $(equal <value-list>,<value-list>)").debug(1)
                 return
         }
 
         var (
-                a = args[0].expand(ctx, expandPlainValue)
-                b = args[1].expand(ctx, expandPlainValue)
+                a = args[0].expand(ctx, plain)
+                b = args[1].expand(ctx, plain)
         )
         if t := a.cmp(ctx, b); t == cmpEqual {
                 res = MakeBoolean(ctx.Position(), true)
         } else if opts.debug>0 {
-                warn(ctx, "equal: cmp: %v ; %v", t, args)
-                warn(ctx, "a: %T %v", a, a).of(a)
-                warn(ctx, "b: %T %v", b, b).of(b).debug(opts.debug)
+                warn(ctx, "equal: %v", args)
+                if u, y := a.(unexpanded); y {
+                        warn(ctx, "a: %T %v (%T)", a, a, u.Value).of(a)
+                } else {
+                        warn(ctx, "a: %T %v", a, a).of(a)
+                }
+                if u, y := b.(unexpanded); y {
+                        warn(ctx, "b: %T %v (%T)", b, b, u.Value).of(b)
+                } else {
+                        warn(ctx, "b: %T %v", b, b).of(b)
+                }
+                warnstack(ctx, 3, "equal: cmp: %v", t).debug(opts.debug)
         }
         return
 }
@@ -827,9 +931,9 @@ type builtinGreaterOpts struct {
 }
 func builtinGreater(ctx Context, args... Value) (res Value) {
         var opts builtinGreaterOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
         if n := len(args); n != 2 {
-                erro(ctx, "wrong number of arguments, try: $(greater <value-list>,<regexp-list>)")
+                erro(ctx, "wrong number of arguments, try: $(greater <value-list>,<value-list>)")
         } else if cmp := args[0].cmp(ctx, args[1]); cmp == cmpGreater {
                 res = MakeBoolean(ctx.Position(), true)
         }
@@ -841,9 +945,9 @@ type builtinLessOpts struct {
 }
 func builtinLess(ctx Context, args... Value) (res Value) {
         var opts builtinLessOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
         if n := len(args); n != 2 {
-                erro(ctx, "wrong number of arguments, try: $(less <value-list>,<regexp-list>)")
+                erro(ctx, "wrong number of arguments, try: $(less <value-list>,<value-list>)")
         } else if cmp := args[0].cmp(ctx, args[1]); cmp == cmpSmaller {
                 res = MakeBoolean(ctx.Position(), true)
         }
@@ -870,8 +974,8 @@ func builtinMatch(ctx Context, args... Value) (res Value) {
                 warn(ctx, "match: args=%v", args)
         }
 
-        patList = parseOpts(ctx, &opts, expandPlainValue, args[0])
-        valList = mergex(ctx, expandPlainValue, args[1:]...)
+        patList = parseOpts(ctx, &opts, plain, args[0])
+        valList = mergex(ctx, plain, args[1:]...)
 
         var pos = ctx.Position()
         ForValList: for _, val := range valList {
@@ -908,12 +1012,12 @@ func builtinMatch(ctx Context, args... Value) (res Value) {
 // 2: $(case val (a 'xxx') (b 'yyy') (c 'zzz') ('if none or nil'))
 // 3: $(case val (a 'xxx') (b 'yyy') (c 'zzz') (- 'if none or nil'))
 // 4: $(case val (a 'xxx') (b 'yyy') (c -) (- -))
-func builtinBranchCase(ctx Context, args... Value) (res Value) {
+func builtinCase(ctx Context, args... Value) (res Value) {
         var val Value
         if args = merge(args...); len(args) == 0 {
                 return
         } else if _, ok := args[0].(*Group); !ok {
-                val = args[0].expand(ctx, expandPlainValue)
+                val = args[0].expand(ctx, plain)
                 args = args[1:]
         }
 
@@ -929,7 +1033,7 @@ func builtinBranchCase(ctx Context, args... Value) (res Value) {
                         }
 
                         var collect bool
-                        var v = g.Elems[0].expand(ctx, expandPlainValue)
+                        var v = g.Elems[0].expand(ctx, plain)
                         if val == nil && v.True(ctx) {
                                 collect = true
                         } else if val != nil && isTrivial(val) {
@@ -963,9 +1067,19 @@ func builtinBranchCase(ctx Context, args... Value) (res Value) {
 }
 
 // $(if cond, true-value, else-value, ...)
-func builtinBranchIf(ctx Context, args... Value) (res Value) {
+func builtinIf(ctx Context, args... Value) (res Value) {
         if n := len(args); n > 1 {
-                if args[0].expand(ctx, expandPlainValue).True(ctx) {
+                if false { if v := args[0]; v.String() == "&(.test.$_)" {
+                        conds := mergex(ctx, plain, v)
+                        t := conds[0].expand(ctx, plain)
+                        s := v.Strval(ctx)
+                        info(ctx, "%v -> %T %v -> %T %v -> %s", v, conds[0], conds[0], t, t, s)
+
+                        d := ctx.autoGet("_")
+                        info(ctx, "%v", d)
+                        infostack(ctx, 10, "").debug(64)
+                }}
+                if args[0].expand(ctx, plain).True(ctx) {
                         res = args[1]
                 } else if n > 1 {
                         res = MakeListOrScalar(ctx.Position(), args[2:])
@@ -974,10 +1088,10 @@ func builtinBranchIf(ctx Context, args... Value) (res Value) {
         return
 }
 
-func builtinBranchIfEq(ctx Context, args... Value) (res Value) {
+func builtinIfEq(ctx Context, args... Value) (res Value) {
         if n := len(args); n > 2 {
                 var (
-                        a = args[0].expand(ctx, expandPlainValue)
+                        a = args[0].expand(ctx, plain)
                         b = args[1].expand(ctx, expandDelegate  )
                         equal bool
                 )
@@ -995,10 +1109,10 @@ func builtinBranchIfEq(ctx Context, args... Value) (res Value) {
         return
 }
 
-func builtinBranchIfNE(ctx Context, args... Value) (res Value) {
+func builtinIfNE(ctx Context, args... Value) (res Value) {
         if n := len(args); n > 2 {
                 var (
-                        a = args[0].expand(ctx, expandPlainValue)
+                        a = args[0].expand(ctx, plain)
                         b = args[1].expand(ctx, expandDelegate  )
                         equal bool
                 )
@@ -1023,14 +1137,14 @@ func builtinFor(ctx Context, args... Value) (res Value) {
         }
 
         var (
-                defs []*Def
+                defs []*def
                 vals []Value
-                values = mergex(ctx, expandPlainValue, args[0])
+                values = mergex(ctx, plain, args[0])
         )
 
         var scope = ctx.Globe().scope
         for i := 1; i <= maxNumVarVal; i += 1 {
-                def := scope.Lookup(strconv.Itoa(i)).(*Def)
+                def := scope.Lookup(strconv.Itoa(i)).(*def)
                 defs = append(defs, def)
                 vals = append(vals, def.value)
                 if i-1 < len(values) {
@@ -1046,7 +1160,7 @@ func builtinFor(ctx Context, args... Value) (res Value) {
         var list []Value
         var pos = ctx.Position()
         for _, a := range args[1:] {
-                if values = mergex(ctx, expandPlainValue, a); len(values) == 0 {
+                if values = mergex(ctx, plain, a); len(values) == 0 {
                         list = append(list, MakeNone(pos))
                 } else if len(values) == 1 {
                         list = append(list, values[0])
@@ -1065,32 +1179,34 @@ type builtinForEachOpts struct {
 }
 func builtinForEach(ctx Context, args... Value) (res Value) {
         if n := len(args); n < 2 {
-                erro(ctx, "not enough arguments ($(foreach <list>,<template>)): %v", n).debug(1)
+                errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v",
+                        n, args).debug(32)
                 return
         }
 
         var (
                 opts builtinForEachOpts
-                values = parseOpts(ctx, &opts, expandPlainValue, args[0])
+                values = parseOpts(ctx, &opts, plain, args[0])
         )
-        if false && fmt.Sprintf("%v", args) == "[$1 $(value -c -d ldflags.$_) $(value -c -d ldflags~&(target.sys).$_)]" {
-                var d, v = ctx.autoGet("1")
-                info(ctx, "%v %v ; %v ; %v", args, values, d, v).debug(32)
+        if len(values) == 0 {
+                var d = opts.debug ; if d < 1 { d = 1 }
+                errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v",
+                        len(args), args).debug(d)
+                return
         }
-        if len(values) == 0 { return }
 
         var (
                 cc = autoContext{ Context:ctx, defs:make(autoDefMap) }
                 pos = ctx.Position()
                 resList []Value
         )
+
         ctx = &cc
 
         for _, val := range values {
                 if isTrivial(val) {
                         if !opts.empty { continue }
-                } else if _, ok := val.(*delegate); ok {
-                        // see containsUndefinedAutos
+                } else if _, y := val.(*delegate); y {
                         if opts.debug>0 {
                                 warn(ctx, "unexpanded delegate: %T %v", val, val).debug(1)
                         }
@@ -1099,17 +1215,10 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
                         cc.autoSet("_", val)
                 }
 
-                if opts.debug>0 { warn(ctx, "foreach: %T %v -> %v", val, val, args[1:]) }
-                if opts.debug>0 && val.Strval(ctx) == "" && false {
-                        d, v := containsUndefinedAutos(ctx, val)
-                        warn(ctx, "empty: %T %v ; %v %v", val, val, d, v).debug(1)
-                }
-
                 var list []Value
                 for _, a := range args[1:] {
-                        var v = a.expand(ctx, expandArgs|expandPlainValue|expandPairVal)
-                        if false { info(ctx, "%v ; %v -> %v", val, a, v) }
-                        if true && len(v.defs(ctx, "_")) > 0 {
+                        var v = a.expand(ctx, expandPlaceholders|plain|expandPairVal)
+                        if false && len(v.defs(ctx, "_")) > 0 {
                                 erro(ctx, "'_' in '%v' not expanded: %v", a, v).of(a).debug(true, 1)
                                 return
                         }
@@ -1121,6 +1230,10 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
                                 list = append(list, v)
                         }
                 }
+
+                if opts.debug>0 { warnstack(ctx, 3,
+                        "foreach: %v -> %v ; %T %v -> %v -> %v",
+                        args[0], values, val, val, args[1:], list).debug(2*opts.debug) }
 
                 if n := len(list); n == 0 {
                         resList = append(resList, MakeNone(pos))
@@ -1143,7 +1256,7 @@ func builtinCount(ctx Context, args... Value) (res Value) {
                 opts builtinCountOpts
                 num int64
         )
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         var x = len(opts.vals)
         for i, a := range args {
@@ -1156,6 +1269,9 @@ func builtinCount(ctx Context, args... Value) (res Value) {
         return
 }
 
+type builtinEnvOpts struct {
+        generalOpts
+}
 func builtinEnv(ctx Context, args... Value) (res Value) {
         var (
                 pos = ctx.Position()
@@ -1174,23 +1290,34 @@ func builtinEnv(ctx Context, args... Value) (res Value) {
 type builtinAutoOpts struct {
         generalOpts
 }
-func builtinAuto(ctx Context, args... Value) (res Value) {
-        var (
-                opts builtinAutoOpts
-                vals []Value
-        )
-        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
-                var (
-                        name string
-                        val Value
-                )
-                name = a.Strval(ctx)
-                _, val = ctx.autoGet(name)
-                vals = append(vals, val)
+func builtinAuto(ctx Context, p *delegate, w expandfacet, args... Value) (res Value) {
+        if len(args) == 0 { return }
+
+        var opts builtinAutoOpts
+        var scope = ctx.Scope()
+        var a = parseOpts(ctx, &opts, plain, args[0])
+        if len(a) > 0 {
+                var c = autoContext{ Context:ctx, defs:make(autoDefMap) }
+                for _, t := range a {
+                        if p, y := t.(*Pair); y {
+                                if s := p.Key.Strval(ctx); s != "" {
+                                        c.defs[s] = &def{
+                                                origin: DefAuto, value: p.Value,
+                                                knownobject: knownobject{
+                                                        objbase{valbase{p.Position()}, scope, scope.project},
+                                                        s,
+                                                },
+                                        }
+                                }
+                        }
+                }
+                for i, v := range args {
+                        // TODO: expand with expandAuto, instead of w
+                        args[i] = v.expand(&c, w)
+                }
         }
-        if len(vals) > 0 {
-                MakeListOrScalar(ctx.Position(), vals)
-        }
+
+        res = MakeListOrScalar(ctx.Position(), args[1:])
         return
 }
 
@@ -1204,7 +1331,7 @@ func builtinValue(ctx Context, args... Value) (res Value) {
                 opts builtinValueOpts
                 vals []Value
         )
-        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
+        for _, a := range parseOpts(ctx, &opts, plain, args...) {
                 var (
                         name string
                         closure bool
@@ -1215,35 +1342,37 @@ func builtinValue(ctx Context, args... Value) (res Value) {
                         for _, c := range opts.closure[1:] {
                                 if c = closure && c; !c { break }
                         }
-                } else if a.expandible(ctx, expandArgs|expandClosure) {
+                } else if a.expandible(ctx, /* expandCallArgs| */expandClosure) {
                         closure = true
                 }
-                if name = a.Strval(ctx); closure {
+                if name = a.Strval(ctx); name == "" {
+                        // TODO: name is empty
+                } else if closure {
                         if def := closureGet(ctx, name); def != nil {
-                                val = def.Call(ctx)
-                                if false {
-                                        info(ctx, "%v: auto=%v", name, ctx.auto())
-                                        info(ctx, "%v: %v", name, def.value)
-                                        info(ctx, "%v: %v", name, val)
-                                        info(ctx, "%v: %v", name,
-                                                def.Call(ctx,
-                                                        MakeBareword(ctx.Position(), "FOO"),
-                                                        MakeBareword(ctx.Position(), "BAR"))).
-                                                debug(64)
-                                }
+                                val = def.value // NOTE: donot do 'def.Call(ctx)'
                         }
                 } else if scope := ctx.Scope(); scope != nil {
                         if def := scope.FindDef(name); def != nil {
-                                val = def.Call(ctx)
+                                val = def.value // NOTE: donot do 'def.Call(ctx)'
                         }
                 }
-                if val == nil { if def, _ := ctx.autoGet(name); def != nil {
-                        val = def.Call(ctx)
+                if !closure && val == nil { if def := ctx.autoGet(name); def != nil {
+                        val = def.value // NOTE: donot do 'def.Call(ctx)'
                 }}
-                if val == nil { val = MakeNone(a.Position()) }
-                if vals = append(vals, val); opts.debug>0 {
-                        warn(ctx, "value: %v -> %v -> %v", a, val, vals).debug(opts.debug)
+                if opts.debug>0 { warnstack(ctx, 3, "value: %v ; %v -> %v -> %v (closure=%v)",
+                        args, a, name, val, closure).debug(2*opts.debug) }
+                if val == nil {
+                        if false {
+                                val = MakeNone(a.Position())
+                        } else {
+                                val = MakeNil(a.Position())
+                        }
+                        if closure {
+                                // FIXME: val = MakeClosure(...)
+                                // val = &closure{delegate{valbase{pos}, tok, obj, args}}
+                        }
                 }
+                vals = append(vals, val)
         }
         if len(vals) > 0 {
                 res = MakeListOrScalar(ctx.Position(), vals)
@@ -1257,9 +1386,9 @@ func builtinValue(ctx Context, args... Value) (res Value) {
 // to the callee (<name>).
 type builtinCallOpts struct {
         generalOpts
-        closure []bool `c,closure`
+        closure bool `c,closure`
 }
-func builtinCall(ctx Context, args... Value) (res Value) {
+func builtinCall(ctx Context, p *delegate, w expandfacet, args ...Value) (res Value) {
         var opts builtinCallOpts
         if l, ok := args[0].(*List); ok {
                 l.Elems = parseOpts(ctx, &opts, /* don't expand */0, l.Elems...)
@@ -1267,7 +1396,7 @@ func builtinCall(ctx Context, args... Value) (res Value) {
                         erro(ctx, "no callee name: %v", args[0]).debug(1)
                         return
                 }
-        } else {
+        } else if true {
                 var a = parseOpts(ctx, &opts, /* don't expand */0, args[0])
                 if len(a) != 1 {
                         erro(ctx, "invalid callee name: %v", a).debug(1)
@@ -1275,38 +1404,49 @@ func builtinCall(ctx Context, args... Value) (res Value) {
                 }
                 args[0] = a[0] // overwrite the callee name
         }
-        if len(args) > 0 {
-                var (
-                        nameVal = args[0]
-                        name string
-                        closure bool
-                        o Caller
-                )
-                if len(opts.closure) > 0 {
-                        closure = opts.closure[0]
-                        for _, c := range opts.closure[1:] {
-                                if c = closure && c; !c { break }
-                        }
-                } else if nameVal.expandible(ctx, expandArgs|expandClosure) {
-                        closure = true
-                }
-                if name = nameVal.Strval(ctx); closure {
-                        for _, scope := range ctx.closureScopes() {
-                                if def := scope.FindDef(name); def != nil && !isTrivial(def.value) {
-                                        o = def // val = def.Call(ctx, args[1:]...)
-                                        break
-                                }
-                        }
-                } else if def := ctx.Scope().FindDef(name); def != nil {
-                        o = def // val = def.Call(ctx, args[1:]...)
-                }
-                if res = o.Call(ctx, args[1:]...); res == nil {
-                        // res = MakeNone(nameVal.Position())
-                }
-                return
-        } else {
+
+        if len(args) == 0 {
                 erro(ctx, "no name specified: %v", args[0]).debug(1)
                 return
+        }
+
+        var (
+                o Caller
+                name string
+                nameVal = args[0]
+                closure bool = opts.closure ||
+                        nameVal.expandible(ctx, expandClosure)
+        )
+        if name = nameVal.Strval(ctx); closure {
+                for _, scope := range ctx.closureScopes() {
+                        if def := scope.FindDef(name); def != nil && !isTrivial(def.value) {
+                                o = def
+                                break
+                        }
+                }
+        } else if def := ctx.Scope().FindDef(name); def != nil {
+                o = def
+        }
+
+        args = args[1:]
+
+        if d, y := o.(*def); true && y {
+                res, _ = callDef(ctx, p, w, d, args...)
+                if res != nil && res.String() == "foobar $1$1$1$1-$2$2$2$2" &&
+                        d.value.String() == "foobar $1-$2" {
+                        warn(ctx, "%T %v", d.value, d.value)
+                        warn(ctx, "%T %v", res, res).debug(1)
+                }
+        } else {
+                res = o.Call(ctx, args...)
+        }
+
+        if res != nil {
+                return
+        } else if false {
+                return MakeNone(nameVal.Position())
+        } else {
+                return MakeNil(nameVal.Position())
         }
 }
 
@@ -1323,14 +1463,14 @@ func builtinClosure(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        names = parseOpts(ctx, &opts, expandPlainValue, args[0])
+        names = parseOpts(ctx, &opts, plain, args[0])
         if len(names) < 1 {
                 erro(ctx, "no names: %v", args[0]).debug(1)
                 return
         }
 
         for _, nameVal := range names {
-                var ( def *Def; name string )
+                var ( def *def; name string )
                 if name = nameVal.Strval(ctx); /*opts.closure*/true {
                         for _, scope := range ctx.closureScopes() {
                                 if def = scope.FindDef(name); def != nil {
@@ -1363,7 +1503,7 @@ func builtinDefList(ctx Context, args... Value) (res Value) {
                 strs []string
                 vals []Value
         )
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
         ForDefs: for name, _ := range ctx.Project().scope.elems {
                 if len(opts.rxs) == 0 {
                         strs = append(strs, name)
@@ -1431,7 +1571,7 @@ func builtinWhich(ctx Context, args... Value) (res Value) {
                 opts builtinWhichOpts
                 vals []Value
         )
-        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
+        for _, a := range parseOpts(ctx, &opts, plain, args...) {
                 if s, err := exec.LookPath(a.Strval(ctx)); err != nil {
                         erro(ctx, "%v", err).debug(1)
                         return
@@ -1452,7 +1592,7 @@ func builtinServeHttp(ctx Context, args... Value) (res Value) {
                 opts = builtinServeHttpOpts{ port:80 }
         )
 
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         var server = &http.Server{}
         server.Addr = fmt.Sprintf("%s:%d", opts.host, opts.port)
@@ -1557,8 +1697,8 @@ func builtinAppend(ctx Context, args... Value) (result Value) {
                 return
         }
 
-        vars = parseOpts(ctx, &opts, expandPlainValue, args[0])
-        if list = mergex(ctx, expandPlainValue, args[1:]...); len(list) == 0 {
+        vars = parseOpts(ctx, &opts, plain, args[0])
+        if list = mergex(ctx, plain, args[1:]...); len(list) == 0 {
                 warn(ctx, "append no values").debug(1)
                 return
         }
@@ -1576,20 +1716,20 @@ func builtinAppend(ctx Context, args... Value) (result Value) {
                         }
                         closureSet(ctx, name, MakeListOrScalar(pos, list))
                 } else if opts.auto {
-                        if d, val := ctx.autoGet(name); d != nil && !isTrivial(val) {
-                                list = append(merge(val), list...)
+                        if d := ctx.autoGet(name); d != nil && !isTrivial(d.value) {
+                                list = append(merge(d.value), list...)
                         }
                         ctx.autoSet(name, MakeListOrScalar(pos, list))
                 } else if proj := ctx.Project(); proj != nil {
-                        var def *Def
+                        var d *def
                         if obj := proj.resolveObject(ctx, name); obj != nil {
-                                def, _ = obj.(*Def)
+                                d, _ = obj.(*def)
                         }
-                        if def == nil {
+                        if d == nil {
                                 erro(ctx, "'%s' (%v) is undefined (%T)", name, a, ctx).debug(1)
                                 break
                         } else {
-                                def.append(ctx, list...)
+                                d.append(ctx, list...)
                         }
                 } else {
                         erro(ctx, "%s", ctx).debug(1)
@@ -1605,7 +1745,7 @@ type builtinMathOpts struct {
 }
 func builtinPlus(ctx Context, args... Value) (result Value) {
         var opts builtinMathOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
         if opts.int {
                 var num int64
                 for n, a := range args {
@@ -1630,7 +1770,7 @@ func builtinPlus(ctx Context, args... Value) (result Value) {
 }
 func builtinMinus(ctx Context, args... Value) (result Value) {
         var opts builtinMathOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
         if opts.int {
                 var num int64
                 for n, a := range args {
@@ -1655,7 +1795,7 @@ func builtinMinus(ctx Context, args... Value) (result Value) {
 }
 func builtinMultiply(ctx Context, args... Value) (result Value) {
         var opts builtinMathOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
         if opts.int {
                 var num int64
                 for n, a := range args {
@@ -1680,7 +1820,7 @@ func builtinMultiply(ctx Context, args... Value) (result Value) {
 }
 func builtinDivide(ctx Context, args... Value) (result Value) {
         var opts builtinMathOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
         if opts.int {
                 var num int64
                 for n, a := range args {
@@ -1720,7 +1860,7 @@ func builtinUnique(ctx Context, args... Value) (res Value) {
         if opts.unexpand {
                 args = merge(args...)
         } else if opts.plain {
-                var x = expandPlainValue
+                var x = plain
                 if opts.keepAuto { x &= ^expandAuto }
                 args = mergex(ctx, x, args...)
         } else {
@@ -1760,9 +1900,9 @@ func builtinJoin(ctx Context, args... Value) (res Value) {
                         sep string
                 )
                 if l < 2 {
-                        vals = mergex(ctx, expandPlainValue, args...)
+                        vals = mergex(ctx, plain, args...)
                 } else {
-                        vals = mergex(ctx, expandPlainValue, args[:l-1]...)
+                        vals = mergex(ctx, plain, args[:l-1]...)
                         sep = args[l-1].Strval(ctx)
                 }
                 for _, a := range vals {
@@ -1774,7 +1914,7 @@ func builtinJoin(ctx Context, args... Value) (res Value) {
 }
 
 func builtinQuote(ctx Context, args... Value) (res Value) {
-        args = mergex(ctx, expandPlainValue, args...)
+        args = mergex(ctx, plain, args...)
         if l := len(args); l > 0 {
                 var fields []string
                 for _, a := range args {
@@ -1789,7 +1929,7 @@ func builtinQuote(ctx Context, args... Value) (res Value) {
 
 func builtinQuoteJoin(ctx Context, args... Value) (res Value) {
         var sep string
-        args = mergex(ctx, expandPlainValue, args...)
+        args = mergex(ctx, plain, args...)
 
         if l := len(args); l > 1 {
                 sep = args[l-1].Strval(ctx)
@@ -1809,7 +1949,7 @@ func builtinQuoteJoin(ctx Context, args... Value) (res Value) {
 
 // $(split-string .,1.2.3)
 func builtinSplitString(ctx Context, args... Value) (res Value) {
-        args = mergex(ctx, expandPlainValue, args...)
+        args = mergex(ctx, plain, args...)
         if l := len(args); l > 0 {
                 var (
                         fields []Value
@@ -1973,7 +2113,7 @@ func builtinUses(ctx Context, args... Value) (result Value) {
 
         var found bool
         var opts builtinUsesOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
 ForArgs:
         for _, arg := range args {
@@ -2004,7 +2144,7 @@ func builtinPath(ctx Context, args... Value) (result Value) {
 
 func builtinBare(ctx Context, args... Value) (result Value) {
         var vals []Value
-        for _, a := range mergex(ctx, expandPlainValue, args...) {
+        for _, a := range mergex(ctx, plain, args...) {
                 var val Value
                 switch a.(type) {
                 case *String, *Compound:
@@ -2019,7 +2159,7 @@ func builtinBare(ctx Context, args... Value) (result Value) {
 
 func builtinBareword(ctx Context, args... Value) (result Value) {
         var vals []Value
-        for _, a := range mergex(ctx, expandPlainValue, args...) {
+        for _, a := range mergex(ctx, plain, args...) {
                 var val Value
                 switch a.(type) {
                 case *Bareword: val = a
@@ -2042,35 +2182,30 @@ func builtinStr(ctx Context, strval bool, args... Value) (result Value) {
         var opts builtinStrOpts
         if args = parseHeadArgsMerge(ctx, &opts, 0, args...); len(args)>0 || len(opts.def)>0 {
                 var (
-                        w = expandPlainValue|expandPairVal
+                        w expandfacet
                         t string
                 )
-                if strval || !opts.expand { w = 0 }
+                if opts.expand { w = (plain&^expandPlain)|expandPairVal }
                 if len(opts.join)>0 {
                         var i int
                         var s bytes.Buffer
                         for _, name := range opts.def {
                                 if _, o := ctx.Scope().Find(name); o != nil {
-                                        if d, ok := o.(*Def); !ok {
-                                                continue
-                                        } else if v := d.value; v == nil {
-                                                t = "<nil>"
-                                        } else if strval {
-                                                t = v.Strval(ctx)
-                                        } else if w == 0 {
-                                                t = v.String()
-                                        } else {
+                                        if d, ok := o.(*def); !ok { continue    } else
+                                        if v := d.value; v == nil { t = "<nil>" } else
+                                        if strval { t = v.Strval(ctx)           } else
+                                        if w == 0 { t = v.String()              } else {
                                                 t = v.expand(ctx, w).String()
                                         }
                                         s.WriteString(t)
                                         i += 1
+                                        if opts.debug>0 { warn(ctx, "%T %v -> %v", o, o, t) }
                                 }
                         }
                         for _, a := range args {
-                                if strval { t = a.Strval(ctx) } else {
-                                        if w == 0 { t = a.String() } else {
-                                                t = a.expand(ctx, w).String()
-                                        }
+                                if strval { t = a.Strval(ctx) } else
+                                if w == 0 { t = a.String()    } else {
+                                        t = a.expand(ctx, w).String()
                                 }
                                 if i > 0 { s.WriteString(opts.join[i % len(opts.join)]) }
                                 s.WriteString(t)
@@ -2081,30 +2216,26 @@ func builtinStr(ctx Context, strval bool, args... Value) (result Value) {
                         var strs []Value
                         for _, name := range opts.def {
                                 if _, o := ctx.Scope().Find(name); o != nil {
-                                        if d, ok := o.(*Def); !ok {
-                                                continue
-                                        } else if v := d.value; v == nil {
-                                                t = "<nil>"
-                                        } else if strval {
-                                                t = v.Strval(ctx)
-                                        } else if w == 0 {
-                                                t = v.String()
-                                        } else {
+                                        if d, ok := o.(*def); !ok { continue    } else
+                                        if v := d.value; v == nil { t = "<nil>" } else
+                                        if strval { t = v.Strval(ctx)           } else
+                                        if w == 0 { t = v.String()              } else {
                                                 t = v.expand(ctx, w).String()
                                         }
                                         strs = append(strs, MakeString(o.Position(), t))
+                                        if opts.debug>0 { warn(ctx, "%T %v -> %s", o, o, t) }
                                 }
                         }
                         for _, a := range args {
-                                if strval { t = a.Strval(ctx) } else {
-                                        if w == 0 { t = a.String() } else {
-                                                t = a.expand(ctx, w).String()
-                                        }
+                                if strval { t = a.Strval(ctx) } else
+                                if w == 0 { t = a.String()    } else {
+                                        t = a.expand(ctx, w).String()
                                 }
                                 strs = append(strs, MakeString(a.Position(), t))
                         }
                         result = MakeListOrScalar(ctx.Position(), strs)
                 }
+                if n := opts.debug; n>0 { warnstack(ctx, 3, "%v", result).debug(n) }
         }
         return
 }
@@ -2116,15 +2247,6 @@ func builtinStrval(ctx Context, args... Value) (result Value) {
 func builtinString(ctx Context, args... Value) (result Value) {
         return builtinStr(ctx, false, args...)
 }
-
-// func builtinStrvals(ctx Context, args... Value) (result Value) {
-//         var strs []Value
-//         for _, a := range mergex(ctx, expandPlainValue, args...) {
-//                 strs = append(strs, MakeString(a.Position(), a.Strval(ctx)))
-//         }
-//         result = MakeListOrScalar(ctx.Position(), strs)
-//         return
-// }
 
 type builtinFilterOpts struct {
         stem bool `s,stem;us,use-stem`
@@ -2145,7 +2267,8 @@ func filterValues(ctx Context, pats []Value, opts builtinFilterOpts, neg bool, v
                 }
                 if neg { return v } else { return nil }
         }
-        for _, v := range merge(Reveal(ctx, values...)...) {
+        // for _, v := range merge(Reveal(ctx, values...)...) {
+        for _, v := range mergex(ctx, plain, values...) {
                 if t := filter(v); err != nil { break } else if t != nil {
                         result = append(result, t)
                 }
@@ -2161,9 +2284,9 @@ func filterValues1(ctx Context, neg bool, args... Value) (res Value) {
                         vals, pats []Value
                         i int
                 )
-                if pats = parseOpts(ctx, &opts, expandPlainValue, args[0]); len(pats) > 0 {
+                if pats = parseOpts(ctx, &opts, plain, args[0]); len(pats) > 0 {
                         i = 1 // good
-                } else if pats = mergex(ctx, expandPlainValue, args[1]); len(pats) == 0 {
+                } else if pats = mergex(ctx, plain, args[1]); len(pats) == 0 {
                         erro(ctx, "no patterns: %v", args).debug(1)
                         return
                 } else {
@@ -2175,7 +2298,7 @@ func filterValues1(ctx Context, neg bool, args... Value) (res Value) {
                         return
                 }
 
-                vals = mergex(ctx, expandPlainValue, args[i:]...)
+                vals = mergex(ctx, plain, args[i:]...)
                 if vals, err = filterValues(ctx, pats, opts, neg, vals...); err == nil {
                         res = MakeListOrScalar(pos, vals)
                 }
@@ -2198,7 +2321,7 @@ func builtinFilterOut(ctx Context, args... Value) (res Value) {
 
 func builtinSubstring(ctx Context, args... Value) (res Value) {
         var pos = ctx.Position()
-        args = mergex(ctx, expandPlainValue, args...)
+        args = mergex(ctx, plain, args...)
 
         var list []Value
         if n := len(args); n > 1 {
@@ -2282,12 +2405,12 @@ func builtinPatsubst(ctx Context, args... Value) (res Value) {
                         erro(ctx, "not enough arguments").debug(1)
                         return
                 }
-                srcPats = mergex(ctx, expandPlainValue, args[1])
-                dstPats = mergex(ctx, expandPlainValue, args[2])
-                sources = mergex(ctx, expandPlainValue, args[3:]...)
+                srcPats = mergex(ctx, plain, args[1])
+                dstPats = mergex(ctx, plain, args[2])
+                sources = mergex(ctx, plain, args[3:]...)
         } else {
-                dstPats = mergex(ctx, expandPlainValue, args[1])
-                sources = mergex(ctx, expandPlainValue, args[2:]...)
+                dstPats = mergex(ctx, plain, args[1])
+                sources = mergex(ctx, plain, args[2:]...)
         }
 
         var (
@@ -2457,23 +2580,23 @@ func builtinPatsubst_buggy(ctx Context, args... Value) (res Value) {
 
         const infos = false
 
-        arg0 = parseOpts(ctx, &opts, expandPlainValue, args[0])
+        arg0 = parseOpts(ctx, &opts, plain, args[0])
 
         // TODO: support flags -name and -full for name-only and full-name-only matching
         var srcPats, dstPats, sources []Value
         if len(arg0) > 0 {
                 srcPats = arg0
-                dstPats = mergex(ctx, expandPlainValue, args[1])
-                sources = mergex(ctx, expandPlainValue, args[2:]...)
+                dstPats = mergex(ctx, plain, args[1])
+                sources = mergex(ctx, plain, args[2:]...)
                 if infos {
                         info(ctx, "src: %v", srcPats)
                         info(ctx, "dst: %v", dstPats)
                         info(ctx, "%v", sources).debug(1)
                 }
         } else {
-                srcPats = mergex(ctx, expandPlainValue, args[1])
-                dstPats = mergex(ctx, expandPlainValue, args[2])
-                sources = mergex(ctx, expandPlainValue, args[3:]...)
+                srcPats = mergex(ctx, plain, args[1])
+                dstPats = mergex(ctx, plain, args[2])
+                sources = mergex(ctx, plain, args[3:]...)
                 if infos {
                         info(ctx, "src: %v", srcPats)
                         info(ctx, "dst: %v", dstPats)
@@ -2636,7 +2759,7 @@ func builtinTitle(ctx Context, args... Value) (res Value) {
                 pos = ctx.Position()
                 list []Value
         )
-        for i, a := range mergex(ctx, expandPlainValue, args...) {
+        for i, a := range mergex(ctx, plain, args...) {
                 if i == 0 { pos = a.Position() }
                 if s := a.Strval(ctx); s != "" {
                         list = append(list, MakeString(a.Position(), strings.Title(s)))
@@ -2651,7 +2774,7 @@ func builtinUpperCase(ctx Context, args... Value) (res Value) {
                 pos = ctx.Position()
                 list []Value
         )
-        for i, a := range mergex(ctx, expandPlainValue, args...) {
+        for i, a := range mergex(ctx, plain, args...) {
                 if i == 0 { pos = a.Position() }
                 if s := a.Strval(ctx); s != "" {
                         list = append(list, MakeString(a.Position(), strings.ToUpper(s)))
@@ -2666,7 +2789,7 @@ func builtinLowerCase(ctx Context, args... Value) (res Value) {
                 pos = ctx.Position()
                 list []Value
         )
-        for _, a := range mergex(ctx, expandPlainValue, args...) {
+        for _, a := range mergex(ctx, plain, args...) {
                 if s := a.Strval(ctx); s != "" {
                         list = append(list, MakeString(a.Position(), strings.ToLower(s)))
                 }
@@ -2681,7 +2804,7 @@ func builtinTrim(ctx Context, args... Value) (res Value) {
                 cutset string
                 list []Value
         )
-        for i, a := range mergex(ctx, expandPlainValue, args...) {
+        for i, a := range mergex(ctx, plain, args...) {
                 if i == 0 { pos = a.Position() }
                 if s := a.Strval(ctx); s != "" {
                         if i == 0 {
@@ -2703,7 +2826,7 @@ func builtinTrimLeft(ctx Context, args... Value) (res Value) {
                 cutset string
                 list []Value
         )
-        for i, a := range mergex(ctx, expandPlainValue, args...) {
+        for i, a := range mergex(ctx, plain, args...) {
                 if i == 0 { pos = a.Position() }
                 if s := a.Strval(ctx); s != "" {
                         if i == 0 {
@@ -2725,7 +2848,7 @@ func builtinTrimRight(ctx Context, args... Value) (res Value) {
                 cutset string
                 list []Value
         )
-        for i, a := range mergex(ctx, expandPlainValue, args...) {
+        for i, a := range mergex(ctx, plain, args...) {
                 if i == 0 { pos = a.Position() }
                 if s := a.Strval(ctx); s != "" {
                         if i == 0 {
@@ -2751,12 +2874,12 @@ func builtinTrimPrefix(ctx Context, args... Value) (res Value) {
                 err error
         )
         if len(args) == 0 { return }
-        prefixs = mergex(ctx, expandPlainValue, args[0])
+        prefixs = mergex(ctx, plain, args[0])
 
         if len(args) == 1 {
                 if len(prefixs) > 1 { values = prefixs[1:] }
         } else {
-                values = mergex(ctx, expandPlainValue, args[1:]...)
+                values = mergex(ctx, plain, args[1:]...)
         }
 
         if len(values) == 0 {
@@ -2815,7 +2938,7 @@ func builtinTrimSuffix(ctx Context, args... Value) (res Value) {
                 cutset, s string
                 list []Value
         )
-        for i, a := range mergex(ctx, expandPlainValue, args...) {
+        for i, a := range mergex(ctx, plain, args...) {
                 if i == 0 { pos = a.Position() }
                 if s = a.Strval(ctx); s != "" {
                         if i == 0 {
@@ -2842,7 +2965,7 @@ func builtinTrimExt(ctx Context, args... Value) (res Value) {
                 list []Value
                 ext string
         )
-        for i, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
+        for i, a := range parseOpts(ctx, &opts, plain, args...) {
                 if i == 0 { pos = a.Position() }
                 if s := a.Strval(ctx); s != "" {
                         if i == 0 && len(args) > 1 {
@@ -2867,14 +2990,89 @@ type builtinExtOpts struct {
 }
 func builtinExt(ctx Context, args... Value) (res Value) {
         var (
-                pos = ctx.Position()
                 opts builtinExtOpts
                 list []Value
         )
-        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
+        for _, a := range parseOpts(ctx, &opts, plain, args...) {
                 list = append(list, MakeString(a.Position(), filepath.Ext(a.Strval(ctx))))
         }
-        res = MakeListOrScalar(pos, list)
+        res = MakeListOrScalar(ctx.Position(), list)
+        return
+}
+
+type builtinAddPrefixOpts struct {
+        generalOpts
+}
+func builtinAddPrefix(ctx Context, args... Value) (res Value) {
+        if len(args) < 1 {
+                erro(ctx, "not enough args, try $(addprefix 'prefix', ...)").debug(1)
+                return
+        }
+
+        var opts builtinAddPrefixOpts
+        var prefixs = parseOpts(ctx, &opts, plain, args[0])
+        if len(prefixs) != 1 {
+                erro(ctx, "not enough args, try $(addprefix 'prefix', ...)").debug(1)
+                return
+        }
+
+        var list []Value
+        var vals = parseOpts(ctx, &opts, plain, args[1:]...)
+        for _, prefix := range prefixs {
+                if !prefix.True(ctx) { continue }
+                var p, y = prefix.(*Pair)
+                for _, val := range vals {
+                        if y {
+                                if !isNil(p.Value) {
+                                        val = MakeBarecomp(val.Position(), p.Value, val)
+                                }
+                                val = MakePair(p.Position(), p.Key, val)
+                        } else {
+                                val = MakeBarecomp(val.Position(), prefix, val)
+                        }
+                        list = append(list, val)
+                }
+        }
+
+        res = MakeListOrScalar(ctx.Position(), list)
+        return
+}
+
+type builtinAddSuffixOpts struct {
+        generalOpts
+}
+func builtinAddSuffix(ctx Context, args... Value) (res Value) {
+        if len(args) < 1 {
+                erro(ctx, "not enough args, try $(addsuffix 'suffix', ...)").debug(1)
+                return
+        }
+
+        var opts builtinAddSuffixOpts
+        var suffixs = parseOpts(ctx, &opts, plain, args[0])
+        if len(suffixs) != 1 {
+                erro(ctx, "not enough args, try $(addsuffix 'suffix', ...)").debug(1)
+                return
+        }
+
+        var list []Value
+        var vals = parseOpts(ctx, &opts, plain, args[1:]...)
+        for _, suffix := range suffixs {
+                if !suffix.True(ctx) { continue }
+                for _, val := range vals {
+                        if p, y := val.(*Pair); y {
+                                if isNil(p.Value) {
+                                        p.Value = val
+                                } else {
+                                        p.Value = MakeBarecomp(p.Value.Position(), p.Value, suffix)
+                                }
+                        } else {
+                                val = MakeBarecomp(val.Position(), val, suffix)
+                        }
+                        list = append(list, val)
+                }
+        }
+
+        res = MakeListOrScalar(ctx.Position(), list)
         return
 }
 
@@ -2891,7 +3089,7 @@ func builtinPrintf(ctx Context, args... Value) (res Value) {
         if len(args) < 1 {
                 erro(ctx, "not enough args, try $(printf 'format', ...)").debug(1)
                 return
-        } else if vals = parseOpts(ctx, &opts, expandPlainValue, args[0]); len(vals) != 1 {
+        } else if vals = parseOpts(ctx, &opts, plain, args[0]); len(vals) != 1 {
                 erro(ctx, "not enough args, try $(printf 'format', ...)").debug(1)
                 return
         } else {
@@ -2900,7 +3098,7 @@ func builtinPrintf(ctx Context, args... Value) (res Value) {
 
         var i int
         var a []interface{}
-        ForArgs: for n, v := range mergex(ctx, expandPlainValue, args[1:]...) {
+        ForArgs: for n, v := range mergex(ctx, plain, args[1:]...) {
                 if n == 0 { pos = v.Position() }
                 ForFmt: for i < len(f) {
                         if f[i] != '%' { i += 1; continue }
@@ -3000,9 +3198,10 @@ func builtinContains(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        vals, list = parseHeadArgsRequired(ctx, &opts, expandPlainValue, args...)
+        var w = plain|expandPairVal
+        vals, list = parseHeadArgsRequired(ctx, &opts, w, args...)
         if len(vals) == 0 || len(list) == 0 { return }
-        list = mergex(ctx, expandPlainValue, list...)
+        list = mergex(ctx, w, list...)
 
         var (
                 y int
@@ -3028,15 +3227,15 @@ func builtinContains(ctx Context, args... Value) (res Value) {
                         }
                 }
                 if opts.debug>0 {
-                        warn(ctx, "not found: %T %v", val, val).of(val)
+                        warn(ctx, "found 0: %T %v", val, val).of(val)
                 }
         }
 
-        var boo = (y == len(vals))
-        if opts.debug>0 && !boo {
-                warn(ctx, "found %d in %v", y, list).debug(opts.debug)
+        var b = (y == len(vals))
+        if opts.debug>0 && !b {
+                warn(ctx, "found %d/%d: %v", y, len(vals), list).debug(opts.debug)
         }
-        res = MakeBoolean(ctx.Position(), boo)
+        res = MakeBoolean(ctx.Position(), b)
         return
 }
 func builtinContains_buggy(ctx Context, args... Value) (res Value) {
@@ -3050,8 +3249,8 @@ func builtinContains_buggy(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        vals = parseOpts(ctx, &opts, expandPlainValue, args[0])
-        list = mergex(ctx, expandPlainValue, args[1:]...)
+        vals = parseOpts(ctx, &opts, plain, args[0])
+        list = mergex(ctx, plain, args[1:]...)
 
         var (
                 n = 0
@@ -3171,7 +3370,7 @@ func asFile(ctx Context, a Value, projects ...*Project) (f *File) {
         switch t := a.(type) {
         case *File     : f = t
         case *Barefile : f = t.File
-        case *Def      : if !isTrivial(t.value) { return asFile(ctx, t.value   ) }
+        case *def      : if !isTrivial(t.value) { return asFile(ctx, t.value   ) }
         case *List     : if len(t.Elems) == 1   { return asFile(ctx, t.Elems[0]) }
         case *RuleEntry:                          return asFile(ctx, t.target  )
         case *String, *Compound:
@@ -3246,7 +3445,7 @@ func builtinFullName(ctx Context, args... Value) (res Value) {
                 s string
                 ok bool
         )
-        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
+        for _, a := range parseOpts(ctx, &opts, plain, args...) {
                 if opts.debug > 0 {
                         if f, ok := a.(*File); ok {
                                 warn(ctx, "dir=%v sub=%v name=%v", f.dir, f.sub, f.name).debug(opts.debug)
@@ -3273,7 +3472,7 @@ func basex(ctx Context, n int, args... Value) (res Value) {
                 opts builtinBaseOpts
                 l []Value
         )
-        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
+        for _, a := range parseOpts(ctx, &opts, plain, args...) {
                 s := fullnameOrStrval(ctx, a)
                 d := filepath.Dir(s)
                 s = filepath.Base(s)
@@ -3306,7 +3505,7 @@ func dirx(ctx Context, n int, args... Value) (res Value) {
                 l []Value
                 s string
         )
-        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
+        for _, a := range parseOpts(ctx, &opts, plain, args...) {
                 if opts.fullname {
                         s = fullnameOrStrval(ctx, a)
                 } else {
@@ -3327,7 +3526,7 @@ func undirx(ctx Context, n int, args... Value) (res Value) {
                 l []Value
                 s string
         )
-        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
+        for _, a := range parseOpts(ctx, &opts, plain, args...) {
                 if opts.fullname {
                         s = fullnameOrStrval(ctx, a)
                 } else {
@@ -3605,7 +3804,7 @@ func builtinRemove(ctx Context, args... Value) (res Value) {
                 str string
                 ok bool
         )
-        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
+        for _, a := range parseOpts(ctx, &opts, plain, args...) {
                 var (
                         ctx = positional(ctx, a.Position())
                         file *File
@@ -3675,7 +3874,7 @@ func builtinRemoveAll(ctx Context, args... Value) (res Value) {
                 str string
                 ok bool
         )
-        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
+        for _, a := range parseOpts(ctx, &opts, plain, args...) {
                 var ctx = positional(ctx, a.Position())
                 if a.patterned(ctx) {
                         var err error
@@ -3764,7 +3963,7 @@ type builtinLinkOpts struct {
 }
 func builtinLink(ctx Context, args... Value) (res Value) {
         var opts builtinLinkOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         oldname, newname string
@@ -3821,7 +4020,7 @@ type builtinSymlinkOpts struct {
 }
 func builtinSymlink(ctx Context, args... Value) (res Value) {
         var opts builtinSymlinkOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 ForArgs:
         for i, na := 0, len(args); i < na; i += 1 {
                 var (
@@ -3834,14 +4033,14 @@ ForArgs:
                 case *Pair: // symlink oldName=newName oldName=>newName...
                         oldNameVal, newNameVal = t.Key, t.Value
                 case *Group: // symlink (-u oldName newName) (-v oldName newName)...
-                        if aa = parseOpts(ctx, &opts, expandPlainValue, t.Elems...); len(aa) != 2 {
+                        if aa = parseOpts(ctx, &opts, plain, t.Elems...); len(aa) != 2 {
                                 erro(ctx, "expects two values for group").of(t).debug(1)
                                 return
                         } else {
                                 oldNameVal, newNameVal = aa[0], aa[1]
                         }
                 case *List: // XXX: symlink old new, old new, ...
-                        if aa = parseOpts(ctx, &opts, expandPlainValue, t.Elems...); len(aa) != 2 {
+                        if aa = parseOpts(ctx, &opts, plain, t.Elems...); len(aa) != 2 {
                                 erro(ctx, "expects two values for list").of(t).debug(1)
                                 return
                         } else {
@@ -3855,9 +4054,9 @@ ForArgs:
                                 newNameVal = args[i+1]
                                 i += 1
                         } else {
-                                var _, a = ctx.autoGet("@")
-                                var _, l = ctx.autoGet("<")
-                                var _, r = ctx.autoGet(">")
+                                var a = ctx.autoGet("@")
+                                var l = ctx.autoGet("<")
+                                var r = ctx.autoGet(">")
                                 prompt(ctx, "symlink: args=%v -> %v\n", args, t)
                                 prompt(ctx, "symlink: %v, %v, %v\n", a, l, r)
                                 errostack(ctx, 5, "expects pair of names (%T %v)", t, t).of(t).debug(6)
@@ -3935,7 +4134,7 @@ ForArgs:
 
 type builtinStatOpts struct {
         generalOpts
-        dir bool `d,dir`
+        dir bool `di,dir`
         file bool `f,file`
         symbol bool `s,symlink;sym,symbol`
 }
@@ -3949,7 +4148,7 @@ func builtinStat(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         var (
                 pos = ctx.Position()
@@ -4009,7 +4208,7 @@ func builtinFile(ctx Context, args... Value) (res Value) {
                 list []Value
         )
 
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         if opts.caller && false {
                 // program -> closure -> traversal -> ...
@@ -4041,7 +4240,8 @@ func builtinFile(ctx Context, args... Value) (res Value) {
 }
 
 type builtinGlobOpts struct {
-        dir bool `d,dir;d,directory`
+        generalOpts
+        dir bool `di,dir,directory`
         file bool `f,file`
         symbol bool `s,symlink;sym,symbol;sym,symbolic`
 }
@@ -4051,7 +4251,7 @@ func builtinGlob(ctx Context, args... Value) (res Value) {
                 proj *Project
         )
 
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         var cwd string // TODO: get current work directory
         if proj = ctx.Project(); proj == nil {
@@ -4329,8 +4529,8 @@ func builtinWildcard(ctx Context, args... Value) (res Value) {
                 erro(ctx, "unknown most derived context").debug(1)
                 return
         }
-        if args = parseOpts(ctx, &opts, expandPlainValue, args...); len(opts.exclude) > 0 {
-                opts.exclude = mergex(ctx, expandPlainValue, opts.exclude...)
+        if args = parseOpts(ctx, &opts, plain, args...); len(opts.exclude) > 0 {
+                opts.exclude = mergex(ctx, plain, opts.exclude...)
         }
 
         if opts.timing {
@@ -4402,7 +4602,7 @@ func builtinReadFile(ctx Context, args... Value) (res Value) {
                 opts builtinReadFileOpts
                 l []Value
         )
-        for _, a := range parseOpts(ctx, &opts, expandPlainValue, args...) {
+        for _, a := range parseOpts(ctx, &opts, plain, args...) {
                 var (
                         apos = a.Position()
                         str string
@@ -4439,7 +4639,7 @@ func builtinWriteFile(ctx Context, args... Value) (res Value) {
         // $(write-file -p filename,content)
         var opts builtinWriteFileOpts
         if len(args) > 0 {
-                var va = parseOpts(ctx, &opts, expandPlainValue, args[1])
+                var va = parseOpts(ctx, &opts, plain, args[1])
                 args = append(va, args[1:]...)
         }
 ForArgs:
@@ -4554,7 +4754,7 @@ func builtinTouchFile(ctx Context, args... Value) (res Value) {
         // $(touch-file filename)
         // $(touch-file -p filename)
         var opts = builtinTouchFileOpts{ mode: os.FileMode(0600) }
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
         for i := 0; i < len(args); i += 1 {
                 if err := touch(ctx, args[i], uint32(opts.mode), opts.path); err != nil {
                         erro(ctx, "%v", err).debug(1)
@@ -4585,7 +4785,7 @@ func builtinGrep(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        if vals = parseOpts(ctx, &opts, expandPlainValue, args[0]); nargs == 2 {
+        if vals = parseOpts(ctx, &opts, plain, args[0]); nargs == 2 {
                 args = args[1:]
         } else if nargs == 3 {
                 result = args[1]
@@ -4603,7 +4803,7 @@ func builtinGrep(ctx Context, args... Value) (res Value) {
                 }
         }
 
-        vals = mergex(ctx, expandPlainValue, args...)
+        vals = mergex(ctx, plain, args...)
 
         var pos = ctx.Position()
         var cc = autoContext{ Context:ctx, defs:make(autoDefMap) }
@@ -4622,7 +4822,7 @@ func builtinGrep(ctx Context, args... Value) (res Value) {
                                 }
                         }
                 } ()
-                list = append(list, result.expand(&cc, expandPlainValue))
+                list = append(list, result.expand(&cc, expandDigits|plain))
                 return
         }
 
@@ -4668,9 +4868,9 @@ var (
         rxConfigRef = regexp.MustCompile(rsConfigRef)
 )
 
-func (project *Project) config(ctx Context, name string) (def *Def) {
+func (project *Project) config(ctx Context, name string) (res *def) {
         var obj Object
-        if obj = project.resolveObject(ctx, name); !isNil(obj) { def, _ = obj.(*Def) }
+        if obj = project.resolveObject(ctx, name); !isNil(obj) { res, _ = obj.(*def) }
         return
 }
 
@@ -4680,8 +4880,8 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                 res = new(bytes.Buffer)
                 index, line = 0, 0
         )
-        if _, v := ctx.autoGet("-file"); v != nil {
-                pos.Filename = v.(*File).fullname()
+        if d := ctx.autoGet("-file"); d != nil && d.value != nil {
+                pos.Filename = d.value.(*File).fullname()
                 // warn(ctx, "%T %v %v", v, v, pos)
         }
         for _, m := range rxConfigRef.FindAllStringSubmatchIndex(s, -1) {
@@ -4699,7 +4899,7 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                 }
 
                 var (
-                        def *Def
+                        def *def
                         val Value
                 )
                 if def = project.config(ctx, name); def == nil {
@@ -4771,7 +4971,7 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
                 var verb = str[m[2]:m[3]]
                 var name = str[m[4]:m[5]]
                 var hasv = m[6] > m[0] && m[7] > m[6]
-                var def *Def
+                var def *def
                 if def = project.config(ctx, name); def != nil {
                         t = def.True(ctx);
                 }
@@ -4791,7 +4991,7 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
                                 s = fmt.Sprintf("#undef %s", name)
                         } else if isNil(def.value) || isNone(def.value) {
                                 s = fmt.Sprintf("#undef %s /* %v */", name, def.value)
-                        } else if va, _ = expand(ctx, expandPlainValue, def.value); len(va) == 1 {
+                        } else if va, _, _ = expand(ctx, plain, def.value); len(va) == 1 {
                                 switch v := va[0].(type) {
                                 case *answer, *boolean:
                                         if b := v.True(ctx); b {

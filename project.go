@@ -44,11 +44,15 @@ func (filemap *FileMap) Patterns(ctx Context) (pats []Value) {
       }
 
       // FIXME+TODO: this could be time consuming to expand clousre in the filemap
-      /*if pats, err = mergex(ctx, expandPlainValue, pattern); err != nil {
+      /*if pats, err = mergex(ctx, plain, pattern); err != nil {
         erro(ctx, "merge pattern '%v' failed: %v", pattern, err).of(pattern)
       } else*/
-      pats, _ = expand(ctx, expandPlainValue, pattern)
-      pats = mergex(ctx, expandPlainValue, pats...)
+      var unexpanded int
+      if pats, unexpanded, _ = expand(ctx, plain, pattern); unexpanded>0 {
+        errostack(ctx, 3, "unexpanded file pattern: %v", pats).of(pattern).debug(15)
+        ctx.checkErrors(true) // check here to report warnings immediately
+      }
+      pats = mergex(ctx, plain, pats...)
     } else {
       pats = append(pats, pattern)
     }
@@ -601,13 +605,13 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
   }
 
   var found Entry
-  var t1, _ = ctx.autoGet("@")
+  var t1 = ctx.autoGet("@")
   ForConcretes: for _, entry := range p.concrete {
     if match(entry, s) { found = entry } else { continue ForConcretes }
 
     for pc := ctx.programContext(); pc != nil; { // loop detection
       if pc.entry() == entry {
-        var t2, _ = pc .autoGet("@")
+        var t2 = pc .autoGet("@")
         if t1 == t2 || t1.cmp(ctx, t2) == cmpEqual || t1.Strval(ctx) == t2.Strval(ctx) {
           if false {
             warn(ctx, "%v: %p %v %T", entry, t1, t1, t1).of(t1)
@@ -693,7 +697,7 @@ func (p *Project) resolvePatterns1(ctx Context, val Value, s string) (res []*ste
       }
 
       if ok := false; len(pat.argumented) > 0 {
-        for _, a := range mergex(ctx, expandPlainValue, pat.argumented...) {
+        for _, a := range mergex(ctx, plain, pat.argumented...) {
           if ok, _, _ = a.match(ctx, s); ok { break }
         }
         if !ok { continue ForPatterns }
@@ -741,6 +745,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, patte
     /*var userule = &useRuleEntry{
       RuleEntry{
         position: target.Position(),
+
         class:UseRuleEntry,
         target:target,
       },

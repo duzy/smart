@@ -44,14 +44,14 @@ var configuration = &struct{
     fset *token.FileSet
     libraries map[string]*libraryinfo
     packages map[string]*packageinfo
-    done map[*Def]bool
+    done map[*def]bool
     entries []Entry // order list
     clean []string
 }{
     fset: token.NewFileSet(),
     libraries: make(map[string]*libraryinfo),
     packages: make(map[string]*packageinfo),
-    done: make(map[*Def]bool),
+    done: make(map[*def]bool),
 }
 
 var configurationOps = map[string] func(Context, map[string]Value, ...Value) (Value) {
@@ -68,7 +68,7 @@ var configurationOps = map[string] func(Context, map[string]Value, ...Value) (Va
 type configureExecutor struct {
     file *os.File
     writer *bufio.Writer
-    defs map[string]*Def
+    defs map[string]*def
 }
 
 func (ce *configureExecutor) execute(ctx Context, project *Project, entry Entry) (result *Project, okay bool) {
@@ -80,7 +80,7 @@ func (ce *configureExecutor) execute(ctx Context, project *Project, entry Entry)
     } else if p := entry.OwnerProject(); p != project && p != nil {
         if p.configured { return nil, true } // already configured
 
-        ce.defs = make(map[string]*Def) // reset defs for p
+        ce.defs = make(map[string]*def) // reset defs for p
         var f, e = p.openConfiguration(ctx)
         if e != nil {
             erro(ctx, "%v", e).debug(1)
@@ -132,12 +132,11 @@ func (ce *configureExecutor) execute(ctx Context, project *Project, entry Entry)
             ce.defs[s] = def
         }
         if def.value == nil {
-            // Set <nil> value with exec-assigning ('!=')
-            // to a None value.
+            // Set <nil> value with exec-assigning ('!=') to a None value.
             fmt.Fprintf(ce.writer, "%v !=\n", def.name)
         } else {
-            vs := elementString(ctx, def, def.value, elemNoBrace)
-            fmt.Fprintf(ce.writer, "%v = %v\n", def.name, vs)
+            fmt.Fprintf(ce.writer, "%v = %v\n", def.name,
+                elementString(ctx, def, def.value, elemNoBrace))
         }
     } else {
         erro(ctx, "`%s` unconfigured", s).debug(1)
@@ -194,7 +193,7 @@ func (ctx *defaultContext) configure() {
         }
     }
 
-    var ce = &configureExecutor{ defs:make(map[string]*Def) }
+    var ce = &configureExecutor{ defs:make(map[string]*def) }
     defer ce.close()
     for _, entry := range configuration.entries {
         var okay bool
@@ -246,28 +245,21 @@ func configMessageDone(ctx Context, str string, args... interface{}) {
 
 // -dump
 func configureDump(ctx Context, fields map[string]Value, params ...Value) (result Value) {
-    _, result = ctx.autoGet("-")
+    if d := ctx.autoGet("-"); d != nil { result = d.value }
     return
 }
 
 func configureBoolValue(ctx Context) (result bool) {
-    var (
-        _, value = ctx.autoGet("-")
-        res Value
-    )
-    if isNil(value) {
+    if d := ctx.autoGet("-"); d == nil || isNil(d.value) {
         return
-    } else if res = value.expand(ctx, expandPlainValue); !isNil(res) && res != value {
-        value = res
-    }
-    for i, v := range merge(value) {
-        if v == nil {
-            continue
-        } else {
+    } else if value := d.value.expand(ctx, plain); isNil(value) || value == d.value {
+        return
+    } else { for i, v := range merge(value) {
+        if v == nil { continue } else {
             result = (i == 0 || result) && v.True(ctx)
         }
         if !result { break }
-    }
+    }}
     return
 }
 
@@ -286,11 +278,8 @@ func configureAnswer(ctx Context, fields map[string]Value, params ...Value) (res
 // -option
 // -option('message...')
 func configureOption(ctx Context, fields map[string]Value, args ...Value) (result Value) {
-    if _, result = ctx.autoGet("-"); !isNil(result) {
-        var res Value
-        if res = result.expand(ctx, expandPlainValue); !isNil(res) && res != result {
-            result = res
-        }
+    if d := ctx.autoGet("-"); d != nil && d.value != nil {
+        result = d.value.expand(ctx, plain)
     } else {
         result = MakeAnswer(ctx.Position(), false)
     }
@@ -388,7 +377,7 @@ func executeConfigureEntry(ctx Context, opts *modifierConfigureOpts, entryName s
         commOpts commonConfigureOpts
         params []Value
         pos = ctx.Position()
-        hyphen, hyphenVal = ctx.autoGet("-")
+        hyphen = ctx.autoGet("-")
         verbose = opts.verbose
     )
 
@@ -409,7 +398,7 @@ func executeConfigureEntry(ctx Context, opts *modifierConfigureOpts, entryName s
         switch par.name {
         case "LANG":   params = append(params, MakePair(pos, MakeBareword(pos, "LANG"),   MakeString(pos, ctx.program().language)))
         case "TARGET": params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
-        case "VALUE":  params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"),  hyphenVal))
+        case "VALUE":  params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"),  hyphen.value))
             if hyphen == nil { warn(ctx, "nil hyphen def").debug(1) }
         }
     }
@@ -430,7 +419,7 @@ ForInParams:
         )
         if _, ok := value.(*Compound); ok {
             value = MakeString(pos, value.Strval(ctx))
-        } else if v := value.expand(ctx, expandPlainValue); v != nil && v != value {
+        } else if v := value.expand(ctx, plain); v != nil && v != value {
             value = v
         }
 
@@ -447,7 +436,7 @@ ForInParams:
             var params []string
             for _, p := range prog.params { params = append(params, p.name) }
 
-            var _, at = ctx.autoGet("@")
+            var at = ctx.autoGet("@")
             ctx = positional(ctx, a.Position())
             warn(ctx, "ignored param: %T %v; target: %T %v", a, a, at, at)
             warn(ctx, "%v params = %v", at, params).at(prog.position).debug(16)
@@ -479,7 +468,7 @@ ForInParams:
             } else {
                 errostack(ctx, 5, `configure "%s" has multiple results (%d)`, entryName, n).debug(32)
             }
-        } else if result = reses[0]; !isNil(result) && result == hyphenVal {
+        } else if result = reses[0]; !isNil(result) && result == hyphen.value {
             warn(ctx, "%v", entry).at(entry.Position())
             warn(ctx, `%v: configure yields value the same as input will be ignored: %v`, entry, result).debug(1)
             result = nil // simply discard the result as it's the same as the input (hyphen) value
@@ -507,7 +496,7 @@ func configureDo(ctx Context, opts *modifierConfigureOpts, target Value, name Va
         return
     }
 
-    for _, arg := range mergex(ctx, expandPlainValue, args...) {
+    for _, arg := range mergex(ctx, plain, args...) {
         if isTrivial(arg) { continue }
         switch t := arg.(type) {
         case *Pair: params = append(params, t)
@@ -521,7 +510,7 @@ func configureDo(ctx Context, opts *modifierConfigureOpts, target Value, name Va
     }
     if false { if s := target.Strval(ctx); s == "HAVE_FUN_SENDFILE" {
         warn(ctx, "%v: %v", s, args)
-        warn(ctx, "%v: %v", s, mergex(ctx, expandPlainValue, args...))
+        warn(ctx, "%v: %v", s, mergex(ctx, plain, args...))
         warn(ctx, "%v: %v", s, params).debug(1)
     }}
 
@@ -593,12 +582,12 @@ func modifierConfigure(ctx Context, args ...Value) (result Value, _ travestates)
 
     var pos = ctx.Position()
     var opts modifierConfigureOpts
-    args = parseOpts(ctx, &opts, expandPlainValue, args...)
+    args = parseOpts(ctx, &opts, plain, args...)
 
     if program.project.configure == nil {
         if program.project.name == "configure" {
             if o := program.project.scope.Lookup(dotConfigure); !isNil(o) {
-                if d, ok := o.(*Def); ok && !isNil(d.value) && !isNone(d.value) {
+                if d, ok := o.(*def); ok && !isNil(d.value) && !isNone(d.value) {
                     if val := d.value.True(ctx); val {
                         program.project.configure = program.project
                         if opts.verbose {
@@ -614,49 +603,52 @@ func modifierConfigure(ctx Context, args ...Value) (result Value, _ travestates)
         }
     }
 
-    var adef, target = ctx.autoGet("@")
-    if adef == nil || isTrivial(target) {
+    var adef = ctx.autoGet("@")
+    if adef == nil || isTrivial(adef.value) {
         erro(ctx, " target is trivial: %s", ctx).debug(1)
         return
     }
 
+    var target = adef.value
     var name = target.Strval(ctx)
     if len(program.project.bases) == 0 {
         warn(ctx, "%v: project has no bases (should have at least .configure)", name).of(target).debug(1)
     }
 
-    var def *Def
-    if def = program.scope.FindDef(name); def == nil {
+    var d *def
+    if d = program.scope.FindDef(name); d == nil {
         var alt Object
-        def, alt = program.project.scope.define(ctx, DefConfig, name, nil)
-        if def == nil && alt != nil { def, _ = alt.(*Def) }
+        d, alt = program.project.scope.define(ctx, DefConfig, name, nil)
+        if d == nil && alt != nil { d, _ = alt.(*def) }
     }
-    if def == nil {
+    if d == nil {
         erro(ctx, " cannot define configuration `%s`", name).debug(1)
         return
     } else {
-        result = def
+        result = d
     }
 
     if options.traceConfig {
-        t_config.tracef("%s: %v (%T)", def.name, def.value, def.value)
-        defer func() { t_config.tracef("%s: %v (%T)", def.name, def.value, def.value) } ()
+        t_config.tracef("%s: %v (%T)", d.name, d.value, d.value)
+        defer func() { t_config.tracef("%s: %v (%T)", d.name, d.value, d.value) } ()
     }
-    if !isNil(def.value) { // Check if it's already configured?
+    if !isNil(d.value) { // Check if it's already configured?
         if !options.reconfigure { return } // return if not reconfigure
-        if done, found := configuration.done[def]; done && found { return }
+        if done, found := configuration.done[d]; done && found { return }
     }
 
     var value Value
     if len(args) == 0 { // Empty configuration: (configure)
-        if _, value = ctx.autoGet("-"); value == nil {
-            erro(ctx, " `%v` not configured (%v)", target, value).debug(1)
+        if h := ctx.autoGet("-"); h == nil || h.value == nil {
+            erro(ctx, " `%v` not configured (%v)", target, d).debug(1)
             return
-        } else if value == def || value.refs(ctx, def) {
+        } else if h.value == d || h.value.refs(ctx, d) {
             return
+        } else {
+            value = h.value
         }
         switch v := value.(type) {
-        default: def.set(ctx, DefConfig, value)
+        default: d.set(ctx, DefConfig, value)
         case *ExecResult:
             var s string
             if /*v.wg.Wait()*/; v.Status == 0 && v.Stdout.Buf != nil {
@@ -664,17 +656,17 @@ func modifierConfigure(ctx Context, args ...Value) (result Value, _ travestates)
             } else if v.Stderr.Buf != nil {
                 s = v.Stderr.Buf.String()
             }
-            def.set(ctx, DefConfig, MakeString(pos, s))
+            d.set(ctx, DefConfig, MakeString(pos, s))
         }
         return
     } else {
-        def.set(ctx, DefConfig, nil)
+        d.set(ctx, DefConfig, nil)
     }
 
     var configured bool
 ForConfig:
     for i, a := range args {
-        if def.value == nil && i > 0 { break ForConfig }
+        if d.value == nil && i > 0 { break ForConfig }
 
         var ( name Value ; para []Value )
         switch arg := a.(type) {
@@ -708,21 +700,21 @@ ForConfig:
             value = MakeNil(a.Position())
         } else if isNil(v) || isNone(v) || isUndef(v) {
             // noop
-        } else if v = value.expand(ctx, expandPlainValue); !isNil(v) && v != value {
+        } else if v = value.expand(ctx, plain); !isNil(v) && v != value {
             value = v
         }
 
-        if value == def || (!isNil(value) && value.refs(ctx, def)) {
+        if value == d || (!isNil(value) && value.refs(ctx, d)) {
             // Value is the Def, does nothing!
         } else if opts.accumulate {
-            def.append(ctx, value)
+            d.append(ctx, value)
         } else {
-            def.set(ctx, DefConfig, value)
+            d.set(ctx, DefConfig, value)
         }
 
-        if def == nil { configuration.done[def] = true }
+        if d == nil { configuration.done[d] = true }
         if options.traceConfig {
-            t_config.tracef("configured: %v (%s) (%v)", value, typeof(value), def.origin)
+            t_config.tracef("configured: %v (%s) (%v)", value, typeof(value), d.origin)
         }
     }
     if !configured { erro(ctx, " `%v` not configured", target).debug(1) }
@@ -787,16 +779,16 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         file *File
     )
 
-    args = parseOpts(ctx, opts, expandPlainValue, args...)
+    args = parseOpts(ctx, opts, plain, args...)
 
-    if def, target := ctx.autoGet("@"); def == nil || isTrivial(target) {
+    if target := ctx.autoGet("@"); target == nil || isTrivial(target.value) {
         erro(ctx, "'@' is not defined").debug(1)
         return
-    } else if file, filename, _ = fullname(ctx, target, closured...); file == nil {
-        if def, depend := ctx.autoGet(">"); def != nil && !isTrivial(depend) {
-            s := traves.add(ctx, traveFail, target)
+    } else if file, filename, _ = fullname(ctx, target.value, closured...); file == nil {
+        if depend := ctx.autoGet(">"); depend != nil && !isTrivial(depend.value) {
+            s := traves.add(ctx, traveFail, target.value)
             s.error = traveTargetNotDefinedFile
-            s.depend = depend
+            s.depend = depend.value
         } else if true {
             prompt(ctx, "%v: not defined as file\n", target.Strval(ctx))
             erro(ctx, "(%T) %v", target, target)
@@ -815,7 +807,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
 
     if file.info == nil { if f := stat(ctx, filename, "", ""); f != nil { file.info = f.info }}
     if opts.debug>0 && file != nil {
-        var _, t = ctx.autoGet("@")
+        var t = ctx.autoGet("@")
         info(ctx, "configure-file: %v: %v (%s) (%v)", t, file.fullname(), closured).debug(opts.debug)
     }
 
@@ -846,8 +838,8 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
     defer func(s string, c *Scope) { configuredFiles[s] = c } (filename, closure)
 
     var data bytes.Buffer
-    if _, buffer := ctx.autoGet("-"); !isNil(buffer) {
-        args = append(args, buffer)
+    if h := ctx.autoGet("-"); h != nil && !isNil(h.value) {
+        args = append(args, h.value)
     }
     if dealArgs != nil { args = dealArgs(args, &data) }
     if dealData != nil { for _, arg := range args {
@@ -859,12 +851,12 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         }
     }}
     if data.Len() == 0 {
-        var _, t = ctx.autoGet("@")
+        var t = ctx.autoGet("@")
         prompt(ctx, "%v: %v\n", filename, t)
         erro(ctx, "no configuration data").debug(6)
         return
     } else if f := ctx.Project().configuration(ctx); (f == nil || !f.exists()) && opts.debug>0 {
-        var _, t = ctx.autoGet("@")
+        var t = ctx.autoGet("@")
         // NOTE: TrimSpace to ease emacs *compilation* parse errors
         prompt(ctx, "%v: %v\n%s\n", filename, t, strings.TrimSpace(data.String())).debug(1)
     }
@@ -879,7 +871,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
             }
 
             var d = time.Now().Sub(st)
-            var _, t = ctx.autoGet("@")
+            var t = ctx.autoGet("@")
             printEnteringDirectory(ctx)
             prompt(ctx, "update %v …… %s (in %v)\n",
                 trimPromptString(filename), status, d)
@@ -951,17 +943,17 @@ func __modifierConfigureInput(ctx Context, args ...Value) (result Value, _ trave
         opts = modifierConfigureInputOpts{ mode:os.FileMode(0640) }
         project = ctx.Project()
     )
-    args = parseOpts(ctx, &opts, expandPlainValue, args...)
-    if def, target := ctx.autoGet("@"); def == nil || isTrivial(target) {
+    args = parseOpts(ctx, &opts, plain, args...)
+    if target := ctx.autoGet("@"); target == nil || isTrivial(target.value) {
         erro(ctx, " target '@' is not defined").debug(1)
         return
     }
 
-    if def, ok := project.scope.Lookup("configure.names").(*Def); ok {
-        args = append(args, mergex(ctx, expandPlainValue, def.value)...)
+    if def, ok := project.scope.Lookup("configure.names").(*def); ok {
+        args = append(args, mergex(ctx, plain, def.value)...)
     }
 
-    var configs = make(map[string]*Def)
+    var configs = make(map[string]*def)
     for _, a := range args {
         var name = a.Strval(ctx)
         if _, ok := configs[name]; ok {
@@ -969,13 +961,13 @@ func __modifierConfigureInput(ctx Context, args ...Value) (result Value, _ trave
         } else if obj := project.resolveObject(ctx, name); obj == nil {
             erro(ctx, "undefined %v", name).debug(1)
             return
-        } else if def, ok := obj.(*Def); ok {
+        } else if def, ok := obj.(*def); ok {
             configs[name] = def
         }
     }
     for _, c := range project.configs {
         var name = c.Name(ctx)
-        if def, ok := project.scope.Lookup(name).(*Def); ok {
+        if def, ok := project.scope.Lookup(name).(*def); ok {
             configs[name] = def
         }
     }
@@ -993,11 +985,11 @@ func modifierConfigureInput(ctx Context, args ...Value) (result Value, _ travest
     var opts = configureConvertOpts{ mode: os.FileMode(0600) }
     var dealArgs = func(args []Value, out *bytes.Buffer) []Value {
         var project = ctx.Project()
-        if def, ok := project.scope.Lookup("configure.names").(*Def); ok {
-            args = append(args, mergex(ctx, expandPlainValue, def.value)...)
+        if def, ok := project.scope.Lookup("configure.names").(*def); ok {
+            args = append(args, mergex(ctx, plain, def.value)...)
         }
 
-        var configs = make(map[string]*Def)
+        var configs = make(map[string]*def)
         for _, a := range args {
             var name = a.Strval(ctx)
             if _, ok := configs[name]; ok {
@@ -1005,13 +997,13 @@ func modifierConfigureInput(ctx Context, args ...Value) (result Value, _ travest
             } else if obj := project.resolveObject(ctx, name); obj == nil {
                 erro(ctx, "undefined %v", name).debug(1)
                 return nil
-            } else if def, ok := obj.(*Def); ok {
+            } else if def, ok := obj.(*def); ok {
                 configs[name] = def
             }
         }
         for _, c := range project.configs {
             var name = c.Name(ctx)
-            if def, ok := project.scope.Lookup(name).(*Def); ok {
+            if def, ok := project.scope.Lookup(name).(*def); ok {
                 configs[name] = def
             }
         }
@@ -1051,7 +1043,7 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ t
         opts = modifierExtractConfigurationOpts{ mode:os.FileMode(0640) } // sys default 0666
         pats []Value
     )
-    for _, arg := range parseOpts(ctx, &opts, expandPlainValue, args...) {
+    for _, arg := range parseOpts(ctx, &opts, plain, args...) {
         switch a := arg.(type) {
         case *Group: pats = append(pats, a.Elems...)
         default:     pats = append(pats, a)
@@ -1070,11 +1062,11 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ t
     }
 
     var outFile string
-    if _, target := ctx.autoGet("@"); isNil(target) {
+    if target := ctx.autoGet("@"); target == nil || isNil(target.value) {
         erro(ctx, " target '@' is undefined").debug(1)
         return
     } else {
-        outFile = target.Strval(ctx)
+        outFile = target.value.Strval(ctx)
     }
 
     if opts.makePath {
@@ -1104,8 +1096,8 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ t
         filterOpts builtinFilterOpts
         depends, sources []Value
     )
-    if _, value := ctx.autoGet("^"); !isTrivial(value) {
-        depends = mergex(ctx, expandPlainValue, value)
+    if d := ctx.autoGet("^"); d != nil && !isTrivial(d.value) {
+        depends = mergex(ctx, plain, d.value)
     }
     for _, depend := range depends {
         var a []Value

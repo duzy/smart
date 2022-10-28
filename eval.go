@@ -20,11 +20,11 @@ func (p *evaluer) Evaluate(ctx Context, args ...Value) (result Value, err error)
 
         var list []Value
         var opts evaluerOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
 ForRecipes:
         for _, recipe := range program.recipes {
-                var w = expandPlainValue | expandPathStr | expandPairVal
+                var w = plain | expandPathStr | expandPairVal
                 if opts.fullname { w |= expandFullName }
 
                 var (

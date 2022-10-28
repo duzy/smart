@@ -274,7 +274,7 @@ type useVarOpts struct {
 	unique bool `u,uni,uniq,unique`
     args []Value
 }
-func (opts *useVarOpts) apply(ctx Context, def *Def, vals []Value) {
+func (opts *useVarOpts) apply(ctx Context, def *def, vals []Value) {
     if opts.unique {
         if def.append(ctx, vals...); len(opts.args) > 0 {
             var position = ctx.Position()
@@ -289,7 +289,7 @@ func parseUseNameOpts(ctx Context, nameVal Value) (name string, opts useVarOpts)
     if arged, ok := nameVal.(*Argumented); ok {
         var args []Value
 		nameVal, args = arged.value, arged.args
-        opts.args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        opts.args = parseOpts(ctx, &opts, plain, args...)
 	}
 	name = nameVal.Strval(ctx)
     return
@@ -304,11 +304,11 @@ func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
 	var (
         position = ctx.Position()
         none = MakeNone(position)
-		def, alt = user.scope.define(ctx, DefVoid, name, none)
-        isNewDef = !isNil(def) && isNil(alt)
+		d, alt = user.scope.define(ctx, DefVoid, name, none)
+        isNewDef = !isNil(d) && isNil(alt)
 	)
-	if def == nil && !isNil(alt) { def, _ = alt.(*Def) }
-	if def == nil {
+	if d == nil && !isNil(alt) { d, _ = alt.(*def) }
+	if d == nil {
 		erro(ctx, `%v: "%s" is undefined`, user, name).of(nameVal).debug(1)
 		return
     } else if false {
@@ -319,8 +319,8 @@ func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
         for _, base := range user.bases {
             if obj := base.resolveObject(ctx, name); isNil(obj) {
                 continue
-            } else if d, ok := obj.(*Def); ok && !isTrivial(d.value) {
-                opts.apply(ctx, def, merge(d.value))
+            } else if t, y := obj.(*def); y && !isTrivial(t.value) {
+                opts.apply(ctx, d, merge(t.value))
             }
         }
         // 2: apply using vars from bases
@@ -330,8 +330,8 @@ func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
                 obj = base.scope.lookup("using."+name)
             } else if obj = base.resolveObject(ctx, "using."+name); isNil(obj) {
                 continue
-            } else if d, ok := obj.(*Def); ok && !isTrivial(d.value) {
-                opts.apply(ctx, def, merge(d.value))
+            } else if t, y := obj.(*def); y && !isTrivial(t.value) {
+                opts.apply(ctx, d, merge(t.value))
             }
         }
     }
@@ -341,17 +341,17 @@ func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
     } else if va := merge(v); len(va) > 0 {
         var c = closureWith(ctx, position, user.scope)
         for _, v := range va {
-            if d, ok := v.(*Def); !ok {
+            if t, y := v.(*def); !y {
                 erro(ctx, "%s: not a Def: %T %v", name, v, v).debug(1)
-            } else if isTrivial(d.value) {
+            } else if isTrivial(t.value) {
                 // does nothing
             } else {
-                opts.apply(c, def, merge(d.value))
+                opts.apply(c, d, merge(t.value))
             }
         }
     }
     if false && name == "ldlibs" && strings.HasPrefix(user.name, "lld.") {
-		info(ctx, "%v, %v: %v", user, usee, def)
+		info(ctx, "%v, %v: %v", user, usee, d)
 		info(ctx, "%v, %v: %v %v", user, usee, ctx.Project(), ctx).debug(10)
 	}
 }
@@ -366,45 +366,38 @@ func applyUsingVar(ctx Context, user, usee *Project, nameVal Value) {
         position = ctx.Position()
         none = MakeNone(position)
         usingName = "using." + name
-        def, alt = user.scope.define(ctx, DefVoid, usingName, none)
+        d, alt = user.scope.define(ctx, DefVoid, usingName, none)
     )
-    if def == nil && !isNil(alt) { def, _ = alt.(*Def) }
-    if def == nil {
+    if d == nil && !isNil(alt) { d, _ = alt.(*def) }
+    if d == nil {
         erro(ctx, `%v: "%s" is undefined'`, user, name).of(nameVal).debug(1)
         return
-    } else if isTrivial(def.value) {
+    } else if isTrivial(d.value) {
         for _, base := range user.bases {
             if obj := base.resolveObject(ctx, usingName); isNil(obj) {
                 continue
-            } else if d, ok := obj.(*Def); ok && !isTrivial(d.value) {
-                def.append(ctx, d.value)
+            } else if t, y := obj.(*def); y && !isTrivial(t.value) {
+                d.append(ctx, t.value)
             }
         }
     }
 
     if o := usee.scope.Lookup(usingName); isNil(o) || isNone(o) {
         // does nothing
-    } else if d, ok := o.(*Def); !ok {
+    } else if t, y := o.(*def); !y {
         erro(ctx, "%s: not a Def: %T %v", name, o, o).debug(1)
-    } else if isTrivial(d.value) {
+    } else if isTrivial(t.value) {
         // does nothing
     } else {
         var c = closureWith(ctx, position, usee.scope)
-        opts.apply(c, def, merge(d.value))
-    }
-    if def.name == "arflags" && strings.Contains(def.value.String(), "crs crs") {
-        warn(ctx, "%v", def).debug(1)
-    }
-    if false && name == "ldlibs" && (strings.HasPrefix(user.name, "lld.") || strings.HasPrefix(usee.name, "lld.")) {
-        info(ctx, "%v: %v: %v", user, usee, def)
-        info(ctx, "%v: %v: %v", user, usee, ctx).debug(10)
+        opts.apply(c, d, merge(t.value))
     }
 }
 func applyUseeVars(ctx Context, user, usee *Project) {
     var spec Value
     if o := usee.resolveObject(ctx, "using.*"); o == nil {
         // erro(ctx, "resolve using.* failed").debug(1)
-    } else if def, _ := o.(*Def); def != nil {
+    } else if def, _ := o.(*def); def != nil {
         spec = def.value
     }
     if !isTrivial(spec) {
@@ -416,7 +409,7 @@ func applyUsingVars(ctx Context, user, usee *Project) {
     var spec Value
     if o := user.resolveObject(ctx, "using.*"); o == nil {
         // erro(ctx, "resolve using.* failed").at(ctx.Position()).debug(1)
-    } else if def, _ := o.(*Def); def != nil {
+    } else if def, _ := o.(*def); def != nil {
         spec = def.value
     }
     if !isTrivial(spec) {
@@ -782,7 +775,7 @@ func iterateArgumentedIdentElems(ctx Context, elems, stems []Value, f func(elems
 func iterateArgumentedIdentifiers(ctx Context, identifier Value, f func(ident Value, stem []Value)) {
     switch t := identifier.(type) {
     case *Argumented:
-        var args = mergex(ctx, expandPlainValue, t.args...)
+        var args = mergex(ctx, plain, t.args...)
         iterateArgumentedIdentifiers(ctx, t.value, func(ident Value, stems []Value) {
             var pos = ident.Position()
             for _, arg := range args {
@@ -801,10 +794,10 @@ func iterateArgumentedIdentifiers(ctx Context, identifier Value, f func(ident Va
     }
 }
 
-func (l *loader) determine(position Position, tok token.Token, identifier, value Value) (defs []*Def) {
+func (l *loader) define(position Position, tok token.Token, identifier, value Value) (defs []*def) {
     var ctx Context = positional(l, position)
     iterateArgumentedIdentifiers(ctx, identifier, func(ident Value, stems []Value) {
-        var def = l.determine1(ctx, tok, ident, value)
+        var def = l.define1(ctx, tok, ident, value)
         if false && l.project.name == "variant_base" && strings.HasPrefix(ident.String(), "using.") {
             warn(ctx, "%v -> %v, %v -> %v ; %v",
                 identifier, ident, stems, def, value).of(ident).debug(1)
@@ -814,20 +807,20 @@ func (l *loader) determine(position Position, tok token.Token, identifier, value
     return
 }
 
-func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Value) (def *Def) {
+func (l *loader) define1(ctx Context, tok token.Token, identifier, value Value) (res *def) {
     var alt Object
     switch t := identifier.(type) {
     case *selection:
         var v = t.value(ctx)
-        if d, ok := v.(*Def); ok {
-            def = d
+        if a, y := v.(*def); y {
+            res = a
         } else {
             erro(ctx, "`%v` is not a def (%T)", t, v)
             return
         }
 
     case *Argumented:
-        var args = mergex(ctx, expandPlainValue, t.args...)
+        var args = mergex(ctx, plain, t.args...)
         erro(ctx, "TODO: multiple defs: %v args=%v", t.value, args)
         return
 
@@ -845,63 +838,63 @@ func (l *loader) determine1(ctx Context, tok token.Token, identifier, value Valu
         // Resolve base value to derive.
         var prev = l.project.resolveObject(ctx, name)
 
-        if def, alt = l.def(identifier.Position(), name); alt == nil {
-            if def == nil { warn(ctx, "%s is undefined, via %v (%)", name, t, t).debug(1) }
-            if false { assert(def != nil, "def failed") }
+        if res, alt = l.def(identifier.Position(), name); alt == nil {
+            if res == nil { warn(ctx, "%s is undefined, via %v (%)", name, t, t).debug(1) }
+            if false { assert(res != nil, "def failed") }
         } else if tok == token.ASSIGN || tok == token.EXC_ASSIGN {
-            if ad, okay := alt.(*Def); !okay {
+            if ad, okay := alt.(*def); !okay {
                 erro(ctx, "`%v` already defined (%T) (%v,%v)", identifier, alt, alt.OwnerProject(), l.project).debug(1)
                 return
             } else if ad.owner == l.project && ad.origin != DefConfRef {
                 erro(ctx, "`%v` already defined (%T) (%v)", identifier, alt, l.project).debug(1)
                 return
             } else {
-                def = ad
+                res = ad
             }
         } else {
-            def = alt.(*Def)
+            res = alt.(*def)
         }
 
         if prev == nil {
             // no derived value
         } else if prev.OwnerProject() == l.project {
             // not derivable def if in the same project
-        } else if derived, okay := prev.(*Def); !okay {
+        } else if derived, okay := prev.(*def); !okay {
             // not a def
         } else if derived == nil {
             erro(ctx, "prev def '%s' is nil", name).debug(1)
-        } else if derived == def || def.value.refs(ctx, derived) {
+        } else if derived == res || (res.value != nil && res.value.refs(ctx, derived)) {
             // same def
         } else if tok == token.ADD_ASSIGN {
             // NOTE: We must set the origin from Void to derived origin! If not, the
             //       Def.Call method will fail to initiate a real 'call' with arguments
-            //       set correctly, (see (*Def).Call for details).
-            if def.origin == DefVoid { def.origin = derived.origin }
+            //       set correctly, (see (*def).Call for details).
+            if res.origin == DefVoid { res.origin = derived.origin }
 
             if false {
                 // Unshift the delegation to derive value.
                 var delegate = MakeDelegate(ctx.Position(), token.LPAREN, derived)
-                def.append(ctx, delegate)
+                res.append(ctx, delegate)
             } else {
-                def.append(ctx, derived.value)
+                res.append(ctx, derived.value)
             }
         }
     }
 
-    if def == nil {
+    if res == nil {
         erro(ctx, "def is nil for '%v' of %T", identifier, identifier).debug(1)
         return
     }
 
-    def.position = identifier.Position()
-    l.assign(tok, def, alt, value)
+    res.position = identifier.Position()
+    l.assign(ctx, tok, res, alt, value)
     return
 }
 
 func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
     var (
         ctx = positional(l, l.Position())
-        params  []*Def
+        params  []*def
         depends []Value
         ordered []Value
         progScope *Scope = l.Scope()
@@ -909,7 +902,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
         recipes = clause.recipes
     )
     for _, name := range clause.params {
-        def := progScope.Lookup(name).(*Def)
+        def := progScope.Lookup(name).(*def)
         params = append(params, def)
     }
     for _, depend := range clause.depends {
@@ -1179,7 +1172,7 @@ ParamsLoop:
                 identifier = MakeBarecomp(position, MakeBareword(position, "project"), p.Key)
             }
 
-            var defs = l.determine(position, token.ASSIGN, identifier, p.Value)
+            var defs = l.define(position, token.ASSIGN, identifier, p.Value)
             if len(defs) == 0 {/* TODO: check defs... */}
             continue ParamsLoop
         }
@@ -1189,10 +1182,11 @@ ParamsLoop:
             specVal Value
             implicit bool
         )
-        if specVal = elem.expand(ctx, expandPlainValue); specVal == nil {
+        if specVal = elem.expand(ctx, plain); specVal == nil {
             specVal = elem // okay!
-        } else if specVal.expandible(ctx, expandPlainValue) {
-            erro(ctx, "incomplete expand: %v -> %v", elem, specVal).at(elemPos).debug(1)
+        } else if true && specVal.expandible(ctx, plain) {
+            erro(ctx, "incomplete expand: %T %v -> %T %v",
+                elem, elem, specVal, specVal).at(elemPos).debug(1)
             return
         } else if defs := specVal.defs(ctx); len(defs) > 0 {
             erro(ctx, "incomplete expand: %v -> %v (defs=%v)", elem, specVal, defs).at(elemPos).debug(1)
@@ -1275,32 +1269,28 @@ ParamsLoop:
         // bypass ...
     } else if o := l.project.resolveObject(ctx, "using.*"); o == nil {
         // erro(ctx, "resolve using.* failed").debug(1)
-    } else if d, ok := o.(*Def); ok && !isTrivial(d.value) {
+    } else if d, ok := o.(*def); ok && !isTrivial(d.value) {
         var none = MakeNone(position)
         // Derive using.xxx Defs from bases
         for _, val := range merge(d.value) {
             var name, opts = parseUseNameOpts(ctx, val)
             var us = "using." + name
-            var def, alt = l.project.scope.define(ctx, DefVoid, us, none)
-            if def == nil && !isNil(alt) { def, _ = alt.(*Def) }
-            if def == nil { continue }
+            var vd, alt = l.project.scope.define(ctx, DefVoid, us, none)
+            if vd == nil && !isNil(alt) { vd, _ = alt.(*def) }
+            if vd == nil { continue }
 
             var vals []Value
             for _, base := range l.project.bases {
                 var obj = base.scope.lookup(us)
                 if isNil(obj) { continue }
-                if d, ok := obj.(*Def); !ok || isTrivial(d.value) {
+                if d, ok := obj.(*def); !ok || isTrivial(d.value) {
                     continue
                 } else {
                     vals = append(vals, merge(d.value)...)
                 }
-                if false { warn(ctx, "%v: %v: %v", l.project, base, def).debug(1) }
+                if false { warn(ctx, "%v: %v: %v", l.project, base, vd).debug(1) }
             }
-            opts.apply(closureWith(ctx, position, l.project.scope), def, vals)
-            if false && l.project.name == "extbit.main.macOS" {
-                warn(ctx, "%v: %v, %v, %v", def.owner, def.origin, name, opts)
-                warnstack(ctx, 5, "%v", def).debug(16)
-            }
+            opts.apply(closureWith(ctx, position, l.project.scope), vd, vals)
         }
     }
     return true
@@ -1484,9 +1474,9 @@ func (l *loader) declare(keyword token.Token, ident *Barecomp, identStr string, 
             case *Bareword, *Barecomp:
                 var name = k.Strval(ctx);
                 //if name[0] == '.' { name = "project" + name }
-                var def, alt = l.def(l.Position(), name)
-                if def == nil && alt != nil { def = alt.(*Def) }
-                def.set(ctx, DefDecl, t.Value)
+                var d, a = l.def(l.Position(), name)
+                if d == nil && a != nil { d = a.(*def) }
+                d.set(ctx, DefDecl, t.Value)
             default:
                 erro(ctx, "`%v` unknown target from command line (%v)", t, l.project)
                 return
@@ -1498,15 +1488,15 @@ func (l *loader) declare(keyword token.Token, ident *Barecomp, identStr string, 
         switch t := arg.(type) {
         case *Pair:
             var name = t.Key.Strval(ctx)
-            var def, alt = l.def(t.Key.Position(), name)
-            if alt != nil {
+            var d, a = l.def(t.Key.Position(), name)
+            if a != nil {
                 var ok bool
-                if def, ok = alt.(*Def); !ok {
-                    erro(ctx, "'%v' is not a Def (%T)", alt, alt).debug(1)
+                if d, ok = a.(*def); !ok {
+                    erro(ctx, "'%v' is not a Def (%T)", a, a).debug(1)
                     return
                 }
             }
-            if def != nil { def.val(ctx, t.Value) }
+            if d != nil { d.val(ctx, t.Value) }
             warn(ctx, "%v: %v", ident, t)
         }
     }
@@ -1690,22 +1680,22 @@ func (l *loader) resolveEntries(target Value) (entries *ResolveEntries) {
     return
 }
 
-func (l *loader) def(position Position, name string) (def *Def, alt Object) {
+func (l *loader) def(position Position, name string) (def *def, alt Object) {
     var scope = l.Scope()
     if  strings.HasPrefix(scope.comment, "file ") && l.mode&Flat != 0 {
         // use project scope if defining in flat file (aka. include)
         // to ensure that the symbol is valid in the project
         scope = l.Scope()
     }
-    def, alt = scope.define(positional(l, position), DefVoid, name, MakeNone(position))
+    def, alt = scope.define(positional(l, position), DefVoid, name, /*MakeNone(position)*/nil)
     if def != nil { def.position = position }
     return
 }
 
-func (l *loader) assign(tok token.Token, def *Def, alt Object, value Value) {
+func (l *loader) assign(ctx Context, tok token.Token, def *def, alt Object, value Value) {
     var (
-        pos = l.Position()
-        ctx = positional(l, pos)
+        // pos = l.Position()
+        // ctx = positional(l, pos)
     )
     switch tok {
     case token.ASSIGN:     //   =
@@ -1719,7 +1709,7 @@ func (l *loader) assign(tok token.Token, def *Def, alt Object, value Value) {
     case token.QUE_ASSIGN: //  ?=
         if isNil(alt) { def.set(ctx, DefDefault, value) }
     case token.ADD_ASSIGN: //  +=
-        if isTrivial(value) {
+        if def.value == nil || isTrivial(value) {
             // NOOP
         } else if def.value.refs(ctx, value) {
             erro(ctx, "self-ref value: %v -> %v ; %s, %s",
@@ -1914,7 +1904,7 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
     defer l.closeScope(l.OpenNamedScope(ident, fmt.Sprintf("config %s", pathname)))
 
     var ctx = positional(l, l.Position())
-    var def *Def
+    var def *def
 ListLoop:
     for _, d := range list {
         var name = d.Name()
@@ -1996,10 +1986,12 @@ func (l *loader) ParseDir(pos Position, path string, filter func(os.FileInfo) bo
         return
     }
     for i, a := range list {
-        if i > 0 && a.Name() == "build.smart" {
-            first := list[0]
-            list[0] = a
-            list[i] = first
+        if i > 0 {
+            if first, s := list[0], a.Name(); s == "do.smart" ||
+                (s == "build.smart" && first.Name() != "do.smart") {
+                list[0] = a
+                list[i] = first
+            }
         }
     }
 
@@ -2227,7 +2219,7 @@ func (l *loader) loadDir(pos Position, specName, absDir string, filter func(os.F
 
     // FIXME: loading failed if different 'project' found in
     // the same dir, for example:
-    //      project Foo # file build.smart
+    //      project Foo # file do.smart
     //      project # file config.smart
     if len(mods) == 0 && filepath.Base(specName) != "@" {
         if l.implicit {

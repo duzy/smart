@@ -110,9 +110,9 @@ func (pc *programContext) dirtyMark(vals ...Value) {
     const enableDirtyMark = true
     if !enableDirtyMark {
         // does nothing
-    } else if _, t := pc.autoGet("@"); isTrivial(t) {
+    } else if t := pc.autoGet("@"); t == nil || isTrivial(t.value) {
         // should not happen, but safely ignoring..
-    } else if tt := merge(t); len(tt) == 0 {
+    } else if tt := merge(t.value); len(tt) == 0 {
         // should not happen, but safely ignoring..
     } else if len(vals) == 0 {
         vals = append(vals, tt...)
@@ -153,7 +153,7 @@ type Program struct {
     position Position
     project *Project
     scope   *Scope
-    params  []*Def
+    params  []*def
     depends []Value // normal
     ordered []Value // order-only
     recipes []Value
@@ -237,7 +237,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
     //       [ foo.baaaar ]
     var (
         name string
-        args = mergex(ctx, expandPlainValue, m.name)
+        args = mergex(ctx, plain, m.name)
     )
     if n := len(args); n == 0 {
         erro(ctx, "modifier name '%v' is empty", m.name).of(m.name).debug(1)
@@ -249,7 +249,6 @@ func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
 
     var proj = ctx.Project()
     if f, ok := modifiers[name]; ok {
-        if false { warn(ctx, "%T %v ; %s", m.name, m.name, name).debug(1) }
         var value Value //, _ = ctx.autoGet("-")
         // Special modifier processing (implicit interpretation) before (configure)
         if len(ctx.traversal().interpreted) == 0 && len(prog.recipes) > 0 && name == "configure" {
@@ -274,7 +273,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
                 }
             }
             return
-        } else if def, hyphen := ctx.autoGet("-"); def == nil || isNil(value) || value == hyphen {
+        } else if h := ctx.autoGet("-"); h == nil || isNil(value) || value == h.value {
             // does nothing
         } else if ctx.autoSet("-", value); false {
             var _, ent, _ = entryStr(ctx, ctx.entry())
@@ -284,7 +283,6 @@ func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
             fail(m.Position(), "%s failed for project %s", name, proj)
         }
     } else if i, _ := dialects[name]; i != nil {
-        if false { warn(ctx, "%T %v ; %s", m.name, m.name, name).debug(1) }
         if err := prog.interpret(ctx, i, args); err != nil {
             var _, ent, _ = entryStr(ctx, ctx.entry())
             prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
@@ -329,11 +327,11 @@ func (prog *Program) workDir(ctx Context) (workDir string) {
                 return
             }
         }
-        if def, ok := o.(*Def); ok {
-            if v := def.Call(ctx); !isTrivial(v) {
+        if d, y := o.(*def); y {
+            if v := d.Call(ctx); !isTrivial(v) {
                 workDir = v.Strval(ctx)
             } else {
-                erro(ctx, "%v is trivial", def.name).debug(1)
+                erro(ctx, "%v is trivial", d.name).debug(1)
             }
         }
     } else if filepath.IsAbs(prog.changedWD) {
@@ -346,7 +344,7 @@ func (prog *Program) workDir(ctx Context) (workDir string) {
 
 func (prog *Program) env(ctx Context) (env []string, osi int) {
       var envars []*Pair // disclosed values
-    if def, _ := prog.scope.Lookup(TheShellEnvarsDef).(*Def); def != nil {
+    if def, _ := prog.scope.Lookup(TheShellEnvarsDef).(*def); def != nil {
         if l, _ := def.value.(*List); l != nil {
             for _, v := range l.Elems {
                 var t Value
@@ -411,10 +409,11 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
 
     defer func() {
         var (
-            _, targets = ctx.autoGet("@")
-            _, depends = ctx.autoGet("^")
+            targets, depends Value
             tb = traves.not(traveDone, traveNext)
         )
+        if d := ctx.autoGet("@"); d != nil { targets = d.value }
+        if d := ctx.autoGet("^"); d != nil { depends = d.value }
         if isTrivial(targets) { targets = entry.Target() }
         if true || tb.has() {
             // breaked
@@ -473,7 +472,8 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
         if depth < maxCallRecursion {
             // continues
         } else if c := /*cc.traversal()*/cc.programContext(); c != nil {
-            var _, tt = c.autoGet("@")
+            var tt Value
+            if d := c.autoGet("@"); d != nil { tt = d.value }
             prompt(ctx, "%v: max recursion call (%d)\n", fullnameOrStrval(ctx, tt), depth)
             warn(ctx, "max recursion call (%d)\n", depth).of(tt).debug(1)
 
@@ -481,26 +481,27 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
             for ; c != nil; c = c.caller() {
                 var n int
                 if collapse { for next := c.caller(); next != nil; next = next.caller() {
-                    if _, t := next.autoGet("@"); t != nil && t.cmp(ctx, tt) == cmpEqual {
+                    if d := next.autoGet("@"); d == nil { continue } else
+                    if t := d.value; t != nil && t.cmp(ctx, tt) == cmpEqual {
                         n += 1;  continue
                     }
                     if next.program() == c.program() { n += 1; c = next } else { break }
                 }}
 
-                var _, t = c.autoGet("@")
+                var t = c.autoGet("@")
                 if prog := c.program(); prog == nil {
                     erro(ctx, "%v (@=%v)", entry, tt).at(entry.Position())
                     break
                 } else if pos := prog.position; n > 0 {
                     erro(ctx, "%v (repeated %d times)", t, n).at(pos)
                 } else if !collapse {
-                    var _, d = c.autoGet(">")
+                    var d = c.autoGet(">")
                     erro(ctx, "%v : %v", t, d).at(pos)
                 } else if depth -= 1; maxCallRecursion - depth > 5 {
                     erro(ctx, "%v ... (%d)", t, maxCallRecursion - depth).at(pos)
                     break
                 } else {
-                    var _, d = c.autoGet(">")
+                    var d = c.autoGet(">")
                     erro(ctx, "%v : %v", t, d).at(pos)
                 }
 
@@ -576,8 +577,8 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
 
         if /*!isNil(result) && !isNone(result)*/!isTrivial(result) {
             // good!
-        } else if _, result = ctx.autoGet("-"); !isNil(result) {
-            // good!
+        } else if d := ctx.autoGet("-"); d != nil && !isNil(d.value) {
+            result = d.value
         } else if !isNil(defaultVal) {
             result = defaultVal
         }
@@ -589,7 +590,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
 
     if alreadyUpdated {
         if options.verbose {
-            var _, t = ctx.autoGet("@")
+            var t = ctx.autoGet("@")
             info(ctx, "'%v' already updated", t)
         }
         if false { return }
@@ -601,7 +602,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
 
     if options.traceExec {
         var d = t.depth()
-        var _, t = ctx.autoGet("@")
+        var t = ctx.autoGet("@")
         var s = fmt.Sprintf("%s: %v (%p, exec.depth=%d)", typeof(t), t, t, d)
         defer un(trace(t_exec, s))
     }
@@ -614,12 +615,11 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     ctx.autoSet(">", nil)
     traves = append(traves, prog.traverse(&normalTraverseContext{ ctx }, prog.depends)...)
     if errs := ctx.checkErrors(true); errs > 0 {
-        var _, t = ctx.autoGet("@")
         s := traves.add(positional(ctx, prog.position), traveFail, nil)
         s.error = fmt.Errorf("%d errors counted", errs)
         prompt(ctx, "%v: execute failed, project %s; traves=%v\n",
             entry, proj, traves).debug(1)
-        warn(ctx, "%d errors while traversing prerequisites for %v", errs, t)
+        warn(ctx, "%d errors while traversing prerequisites for %v", errs, ctx.autoGet("@"))
         if warnstack(ctx, 6, "").debug(8); true && options.failOnErrors {
             fail(prog.position, "fail by %d errors", ctx.totalErrors())
         }
@@ -632,12 +632,11 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     ctx.autoSet("|", nil)
     traves = append(traves, prog.traverse(&orderTraverseContext{ ctx }, prog.ordered)...)
     if errs := ctx.checkErrors(true); errs > 0 {
-        var _, t = ctx.autoGet("@")
         s := traves.add(positional(ctx, prog.position), traveFail, nil)
         s.error = fmt.Errorf("%d errors counted", errs)
         prompt(ctx, "%v: execute failed, project %s; traves=%v\n",
             entry, proj, traves).debug(1)
-        warn(ctx, "%d errors while traversing prerequisites for %v", errs, t)
+        warn(ctx, "%d errors while traversing prerequisites for %v", errs, ctx.autoGet("@"))
         if warnstack(ctx, 6, "").debug(8); true && options.failOnErrors {
             fail(prog.position, "fail by %d errors", ctx.totalErrors())
         }
@@ -648,7 +647,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
 
     if prog.language != "" || len(t.interpreted) > 0 || len(prog.recipes) == 0 {
         // does nothing
-    } else if d, h := ctx.autoGet("-"); d == nil || isNil(h) {
+    } else if d := ctx.autoGet("-"); d == nil || isNil(d.value) {
         // Using the default statements interpreter (aka. evaluation).
         if i, ok := dialects["eval"]; ok && i != nil {
             if err := prog.interpret(ctx, i, nil); err != nil {
@@ -674,11 +673,12 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
 
     var (
         stems = ctx.stems()
-        _, g = ctx.autoGet("@")
+        g Value
         verb  = options.verbose || options.verboseBreaks
         mu sync.Mutex
         wg sync.WaitGroup
     )
+    if d := ctx.autoGet("@"); d != nil { g = d.value }
     defer func() {
         wg.Wait()
 
@@ -715,19 +715,10 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
             // NOTE: Must fetch $@ after every prerequisite traverse, because
             // NOTE: a prerequisite modifier may had changed it.
             var (
-                _, target = ctx.autoGet("@")
-                _, depend = ctx.autoGet(">")
+                target = ctx.autoGet("@")
+                depend = ctx.autoGet(">")
             )
-            if dbg || false && strings.Contains(prerequisite.Strval(ctx), "%.h.cmake") {
-                warn(ctx, "%v", t).of(prerequisite)
-                warn(ctx, "%T %v\n", depend, depend).of(depend)
-                warn(ctx, "%T %v\n", prerequisite, prerequisite).of(prerequisite)
-                warn(ctx, "%T %v\n", target, target).of(target).debug(1)
-                defer func(v Value) { warn(ctx, "%v", t).of(v).debug(20) } (prerequisite)
-            }
-
             if depend != nil { depends.add(depend) }
-
             if tt := t.of(traveFail); tt.has() {
                 var (
                     m = ctx.stemmed()
@@ -740,20 +731,6 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                     for _, s := range tt {
                         var dbgFail2Next bool
                         var dependMine = depends.contains(s.depend)
-                        if dbgInfoStates || false &&
-                            strings.Contains(target.Strval(ctx), "polly/Config/config.h") {
-                            var f = ctx.Project().FindFile(ctx , "polly/Config/config.h")
-                            prompt(ctx, "%v: found in %v\n", f, ctx.Project())
-                            prompt(ctx, "%v\n", t)
-                            prompt(ctx, "%v\n", traves)
-                            info(ctx, "  %v", s).at(s.pos)
-                            info(ctx, "1. %T %v %s", target, target, target.Strval(ctx)).of(target)
-                            info(ctx, "2. %T %v %s", depend, depend, depend.Strval(ctx)).of(depend)
-                            info(ctx, "3. %T %v %v", s.depend, s.depend, dependMine).of(s.depend)
-                            info(ctx, "4. %T %v", prerequisite, prerequisite).of(prerequisite)
-                            infostack(ctx, 5, "#>", s.target/*, s.depend*/).debug(128)
-                            dbgFail2Next = true
-                        }
                         if s.error == traveTargetNotDefinedFile && dependMine {
                             // add traveNext to try the next pattern
                             // trave := traves.remove(s).add(ctx, traveNext, target)
@@ -869,9 +846,8 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
         return
     } else if num := len(prerequisites); num > 0 {
         for _, prerequisite := range prerequisites {
-            var _, target = ctx.autoGet("@")
             warn(ctx, "%v: %T %v %v %v\n",
-                target, prerequisite, prerequisite,
+                ctx.autoGet("@"), prerequisite, prerequisite,
                 ctx.entry().Target(), ctx.stems()).debug(1)
             wg.Add(1)
             go func (ctx Context) {

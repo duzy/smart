@@ -36,6 +36,7 @@ const (
 type generalOpts struct {
         stackNum int  `sn,stack,stacknum,stack-num,stack-number,`
         debug    int  `d,db,dbg,debug` // NOTE: compatible with 'bool'
+        warn     bool `w,warn,warning`
         verbose  bool `v,verb,verbose`
         timing   bool `t,time,timing`
         fullname bool `f,fn,fu,ful,full,fullname`
@@ -267,11 +268,9 @@ func modifierPrint(ctx Context, args... Value) (result Value, traves travestates
                 opts = modifierPrintOpts{ stderr: true }
                 content string
         )
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
-        if def, value := ctx.autoGet("-"); def == nil || isNil(value) {
-                // ...
-        } else {
-                content = value.Strval(ctx)
+        args = parseOpts(ctx, &opts, plain, args...)
+        if d := ctx.autoGet("-"); d != nil || d.value != nil {
+                content = d.value.Strval(ctx)
         }
         if opts.stdout { fmt.Fprint(stdout, content) }
         if opts.stderr { fmt.Fprint(stderr, content) }
@@ -285,13 +284,13 @@ type modifierDebugOpts struct {
         info  []Value `i,info`
         warn  []Value `w,warn`
         error []Value `e,er,err,error`
-        checkOutdated bool `d,dirty;cd,checkdirty;cd,check-dirty;co,check-outdated`
+        checkOutdated bool `dirty;cd,checkdirty;cd,check-dirty;co,check-outdated`
         s int `s,stack,sn,stack-number`
         n int `c,count,n,num,cn,call-number`
 }
 func modifierDebug(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierDebugOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
         if opts.cond != nil && !opts.cond.True(ctx) { return }
 
         for _, v := range opts.info  { info(ctx, "%s", v.Strval(ctx)).of(v).debug(1) }
@@ -299,20 +298,20 @@ func modifierDebug(ctx Context, args... Value) (result Value, traves travestates
         for _, v := range opts.error { erro(ctx, "%s", v.Strval(ctx)).of(v).debug(1) }
 
         var (
-                _, target = ctx.autoGet("@")
-                _, depends = ctx.autoGet("^")
+                target = ctx.autoGet("@")
+                depends = ctx.autoGet("^")
         )
         if opts.checkOutdated && !isNil(target) {
                 var (
-                        _, ordered = ctx.autoGet("|")
-                        _, grepped = ctx.autoGet("~")
+                        ordered = ctx.autoGet("|")
+                        grepped = ctx.autoGet("~")
                         tt = target.stat(ctx).mod()
                 )
                 if tt.IsZero() {
                         info(ctx, "target not exists: %v", target).debug(1)
                         return
                 }
-                for _, dep := range merge(depends, ordered, grepped) {
+                for _, dep := range merge(depends.value, ordered.value, grepped.value) {
                         if dt := dep.stat(ctx).mod(); dt.After(tt) {
                                 info(ctx, "%v: outdated by %v (%v)", target, dep, dt.Sub(tt)).debug(1)
                         }
@@ -342,10 +341,10 @@ func modifierDebug(ctx Context, args... Value) (result Value, traves travestates
 
 // select element by index from group result: (select 0)
 func modifierSelect(ctx Context, args... Value) (result Value, traves travestates) {
-        args = mergex(ctx, expandPlainValue, args...)
-        if _, value := ctx.autoGet("-"); isNil(value) {
+        args = mergex(ctx, plain, args...)
+        if h := ctx.autoGet("-"); h == nil || isNil(h.value) {
                 erro(ctx, "no pipe value $-").debug(1)
-        } else if g, ok := value.(*Group); ok && len(args) > 0 {
+        } else if g, ok := h.value.(*Group); ok && len(args) > 0 {
                 if i, e := args[0].Integer(ctx); e != nil {
                         erro(ctx, "%v: %v", args[0], e).debug(1)
                 } else {
@@ -356,19 +355,19 @@ func modifierSelect(ctx Context, args... Value) (result Value, traves travestate
 }
 
 func modifierEnv(ctx Context, args... Value) (result Value, traves travestates) {
-        args = mergex(ctx, expandPlainValue, args...)
+        args = mergex(ctx, plain, args...)
 
         var program = ctx.program()
-        var def, alt = program.scope.define(ctx, DefVoid, TheShellEnvarsDef, nil)
-        if def == nil && alt != nil { def, _ = alt.(*Def) }
-        if def == nil {
+        var d, a = program.scope.define(ctx, DefVoid, TheShellEnvarsDef, nil)
+        if d == nil && a != nil { d, _ = a.(*def) }
+        if d == nil {
                 erro(ctx, "failed setting %v", TheShellEnvarsDef).debug(1)
                 return
         }
 
         var envars = new(List)
-        if !isTrivial(def.value) {
-                envars.Elems = merge(def.value)
+        if !isTrivial(d.value) {
+                envars.Elems = merge(d.value)
         }
         for _, a := range args {
                 if _, ok := a.(*Pair); ok {
@@ -379,7 +378,7 @@ func modifierEnv(ctx Context, args... Value) (result Value, traves travestates) 
                 }
         }
 
-        def.value = envars
+        d.value = envars
         return
 }
 
@@ -396,20 +395,20 @@ func modifierSet(ctx Context, args... Value) (result Value, traves travestates) 
                 opts modifierSetOpts
                 defs []Value
         )
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
 ForArgs:
         for _, arg := range args {
                 var (
                         name string
                         value Value
-                        def *Def
+                        def *def
                 )
                 switch a := arg.(type) {
                 case *Bareword: name = a.string
                 case *Pair: // NOTE: Pair.Value is not expanded yet! We need to expand it again.
                         name = a.Key.Strval(ctx)
-                        if value = a.Value.expand(ctx, expandPlainValue); isNil(value) {
+                        if value = a.Value.expand(ctx, plain); isNil(value) {
                                 value = a.Value
                         }
                 case *Flag:
@@ -437,7 +436,7 @@ type modifierSetDirtyPatsOpts struct {
 }
 func modifierSetDirtyPats(ctx Context, args... Value) (result Value, traves travestates) {
         var opts = ctx.dirtyOpts()
-        opts.pats = parseOpts(ctx, opts, expandPlainValue, args...)
+        opts.pats = parseOpts(ctx, opts, plain, args...)
         return
 }
 
@@ -463,7 +462,7 @@ func modifierClosure(ctx Context, args... Value) (result Value, traves travestat
 
         assert(ctx.closure() != nil, "context not closured: %v", ctx)
 
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
         if opts.verbose { info(ctx, "%v: %v", ctx.Project(), ctx).debug(1) }
         if opts.dump { infostack(ctx, -1, "%v: %v", ctx.Project(), ctx).debug(1) }
 
@@ -491,7 +490,7 @@ type modifierForOpts struct {
 }
 func modifierFor(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierForOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
         // TODO: ...
         return
 }
@@ -504,7 +503,7 @@ type modifierCDOpts struct {
 }
 func modifierCD(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierCDOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         if opts.printEnter { printEnteringDirectory(ctx) }
         if opts.printLeave { printLeavingDirectory(ctx) }
@@ -542,11 +541,11 @@ type modifierMkdirOpts struct {
 }
 func modifierMkdir(ctx Context, args... Value) (result Value, traves travestates) {
         var opts = modifierMkdirOpts{ mode: os.FileMode(0755) }
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         if len(args) == 0 {
-                var _, target = ctx.autoGet("@")
-                var s = target.Strval(ctx)
+                var d = ctx.autoGet("@")
+                var s = d.value.Strval(ctx)
                 if err := os.MkdirAll(filepath.Dir(s), opts.mode); err != nil {
                         erro(ctx, "make path '%s' failed: %v", s, err).debug(1)
                 }
@@ -569,11 +568,11 @@ type modifierPathOpts struct {
 // (path /example/path)
 func modifierPath(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierPathOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         if len(args) == 0 {
-                var _, target = ctx.autoGet("@")
-                var s = target.Strval(ctx)
+                var d = ctx.autoGet("@")
+                var s = d.value.Strval(ctx)
                 if s = filepath.Dir(s); s != "" && s != "." && s != "/" {
                         if err := os.MkdirAll(s, os.FileMode(0755)); err != nil {
                                 erro(ctx, "make path '%s' failed: %v", err).debug(1)
@@ -1249,8 +1248,8 @@ func modifierGrep(ctx Context, args... Value) (result Value, traves travestates)
 
         var gc grepctx
         gc.fileinc = true // grep files by default
-        args = parseOpts(ctx, &gc.modifierGrepOpts, expandPlainValue, args...)
-        gc.incs = mergex(ctx, expandPlainValue, gc.incs...)
+        args = parseOpts(ctx, &gc.modifierGrepOpts, plain, args...)
+        gc.incs = mergex(ctx, plain, gc.incs...)
         for _, s := range gc.sys { gc.rxs = append(gc.rxs, &greprex{s, true , nil}) }
         for _, s := range gc.reg { gc.rxs = append(gc.rxs, &greprex{s, false, nil}) }
         for _, s := range gc.langs {
@@ -1268,15 +1267,15 @@ func modifierGrep(ctx Context, args... Value) (result Value, traves travestates)
         }
 
         var (
-                _, target = ctx.autoGet("@")
+                target = ctx.autoGet("@")
                 targets = args
                 grepped = ctx.traversal().grepped
         )
-        if len(targets) == 0 { if isNil(target) || isNone(target) {
+        if len(targets) == 0 { if target == nil || isNil(target.value) || isNone(target.value) {
                 erro(ctx, "no grep target").debug(1)
                 return
         } else {
-                targets = append(targets, target)
+                targets = append(targets, target.value)
         }}
 
         if gc.debug > 0 {
@@ -1298,7 +1297,7 @@ func modifierGrep(ctx Context, args... Value) (result Value, traves travestates)
         }
 
         var t = ctx.traversal()
-        var tar = target
+        var tar = target.value
         defer func(v bool) { t.grepping = v } (t.grepping)
         t.grepping = true
 
@@ -1663,14 +1662,14 @@ func modifierDeps(ctx Context, args... Value) (result Value, traves travestates)
                 erro(ctx, "target '%v' is empty", targetVal).debug(1)
                 return
         } else {
-                args = parseOpts(ctx, &opts, expandPlainValue, args...)
+                args = parseOpts(ctx, &opts, plain, args...)
         }
 
         var files []Value
         if opts.verbose {
                 defer func(ts time.Time) {
                         var s string
-                        if _, target := ctx.autoGet("@"); !isNil(target) { s = target.String() }
+                        if d := ctx.autoGet("@"); d != nil && !isNil(d.value) { s = d.value.String() }
                         prompt(ctx, "Deps %v …… (%d files in %v)\n", s, len(files), time.Now().Sub(ts)).debug(opts.debug, 6)
                 } (time.Now())
         }
@@ -1693,7 +1692,7 @@ CorrectCC:
         }
 
         var (
-                flags = mergex(ctx, expandPlainValue, opts.flags...)
+                flags = mergex(ctx, plain, opts.flags...)
                 _MM, _MG bool
                 ca []string
         )
@@ -1715,7 +1714,7 @@ CorrectCC:
         for _, a := range args {
                 var s = strings.TrimSpace(fullnameOrStrval(ctx, a))
                 if strings.Contains(s, "-v -fPIC -fvisibility-inlines-hidden") {
-                        var v = a.expand(ctx, expandPlainValue)
+                        var v = a.expand(ctx, plain)
                         warn(ctx, "%T %v", a, a)
                         warn(ctx, "%T %v", v, v).debug(1)
                 }
@@ -1749,10 +1748,6 @@ CorrectCC:
                 if err = cc.Run(); err != nil {
                         var okay = false
                         if okay, retried, traves = traverseMissingDeps(ctx, retried, stderr.Bytes()); okay && !traves.has() {
-                                if false {
-                                        var _, target = ctx.autoGet("@")
-                                        warn(ctx, "%v: retry deps '%s'", target).debug(1)
-                                }
                                 cc = exec.Command(opts.cc, ca...)
                                 stdout.Reset()
                                 stderr.Reset()
@@ -1796,10 +1791,9 @@ type modifierTouchOpts struct {
 }
 func modifierTouch(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierTouchOpts // = modifierTouchOpts{ mode: os.FileMode(0755) }
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
-        if len(args) == 0 {
-                if def, target := ctx.autoGet("@"); def != nil && !isTrivial(target) {
-                        args = append(args, target)
+        if args = parseOpts(ctx, &opts, plain, args...); len(args) == 0 {
+                if def := ctx.autoGet("@"); def != nil && !isTrivial(def.value) {
+                        args = append(args, def.value)
                 }
         }
 
@@ -1831,7 +1825,7 @@ type modifierCheckOpts struct {
         silent bool `s,slient`
         good bool `g,good`
         file Value `f,file`
-        dir Value `d,dir`
+        dir Value `di,dir`
 }
 // (check status=1 stdout="foobar" stderr="")
 // (check file=filename.txt)
@@ -1843,13 +1837,14 @@ func modifierCheck(ctx Context, args... Value) (result Value, traves travestates
                 opts modifierCheckOpts
                 optBreak travekind // breaking with good results
                 makeResult func(Position,bool) Value // returns results only if non-nil
-                _, value = ctx.autoGet("-")
+                value Value
                 values []Value
                 pairs []*Pair
                 res bool
         )
 
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        if h := ctx.autoGet("-"); h != nil { value = h.value }
+        args = parseOpts(ctx, &opts, plain, args...)
 
         if opts.good    { optBreak   = traveDone }
         if opts.answer  { makeResult = MakeAnswer }
@@ -1951,8 +1946,8 @@ ForPairs:
                                 prompt(ctx, "… %s (%d)\n", s, exeres.Status)
                         }
                         if opts.debug>0 {
-                                var _, tar = ctx.autoGet("@")
-                                var _, val = ctx.autoGet("-")
+                                var tar = ctx.autoGet("@")
+                                var val = ctx.autoGet("-")
                                 warn(ctx, "%v: %v", ctx.entry(), tar).at(program.position)
                                 warn(ctx, "status=%v", exeres.Status)
                                 warn(ctx, "hyphen=%v", val)
@@ -1977,8 +1972,8 @@ ForPairs:
                                 prompt(ctx, "checking %s (status=%d) … ", key, exeres.Status)
                         }
                         if opts.debug>0 {
-                                var _, tar = ctx.autoGet("@")
-                                var _, val = ctx.autoGet("-")
+                                var tar = ctx.autoGet("@")
+                                var val = ctx.autoGet("-")
                                 warn(ctx, "%v: %v", ctx.entry(), tar).at(program.position)
                                 warn(ctx, "status=%v", exeres.Status)
                                 warn(ctx, "hyphen=%v", val)
@@ -2082,13 +2077,13 @@ type copyopts struct {
 }
 
 func copyRegular(ctx Context, src, dst string, opts *copyopts) (err error) {
-        var def1, def2 *Def
+        var def1, def2 *def
         if true {
-                def1 = opts.program.scope.Lookup("1").(*Def)
-                def2 = opts.program.scope.Lookup("2").(*Def)
+                def1 = opts.program.scope.Lookup("1").(*def)
+                def2 = opts.program.scope.Lookup("2").(*def)
         } else if gs := ctx.Globe().scope; gs != nil {
-                def1 = gs.Lookup("1").(*Def)
-                def2 = gs.Lookup("2").(*Def)
+                def1 = gs.Lookup("1").(*def)
+                def2 = gs.Lookup("2").(*def)
         }
         defer func(v1, v2 Value) { def1.value, def2.value = v1, v2
                 // if err == nil {
@@ -2214,19 +2209,19 @@ type modifierCopyFileOpts struct {
 }
 func modifierCopyFile(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierCopyFileOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         var target Value
         var source Value
         if len(args) > 0 {
                 target = args[0]
-        } else {
-                _, target = ctx.autoGet("@")
+        } else if d := ctx.autoGet("@"); d != nil {
+                target = d.value
         }
         if len(args) > 1 {
                 source = args[1]
-        } else {
-                _, source = ctx.autoGet("<")
+        } else if d := ctx.autoGet("<"); d != nil {
+                source = d.value
         }
 
         // Get target filename
@@ -2323,10 +2318,10 @@ func modifierCopyFile(ctx Context, args... Value) (result Value, traves travesta
 }
 
 func modifierWriteFile(ctx Context, args... Value) (result Value, traves travestates) {
-        args = mergex(ctx, expandPlainValue, args...)
+        args = mergex(ctx, plain, args...)
 
         var (
-                _, target = ctx.autoGet("@")
+                target = ctx.autoGet("@")
                 filename, str string
                 f *os.File
         )
@@ -2344,11 +2339,11 @@ func modifierWriteFile(ctx Context, args... Value) (result Value, traves travest
 
         filename = fullnameOrStrval(ctx, target)
 
-        if _, buffer := ctx.autoGet("-"); isNil(buffer) {
+        if h := ctx.autoGet("-"); h == nil || isNil(h.value) {
                 erro(ctx, "buffer value is nil").debug(1)
                 return
         } else {
-                str = buffer.Strval(ctx)
+                str = h.value.Strval(ctx)
         }
 
         var err error
@@ -2376,7 +2371,7 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, traves travestate
                 opts modifierReadFileOpts
                 args []Value
         )
-        args = parseOpts(ctx, &opts, expandPlainValue, aa...)
+        args = parseOpts(ctx, &opts, plain, aa...)
 
         var (
                 file *File
@@ -2388,8 +2383,8 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, traves travestate
                 return
         } else if n == 1 {
                 target = args[0]
-        } else {
-                _, target = ctx.autoGet("@")
+        } else if d := ctx.autoGet("@"); d != nil {
+                target = d.value
         }
 
         if isTrivial(target) {
@@ -2397,10 +2392,10 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, traves travestate
                         target, aa, args).debug(10)
                 return
         } else if file, filename, _ = fullname(ctx, target); file == nil {
-                if def, depend := ctx.autoGet(">"); def != nil && !isTrivial(depend) {
+                if def := ctx.autoGet(">"); def != nil && !isTrivial(def.value) {
                         s := traves.add(ctx, traveFail, target)
                         s.error = traveTargetNotDefinedFile
-                        s.depend = depend
+                        s.depend = def.value
                 } else if true {
                         prompt(ctx, "%v: not defined as file\n", target.Strval(ctx))
                         erro(ctx, "(%T) %v", target, target)
@@ -2482,11 +2477,13 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
                 filename string
                 target Value
         )
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         if len(args) > 1 { opts.mode = permVal(ctx, args[1], 0600) }
         if len(args) > 0 { target = args[0] }
-        if isTrivial(target) { _, target = ctx.autoGet("@") }
+        if isTrivial(target) {
+                if d := ctx.autoGet("@"); d != nil { target = d.value }
+        }
 
         // Get target filename
         if isTrivial(target) {
@@ -2550,13 +2547,13 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
                 content string
                 exeres *ExecResult
         )
-        if def, value := ctx.autoGet("-"); def == nil || isTrivial(value) {
+        if def := ctx.autoGet("-"); def == nil || isTrivial(def.value) {
                 // no buffer value
-        } else if content = value.Strval(ctx); false && strings.Contains(content, `"\"`) {
-                prompt(ctx, "%v: %T\n", filename, value).debug(1)
+        } else if content = def.value.Strval(ctx); false && strings.Contains(content, `"\"`) {
+                prompt(ctx, "%v: %T\n", filename, def.value).debug(1)
                 fail(ctx.Position(), "%s", filename)
         } else {
-                exeres, _ = value.(*ExecResult)
+                exeres, _ = def.value.(*ExecResult)
         }
 
         if content != "" {
@@ -2589,11 +2586,10 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
                         }
                 }
 
-                if d, v := ctx.autoGet("-"); d == nil || d.value == v {
-                        prompt(ctx, "%s:1: empty content: %v\n", filename, v).debug(1)
+                if d := ctx.autoGet("-"); d == nil || d.value == nil {
+                        prompt(ctx, "%s:1: empty content: %v\n", filename, d).debug(1)
                 } else {
-                        prompt(ctx, "%s:1: empty content: %v\n", filename, d)
-                        prompt(ctx, "%s:1: empty content: %v\n", filename, v).debug(1)
+                        prompt(ctx, "%s:1: empty content: %v\n", filename, d).debug(1)
                 }
                 erro(ctx, "empty content for '%v'", target)
                 errostack(ctx, 6, "").debug(64)
@@ -2700,14 +2696,15 @@ func modifierWait(ctx Context, args... Value) (result Value, traves travestates)
                 opts modifierWaitOpts
                 execRes *ExecResult
         )
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         var (
                 waitForExecResult = opts.stdout || opts.stderr || opts.status || opts.execRes
                 stampCurrentTarget = !opts.noTarget
-                _, target = ctx.autoGet("@")
+                target Value
                 err error
         )
+        if d := ctx.autoGet("@"); d != nil { target = d.value }
         if opts.verbose {
                 defer func (st time.Time) {
                         var s string; if err != nil { s = "fail" } else { s = "done" }
@@ -2789,7 +2786,7 @@ func modifierStamp(ctx Context, args... Value) (result Value, traves travestates
                 opts modifierStampOpts
                 pos = ctx.Position()
         )
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         var target = getTargetValue(ctx)
         if isNil(target) {
@@ -2806,11 +2803,11 @@ func modifierStamp(ctx Context, args... Value) (result Value, traves travestates
         if opts.next {
                 if opts.verbose { warn(ctx, "%v", err).debug(1) }
                 s := traves.add(ctx, traveNext, target)
-                s.depend, _ = ctx.autoGet(">")
+                s.depend = ctx.autoGet(">")
                 err = nil // discard the error
         } else if opts.error {
                 s := traves.add(ctx, traveFail, target)
-                s.depend, _ = ctx.autoGet(">")
+                s.depend = ctx.autoGet(">")
                 s.error = err
                 if false {
                         prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err).debug(1)
@@ -2845,21 +2842,22 @@ type predictOpts struct {
 }
 func predict(ctx Context, args... Value) (result bool, message string, err error) {
         var (
-                _, target = ctx.autoGet("@")
+                target Value
                 targetStr string
                 num int64
         )
+        if d := ctx.autoGet("@"); d != nil { target = d.value }
         if isTrivial(target) {
                 errostack(ctx, 5, "target is trivial, %v", ctx).debug(10)
                 return
         }
         for caller := ctx.traversal().caller(); caller != nil; caller = caller.caller() {
-                if tarVal, _ := caller.autoGet("@"); isNil(tarVal) {
+                if t := caller.autoGet("@"); t == nil || isNil(t.value) {
                         // top level execution, aka via RuleEntry.Execute(...)
                 } else if true {
-                        var same = target == tarVal
+                        var same = target == t.value
                         if !same && false {
-                                same = (target.cmp(ctx, tarVal) == cmpEqual)
+                                same = (target.cmp(ctx, t.value) == cmpEqual)
                         }
                         if same { num += 1 }
                 } else if n := caller.execRec[target]; n > 0 {
@@ -2897,7 +2895,7 @@ ForArgs:
                         continue ForArgs
                 }
 
-                var va = parseOpts(ctx, &opts, expandPlainValue, arg)
+                var va = parseOpts(ctx, &opts, plain, arg)
                 if len(va) == 0 {
                         continue ForArgs
                 } else if len(va) == 1 && isTrivial(va[0]) {
@@ -2957,14 +2955,15 @@ func modifierAssert(ctx Context, args... Value) (result Value, traves travestate
         if res, msg, err = predict(ctx, args...); err != nil {
                 erro(ctx, "prediction %v failed: %v", args, err).debug(6)
         } else if !res {
-                var _, target = ctx.autoGet("@")
+                var target Value
+                if d := ctx.autoGet("@"); d != nil { target = d.value }
                 if msg == "" {
                         for _, a := range args {
                                 erro(ctx, "assertion failed: %v", a).of(a)
                         }
                         errostack(ctx, 8, "(%T):", ctx).debug(6)
                 } else {
-                        var vals = mergex(ctx, expandPlainValue, args...)
+                        var vals = mergex(ctx, plain, args...)
                         erro(ctx, "assertion failed: %v (target = %s)", msg, target)
                         erro(ctx, "assertion args: %v", args)
                         erro(ctx, "assertion args: %v (mergexd)", vals)
@@ -3005,7 +3004,7 @@ type modifierCaseOpts struct {
 }
 func modifierCase(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierCaseOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         if res, msg, err := predict(ctx, args...); err != nil {
                 erro(ctx, "case: (res=%v) %v", res, err).debug(1)
@@ -3018,7 +3017,7 @@ func modifierCase(ctx Context, args... Value) (result Value, traves travestates)
                 s.prog = ctx.program()
 
                 if opts.verbose {
-                        var _, a = ctx.autoGet("@")
+                        var a = ctx.autoGet("@")
                         prompt(ctx, "%v: %v (msg=%s)", a, w, msg)
                 }
                 if opts.debug {
@@ -3031,8 +3030,8 @@ func modifierCase(ctx Context, args... Value) (result Value, traves travestates)
 func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
         var opts = ctx.dirtyOpts()
         if len(target.updatedDeps(ctx)) > 0 { return true }
-        if d, v := ctx.autoGet("^"); d != nil && !isTrivial(v) { a = append(a, v) }
-        for _, dep := range mergex(ctx, expandPlainValue, a...) {
+        if d := ctx.autoGet("^"); d != nil && !isTrivial(d.value) { a = append(a, d.value) }
+        for _, dep := range mergex(ctx, plain, a...) {
                 var mat bool = len(opts.pats) == 0
                 if !mat { for _, pat := range opts.pats { if mat, _, _ = pat.match(ctx, dep); mat { break }}}
                 if mat && (dep.updated(ctx) || dep.stat(ctx).mod().After(target.stat(ctx).mod())) {
@@ -3059,7 +3058,7 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
                 outdated bool
                 err error
         )
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         if target, _, _, err = wait(ctx); err != nil {
                 erro(ctx, "waiting traversal failed: %v", err).debug(1)
@@ -3085,8 +3084,8 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
         } else if true {
                 erro(ctx, "FIXME: check prerequisites against the saved checksums").debug(1)
                 return
-        } else if _, depends := ctx.autoGet("^"); !isTrivial(depends) {
-                for _, depend := range merge(depends) {
+        } else if depends := ctx.autoGet("^"); depends != nil && !isTrivial(depends.value) {
+                for _, depend := range merge(depends.value) {
                         var file2 string
                         if isTrivial(depend) {
                                 // does nothing
@@ -3128,13 +3127,11 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
 
 func predictionNoLoop(ctx Context, args... Value) (result Value) {
         var loop bool
-        var _, target = ctx.autoGet("@")
+        var target = ctx.autoGet("@")
         for caller := ctx.traversal().caller(); caller != nil; caller = caller.caller() {
-                var def, ct = caller.autoGet("@")
-                var same = def != nil && target == ct
-                if !same && false {
-                        same = (target.cmp(ctx, ct) == cmpEqual)
-                }
+                var t = caller.autoGet("@")
+                var same = t != nil && target.value == t.value
+                if!same && false { same = (target.cmp(ctx, t.value) == cmpEqual) }
                 if same {
                         //fmt.Printf("%s: loop: %v\n", pos, ctx.def.target.value)
                         loop = true
@@ -3154,10 +3151,10 @@ type predictionTarget1stVisitOpts struct {
 }
 func predictionTarget1stVisit(ctx Context, args... Value) (result Value) {
         var opts predictionTarget1stVisitOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
-        var _, target = ctx.autoGet("@")
-        if isNil(target) {
+        var target = ctx.autoGet("@")
+        if target == nil || isNil(target.value) {
                 erro(ctx, "target is <nil>").debug(1)
                 return
         }
@@ -3165,11 +3162,9 @@ func predictionTarget1stVisit(ctx Context, args... Value) (result Value) {
         var num int
         for caller := ctx.traversal().caller(); caller != nil; caller = caller.caller() {
                 if false {
-                        var def, ct = caller.autoGet("@")
-                        var same = def != nil && target == ct
-                        if !same && false {
-                                same = (target.cmp(ctx, ct) == cmpEqual)
-                        }
+                        var t = caller.autoGet("@")
+                        var same = t != nil && target == t.value
+                        if !same && false { same = (target.cmp(ctx, t.value) == cmpEqual) }
                         if same { num += 1 }
                 } else if n := caller.execRec[target]; n > 0 {
                         num += n
@@ -3193,7 +3188,7 @@ type predictionTargetMaxVisitOpts struct {
 }
 func predictionTargetMaxVisit(ctx Context, args... Value) (result Value) {
         var opts predictionTargetMaxVisitOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         var nth int64
         for _, a := range args {
@@ -3206,22 +3201,20 @@ func predictionTargetMaxVisit(ctx Context, args... Value) (result Value) {
         }
 
         var ( num int64; head bool = true )
-        var _, target = ctx.autoGet("@")
-        if isNil(target) {
+        var target = ctx.autoGet("@")
+        if target == nil || isNil(target.value) {
                 erro(ctx, "target is <nil>").debug(1)
                 return
         }
         for caller := ctx.traversal().caller(); caller != nil; caller = caller.caller() {
-                var _, ct = caller.autoGet("@")
-                if n := caller.execRec[target]; n > 0 {
-                        num += int64(n)
-                }
+                var ct = caller.autoGet("@")
+                if n := caller.execRec[target.value]; n > 0 { num += int64(n) }
                 if opts.debug && num > 0 {
                         if head { head = false
                                 prompt(ctx, "  %s: nth(%d)\n", ctx.Position(), nth)
                         }
                         var pos = caller.program().position
-                        prompt(ctx, "    %s: %v\n", pos, ct)
+                        prompt(ctx, "    %s: %v\n", pos, ct.value)
                 }
         }
 
@@ -3246,7 +3239,7 @@ func _modifierFork(ctx Context, args... Value) (result Value, traves travestates
                 argv []string
                 prog = ctx.program()
         )
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
         for _, a := range args { argv = append(argv, a.Strval(ctx)) }
 
         if opts.workDir != "" {
@@ -3280,7 +3273,7 @@ func modifierFork(ctx Context, args... Value) (result Value, traves travestates)
                 argv []string
                 wd string
         )
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
         for _, a := range args { argv = append(argv, a.Strval(ctx)) }
 
         if opts.workDir != "" {
@@ -3314,7 +3307,7 @@ type modifierGitModifiedOpts struct {
 }
 func modifierGitModified(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierGitModifiedOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         var out = new(bytes.Buffer)
         var git = exec.Command("git", "status")
@@ -3355,7 +3348,7 @@ type modifierGitAheadOpts struct {
 }
 func modifierGitAhead(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierGitAheadOpts
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+        args = parseOpts(ctx, &opts, plain, args...)
 
         var out = new(bytes.Buffer)
         var git = exec.Command("git", "status")
@@ -3440,11 +3433,13 @@ func onceCacheTest2(ctx Context, target Value) (n int) {
         if true {
                 fmt.Fprintf(h, "%p", program)
         } else if false {
-                // FIXME: not unique combination
-                fmt.Fprintf(h, "%p", entry)
+                // // FIXME: not unique combination
+                // fmt.Fprintf(h, "%p", entry)
+                fmt.Fprintf(h, "%T%p", entry, entry)
         } else {
-                // FIXME: not unique combination
-                fmt.Fprintf(h, "%p%p", entry, program)
+                // // FIXME: not unique combination
+                // fmt.Fprintf(h, "%p%p", entry, program)
+                fmt.Fprintf(h, "%T%p%p", entry, entry, program)
         }
 
         for _, t := range merge(target) {
@@ -3478,8 +3473,9 @@ func onceSHA256(ctx Context, target Value, opts *modifierOnceOpts, args... Value
         }
 
         if true {
-                // NOTE: entry and program are unique, since (once) is for runtime, we use their addresses.
-                fmt.Fprintf(h, "%p%p", entry, program)
+                // // NOTE: entry and program are unique, since (once) is for runtime, we use their addresses.
+                // fmt.Fprintf(h, "%p%p", entry, program)
+                fmt.Fprintf(h, "%T%p%p", entry, entry, program)
         } else {
                 fmt.Fprintf(h, "%v%v", ctx.Position(), program.position)
         }
@@ -3505,9 +3501,12 @@ func modifierOnce(ctx Context, args... Value) (result Value, traves travestates)
         var (
                 n int
                 opts modifierOnceOpts
-                def, target = ctx.autoGet("@")
+                target Value
+                def = ctx.autoGet("@")
         )
-        args = parseOpts(ctx, &opts, expandPlainValue, args...)
+
+        if def != nil { target = def.value }
+        args = parseOpts(ctx, &opts, plain, args...)
 
         const onceAlgo = 2 // avaialbe: 0, 1, 2
         if def == nil || isTrivial(target) {

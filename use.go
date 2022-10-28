@@ -27,7 +27,7 @@ func (p *using) refs(ctx Context, v Value) bool {
         }
         return false
 }
-func (p *using) defs(ctx Context, s ...string) (res []*Def) {
+func (p *using) defs(ctx Context, s ...string) (res []*def) {
     for _, a := range p.params {
         res = append(res, a.defs(ctx, s...)...)
     }
@@ -40,11 +40,9 @@ func (p *using) expandible(ctx Context, w expandfacet) (res bool) {
         return
 }
 func (p *using) expand(ctx Context, w expandfacet) (res Value) {
-        if params, num := expand(ctx, w, p.params...); num > 0 {
-                res = &using{p.valbase,p.project,params,p.opts}
-        } else {
-                res = p
-        }
+        var params, une, num = expand(ctx, w, p.params...)
+        if num > 0 { res = &using{p.valbase,p.project,params,p.opts} } else { res = p }
+        if une > 0 { res = unexpanded{res} }
         return
 }
 func (p *using) stat(ctx Context) (si *statinfo) {
@@ -220,7 +218,7 @@ func (p *usinglist) refs(ctx Context, v Value) bool {
         }
         return false
 }
-func (p *usinglist) defs(ctx Context, s ...string) (res []*Def) {
+func (p *usinglist) defs(ctx Context, s ...string) (res []*def) {
     for _, a := range p.list {
             res = append(res, a.defs(ctx, s...)...)
     }

@@ -41,7 +41,7 @@ $ $GOPATH/bin/smart -help
 
 ### Write `smart` scripts
 
-The `smart` command will look for file `build.smart` in the working directory to
+The `smart` command will look for file `do.smart` in the working directory to
 start building. For example of doing this:
 
 ```shell

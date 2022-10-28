@@ -18,7 +18,7 @@ var dialects = map[string]interpreter{
         "python": &executor{ cmd:"python", opt:"-c", contained:false },
         "perl":   &executor{ cmd:"perl",   opt:"-e", contained:false },
         "dock":   &executor{ cmd:"sh",     opt:"-c", contained:true },
-        "plain":  &plain{},
+        "plain":  &plainInt{},
         "json":   &json{},
         "xml":    &xml{ whitespace:false },
         "yaml":   &yaml{ whitespace:false },

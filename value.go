@@ -7,6 +7,7 @@
 package smart
 
 import (
+    "extbit.io/smart/scanner"
     "extbit.io/smart/token"
     "crypto/sha256"
     "path/filepath"
@@ -33,18 +34,21 @@ const (
     positionalValueCtx = true
     traveseDetectLoops = true // turn on/off traverse loop detection
     traveseLoopBreakState = traveUnkn // eg traveNext or traveDone
+    traverseArgumentedExpand = true
 )
 
 type (
-    cmpres     int
-    existence  int
+    cmpres       int
+    existence    int
     expandfacet uint
     HashBytes [sha256.Size]byte
 )
 const (
     cmpUnknown cmpres = 0
+    cmpLPrefix     = -2 // L is prefix of R, should also be 'smaller'
     cmpSmaller     = -1 // meaningless so far
     cmpGreater     = 1  // meaningless so far
+    cmpRPrefix     = 3  // R is prefix of L, should also be 'greater'
     cmpEqual       = 2
 )
 const (
@@ -52,29 +56,42 @@ const (
     existenceConfirmed
     existenceNegated
 )
-const traverseArgumentedExpand = true
 const (
     expandZero expandfacet = 0
     expandNone expandfacet = 1<<(iota-1) // NOTE: iota starts at 2 here
-    expandDelegate  // $(...)  ->  ......
-    expandClosure   // &(...)            ->  $(...)
-    expandSelection // foo->bar          -> ...
+    expandClosure   // &(...)            -> $(...)
+    expandDelegate  // $(...)            -> ......
+    expandPlaceholders // $_
+    expandDigits       // $1 $2 $3 ...
     expandAuto      // TODO: $0 $1 $3 $@ $<    -> ...       TODO: auto -> placeholder
-    expandArgs      // $(foo $(x),$(y))  -> $(foo ...,...)
+    expandArgList   // expanding delegate arg list
     expandArgedArgs // foo($(args))      -> foo(...)
     expandDef       // foo=...           -> ...
+    expandSelection // foo->bar          -> ...
     expandFullName  // foobar.c          -> /path/to/foobar.c
     expandPatterned // %.proto           -> example.proto (if ctx.stems() == [example])
     expandPathStr   // "/path/to"/foo    -> /path/to/foo
     expandPairVal   // foo=$(bar)        -> foo=...
-    expandPlainValue = expandAuto | expandClosure | expandDelegate | expandSelection | expandDef | expandPathStr | expandArgedArgs
+    expandPlain     // unexpanded        -> ...
+    expandUnresName // TODO: ...
+    expandClose
+    expandDebug
+
+    ident = expandAuto | expandClosure | expandDelegate | expandSelection |
+        expandDef | expandPathStr | expandArgedArgs |
+        //expandDigits | expandPlaceholders |
+        0
+
+    plain = ident | expandPlain
 )
 
 func (v cmpres) String() (s string) {
     switch v {
     case cmpUnknown: s = "unknown"
+    case cmpLPrefix: s = "lprefix"
     case cmpSmaller: s = "smaller"
     case cmpGreater: s = "greater"
+    case cmpRPrefix: s = "rprefix"
     case cmpEqual:   s = "equal"
     }
     return
@@ -292,7 +309,7 @@ ForTravestates:
 }
 
 func (traves *travestates) add(ctx Context, what travekind, target Value) *travestate {
-    if isTrivial(target) { _, target = ctx.autoGet("@") }
+    if isTrivial(target) { if d := ctx.autoGet("@"); d != nil { target = d.value } }
     for _, s := range *traves {
         if s.what == what && s.target == target {
             return s
@@ -303,7 +320,8 @@ func (traves *travestates) add(ctx Context, what travekind, target Value) *trave
     var s = &travestate{ pos:pos, what:what, target:target }
     if *traves = append(*traves, s); false {
         var t = getTargetValue(ctx) // t.String() == "bn/armv8-mont.S" &&
-        if what == traveNext && strings.HasSuffix(pos.Filename, "crypto/build.smart") {
+        if false && what == traveNext &&
+            strings.HasSuffix(pos.Filename, "crypto/build.smart") {
             warnstack(ctx, 3, "%v %v", t, ctx).debug(12)
         }
     }
@@ -325,15 +343,13 @@ func (pc *prioritizedContext) String() string {
     for _, c := range pc.more { s += fmt.Sprintf(",%s", c) }
     return fmt.Sprintf("prioritized{%s%s}", pc.Context, s)
 }
-func (pc *prioritizedContext) autoGet(name string) (def *Def, res Value) {
+func (pc *prioritizedContext) autoGet(name string) (res *def) {
     for _, c := range append([]Context{ pc.Context }, pc.more...) {
-        if def, res = c.autoGet(name); def != nil {
-            break
-        }
+        if res = c.autoGet(name); res != nil { break }
     }
     return
 }
-func (pc *prioritizedContext) autoSet(name string, val Value) (def *Def, res Value) {
+func (pc *prioritizedContext) autoSet(name string, val Value) (def *def, res Value) {
     for _, c := range append([]Context{ pc.Context }, pc.more...) {
         if def, res = c.autoSet(name, val); def != nil { break }
     }
@@ -437,12 +453,12 @@ ForScopes:
     return
 }
 
-func closureGet(ctx Context, name string) (def *Def) {
+func closureGet(ctx Context, name string) (res *def) {
     for _, scope := range ctx.closureScopes() {
         if scope.project == nil {
             if _, obj := scope.Find(name); obj == nil {
                 continue
-            } else if def, _ = obj.(*Def); def != nil {
+            } else if res, _ = obj.(*def); res != nil {
                 return
             }
         } else {
@@ -451,16 +467,16 @@ func closureGet(ctx Context, name string) (def *Def) {
             if !pos.IsValid() { pos = scope.project.position }
             if scope != scope.project.scope {
                 if _, obj := scope.Find(name); obj != nil {
-                    if def, _ = obj.(*Def); def != nil {
+                    if res, _ = obj.(*def); res != nil {
                         return
                     }
                 }
             }
             if obj := scope.project.resolveObject(ctx, name); obj == nil {
-                if def, _ = ctx.autoGet(name); def != nil {
+                if res = ctx.autoGet(name); res != nil {
                     return
                 }
-            } else if def, _ = obj.(*Def); def != nil {
+            } else if res, _ = obj.(*def); res != nil {
                 return
             }
         }
@@ -487,7 +503,7 @@ func closureResolveObject(ctx Context, pos Position, name string) (obj Object) {
     )
     if infos { defer func() {
         var val Value
-        if obj != nil { val = obj.expand(ctx, expandPlainValue) }
+        if obj != nil { val = obj.expand(ctx, plain) }
         warn(ctx, "%v: name = %s", scope.project, name).at(scope.position)
         warn(ctx, "%v: %v", scope.project, scope).at(scope.position)
         warn(ctx, "%v: %v", scope.project, ctx).at(scope.position)
@@ -500,12 +516,12 @@ func closureResolveObject(ctx Context, pos Position, name string) (obj Object) {
         if scope.project == nil || scope != scope.project.scope {
             if _, obj = scope.Find(name); isNil(obj) {
                 // fallthrough
-            } else if def, ok := obj.(*Def); ok && (def.origin == DefAuto || def.origin == DefArg) {
+            } else if def, ok := obj.(*def); ok && (def.origin == DefAuto || def.origin == DefArg) {
                 if o, ok := ctx.closureResolveAuto(name); ok && !isNil(o) { obj = o }
                 if infos {
                     var proj = def.OwnerProject()
-                    val    := obj.expand(ctx.closure(), expandPlainValue)
-                    va2, _ := ctx.closure().autoGet(name)
+                    val := obj.expand(ctx.closure(), plain)
+                    va2 := ctx.closure().autoGet(name)
                     ob1, _ := ctx.closureResolveAuto(name)
                     warn(ctx, "%v: %v %v => %T %v", proj, def.origin, def.name, def.value, def.value)
                     warn(ctx, "%v: obj = %T %v", proj, obj, obj)
@@ -611,9 +627,9 @@ func (t *traverseContext) traversed(target Value) (targets []Value) {
 
 func entryStr(ctx Context, entry Entry) (str, ent, tar string) {
     if !isNil(entry) { ent = entry.Strval(ctx) }
-    if def, target := ctx.autoGet("@"); def == nil || isTrivial(target) {
+    if def := ctx.autoGet("@"); def == nil || isTrivial(def.value) {
         str = ent // ...
-    } else if tar = target.Strval(ctx); ent != tar {
+    } else if tar = def.value.Strval(ctx); ent != tar {
         str = fmt.Sprintf("%s(%s)", ent, tar)
     } else {
         str = ent
@@ -662,7 +678,7 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
     }}
 
     if true {
-        // does nothing
+        point = ctx.diag(dt, "%v", proj)
     } else if str == "" {
         point = ctx.diag(dt, "%v: %v", proj, ctx)
     } else {
@@ -852,7 +868,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         return
     }}
     if traveseDetectLoops { for c := ctx.programContext(); c != nil; c = c.caller() {
-        if d, t := c.autoGet("@"); d != nil && t.cmp(c, prereqValue) == cmpEqual {
+        if d := c.autoGet("@"); d != nil && d.value.cmp(c, prereqValue) == cmpEqual {
             if traveseLoopBreakState != traveUnkn {
                 var s = traves.add(ctx, traveseLoopBreakState, targetValue)
                 if s.dependPat = prereqPattern; prereqFile == nil {
@@ -992,7 +1008,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 }
                 if prereqFile != nil { return }  // let it find rule entries
             }
-            case *Builtin, *Def, *ScopeName, *unresolvedobject:
+            case *Builtin, *def, *ScopeName, *unresolvedobject:
                 continue ForProjectsObjects
             default: if isTrivial(obj) { continue ForProjectsObjects }
             }
@@ -1581,7 +1597,7 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
                 erro(ctx, "waiting for '%v'", target).at(targetValuePos).debug(1)
             }
         }
-        if def, ok := v.(*Def); ok && target != v && target != def.value { // trace source Def in diagnostics
+        if def, ok := v.(*def); ok && target != v && target != def.value { // trace source Def in diagnostics
             erro(ctx, "waiting for def '%v': %v", def.name, def.value).of(def.value).debug(1)
         }
         return
@@ -1594,9 +1610,9 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
     )
     if optWaitForExecResult {
         // Waiting for command (shell/python/etc.) exec result
-        if d, bv := ctx.autoGet("-"); d != nil && !isTrivial(bv) {
+        if d := ctx.autoGet("-"); d != nil && !isTrivial(d.value) {
             var ok bool
-            if execRes, ok = bv.(*ExecResult); ok {
+            if execRes, ok = d.value.(*ExecResult); ok {
                 //execRes.wg.Wait()
             }
         }
@@ -1659,7 +1675,7 @@ type Value interface {
     refs(Context, Value) bool
 
     // Returns all defs (of names if specified) used in this value.
-    defs(Context, ...string) []*Def
+    defs(Context, ...string) []*def
 
     // Test if this value is expandible for some bits.
     expandible(Context, expandfacet) bool
@@ -1706,7 +1722,6 @@ type elemkind int
 const (
     elemNoQuote elemkind = 1<<iota
     elemNoBrace
-    elemExpand
 )
 
 type elemStrer interface {
@@ -1730,7 +1745,7 @@ func (_ *valbase) Integer(_ Context) (i int64, e error) { return }
 func (_ *valbase) Float(_ Context) (f float64, e error) { return }
 func (_ *valbase) True(_ Context) (res bool) { return }
 func (_ *valbase) refs(_ Context, _ Value) (res bool) { return }
-func (_ *valbase) defs(_ Context, _ ...string) (res []*Def) { return }
+func (_ *valbase) defs(_ Context, _ ...string) (res []*def) { return }
 func (_ *valbase) expandible(_ Context, _ expandfacet) bool { return false }
 func (_ *valbase) cmp(_ Context, _ Value) (res cmpres) { return }
 func (_ *valbase) patterned(_ Context) bool { return false }
@@ -1762,11 +1777,9 @@ type returner struct {
     Values []Value
 }
 func (p *returner) expand(ctx Context, w expandfacet) (res Value) {
-    if vals, num := expand(ctx, w, p.Values...); num > 0 {
-        res = &returner{p.valbase, vals}
-    } else {
-        res = p
-    }
+    var vals, u, n = expand(ctx, w, p.Values...)
+    if n > 0 { res = &returner{p.valbase, vals} } else { res = p }
+    if u > 0 { res = unexpanded{res} }
     return
 }
 
@@ -1783,7 +1796,7 @@ func (p *Argumented) refs(ctx Context, v Value) bool {
     }
     return false
 }
-func (p *Argumented) defs(ctx Context, s ...string) (res []*Def) {
+func (p *Argumented) defs(ctx Context, s ...string) (res []*def) {
     res = p.value.defs(ctx, s...)
     for _, a := range p.args {
         res = append(res, a.defs(ctx, s...)...)
@@ -1804,16 +1817,21 @@ func (p *Argumented) expand(ctx Context, w expandfacet) (res Value) {
     var (
         args []Value = p.args
         val Value = p.value.expand(ctx, w)
-        num int
+        u, n int
     )
     if w&expandArgedArgs != 0 {
-        args, num = expand(ctx, w, args...)
+        args, u, n = expand(ctx, w, args...)
     }
-    if val != p.value || num > 0 {
+    if val != p.value || n > 0 {
+        if un, y := val.(unexpanded); y {
+            if un.Value != p.value { val = un.Value }
+            u += 1
+        }
         res = &Argumented{ val, args }
     } else {
         res = p
     }
+    if u > 0 { res = unexpanded{res} }
     return
 }
 func (p *Argumented) cmp(ctx Context, v Value) (res cmpres) {
@@ -1823,6 +1841,8 @@ func (p *Argumented) cmp(ctx Context, v Value) (res cmpres) {
         }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -1878,7 +1898,7 @@ func (p *Argumented) traverse(ctx Context) (traves travestates) {
     if traverseArgumentedExpand {
         var proj = ctx.Project()
         // NOTE: expand here to avoid args being expanded in the wrong context
-        const w = expandPlainValue|expandPairVal|expandPatterned//|expandFullName
+        const w = plain|expandPairVal|expandPatterned//|expandFullName
         for _, a := range p.args {
             a = a.expand(ctx, w)
             // TODO: deal with pattern args using expandPatterned instead of stenciling:
@@ -1907,7 +1927,13 @@ func (p *None) expand(_ Context, _ expandfacet) Value { return p }
 func (p *None) cmp(ctx Context, v Value) (res cmpres) {
     if _, ok := v.(*None); ok {
         res = cmpEqual
-    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
+    } else if s, ok := v.(*String); ok && s.string == "" {
+        res = cmpEqual
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 0 {
+        res = cmpEqual
+    } else if ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
     return
@@ -1918,6 +1944,8 @@ func (p *Nil) expand(_ Context, _ expandfacet) Value { return p }
 func (p *Nil) cmp(ctx Context, v Value) (res cmpres) {
     if _, ok := v.(*Nil); ok {
         res = cmpEqual
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
@@ -1990,6 +2018,8 @@ func (p *Any) cmp(ctx Context, v Value) (res cmpres) {
         } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
             res = p.cmp(ctx, l.Elems[0])
         }
+    case unexpanded:
+        if a.Value != nil { res = p.cmp(ctx, a.Value) }
     }
     return
 }
@@ -2057,7 +2087,7 @@ func (p *Any) refs(ctx Context, o Value) (res bool) {
     if v, ok := p.value.(Value); ok { res = v.refs(ctx, o) }
     return
 }
-func (p *Any) defs(ctx Context, s ...string) (res []*Def) {
+func (p *Any) defs(ctx Context, s ...string) (res []*def) {
     if v, ok := p.value.(Value); ok { res = v.defs(ctx, s...) }
     return
 }
@@ -2122,7 +2152,7 @@ func (p *Any) traverse(ctx Context) (traves travestates) {
 
 type negative struct { valbase; x Value }
 func (p *negative) refs(ctx Context, o Value) bool { return p.x.refs(ctx, o) }
-func (p *negative) defs(ctx Context, s ...string) []*Def { return p.x.defs(ctx, s...) }
+func (p *negative) defs(ctx Context, s ...string) []*def { return p.x.defs(ctx, s...) }
 func (p *negative) expandible(ctx Context, w expandfacet) bool { return p.x.expandible(ctx, w) }
 func (p *negative) expand(ctx Context, w expandfacet) (res Value) {
     if val := p.x.expand(ctx, w); val != p.x {
@@ -2135,6 +2165,8 @@ func (p *negative) expand(ctx Context, w expandfacet) (res Value) {
 func (p *negative) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*negative); ok {
         res = p.x.cmp(ctx, a.x)
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
@@ -2205,6 +2237,8 @@ func (p *boolean) cmp(ctx Context, v Value) (res cmpres) {
         } else if p.bool && !a.bool {
             res = cmpGreater
         }
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
@@ -2260,6 +2294,8 @@ func (p *answer) cmp(ctx Context, v Value) (res cmpres) {
         } else if p.bool && !a.bool {
             res = cmpGreater
         }
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
@@ -2319,6 +2355,8 @@ func (p *option) cmp(ctx Context, v Value) (res cmpres) {
         }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -2405,6 +2443,8 @@ func (p *Float) cmp(ctx Context, v Value) (res cmpres) {
         }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -2464,7 +2504,7 @@ func (p *Time) Integer(ctx Context) (i int64, _ error) { return p.t.Unix(), nil 
 func (p *Time) Float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
 func (p *Time) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *Time) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
-// func (p *Time) expand(_ Context, _ expandfacet) Value { return p }
+func (p *Time) expand(_ Context, _ expandfacet) Value { return p }
 
 // ie. https://en.wikipedia.org/wiki/URL
 // ▶▶─<scheme>─(:)┬──────────────────────────────────────┬<path>┬───────────┬┬──────────────┬─▶◀
@@ -2608,6 +2648,8 @@ func (p *URL) cmp(ctx Context, v Value) (res cmpres) {
         res = cmpEqual
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -2663,6 +2705,8 @@ func (p *Raw) cmp(ctx Context, v Value) (res cmpres) {
         if p.string == a.string { res = cmpEqual }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -2702,6 +2746,7 @@ func (p *String) cmp(ctx Context, v Value) (res cmpres) {
     switch t := v.(type) {
     case *Group:
     case *List: if len(t.Elems) == 1 { res = p.cmp(ctx, t.Elems[0]) }
+    case unexpanded: if t.Value != nil { res = p.cmp(ctx, t.Value) }
     default: if s := t.Strval(ctx); p.string == s {
             res = cmpEqual
         } else if p.string < s {
@@ -2755,6 +2800,8 @@ func (p *Punctuation) cmp(ctx Context, v Value) (res cmpres) {
         }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -2777,22 +2824,40 @@ func (p *Bareword) cmp(ctx Context, v Value) (res cmpres) {
         if p.string == a.string {
             res = cmpEqual
         } else if p.string < a.string {
-            res = cmpSmaller
+            if strings.HasPrefix(a.string, p.string) {
+                res = cmpLPrefix
+            } else {
+                res = cmpSmaller
+            }
         } else {
-            res = cmpGreater
+            if strings.HasPrefix(p.string, a.string) {
+                res = cmpRPrefix
+            } else {
+                res = cmpGreater
+            }
         }
     } else if c, ok := v.(*Barecomp); ok {
         if s := c.Strval(ctx); p.string == s {
             res = cmpEqual
         } else if p.string < s {
-            res = cmpSmaller
+            if strings.HasPrefix(s, p.string) {
+                res = cmpLPrefix
+            } else {
+                res = cmpSmaller
+            }
         } else {
-            res = cmpGreater
+            if strings.HasPrefix(p.string, s) {
+                res = cmpRPrefix
+            } else {
+                res = cmpGreater
+            }
         }
     } else if l, ok := v.(*Path); ok {
         if len(l.Elems) == 1 { res = p.cmp(ctx, l.Elems[0]) }
     } else if l, ok := v.(*List); ok {
         if len(l.Elems) == 1 { res = p.cmp(ctx, l.Elems[0]) }
+    } else if u, ok := v.(unexpanded); ok && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     } else if false {
         // NOTE: find the only valid element (if others are none)
         for _, elem := range l.Elems {
@@ -2851,6 +2916,8 @@ func (p *Qualiword) cmp(ctx Context, v Value) (res cmpres) {
         }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -2887,11 +2954,7 @@ func (p *elements) ToCompound(pos Position) *Compound { return &Compound{valbase
 func (p *elements) ToList(pos Position) *List { return &List{pos, *p} }
 func (p *elements) True(ctx Context) (t bool) { // (or elems...)
     for _, elem := range p.Elems {
-        if isNil(elem) {
-            continue
-        } else if t = elem.True(ctx); t {
-            break
-        }
+        if elem != nil { if t = elem.True(ctx); t { break }}
     }
     return
 }
@@ -2903,7 +2966,7 @@ func (p *elements) refs(ctx Context, v Value) bool {
     }
     return false
 }
-func (p *elements) defs(ctx Context, s ...string) (res []*Def) {
+func (p *elements) defs(ctx Context, s ...string) (res []*def) {
     for _, elem := range p.Elems { res = append(res, elem.defs(ctx, s...)...) }
     return
 }
@@ -2935,6 +2998,17 @@ func compareElems(ctx Context, elemsL, elemsR []Value) (res cmpres) {
                 return
             }
             if res = elem.cmp(ctx, other); res != cmpEqual {
+                if options.debug && elem.String() == other.String() {
+                    warn(ctx, "L.%d: %T %v", i, elem, elem)
+                    warn(ctx, "R.%d: %T %v", i, other, other)
+                    if b1, y := elem.(*Barecomp); y {
+                        if b2, y := other.(*Barecomp); y {
+                            warn(ctx, "%v", b1.Elems)
+                            warn(ctx, "%v", b2.Elems)
+                        }
+                    }
+                    warn(ctx, "cmp: %v", res).debug(1)
+                }
                 return
             }
         }
@@ -2981,7 +3055,7 @@ func (p *Barecomp) Integer(ctx Context) (res int64, _ error) {
     return
 }
 func (p *Barecomp) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
-func (p *Barecomp) defs(ctx Context, s ...string) []*Def { return p.elements.defs(ctx, s...) }
+func (p *Barecomp) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
 func (p *Barecomp) elemStr(ctx Context, o Object, k elemkind) (s string) {
     for _, elem := range p.Elems {
         s += elementString(ctx, o, elem, k)
@@ -2989,7 +3063,8 @@ func (p *Barecomp) elemStr(ctx Context, o Object, k elemkind) (s string) {
     return
 }
 func (p *Barecomp) expandible(ctx Context, w expandfacet) bool {
-    return p.elements.expandible(ctx, w) }
+    return p.elements.expandible(ctx, w)
+}
 func (p *Barecomp) expand(ctx Context, w expandfacet) (res Value) {
     if false && w&expandFullName != 0 {
         if file := ctx.Project().FindFile(ctx, p.Strval(ctx)); file != nil {
@@ -2997,11 +3072,19 @@ func (p *Barecomp) expand(ctx Context, w expandfacet) (res Value) {
         }
     }
 
-    if elems, num := expand(ctx, w, p.Elems...); num > 0 {
-        res = &Barecomp{p.valbase, elements{elems}}
-    } else {
-        res = p
-    }
+    var elems, u, n = expand(ctx, w, p.Elems...)
+    if false { if p.String() == ".test$1" {
+        for i, elem := range p.Elems {
+            warn(ctx, "%d. %T %v", i, elem, elem)
+        }
+        for i, elem := range elems {
+            warn(ctx, "%d. %T %v", i, elem, elem)
+        }
+        warnstack(ctx, 5, "%v -> %v, %d %d %024b", p.Elems, elems, u, n, w).debug(128)
+    }}
+
+    if n > 0 { res = &Barecomp{p.valbase, elements{elems}} } else { res = p }
+    if u > 0 { res = unexpanded{res} }
     return
 }
 func (p *Barecomp) traverse(ctx Context) (traves travestates) {
@@ -3009,7 +3092,38 @@ func (p *Barecomp) traverse(ctx Context) (traves travestates) {
 }
 func (p *Barecomp) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Barecomp); ok {
-        res = compareElems(ctx, p.Elems, a.Elems)
+        var (
+            elemsL = mergeBare(p.Elems...)
+            elemsR = mergeBare(a.Elems...)
+        )
+        if false && p.String() == ".test." {
+            defer func() { warn(ctx, "%v: %v %v", res, elemsL, elemsR).debug(6) } ()
+        }
+        if res = compareElems(ctx, elemsL, elemsR); res != cmpEqual {
+            var i int
+            for ; i < len(elemsL) && i < len(elemsR); i += 1 {
+                var cr = elemsL[i].cmp(ctx, elemsR[i])
+                if cr == cmpEqual { continue } else
+                if cr == cmpLPrefix || cr == cmpRPrefix {
+                    if false && p.Strval(ctx) == a.Strval(ctx) { return cmpEqual }
+                    if true  && p.String(   ) == a.String(   ) { return cmpEqual }
+                } else {
+                    break
+                }
+            }
+            if i < len(elemsL) && i == len(elemsR) {
+                for ; i < len(elemsL); i += 1 {
+                    if !isTrivial(elemsL[i]) { return }
+                }
+                return cmpEqual
+            }
+            if i == len(elemsL) && i < len(elemsR) {
+                for ; i < len(elemsR); i += 1 {
+                    if !isTrivial(elemsR[i]) { return }
+                }
+                return cmpEqual
+            }
+        }
     } else if w, ok := v.(*Bareword); ok {
         if s := p.Strval(ctx); s == w.string {
             res = cmpEqual
@@ -3045,6 +3159,8 @@ func (p *Barecomp) cmp(ctx Context, v Value) (res cmpres) {
                 unreachable(p, v)
             }
         }}
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     } else if true && l != nil && len(p.Elems)==2 && len(l.Elems)>1 {
@@ -3160,7 +3276,7 @@ func (p *Barefile) Float(ctx Context) (f float64, _ error) {
     i, e := p.Integer(ctx); return float64(i), e
 }
 func (p *Barefile) refs(ctx Context, v Value) bool { return p.Name.refs(ctx, v) }
-func (p *Barefile) defs(ctx Context, s ...string) []*Def { return p.Name.defs(ctx, s...) }
+func (p *Barefile) defs(ctx Context, s ...string) []*def { return p.Name.defs(ctx, s...) }
 func (p *Barefile) elemStr(ctx Context, o Object, k elemkind) (s string) { return elementString(ctx, o, p.Name, k) }
 func (p *Barefile) expandible(ctx Context, w expandfacet) bool { return p.Name.expandible(ctx, w) }
 func (p *Barefile) expand(ctx Context, w expandfacet) (res Value) {
@@ -3211,6 +3327,8 @@ func (p *Barefile) cmp(ctx Context, v Value) (res cmpres) {
         res = p.File.cmp(ctx, a)
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -3557,6 +3675,8 @@ func (p *GlobMeta) cmp(ctx Context, v Value) (res cmpres) {
         if p.Token == a.Token { res = cmpEqual }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -3569,12 +3689,14 @@ func (p *GlobRange) Strval(ctx Context) (s string) {
     return fmt.Sprintf("[%s]", p.Chars.Strval(ctx))
 }
 func (p *GlobRange) refs(ctx Context, v Value) bool { return p.Chars.refs(ctx, v) }
-func (p *GlobRange) defs(ctx Context, s ...string) []*Def { return p.Chars.defs(ctx, s...) }
+func (p *GlobRange) defs(ctx Context, s ...string) []*def { return p.Chars.defs(ctx, s...) }
 func (p *GlobRange) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*GlobRange); ok {
         res = p.Chars.cmp(ctx, a.Chars)
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -3626,14 +3748,12 @@ func (p *Path) True(ctx Context) (t bool) {
     return
 }
 func (p *Path) refs(ctx Context, v Value) (res bool) { return p.elements.refs(ctx, v) }
-func (p *Path) defs(ctx Context, s ...string) (res []*Def) { return p.elements.defs(ctx, s...) }
+func (p *Path) defs(ctx Context, s ...string) (res []*def) { return p.elements.defs(ctx, s...) }
 func (p *Path) expandible(ctx Context, w expandfacet) bool { return p.elements.expandible(ctx, w) }
 func (p *Path) expand(ctx Context, w expandfacet) (res Value) {
-    if elems, num := expandPathElems(ctx, w, p.Elems...); num > 0 {
-        res = &Path{p.valbase, elements{elems}}
-    } else {
-        res = p
-    }
+    var elems, u, n = expandPathElems(ctx, w, p.Elems...)
+    if n > 0 { res = &Path{p.valbase, elements{elems}} } else { res = p }
+    if u > 0 { res = unexpanded{res} }
     return
 }
 func (p *Path) delete(ctx Context) (files []*File, err error) {
@@ -3697,6 +3817,8 @@ func (p *Path) cmp(ctx Context, v Value) (res cmpres) {
         res = compareElems(ctx, p.Elems, a.Elems)
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -3714,14 +3836,15 @@ func (p *Path) elemStr(ctx Context, o Object, k elemkind) (s string) {
     return
 }
 
-func expandPathElems(ctx Context, w expandfacet, elems ...Value) (res []Value, num int) {
+func expandPathElems(ctx Context, w expandfacet, elems ...Value) (res []Value, u, n int) {
     var xelems []Value
-    xelems, num = expand(ctx, w, elems...)
+    xelems, u, n = expand(ctx, w, elems...)
     for _, elem := range xelems {
         if p, ok := elem.(*Path); ok {
-            var ev, n = expandPathElems(ctx, w, p.Elems...)
+            var ev, u1, n1 = expandPathElems(ctx, w, p.Elems...)
             res = append(res, ev...)
-            num += n
+            u += u1
+            n += n1
         } else {
             res = append(res, elem)
         }
@@ -3734,12 +3857,12 @@ func expandPathElems(ctx Context, w expandfacet, elems ...Value) (res []Value, n
                 if v.string != "" {
                     vals = append(vals, splitPathStr(v.position, v.string)...)
                 }
-                num += 1
+                n += 1
             case *Compound:
                 if s := v.Strval(ctx); s != "" {
                     vals = append(vals, splitPathStr(v.position, s)...)
                 }
-                num += 1
+                n += 1
             default:
                 vals = append(vals, elem)
             }
@@ -3753,12 +3876,14 @@ func (p *Path) match1(ctx Context, str string) (full bool, result string, stems 
     var (
         srcs []string
         segs []Value
+        un int
     )
     if srcs = strings.Split(str, PathSep); len(srcs) == 0 {
         if false { erro(ctx, "empty: %v", str).at(p.position) }
         return
-    } else {
-        segs, _ = expandPathElems(ctx, expandPlainValue, p.Elems...)
+    } else if segs, un, _ = expandPathElems(ctx, plain, p.Elems...); un > 0 {
+        errostack(ctx, 3, "can't expand path: %v", p).debug(1)
+        return
     }
 
     const warns = false
@@ -3990,7 +4115,7 @@ func (p *Path) stencil(ctx Context, stems []string) (result Value, rest []string
         elems []Value
         changed int
     )
-    for _, seg := range mergex(ctx, expandPlainValue, p.Elems...) {
+    for _, seg := range mergex(ctx, plain, p.Elems...) {
         var val Value
         if val, stems = seg.stencil(ctx, stems); !isTrivial(val) {
             if val != seg { changed += 1 }
@@ -4076,6 +4201,8 @@ func (p *PathSeg) cmp(ctx Context, v Value) (res cmpres) {
         if p.rune == a.rune { res = cmpEqual }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -4517,6 +4644,8 @@ func (p *File) cmp(ctx Context, v Value) (res cmpres) {
         }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -4577,9 +4706,17 @@ func (p *Flag) Strval(ctx Context) (s string) {
     }
     return
 }
+func (p *Flag) Integer(ctx Context) (i int64, e error) {
+    if i, e = p.name.Integer(ctx); e == nil { i = -i }
+    return
+}
+func (p *Flag) Float(ctx Context) (f float64, e error) {
+    if f, e = p.name.Float(ctx); e == nil { f = -f }
+    return
+}
 func (p *Flag) True(ctx Context) (t bool) { return p.name.True(ctx) }
 func (p *Flag) refs(ctx Context, v Value) bool { return p.name.refs(ctx, v) }
-func (p *Flag) defs(ctx Context, s ...string) []*Def { return p.name.defs(ctx, s...) }
+func (p *Flag) defs(ctx Context, s ...string) []*def { return p.name.defs(ctx, s...) }
 func (p *Flag) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
     switch t := i.(type) {
     case *None, *Nil, *unresolvedobject:
@@ -4633,7 +4770,7 @@ func (p *Flag) opt(ctx Context, name string) (res string, match bool) {
     }
     return
 }
-// DEPRECATED
+// DEPRECATED and not used anymore
 func (p *Flag) opts(ctx Context, try bool, opts ...string) (runes []rune, names []string, err error) {
     switch t := p.name.(type) {
     case *Flag:
@@ -4701,8 +4838,20 @@ func (p *Flag) cmp(ctx Context, v Value) (res cmpres) {
                 unreachable(p, v)
             }
         }}
-    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+    } else if l, y := v.(*List); y && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, y := v.(unexpanded); y && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
+    } else if i, y := v.(*Int); y && i.int64 < 0 {
+        if a, e := p.name.Integer(ctx); e == nil {
+            if b := -i.int64; a == b { res = cmpEqual } else
+            if a < b { res = cmpGreater } else { res = cmpSmaller }
+        }
+    } else if f, y := v.(*Float); y && f.float64 < 0 {
+        if a, e := p.name.Float(ctx); e == nil {
+            if b := -f.float64; a == b { res = cmpEqual } else
+            if a < b { res = cmpGreater } else { res = cmpSmaller }
+        }
     }
     return
 }
@@ -4728,43 +4877,51 @@ func (p *Compound) Integer(ctx Context) (i int64, err error) {
 }
 func (p *Compound) True(ctx Context) bool { return p.elements.True(ctx) }
 func (p *Compound) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
-func (p *Compound) defs(ctx Context, s ...string) []*Def { return p.elements.defs(ctx, s...) }
+func (p *Compound) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
 func (p *Compound) expandible(ctx Context, w expandfacet) bool { return p.elements.expandible(ctx, w) }
 func (p *Compound) expand(ctx Context, w expandfacet) (res Value) {
-    if elems, num := expand(ctx, w, p.Elems...); num > 0 {
-        res = &Compound{p.valbase, elements{elems}}
-    } else {
-        res = p
-    }
+    var elems, u, n = expand(ctx, w, p.Elems...)
+    if n > 0 { res = &Compound{p.valbase, elements{elems}} } else { res = p }
+    if u > 0 { res = unexpanded{res} }
     return
 }
 func (p *Compound) elemStr(ctx Context, o Object, k elemkind) (s string) {
-    var tk = k|elemNoQuote
-    for _, elem := range p.Elems { s += elementString(ctx, o, elem, tk) }
-    if k&elemNoQuote != 0 { return }
-    var err error
-    var buf bytes.Buffer
+    for _, elem := range p.Elems {
+        s += elementString(ctx, o, elem, k|elemNoQuote)
+    }
+    if k&elemNoQuote != 0 {
+        return
+    }
+
+    var (
+        buf bytes.Buffer
+        err error
+    )
     buf.WriteString(`"`)
     defer func() {
         buf.WriteString(`"`)
         s = buf.String()
     } ()
+
+    // Escape string chars
     for i := strings.IndexAny(s, escapedChars); i != -1; {
         if _, err = buf.WriteString(s[:i]); err != nil {
             erro(ctx, "%v", err).of(p)
             return
         }
+
         var esc string
         switch s[i] {
         case '"':  esc = `\"`
         case '\r': esc = `\r`
         case '\n': esc = `\n`
         }
-        s = s[i+1:]
         if _, err = buf.WriteString(esc); err != nil {
             erro(ctx, "%v", err).of(p)
             return
         }
+
+        s = s[i+1:]
         i = strings.IndexAny(s, escapedChars)
     }
     if _, err = buf.WriteString(s); err != nil {
@@ -4777,6 +4934,8 @@ func (p *Compound) cmp(ctx Context, v Value) (res cmpres) {
         if p.Strval(ctx) == a.Strval(ctx) { res = cmpEqual }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -4820,14 +4979,9 @@ func (p *List) elemStr(ctx Context, o Object, k elemkind) (s string) {
     return strings.Join(strs, " ")
 }
 func (p *List) expand(ctx Context, w expandfacet) (res Value) {
-    var elems, num = expand(ctx, w, p.Elems...)
-    if res = p; num > 0 {
-        if false && len(elems) == 1 {
-            res = elems[0]
-        } else {
-            res = &List{p.position, elements{elems}}
-        }
-    }
+    var elems, u, n = expand(ctx, w, p.Elems...)
+    if res = p; n > 0 { res = &List{p.position, elements{elems}}}
+    if u > 0 { res = unexpanded{res} }
     return
 }
 func (p *List) traverse(ctx Context) (traves travestates) {
@@ -4900,7 +5054,7 @@ func (p *List) cmp(ctx Context, v Value) (res cmpres) {
 
         res = compareElems(ctx, elemsL, elemsR)
 
-        if true && res != cmpEqual && p.String() == a.String() {
+        if false && res != cmpEqual && p.String() == a.String() {
             for i, elem := range elemsL {
                 warn(ctx, "L: %v: %d: %T %v", p, i, elem, elem)
             }
@@ -4909,6 +5063,10 @@ func (p *List) cmp(ctx Context, v Value) (res cmpres) {
             }
             warn(ctx, "%v <=> %v", p.Elems, a.Elems).debug(1)
         }
+    } else if len(p.Elems) == 1 {
+        res = p.Elems[0].cmp(ctx, v)
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     } else if c, ok := v.(*Barecomp); ok && len(c.Elems)==2 && len(p.Elems)>1 {
         if cl, ok := c.Elems[1].(*List); ok && len(cl.Elems)>1 {
             var a = c.Elems[1] // Example: p.Elems=[z-a b c], c.Elems=[a- a b c]
@@ -4918,8 +5076,6 @@ func (p *List) cmp(ctx Context, v Value) (res cmpres) {
             }
             c.Elems[1] = a
         }
-    } else if len(p.Elems) == 1 {
-        res = p.Elems[0].cmp(ctx, v)
     }
     return
 }
@@ -4996,7 +5152,7 @@ func (p *Group) Strval(ctx Context) (s string) {
     return
 }
 func (p *Group) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
-func (p *Group) defs(ctx Context, s ...string) []*Def { return p.elements.defs(ctx, s...) }
+func (p *Group) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
 func (p *Group) stat(ctx Context) (si *statinfo) { return }
 func (p *Group) stamp(ctx Context) (files []*File, err error) { return }
 func (p *Group) delete(ctx Context) (files []*File, err error) { return }
@@ -5009,11 +5165,9 @@ func (p *Group) elemStr(ctx Context, o Object, k elemkind) string {
 }
 func (p *Group) expandible(ctx Context, w expandfacet) bool { return p.elements.expandible(ctx, w) }
 func (p *Group) expand(ctx Context, w expandfacet) (res Value) {
-    if elems, num := expand(ctx, w, p.Elems...); num > 0 {
-        res = &Group{p.valbase, elements{elems}}
-    } else {
-        res = p
-    }
+    var elems, u, n = expand(ctx, w, p.Elems...)
+    if n > 0 { res = &Group{p.valbase, elements{elems}} } else { res = p }
+    if u > 0 { res = unexpanded{res} }
     return
 }
 func (p *Group) traverse(ctx Context) (traves travestates) {
@@ -5028,6 +5182,8 @@ func (p *Group) cmp(ctx Context, v Value) (res cmpres) {
         res = compareElems(ctx, p.Elems, a.Elems)
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -5088,7 +5244,7 @@ func (p *Pair) True(ctx Context) (t bool) {
 func (p *Pair) Integer(ctx Context) (i int64, e error) { return p.Value.Integer(ctx) }
 func (p *Pair) Float(ctx Context) (f float64, e error) { return p.Value.Float(ctx) }
 func (p *Pair) refs(ctx Context, v Value) bool { return p.Key.refs(ctx, v) || p.Value.refs(ctx, v) }
-func (p *Pair) defs(ctx Context, s ...string) []*Def {
+func (p *Pair) defs(ctx Context, s ...string) []*def {
     return append(p.Key.defs(ctx, s...), p.Value.defs(ctx, s...)...)
 }
 func (p *Pair) traverse(ctx Context) (traves travestates) {
@@ -5136,13 +5292,17 @@ func (p *Pair) stencil(ctx Context, stems []string) (val Value, rest []string) {
 }
 func (p *Pair) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Pair); ok {
-        if p.Key.cmp(ctx, a.Key) == cmpEqual {
-            if p.Value.cmp(ctx, a.Value) == cmpEqual {
-                res = cmpEqual
+        if res = p.Key.cmp(ctx, a.Key); res == cmpEqual {
+            if false {
+                res = p.Value.expand(ctx, plain).cmp(ctx, a.Value)
+            } else {
+                res = p.Value.cmp(ctx, a.Value)
             }
         }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -5150,23 +5310,42 @@ func (p *Pair) elemStr(ctx Context, o Object, k elemkind) string {
     return elementString(ctx, o, p.Key, k)+`=`+elementString(ctx, o, p.Value, k)
 }
 
-
-const (
-    fixUnresolvedObjectClosure = false
-    fixUnresolvedObjectDelegate = true
-)
-
-func containsUndefinedAutos(ctx Context, vals... Value) (d *Def, res bool) {
+func containsUndefinedAutos(ctx Context, noUnderscore bool, vals... Value) (res bool) {
     for _, val := range vals {
-        for _, d = range val.defs(ctx) {
+        for _, d := range val.defs(ctx) {
             if d.origin == DefArg || d.origin == DefAuto {
-                if ad, _ := ctx.autoGet(d.name); ad == nil {
-                    return d, true // not ready to reveal (call/execute)
+                if noUnderscore && d.name == "_" {
+                    continue
+                }
+
+                var v Value
+                if a := ctx.autoGet(d.name); a == nil {
+                    return true // not ready to reveal (call/execute)
+                } else if v = a.value; isTrivial(v) {
+                    continue
+                }
+
+                // Check for examples:
+                //   .test.y := $(.test$1)
+                //   .test.x := $(.test.y .$1)
+                //   .test   := $(.test.x)
+                //   assert $(equal -d $(string -e $(.test)),'$(.test.$1)')
+                for _, dd := range v.defs(ctx, d.name) {
+                    if dd == d {
+                        return true // not ready to reveal (call/execute)
+                    }
                 }
             }
         }
     }
     return
+}
+
+type unexpanded struct { Value }
+func (u unexpanded) True(ctx Context) bool { return false }
+func (u unexpanded) traverse(ctx Context) (traves travestates) { return }
+func (u unexpanded) expand(ctx Context, w expandfacet) Value {
+    return u.Value.expand(ctx, w) // NOTE: for a stack in debug traces
 }
 
 // Delegate wraps '$(foo a,b,c)' into Valuer
@@ -5179,27 +5358,32 @@ type delegate struct {
 }
 func (p *delegate) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *delegate) Strval(ctx Context) (s string) {
-    if v := p.expand(ctx, expandPlainValue); isNil(v) {
-        erro(ctx, "delegate value is nil: %v", p).of(p).debug(1)
-    } else if v == p {
+    if v := p.expand(ctx, plain); v == nil {
+        if false { erro(ctx, "delegate value is nil: %v", p).of(p).debug(1) }
+    } else if u, y := v.(unexpanded); (y /* && u.Value == p */) || v == p {
         if false {
-            erro(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+            erro(ctx, "delegate can't expand: %v -> %v", p, u.Value).of(p).debug(1)
         } else if options.debug {
-            warn(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+            warn(ctx, "delegate can't expand: %v (%v)", p, u.Value==p).of(p).debug(1)
         }
     } else {
-        s = v.Strval(ctx)
+        if v.refs(ctx, p.x) {
+            warnstack(ctx, 3, "%v %v ; %T %v", p, p.x, v, v).debug(128)
+            ctx.checkErrors(true)
+        } else {
+            s = v.Strval(ctx)
+        }
     }
     return
 }
 func (p *delegate) True(ctx Context) (t bool) {
-    if v := p.expand(ctx, expandPlainValue); isNil(v) {
-        erro(ctx, "expand '%v' to nil", p).at(p.position).debug(1)
-    } else if v == p {
+    if v := p.expand(ctx, plain); v == nil {
+        if false { erro(ctx, "expand '%v' to nil", p).at(p.position).debug(10) }
+    } else if u, y := v.(unexpanded); (y /* && u.Value == p */) || v == p {
         if false {
-            erro(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+            erro(ctx, "delegate can't expand: %v -> %v", p, u).of(p).debug(1)
         } else if options.debug {
-            warn(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+            warn(ctx, "delegate can't expand: %v (%v)", p, u.Value==p).of(p).debug(1)
         }
     } else if t = v.True(ctx); false {
         info(ctx, "%v -> %T %v -> %v", p, v, v, t).at(p.position).debug(8)
@@ -5207,13 +5391,13 @@ func (p *delegate) True(ctx Context) (t bool) {
     return
 }
 func (p *delegate) Integer(ctx Context) (i int64, e error) {
-    if v := p.expand(ctx, expandPlainValue); isNil(v) {
-        erro(ctx, "delegate value is nil: %v", p).of(p).debug(1)
-    } else if v == p {
+    if v := p.expand(ctx, plain); v == nil {
+        if false { erro(ctx, "delegate value is nil: %v", p).of(p).debug(1) }
+    } else if u, y := v.(unexpanded); (y /* && u.Value == p */) || v == p {
         if false {
-            erro(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+            erro(ctx, "delegate can't expand: %v -> %v", p, u).of(p).debug(1)
         } else if options.debug {
-            warn(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+            warn(ctx, "delegate can't expand: %v (%v)", p, u.Value==p).of(p).debug(1)
         }
     } else {
         i, e = v.Integer(ctx)
@@ -5221,13 +5405,13 @@ func (p *delegate) Integer(ctx Context) (i int64, e error) {
     return
 }
 func (p *delegate) Float(ctx Context) (f float64, e error) {
-    if v := p.expand(ctx, expandPlainValue); isNil(v) {
-        erro(ctx, "nil delegate value: %v", p).of(p).debug(1)
-    } else if v == p {
+    if v := p.expand(ctx, plain); v == nil {
+        if false { erro(ctx, "delegate value is nil: %v", p).of(p).debug(1) }
+    } else if u, y := v.(unexpanded); (y /* && u.Value == p */) || v == p {
         if false {
-            erro(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+            erro(ctx, "delegate can't expand: %v -> %v", p, u).of(p).debug(1)
         } else if options.debug {
-            warn(ctx, "delegate can't expand: %v", p).of(p).debug(1)
+            warn(ctx, "delegate can't expand: %v (%v)", p, u.Value==p).of(p).debug(1)
         }
     } else {
         f, e = v.Float(ctx)
@@ -5256,15 +5440,15 @@ func (p *delegate) refs(ctx Context, v Value) (res bool) {
     }
     return
 }
-func (p *delegate) defs(ctx Context, s ...string) (res []*Def) {
+func (p *delegate) defs(ctx Context, s ...string) (res []*def) {
     if isNil(p.x) {
         erro(ctx, "delegation of nil (s=%v)", p, s).of(p).debug(1)
         return
-    } else if d, ok := p.x.(*Def); ok {
-        if ok = len(s) == 0; !ok {
-            for _, a := range s { if ok = d.name == a; ok { break } }
+    } else if d, y := p.x.(*def); y {
+        if y = len(s) == 0; !y {
+            for _, a := range s { if y = d.name == a; y { break } }
         }
-        if ok { res = append(res, d) }
+        if y { res = append(res, d) }
     } else {
         res = p.x.defs(ctx, s...)
     }
@@ -5275,7 +5459,7 @@ func (p *delegate) defs(ctx Context, s ...string) (res []*Def) {
 }
 func (p *delegate) traverse(ctx Context) (traves travestates) {
     ctx = positional(ctx, p.position)
-    if val := p.expand(ctx, expandPlainValue); isNil(val) {
+    if val := p.expand(ctx, plain); isNil(val) {
         warn(ctx, "delegate '%v' expands to nil", p).at(p.position)
         warnstack(ctx, -1, "delegate '%v' expands to <nil>", p).debug(16)
     } else if isTrivial(val) {
@@ -5304,7 +5488,7 @@ func (p *delegate) string(ctx Context, o Object, k elemkind) (s string) { // sou
     var name string
     switch x := p.x.(type) {
     case Object    : name = x.Name(ctx)
-    case *selection: name = x.Strval(ctx)
+    case *selection: name = x.String() // x.Strval(ctx)
     }
 
     switch p.l {
@@ -5333,256 +5517,324 @@ func (p *delegate) string(ctx Context, o Object, k elemkind) (s string) { // sou
     }
     return
 }
-func (p *delegate) elemStr(ctx Context, o Object, k elemkind) (s string) {
-    if ctx == nil || k&elemExpand == 0 {
-        if s = p.string(ctx, o, k); !(p.l.IsClosure() || p.l.IsDelegate()) { s = "$" + s }
-    } else {
-        var v = p.expand(ctx, expandDelegate)
-        if isNil(v) { v = p }
-        s = elementString(ctx, o, v, k)
+func (p *delegate) _elemStr(ctx Context, o Object, k elemkind, l string) (s string) {
+    if ctx == nil {
+        if s = p.string(ctx, o, k); !(p.l.IsClosure() || p.l.IsDelegate()) { s = l + s }
+    } else if false {
+        s = elementString(ctx, o, p, k)
     }
     return
 }
-func (p *delegate) args(ctx Context, w expandfacet) (args []Value, num int) {
+func (p *delegate) elemStr(ctx Context, o Object, k elemkind) string {
+    return p._elemStr(ctx, o, k, "$")
+}
+func (p *delegate) args(ctx Context, w expandfacet) (args []Value, u, n int) {
     if len(p.a) < 1 {
         return // does nothing
-    } else if w&expandArgs == 0 {
-        args = p.a
-        return
-    }
-
-    if false { if args, num = expand(ctx, w, p.a...); len(args) == 0 && num == 0 {
-        args = p.a
-    }} else { for _, a := range p.a {
-        var noExpand bool
-        if w&(expandArgs|expandAuto) != 0 {
-            if d, v := containsUndefinedAutos(ctx, a); v {
-                if false { info(ctx, "undetermined autos: %v : %v", a, d).debug(10) }
-                noExpand =
-                    (d.origin == DefAuto && w&expandAuto == 0) ||
-                    (d.origin == DefArg  && w&expandArgs == 0)
+    } else if b, y := p.x.(*Builtin); y {
+        if l, m := len(p.a), b.s.m; m == expandZero || l <= b.s.n {
+            args, u, n = expand(ctx, w|m, p.a...)
+        } else if l == 0 { // NOTE: b.s.n could be -1
+            // does nothing...
+        } else if b.s.n <= 0 {
+            args, u, n = expand(ctx, w&^m, p.a...)
+        } else if args, u, n = expand(ctx, w|m, p.a[:b.s.n]...); b.s.n < l {
+            rest, x, y := expand(ctx, w&^m, p.a[b.s.n:]...)
+            if args = append(args, rest...); true {
+                u, n = u+x, n+y
+            } else {
+                u, n = x, y
             }
         }
-        if noExpand {
-            args = append(args, a)
-        } else {
-            args = append(args, a.expand(ctx, w))
-        }
-    }}
+    } else {
+        args, u, n = expand(ctx, w, p.a...)
+    }
+    if len(args) == 0 && u == 0 && n == 0 { args = p.a }
     return
 }
 func (p *delegate) expandible(ctx Context, w expandfacet) (res bool) {
     if res = w&expandDelegate != 0; !res {
-        if def, ok := p.x.(*Def); ok && (def.origin == DefAuto && w&expandAuto == 0) {
+        if def, ok := p.x.(*def); ok && (def.origin == DefAuto && w&expandAuto == 0) {
             res = false // p.x.expandible(ctx, w) // TODO: auto -> placeholder
         } else {
             res = p.x.expandible(ctx, w)
         }
-        if !res && w&expandArgs != 0 { for _, a := range p.a {
+        if !res { for _, a := range p.a {
             if res = a.expandible(ctx, w); res { break }
         }}
     }
     return
 }
 func (p *delegate) expand(ctx Context, w expandfacet) (res Value) {
-    ctx = positional(ctx, p.position)
-
-    if false { defer func() { if o, ok := p.x.(Object); !ok || isNil(o) {
-        warn(ctx, "%v: %T %v", p, p.x, p.x).at(p.x.Position()).debug(1)
-    } else if name := o.Name(ctx); name == "foreach" && res != nil {
-        var changed = res != p
-        var proj = ctx.Project()
-        var obj = closureResolveObject(ctx, p.position, name)
-        warn(ctx, "%v: p = %v, %016b", proj, p, w).at(p.Position())
-        warn(ctx, "%v: p.x = %T %v", proj, p.x, p.x).at(res.Position())
-        warn(ctx, "%v: obj = %T %v", proj, obj, obj).at(res.Position())
-        warn(ctx, "%v: res = %T %v (changed=%v)", proj, res, res, changed).at(res.Position())
-        if changed {
-            var val = res.expand(ctx, expandPlainValue)
-            warn(ctx, "%v: val = %T %v", proj, val, val).at(res.Position())
-        }
-        if d, ok := res.(*delegate); ok { warn(ctx, "%v: d.x = %T %v", proj, d.x, d.x).at(d.position)/*.debug(1)*/ }
-        warn(ctx, "").debug(4)
-    }}()}
-
-    if res = p; p.x == nil {
-        erro(ctx, "delegate of nil: %v (w=%016b)", p, w).at(p.position)
+    if ctx = positional(ctx, p.position); isNil(p.x) {
+        erro(ctx, "delegate of nil: %v (w=%024b)", p, w).at(p.position)
         errostack(ctx, 5, "delegate nil: %v (%p)", p, p).at(p.position).debug(64)
         return
     } else if isNone(p.x) {
-        erro(ctx, "invalid delegate: %v (w=%016b)", p, w).at(p.position)
+        erro(ctx, "invalid delegate: %v (w=%024b)", p, w).at(p.position)
         errostack(ctx, 5, "%v", p).at(p.position).debug(64)
         return
-    } else if w&expandClosure == 0 { for _, a := range p.a {
-        if a.expandible(ctx, expandArgs|expandClosure) {
-            if false && p.x.(Object).Name(ctx) == "foreach" {
-                info(ctx, "%v %v", p.x, a).debug(6)
-            }
-            return
-        }
-    }}
-
-    var db bool
-    if def, ok := p.x.(*Def); ok {
-        if def.origin == DefAuto && w&expandAuto == 0 {
-            // TODO: auto -> placeholder
-            //return def, nil
-        }
-        db = db || (def.name == ".test.x" && def.value != nil && p.String() == "$(.test.x $1,B b)")
-        db = db || (def.name == "_flags"  && def.value != nil && p.String() == "$(_flags $1,c)")
-        if db {
-            var a, n = p.args(ctx, w)
-            warn(ctx, "%016b %016b %016b %v %v %d", w, w&expandClosure, w&expandDelegate, p.a, a, n)
-            warn(ctx, "%v", def.value).debug(1)
-        }
-    } else if bt, ok := p.x.(*Builtin); false && ok {
-        db = db || (bt.name == "foreach" && p.String() == "$(foreach $1 $2,$(value .test.$_) $(value .test~&(.test.s).$_))")
-        if db {
-            var a, n = p.args(ctx, w)
-            warn(ctx, "%016b %016b %016b %v %v %d", w, w&expandClosure, w&expandDelegate, p.a, a, n).debug(1)
-        }
+    } else if w == 0 {
+        erro(ctx, "%v: zero expand", p).debug(64)
+        return
     }
 
     var final bool
-    if db { defer func() {
-        warn(ctx, "%T %v (final=%v)", res, res, final).debug(32)
-    } () }
-
-    if w&expandDelegate == 0 {
-        var x Value
-        if u, ok := p.x.(*unresolvedobject); ok && fixUnresolvedObjectDelegate {
-            if name := u.name.Strval(ctx); name == "" {
-                erro(ctx, "empty unresolved name: %v", u.name).of(u.name).debug(1)
-                return
-            } else if _, sym := ctx.Scope().Find(name); sym != nil && sym.(Value) != p {
-                x = sym
+    var offBits = expandPlain
+    var close = w&expandPlain != 0
+    if  close { w = (w&^offBits) | expandClose }
+    if false { if s := p.String();
+        // s == "$(foreach q p $(foreach $1,&(.test.foo)$_),x$_)" ||
+        // s == "$(call -c &(.test.x),$1$1,$2$2)" ||
+        // s == "$(foreach $1,&(.test.foo)$_)" ||
+        // s == "$(value -c &(.test.x))" ||
+        // s == "$(.test$1)" ||
+        s == "$(.test)" ||
+        (false && s == "") {
+        defer func() { if r := res.String();
+            r == "foobar $1-$2 foobar $1$1$1$1-$2$2$2$2 foobar $1$1$1$1-$2$2$2$2" ||
+            (false && r == "") {
+            var t, y = res.(unexpanded)
+            var same = res == p || (y && t.Value == p)
+            var t1 = ctx.autoGet("1")
+            var t2 = ctx.autoGet("2")
+            var t3 = ctx.autoGet("_")
+            warn(ctx, "delegate.expand: %v ; %v ; %v", t1, t2, t3)
+            warn(ctx, "delegate.expand: %v", s)
+            warn(ctx, "delegate.expand: -> %T %v", res, res)
+            if true {
+                // ...
+            } else if !same {
+                var t = res.expand(ctx, w)
+                warn(ctx, "delegate.expand: -> %T %v", t, t)
+            } else if y {
+                warn(ctx, "delegate.expand: unexpanded: %T %v", t.Value, t.Value)
             }
-        } else {
-            x = p.x.expand(ctx, w)
-        }
+            warn(ctx, "delegate.expand: final=%v; same=%v; close=%v; %020b",
+                final, same, close, w).debug(64)
+            ctx.checkErrors(true)
+        }} ()
+    }}
 
-        if args, num := p.args(ctx, w); x != p.x || num > 0 {
-            return &delegate{p.valbase, p.l, x, args}
-        }
+    if res, final = p.reveal(ctx, w); res == nil {
+        return MakeNil(p.position)
+    } else if close {
+        w |= offBits
+        w &= ^(expandClose)
+        // if u, y := res.(unexpanded); y { res = u.Value }
+    } else if final {
         return
+    } else {
+        w &= ^(expandDigits|expandPlaceholders)
     }
 
-    if res, final = p.reveal(ctx, w, db); isNil(res) { return MakeNone(p.position) }
-    if db { warn(ctx, "%T %v (final=%v)", res, res, final).debug(1) }
-
-    if !final && res != p { res = res.expand(ctx, w) }
-    if db { warn(ctx, "%T %v.", res, res).debug(1) }
-
+    // avoid self-expand loop
+    if u, y := res.(unexpanded); res == p || (y && u.Value == p) {
+        return
+    } else if a := ctx.auto(); a != nil {
+        // chop off the auto context to preserve $1, $2... in res
+        return res.expand(a.inner(), w)
+    } else {
+        return res.expand(ctx, w)
+    }
+}
+func isDigits(s string) bool {
+    return strings.IndexFunc(s, func(c rune) bool {
+        return !scanner.IsDigit(c) }) < 0
+}
+func callDef(ctx Context, p *delegate, w expandfacet, d *def, args ...Value) (res Value, final bool) {
+    if res = d.call(ctx, w, args...); res == nil {
+        if final = true; d.value == nil {
+            res = unexpanded{p}
+        } else {
+            res = d.value
+        }
+    }
     return
 }
-func (p *delegate) reveal(ctx Context, w expandfacet, db bool) (res Value, final bool) {
-    var x Object
-    if u, ok := p.x.(*unresolvedobject); ok && fixUnresolvedObjectDelegate {
-        // NOTE: return immediately if there are any autos/args not defined yet
-        if d, v := containsUndefinedAutos(ctx, u.name); v {
-            if false { info(ctx, "undetermined autos: %v : %v", p, d).debug(10) }
-            return p, true // not ready to reveal (call/execute)
+func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
+    res = p // set default to selfing
+
+    var (
+        // NOTE: expand arguments' delegates (including known autos)
+        args, u, n = p.args(ctx, w)
+        x Object
+        db int
+    )
+    if false { if s := p.String(); (
+        // s == "$(call -c &(.test.x),$1$1,$2$2)" ||
+        // s == "$(foreach $1 $2,$(value .test.$_) $(value .test~&(.test.s).$_))" ||
+        // s == "$(foreach $1,$(value -c .test.$_)$1)" ||
+        // s == "$(foreach $1,&(.test.foo)$_)" ||
+        // s == "$(foreach $1,&(.test.x.$_))" ||
+        // s == "$(foreach $1,&(.test.x.))" ||
+        // s == "$(foreach $1 $2,-x$_)" ||
+        // s == "$(foreach $1 $2,-y$_)" ||
+        // s == "$(value -c &(.test.x))" ||
+        // s == "$(value .test~&(.test.s))" ||
+        // s == "$(value .test~$(.test.s))" ||
+        // s == "$(.test$1)" ||
+        // s == "$(.test.x)" ||
+        // s == "$(.test)" ||
+        // s == "$(.test.z y$1,y$2)" ||
+        // s == "$(ext $@)" ||
+        // (db > 0 && s == "$1") ||
+        (false && s == "")) { db += 1
+        defer func() { if res != nil { if r := res.String(); true ||
+            // r == "foobar $1-$2 foobar $1$1$1$1-$2$2$2$2 foobar $1$1$1$1-$2$2$2$2" ||
+            // r == "$(call -c &(.test.x),$1$1,$2$2)" ||
+            // r == "$(.test.z y$1,y$2)" ||
+            // r == "$(ext $@)" ||
+            (false && r == "") {
+            if false && (len(p.a)>0 || len(args)>0 || n>0) {
+                warn(ctx, "%T %v %v (merge(p.a))", x, x, merge(p.a...))
+                for _, a := range merge(p.a...) {
+                    var t = a.expand(ctx, plain)
+                    warn(ctx, ">  %p %T %v; %T %v", a, a, a, t, t) }
+                warn(ctx, "%T %v %v (merge(args))", x, x, merge(args...))
+                for _, a := range merge(args...) {
+                    var t = a.expand(ctx, plain)
+                    warn(ctx, ">  %p %T %v; %T %v", a, a, a, t, t) }
+
+                warn(ctx, "%T %v %v (p.a)", x, x, p.a)
+                for _, a := range p.a {
+                    var t = a.expand(ctx, plain)
+                    warn(ctx, ">  %p %T %v; %T %v", a, a, a, t, t) }
+                warn(ctx, "%T %v %v (args)", x, x, args)
+                for _, a := range args {
+                    var t = a.expand(ctx, plain)
+                    warn(ctx, ">  %p %T %v; %T %v", a, a, a, t, t) }
+            }
+            var t, y = res.(unexpanded)
+            var same = res == p || (y && t.Value == p)
+            var t1 = ctx.autoGet("1")
+            var t2 = ctx.autoGet("2")
+            var t3 = ctx.autoGet("_")
+            warn(ctx, "reveal: %v ; %v ; %v", t1, t2, t3)
+            warn(ctx, "reveal: %v", p)
+            warn(ctx, "reveal: args=%v, unexpanded=%v, transformed=%v", args, u, n)
+            warn(ctx, "reveal: -> %T %v (same=%v)", res, res, same)
+            if !same {
+                var t = res.expand(ctx, w)
+                warn(ctx, "reveal: -> %T %v", t, t)
+            } else if y {
+                warn(ctx, "reveal: unexpanded: %T %v", t.Value, t.Value)
+            }
+            warnstack(ctx, 3, "reveal: final=%v; same=%v; %020b", final, p.x==x, w).debug(100)
+            ctx.checkErrors(true)
+            db -= 1
+        }}} ()
+    }}
+
+    if ur, y := p.x.(*unresolvedobject); y {
+        // Expand name first, for example of $(.test$1) containing '$1':
+        //     .test.y := $(.test$1)
+        //     .test.x := $(.test.y .$1)
+        //     .test   := $(.test.x)
+        //     assert $(equal -d $(string -e $(.test)),'$(.test.$1)')
+        var ux unexpanded
+        var name = ur.name.expand(ctx, w|expandUnresName)
+        if ux, y = ur.name.(unexpanded); !y { ux, y = name.(unexpanded) }
+        if y {
+            if res = p; ux.Value != ur.name || n>0 {
+                res = &delegate{p.valbase, p.l, &unresolvedobject{ur.objbase, ux.Value}, args}
+            }
+            return res, true // not ready to reveal (call/execute)
         }
 
-        var name string
-        if name = u.name.Strval(ctx); name == "" {
-            erro(ctx, "empty unresolved name: %v", u.name).of(u.name).debug(1)
+        // NOTE: return immediately if there are any autos/args not defined yet
+        if str := name.Strval(ctx); str == "" {
+            erro(ctx, "empty unresolved name: %v", name).of(name).debug(1)
             return
-        }
-        if false {
-            for _, proj := range closureProjects(ctx) {
-                x = proj.resolveObject(ctx, name)
+        } else {
+            if _, sym := ctx.Scope().Find(str); sym != nil {
+                if sym.(Value) != p { x = sym }
             }
-        } else if _, sym := ctx.Scope().Find(name); sym != nil && sym.(Value) != p {
-            x = sym
+            if x == nil {
+                if res = p; name != ur.name || n>0 {
+                    res = &delegate{p.valbase, p.l, &unresolvedobject{ur.objbase, name}, args}
+                }
+                return res, true // not ready to reveal (call/execute)
+            }
         }
-        if isNil(x) {
-            if false { erro(ctx, "undefined '%v'", name).of(u.name).debug(1) }
-            return
-        }
-    } else if t, ok := p.x.(Object); ok && t != nil {
+    } else if t, y := p.x.(Object); y && t != nil {
         x = t
-    } else if t, ok := p.x.(*usinglist); ok {
+    } else if t, y := p.x.(*usinglist); y {
         x = t
-    } else if t, ok := p.x.(*selection); !ok || t == nil {
+    } else if t, y := p.x.(*selection); !y || t == nil {
         erro(ctx, "delegate unsupported object: %T %v", p.x, p.x)
         errostack(ctx, 3, "%v", ctx).debug(16)
         return
     } else if isNil(t.o) {
-        erro(ctx, "%v: selection object is nil (w=%016b)", p, w)
+        erro(ctx, "%v: selection object is nil (w=%024b)", p, w)
         errostack(ctx, 3, "%v", ctx).debug(16)
         return
     } else {
-        if n, ok := t.o.(*ProjectName); ok && n != nil && n.project != nil {
-            if false {if s := p.x.String(); s == "main→sources" {
-                warn(ctx, "%v: %T %v %v", p.x, ctx, ctx, ctx.closureScopes()).debug(1)
-            }}
-            // FIXME: closure with n.project not working
-            ctx = closureWith(ctx, n.position, n.project.scope)
+        if pn, y := t.o.(*ProjectName); y && pn != nil && pn.project != nil {
+            // FIXME: closure with pn.project not working
+            ctx = closureWith(ctx, pn.position, pn.project.scope)
         }
 
-        var v Value
-        if v = t.value(ctx); isNil(v) {
-            erro(ctx, "%v: selected value is nil (%T %v) (w=%016b)", p, t.o, t.o, w)
+        if v := t.value(ctx); isNil(v) {
+            erro(ctx, "%v: selected value is nil (%T %v) (w=%024b)", p, t.o, t.o, w)
             errostack(ctx, 3, "%v", ctx).debug(16)
             return
-        } else if t, ok := v.(Object); !ok {
-            erro(ctx, "%v: selected value is not object (%T %v) (w=%016b)", t, v, v, w)
+        } else if t, y := v.(Object); !y {
+            erro(ctx, "%v: selected value is not object (%T %v) (w=%024b)", t, v, v, w)
             errostack(ctx, 3, "%v", ctx).debug(16)
             return
         } else {
             x = t
         }
+   }
+
+    if false && db > 0 {
+        var t1 = ctx.autoGet("_")
+        var t2 = ctx.autoGet("1")
+        var t3 = ctx.autoGet("2")
+        info(ctx, "%v ; %v ; %v", t1, t2, t3)
+        info(ctx, "%v %v %024b", x, args, w)
+        for i, a := range merge(args...) { info(ctx, "%d. %T %v", i, a, a) }
+        info(ctx, "u=%d, n=%d", u, n)
+        infostack(ctx, 3, "").debug(64)
     }
 
-    var args, _ = p.args(ctx, w)
-    if db {
-        warn(ctx, "%v ; args=%v ; %v", p, args,
-            mergex(ctx, expandArgs|expandAuto, args...)).debug(1)
-        defer func() {
-            if d, _ := x.(*Def); d != nil {
-                warn(ctx, "val=%v", d.value)
-            } else {
-                warn(ctx, "obj=%v", x)
-            }
-            warn(ctx, "res=%v", res).debug(16)
-        } ()
+    var call bool
+    var done = (w&expandDelegate == 0) || (w&expandClose == 0 && u > 0)
+    if bin, _ := x.(*Builtin); bin == nil {
+        // does nothing, keep going..
+    } else if bin.name == "auto" {
+        return builtinAuto(ctx, p, w, args...), final
+    } else if bin.name == "value" { // NOTE: (w&expandDelegate == 0) may be true
+        if u > 0 { done = true }
+    } else if call = bin.name == "call"; call {
+        // TODO: only callable if args[0] is plain
+    }
+
+    if false && done {
+        if p.x != x || n > 0 { res = &delegate{p.valbase, p.l, x, args} }
+        if w&expandClose != 0 { return res, true }
+        return unexpanded{res}, true
+    } else if d, y := x.(*def); y {
+        return callDef(ctx, p, w, d, args...)
+    } else if false && call {
+        return builtinCall(ctx, p, w, args...), true
+    } else if done {
+        if p.x != x || n > 0 { res = &delegate{p.valbase, p.l, x, args} }
+        if w&expandClose != 0 { return res, true }
+        return unexpanded{res}, true
+    } else if call {
+        return builtinCall(ctx, p, w, args...), true
     }
 
     switch t := x.(type) {
-    case *Def:
-        if t.origin == DefArg || t.origin == DefAuto {
-            if a, v := ctx.autoGet(t.name); a == nil /* && v == nil */ {
-                if false { warn(ctx, "%v (%v) -> %v -> %v", a, v, p, t.value).debug(16) }
-                if v == nil && t.value == nil { return p, true } // selfing
-            } else if a == t {
-                if true { warn(ctx, "%v (%v) -> %v -> %v", a, v, p, t.value).debug(16) }
-                return p, true // selfing
-            } else if v != nil {
-                if defs := v.defs(ctx, t.name); len(defs) > 0 {
-                    for _, def := range defs { if def == t {
-                        // Example:
-                        //     .test.z :=           z-$1
-                        //     .test.y := $(.test.z y-$1)
-                        //     .test.x := $(.test.y x-$1)
-                        //     .test   := $(.test.x a)
-                        //     assert $(equal $(.test foo),z-y-x-a)
-                        if false { warnstack(ctx, 5, `selfing: "%v" -> %T %v ; %v ; %v ; %v`,
-                            t, res, res, defs, a, v).debug(1) }
-                        final = true
-                        break
-                    }}
-                }
-                return v, final // selfing
-            }
-        }
-        if res = t.call(ctx, w, args...); res == nil && t.value != nil {
-            errostack(ctx, 3, "%v: %v: calling returns nil (def.value: %T %v)",
-                t.name, t.origin, t.value, t.value).debug(16)
-        }
-        return
     case Caller:
-        res = t.Call(ctx, args...)
+        if res = t.Call(ctx, args...); true && db > 0 {
+            for i, a := range p.a  { info(ctx, "p.a[%d]: %T %v",  i, a, a) }
+            for i, a := range args { info(ctx, "args[%d]: %T %v", i, a, a) }
+            infostack(ctx, 5, "%v %v -> %T %v ; %v %v ; %v %v %v", x, args, res, res,
+                ctx.autoGet("3"), ctx.autoGet("4"), u, n, call).debug(64)
+        }
         return
     case Executer:
         if vals, traves := t.Execute(ctx, args...); traves.has(traveFail) {
@@ -5591,19 +5843,15 @@ func (p *delegate) reveal(ctx Context, w expandfacet, db bool) (res Value, final
             }
         } else if len(vals) > 0 {
             res = MakeList(ctx.Position(), vals...)
-        } else if false {
-            res = MakeNone(x.Position())
         }
         return
-    default:
-        var pos = t.Position()
-        if !pos.IsValid() { pos = p.position }
-        erro(ctx, "%s: unknown delegation: %T %v -> %T %v", x.Name(ctx), p.x, p.x, x, x).at(pos).debug(32)
-        return
     }
+
+    erro(ctx, "unknown delegation: %T %v -> %T %v", p.x, p.x, x, x).debug(32)
+    return
 }
 func (p *delegate) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
-    if v := p.expand(ctx, expandPlainValue); v != nil {
+    if v := p.expand(ctx, plain); v != nil {
         return v.match(ctx, i)
     } else {
         erro(ctx, "%v: expand to nil", p).debug(1)
@@ -5623,19 +5871,21 @@ func (p *delegate) delete(ctx Context) (file []*File, err error) {
     return
 }
 func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*delegate); ok {
-        // NOTE: don't compare the expanded value!!
-        if p == a {
-            return cmpEqual
-        } else if res = p.x.cmp(ctx, a.x); res == cmpEqual && len(p.a) == len(a.a) {
-            for i, t := range p.a {
+    if a, ok := v.(*delegate); ok { // NOTE: don't expand the delegate!!!
+        if p == a { return cmpEqual }
+        if t := p.x.cmp(ctx, a.x); t == cmpEqual {
+            if len(p.a) == 0 && len(a.a) == 0 {
+                res = t
+            } else if len(p.a) == len(a.a) { for i, t := range p.a {
                 if res = t.cmp(ctx, a.a[i]); res != cmpEqual { return }
-            }
+            }}
         }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
-    } else if d, ok := p.x.(*Def); ok && len(p.a) == 0 {
+    } else if d, ok := p.x.(*def); ok && len(p.a) == 0 && d.value != nil {
         res = d.value.cmp(ctx, v)
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -5648,38 +5898,35 @@ func (p *closure) Strval(ctx Context) (s string) {
         return
     }
 
-    if val := p.expand(ctx, expandDelegate|expandClosure); isNil(val) {
+    if val := p.expand(ctx, plain); isNil(val) {
         if false { warn(ctx, "expand '%v' to nil", p).of(p).debug(1) }
     } else if val == p {
-        erro(ctx, "closure can't expand: %v", p).of(p).debug(1)
+        if false { errostack(ctx, 10, "closure can't expand: %v", p).of(p).debug(32) }
+    } else if u, y := val.(unexpanded); y && u.Value == p {
+        // ""
     } else {
         s = val.Strval(ctx)
     }
     return
 }
 func (p *closure) True(ctx Context) (t bool) {
-    if v := p.expand(ctx, expandPlainValue); isNil(v) {
+    if val := p.expand(ctx, plain); isNil(val) {
         // does nothing
-    } else if v == p {
-        erro(ctx, "closure can't expand: %v", p).of(p).debug(1)
-    } else if t = v.True(ctx); false {
-        info(ctx, "%v -> %T %v -> %v", p, v, v, t).at(p.position).debug(8)
+    } else if val == p {
+        if false { errostack(ctx, 10, "closure can't expand: %v", p).of(p).debug(16) }
+    } else if u, y := val.(unexpanded); y && u.Value == p {
+        // false
+    } else if t = val.True(ctx); false {
+        info(ctx, "%v -> %T %v -> %v", p, val, val, t).at(p.position).debug(8)
     }
     return
 }
-func (p *closure) elemStr(ctx Context, o Object, k elemkind) (s string) {
-    if ctx == nil || k&elemExpand == 0 {
-        if s = p.string(ctx, o, k); !(p.l.IsClosure() || p.l.IsDelegate()) { s = "&" + s }
-    } else if v := p.expand(ctx, expandDelegate/*|expandClosure*/); v == p {
-        erro(ctx, "closure can't expand: %v", p).of(p).debug(1)
-    } else {
-        s = elementString(ctx, o, v, k)
-    }
-    return
+func (p *closure) elemStr(ctx Context, o Object, k elemkind) string {
+    return p._elemStr(ctx, o, k, "&")
 }
 func (p *closure) expandible(ctx Context, w expandfacet) (res bool) {
     if res = w&expandClosure != 0; !res {
-        if res = p.x.expandible(ctx, w); !res && w&expandArgs != 0 {
+        if res = p.x.expandible(ctx, w); !res {
             for _, a := range p.a {
                 if res = a.expandible(ctx, w); res { break }
             }
@@ -5688,7 +5935,7 @@ func (p *closure) expandible(ctx Context, w expandfacet) (res bool) {
     return
 }
 func (p *closure) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
-    if v := p.expand(ctx, expandPlainValue); v != p {
+    if v := p.expand(ctx, plain); v != p {
         return v.match(ctx, i)
     } else {
         erro(ctx, "closure can't expand: %v", p).of(p).debug(1)
@@ -5696,154 +5943,220 @@ func (p *closure) match(ctx Context, i interface{}) (full bool, s string, stems 
     return
 }
 func (p *closure) expand(ctx Context, w expandfacet) (res Value) {
-    if res = p; isNil(p.x) {
+    if ctx, res = positional(ctx, p.position), p; isNil(p.x) {
         erro(ctx, "expand nil closure: %v (%d)", p, w).at(p.position).debug(1)
         return p
+    } else if w == 0 {
+        erro(ctx, "%v: zero expand", p).debug(64)
+        return
     }
 
-    var val Value
-    if w&expandClosure == 0 {
-        // Can't expand Def here as closure still need it
-        if u, ok := p.x.(*unresolvedobject); ok && fixUnresolvedObjectClosure {
-            var x Object
-            var name = u.name.Strval(ctx)
-            if name == "" {
-                erro(ctx, "empty unresolved name: %v", u.name).of(u.name).debug(1)
-                return
+    var final bool
+    var offBits = expandPlain
+    var close = w&expandPlain != 0
+    if close { w = (w&^offBits) | expandClose }
+    if false { if s := p.String();
+        // s == "&(.test.x)" ||
+        (false && s == "") {
+        defer func() { if /* p != res */true {
+            var t, y = res.(unexpanded)
+            var same = res == p || (y && t.Value == p)
+            warn(ctx, "closure.expand: %v", s)
+            warn(ctx, "closure.expand: -> %T %v", res, res)
+            if !same {
+                var t = res.expand(ctx, w)
+                warn(ctx, "closure.expand: -> %T %v", t, t)
+            } else if y {
+                warn(ctx, "closure.expand: unexpanded: %T %v", t.Value, t.Value)
             }
-            for _, proj := range closureProjects(ctx) {
-                if x = proj.resolveObject(ctx, name); !isNil(x) {
-                    break
+            warn(ctx, "closure.expand: final=%v; same=%v; close=%v; %020b",
+                final, same, close, w)
+            warnstack(ctx, 5, "").debug(64)
+            ctx.checkErrors(true)
+        }} ()
+    }}
+
+    if false && w&expandUnresName != 0 {
+        return unexpanded{ res }
+    }
+
+    if res, final = p.disclose(ctx, w); isNil(res) {
+        erro(ctx, "disclose '%v' to nil (%s '%v')", p, typeof(p.x), p.x).of(p).debug(16)
+        return
+    } else if close {
+        w |= offBits
+        w &= ^(expandClose)
+        // if u, y := res.(unexpanded); y { res = u.Value }
+    } else if final {
+        return
+    } else {
+        w &= ^(expandDigits|expandPlaceholders)
+    }
+
+    // avoid self-expand loop
+    if u, y := res.(unexpanded); res == p || (y && u.Value == p) {
+        return
+    } else if a := ctx.auto(); false && a != nil {
+        // chop off the auto context to preserve $1, $2... in res
+        return res.expand(a.inner(), w)
+    } else {
+        return res.expand(ctx, w)
+    }
+}
+func (p *closure) disclose(ctx Context, w expandfacet) (res Value, final bool) {
+    res = p // set default result to self
+
+    var (
+        args, u, n = p.args(ctx, w)
+        unresolved *unresolvedobject
+        x Object
+        y bool
+    )
+    if false { if s := p.String();
+        s == "&(.test.v2)" ||
+        (false && s == "") {
+            defer func() { if r := res.String(); p != res && (
+                r == "&(.test.v2)" ||
+                false) {
+            if len(p.a)>0 || len(args)>0 || n>0 {
+                warn(ctx, "%T %v %v (merge(p.a))", x, x, merge(p.a...))
+                for _, a := range merge(p.a...) {
+                    var t = a.expand(ctx, plain)
+                    warn(ctx, ">  %p %T %v; %T %v", a, a, a, t, t) }
+                warn(ctx, "%T %v %v (merge(args))", x, x, merge(args...))
+                for _, a := range merge(args...) {
+                    var t = a.expand(ctx, plain)
+                    warn(ctx, ">  %p %T %v; %T %v", a, a, a, t, t) }
+
+                warn(ctx, "%T %v %v (p.a)", x, x, p.a)
+                for _, a := range p.a {
+                    var t = a.expand(ctx, plain)
+                    warn(ctx, ">  %p %T %v; %T %v", a, a, a, t, t) }
+                warn(ctx, "%T %v %v (args)", x, x, args)
+                for _, a := range args {
+                    var t = a.expand(ctx, plain)
+                    warn(ctx, ">  %p %T %v; %T %v", a, a, a, t, t) }
+            }
+            var t, y = res.(unexpanded)
+            var same = res == p || (y && t.Value == p)
+            var t1 = ctx.autoGet("1")
+            var t2 = ctx.autoGet("2")
+            var t3 = ctx.autoGet("_")
+            warn(ctx, "disclose: %v ; %v ; %v", t1, t2, t3)
+            warn(ctx, "disclose: args=%v ; unexpanded=%v, transformed=%v", args, u, n)
+            warn(ctx, "disclose: %v ; x: %T %v (%v)", p, x, x, (x==unresolved))
+            warn(ctx, "disclose: -> %T %v (same=%v)", res, res, same)
+            if !same {
+                var t = res.expand(ctx, w)
+                warn(ctx, "disclose: -> %T %v", t, t)
+            } else if y {
+                warn(ctx, "disclose: unexpanded: %T %v", t.Value, t.Value)
+            }
+            warnstack(ctx, 10, "final=%v; same=%v; %020b", final, p.x==x, w).debug(32)
+            ctx.checkErrors(true)
+        }} ()
+    }}
+
+    var str string // the name in string form
+    if unresolved, y = p.x.(*unresolvedobject); y {
+        // Expand name first, for example of $(.test$1) containing '$1':
+        //     .test.y := &(.test$1)
+        //     .test.x := $(.test.y .$1)
+        //     .test   := $(.test.x)
+        //     assert $(equal -d $(string -e $(.test)),'&(.test.$1)')
+        var name Value   = unresolved.name.expand(ctx, w|expandUnresName)
+        if false { if s := unresolved.name.String();
+            s == ".test.x.$_" || s == ".test.x.o.$_" {
+            if bc, y := unresolved.name.(*Barecomp); y {
+                for i, elem := range bc.Elems {
+                    warn(ctx, "%d. %T %v", i, elem, elem)
                 }
             }
-            if isNil(x) {
-                val = p.x
-            } else {
-                val = x.expand(ctx, w&^expandDef)
+            if bc, y := name.(*Barecomp); y && name != unresolved.name {
+                for i, elem := range bc.Elems {
+                    warn(ctx, "%d. %T %v", i, elem, elem)
+                }
             }
-        } else {
-            val = p.x.expand(ctx, w&^expandDef)
+            warn(ctx, "%v", ctx.autoGet("_"))
+            warnstack(ctx, 3, "%T %v -> %T %v, %024b %024b",
+                unresolved.name, unresolved.name, name, name, w,
+                w & (expandPlaceholders | expandDigits)).debug(32)
+            ctx.checkErrors(true)
+        }}
+
+        var ux unexpanded
+        if ux, y = name.(unexpanded); y {
+            if t := unresolved.name != ux.Value; n > 0 || t {
+                if t { unresolved = &unresolvedobject{unresolved.objbase, ux.Value}}
+                res = &closure{delegate{p.valbase, p.l, unresolved, args}}
+            }
+            return unexpanded{res}, true // not ready to disclose (call/execute)
+        } else if unresolved.name != name {
+            unresolved = &unresolvedobject{unresolved.objbase, name}
         }
 
-        if args, num := p.args(ctx, w); (!isNil(val) && val != p.x) || num > 0 {
-            if num == 0 { args = p.a }
-            res = &closure{delegate{p.valbase, p.l, val, args}}
-        }
-    } else if res = p.disclose(ctx, w); isNil(res) {
-        erro(ctx, "disclose '%v' to nil (%s '%v')", p, typeof(p.x), p.x).of(p).debug(16)
-    } else if w&^expandClosure == 0 {
-        // done, no more expand
-    } else if val = res.expand(ctx, w); val != res {
-        if /*p.String() == "&(objects)"*/false {
-            var v = res.expand(ctx.inner(), w)
-            info(ctx, "%v -> %T %v -> %T %v -> %T %v", p, res, res, val, val, v, v).at(p.position)
-            info(ctx, "%v %v", p, ctx.inner()).at(p.position)
-            info(ctx, "%v %v", p, ctx).at(p.position).debug(16)
-        }
-        res = val
-    }
-    return
-}
-func (p *closure) disclose(ctx Context, w expandfacet) (res Value) {
-    var x Object
-    if false { defer func() { if name := p.x.(Object).Name(ctx); len(p.a) < 1 {
-        // if name == "value" { warn(ctx, "%v %v", p.x, p.a) }
-    } else if s := p.a[0].String(); name != "" && s == "-c &(nam)" {
-        var proj = ctx.Project()
-        var val = res.expand(ctx, w)
-        var obj = closureResolveObject(ctx, p.position, p.x.(Object).Name(ctx))
-        warn(ctx, "%v: p = %v, %016b", proj, p, w).at(p.Position())
-        warn(ctx, "%v: p.x = %T %v", proj, p.x, p.x).at(p.Position())
-        warn(ctx, "%v: res = %T %v", proj, res, res).at(res.Position())
-        warn(ctx, "%v: val = %T %v", proj, val, val).at(res.Position())
-        warn(ctx, "%v: obj = %T %v", proj, obj, obj)
-        if d, ok := res.(*delegate); ok { warn(ctx, "%v: d.x = %T %v", proj, d.x, d.x).at(d.position)/*.debug(1)*/ }
-        warn(ctx, "%v: %s", proj, ctx).debug(32)
-    }}()}
-
-    if u, ok := p.x.(*unresolvedobject); ok && fixUnresolvedObjectClosure {
-        var name string
-        if name = u.name.Strval(ctx); name == "" {
-            erro(ctx, "empty unresolved name: %v", u.name).of(u.name).debug(1)
+        if x, str = unresolved, name.Strval(ctx); str == "" {
+            erro(ctx, "empty closure name: %T %v -> %T %v ; %v",
+                p.x, p.x, name, name, unresolved).of(p.x).debug(16)
             return
         }
-        for _, proj := range closureProjects(ctx) {
-            if x = proj.resolveObject(ctx, name); !isNil(x) {
-                break
-            }
+    } else if t, y := p.x.(Object); y && t != nil {
+        if x, str = t, t.Name(ctx); str == "" {
+            erro(ctx, "empty closure name: %T %v -> %T %v",
+                p.x, p.x, x, x).of(p.x).debug(16)
+            return
         }
-    }
-
-    if !isNil(x) {
-        // fallthrough
-    } else if t, ok := p.x.(Object); ok && t != nil {
-        x = t
-    } else if t, ok := p.x.(*selection); ok && t != nil && !isNil(t.o) {
-        if n, ok := t.o.(*ProjectName); ok && n != nil && n.project != nil {
-            ctx = closureWith(ctx, n.position, n.project.scope)
+    } else if t, y := p.x.(*selection); y && t != nil && !isNil(t.o) {
+        if t, y := t.o.(*ProjectName); y && t != nil && t.project != nil {
+            ctx = closureWith(ctx, t.position, t.project.scope)
         }
         if v := t.value(ctx); isNil(v) {
-            erro(ctx, "select value '%v' failed", p.x).of(p.x).debug(1)
+            erro(ctx, "selected nil value: %T %v", p.x, p.x).of(p.x).debug(1)
             return
-        } else if t, ok := v.(Object); ok {
-            x = t
+        } else if t, y := v.(Object); !y {
+            erro(ctx, "selected non object: %T %v", v, v).of(p.x).debug(16)
+            return
+        } else if x, str = t, t.Name(ctx); str == "" {
+            erro(ctx, "empty closure name: %T %v -> %T %v ; %v",
+                p.x, p.x, x, x, unresolved).of(p.x).debug(16)
+            return
         }
-    }
-
-    var name string
-    if isNil(x) {
-        erro(ctx, "closure undefined object: %T %v", p.x, p.x).of(p.x).debug(16)
-        return
-    } else if name = x.Name(ctx); name == "" {
-        erro(ctx, "empty closure name: %T %v -> %T %v", p.x, p.x, x, x).of(p.x).debug(1)
+    } else {
+        erro(ctx, "undefined closure object: %T %v", p.x, p.x).of(p.x).debug(16)
         return
     }
 
-ClosureTok:
     switch p.l {
-    case token.LBRACE, token.STRING, token.COMPOUND:
-        if entry := closureResolveEntry(ctx, p.position, name); entry == nil {
-            // continue
-        } else if p.l == token.LBRACE {
-            x = entry
-            break ClosureTok
-        } else { // token.STRING, token.COMPOUND
-            res = entry // &'xxx' and &"xxx" are fetching entry in the closure context
-            return
-        }
-    default: //case token.LPAREN, token.ILLEGAL:
-        if obj := closureResolveObject(ctx, p.position, name); obj == nil {
-            // continue
-        } else {
-            x = obj
-            break ClosureTok
-        }
+    case token.STRING, token.COMPOUND:
+        // &'xxx' and &"xxx" are fetching entry in the closure context
+        res = closureResolveEntry(ctx, p.position, str)
+        return
+    case token.LBRACE:
+        if t := closureResolveEntry(ctx, p.position, str); t != nil { x = t }
+    default: // token.LPAREN, token.ILLEGAL
+        if t := closureResolveObject(ctx, p.position, str); t != nil { x = t }
     }
 
-    if args, num := p.args(ctx, w); isNil(x) {
-        erro(ctx, "closure object is nil: %v", p.x).at(p.position).debug(1)
-    } else if p.x != x || num > 0 {
+    var changed = p.x != x || n > 0
+    if w&expandClosure == 0 || (unresolved != nil) {
+        if changed { res = &closure{delegate{p.valbase, p.l, x, args}} }
+        if w&expandClose != 0 { return res, true }
+        return unexpanded{res}, true
+    } else if changed {
         if t1, t2 := reflect.TypeOf(p.x), reflect.TypeOf(x); t1 != t2 {
             if unres := reflect.TypeOf((*unresolvedobject)(nil)); t1 != unres {
-                if false {
-                    var o1 = closureResolveObject(ctx, p.position, name)
-                    var o2 = closureResolveObject(ctx.inner(), p.position, name)
-                    var o3 = closureResolveObject(ctx.inner().inner(), p.position, name)
-                    erro(ctx, "%T %v", o1, o1).at(p.position)
-                    erro(ctx, "%T %v", o2, o2).at(p.position)
-                    erro(ctx, "%T %v", o3, o3).at(p.position)
-                }
                 erro(ctx, "closure object type differs: %v (!= %v)", t2, t1).at(p.position)
-                erro(ctx, "%v '%s' is found here", t1, name).at(p.x.Position())
+                erro(ctx, "%v '%s' is found here", t1, str).at(p.x.Position())
                 erro(ctx, "%v", ctx).at(ctx.Position()).debug(16)
                 return
             }
         }
         res = &delegate{p.valbase, p.l, x, args}
+        return
     } else {
         res = &p.delegate
+        return
     }
-    return
 }
 func (p *closure) traverse(ctx Context) (traves travestates) {
     if val := p.expand(positional(ctx, p.position), expandClosure); isNil(val) {
@@ -5868,17 +6181,18 @@ func (p *closure) delete(ctx Context) (file []*File, err error) {
     return
 }
 func (p *closure) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*closure); ok {
-        // NOTE: don't compare the expanded value!!
-        if p == a {
-            return cmpEqual
-        } else if res = p.x.cmp(ctx, a.x); res == cmpEqual && len(p.a) == len(a.a) {
+    if a, y := v.(*closure); y {
+        if p == a { return cmpEqual } else
+        if res = p.x.cmp(ctx, a.x); res == cmpEqual && len(p.a) == len(a.a) {
             for i, t := range p.a {
                 if res = t.cmp(ctx, a.a[i]); res != cmpEqual { return }
             }
+            return
         }
-    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
-        res = p.cmp(ctx, l.Elems[0])
+    } else if l, y := v.(*List); y && len(l.Elems) == 1 {
+        return p.cmp(ctx, l.Elems[0])
+    } else if u, y := v.(unexpanded); y && u.Value != nil {
+        return p.cmp(ctx, u.Value)
     }
     return
 }
@@ -5916,7 +6230,7 @@ func (p *selection) Float(ctx Context) (f float64, e error) {
     return
 }
 func (p *selection) refs(ctx Context, v Value) bool { return p.o.refs(ctx, v) || p.s.refs(ctx, v) }
-func (p *selection) defs(ctx Context, s ...string) []*Def {
+func (p *selection) defs(ctx Context, s ...string) []*def {
     return append(p.o.defs(ctx, s...), p.s.defs(ctx, s...)...)
 }
 /*
@@ -6053,6 +6367,8 @@ func (p *selection) cmp(ctx Context, v Value) (res cmpres) {
         }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -6101,7 +6417,7 @@ func (p *PercPattern) Strval(ctx Context) (s string) {
     return
 }
 func (p *PercPattern) refs(ctx Context, v Value) bool { return p.Prefix.refs(ctx, v) || p.Suffix.refs(ctx, v) }
-func (p *PercPattern) defs(ctx Context, s ...string) []*Def { return append(p.Prefix.defs(ctx, s...), p.Suffix.defs(ctx, s...)...) }
+func (p *PercPattern) defs(ctx Context, s ...string) []*def { return append(p.Prefix.defs(ctx, s...), p.Suffix.defs(ctx, s...)...) }
 func (p *PercPattern) expandible(ctx Context, w expandfacet) bool { return p.Prefix.expandible(ctx, w) || p.Suffix.expandible(ctx, w) }
 func (p *PercPattern) expand(ctx Context, w expandfacet) (res Value) {
     var (
@@ -6288,6 +6604,8 @@ func (p *PercPattern) cmp(ctx Context, v Value) (res cmpres) {
         }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -6353,7 +6671,7 @@ func (p *GlobPattern) refs(ctx Context, v Value) (res bool) {
     }
     return
 }
-func (p *GlobPattern) defs(ctx Context, s ...string) (res []*Def) {
+func (p *GlobPattern) defs(ctx Context, s ...string) (res []*def) {
     for _, comp := range p.Components {
         res = append(res, comp.defs(ctx, s...)...)
     }
@@ -6366,11 +6684,9 @@ func (p *GlobPattern) expandible(ctx Context, w expandfacet) (res bool) {
     return
 }
 func (p *GlobPattern) expand(ctx Context, w expandfacet) (res Value) {
-    if components, num := expand(ctx, w, p.Components...); num > 0 {
-        res = &GlobPattern{p.valbase, components}
-    } else {
-        res = p
-    }
+    var components, u, n = expand(ctx, w, p.Components...)
+    if n > 0 { res = &GlobPattern{p.valbase, components} } else { res = p }
+    if u > 0 { res = unexpanded{res} }
     return
 }
 func (p *GlobPattern) patterned(ctx Context) bool { return true }
@@ -6406,6 +6722,8 @@ func (p *GlobPattern) cmp(ctx Context, v Value) (res cmpres) {
         }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -6428,6 +6746,8 @@ func (p *RegexpPattern) cmp(ctx Context, v Value) (res cmpres) {
         if a != nil { /* FIXME: ... */ }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
     }
     return
 }
@@ -6477,25 +6797,25 @@ func NameScope(name string, scope *Scope) NameScoper {
     return &namescoper{ name, scope }
 }
 
-// Reveal reveals delegated component and Valuer recursively.
-func Reveal(ctx Context, values ...Value) (res []Value) {
-    for _, v := range values {
-        var t Value
-        if t = v.expand(ctx, expandDelegate); isNil(t) { t = v }
-        res = append(res, t)
-    }
-    return
-}
+// // Reveal reveals delegated component and Valuer recursively.
+// func Reveal(ctx Context, values ...Value) (res []Value) {
+//     for _, v := range values {
+//         var t Value
+//         if t = v.expand(ctx, expandDelegate); isNil(t) { t = v }
+//         res = append(res, t)
+//     }
+//     return
+// }
 
-// Disclose expands closures to normal value recursively.
-func Disclose(ctx Context, values ...Value) (res []Value, err error) {
-    for _, v := range values {
-        var t Value
-        if t = v.expand(ctx, expandClosure); isNil(t) { t = v }
-        res = append(res, t)
-    }
-    return
-}
+// // Disclose expands closures to normal value recursively.
+// func Disclose(ctx Context, values ...Value) (res []Value, err error) {
+//     for _, v := range values {
+//         var t Value
+//         if t = v.expand(ctx, expandClosure); isNil(t) { t = v }
+//         res = append(res, t)
+//     }
+//     return
+// }
 
 func values(args ...interface{}) (elems []Value) {
     for _, a := range args {
@@ -6512,11 +6832,28 @@ func values(args ...interface{}) (elems []Value) {
     return
 }
 
+func mergeBare(args... Value) (elems []Value) {
+    for _, arg := range args {
+        if l, o := arg.(*Barecomp); o && l != nil {
+            elems = append(elems, mergeBare(l.Elems...)...)
+        } else if l, o := arg.(*List); o && len(l.Elems) == 1 {
+            elems = append(elems, mergeBare(l.Elems...)...)
+        } else if u, o := arg.(unexpanded); o && u.Value != nil {
+            elems = append(elems, mergeBare(u.Value)...)
+        } else {
+            elems = append(elems, arg)
+        }
+    }
+    return
+}
+
 // Merge lists recursively into a single list. Previously called Join.
 func merge(args... Value) (elems []Value) {
     for _, arg := range args {
         if l, o := arg.(*List); o && l != nil {
             elems = append(elems, merge(l.Elems...)...)
+        } else if u, o := arg.(unexpanded); o && u.Value != nil {
+            elems = append(elems, merge(u.Value)...)
         } else {
             elems = append(elems, arg)
         }
@@ -6525,7 +6862,7 @@ func merge(args... Value) (elems []Value) {
 }
 
 func mergex(ctx Context, w expandfacet, values ...Value) (res []Value) {
-    res, _ = expand(ctx, w, values...)
+    res, _, _ = expand(ctx, w, values...)
     return merge(res...)
 }
 
@@ -6563,38 +6900,32 @@ func permVal(ctx Context, v Value, i uint32) (res os.FileMode) {
     return
 }
 
-func expand(ctx Context, w expandfacet, values ...Value) (elems []Value, num int) {
+func expand(ctx Context, w expandfacet, values ...Value) (elems []Value, u, n int) {
     for _, elem := range values {
-        var val Value
         if elem == nil {
-            // TODO: report nil expand ??
-        } else if val = elem.expand(ctx, w); val == nil || val == elem {
-            elems = append(elems, elem)
-        } else if false && w&expandClosure!=0 && val.expandible(ctx, w) {
-            // NOTE: no need to check 'incomplete', the value won't get expanded if
-            //       it contains a undetermined autos/args.
-            if f, ok := val.(*File); ok {
-                prompt(ctx, "%v: %s\n", f.position, f.name)
-                warnstack(ctx, 6, "incomplete expand: %T %v -> %T %v -> {%v,%v,%v} (w=%016b)",
-                    elem, elem, val, val, f.name, f.sub, f.dir, w).of(elem).debug(16)
-            } else {
-                var t = val.expand(ctx, w)
-                warn(ctx, "incomplete expand: %T %v", elem, elem).of(elem)
-                warn(ctx, "incomplete expand: %T %v", val, val).of(val)
-                warn(ctx, "incomplete expand: (equal=%v) -> %v (w=%016b)",
-                    (elem==val), t, w).of(elem)
-                warnstack(ctx, 6, "").debug(16)
+            continue // TODO: report nil expand ??
+        } else if val := elem.expand(ctx, w); val == nil {
+            errostack(ctx, 5, "nil: %T %v", elem, elem).debug(10)
+            return
+        } else if elems = append(elems, val); val != elem {
+            if v, y := val.(unexpanded); y {
+                if u += 1; v.Value != elem { n += 1 }
+            } else if true {
+                if val != elem { n += 1 }
+            } else if elem.cmp(ctx, val) != cmpEqual {
+                n += 1
             }
-        } else {
-            elems = append(elems, val)
-            num += 1
+        } else if false {
+            // skip
+        } else if _, y := val.(unexpanded); y {
+            u += 1
         }
     }
     return
 }
 
 func Expand(ctx Context, values ...Value) (res []Value) {
-    res, _ = expand(ctx, expandPlainValue, values...)
+    res, _, _ = expand(ctx, plain, values...)
     return
 }
 

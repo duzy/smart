@@ -455,7 +455,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
           erro(ctx, "%s", v[0].string).at(lpos)
           erro(ctx, "%s", obj).at(lpos)
           if !isNil(obj) {
-            if val := obj.expand(ctx.closure().programContext(), expandPlainValue); !isNil(val) {
+            if val := obj.expand(ctx.closure().programContext(), plain); !isNil(val) {
               erro(ctx, "%s -> %v", obj.Name(ctx), val).at(lpos)
             }
           }
@@ -785,8 +785,8 @@ type (
 )
 func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error) {
   if options.traceExecutor {
-    var t, _ = ctx.autoGet("@")
-    defer un(trace(t_exec, fmt.Sprintf("executor(%s %v)", typeof(t), t)))
+    var t = ctx.autoGet("@")
+    defer un(trace(t_exec, fmt.Sprintf("executor(%s %v)", typeof(t.value), t)))
   }
 
   var (
@@ -794,7 +794,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     pos = ctx.Position()
     cmd = p.cmd
   )
-  if args = parseOpts(ctx, &opts, expandPlainValue, args...); opts.deprecated {
+  if args = parseOpts(ctx, &opts, plain, args...); opts.deprecated {
     erro(ctx, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug(1)
     return
   } else if !opts.prompt {
@@ -883,8 +883,8 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     var strval = func(name string) (str string) {
       var ctx = closureWith(ctx, pos, container.Scope())
       if obj := container.resolveObject(ctx, name); obj != nil {
-        if def, _ := obj.(*Def); def != nil {
-          if v := def.Call(ctx); v != nil {
+        if d, _ := obj.(*def); d != nil {
+          if v := d.Call(ctx); v != nil {
             if str = v.Strval(ctx); str == "-" {
               /*if v, err = def.DiscloseValue(container); err == nil && v != nil {
                   if str, err = v.Strval(ctx); str == "" { str = "-" }
@@ -945,7 +945,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     recipes []Value
     sources []string
     source string
-    w = expandPlainValue
+    w = plain
   )
   if opts.fullname { w |= expandFullName }
   recipes = mergex(ctx, w, program.recipes...)

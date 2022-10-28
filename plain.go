@@ -48,19 +48,19 @@ func (p *Plain) cmp(ctx Context, v Value) (res cmpres) {
 }
 
 type (
-        plain struct {}
+        plainInt struct {}
         plainOpts struct {
                 generalOpts
         }
 )
-func (_ *plain) Evaluate(ctx Context, args ...Value) (result Value, err error) {
+func (_ *plainInt) Evaluate(ctx Context, args ...Value) (result Value, err error) {
         var (
                 program = ctx.program()
                 pos = ctx.Position()
                 str, name string
                 opts plainOpts
         )
-        if args = parseOpts(ctx, &opts, expandPlainValue, args...); len(args) > 0 {
+        if args = parseOpts(ctx, &opts, plain, args...); len(args) > 0 {
                 name = args[0].Strval(ctx)
                 program.language = name
         }

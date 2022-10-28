@@ -24,17 +24,13 @@ var (
 
 func defineUniverseBuiltins(ctx Context) {
         for name, f := range builtins {
-                if v, alt := universe.Builtin(ctx, name, f); alt != nil {
+                if _, alt := universe.Builtin(ctx, name, f); alt != nil {
                         panic(fmt.Sprintf("builtin '%s' already defined", name))
-                } else {
-                        v.flag |= builtinFunction
                 }
         }
         for name, f := range commands {
-                if v, alt := universe.Builtin(ctx, name, f); alt != nil {
+                if _, alt := universe.Builtin(ctx, name, f); alt != nil {
                         panic(fmt.Sprintf("builtin '%s' already defined (command)", name))
-                } else {
-                        v.flag |= builtinCommand
                 }
         }
 }
@@ -80,8 +76,8 @@ type Globe struct {
         flagEntries map[string][]Entry
         flags []*Flag
         pairs []*Pair
-        goals   *Def
-        mode    *Def
+        goals   *def
+        mode    *def
 }
 
 // Scope returns the globe scope.
@@ -133,14 +129,13 @@ func (g *Globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, sp
                         }
                         outer = outer.outer
                 }
-                var (
-                        //none = MakeNone(pos)
-                        def, _ = g.scope.define(ctx, DefAuto, "_", /*none*/nil)
-                )
-                if enable_assertions { assert(def != nil, "'$_' is nil") }
-                for i := 0; i <= maxNumVarVal; i += 1 {
-                        def, _ := g.scope.define(ctx, DefAuto, strconv.Itoa(i), /*none*/nil)
-                        if enable_assertions { assert(def != nil, "'$%d' is nil", i) }
+                if false {
+                        var def, _ = g.scope.define(ctx, DefAuto, "_", /*none*/nil)
+                        if enable_assertions { assert(def != nil, "'$_' is nil") }
+                        for i := 0; i <= maxNumVarVal; i += 1 {
+                                var def, _ = g.scope.define(ctx, DefAuto, strconv.Itoa(i), nil)
+                                if enable_assertions { assert(def != nil, "'$%d' is nil", i) }
+                        }
                 }
                 g.main = m
         }

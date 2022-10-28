@@ -100,10 +100,12 @@ type Context interface {
   // String() returns a string representation of the context
   String() string
 
+  defaultContext() *defaultContext
+
   auto() *autoContext
-  autoGet(string) (*Def, Value)
-  autoSet(string, Value) (*Def, Value)
-  autoArgs([]*Def, []Value) ([]string, error)
+  autoGet(string) *def
+  autoSet(string, Value) (*def, Value)
+  autoArgs([]*def, []Value) ([]string, error)
 
   closure() *closureContext
   closureScopes() []*Scope
@@ -153,12 +155,12 @@ type Context interface {
 }
 
 func getTargetValue(ctx Context) (res Value) {
-  if d, target := ctx.autoGet("@"); d == nil || target == nil {
-    if false { erro(ctx, "target '%v' is nil", target) }
-  } else if vals, _ := expand(ctx, expandPlainValue, target); len(vals) == 1 {
+  if d := ctx.autoGet("@"); d == nil || d.value == nil {
+    if false { erro(ctx, "target '%v' is nil", d) }
+  } else if vals, _, _ := expand(ctx, plain, d.value); len(vals) == 1 {
     res = Scalar(vals[0])
   } else {
-    erro(ctx, "target '%v' expaned to many: %v", target, res).of(target)
+    erro(ctx, "target '%v' expaned to many: %v", d.value, res).of(d)
   }
   return
 }
@@ -458,11 +460,13 @@ type defaultContext struct {
   workdir  string
   prefix   string // FIXME: prefix for distribution
   globe   *Globe
+  stack  []map[string]*def
   loader  *loader
 }
 func (ctx *defaultContext) arguments() []Value { return nil }
 func (ctx *defaultContext) argumented() *argumentedContext { return nil }
 func (ctx *defaultContext) argumentedSet([]Value) []Value { return nil }
+func (ctx *defaultContext) defaultContext() *defaultContext { return ctx }
 func (ctx *defaultContext) inner() Context { return nil }
 func (ctx *defaultContext) spawn() Context { return nil }
 func (ctx *defaultContext) auto() *autoContext { return nil }
@@ -503,26 +507,16 @@ func (ctx *defaultContext) colonResolve(name string) (obj Object, found bool) {
   return
 }
 func (ctx *defaultContext) closureResolveAuto(name string) (obj Object, found bool) { return ctx.colonResolve(name) }
-func (ctx *defaultContext) autoArgs(_ []*Def, _ []Value) ([]string, error) { return nil, nil }
-func (ctx *defaultContext) autoSet(name string, val Value) (def *Def, res Value) {
+func (ctx *defaultContext) autoArgs(_ []*def, _ []Value) ([]string, error) { return nil, nil }
+func (ctx *defaultContext) autoSet(name string, val Value) (def *def, res Value) {
   if false {
     prompt(ctx, "%v: can't set auto in default context, value=%v\n", name, val)
     errostack(ctx, 8, `(%T): %v`, ctx, name).debug(64)
   }
   return
 }
-func (ctx *defaultContext) autoGet(name string) (def *Def, res Value) {
-  var (
-    obj Object
-    ok bool
-  )
-  if obj, ok = ctx.closureResolveAuto(name); ok {
-    if def, ok = obj.(*Def); ok {
-      res = def.value
-    } else {
-      res = obj // FIXME: should not return obj directly
-    }
-  }
+func (ctx *defaultContext) autoGet(name string) (res *def) {
+  if obj, y := ctx.closureResolveAuto(name); y { res, y = obj.(*def) }
   return
 }
 func (ctx *defaultContext) closureScopes() (scopes []*Scope) {
@@ -794,8 +788,10 @@ func joinTmpPath(ctx Context, base, rel string) string {
 }
 
 func positionForDir(dir string) (pos Position) {
-  if strings.HasSuffix(dir, "build.smart") {
+  if strings.HasSuffix(dir, "do.smart") || strings.HasSuffix(dir, "build.smart") {
     pos.Filename = dir
+  } else if _, e := os.Stat(filepath.Join(dir, "do.smart")); e == nil {
+    pos.Filename = filepath.Join(dir, "do.smart")
   } else if _, e := os.Stat(filepath.Join(dir, "build.smart")); e == nil {
     pos.Filename = filepath.Join(dir, "build.smart")
   } else {
@@ -826,11 +822,11 @@ func (ctx *defaultContext) load() (err error) {
     paths:  []string(globalPaths),
     loaded: make(map[string]*Project),
   }
-  ctx.globe.goals = &Def{
+  ctx.globe.goals = &def{
     knownobject: knownobject{objbase{scope:ctx.globe.scope}, "goals"},
     origin: DefDefault, value: MakeNone(pos),
   }
-  ctx.globe.mode = &Def{
+  ctx.globe.mode = &def{
     knownobject: knownobject{objbase{scope:ctx.globe.scope}, "mode"},
     origin: DefDefault, value: MakeNone(pos),
   }
@@ -929,8 +925,11 @@ func (ctx *defaultContext) load() (err error) {
       if p := ctx.loader.Project(); p != nil { name = p.name }
       fmt.Fprintf(stderr, "└·%s … (%s)\n", name, d)
     } else if d > 2999*time.Millisecond {
-      var f = filepath.Join(base, "build.smart")
-      if _, e := os.Stat(f); e == nil { base = f }
+      var f = filepath.Join(base, "do.smart")
+      if _, e := os.Stat(f); e == nil { base = f } else {
+        f = filepath.Join(base, "build.smart")
+        if _, e := os.Stat(f); e == nil { base = f }
+      }
       prompt(ctx, "%s:1:note: long loading: %s !!\n", base, d).debug(6)
     }
   } (time.Now())
@@ -952,7 +951,10 @@ func checkPanicsErrors(ctx Context, dontCheckErrors ...bool) (panics, errs int) 
   }
   if panics > 0 {
     var pos = ctx.Position()
-    if !strings.HasSuffix(pos.Filename, "build.smart") {
+    if !strings.HasSuffix(pos.Filename, "do.smart") {
+      var s = filepath.Join(pos.Filename, "do.smart")
+      if _, e := os.Stat(s); e == nil { pos.Filename = s }
+    } else if !strings.HasSuffix(pos.Filename, "build.smart") {
       var s = filepath.Join(pos.Filename, "build.smart")
       if _, e := os.Stat(s); e == nil { pos.Filename = s }
     }

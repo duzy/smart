@@ -270,21 +270,21 @@ func (s *Scanner) scanComment() (res string) {
 	return
 }
 
-func isLetter(ch rune) bool {
+func IsLetter(ch rune) bool {
 	return 'a' <= ch && ch <= 'z' || 'A' <= ch && ch <= 'Z' || ch == '_' || ch >= 0x80 && unicode.IsLetter(ch)
 }
 
-func isDigit(ch rune) bool {
+func IsDigit(ch rune) bool {
 	return '0' <= ch && ch <= '9' || ch >= 0x80 && unicode.IsDigit(ch)
 }
 
 // punctuation used as non-terminator
-func isUntermPunct(ch rune) bool {
+func IsUntermPunct(ch rune) bool {
 	// Most chars accepted in URI (RFC3986)
 	return ch == '-' || ch == '+' || ch == '@' /*|| ch == '.' || ch == '/'*/;
 }
 
-func isDatetimeTerminator(ch rune) bool {
+func IsDatetimeTerminator(ch rune) bool {
 	return  ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' ||
 		ch == '(' || ch == ')' || ch == '{' || ch == '}' ||
 		ch == '$' || ch == '#' || ch == '\\'
@@ -293,7 +293,7 @@ func isDatetimeTerminator(ch rune) bool {
 func (s *Scanner) scanIdentifier() string {
 	// first char is letter (ensured)
 	offs := s.offset
-	Loop: for isLetter(s.ch) || isDigit(s.ch) || isUntermPunct(s.ch) /*|| s.ch == '\\'*/ {
+	Loop: for IsLetter(s.ch) || IsDigit(s.ch) || IsUntermPunct(s.ch) /*|| s.ch == '\\'*/ {
 		/* if ident && (isUntermPunct(s.ch) || s.ch == '\\') {
                         ident = false
                 } */
@@ -494,7 +494,7 @@ checkDate:
 
 	if o += 10; o == l {
 		goto success // 1979-05-27
-	} else if ch = s.src[o]; isDatetimeTerminator(rune(ch)) {
+	} else if ch = s.src[o]; IsDatetimeTerminator(rune(ch)) {
 		goto success // 1979-05-27
 	}
 
@@ -534,7 +534,7 @@ checkTime:
 		s.error(o+7, "bad second"); goto exit
 	}
 
-	if ch = s.src[o+8]; isDatetimeTerminator(rune(ch)) {
+	if ch = s.src[o+8]; IsDatetimeTerminator(rune(ch)) {
 		o += 8; goto success // consume 00:00:00
 	} else if ch == 'Z' || ch == 'z' {
 		o += 9; goto success // consume 00:00:00Z
@@ -542,7 +542,7 @@ checkTime:
 		for o += 9; o < l; o++ {// consume 00:00:00.
 			if ch = s.src[o]; ch == 'Z' || ch == 'z' {
 				o += 1; goto success // consume 'Z'
-			} else if isDatetimeTerminator(rune(ch)) {
+			} else if IsDatetimeTerminator(rune(ch)) {
 				goto success
 			} else if ch == '+' || ch == '-' {
 				o += 1; goto checkNumOffset // consume '+' or '-'
@@ -662,7 +662,7 @@ fraction:
 		if n := s.offset+2; n < len(s.src) {
 			if ch := rune(s.src[n]); /*unicode.IsSpace(ch) { // 1. -> FLOAT 1.0
                                 // do nothing here
-                        } else if*/ !isDigit(ch) { // 1.o -> INT 1    DOT .    STRING o
+                        } else if*/ !IsDigit(ch) { // 1.o -> INT 1    DOT .    STRING o
 				goto exit
 			}
 		}
@@ -837,7 +837,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 		}
 	}
 
-	if isLetter(s.ch) {
+	if IsLetter(s.ch) {
 		if lit = s.scanIdentifier(); len(lit) > 1 && s.ch != '/' {
 			switch tok = token.Lookup(lit); {
 			case tok == token.BAREWORD || tok.IsKeyword():
@@ -1062,7 +1062,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 		if tok = token.DOT; s.ch == '.' {
 			tok = token.DOTDOT
 			s.next()
-		} else if isDigit(s.ch) {
+		} else if IsDigit(s.ch) {
 			if n := s.offset-2; n > -1 && unicode.IsSpace(rune(s.src[n])) { // skip xxx.1
 				tok, lit = s.scanNumber(true)
 			}

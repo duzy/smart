@@ -175,9 +175,9 @@ func (s *Scope) string() string {
 	return buf.String()
 }
 
-func (s *Scope) FindDef(name string) (def *Def) {
+func (s *Scope) FindDef(name string) (res *def) {
 	if _, sym := s.Find(name); sym != nil {
-		def, _ = sym.(*Def)
+		res, _ = sym.(*def)
 	}
 	return
 }
@@ -225,15 +225,14 @@ func (scope *Scope) Builtin(ctx Context, name string, f BuiltinFunc) (bui *Built
 					scope: scope,
 					owner: nil,
 				}, name,
-			},
-			builtinFlag(0), f,
+			}, f,
 		}
 		scope.replace(ctx, name, bui)
 	}
 	return
 }
 
-func (scope *Scope) define(ctx Context, origin Origin, name string, value Value) (def *Def, alt Object) {
+func (scope *Scope) define(ctx Context, origin Origin, name string, value Value) (d *def, alt Object) {
 	var okay bool
 	scope.mutex.Lock(); defer scope.mutex.Unlock()
 	if alt, okay = scope.elems[name]; okay && alt == nil {
@@ -241,7 +240,7 @@ func (scope *Scope) define(ctx Context, origin Origin, name string, value Value)
 		okay = false
 	}
 	if !okay {
-		def = &Def{
+		d = &def{
 			origin: origin, value: value,
 			knownobject: knownobject{
 				objbase{
@@ -250,7 +249,7 @@ func (scope *Scope) define(ctx Context, origin Origin, name string, value Value)
 				}, name,
 			},
 		}
-		scope.replace(ctx, name, def)
+		scope.replace(ctx, name, d)
 	}
 	return
 }
