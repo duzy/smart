@@ -19,30 +19,6 @@ rules defined in a module can only be accessed within the module scope.
 The `smart` language has some basic data types, this is another important difference
 comparing to macros in a makefile.
 
-## Quick Start
-
-### Install `smart` utility
-
-We use `go` to install the `smart` command line utility directly from GitHub like this:
-
-```shell
-$ go get github.com/extbit/smart/cmd
-$ $GOPATH/bin/smart -help
-```
-
-### Write `smart` scripts
-
-The `smart` command will look for file `build.smart` in the working directory to
-start building. For example of doing this:
-
-```shell
-$ cd $GOPATH/src/github.com/extbit/smart/examples/hello
-$ $GOPATH/bin/smart run
-Hello World!
-```
-
-It should build the `hello` example and run it, having a 'Hello World!' output.
-
 ## Quick Example
 
 ```makefile
