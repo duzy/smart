@@ -155,12 +155,12 @@ type Context interface {
 }
 
 func getTargetValue(ctx Context) (res Value) {
-  if d := ctx.autoGet("@"); d == nil || d.value == nil {
-    if false { erro(ctx, "target '%v' is nil", d) }
-  } else if vals, _, _ := expand(ctx, plain, d.value); len(vals) == 1 {
+  if val := autoGet(ctx, "@"); val == nil {
+    if false { erro(ctx, "target is nil") }
+  } else if vals, u, n := expand(ctx, plain, val); len(vals) == 1 {
     res = Scalar(vals[0])
   } else {
-    erro(ctx, "target '%v' expaned to many: %v", d.value, res).of(d)
+    erro(ctx, "target '%v' expaned to many: %v (%d,%d)", val, res, u, n).of(val)
   }
   return
 }

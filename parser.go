@@ -1127,10 +1127,6 @@ func (p *parser) parseClosureDelegate() (result Value) {
 		}
 
 		if val := name.expand(ctx, ident); val != name {
-			// if false && name.String() == ".test.$_.$(or $4,$3)" {
-			if false && name.String() == "lang$(ext $@)" {
-				warn(ctx, "%v -> %T %v ; %v", name, val, val, ctx.autoGet("@")).debug(1)
-			}
 			if u, y := val.(unexpanded); y {
 				obj, okay = unresolved(proj, u.Value), true
 				return
@@ -1141,9 +1137,6 @@ func (p *parser) parseClosureDelegate() (result Value) {
 		case token.LPAREN:
 			if allowClosureName && name.expandible(ctx, expandDelegate|expandClosure) {
 				obj, okay = unresolved(proj, name), true // recursive delegation or closure
-				if true && name.String() == ".test$1" {
-					warn(ctx, "%T %v ; %v", name, name, name.defs(ctx)).of(name).debug(1)
-				}
 				return
 			} else if str, resolved = p.resolveObject(name); false {
 				erro(p, "resolve '%v' (%s) failed", name, str).at(name.Position()).debug(1)

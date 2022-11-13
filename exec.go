@@ -1059,9 +1059,9 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   defer func() {
     if log != nil && log.writer != nil { log.writer.Flush() }
     if logFile != nil { logFile.Close() }
-    if false && log.filename != "" && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
-      os.Remove(log.filename)
-    }
+    if log != nil && log.filename != "" &&
+      exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
+      if false { os.Remove(log.filename) }}
     if !opts.silentErrs && caller != nil && err != nil { caller.calleeError(err) }
     exeres.Stdout.res = nil
     exeres.Stderr.res = nil
@@ -1249,8 +1249,8 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       var str, _, _ = entryStr(ctx, ctx.entry())
       if (!opts.retStatus && exeres.Status != 0) || en > 0 {
         if diffLogPos { erro(ctx, "%v: %d known errors", str, en).at(logPos) }
-        erro(ctx, "%v: exit status %d", str, exeres.Status).at(positions[i])
-        erro(ctx, "%v: %d known errors", str, en)
+        erro(ctx, "%v: exit status %d (%d known errors)",
+          str, exeres.Status, en).at(positions[i])
         errostack(ctx, 32, "").debug(32)
       } else if wn > 0 {
         if diffLogPos { warn(ctx, "%v: %d known warnings", str, wn).at(logPos) }

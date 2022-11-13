@@ -269,8 +269,8 @@ func modifierPrint(ctx Context, args... Value) (result Value, traves travestates
                 content string
         )
         args = parseOpts(ctx, &opts, plain, args...)
-        if d := ctx.autoGet("-"); d != nil || d.value != nil {
-                content = d.value.Strval(ctx)
+        if val := autoGet(ctx, "-"); val != nil {
+                content = val.Strval(ctx)
         }
         if opts.stdout { fmt.Fprint(stdout, content) }
         if opts.stderr { fmt.Fprint(stderr, content) }
@@ -342,9 +342,9 @@ func modifierDebug(ctx Context, args... Value) (result Value, traves travestates
 // select element by index from group result: (select 0)
 func modifierSelect(ctx Context, args... Value) (result Value, traves travestates) {
         args = mergex(ctx, plain, args...)
-        if h := ctx.autoGet("-"); h == nil || isNil(h.value) {
+        if h := autoGet(ctx, "-"); h == nil {
                 erro(ctx, "no pipe value $-").debug(1)
-        } else if g, ok := h.value.(*Group); ok && len(args) > 0 {
+        } else if g, ok := h.(*Group); ok && len(args) > 0 {
                 if i, e := args[0].Integer(ctx); e != nil {
                         erro(ctx, "%v: %v", args[0], e).debug(1)
                 } else {
@@ -1669,7 +1669,7 @@ func modifierDeps(ctx Context, args... Value) (result Value, traves travestates)
         if opts.verbose {
                 defer func(ts time.Time) {
                         var s string
-                        if d := ctx.autoGet("@"); d != nil && !isNil(d.value) { s = d.value.String() }
+                        if val := autoGet(ctx, "@"); val != nil { s = val.String() }
                         prompt(ctx, "Deps %v …… (%d files in %v)\n", s, len(files), time.Now().Sub(ts)).debug(opts.debug, 6)
                 } (time.Now())
         }
@@ -1792,9 +1792,7 @@ type modifierTouchOpts struct {
 func modifierTouch(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierTouchOpts // = modifierTouchOpts{ mode: os.FileMode(0755) }
         if args = parseOpts(ctx, &opts, plain, args...); len(args) == 0 {
-                if def := ctx.autoGet("@"); def != nil && !isTrivial(def.value) {
-                        args = append(args, def.value)
-                }
+                if val := autoGet(ctx, "@"); val != nil { args = append(args, val) }
         }
 
         var files []*File
@@ -1837,13 +1835,12 @@ func modifierCheck(ctx Context, args... Value) (result Value, traves travestates
                 opts modifierCheckOpts
                 optBreak travekind // breaking with good results
                 makeResult func(Position,bool) Value // returns results only if non-nil
-                value Value
+                value = autoGet(ctx, "-")
                 values []Value
                 pairs []*Pair
                 res bool
         )
 
-        if h := ctx.autoGet("-"); h != nil { value = h.value }
         args = parseOpts(ctx, &opts, plain, args...)
 
         if opts.good    { optBreak   = traveDone }
@@ -2215,13 +2212,13 @@ func modifierCopyFile(ctx Context, args... Value) (result Value, traves travesta
         var source Value
         if len(args) > 0 {
                 target = args[0]
-        } else if d := ctx.autoGet("@"); d != nil {
-                target = d.value
+        } else {
+                target = autoGet(ctx, "@")
         }
         if len(args) > 1 {
                 source = args[1]
-        } else if d := ctx.autoGet("<"); d != nil {
-                source = d.value
+        } else {
+                source = autoGet(ctx, "<")
         }
 
         // Get target filename
@@ -2988,13 +2985,6 @@ func modifierCond(ctx Context, args... Value) (result Value, traves travestates)
                 if msg != "" { s.error = fmt.Errorf("%s", msg) }
                 s.prog = ctx.program()
         }
-        // var _, target = ctx.autoGet("@")
-        // if strings.Contains(target.Strval(ctx), "Unwind") {
-        //         var _, v = ctx.autoGet("^")
-        //         var d = target.updatedDeps(ctx)
-        //         prompt(ctx, "cond:%v: %v: %v; %v, %v; %v\n",
-        //                 args, target, v, res, traves, d)
-        // }
         return
 }
 
@@ -3502,10 +3492,9 @@ func modifierOnce(ctx Context, args... Value) (result Value, traves travestates)
                 n int
                 opts modifierOnceOpts
                 target Value
-                def = ctx.autoGet("@")
+                def = autoGet(ctx, "@")
         )
 
-        if def != nil { target = def.value }
         args = parseOpts(ctx, &opts, plain, args...)
 
         const onceAlgo = 2 // avaialbe: 0, 1, 2

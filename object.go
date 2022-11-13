@@ -348,6 +348,13 @@ func (ac *autoContext) autoGet(name string) (res *def) {
         return
 }
 
+func autoGet(ctx Context, name string) (res Value) {
+        if def := ctx.autoGet(name); def != nil {
+                res = def.value
+        }
+        return
+}
+
 func (ac *autoContext) autoSet(name string, val Value) (out *def, res Value) {
         var ok bool
         //ac.mutex.RLock()
@@ -1350,10 +1357,10 @@ func (entry *RuleEntry) traverse(cc Context) (traves travestates) {
                 target Value
                 result []Value
         )
-        if def := cc.autoGet("@"); def == nil || isTrivial(def.value) {
-                erro(cc, "$@ is not defined: %v", cc).debug(1)
+        if target = autoGet(cc, "@"); target == nil {
+                erro(cc, "$@ is not defined").debug(1)
                 return
-        } else if target = def.value; cc.entry() != entry {
+        } else if cc.entry() != entry {
                 cc = &entryContext{ cc, entry }
         } else {
             warn(cc, "%v %v %v", cc.Project(), target, entry).debug(1)

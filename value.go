@@ -309,7 +309,7 @@ ForTravestates:
 }
 
 func (traves *travestates) add(ctx Context, what travekind, target Value) *travestate {
-    if isTrivial(target) { if d := ctx.autoGet("@"); d != nil { target = d.value } }
+    if isTrivial(target) { target = autoGet(ctx, "@") }
     for _, s := range *traves {
         if s.what == what && s.target == target {
             return s
@@ -473,9 +473,7 @@ func closureGet(ctx Context, name string) (res *def) {
                 }
             }
             if obj := scope.project.resolveObject(ctx, name); obj == nil {
-                if res = ctx.autoGet(name); res != nil {
-                    return
-                }
+                if res = ctx.autoGet(name); res != nil { return }
             } else if res, _ = obj.(*def); res != nil {
                 return
             }
@@ -627,9 +625,9 @@ func (t *traverseContext) traversed(target Value) (targets []Value) {
 
 func entryStr(ctx Context, entry Entry) (str, ent, tar string) {
     if !isNil(entry) { ent = entry.Strval(ctx) }
-    if def := ctx.autoGet("@"); def == nil || isTrivial(def.value) {
+    if val := autoGet(ctx, "@"); val == nil || isTrivial(val) {
         str = ent // ...
-    } else if tar = def.value.Strval(ctx); ent != tar {
+    } else if tar = val.Strval(ctx); ent != tar {
         str = fmt.Sprintf("%s(%s)", ent, tar)
     } else {
         str = ent
@@ -770,8 +768,9 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         prereqFile *File
         prereqObj Object
     )
-    // NOTE: Don't delete, keep this segment! To safe time for future debugging traversal.
-    if false && /*strings.Contains(prereq, "clang")*/prereq == "clang" {
+
+    // NOTE: Don't delete, keep this to save time for future debugging traversal.
+    if false && prereq == "clang" {
         prompt(ctx, "%v : %v\n", targetValue, prereqValue)
         warn(ctx, "@: %T %v", targetValue, targetValue)
         warn(ctx, ">: %T %v", prereqValue, prereqValue)
@@ -868,7 +867,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         return
     }}
     if traveseDetectLoops { for c := ctx.programContext(); c != nil; c = c.caller() {
-        if d := c.autoGet("@"); d != nil && d.value.cmp(c, prereqValue) == cmpEqual {
+        if val := autoGet(c, "@"); val != nil && val.cmp(c, prereqValue) == cmpEqual {
             if traveseLoopBreakState != traveUnkn {
                 var s = traves.add(ctx, traveseLoopBreakState, targetValue)
                 if s.dependPat = prereqPattern; prereqFile == nil {
@@ -1610,9 +1609,9 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
     )
     if optWaitForExecResult {
         // Waiting for command (shell/python/etc.) exec result
-        if d := ctx.autoGet("-"); d != nil && !isTrivial(d.value) {
+        if val := autoGet(ctx, "-"); val != nil {
             var ok bool
-            if execRes, ok = d.value.(*ExecResult); ok {
+            if execRes, ok = val.(*ExecResult); ok {
                 //execRes.wg.Wait()
             }
         }
@@ -4490,7 +4489,7 @@ func (p *File) searchInMatchedPaths(ctx Context, proj *Project) (res bool) {
     }
     return
 }
-func (p *File) delete(ctx Context) (files []*File, err error) {
+func (p *File) absolute_delete(ctx Context) (files []*File, err error) {
     if positionalValueCtx { ctx = positional(ctx, p.position) }
 
     var fullname string

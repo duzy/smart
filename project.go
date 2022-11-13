@@ -605,13 +605,13 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
   }
 
   var found Entry
-  var t1 = ctx.autoGet("@")
+  var t1 = autoGet(ctx, "@")
   ForConcretes: for _, entry := range p.concrete {
     if match(entry, s) { found = entry } else { continue ForConcretes }
 
     for pc := ctx.programContext(); pc != nil; { // loop detection
       if pc.entry() == entry {
-        var t2 = pc .autoGet("@")
+        var t2 = autoGet(pc, "@")
         if t1 == t2 || t1.cmp(ctx, t2) == cmpEqual || t1.Strval(ctx) == t2.Strval(ctx) {
           if false {
             warn(ctx, "%v: %p %v %T", entry, t1, t1, t1).of(t1)
