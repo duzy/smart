@@ -3022,6 +3022,16 @@ func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
         return
 }
 
+func isDirtyAfter(ctx Context, target Value, t time.Time) (res bool) {
+        for _, dep := range target.updatedDeps(ctx) {
+                if ds := dep.stat(ctx); ds != nil {
+                        res = ds.mod().After(t) || isDirtyAfter(ctx, dep, t)
+                        if res { break }
+                }
+        }
+        return
+}
+
 type predictionOutdatedOpts struct {
         generalOpts
         checksum bool "c,cs,checksum,crc"
@@ -3039,24 +3049,22 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
                 outdated bool
                 err error
         )
+
         args = parseOpts(ctx, &opts, plain, args...)
 
         if target, _, _, err = wait(ctx); err != nil {
                 erro(ctx, "waiting traversal failed: %v", err).debug(1)
                 return
+        } else if ts := target.stat(ctx); ts == nil {
+                outdated, reason = true, "target not exists"
+        } else if isDirty(ctx, target, args...) && isDirtyAfter(ctx, target, ts.mod()) {
+                outdated, reason = true, "updated prerequisites"
         }
 
-        if outdated = len(target.updatedDeps(ctx)) > 0; outdated {
-                reason = "updated prerequisites"
-        }
-
-        targetFullname = fullnameOrStrval(ctx, target)
-        if outdated = !exists(ctx, target); outdated {
-                reason = "target not exists"
-        } else if outdated = isDirty(ctx, target, args...); outdated {
-                reason = "dirty"
+        if targetFullname = fullnameOrStrval(ctx, target); outdated {
+                assert(reason != "", "needs outdated reason")
         } else if outdated, err = isRecipesChanged(ctx, target); err != nil {
-                erro(ctx, "isRecipesChanged: %v", err).debug(1)
+                erro(ctx, "recipes changed: %v", err).debug(1)
                 return
         } else if outdated {
                 reason = "recipes changed"
