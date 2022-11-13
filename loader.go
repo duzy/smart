@@ -1854,7 +1854,7 @@ func (l *loader) parseFile(ctx Context, filename string, src interface{}, mode M
 
         var d = time.Now().Sub(t)
         if d > 2999*time.Millisecond {
-            info(l, "slow loading: %v", d).debug(1)
+            warn(l, "slow loading: %v", d).debug(1)
         }
         if options.verbose {
             info(ctx, "loaded %v (%v)", filename, d).debug(1)

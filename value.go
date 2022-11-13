@@ -5466,13 +5466,13 @@ func (p *delegate) defs(ctx Context, s ...string) (res []*def) {
 }
 func (p *delegate) traverse(ctx Context) (traves travestates) {
     ctx = positional(ctx, p.position)
-    if val := p.expand(ctx, plain); isNil(val) {
+    if val := p.expand(ctx, plain); val == nil {
         warn(ctx, "delegate '%v' expands to nil", p).at(p.position)
-        warnstack(ctx, -1, "delegate '%v' expands to <nil>", p).debug(16)
+        warnstack(ctx, -1, "").debug(16)
     } else if isTrivial(val) {
         if false {
             warn(ctx, "delegate '%v' expands to none", p).at(p.position)
-            warnstack(ctx, -1, "delegate '%v' expands to <none>", p).debug(16)
+            warnstack(ctx, -1, "", p).debug(16)
         }
     } else {
         traves = val.traverse(ctx)

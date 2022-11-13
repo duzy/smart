@@ -925,12 +925,16 @@ func (ctx *defaultContext) load() (err error) {
       if p := ctx.loader.Project(); p != nil { name = p.name }
       fmt.Fprintf(stderr, "└·%s … (%s)\n", name, d)
     } else if d > 2999*time.Millisecond {
-      var f = filepath.Join(base, "do.smart")
-      if _, e := os.Stat(f); e == nil { base = f } else {
-        f = filepath.Join(base, "build.smart")
-        if _, e := os.Stat(f); e == nil { base = f }
+      if m := ctx.globe.main; m != nil {
+        prompt(ctx, "%v:warning: long loading: %s !!\n", m.position, d).debug(6)
+      } else {
+        var f = filepath.Join(base, "do.smart")
+        if _, e := os.Stat(f); e == nil { base = f } else {
+          f = filepath.Join(base, "build.smart")
+          if _, e := os.Stat(f); e == nil { base = f }
+        }
+        prompt(ctx, "%s:1:warning: long loading: %s !!\n", base, d).debug(6)
       }
-      prompt(ctx, "%s:1:note: long loading: %s !!\n", base, d).debug(6)
     }
   } (time.Now())
   if options.verboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
