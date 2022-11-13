@@ -856,9 +856,7 @@ func (d *def) call(ctx Context, w expandfacet, a... Value) (res Value) {
                         // nil
                 } else if w&expandAuto == 0 {
                         // nil
-                } else if t := ctx.autoGet(d.name); t == nil {
-                        // nil
-                } else {
+                } else if t := ctx.autoGet(d.name); t != nil {
                         res = t.call1(ctx, w, a...)
                 }
         case DefDefault:
@@ -939,7 +937,7 @@ func (d *def) execute(ctx Context, a... Value) (res Value) {
 func (d *def) Call(ctx Context, a... Value) (res Value) {
         // NOTE: expandDelegate is still required for DefExpand1 as some autos
         //       ($_, $1, $2, etc) may still not expanded.
-        return d.call(ctx, expandClosure|expandDelegate|expandPairVal, a...)
+        return d.call(ctx, expandAuto|expandClosure|expandDelegate|expandPairVal, a...)
 }
 
 func (d *def) Get(ctx Context, name string) (res Value, err error) {

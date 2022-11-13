@@ -331,7 +331,7 @@ func (prog *Program) workDir(ctx Context) (workDir string) {
             if v := d.Call(ctx); !isTrivial(v) {
                 workDir = v.Strval(ctx)
             } else {
-                erro(ctx, "%v is trivial", d.name).debug(1)
+                errostack(ctx, 3, "trivial %v: %v", d.origin, d).debug(32)
             }
         }
     } else if filepath.IsAbs(prog.changedWD) {
