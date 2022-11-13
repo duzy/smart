@@ -519,7 +519,7 @@ func closureResolveObject(ctx Context, pos Position, name string) (obj Object) {
                 if infos {
                     var proj = def.OwnerProject()
                     val := obj.expand(ctx.closure(), plain)
-                    va2 := ctx.closure().autoGet(name)
+                    va2 := autoGet(ctx.closure(), name)
                     ob1, _ := ctx.closureResolveAuto(name)
                     warn(ctx, "%v: %v %v => %T %v", proj, def.origin, def.name, def.value, def.value)
                     warn(ctx, "%v: obj = %T %v", proj, obj, obj)
@@ -5595,9 +5595,9 @@ func (p *delegate) expand(ctx Context, w expandfacet) (res Value) {
             (false && r == "") {
             var t, y = res.(unexpanded)
             var same = res == p || (y && t.Value == p)
-            var t1 = ctx.autoGet("1")
-            var t2 = ctx.autoGet("2")
-            var t3 = ctx.autoGet("_")
+            var t1 = autoGet(ctx, "1")
+            var t2 = autoGet(ctx, "2")
+            var t3 = autoGet(ctx, "_")
             warn(ctx, "delegate.expand: %v ; %v ; %v", t1, t2, t3)
             warn(ctx, "delegate.expand: %v", s)
             warn(ctx, "delegate.expand: -> %T %v", res, res)
@@ -5706,9 +5706,9 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
             }
             var t, y = res.(unexpanded)
             var same = res == p || (y && t.Value == p)
-            var t1 = ctx.autoGet("1")
-            var t2 = ctx.autoGet("2")
-            var t3 = ctx.autoGet("_")
+            var t1 = autoGet(ctx, "1")
+            var t2 = autoGet(ctx, "2")
+            var t3 = autoGet(ctx, "_")
             warn(ctx, "reveal: %v ; %v ; %v", t1, t2, t3)
             warn(ctx, "reveal: %v", p)
             warn(ctx, "reveal: args=%v, unexpanded=%v, transformed=%v", args, u, n)
@@ -5788,9 +5788,9 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
    }
 
     if false && db > 0 {
-        var t1 = ctx.autoGet("_")
-        var t2 = ctx.autoGet("1")
-        var t3 = ctx.autoGet("2")
+        var t1 = autoGet(ctx, "_")
+        var t2 = autoGet(ctx, "1")
+        var t3 = autoGet(ctx, "2")
         info(ctx, "%v ; %v ; %v", t1, t2, t3)
         info(ctx, "%v %v %024b", x, args, w)
         for i, a := range merge(args...) { info(ctx, "%d. %T %v", i, a, a) }
@@ -5832,7 +5832,7 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
             for i, a := range p.a  { info(ctx, "p.a[%d]: %T %v",  i, a, a) }
             for i, a := range args { info(ctx, "args[%d]: %T %v", i, a, a) }
             infostack(ctx, 5, "%v %v -> %T %v ; %v %v ; %v %v %v", x, args, res, res,
-                ctx.autoGet("3"), ctx.autoGet("4"), u, n, call).debug(64)
+                autoGet(ctx, "3"), autoGet(ctx, "4"), u, n, call).debug(64)
         }
         return
     case Executer:
@@ -6038,9 +6038,9 @@ func (p *closure) disclose(ctx Context, w expandfacet) (res Value, final bool) {
             }
             var t, y = res.(unexpanded)
             var same = res == p || (y && t.Value == p)
-            var t1 = ctx.autoGet("1")
-            var t2 = ctx.autoGet("2")
-            var t3 = ctx.autoGet("_")
+            var t1 = autoGet(ctx, "1")
+            var t2 = autoGet(ctx, "2")
+            var t3 = autoGet(ctx, "_")
             warn(ctx, "disclose: %v ; %v ; %v", t1, t2, t3)
             warn(ctx, "disclose: args=%v ; unexpanded=%v, transformed=%v", args, u, n)
             warn(ctx, "disclose: %v ; x: %T %v (%v)", p, x, x, (x==unresolved))
@@ -6076,7 +6076,7 @@ func (p *closure) disclose(ctx Context, w expandfacet) (res Value, final bool) {
                     warn(ctx, "%d. %T %v", i, elem, elem)
                 }
             }
-            warn(ctx, "%v", ctx.autoGet("_"))
+            warn(ctx, "%v", autoGet(ctx, "_"))
             warnstack(ctx, 3, "%T %v -> %T %v, %024b %024b",
                 unresolved.name, unresolved.name, name, name, w,
                 w & (expandPlaceholders | expandDigits)).debug(32)
@@ -6849,7 +6849,9 @@ func mergeBare(args... Value) (elems []Value) {
 // Merge lists recursively into a single list. Previously called Join.
 func merge(args... Value) (elems []Value) {
     for _, arg := range args {
-        if l, o := arg.(*List); o && l != nil {
+        if arg == nil {
+            // continue
+        } else if l, o := arg.(*List); o && l != nil {
             elems = append(elems, merge(l.Elems...)...)
         } else if u, o := arg.(unexpanded); o && u.Value != nil {
             elems = append(elems, merge(u.Value)...)

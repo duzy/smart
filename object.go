@@ -491,8 +491,8 @@ func (d *def) String() (s string) {
 }
 func (d *def) Strval(ctx Context) (res string) {
         if d.origin == DefArg || d.origin == DefAuto {
-                if def := ctx.autoGet(d.name); def != nil && !isNil(def.value) {
-                        res = def.value.Strval(ctx)
+                if v := autoGet(ctx, d.name); !isNil(v) {
+                        res = v.Strval(ctx)
                 }
         } else {
                 var value Value
@@ -505,8 +505,8 @@ func (d *def) Strval(ctx Context) (res string) {
 }
 func (d *def) True(ctx Context) (res bool) {
         if d.origin == DefArg || d.origin == DefAuto {
-                if def := ctx.autoGet(d.name); def != nil && !isNil(def.value) {
-                        res = def.value.True(ctx)
+                if v := autoGet(ctx, d.name); !isNil(v) {
+                        res = v.True(ctx)
                 }
         } else {
                 var value Value
@@ -521,7 +521,7 @@ func (d *def) refs(ctx Context, v Value) (res bool) {
         if d.origin == DefArg || d.origin == DefAuto {
                 if def := ctx.autoGet(d.name); def != nil {
                         if def == d { return true }
-                        if !isNil(def.value) { res = def.value.refs(ctx, v) }
+                        if def.value != nil { res = def.value.refs(ctx, v) }
                 }
         } else if res = d == v; !res {
                 var value Value
@@ -563,8 +563,8 @@ func (d *def) defs(ctx Context, s ...string) (res []*def) {
 func (d *def) expandible(ctx Context, w expandfacet) (res bool) {
         if d.origin == DefArg || d.origin == DefAuto {
                 // res = true // expand to DefAutoVal
-                if def := ctx.autoGet(d.name); def != nil && !isTrivial(def.value) {
-                        res = def.value.expandible(ctx, w)
+                if v := autoGet(ctx,d.name); !isTrivial(v) {
+                        res = v.expandible(ctx, w)
                 }
         } else {
                 var value Value
@@ -598,14 +598,9 @@ func (d *def) expand(ctx Context, w expandfacet) (res Value) {
 }
 func (d *def) _value(ctx Context) (origin Origin, res Value) {
         if origin = d.origin; origin == DefArg || origin == DefAuto {
-                if a := ctx.autoGet(d.name); a == nil {
-                        if false { warnstack(ctx, 3, "%v is undefined", d.name).debug(32) }
-                        return
-                } else {
-                        // a.mutex.Lock()
-                        res = a.value
-                        // a.mutex.Unlock()
-                }
+                // a.mutex.Lock()
+                res = autoGet(ctx, d.name)
+                // a.mutex.Unlock()
         } else {
                 // d.mutex.Lock()
                 res = d.value
@@ -625,14 +620,14 @@ func (d *def) cmp(ctx Context, v Value) (res cmpres) {
                         if a.origin == DefArg || a.origin == DefAuto {
                                 if d.name == a.name { return cmpEqual }
                         }
-                        if t := ctx.autoGet(d.name); t != nil { val1 = t.value }
+                        val1 = autoGet(ctx, d.name)
                 } else {
                         // d.mutex.Lock()
                         val1 = d.value
                         // d.mutex.Unlock()
                 }
                 if a.origin == DefArg || a.origin == DefAuto {
-                        if t := ctx.autoGet(a.name); t != nil { val2 = t.value }
+                        val2 = autoGet(ctx, a.name)
                 } else {
                         // a.mutex.Lock()
                         val2 = a.value
@@ -660,7 +655,7 @@ func (d *def) elemstr(_ Context, o Object, k elemkind) (s string) {
 func (d *def) isEmpty(ctx Context) bool {
         var val Value
         if d.origin == DefArg || d.origin == DefAuto {
-                if t := ctx.autoGet(d.name); t != nil { val = t.value }
+                val = autoGet(ctx, d.name)
         } else {
                 // d.mutex.Lock()
                 val = d.value
@@ -844,8 +839,8 @@ func (d *def) call1(ctx Context, w expandfacet, a... Value) (res Value) {
                         s == "$(.test.z y$1,y$2)" ||
                         false) {
                         info(ctx, "%v len=%d", a, len(a))
-                        info(ctx, "%v %v", ctx.inner().autoGet("1"), ctx.autoGet("1"))
-                        info(ctx, "%v %v", ctx.inner().autoGet("2"), ctx.autoGet("2"))
+                        info(ctx, "%v %v", autoGet(ctx.inner(), "1"), autoGet(ctx, "1"))
+                        info(ctx, "%v %v", autoGet(ctx.inner(), "2"), autoGet(ctx, "2"))
                         info(ctx, "%T %v (%s)", d.value, d.value, d.name)
                         info(ctx, "%T %v", res, res)
                         infostack(ctx, 1, "").debug(8)
@@ -952,7 +947,7 @@ func (d *def) Get(ctx Context, name string) (res Value, err error) {
         case "name" : res = MakeString(d.position, d.name)
         case "value":
                 if d.origin == DefArg || d.origin == DefAuto {
-                        if t := ctx.autoGet(d.name); t != nil { res = t.value }
+                        res = autoGet(ctx, d.name)
                 } else {
                         // d.mutex.Lock()
                         res = d.value
@@ -967,7 +962,7 @@ func (d *def) Get(ctx Context, name string) (res Value, err error) {
 func (d *def) traverse(ctx Context) (traves travestates) {
         var value Value
         if d.origin == DefArg || d.origin == DefAuto {
-                if t := ctx.autoGet(d.name); t != nil { value = t.value }
+                value = autoGet(ctx, d.name)
         } else {
                 // d.mutex.Lock()
                 value = d.value
@@ -979,7 +974,7 @@ func (d *def) traverse(ctx Context) (traves travestates) {
 func (d *def) stat(ctx Context) (si *statinfo) {
         var value Value
         if d.origin == DefArg || d.origin == DefAuto {
-                if t := ctx.autoGet(d.name); t != nil { value = t.value }
+                value = autoGet(ctx, d.name)
         } else {
                 // d.mutex.Lock()
                 value = d.value

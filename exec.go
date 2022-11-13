@@ -785,8 +785,8 @@ type (
 )
 func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error) {
   if options.traceExecutor {
-    var t = ctx.autoGet("@")
-    defer un(trace(t_exec, fmt.Sprintf("executor(%s %v)", typeof(t.value), t)))
+    var t = autoGet(ctx, "@")
+    defer un(trace(t_exec, fmt.Sprintf("executor(%s %v)", typeof(t), t)))
   }
 
   var (

@@ -404,8 +404,8 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                         if _, s, ok = asOptFullname(ctx, x/*, projects...*/); ok && s != "" {
                                 val.Set(reflect.ValueOf(&optFullname{ s, x }))
                         } else {
-                                var tv = ctx.autoGet("@")
-                                erro(ctx, "not a file: %v -> %v -> %s (@=%T %v)", v, x, s, tv.value, tv).of(v)
+                                var tv = autoGet(ctx,"@")
+                                erro(ctx, "not a file: %v -> %v -> %s (@=%T %v)", v, x, s, tv, tv).of(v)
                                 errostack(ctx, 5, "%v", ctx).debug(16)
                         }
 
@@ -1075,8 +1075,7 @@ func builtinIf(ctx Context, args... Value) (res Value) {
                         s := v.Strval(ctx)
                         info(ctx, "%v -> %T %v -> %T %v -> %s", v, conds[0], conds[0], t, t, s)
 
-                        d := ctx.autoGet("_")
-                        info(ctx, "%v", d)
+                        info(ctx, "%v", autoGet(ctx,"_"))
                         infostack(ctx, 10, "").debug(64)
                 }}
                 if args[0].expand(ctx, plain).True(ctx) {
@@ -1356,9 +1355,7 @@ func builtinValue(ctx Context, args... Value) (res Value) {
                                 val = def.value // NOTE: donot do 'def.Call(ctx)'
                         }
                 }
-                if !closure && val == nil { if def := ctx.autoGet(name); def != nil {
-                        val = def.value // NOTE: donot do 'def.Call(ctx)'
-                }}
+                if !closure && val == nil { val = autoGet(ctx,name) }
                 if opts.debug>0 { warnstack(ctx, 3, "value: %v ; %v -> %v -> %v (closure=%v)",
                         args, a, name, val, closure).debug(2*opts.debug) }
                 if val == nil {
@@ -1716,8 +1713,8 @@ func builtinAppend(ctx Context, args... Value) (result Value) {
                         }
                         closureSet(ctx, name, MakeListOrScalar(pos, list))
                 } else if opts.auto {
-                        if d := ctx.autoGet(name); d != nil && !isTrivial(d.value) {
-                                list = append(merge(d.value), list...)
+                        if v := autoGet(ctx,name); !isTrivial(v) {
+                                list = append(merge(v), list...)
                         }
                         ctx.autoSet(name, MakeListOrScalar(pos, list))
                 } else if proj := ctx.Project(); proj != nil {
@@ -4054,9 +4051,9 @@ ForArgs:
                                 newNameVal = args[i+1]
                                 i += 1
                         } else {
-                                var a = ctx.autoGet("@")
-                                var l = ctx.autoGet("<")
-                                var r = ctx.autoGet(">")
+                                var a = autoGet(ctx,"@")
+                                var l = autoGet(ctx,"<")
+                                var r = autoGet(ctx,">")
                                 prompt(ctx, "symlink: args=%v -> %v\n", args, t)
                                 prompt(ctx, "symlink: %v, %v, %v\n", a, l, r)
                                 errostack(ctx, 5, "expects pair of names (%T %v)", t, t).of(t).debug(6)
@@ -4880,8 +4877,8 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                 res = new(bytes.Buffer)
                 index, line = 0, 0
         )
-        if d := ctx.autoGet("-file"); d != nil && d.value != nil {
-                pos.Filename = d.value.(*File).fullname()
+        if d := autoGet(ctx, "-file"); d != nil {
+                pos.Filename = d.(*File).fullname()
                 // warn(ctx, "%T %v %v", v, v, pos)
         }
         for _, m := range rxConfigRef.FindAllStringSubmatchIndex(s, -1) {

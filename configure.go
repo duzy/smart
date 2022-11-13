@@ -245,14 +245,13 @@ func configMessageDone(ctx Context, str string, args... interface{}) {
 
 // -dump
 func configureDump(ctx Context, fields map[string]Value, params ...Value) (result Value) {
-    if d := ctx.autoGet("-"); d != nil { result = d.value }
-    return
+    return autoGet(ctx,"-")
 }
 
 func configureBoolValue(ctx Context) (result bool) {
-    if d := ctx.autoGet("-"); d == nil || isNil(d.value) {
+    if d := autoGet(ctx, "-"); d == nil {
         return
-    } else if value := d.value.expand(ctx, plain); isNil(value) || value == d.value {
+    } else if value := d.expand(ctx, plain); isNil(value) || value == d {
         return
     } else { for i, v := range merge(value) {
         if v == nil { continue } else {
@@ -278,8 +277,8 @@ func configureAnswer(ctx Context, fields map[string]Value, params ...Value) (res
 // -option
 // -option('message...')
 func configureOption(ctx Context, fields map[string]Value, args ...Value) (result Value) {
-    if d := ctx.autoGet("-"); d != nil && d.value != nil {
-        result = d.value.expand(ctx, plain)
+    if d := autoGet(ctx,"-"); d != nil {
+        result = d.expand(ctx, plain)
     } else {
         result = MakeAnswer(ctx.Position(), false)
     }
@@ -377,7 +376,7 @@ func executeConfigureEntry(ctx Context, opts *modifierConfigureOpts, entryName s
         commOpts commonConfigureOpts
         params []Value
         pos = ctx.Position()
-        hyphen = ctx.autoGet("-")
+        hyphen = autoGet(ctx,"-")
         verbose = opts.verbose
     )
 
@@ -398,7 +397,7 @@ func executeConfigureEntry(ctx Context, opts *modifierConfigureOpts, entryName s
         switch par.name {
         case "LANG":   params = append(params, MakePair(pos, MakeBareword(pos, "LANG"),   MakeString(pos, ctx.program().language)))
         case "TARGET": params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
-        case "VALUE":  params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"),  hyphen.value))
+        case "VALUE":  params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"),  hyphen))
             if hyphen == nil { warn(ctx, "nil hyphen def").debug(1) }
         }
     }
@@ -436,7 +435,7 @@ ForInParams:
             var params []string
             for _, p := range prog.params { params = append(params, p.name) }
 
-            var at = ctx.autoGet("@")
+            var at = autoGet(ctx,"@")
             ctx = positional(ctx, a.Position())
             warn(ctx, "ignored param: %T %v; target: %T %v", a, a, at, at)
             warn(ctx, "%v params = %v", at, params).at(prog.position).debug(16)
@@ -468,7 +467,7 @@ ForInParams:
             } else {
                 errostack(ctx, 5, `configure "%s" has multiple results (%d)`, entryName, n).debug(32)
             }
-        } else if result = reses[0]; !isNil(result) && result == hyphen.value {
+        } else if result = reses[0]; !isNil(result) && result == hyphen {
             warn(ctx, "%v", entry).at(entry.Position())
             warn(ctx, `%v: configure yields value the same as input will be ignored: %v`, entry, result).debug(1)
             result = nil // simply discard the result as it's the same as the input (hyphen) value
@@ -603,13 +602,12 @@ func modifierConfigure(ctx Context, args ...Value) (result Value, _ travestates)
         }
     }
 
-    var adef = ctx.autoGet("@")
-    if adef == nil || isTrivial(adef.value) {
+    var target = autoGet(ctx,"@")
+    if isNil(target) {
         erro(ctx, " target is trivial: %s", ctx).debug(1)
         return
     }
 
-    var target = adef.value
     var name = target.Strval(ctx)
     if len(program.project.bases) == 0 {
         warn(ctx, "%v: project has no bases (should have at least .configure)", name).of(target).debug(1)
@@ -639,13 +637,13 @@ func modifierConfigure(ctx Context, args ...Value) (result Value, _ travestates)
 
     var value Value
     if len(args) == 0 { // Empty configuration: (configure)
-        if h := ctx.autoGet("-"); h == nil || h.value == nil {
+        if h := autoGet(ctx,"-"); h == nil {
             erro(ctx, " `%v` not configured (%v)", target, d).debug(1)
             return
-        } else if h.value == d || h.value.refs(ctx, d) {
+        } else if h == d || h.refs(ctx, d) {
             return
         } else {
-            value = h.value
+            value = h
         }
         switch v := value.(type) {
         default: d.set(ctx, DefConfig, value)
@@ -781,14 +779,14 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
 
     args = parseOpts(ctx, opts, plain, args...)
 
-    if target := ctx.autoGet("@"); target == nil || isTrivial(target.value) {
+    if target := autoGet(ctx,"@"); isTrivial(target) {
         erro(ctx, "'@' is not defined").debug(1)
         return
-    } else if file, filename, _ = fullname(ctx, target.value, closured...); file == nil {
-        if depend := ctx.autoGet(">"); depend != nil && !isTrivial(depend.value) {
-            s := traves.add(ctx, traveFail, target.value)
+    } else if file, filename, _ = fullname(ctx, target, closured...); file == nil {
+        if depend := autoGet(ctx,">"); !isTrivial(depend) {
+            s := traves.add(ctx, traveFail, target)
             s.error = traveTargetNotDefinedFile
-            s.depend = depend.value
+            s.depend = depend
         } else if true {
             prompt(ctx, "%v: not defined as file\n", target.Strval(ctx))
             erro(ctx, "(%T) %v", target, target)
@@ -807,8 +805,8 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
 
     if file.info == nil { if f := stat(ctx, filename, "", ""); f != nil { file.info = f.info }}
     if opts.debug>0 && file != nil {
-        var t = ctx.autoGet("@")
-        info(ctx, "configure-file: %v: %v (%s) (%v)", t, file.fullname(), closured).debug(opts.debug)
+        info(ctx, "configure-file: %v: %v (%s) (%v)",
+            autoGet(ctx,"@"), file.fullname(), closured).debug(opts.debug)
     }
 
     if len(project.configs) == 0 {
@@ -838,8 +836,8 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
     defer func(s string, c *Scope) { configuredFiles[s] = c } (filename, closure)
 
     var data bytes.Buffer
-    if h := ctx.autoGet("-"); h != nil && !isNil(h.value) {
-        args = append(args, h.value)
+    if h := autoGet(ctx,"-"); !isNil(h) {
+        args = append(args, h)
     }
     if dealArgs != nil { args = dealArgs(args, &data) }
     if dealData != nil { for _, arg := range args {
@@ -851,14 +849,13 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         }
     }}
     if data.Len() == 0 {
-        var t = ctx.autoGet("@")
-        prompt(ctx, "%v: %v\n", filename, t)
+        prompt(ctx, "%v: %v\n", filename, autoGet(ctx,"@"))
         erro(ctx, "no configuration data").debug(6)
         return
     } else if f := ctx.Project().configuration(ctx); (f == nil || !f.exists()) && opts.debug>0 {
-        var t = ctx.autoGet("@")
         // NOTE: TrimSpace to ease emacs *compilation* parse errors
-        prompt(ctx, "%v: %v\n%s\n", filename, t, strings.TrimSpace(data.String())).debug(1)
+        prompt(ctx, "%v: %v\n%s\n",
+            filename, autoGet(ctx,"@"), strings.TrimSpace(data.String())).debug(1)
     }
 
     var ( status string; same bool )
@@ -871,11 +868,11 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
             }
 
             var d = time.Now().Sub(st)
-            var t = ctx.autoGet("@")
             printEnteringDirectory(ctx)
             prompt(ctx, "update %v …… %s (in %v)\n",
                 trimPromptString(filename), status, d)
-            if opts.debug>0 { infostack(ctx, opts.stackNum, "%v (%v)", t, d).debug(opts.debug) }
+            if opts.debug>0 { infostack(ctx, opts.stackNum, "%v (%v)",
+                autoGet(ctx, "@"), d).debug(opts.debug) }
         } (time.Now())
     }
 
@@ -944,7 +941,7 @@ func __modifierConfigureInput(ctx Context, args ...Value) (result Value, _ trave
         project = ctx.Project()
     )
     args = parseOpts(ctx, &opts, plain, args...)
-    if target := ctx.autoGet("@"); target == nil || isTrivial(target.value) {
+    if target := autoGet(ctx,"@"); isTrivial(target) {
         erro(ctx, " target '@' is not defined").debug(1)
         return
     }
@@ -1062,11 +1059,11 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ t
     }
 
     var outFile string
-    if target := ctx.autoGet("@"); target == nil || isNil(target.value) {
+    if target := autoGet(ctx,"@"); isNil(target) {
         erro(ctx, " target '@' is undefined").debug(1)
         return
     } else {
-        outFile = target.value.Strval(ctx)
+        outFile = target.Strval(ctx)
     }
 
     if opts.makePath {
@@ -1096,8 +1093,8 @@ func modifierExtractConfiguration(ctx Context, args ...Value) (result Value, _ t
         filterOpts builtinFilterOpts
         depends, sources []Value
     )
-    if d := ctx.autoGet("^"); d != nil && !isTrivial(d.value) {
-        depends = mergex(ctx, plain, d.value)
+    if d := autoGet(ctx, "^"); !isTrivial(d) {
+        depends = mergex(ctx, plain, d)
     }
     for _, depend := range depends {
         var a []Value
