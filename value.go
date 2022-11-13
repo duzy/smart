@@ -5946,8 +5946,8 @@ func (p *closure) expandible(ctx Context, w expandfacet) (res bool) {
 func (p *closure) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
     if v := p.expand(ctx, plain); v != p {
         return v.match(ctx, i)
-    } else {
-        erro(ctx, "unexpand closure: %v", v).of(p).debug(1)
+    } else if false {
+        errostack(ctx, 3, "unexpand closure: %v", v).of(p).debug(16)
     }
     return
 }
