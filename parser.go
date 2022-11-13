@@ -21,7 +21,7 @@ import (
 	"os"
 )
 
-type parsingBits uint
+type parsingBits uint64
 const (
 	composing parsingBits = 1<<iota
 	composingSELECT_PROP
@@ -39,6 +39,7 @@ const (
 
 	parsingFilesSpec // files ( ... )
 	parsingTemplateBlock
+	parsingUndefValue
 
 	parsingSpecialRule // e.g. :use ...:
 	//parsingColonName // e.g. $:use:
@@ -1176,6 +1177,9 @@ func (p *parser) parseClosureDelegate() (result Value) {
 					refdef(ctx, name, defany) {
 					obj, okay = unresolved(proj, name), true // recursive delegation or closure
 					return
+				} else if p.bits&parsingUndefValue != 0 {
+					obj, okay = unresolved(proj, undef{name}), true
+					return
 				}
 
 				erro(p, "%v: %T %v -> '%s', is nil", proj, name, name, str).of(name)
@@ -1314,9 +1318,33 @@ func (p *parser) parseClosureDelegate() (result Value) {
 			}
 
 			if autos != nil { p.autos = append(autos, p.autos...) }
-			for rest = append(rest, p.parseListExpr(false)); p.tok == token.COMMA; {
-				p.next(true)
+			if savedBits := p.bits; nameStr == "case" {
 				rest = append(rest, p.parseListExpr(false))
+				p.bits |= parsingUndefValue
+				for ; p.tok == token.COMMA; {
+					p.next(true) // consumes COMMA
+					rest = append(rest, p.parseListExpr(false))
+				}
+				p.bits = savedBits
+			} else if nameStr == "and" {
+				p.bits |= parsingUndefValue
+				for rest = append(rest, p.parseListExpr(false)); p.tok == token.COMMA; {
+					p.next(true) // consumes COMMA
+					rest = append(rest, p.parseListExpr(false))
+				}
+				p.bits = savedBits
+			} else if nameStr == "or" {
+				p.bits |= parsingUndefValue
+				for rest = append(rest, p.parseListExpr(false)); p.tok == token.COMMA; {
+					p.next(true) // consumes COMMA
+					rest = append(rest, p.parseListExpr(false))
+				}
+				p.bits = savedBits
+			} else {
+				for rest = append(rest, p.parseListExpr(false)); p.tok == token.COMMA; {
+					p.next(true) // consumes COMMA
+					rest = append(rest, p.parseListExpr(false))
+				}
 			}
 			p.autos = savedAutos
 			p.autop = savedAutop

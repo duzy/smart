@@ -1771,6 +1771,14 @@ func (_ *valbase) _match(ctx Context, p Value, i interface{}) (full bool, s stri
 }
 func (_ *valbase) kind() kind { return valOther }
 
+type undef struct { Value }
+func (p undef) expand(Context, expandfacet) Value { return p }
+func (p undef) String() string { return fmt.Sprintf("undef{%s}",p.Value) }
+func (p undef) Strval(Context) (s string) { return }
+func (p undef) Integer(Context) (i int64, e error) { return }
+func (p undef) Float(Context) (f float64, e error) { return }
+func (p undef) True(Context) (res bool) { return }
+
 type returner struct {
     valbase
     Values []Value
@@ -5742,7 +5750,9 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
         }
 
         // NOTE: return immediately if there are any autos/args not defined yet
-        if str := name.Strval(ctx); str == "" {
+        if _, y := name.(undef); y {
+            return res, true
+        } else if str := name.Strval(ctx); str == "" {
             erro(ctx, "empty unresolved name: %v", name).of(name).debug(1)
             return
         } else {
@@ -5937,7 +5947,7 @@ func (p *closure) match(ctx Context, i interface{}) (full bool, s string, stems 
     if v := p.expand(ctx, plain); v != p {
         return v.match(ctx, i)
     } else {
-        erro(ctx, "closure can't expand: %v", p).of(p).debug(1)
+        erro(ctx, "unexpand closure: %v", v).of(p).debug(1)
     }
     return
 }
