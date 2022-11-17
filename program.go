@@ -301,7 +301,7 @@ const maxCallRecursion  = 32 //64
 
 type normalTraverseContext struct { Context }
 type orderTraverseContext struct { Context }
-func (t *normalTraverseContext) traversed(target Value) (targets []Value) {
+func (t normalTraverseContext) traversed(target Value) (targets []Value) {
     if targets = t.Context.traversed(target); len(targets) > 0 {
         t.autoSet("^", MakeList(t.Position(), targets...))
         t.autoSet("<", targets[0])
@@ -309,7 +309,7 @@ func (t *normalTraverseContext) traversed(target Value) (targets []Value) {
     }
     return
 }
-func (t *orderTraverseContext) traversed(target Value) (targets []Value) {
+func (t orderTraverseContext) traversed(target Value) (targets []Value) {
     if targets = t.Context.traversed(target); len(targets) > 0 {
         t.autoSet("|", MakeList(t.Position(), targets...))
     }
@@ -606,7 +606,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     ctx.autoSet("^", nil)
     ctx.autoSet("<", nil)
     ctx.autoSet(">", nil)
-    traves = append(traves, prog.traverse(&normalTraverseContext{ ctx }, prog.depends)...)
+    traves = append(traves, prog.traverse(normalTraverseContext{ctx}, prog.depends)...)
     if errs := ctx.checkErrors(true); errs > 0 {
         s := traves.add(positional(ctx, prog.position), traveFail, nil)
         s.error = fmt.Errorf("%d errors counted", errs)
@@ -623,7 +623,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
 
     // Update order-only prerequisites
     ctx.autoSet("|", nil)
-    traves = append(traves, prog.traverse(&orderTraverseContext{ ctx }, prog.ordered)...)
+    traves = append(traves, prog.traverse(orderTraverseContext{ctx}, prog.ordered)...)
     if errs := ctx.checkErrors(true); errs > 0 {
         s := traves.add(positional(ctx, prog.position), traveFail, nil)
         s.error = fmt.Errorf("%d errors counted", errs)
@@ -661,12 +661,11 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
         }
     }}
 
-    // const dbg = true
-    const dbg = false
+    const dbg = true
+    // const dbg = false
 
     var (
         stems = ctx.stems()
-        g Value = autoGet(ctx,"@")
         verb  = options.verbose || options.verboseBreaks
         mu sync.Mutex
         wg sync.WaitGroup
@@ -678,6 +677,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
         if true {
             // does nothing
         } else if tt := traves.of(traveObj, traveRule, traveFile); len(tt) > 100 {
+            var g Value = autoGet(ctx, "@")
             prompt(ctx, "%v: traves=%d\n", g, len(traves))
             for i, s := range traves {
                 prompt(ctx, "%v: %d. %v\n", g, i, s)
@@ -690,9 +690,13 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
     } ()
 
     if asyncUnsafe {
+        var ent = autoGet(ctx, "@")
         var depends valueList
         ForPrerequisites: for _, prerequisite := range prerequisites {
-            if _, ok := prerequisite.(*modifiergroup); ok {
+            if u, y := prerequisite.(unexpanded); y {
+                warn(ctx, "%v: unexpanded %v", ent, u.Value).debug(1)
+                continue
+            } else if _, y := prerequisite.(*modifiergroup); y {
                 wg.Wait()
             } else {
                 // wg.Add(1)
@@ -700,16 +704,15 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
 
             var t = prerequisite.traverse(ctx)
             if !t.has() { continue } else {
-                // NOTE: the program should collect all travestates
+                // NOTE: collect all travestates at this point
                 traves = append(traves, t...)
             }
 
-            // NOTE: Must fetch $@ after every prerequisite traverse, because
-            // NOTE: a prerequisite modifier may had changed it.
-            var (
-                target = autoGet(ctx, "@")
-                depend = autoGet(ctx, ">")
-            )
+            var target = autoGet(ctx, "@") // fetch updated $@
+            var depend = autoGet(ctx, ">") // fetch updated $>
+            if target.String() == "libunwind.a" {
+               info(ctx, "%v %v %v", target, prerequisite, depend).debug(1)
+            }
             if depend != nil { depends.add(depend) }
             if tt := t.of(traveFail); tt.has() {
                 var (
@@ -824,10 +827,10 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
 
             if tt := t.not(traveCase, traveDone, traveNext); tt.has() {
                 var str string
-                if g == target || g.cmp(ctx, target) == cmpEqual {
-                    str = g.String()
+                if ent == target || ent.cmp(ctx, target) == cmpEqual {
+                    str = ent.String()
                 } else {
-                    str = fmt.Sprintf("%v(%v)", g, target)
+                    str = fmt.Sprintf("%v(%v)", ent, target)
                 }
                 prompt(ctx, "%s: %v ; traves=%d\n", str, prerequisite, len(t))
                 for i, s := range t { prompt(ctx, "%s: %d. %v\n", str, i, s) }

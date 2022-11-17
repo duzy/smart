@@ -2127,11 +2127,11 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, gOpts *genericClauseOpts, _ in
 	//defer setclosure(setclosure(cloctx.unshift(p.scope)))
 	var res Value
 	switch op := prop0.(type) {
-	case Caller:
-		res = op.Call(ctx, props[1:]...)
+	case Caller: res = op.Call(ctx, props[1:]...)
 	default:
-		var name = op.Strval(ctx)
-		if _, obj := p.Scope().Find(name); obj == nil {
+		if name := op.Strval(ctx); name == "" {
+			erro(p, "empty op: %T %s", op, op).debug(1)
+		} else if _, obj := p.Scope().Find(name); obj == nil {
 			erro(p, "`%s` undefined", name).debug(1)
 		} else if f, _ := obj.(Caller); f == nil {
 			erro(p, "`%T` is not caller (%s)", obj, name).debug(1)
@@ -2139,8 +2139,10 @@ func (p *parser) parseEvalSpec(doc *CommentGroup, gOpts *genericClauseOpts, _ in
 			res = f.Call(ctx, props[1:]...)
 		}
 	}
-	if !isNil(res) {
-		// TODO: using res value
+	if isTrivial(res) {
+		return
+	} else if false/*TODO: c, y := res.(code); y */ {
+		// TODO: evalue code result
 	}
 }
 

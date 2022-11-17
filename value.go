@@ -7,7 +7,6 @@
 package smart
 
 import (
-    "extbit.io/smart/scanner"
     "extbit.io/smart/token"
     "crypto/sha256"
     "path/filepath"
@@ -769,12 +768,14 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         prereqObj Object
     )
 
-    // NOTE: Don't delete, keep this to save time for future debugging traversal.
-    if false && prereq == "clang" {
+    // NOTE: Don't delete, keep this to save time for future debugging.
+    // if true && (strings.HasSuffix(prereq, ".o") || strings.HasSuffix(prereq, ".a")) {
+    if false && (targetValue.String() == "libunwind.a") {
         prompt(ctx, "%v : %v\n", targetValue, prereqValue)
         warn(ctx, "@: %T %v", targetValue, targetValue)
         warn(ctx, ">: %T %v", prereqValue, prereqValue)
-        warn(ctx, ">: in %v", projects)
+        warn(ctx, "%v", ctx.program().depends)
+        warn(ctx, "%v", projects)
         warnstack(ctx, 3, "").debug(10)
         defer func() { warn(ctx, "%v : %v, %v, %v (%T)", targetValue,
             prereqValue, prereqFile, prereqObj, prereqObj).debug(10) } ()
@@ -890,9 +891,9 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         }
     }}
 
-    // NOTE: Don't delete, keep this segment! To safe time for future debugging traversal.
+    // NOTE: Don't delete, keep this segment to save time for future debugging.
     // NOTE: Open this segment will draw very clear traverse path of a prerequisite.
-    if false && strings.Contains(prereq, "ItaniumNodes.def") {
+    if true && strings.HasSuffix(prereq, ".o") {
         var s string
         if f := prereqFile; f != nil { s = "(" + f.dir + "," + f.sub + ")" }
         prompt(ctx, "%v : %v ; pattern=%v , file=%v%s\n", //, ctx.stemmed()
@@ -5645,20 +5646,6 @@ func (p *delegate) expand(ctx Context, w expandfacet) (res Value) {
         return res.expand(ctx, w)
     }
 }
-func isDigits(s string) bool {
-    return strings.IndexFunc(s, func(c rune) bool {
-        return !scanner.IsDigit(c) }) < 0
-}
-func callDef(ctx Context, p *delegate, w expandfacet, d *def, args ...Value) (res Value, final bool) {
-    if res = d.call(ctx, w, args...); res == nil {
-        if final = true; d.value == nil {
-            res = unexpanded{p}
-        } else {
-            res = d.value
-        }
-    }
-    return
-}
 func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
     res = p // set default to selfing
 
@@ -5808,7 +5795,7 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
         infostack(ctx, 3, "").debug(64)
     }
 
-    var call bool
+    var binc bool
     var done = (w&expandDelegate == 0) || (w&expandClose == 0 && u > 0)
     if bin, _ := x.(*Builtin); bin == nil {
         // does nothing, keep going..
@@ -5816,7 +5803,7 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
         return builtinAuto(ctx, p, w, args...), final
     } else if bin.name == "value" { // NOTE: (w&expandDelegate == 0) may be true
         if u > 0 { done = true }
-    } else if call = bin.name == "call"; call {
+    } else if binc = bin.name == "call"; binc {
         // TODO: only callable if args[0] is plain
     }
 
@@ -5825,14 +5812,14 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
         if w&expandClose != 0 { return res, true }
         return unexpanded{res}, true
     } else if d, y := x.(*def); y {
-        return callDef(ctx, p, w, d, args...)
-    } else if false && call {
+        return call(ctx, p, w, d, args...)
+    } else if false && binc {
         return builtinCall(ctx, p, w, args...), true
     } else if done {
         if p.x != x || n > 0 { res = &delegate{p.valbase, p.l, x, args} }
         if w&expandClose != 0 { return res, true }
         return unexpanded{res}, true
-    } else if call {
+    } else if binc {
         return builtinCall(ctx, p, w, args...), true
     }
 
@@ -5842,7 +5829,7 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
             for i, a := range p.a  { info(ctx, "p.a[%d]: %T %v",  i, a, a) }
             for i, a := range args { info(ctx, "args[%d]: %T %v", i, a, a) }
             infostack(ctx, 5, "%v %v -> %T %v ; %v %v ; %v %v %v", x, args, res, res,
-                autoGet(ctx, "3"), autoGet(ctx, "4"), u, n, call).debug(64)
+                autoGet(ctx, "3"), autoGet(ctx, "4"), u, n, binc).debug(64)
         }
         return
     case Executer:
@@ -5966,8 +5953,10 @@ func (p *closure) expand(ctx Context, w expandfacet) (res Value) {
     if close { w = (w&^offBits) | expandClose }
     if false { if s := p.String();
         // s == "&(.test.x)" ||
+        // s == "&(objects)" ||
         (false && s == "") {
-        defer func() { if /* p != res */true {
+        defer func() { if res != nil { if r := res.String(); true ||
+            (false && r == "") {
             var t, y = res.(unexpanded)
             var same = res == p || (y && t.Value == p)
             warn(ctx, "closure.expand: %v", s)
@@ -5982,7 +5971,7 @@ func (p *closure) expand(ctx Context, w expandfacet) (res Value) {
                 final, same, close, w)
             warnstack(ctx, 5, "").debug(64)
             ctx.checkErrors(true)
-        }} ()
+        }}} ()
     }}
 
     if false && w&expandUnresName != 0 {
@@ -6021,12 +6010,13 @@ func (p *closure) disclose(ctx Context, w expandfacet) (res Value, final bool) {
         x Object
         y bool
     )
-    if false { if s := p.String();
-        s == "&(.test.v2)" ||
+    if true { if s := p.String();
+        // s == "&(.test.v2)" ||
+        s == "&(objects)" ||
         (false && s == "") {
-            defer func() { if r := res.String(); p != res && (
-                r == "&(.test.v2)" ||
-                false) {
+            defer func() { if r := res.String(); p != res && ( true ||
+                // r == "&(.test.v2)" ||
+                (false && r == "")) {
             if len(p.a)>0 || len(args)>0 || n>0 {
                 warn(ctx, "%T %v %v (merge(p.a))", x, x, merge(p.a...))
                 for _, a := range merge(p.a...) {

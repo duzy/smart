@@ -7,6 +7,7 @@
 package smart
 
 import (
+        "extbit.io/smart/scanner"
         "extbit.io/smart/token"
         "os/exec"
         "strings"
@@ -818,6 +819,11 @@ func (d *def) append(ctx Context, va... Value) {
         d.set(ctx, origin, nil, va...)
 }
 
+func isDigits(s string) bool {
+    return strings.IndexFunc(s, func(c rune) bool {
+        return !scanner.IsDigit(c) }) < 0
+}
+
 //TODO: func (*def) prepend(Context, ...Value) (error)
 
 func (d *def) call1(ctx Context, w expandfacet, a... Value) (res Value) {
@@ -888,6 +894,17 @@ func (d *def) call(ctx Context, w expandfacet, a... Value) (res Value) {
                 res = list.Elems[0]
         }
         return
+}
+
+func call(ctx Context, p *delegate, w expandfacet, d *def, args ...Value) (res Value, final bool) {
+    if res = d.call(ctx, w, args...); res == nil {
+        if final = true; d.value == nil {
+            res = unexpanded{p}
+        } else {
+            res = d.value
+        }
+    }
+    return
 }
 
 func (d *def) execute(ctx Context, a... Value) (res Value) {

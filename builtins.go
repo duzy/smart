@@ -516,7 +516,9 @@ func parseOpts(ctx Context, iOpts interface{}, w expandfacet, args... Value) (re
                         if ft.Name == "generalOpts" && fv.Kind() == reflect.Struct &&
                                 fv.Type().String() == "smart.generalOpts" {
                                 gen = (*generalOpts)(unsafe.Pointer(fv.UnsafeAddr()))
-                                rest = parseOpts(ctx, gen, w, rest...)
+                                if rest = parseOpts(ctx, gen, w, rest...); gen.debug>0 {
+                                        gen.debug = gen.debug * 2
+                                }
                                 if false { prompt(ctx, "%v: %v ; %v -> %v", ft.Name, *gen, args, rest).debug(1) }
                         } else {
                                 rest = parseOpt(ctx, ft.Tag, fv, rest...)
@@ -1014,9 +1016,8 @@ func builtinMatch(ctx Context, args... Value) (res Value) {
 // 4: $(case val (a 'xxx') (b 'yyy') (c -) (- -))
 func builtinCase(ctx Context, args... Value) (res Value) {
         var val Value
-        if args = merge(args...); len(args) == 0 {
-                return
-        } else if _, ok := args[0].(*Group); !ok {
+        if args = merge(args...); len(args) == 0 { return } else
+        if _, ok := args[0].(*Group); !ok {
                 val = args[0].expand(ctx, plain)
                 args = args[1:]
         }
@@ -1428,7 +1429,7 @@ func builtinCall(ctx Context, p *delegate, w expandfacet, args ...Value) (res Va
         args = args[1:]
 
         if d, y := o.(*def); true && y {
-                res, _ = callDef(ctx, p, w, d, args...)
+                res, _ = call(ctx, p, w, d, args...)
                 if res != nil && res.String() == "foobar $1$1$1$1-$2$2$2$2" &&
                         d.value.String() == "foobar $1-$2" {
                         warn(ctx, "%T %v", d.value, d.value)
@@ -2381,10 +2382,10 @@ type builtinPatsubstOpts struct {
         generalOpts
         files     bool `fi,file,fs,files`
         findFiles bool `find,find-file`
-        fullfiles bool `ff,fullfile;ff,fullfiles`
-        cleanPath bool `c,clean;c,cleanpath`
-        baseFiles bool `b,base;b,bases;bf,base-files,search-bases`
-        usedFiles bool `u,used;u,using;uf,used-files,search-usees`
+        fullFiles bool `ff,fullfile,fullfiles`
+        cleanPath bool `c,clean,cleanpath`
+        baseFiles bool `b,base,bases;bf,base-files,search-bases`
+        usedFiles bool `u,used,using;uf,used-files,search-usees`
         noFileMap bool `nm,nomap,no-map,nofiles,no-files,no-filemap`
 }
 func builtinPatsubst(ctx Context, args... Value) (res Value) {
@@ -2421,11 +2422,11 @@ func builtinPatsubst(ctx Context, args... Value) (res Value) {
 ForSources:
         for _, src := range sources {
                 var source interface{} = src
-                if opts.findFiles || opts.fullfiles {
+                if opts.findFiles || opts.fullFiles {
                         if file, ok := src.(*File); ok {
                                 source = file
                         } else if file = proj.FindFile(ctx, src.Strval(ctx)); file != nil {
-                                if (opts.fullname || opts.fullfiles) && !filepath.IsAbs(file.name) {
+                                if (opts.fullname || opts.fullFiles) && !filepath.IsAbs(file.name) {
                                         if !file.change("", "", file.fullname()) {
                                                 warn(ctx, "changing fullname failed: %v", file).debug(1)
                                         }
@@ -2448,36 +2449,35 @@ ForSources:
                 }
 
                 var (
-                        matched bool
                         srcPat Value
-                        str string
                         stems []string
                 )
-        ForSrcPats:
                 for _, srcPat = range srcPats {
-                        if matched, str, stems = srcPat.match(ctx, source); matched {
-                                break ForSrcPats
-                        } else if opts.debug>0 {
+                        if matched, s, m := srcPat.match(ctx, source); matched {
+                                stems = m; goto ForDstPats
+                        } else if false && opts.debug>0 {
                                 warn(ctx, "srcPat=%v (%T)", srcPat, srcPat)
                                 warn(ctx, "source=%v (%T)", source, source)
-                                warn(ctx, "result=%s", str)
-                                warn(ctx, "stems=%v", stems)
+                                warn(ctx, "result=%s", s)
+                                warn(ctx, "stems=%v", m)
                                 warn(ctx, "matched=%v", matched).debug(opts.debug)
                         }
                 }
-                if !matched {
-                        // Just return the src if no matching.
-                        if !(isNil(src) || isNone(src)) { list = append(list, src) }
-                        continue ForSources
-                }
+                // Matched nothing, just append src to the list.
+                if !(isNil(src) || isNone(src)) { list = append(list, src) }
+                continue ForSources
 
                 // Compose the matched results with stem value.
         ForDstPats:
                 for _, dst := range dstPats {
-                        var nameVal, /*rest*/_ = dst.stencil(ctx, stems)
+                        var nameVal, rest = dst.stencil(ctx, stems)
                         if isNil(nameVal) {
-                                erro(ctx, "nil stencil: %T %v (stems=%v)", dst, dst, stems).debug(1)
-                                nameVal = dst
+                                erro(ctx, "nil stencil: %T %v (stems=%v, rest=%v)",
+                                        dst, dst, stems, rest).debug(1)
+                                return
+                        } else if opts.debug>0 {
+                                warnstack(ctx, 3, "patsubst: %v -> %v -> %v",
+                                        src, dst, nameVal).debug(opts.debug)
                         }
 
                         var name string
@@ -2610,11 +2610,11 @@ func builtinPatsubst_buggy(ctx Context, args... Value) (res Value) {
 ForSources:
         for _, src := range sources {
                 var source interface{} = src
-                if opts.findFiles || opts.fullfiles {
+                if opts.findFiles || opts.fullFiles {
                         if file, ok := src.(*File); ok {
                                 source = file
                         } else if file = proj.FindFile(ctx, src.Strval(ctx)); file != nil {
-                                if (opts.fullname || opts.fullfiles) && !filepath.IsAbs(file.name) {
+                                if (opts.fullname || opts.fullFiles) && !filepath.IsAbs(file.name) {
                                         if !file.change("", "", file.fullname()) {
                                                 warn(ctx, "changing fullname failed: %v", file).debug(1)
                                         }
@@ -4330,10 +4330,18 @@ LoopNames:
                                 }
                                 if dbg { warn(ctx, "%v %v %v", pat, name, subFiles) }
                                 files = append(files, subFiles...)
+                                if opts.debug>0 {
+                                        warn(ctx, "wildcard: %v -> %v -> %v (*)",
+                                                name, pat, opts.dir).debug(opts.debug)
+                                }
                         } else if full, _, _ := pat.match(ctx, name); full {
                                 if dbg { warn(ctx, "%v %v", pat, name) }
                                 file := stat(ctx, name, "", opts.dir)
                                 files = append(files, file)
+                                if opts.debug>0 {
+                                        warn(ctx, "wildcard: %v -> %v -> %v",
+                                                name, pat, file).debug(opts.debug)
+                                }
                                 break
                         }
                 }
@@ -4441,6 +4449,10 @@ func wildcardPathPatsInDir3(ctx Context, opts *wildcardOpts, pats ...Value) (fil
                                 if dbg { warn(ctx, "%T %v %v; %v %v %v; %v %s", pat, pat, name, full, s, stems, p.Elems, opts.dir) }
                                 if full {
                                         files = append(files, stat(ctx, name, "", opts.dir))
+                                        if opts.debug>0 {
+                                                warn(ctx, "wildcard: %v -> %v -> %v",
+                                                        name, pat, opts.dir).debug(opts.debug)
+                                        }
                                         continue forNames
                                 } else {
                                         continue
@@ -4476,6 +4488,10 @@ func wildcardPathPatsInDir3(ctx Context, opts *wildcardOpts, pats ...Value) (fil
                                 }
                         }
                         files = append(files, subs...)
+                        if opts.debug>0 {
+                                warn(ctx, "wildcard: %v -> %v -> %v",
+                                        name, pat, subs).debug(opts.debug)
+                        }
                 }
         }
         return
@@ -4486,7 +4502,7 @@ func wildcardPathPatsInDir(ctx Context, opts *wildcardOpts, pats ...Value) (file
                 files = wildcardPathPatsInDir3(ctx, opts, pats...)
         } else if false {
                 files = wildcardPathPatsInDir2(ctx, opts, pats...) // FIXME: incorrect
-        } else {
+        } else if false {
                 files = wildcardPathPatsInDir1(ctx, opts, pats...)
         }
         if opts.filetype != "" {
