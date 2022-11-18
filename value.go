@@ -697,7 +697,7 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
 
         for last := &pc.position; pc != nil && n > 0; pc = pc.Context.positional() {
             var pos = &pc.position
-            if pos.SameLine(last) { continue }
+            if (last == pos || last./* SameLine */Same(pos)) { continue }
 
             var suf string
             if n == 1 && pc.caller() != nil { suf = " ..." }

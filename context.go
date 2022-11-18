@@ -407,9 +407,8 @@ func (pc *positionalContext) caller() *positionalContext { return pc.Context.pos
 func (pc *positionalContext) positional() *positionalContext { return pc }
 func positional(ctx Context, pos Position) Context {
   if ctx == nil { panic("nil inner context") }
-  if pc, ok := ctx.(*positionalContext); ok && pos.Same(&pc.position) {
-     return ctx;
-  }
+  if pc, ok := ctx.(*positionalContext); !pos.IsValid() ||
+    (ok && pos.Same(&pc.position)) { return ctx }
   return &positionalContext{ ctx, pos }
 }
 
@@ -835,7 +834,7 @@ func (ctx *defaultContext) load() (err error) {
 
   if text := strings.Join(os.Args[1:], " "); text == "" {
     // Relax!
-  } else if args = ctx.loader.loadText("@", text); len(args) == 0 {
+  } else if args = ctx.loader.loadText(ctx, "@", text); len(args) == 0 {
     // ohh...
   } else {
     args = parseOpts(ctx, &options, 0, args...)

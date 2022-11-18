@@ -1005,7 +1005,6 @@ func (l *loader) includeFile(pos Position, opts includeFileOpts, spec Value) {
     )
 
     // Execute the rule entry to update include source.
-    if false && spec.String() == ".sm" { warn(ctx, "include %T %v", spec, spec).debug(1) }
     if entry, ok := spec.(*RuleEntry); ok && entry != nil {
         var (
             result []Value
@@ -1865,14 +1864,14 @@ func (l *loader) parseFile(ctx Context, filename string, src interface{}, mode M
 
     // set the current parser
     l.parser = new(parser)
-    l.parser.init(l, filename, text)
+    l.parser.init(ctx, l, filename, text)
     l.mode = mode
     if incOpts != nil {
         l.parser.isIncludingConf = incOpts.isConfiguration
     }
 
     // set result values
-    if f = l.parser.parseFile(); f == nil {
+    if f = l.parser.parseFile(ctx); f == nil {
         // Source is not a valid source file, returnning a valid but empty parsedFile
         defer l.closeScope(l.openScope(fmt.Sprintf("file %s", filename)))
         f = &parsedFile{ scope:l.Scope() }
@@ -2272,7 +2271,7 @@ func (l *loader) loadPath(path string, filter func(os.FileInfo) bool) bool {
     return l.loadDir(position, s, path, filter)
 }
 
-func (l *loader) loadText(filename string, text string) []Value {
+func (l *loader) loadText(ctx Context, filename string, text string) []Value {
     if options.traceLaunch { defer un(trace(t_launch, "loader.loadText")) }
 
     defer func(saved *parser) {
@@ -2287,8 +2286,8 @@ func (l *loader) loadText(filename string, text string) []Value {
     }
     l.useesExecuted = nil
     l.parser = new(parser)
-    l.parser.init(l, filename, []byte(text))
-    return l.parser.parseText()
+    l.parser.init(ctx, l, filename, []byte(text))
+    return l.parser.parseText(ctx)
 }
 
 func AddSearchPaths(paths... string) (err error) {

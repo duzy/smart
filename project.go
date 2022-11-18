@@ -373,7 +373,6 @@ func (p *Project) filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*
 }
 
 func (p *Project) wildcard(ctx Context, opts wildcardOpts, patterns ...Value) (files []*File, err error) {
-  var dbg = false //&& p.name == "llvm.tools.objcopy"
   var filemaps = p.filemaps(ctx, opts.baseFiles, opts.usedFiles)
 ForPatterns:
   for _, inPat := range patterns {
@@ -385,17 +384,7 @@ ForPatterns:
   ForFilemaps:
     for _, filemap := range filemaps {
       for _, pattern := range filemap.Patterns(ctx) {
-        if dbg {
-          a, _, _ := pattern.match(ctx, inPat)
-          b, _, _ := inPat.match(ctx, pattern)
-          prompt(ctx, "%v: %v %v (%v, %v)\n", pattern, inPat, filemap.patts, a, b)
-          warn(ctx, "%v %v %v", inPat, pattern, filemap.patts).debug(1)
-        }
         if matched, _, _ = pattern.match(ctx, inPat); !matched {
-          if dbg {
-            matched, _, _ = inPat.match(ctx, pattern)
-            warn(ctx, "%T %v %v %v", inPat, inPat, pattern, matched).debug(1)
-          }
           // flip matching patterns
           if !inPatPatterned {
             // unmatched pattern
@@ -404,14 +393,14 @@ ForPatterns:
             goto afterMatchedPattern
           }
           continue /*ForFilemaps -- FIXES: break too early */; afterMatchedPattern:
-        } else if dbg {
-          warn(ctx, "%T %v %v %v", inPat, inPat, pattern, matched).debug(1)
         }
 
         // glob returned file names
         var ( str string; names []string )
         if file, ok := pattern.(*File); ok && len(filemap.paths) == 0 {
           files = append(files, file)
+          if n := opts.debug; n>0 { warn(ctx, "%v -> %v (exists=%v)",
+            pattern, file, file.exists()).debug(n) }
           continue
         } else if str = pattern.Strval(ctx); str == "" {
           erro(ctx, "empty pattern: %v", pattern).debug(1)
@@ -424,9 +413,9 @@ ForPatterns:
           for _, s := range names {
             file := stat(ctx, filepath.Base(s), "", filepath.Dir(s))
             files = append(files, file)
-            if enable_assertions {
-              assert(file != nil, "`%s` missing", s)
-            }
+            if enable_assertions { assert(file != nil, "`%s` missing", s) }
+            if n := opts.debug; n>0 { warn(ctx, "%v -> %v (exists=%v)",
+              pattern, file, file.exists()).debug(n) }
           }
           if breakAbsRel {
             continue ForPatterns
@@ -435,40 +424,53 @@ ForPatterns:
           }
         }
 
+        var patterned = pattern.patterned(ctx)
+
         // Check against paths for non-abs/rel patterns.
         for _, path := range filemap.paths {
           var sub = path.Strval(ctx)
           var subfile = filepath.Join(sub, str)
-          if names, err = filepath.Glob(subfile); err != nil { break ForPatterns }
+          if names, err = filepath.Glob(subfile); err != nil {
+            erro(ctx, "%v: %v: %v", p, subfile, err).of(path)
+            errostack(ctx, 6, "").of(path).debug(12)
+            break ForPatterns
+          }
+
           // Chop off path 'sub' prefix to have shorter names
           // Aka. trim prefix 'file.Sub+PathSep'
-          prefix := strings.TrimSuffix(subfile, str)
-          if len(names) > 0 {
+          if prefix := strings.TrimSuffix(subfile, str); len(names) > 0 {
             for _, s := range names {
-              name := strings.TrimPrefix(s, prefix)
-              if file := stat(ctx, name, sub, prefix, nil); file != nil && (file.exists() || opts.includeMissing) {
-                files = append(files, file)
-              } else if opts.errorMissing {
-                if false { err = fmt.Errorf("missing '%v'", name) }
+              var name = strings.TrimPrefix(s, prefix)
+              if file := stat(ctx, name, sub, prefix, nil); file == nil {
+                if n := opts.debug; n>0 { warn(ctx, "%v -> %v %v (nil)",
+                  pattern, sub, prefix).debug(n) }
                 erro(ctx, "%v: '%v' not found in %v", p, name, path).of(filemap.patts[0])
-                errostack(ctx, 6, "(%T):", ctx).of(path).debug(12)
+                errostack(ctx, 6, "").of(path).debug(12)
+              } else if file.exists() || opts.includeMissing {
+                files = append(files, file)
+                if n := opts.debug; n>0 { warnstack(ctx, n, "%v -> %v %v+%v (exists=%v)",
+                  pattern, sub, prefix, file, file.exists()).debug(n) }
+              } else if opts.errorMissing {
+                erro(ctx, "%v: '%v' not found in %v", p, name, path).of(filemap.patts[0])
+                errostack(ctx, 6, "").of(path).debug(12)
                 if true { fail(path.Position(), "missing %v", path) }
               }
             }
-          } else if ok := pattern.patterned(ctx); !ok && opts.includeMissing {
+          } else if !patterned && opts.includeMissing {
             // If the filemap is not a pattern (e.g. foobar.cpp), we include it in the returning files
             // Append this non-existed/missing file.
             file := stat(ctx, pattern.Strval(ctx), sub, prefix, nil)
             files = append(files, file)
-          } else if ok && !path.expandible(ctx, expandClosure) && len(filemap.paths) == 1 {
-            // Just report that the pattern matches no files in the
-            // file system (if only one path specified).
+            if n := opts.debug; n>0 { warn(ctx, "%v -> %v %v+%v",
+              pattern, sub, prefix, file).debug(n) }
+          } else if patterned && !path.expandible(ctx, expandClosure) && len(filemap.paths) == 1 {
             if false {
+              // Just report that the pattern matches no files in the
+              // file system (if only one path specified).
               warn(ctx, "%s: %v matches no files in '%v'", p.name, filemap, sub).of(pattern)
               warn(ctx, "%s: here is %v (try using flag -m, aka -include-missing)", p.name, inPat).of(inPat).debug(1)
             }
           } else if opts.errorMissing {
-            if false { err = fmt.Errorf("missing files like '%v'", filemap) }
             erro(ctx, "%v: '%v' not found in %v", p, pattern, path).of(filemap.patts[0])
             errostack(ctx, 6, "(%T):", ctx).of(path).debug(12)
             if true { fail(path.Position(), "missing %v", path) }
@@ -478,7 +480,6 @@ ForPatterns:
       }
     }
   }
-  if dbg { warn(ctx, "%v", patterns).debug(24) }
   return
 }
 

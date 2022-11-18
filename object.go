@@ -1074,8 +1074,7 @@ type Builtin struct {
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
 func (p *Builtin) True(_ Context) bool { return p.s.f != nil }
 func (p *Builtin) Call(ctx Context, a... Value) (res Value) {
-        if pos := p.position; pos.IsValid() { positional(ctx, pos) }
-        if p.s.f != nil { res = p.s.f(ctx, a...) }
+        if p.s.f != nil { res = p.s.f(positional(ctx, p.position), a...) }
         return
 }
 func (p *Builtin) expand(_ Context, _ expandfacet) Value { return p }
