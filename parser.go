@@ -2150,7 +2150,8 @@ func (p *parser) parseEvalSpec(ctx Context, doc *CommentGroup, gOpts *genericCla
 			res = f.Call(ctx, gOpts.spec[1:]...)
 		}
 	}
-	if isTrivial(res) {
+
+	if ctx.checkErrors(true); isTrivial(res) {
 		return
 	} else if false/*TODO: c, y := res.(code); y */ {
 		// TODO: evalue code result
@@ -3449,12 +3450,13 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 		}
 		if p.mode&ImportsOnly == 0 {
 			// rest of module body
-			for p.tok != token.EOF {
+			for /* p.totalErrors() == 0 && */ p.tok != token.EOF {
 				if p.tok == token.LINEND ||
 					(p.tok == token.COMMENT && p.lineComment != nil) {
 					p.next(ctx, true)
 				} else {
 					p.parseClause(p.posit(ctx))
+					if ctx.checkErrors(true) > 0 { break }
 				}
 			}
 		}

@@ -838,7 +838,8 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 	}
 
 	if IsLetter(s.ch) {
-		if lit = s.scanIdentifier(); len(lit) > 1 && s.ch != '/' {
+		if lit = s.scanIdentifier(); len(lit) > 1 &&
+			s.ch != '/' && s.ch != '.' {
 			switch tok = token.Lookup(lit); {
 			case tok == token.BAREWORD || tok.IsKeyword():
 				// ...
