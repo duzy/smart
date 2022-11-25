@@ -2087,7 +2087,7 @@ func (p *parser) evalConfiguration(ctx Context, gOpts *genericClauseOpts, props 
 }
 
 func (p *parser) parseAssertSpec(ctx Context, doc *CommentGroup, gOpts *genericClauseOpts, _ int) {
-	if !gOpts.dontOperate { assertion(ctx, gOpts.generalOpts, gOpts.spec...) }
+	if !gOpts.dontOperate { assertion(p.posit(ctx), gOpts.generalOpts, gOpts.spec...) }
 }
 
 func (p *parser) parseEvalSpec(ctx Context, doc *CommentGroup, gOpts *genericClauseOpts, _ int) {

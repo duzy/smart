@@ -824,7 +824,17 @@ func (l *loader) define1(ctx Context, tok token.Token, identifier, value Value) 
         var prev = l.project.resolveObject(ctx, name)
 
         if res, alt = l.def(identifier.Position(), name); alt == nil {
-            if res == nil { warn(ctx, "%s is undefined, via %v (%)", name, t, t).debug(1) }
+            if res == nil {
+                erro(ctx, "`%s` is undefined, via %v (%)", name, t, t).debug(1)
+                return
+            } else if tok == token.ADD_ASSIGN && prev == nil {
+                if false {
+                    erro(ctx, "`%s` must be defined first to append", name).debug(1)
+                    return
+                }
+                // if prev != nil { if d, y := prev.(*def); y { res.origin = d.origin } }
+                // if res.origin == DefVoid { res.origin = DefDefault }
+            }
         } else if tok == token.ASSIGN || tok == token.EXC_ASSIGN {
             if ad, okay := alt.(*def); !okay {
                 erro(ctx, "`%v` already defined (%T) (%v,%v)", identifier, alt, alt.OwnerProject(), l.project).debug(1)
@@ -843,24 +853,18 @@ func (l *loader) define1(ctx Context, tok token.Token, identifier, value Value) 
             // no derived value
         } else if prev.OwnerProject() == l.project {
             // not derivable def if in the same project
-        } else if derived, okay := prev.(*def); !okay {
+        } else if derived, y := prev.(*def); !y {
             // not a def
         } else if derived == nil {
             erro(ctx, "prev def '%s' is nil", name).debug(1)
         } else if derived == res || (res.value != nil && res.value.refs(ctx, derived)) {
             // same def
-        } else if tok == token.ADD_ASSIGN {
+        } else if tok == token.ADD_ASSIGN && alt == nil {
             // NOTE: We must set the origin from Void to derived origin! If not, the
             //       Def.Call method will fail to initiate a real 'call' with arguments
             //       set correctly, (see (*def).Call for details).
             if res.origin == DefVoid { res.origin = derived.origin }
-
-            if false {
-                // Unshift the delegation to derive value.
-                res.append(ctx, MakeDelegate(ctx.Position(), token.LPAREN, derived))
-            } else {
-                res.append(ctx, derived.value)
-            }
+            if !isTrivial(derived.value) { res.append(ctx, derived.value) }
         }
     }
 
@@ -1654,16 +1658,12 @@ func (l *loader) def(position Position, name string) (def *def, alt Object) {
         // to ensure that the symbol is valid in the project
         scope = l.Scope()
     }
-    def, alt = scope.define(positional(l, position), DefVoid, name, /*MakeNone(position)*/nil)
+    def, alt = scope.define(positional(l, position), DefVoid, name, nil)
     if def != nil { def.position = position }
     return
 }
 
 func (l *loader) assign(ctx Context, tok token.Token, def *def, alt Object, value Value) {
-    var (
-        // pos = l.Position()
-        // ctx = positional(l, pos)
-    )
     switch tok {
     case token.ASSIGN:     //   =
         def.set(ctx, DefDefault, value)
@@ -1676,22 +1676,20 @@ func (l *loader) assign(ctx Context, tok token.Token, def *def, alt Object, valu
     case token.QUE_ASSIGN: //  ?=
         if isNil(alt) { def.set(ctx, DefDefault, value) }
     case token.ADD_ASSIGN: //  +=
-        if def.value == nil || isTrivial(value) {
+        if isTrivial(value) {
             // NOOP
-        } else if def.value.refs(ctx, value) {
-            erro(ctx, "self-ref value: %v -> %v ; %s, %s",
-                def.value, value, def.value.Strval(ctx), value.Strval(ctx)).debug(1)
-        } else if /*isTrivial(def.value)*/true {
-            def.append(ctx, value)
+        } else if def.value != nil && def.value.refs(ctx, value) {
+            erro(ctx, "self-ref value: %v -> %v ; %v ; %v",
+                def.value, value, def.value, value).debug(1)
         } else {
-            erro(ctx, "can't append value '%v' to: %v", value, def).debug(1)
+            def.append(ctx, value)
         }
     case token.SHI_ASSIGN: //  =+
         if isTrivial(value) {
             // NOOP
-        } else if def.value.refs(ctx, value) {
-            erro(ctx, "self-ref value: %v -> %v ; %s, %s",
-                def.value, value, def.value.Strval(ctx), value.Strval(ctx)).debug(1)
+        } else if def.value != nil && def.value.refs(ctx, value) {
+            erro(ctx, "self-ref value: %v -> %v ; %v ; %v",
+                def.value, value, def.value, value).debug(1)
         } else {
             var tail = def.value
             def.val(ctx, value)
@@ -1699,7 +1697,9 @@ func (l *loader) assign(ctx Context, tok token.Token, def *def, alt Object, valu
             warn(ctx, "%v; %v; %v", value, tail, def).debug(1)
         }
     case token.SUB_ASSIGN: // -=
-        if !isTrivial(def.value) {
+        if isTrivial(def.value) {
+            // NOOP
+        } else {
             var (
                 vals []Value
                 sub = merge(value)
@@ -1718,7 +1718,9 @@ func (l *loader) assign(ctx Context, tok token.Token, def *def, alt Object, valu
             vals []Value
             newVals = merge(value)
         )
-        if !isTrivial(def.value) {
+        if isTrivial(def.value) {
+            // NOOP
+        } else {
         ForOldVals1:
             for _, val := range merge(def.value) {
                 for _, v := range newVals {
@@ -1733,6 +1735,9 @@ func (l *loader) assign(ctx Context, tok token.Token, def *def, alt Object, valu
             vals = append(newVals, vals...) // -=+
         }
         def.value = MakeList(def.position, vals...)
+    default:
+        erro(ctx, "unknown origin: %v %v %v",
+            def.origin, def.name, tok).debug(1)
     }
     return
 }
