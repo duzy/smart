@@ -2102,7 +2102,7 @@ func builtinUsee(ctx Context, args... Value) (result Value) {
 
         for _, arg := range args {
                 var v Value
-                if v, err = proj.using.Get(ctx, arg.Strval(ctx)); err != nil {
+                if v, err = proj.use.Get(ctx, arg.Strval(ctx)); err != nil {
                         erro(ctx, "%v", err).debug(1)
                         return
                 } else {
@@ -2132,7 +2132,7 @@ func builtinUses(ctx Context, args... Value) (result Value) {
 ForArgs:
         for _, arg := range args {
                 var s = arg.Strval(ctx)
-                for _, u := range proj.using.list {
+                for _, u := range proj.use.list {
                         if found = u.project.name == s; found {
                                 break ForArgs
                         }

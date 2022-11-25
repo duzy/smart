@@ -327,8 +327,8 @@ func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
         for _, base := range user.bases {
             var obj Object
             if false {
-                obj = base.scope.lookup("using."+name)
-            } else if obj = base.resolveObject(ctx, "using."+name); isNil(obj) {
+                obj = base.scope.lookup("use."+name)
+            } else if obj = base.resolveObject(ctx, "use."+name); isNil(obj) {
                 continue
             } else if t, y := obj.(*def); y && !isTrivial(t.value) {
                 opts.apply(ctx, d, merge(t.value))
@@ -336,8 +336,8 @@ func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
         }
     }
 
-    if v, e := user.using.Get(ctx, name/* NOTE: gets `using.%s` */); e != nil {
-		erro(ctx, "%v: %v (using.%s)", user, e, name)
+    if v, e := user.use.Get(ctx, name/* NOTE: gets `use.%s` */); e != nil {
+		erro(ctx, "%v: %v (use.%s)", user, e, name)
     } else if va := merge(v); len(va) > 0 {
         var c = closureWith(ctx, user.scope)
         for _, v := range va {
@@ -361,8 +361,8 @@ func applyUsingVar(ctx Context, user, usee *Project, nameVal Value) {
     var (
         position = ctx.Position()
         none = MakeNone(position)
-        usingName = "using." + name
-        d, alt = user.scope.define(ctx, DefVoid, usingName, none)
+        useName = "use." + name
+        d, alt = user.scope.define(ctx, DefVoid, useName, none)
     )
     if d == nil && !isNil(alt) { d, _ = alt.(*def) }
     if d == nil {
@@ -370,7 +370,7 @@ func applyUsingVar(ctx Context, user, usee *Project, nameVal Value) {
         return
     } else if isTrivial(d.value) {
         for _, base := range user.bases {
-            if obj := base.resolveObject(ctx, usingName); isNil(obj) {
+            if obj := base.resolveObject(ctx, useName); isNil(obj) {
                 continue
             } else if t, y := obj.(*def); y && !isTrivial(t.value) {
                 d.append(ctx, t.value)
@@ -378,7 +378,7 @@ func applyUsingVar(ctx Context, user, usee *Project, nameVal Value) {
         }
     }
 
-    if o := usee.scope.Lookup(usingName); isNil(o) || isNone(o) {
+    if o := usee.scope.Lookup(useName); isNil(o) || isNone(o) {
         // does nothing
     } else if t, y := o.(*def); !y {
         erro(ctx, "%s: not a Def: %T %v", name, o, o).debug(1)
@@ -391,8 +391,8 @@ func applyUsingVar(ctx Context, user, usee *Project, nameVal Value) {
 }
 func applyUseeVars(ctx Context, user, usee *Project) {
     var spec Value
-    if o := usee.resolveObject(ctx, "using.*"); o == nil {
-        // erro(ctx, "resolve using.* failed").debug(1)
+    if o := usee.resolveObject(ctx, "use.*"); o == nil {
+        // erro(ctx, "resolve use.* failed").debug(1)
     } else if def, _ := o.(*def); def != nil {
         spec = def.value
     }
@@ -401,15 +401,15 @@ func applyUseeVars(ctx Context, user, usee *Project) {
         for _, name := range merge(spec) { applyUseeVar(ctx, user, usee, name) }
     }
 }
-func applyUsingVars(ctx Context, user, usee *Project) {
+func applyUserVars(ctx Context, user, usee *Project) {
     var spec Value
-    if o := user.resolveObject(ctx, "using.*"); o == nil {
-        // erro(ctx, "resolve using.* failed").at(ctx.Position()).debug(1)
+    if o := user.resolveObject(ctx, "use.*"); o == nil {
+        // erro(ctx, "resolve use.* failed").at(ctx.Position()).debug(1)
     } else if def, _ := o.(*def); def != nil {
         spec = def.value
     }
     if !isTrivial(spec) {
-        // NOTE: apply vars like 'using.cflags', 'using.cxxflags', ...
+        // NOTE: apply vars like 'use.cflags', 'use.cxxflags', ...
         for _, value := range merge(spec) { applyUsingVar(ctx, user, usee, value) }
     }
 }
@@ -569,9 +569,9 @@ func (l *loader) loadUseSpecName(ctx Context, opts useOpts, specVal Value, specN
     }
 
     // Check against the current load list before appending loaded.
-    for _, using := range l.project.using.list {
+    for _, use := range l.project.use.list {
         var (
-            up = using.project
+            up = use.project
             proj *Project
             res, isb bool
         )
@@ -593,7 +593,7 @@ func (l *loader) loadUseSpecName(ctx Context, opts useOpts, specVal Value, specN
             } else {
                 erro(ctx, "`%s` is already a base", specName).debug(1)
             }
-        } else if res && !using.opts.reuse && !up.opts.multiUseAllowed && !loaded.opts.multiUseAllowed {
+        } else if res && !use.opts.reuse && !up.opts.multiUseAllowed && !loaded.opts.multiUseAllowed {
             if true {
                 warn(ctx, "`%s` has already imported `%s` (from %s)", loaded, up, proj)
                 if loaded != up { warn(ctx, "project %s", loaded).at(loaded.position) }
@@ -609,7 +609,7 @@ func (l *loader) loadUseSpecName(ctx Context, opts useOpts, specVal Value, specN
             return
         } else if isb {
             warn(ctx, "`%s` is already base of `%s` (%s)", loaded, up, proj).debug(1)
-        } else if res && !using.opts.reuse && !loaded.opts.multiUseAllowed {
+        } else if res && !use.opts.reuse && !loaded.opts.multiUseAllowed {
             warn(ctx, "`%s` has already been imported by `%s` (from %s)", loaded, up, proj)
             warnstack(ctx, 8, "`%s` has already been imported by `%s` (from %s)", loaded, up, proj).debug(1)
         }
@@ -709,7 +709,7 @@ func (l *loader) addUsing(ctx Context, usee *Project, params []Value, opts useOp
     if options.verboseUsing {
         defer func(t time.Time) {
             var d = time.Now().Sub(t)
-            fmt.Fprintf(stderr, "using(%15s) %s ⇒ %v\n", d, l.project, l.project.using)
+            fmt.Fprintf(stderr, "use(%15s) %s ⇒ %v\n", d, l.project, l.project.use)
         } (time.Now())
     }
 
@@ -724,9 +724,9 @@ func (l *loader) addUsing(ctx Context, usee *Project, params []Value, opts useOp
     l.useStack = append(l.useStack, usee) // build the use path
 
     // Add to the project using list, so that the use path is correct.
-    if l.project.using.append(ctx, usee, params, opts); !opts.noVars {
-        applyUseeVars(ctx, l.project, usee)  // aka. ABC += $(using.ABC)
-        applyUsingVars(ctx, l.project, usee) // aka. using.ABC += $(using.ABC)
+    if l.project.use.append(ctx, usee, params, opts); !opts.noVars {
+        applyUseeVars(ctx, l.project, usee)  // aka. ABC += $(use.ABC)
+        applyUserVars(ctx, l.project, usee) // aka. use.ABC += $(use.ABC)
         if 0 < len(opts.vars) {
             for _, v := range opts.vars {
                 warn(ctx, "var: %T %v", v, v).of(v)
@@ -1247,14 +1247,14 @@ ParamsLoop:
     }
     if false {
         // bypass ...
-    } else if o := l.project.resolveObject(ctx, "using.*"); o == nil {
-        // erro(ctx, "resolve using.* failed").debug(1)
+    } else if o := l.project.resolveObject(ctx, "use.*"); o == nil {
+        // erro(ctx, "resolve use.* failed").debug(1)
     } else if d, ok := o.(*def); ok && !isTrivial(d.value) {
         var none = MakeNone(position)
-        // Derive using.xxx Defs from bases
+        // Derive use.xxx Defs from bases
         for _, val := range merge(d.value) {
             var name, opts = parseUseNameOpts(ctx, val)
-            var us = "using." + name
+            var us = "use." + name
             var vd, alt = l.project.scope.define(ctx, DefVoid, us, none)
             if vd == nil && !isNil(alt) { vd, _ = alt.(*def) }
             if vd == nil { continue }
@@ -1343,12 +1343,12 @@ func (l *loader) loadDotConfigure(ctx Context, ident *Barecomp, identStr string,
             var ctx = positional(l, position)
             var opts = useOpts{}
             if false {
-                applyUseeVars(ctx, l.project, loaded)  // aka.       ABC += $(using.ABC)
-                applyUsingVars(ctx, l.project, loaded) // aka. using.ABC += $(using.ABC)
+                applyUseeVars(ctx, l.project, loaded)  // aka.       ABC += $(use.ABC)
+                applyUserVars(ctx, l.project, loaded) // aka. use.ABC += $(use.ABC)
             } else if false {
                 for _, usee := range loaded.usees(true, false, false, false) {
-                    applyUseeVars(ctx, l.project, usee)  // aka.       ABC += $(using.ABC)
-                    applyUsingVars(ctx, l.project, usee) // aka. using.ABC += $(using.ABC)
+                    applyUseeVars(ctx, l.project, usee)  // aka.       ABC += $(use.ABC)
+                    applyUserVars(ctx, l.project, usee) // aka. use.ABC += $(use.ABC)
                     //warn(l, "%v %v %v", l.project, loaded, usee).debug(1)
                 }
             } else if false {

@@ -261,7 +261,7 @@ type Project struct {
 	name    string
   scope   *Scope
   bases []*Project
-  using   *usinglist
+  use     *uselist
 
   // List order is significant, duplication is acceptable.
   _filemap_ []*FileMap
@@ -348,10 +348,10 @@ func (p *Project) filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*
   if usedFiles && false/* FIXME: performance */ {
     // takes a big longer time to map usee filemaps, but acceptable
     var (
-      appendUsingList func(*Project)
+      appendUselist func(*Project)
       appendUsedFiles func(*Project)
     )
-    appendUsingList = func(p *Project) {
+    appendUselist = func(p *Project) {
       var fms []*FileMap
       if true {
         fms = p.myFilemaps(ctx)
@@ -363,8 +363,8 @@ func (p *Project) filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*
       appendUsedFiles(p)
     }
     appendUsedFiles = func(p *Project) {
-      for _, u := range p.using.list {
-        appendUsingList(u.project)
+      for _, u := range p.use.list {
+        appendUselist(u.project)
       }
     }
     appendUsedFiles(p)
@@ -655,8 +655,8 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
   if true {
     /* FAST */
   } else if entries == nil { /* SLOW */
-    for _, using := range p.using.list {
-      ents := using.project.resolveEntries(ctx, s, matchingFullSuffix, alwaysResolveBases)
+    for _, use := range p.use.list {
+      ents := use.project.resolveEntries(ctx, s, matchingFullSuffix, alwaysResolveBases)
       if ents != nil {
         add(ents.all...)
         break
@@ -726,8 +726,8 @@ func (p *Project) resolvePatterns2(ctx Context, val Value, s string) (res []*ste
 }
 
 func (p *Project) resolvePatterns3(ctx Context, val Value, s string) (res []*stemmed) {
-  for _, using := range p.using.list {
-    res = append(res, using.project.resolvePatterns123(ctx, val, s)...)
+  for _, use := range p.use.list {
+    res = append(res, use.project.resolvePatterns123(ctx, val, s)...)
   }
   return
 }
@@ -832,8 +832,8 @@ func (p *Project) hasLoadedRecur(ctx Context, top, proj *Project, depth int, tra
       return
     } else if res || isb { rp = base ; return }
   }
-  for _, using := range /*p.loads*/p.using.list {
-    var imp = using.project
+  for _, use := range /*p.loads*/p.use.list {
+    var imp = use.project
     if imp == top && !traveUseLoop {
       s := top.loopLoadPath()
       err = fmt.Errorf("loop `%v`", s)
@@ -853,8 +853,8 @@ func (p *Project) hasLoadedRecur(ctx Context, top, proj *Project, depth int, tra
 
 func (p *Project) loopLoadPath() (s string) { return p.loopLoadRecur(p) }
 func (p *Project) loopLoadRecur(top *Project) (s string) {
-  for _, using := range /*p.loads*/p.using.list {
-    var imp = using.project
+  for _, use := range /*p.loads*/p.use.list {
+    var imp = use.project
     if imp == top {
       if p != top { s = "⇢" }
       s += fmt.Sprintf("(%s)⇢(%s)", p.spec, imp.spec)
@@ -870,15 +870,15 @@ func (p *Project) loopLoadRecur(top *Project) (s string) {
 }
 
 func (p *Project) isUsingProject(usee *Project) (res bool) {
-  for _, using := range p.using.list {
-    if res = using.project == usee; res { break  }
-    if res = using.project.isUsingProject(usee); res { break }
+  for _, use := range p.use.list {
+    if res = use.project == usee; res { break  }
+    if res = use.project.isUsingProject(usee); res { break }
   }
   return
 }
 
 func (p *Project) isUsingDirectly(proj *Project) (res bool) {
-  for _, u := range p.using.list {
+  for _, u := range p.use.list {
     if res = u.project == proj; res { break }
   }
   return
@@ -891,7 +891,7 @@ func (p *Project) usees(bases, basesRecur, useeRecur, pre bool) (res []*Project)
       res = append(res, base.usees(basesRecur, basesRecur, useeRecur, pre)...)
     }
   }
-  for _, u := range p.using.list {
+  for _, u := range p.use.list {
     if pre { res = append(res, u.project) }
     if useeRecur {
       for _, u := range u.project.usees(bases && basesRecur, basesRecur, true, pre) {

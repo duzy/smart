@@ -107,7 +107,7 @@ func (g *Globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, sp
                 absPath: absPath,
                 relPath: relPath, 
                 tmpPath: tmpPath,
-                using: new(usinglist),
+                use:  new(uselist),
                 self: new(ProjectName),
                 spec: spec,
                 name: name,
@@ -118,9 +118,9 @@ func (g *Globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, sp
         m.self.scope = m.scope
         m.self.owner = m
         m.self.project = m
-        m.using.name = "usee"
-        m.using.scope = m.scope
-        m.using.owner = m
+        m.use.name = "usee"
+        m.use.scope = m.scope
+        m.use.owner = m
 
         if g.main == nil && spec != "" && name != "@" && name != "~" {
                 for outer != nil && outer != g.scope {

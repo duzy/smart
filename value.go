@@ -5785,7 +5785,7 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
         }
     } else if t, y := p.x.(Object); y && t != nil {
         x = t
-    } else if t, y := p.x.(*usinglist); y {
+    } else if t, y := p.x.(*uselist); y {
         x = t
     } else if t, y := p.x.(*selection); !y || t == nil {
         erro(ctx, "delegate unsupported object: %T %v", p.x, p.x)
@@ -6405,7 +6405,7 @@ func (p *selection) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *selection) elemStr(ctx Context, o Object, k elemkind) (s string) {
-    if _, ok := p.o.(*usinglist); ok { s = "usee" } else {
+    if _, ok := p.o.(*uselist); ok { s = "usee" } else {
         s = elementString(ctx, o, p.o, k)
     }
     s += p.t.String() + elementString(ctx, o, p.s, k)

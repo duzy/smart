@@ -12,55 +12,55 @@ import (
 )
 
 // FIXME: locking for MT processing
-var usingPrepared = make(map[*Project]int)
+var usePrepared = make(map[*Project]int)
 
-type using struct {
+type use struct {
         valbase
         project *Project
         params []Value
         opts useOpts
 }
 
-func (p *using) refs(ctx Context, v Value) bool {
+func (p *use) refs(ctx Context, v Value) bool {
         for _, a := range p.params {
                 if a.refs(ctx, v) { return true }
         }
         return false
 }
-func (p *using) defs(ctx Context, s ...string) (res []*def) {
+func (p *use) defs(ctx Context, s ...string) (res []*def) {
     for _, a := range p.params {
         res = append(res, a.defs(ctx, s...)...)
     }
     return
 }
-func (p *using) expandible(ctx Context, w expandfacet) (res bool) {
+func (p *use) expandible(ctx Context, w expandfacet) (res bool) {
         for _, a := range p.params {
                 if res = a.expandible(ctx, w); res { return }
         }
         return
 }
-func (p *using) expand(ctx Context, w expandfacet) (res Value) {
+func (p *use) expand(ctx Context, w expandfacet) (res Value) {
         var params, une, num = expand(ctx, w, p.params...)
-        if num > 0 { res = &using{p.valbase,p.project,params,p.opts} } else { res = p }
+        if num > 0 { res = &use{p.valbase,p.project,params,p.opts} } else { res = p }
         if une > 0 { res = unexpanded{res} }
         return
 }
-func (p *using) stat(ctx Context) (si *statinfo) {
+func (p *use) stat(ctx Context) (si *statinfo) {
         if entry := p.project.DefaultEntry(); entry != nil {
                 // FIXME: entry maybe not pointing to the real target
                 si = entry.stat(ctx)
         }
         return
 }
-func (p *using) traverse(ctx Context) (_ travestates) {
-        erro(ctx, "cant traverse 'using' %v", p.project).at(p.position).debug(1)
+func (p *use) traverse(ctx Context) (_ travestates) {
+        erro(ctx, "cant traverse 'use' %v", p.project).at(p.position).debug(1)
         return
 }
-/*func (p *using) _traverse(pc *traversal) {
+/*func (p *use) _traverse(pc *traversal) {
         if options.traceTraversal { defer un(tt(t_traverse, pc, p)) }
-        if _, done := usingPrepared[p.project]; done {
-                usingPrepared[p.project] += 1
-                // FIXME: allow re-using the project
+        if _, done := usePrepared[p.project]; done {
+                usePrepared[p.project] += 1
+                // FIXME: allow re-use the project
                 return
         }
         if entry := p.project.DefaultEntry(); entry != nil {
@@ -69,77 +69,77 @@ func (p *using) traverse(ctx Context) (_ travestates) {
                 } else if entry.traverse(pc); pc.hasTravestates() {
                         // ...
                 } else {
-                        usingPrepared[p.project] += 1
+                        usePrepared[p.project] += 1
                 }
         }
         return
 }*/
-func (p *using) stamp(ctx Context) (files []*File, err error) {
+func (p *use) stamp(ctx Context) (files []*File, err error) {
         if entry := p.project.DefaultEntry(); entry != nil {
                 files, err = entry.stamp(ctx)
         }
         return
 }
-func (p *using) delete(ctx Context) (files []*File, err error) {
+func (p *use) delete(ctx Context) (files []*File, err error) {
         if entry := p.project.DefaultEntry(); entry != nil {
                 files, err = entry.delete(ctx)
         }
         return
 }
-func (p *using) cmp(ctx Context, v Value) (res cmpres) {
-        if a, ok := v.(*using); ok {
-                assert(ok, "value is not using")
+func (p *use) cmp(ctx Context, v Value) (res cmpres) {
+        if a, ok := v.(*use); ok {
+                assert(ok, "value is not use")
                 if p.project == a.project {
                         res = cmpEqual
                 }
         }
         return
 }
-func (p *using) patterned(ctx Context) bool { return false }
-func (p *using) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
-func (p *using) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
-func (p *using) True(ctx Context) bool { return p.project != nil }
-func (p *using) updated(ctx Context, v ...bool) (res bool) {
+func (p *use) patterned(ctx Context) bool { return false }
+func (p *use) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
+func (p *use) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
+func (p *use) True(ctx Context) bool { return p.project != nil }
+func (p *use) updated(ctx Context, v ...bool) (res bool) {
         if entry := p.project.DefaultEntry(); entry != nil {
                 res = entry.updated(ctx, v...)
         }
         return
 }
-func (p *using) updatedDeps(ctx Context, v ...Value) (res []Value) {
+func (p *use) updatedDeps(ctx Context, v ...Value) (res []Value) {
         if entry := p.project.DefaultEntry(); entry != nil {
                 res = entry.updatedDeps(ctx, v...)
         }
         return
 }
-func (p *using) String() string {
+func (p *use) String() string {
         if len(p.params) > 0 {
                 return fmt.Sprintf("%s(%v)", p.project.name, p.params)
         } else {
                 return fmt.Sprintf("%s", p.project.name)
         }
 }
-func (p *using) Strval(ctx Context) (s string) {
+func (p *use) Strval(ctx Context) (s string) {
         s = fmt.Sprintf("use %s %v", p.project.name, p.params)
         return
 }
 
-type usinglist struct {
+type uselist struct {
         name string
         scope *Scope
         owner *Project
-        list []*using
+        list []*use
 }
-func (_ *usinglist) kind() kind { return valOther }
-func (p *usinglist) Name(_ Context) string { return p.name }
-func (p *usinglist) DeclScope() *Scope { return p.scope }
-func (p *usinglist) OwnerProject() *Project { return p.owner }
-func (p *usinglist) Position() (pos Position) {
+func (_ *uselist) kind() kind { return valOther }
+func (p *uselist) Name(_ Context) string { return p.name }
+func (p *uselist) DeclScope() *Scope { return p.scope }
+func (p *uselist) OwnerProject() *Project { return p.owner }
+func (p *uselist) Position() (pos Position) {
         if len(p.list) > 0 {
                 pos = p.list[0].Position()
         }
         return
 }
-func (p *usinglist) String() string {
+func (p *uselist) String() string {
         var s string
         for i, elem := range p.list {
                 if i > 0 { s += "," }
@@ -147,7 +147,7 @@ func (p *usinglist) String() string {
         }
         return fmt.Sprintf("%s", s)
 }
-func (p *usinglist) Strval(ctx Context) (s string) {
+func (p *uselist) Strval(ctx Context) (s string) {
         for i, elem := range p.list {
                 if i > 0 { s += " " }
                 s += elem.project.name
@@ -155,22 +155,22 @@ func (p *usinglist) Strval(ctx Context) (s string) {
         s = fmt.Sprintf("[%v]", s)
         return
 }
-func (p *usinglist) True(ctx Context) bool { return len(p.list) > 0 }
-func (p *usinglist) Integer(ctx Context) (i int64, _ error) { return int64(len(p.list)), nil }
-func (p *usinglist) Float(ctx Context) (f float64, _ error) { return 0, nil }
-func (p *usinglist) updated(ctx Context, v ...bool) (res bool) {
+func (p *uselist) True(ctx Context) bool { return len(p.list) > 0 }
+func (p *uselist) Integer(ctx Context) (i int64, _ error) { return int64(len(p.list)), nil }
+func (p *uselist) Float(ctx Context) (f float64, _ error) { return 0, nil }
+func (p *uselist) updated(ctx Context, v ...bool) (res bool) {
         for _, elem := range p.list {
                 res = res || elem.updated(ctx, v...)
         }
         return
 }
-func (p *usinglist) updatedDeps(ctx Context, v ...Value) (res []Value) {
+func (p *uselist) updatedDeps(ctx Context, v ...Value) (res []Value) {
         for _, elem := range p.list {
                 res = append(res, elem.updatedDeps(ctx, v...)...)
         }
         return
 }
-func (p *usinglist) stat(ctx Context) (si *statinfo) {
+func (p *uselist) stat(ctx Context) (si *statinfo) {
         if len(p.list) > 0 {
                 for _, elem := range p.list {
                         if ei := elem.stat(ctx); ei == nil {
@@ -184,7 +184,7 @@ func (p *usinglist) stat(ctx Context) (si *statinfo) {
         }
         return
 }
-func (p *usinglist) stamp(ctx Context) (files []*File, err error) {
+func (p *uselist) stamp(ctx Context) (files []*File, err error) {
         for _, elem := range p.list {
                 var a []*File
                 if a, err = elem.stamp(ctx); err != nil { break }
@@ -192,7 +192,7 @@ func (p *usinglist) stamp(ctx Context) (files []*File, err error) {
         }
         return
 }
-func (p *usinglist) delete(ctx Context) (files []*File, err error) {
+func (p *uselist) delete(ctx Context) (files []*File, err error) {
         for _, elem := range p.list {
                 var a []*File
                 if a, err = elem.delete(ctx); err != nil { break }
@@ -200,77 +200,77 @@ func (p *usinglist) delete(ctx Context) (files []*File, err error) {
         }
         return
 }
-func (p *usinglist) cmp(ctx Context, v Value) (res cmpres) {
-        if a, ok := v.(*usinglist); ok {
-                assert(ok, "value is not usinglist")
+func (p *uselist) cmp(ctx Context, v Value) (res cmpres) {
+        if a, ok := v.(*uselist); ok {
+                assert(ok, "value is not uselist")
                 if p.name == a.name && p.owner == a.owner {
                         res = cmpEqual
                 }
         }
         return
 }
-func (p *usinglist) patterned(ctx Context) bool { return false }
-func (p *usinglist) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
-func (p *usinglist) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
-func (p *usinglist) refs(ctx Context, v Value) bool {
+func (p *uselist) patterned(ctx Context) bool { return false }
+func (p *uselist) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
+func (p *uselist) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
+func (p *uselist) refs(ctx Context, v Value) bool {
         for _, a := range p.list {
                 if a.refs(ctx, v) { return true }
         }
         return false
 }
-func (p *usinglist) defs(ctx Context, s ...string) (res []*def) {
+func (p *uselist) defs(ctx Context, s ...string) (res []*def) {
     for _, a := range p.list {
             res = append(res, a.defs(ctx, s...)...)
     }
     return
 }
-func (p *usinglist) expandible(ctx Context, w expandfacet) (res bool) {
+func (p *uselist) expandible(ctx Context, w expandfacet) (res bool) {
         for _, a := range p.list {
                 if res = a.expandible(ctx, w); res { break }
         }
         return
 }
-func (p *usinglist) expand(ctx Context, w expandfacet) (res Value) {
-        var ( list []*using; num int )
+func (p *uselist) expand(ctx Context, w expandfacet) (res Value) {
+        var ( list []*use; num int )
         for _, elem := range p.list {
                 var v = elem.expand(ctx, w)
                 if v != elem { num += 1 }
-                list = append(list, v.(*using))
+                list = append(list, v.(*use))
         }
         if num > 0 {
-                res = &usinglist{ p.name, p.scope, p.owner, list }
+                res = &uselist{ p.name, p.scope, p.owner, list }
         } else {
                 res = p
         }
         return
 }
-func (p *usinglist) traverse(ctx Context) (_ travestates) {
-        erro(ctx, "cant traverse 'usinglist'").at(p.list[0].position).debug(1)
+func (p *uselist) traverse(ctx Context) (_ travestates) {
+        erro(ctx, "cant traverse 'uselist'").at(p.list[0].position).debug(1)
         return
 }
-/*func (p *usinglist) _traverse(pc *traversal) {
+/*func (p *uselist) _traverse(pc *traversal) {
         if options.traceTraversal { defer un(tt(t_traverse, pc, p)) }
         for _, elem := range p.list {
                 if elem.traverse(pc); pc.hasTravestates() { break }
         }
         return
 }*/
-func (p *usinglist) rescope(ctx Context, scope *Scope) { panic("rescoping using list") }
-func (p *usinglist) append(ctx Context, proj *Project, params []Value, opts useOpts) {
+func (p *uselist) rescope(ctx Context, scope *Scope) { panic("rescoping use list") }
+func (p *uselist) append(ctx Context, proj *Project, params []Value, opts useOpts) {
         for _, elem := range p.list {
                 if elem.project == proj {
                         return
                 }
         }
-        p.list = append(p.list, &using{valbase{ctx.Position()},proj,params,opts})
+        p.list = append(p.list, &use{valbase{ctx.Position()},proj,params,opts})
 }
 
-func (p *usinglist) Get(ctx Context, name string) (result Value, err error) {
+func (p *uselist) Get(ctx Context, name string) (result Value, err error) {
         var list []Value
         for _, usee := range p.list {
                 if usee.opts.noVars { continue }
-                //if _, obj := usee.project.scope.Find("using."+name); !isNil(obj) {
-                if obj := usee.project.scope.Lookup("using."+name); !isNil(obj) {
+                //if _, obj := usee.project.scope.Find("use."+name); !isNil(obj) {
+                if obj := usee.project.scope.Lookup("use."+name); !isNil(obj) {
                         list = append(list, obj)
                 }
         }
@@ -284,14 +284,14 @@ func (p *usinglist) Get(ctx Context, name string) (result Value, err error) {
         return
 }
 
-func (p *usinglist) Call(ctx Context, a... Value) (result Value) {
+func (p *uselist) Call(ctx Context, a... Value) (result Value) {
         var targets []Value
         for _, usee := range p.list {
                 if entry := usee.project.DefaultEntry(); entry != nil {
                         if usee.project.opts.traveUseLoop {
                                 // FIXME: break use loop
                         } else if false {
-                                usingPrepared[usee.project] += 1
+                                usePrepared[usee.project] += 1
                         }
                         targets = append(targets, entry)
                 }

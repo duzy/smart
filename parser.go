@@ -83,7 +83,7 @@ type parsedFile struct {
 	position Position // position of the beginning, which has filename information
 	name *Barecomp // project/module name
 	scope *Scope
-	using []*usespec // imports
+	use []*usespec // imports
 }
 
 type parsedRuleData struct {
@@ -477,7 +477,7 @@ func (p *parser) parseSelect(ctx Context, lhs Value) (res Value) {
 		}
 	case *Bareword:
         switch t.string {
-        case "usee": lhs = proj.using
+        case "use", "usee": lhs = proj.use
         case "self": lhs = proj.self
         case "goals", "os", "mode":
 			if lhs, okay = p.colonResolve(t.string); !okay {
@@ -1222,7 +1222,7 @@ func (p *parser) parseClosureDelegate(ctx Context) (result Value) {
 			}
 		case token.LCOLON:
 			switch str = name.Strval(ctx); str {
-			case "usee": resolved = proj.using // TODO: move usee and self into ctx
+			case "use", "usee": resolved = proj.use // TODO: move usee and self into ctx
 			case "self": resolved = proj.self
 			//TODO: case "ctd" : resolved = proj.ctd
 			//TODO: case "cwd" : resolved = proj.cwd
@@ -2750,9 +2750,9 @@ func (p *parser) parseSpecialRuleClause(ctx Context) Value {
 	switch name {
 	case "user":
 		if true {
-			// Example usage of using.*:
-			//    using.* ::= cflags(-unique) ldlibs(-unique -reverse)
-			erro(ctx, ":user: rules are deprecated, use using.* instead!").debug(1)
+			// Example usage of use.*:
+			//    use.* ::= cflags(-unique) ldlibs(-unique -reverse)
+			erro(ctx, ":user: rules are deprecated, use use.* instead!").debug(1)
 		} else {
 			var options []Value
 			var pos = p.expect(ctx, token.BAREWORD) // USE
@@ -3355,8 +3355,8 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 				if false && loaderProj != nil && filepath.Base(filename) == "do.smart" {
 					var ctx = positional(ctx, ident.Position())
 					assert(p.project == proj, "diverged project: %v != %v", p.project, proj)
-					//applyUseeVars(ctx, loaderProj, p.project)  // aka. ABC += $(using.ABC)
-					applyUsingVars(ctx, loaderProj, p.project) // aka. using.ABC += $(using.ABC)
+					//applyUseeVars(ctx, loaderProj, p.project)  // aka. ABC += $(use.ABC)
+					applyUserVars(ctx, loaderProj, p.project) // aka. use.ABC += $(use.ABC)
 					if loaderProj.name == "llvm.Analysis" {
 						warn(ctx, "%v, %v", loaderProj, p.project).debug(24)
 					}
@@ -3463,10 +3463,10 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 	return &parsedFile{
 		// TODO: doc: doc,
 		// TODO: comments: p.comments,
-		keyword:    keyword,
-		position:   position,
-		name:       ident,
-		scope:      p.Scope(),
-		using:      p.imports,
+		keyword:  keyword,
+		position: position,
+		name:     ident,
+		scope:    p.Scope(),
+		use:      p.imports,
 	}
 }
