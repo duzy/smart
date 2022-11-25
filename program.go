@@ -654,15 +654,14 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
 }
 
 func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves travestates) {
-    var asyncUnsafe bool = true
+    var asyncUnsafe = true
     if !asyncUnsafe { for _, prerequisite := range prerequisites {
         if _, ok := prerequisite.(*modifiergroup); !ok {
             asyncUnsafe = true; break
         }
     }}
 
-    const dbg = true
-    // const dbg = false
+    const dbg = false
 
     var (
         stems = ctx.stems()
@@ -690,8 +689,8 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
     } ()
 
     if asyncUnsafe {
-        var ent = autoGet(ctx, "@")
         var depends valueList
+        var ent = autoGet(ctx, "@")
         ForPrerequisites: for _, prerequisite := range prerequisites {
             if u, y := prerequisite.(unexpanded); y {
                 warn(ctx, "%v: unexpanded %v", ent, u.Value).debug(1)
@@ -703,6 +702,12 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
             }
 
             var t = prerequisite.traverse(ctx)
+            if false { if a := autoGet(ctx, "@"); a.String() == "libunwind.a" {
+                info(ctx, "%v: %v %v", a, prerequisite, autoGet(ctx, ">")).of(prerequisite).debug(1)
+                info(ctx, "%v: %v", a, prerequisite.expand(ctx, plain))
+                for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a) }
+            }}
+
             if !t.has() { continue } else {
                 // NOTE: collect all travestates at this point
                 traves = append(traves, t...)
@@ -710,9 +715,6 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
 
             var target = autoGet(ctx, "@") // fetch updated $@
             var depend = autoGet(ctx, ">") // fetch updated $>
-            if target.String() == "libunwind.a" {
-               info(ctx, "%v %v %v", target, prerequisite, depend).debug(1)
-            }
             if depend != nil { depends.add(depend) }
             if tt := t.of(traveFail); tt.has() {
                 var (
@@ -771,7 +773,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                     }
                     warnstack(ctx, 5, "#>", a...).debug(16)
                 }
-                return //break ForPrerequisites
+                return // fail
             }
 
             if tt := t.of(traveDone); tt.has() {
@@ -781,7 +783,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                         return //break ForPrerequisites
                     }
                 }
-                // traves = traves.not(traveDone)
+                if false { traves = traves.not(traveDone) }
             }
 
             if tt := t.of(traveCase); tt.has() {
@@ -791,7 +793,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                         return //break ForPrerequisites
                     }
                 }
-                // traves = traves.not(traveCase)
+                if false { traves = traves.not(traveCase) }
             }
 
             if tt := t.of(traveNext); tt.has() {
@@ -807,21 +809,21 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                     }
                 }
                 if false { info(ctx, "%v", traves).of(prerequisite).debug(6) }
-                // traves = traves.not(traveNext)
+                if false { traves = traves.not(traveNext) }
             }
 
             if tt := t.of(traveFile); tt.has() {
-                // traves = traves.not(traveFile)
+                if false { traves = traves.not(traveFile) }
                 continue
             }
 
             if tt := t.of(traveRule); tt.has() {
-                // traves = traves.not(traveRule)
+                if false { traves = traves.not(traveRule) }
                 continue
             }
 
             if tt := t.of(traveObj); tt.has() {
-                // traves = traves.not(traveObj)
+                if false { traves = traves.not(traveObj) }
                 continue
             }
 

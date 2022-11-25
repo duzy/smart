@@ -23,6 +23,8 @@ import (
   "io"
 )
 
+const productVerTag = "dev" // dev, alpha, beta, release
+
 type commandLineOpts struct {
   help            bool `h,help`
 
@@ -213,6 +215,10 @@ func (d *diagPoint) of(value Value) *diagPoint {
 }
 func (d *diagPoint) debug(args ...interface{}) *diagPoint {
   const skips = 5 // skips the standard stack lines, which is not very useful
+  switch productVerTag {
+  case "dev", "debug": // only print debug diags for dev and debug versions
+  default: return d
+  }
   switch d.dt {
   case diagPrompt: if !options.debugPrompt { return d }
   case diagInfo:   if !options.debugInfos  { return d }
@@ -249,7 +255,7 @@ func (d *diagPoint) debug(args ...interface{}) *diagPoint {
   case diagWarn:   s = "warning:"
   }
 
-  if false {
+ if false {
     var (
       sm1 = goStackLine1.FindAllSubmatch(v[i+0], 1)
       sm2 = goStackLine2.FindAllSubmatch(v[i+1], 1)
@@ -801,40 +807,54 @@ func positionForDir(dir string) (pos Position) {
 }
 
 // load loads smart files, making it as individual func to avoid being abused by loaders.
-func (ctx *defaultContext) load() (err error) {
+func (dc *defaultContext) load() (err error) {
   if options.traceLaunch { defer un(trace(t_launch, "defaultContext.load")) }
   defer func(prevLoader *loader) {
-    ctx.globe.projects = ctx.loader.loaded
-    ctx.loader = prevLoader
-  }(ctx.loader)
+    dc.globe.projects = dc.loader.loaded
+    dc.loader = prevLoader
+  }(dc.loader)
 
   var (
+    ctx Context = dc
     base = baseWorkDir
     pos = positionForDir(base) // FIXME: find a useful position
     sp = filepath.Join(base, ".smart", "modules")
     args []Value
   )
+  if f := filepath.Join(base, "do.smart"); f != "" {
+    if _, e := os.Stat(f); e != nil {
+      f = filepath.Join(base, "build.smart")
+      if _, e := os.Stat(f); e != nil { f = "" }
+    }
+    if f != "" {
+      var pos Position
+      pos.Filename = f
+      pos.Line = 1
+      // pos.Column = 1
+      ctx = positional(ctx, pos)
+    }
+  }
 
-  ctx.loader = &loader{
-    closureContext: closureContext{ctx, []*Scope{ctx.globe.scope}},
+  dc.loader = &loader{
+    closureContext: closureContext{ctx, []*Scope{dc.globe.scope}},
     fset:   token.NewFileSet(),
     paths:  []string(globalPaths),
     loaded: make(map[string]*Project),
   }
-  ctx.globe.goals = &def{
-    knownobject: knownobject{objbase{scope:ctx.globe.scope}, "goals"},
+  dc.globe.goals = &def{
+    knownobject: knownobject{objbase{scope:dc.globe.scope}, "goals"},
     origin: DefDefault, value: MakeNone(pos),
   }
-  ctx.globe.mode = &def{
-    knownobject: knownobject{objbase{scope:ctx.globe.scope}, "mode"},
+  dc.globe.mode = &def{
+    knownobject: knownobject{objbase{scope:dc.globe.scope}, "mode"},
     origin: DefDefault, value: MakeNone(pos),
   }
 
-  if _, e := os.Stat(sp); e == nil { ctx.loader.AddSearchPaths(sp) }
+  if _, e := os.Stat(sp); e == nil { dc.loader.AddSearchPaths(sp) }
 
   if text := strings.Join(os.Args[1:], " "); text == "" {
     // Relax!
-  } else if args = ctx.loader.loadText(ctx, "@", text); len(args) == 0 {
+  } else if args = dc.loader.loadText(ctx, "@", text); len(args) == 0 {
     // ohh...
   } else {
     args = parseOpts(ctx, &options, 0, args...)
@@ -852,11 +872,11 @@ func (ctx *defaultContext) load() (err error) {
   if options.verbose {
     defer func(t time.Time) {
       var d = time.Now().Sub(t)
-      prompt(ctx, "Goals %v (%s)\n", ctx.globe.goals, d)
+      prompt(ctx, "Goals %v (%s)\n", dc.globe.goals, d)
     } (time.Now())
   }
 
-  assert(ctx.globe.args != nil, "globe args is nil")
+  assert(dc.globe.args != nil, "globe args is nil")
 
   if options.autoProfs {
     if f, e := os.Create(filepath.Join(baseWorkDir, "load.cpu.auto.prof")); e != nil {
@@ -892,20 +912,20 @@ func (ctx *defaultContext) load() (err error) {
   var mode = new(Bareword)
   for _, target := range args {
     switch t := target.(type) {
-    case *Pair: ctx.globe.pairs = append(ctx.globe.pairs, t)
-    case *Flag: ctx.globe.flags = append(ctx.globe.flags, t)
+    case *Pair: dc.globe.pairs = append(dc.globe.pairs, t)
+    case *Flag: dc.globe.flags = append(dc.globe.flags, t)
       if s := t.name.Strval(ctx); s == "clean" {
         mode.position, mode.string = t.position, "clean"
       }
     case *Argumented:
-      ctx.globe.args[t.value] = t.args
+      dc.globe.args[t.value] = t.args
       if f, ok := t.value.(*Flag); ok {
-        ctx.globe.flags = append(ctx.globe.flags, f)
+        dc.globe.flags = append(dc.globe.flags, f)
       } else {
-        ctx.globe.goals.append(ctx, t/*.value*/)
+        dc.globe.goals.append(ctx, t/*.value*/)
       }
     default:
-      ctx.globe.goals.append(ctx, t)
+      dc.globe.goals.append(ctx, t)
     }
   }
   if mode.string == "" {
@@ -915,31 +935,26 @@ func (ctx *defaultContext) load() (err error) {
       mode.string = "goals"
     }
   }
-  ctx.globe.mode.value = mode
+  dc.globe.mode.value = mode
 
   defer func(t time.Time) {
     var d = time.Now().Sub(t)
     if options.verboseImport {
       var name string
-      if p := ctx.loader.Project(); p != nil { name = p.name }
+      if p := dc.loader.Project(); p != nil { name = p.name }
       fmt.Fprintf(stderr, "└·%s … (%s)\n", name, d)
     } else if d > 2999*time.Millisecond {
-      if m := ctx.globe.main; m != nil {
+      if m := dc.globe.main; m != nil {
         prompt(ctx, "%v:warning: long loading: %s !!\n", m.position, d).debug(6)
       } else {
-        var f = filepath.Join(base, "do.smart")
-        if _, e := os.Stat(f); e == nil { base = f } else {
-          f = filepath.Join(base, "build.smart")
-          if _, e := os.Stat(f); e == nil { base = f }
-        }
         prompt(ctx, "%s:1:warning: long loading: %s !!\n", base, d).debug(6)
       }
     }
   } (time.Now())
   if options.verboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
 
-  if !ctx.loader.loadPath(base, nil) { return }
-  if ctx.globe.main == nil { fmt.Fprintf(stderr, "nothing loaded\n") }
+  if !dc.loader.loadPath(ctx, base, nil) { return }
+  if dc.globe.main == nil { fmt.Fprintf(stderr, "nothing loaded\n") }
   return
 }
 

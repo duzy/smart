@@ -493,7 +493,7 @@ func closureSet(ctx Context, name string, val Value) (prev Value, okay bool) {
     return
 }
 
-func closureResolveObject(ctx Context, pos Position, name string) (obj Object) {
+func closureResolveObject(ctx Context, name string) (obj Object) {
     var (
         infos = false && strings.HasPrefix(name, "@")
         scope *Scope
@@ -504,8 +504,8 @@ func closureResolveObject(ctx Context, pos Position, name string) (obj Object) {
         warn(ctx, "%v: name = %s", scope.project, name).at(scope.position)
         warn(ctx, "%v: %v", scope.project, scope).at(scope.position)
         warn(ctx, "%v: %v", scope.project, ctx).at(scope.position)
-        warn(ctx, "%s: %T, %v", scope.project, obj, obj).at(pos)
-        warn(ctx, "%s: %T, %v", scope.project, val, val).at(pos).debug(24)
+        warn(ctx, "%s: %T, %v", scope.project, obj, obj)
+        warn(ctx, "%s: %T, %v", scope.project, val, val).debug(24)
     } () }
     for _, scope = range ctx.closureScopes() {
         var ctx Context = positional(ctx, scope.position)
@@ -537,18 +537,18 @@ func closureResolveObject(ctx Context, pos Position, name string) (obj Object) {
         if scope.project != nil {
             obj = scope.project.resolveObject(ctx, name)
         }
-        if isNil(obj) && false { obj = closureResolveObject(ctx.inner(), pos, name) }
+        if isNil(obj) && false { obj = closureResolveObject(ctx.inner(), name) }
         if!isNil(obj) { if infos { warn(ctx, "%v", obj).debug(1) }; break }
     }
     return
 }
 
-func closureResolveEntry(ctx Context, pos Position, name string) (entries *ResolveEntries) {
+func closureResolveEntry(ctx Context, name string) (entries *ResolveEntries) {
     for _, scope := range ctx.closureScopes() {
         if project := scope.project; project != nil {
             entries = project.resolveEntries(ctx, name, false, /*true*/false)
             if entries == nil && false {
-                entries = closureResolveEntry(ctx.inner(), pos, name)
+                entries = closureResolveEntry(ctx.inner(), name)
             }
         }
         if entries != nil { break }
@@ -556,9 +556,9 @@ func closureResolveEntry(ctx Context, pos Position, name string) (entries *Resol
     return
 }
 
-func closureWith(ctx Context, pos Position, scopes ...*Scope) (res Context) {
+func closureWith(ctx Context, scopes ...*Scope) (res Context) {
     if c, ok := ctx.(*closureContext); false && ok {
-        res = closureWith(c.Context, pos, scopes...)
+        res = closureWith(c.Context, scopes...)
     } else {
         res = &closureContext{ ctx, scopes }
     }
@@ -674,8 +674,10 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
         }
     }}
 
-    if true {
+    if point == nil {
         point = ctx.diag(dt, "%v", proj)
+    } else if true {
+        // ...
     } else if str == "" {
         point = ctx.diag(dt, "%v: %v", proj, ctx)
     } else {
@@ -834,10 +836,10 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         }}
 
         var ok bool
-        if prereqFile, ok = prereqValue.(*File); ok {
-            // good
-        } else if prereqObj, ok = prereqValue.(Object); ok {
-            info(ctx, "%T %v %s", prereqObj, prereqObj, prereq).debug(1)
+        if prereqFile, ok = toFile(prereqValue); !ok {
+            if prereqObj, ok = prereqValue.(Object); ok {
+                info(ctx, "%T %v %s", prereqObj, prereqObj, prereq).debug(1)
+            }
         }
     }
 
@@ -893,7 +895,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
 
     // NOTE: Don't delete, keep this segment to save time for future debugging.
     // NOTE: Open this segment will draw very clear traverse path of a prerequisite.
-    if true && strings.HasSuffix(prereq, ".o") {
+    if false && strings.HasSuffix(prereq, ".o") {
         var s string
         if f := prereqFile; f != nil { s = "(" + f.dir + "," + f.sub + ")" }
         prompt(ctx, "%v : %v ; pattern=%v , file=%v%s\n", //, ctx.stemmed()
@@ -1054,7 +1056,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     var nonFilePrereqTravedFile = func (s *travestate) (res bool, resFile *File) {
         if prereqFile == nil { // the prereqValue is not a *File (eg a *String)
             // and the trave target is a *File with the name matched
-            if f, ok := s.target.(*File); ok && f.name == prereq {
+            if f, ok := toFile(s.target); ok && f.name == prereq {
                 res, resFile = true, f
             }
         }
@@ -1213,7 +1215,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                     // NOTE: only 'okay' if files exists, it can continue trying other
                     //       rules if not.
                     if false && prereqFile != nil && prereqFile.exists() {
-                        if f, ok = s.depend.(*File); ok && f != nil {
+                        if f, ok = toFile(s.depend); ok && f != nil {
                             okay = f.exists()
                         } else {
                             okay = true
@@ -1590,7 +1592,7 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
         var v = target
         if l, ok := v.(*List); ok && l.Len() == 1 { v = l.Elems[0] }
         if targetValuePos.IsValid() && !targetValuePos.Same(&targetPos) {
-            if f, ok := v.(*File); ok && f.filemap != nil {
+            if f, y := toFile(v); y && f != nil && f.filemap != nil {
                 erro(ctx, "waiting for '%v'", target).at(targetValuePos)
                 erro(ctx, "via pattern '%v' (of %v)", v, f.filemap.project).of(f.filemap.patts[0]).debug(1)
             } else {
@@ -1824,13 +1826,15 @@ func (p *Argumented) expandible(ctx Context, w expandfacet) (res bool) {
 func (p *Argumented) expand(ctx Context, w expandfacet) (res Value) {
     var (
         args []Value = p.args
-        val Value = p.value.expand(ctx, w)
+        val = p.value.expand(ctx, w)
         u, n int
     )
     if w&expandArgedArgs != 0 {
         args, u, n = expand(ctx, w, args...)
     }
-    if val != p.value || n > 0 {
+    if len(args) == 0 {
+        res = val
+    } else if val != p.value || n > 0 {
         if un, y := val.(unexpanded); y {
             if un.Value != p.value { val = un.Value }
             u += 1
@@ -1914,7 +1918,7 @@ func (p *Argumented) traverse(ctx Context) (traves travestates) {
                 if val, rest := a.stencil(ctx, stems); len(rest) > 0 {
                     erro(ctx, "partial stencil: %v, %T %v, %v, %v", a, val, val, rest, stems).of(a).debug(1)
                     panic(fmt.Sprintf("%T %v", val, val))
-                } else if file, okay := val.(*File); okay {
+                } else if file, okay := toFile(val); okay {
                     a = file
                 } else if file := proj.FindFile(ctx, val.Strval(ctx)); file != nil {
                     a = file
@@ -3081,16 +3085,6 @@ func (p *Barecomp) expand(ctx Context, w expandfacet) (res Value) {
     }
 
     var elems, u, n = expand(ctx, w, p.Elems...)
-    if false { if p.String() == ".test$1" {
-        for i, elem := range p.Elems {
-            warn(ctx, "%d. %T %v", i, elem, elem)
-        }
-        for i, elem := range elems {
-            warn(ctx, "%d. %T %v", i, elem, elem)
-        }
-        warnstack(ctx, 5, "%v -> %v, %d %d %024b", p.Elems, elems, u, n, w).debug(128)
-    }}
-
     if n > 0 { res = &Barecomp{p.valbase, elements{elems}} } else { res = p }
     if u > 0 { res = unexpanded{res} }
     return
@@ -3331,7 +3325,7 @@ func (p *Barefile) stat(ctx Context) (si *statinfo) {
 func (p *Barefile) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Barefile); ok {
         res = p.Name.cmp(ctx, a.Name)
-    } else if a, ok := v.(*File); ok && p.File != nil {
+    } else if a, ok := toFile(v); ok && p.File != nil {
         res = p.File.cmp(ctx, a)
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
@@ -3812,7 +3806,7 @@ func (p *Path) stat(ctx Context) (si *statinfo) {
     return
 }
 func (p *Path) traverse(ctx Context) (traves travestates) {
-    return traverse(ctx, p, "")
+    return traverse(positional(ctx, p.position), p, "")
 }
 func (p *Path) patterned(ctx Context) (result bool) {
     for _, seg := range p.Elems {
@@ -4466,6 +4460,25 @@ func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
     return
 }
 
+func toFile(v Value) (f *File, y bool) {
+    if f, y = v.(*File); !y {
+        if t, ok := v.(fullfile); ok { f, y = t.File, ok }
+    }
+    return
+}
+
+type fullfile struct { *File }
+func (u fullfile) String() string { return u.fullname() }
+func (u fullfile) Strval(ctx Context) (s string) { return u.fullname() }
+func (u fullfile) expand(ctx Context, w expandfacet) Value {
+    if w != expandZero && (w&expandFullName == 0 /* || filepath.IsAbs(u.name) */) {
+        if v := u.File.expand(ctx, w); v != u.File {
+            if f, y := v.(*File); y && f != u.File { return fullfile{f} }
+        }
+    }
+    return u
+}
+
 type File struct {
     valbase
     *filebase
@@ -4536,22 +4549,32 @@ func (p *File) expandible(ctx Context, w expandfacet) (res bool) {
 }
 func (p *File) expand(ctx Context, w expandfacet) (res Value) {
     if w&expandFullName != 0 && !filepath.IsAbs(p.name) {
+        res = fullfile{p}
+    } else if /* w&expandFullName != 0 && !filepath.IsAbs(p.name) */false {
         var fullname = p.fullname()
         if false && !filepath.IsAbs(fullname) { return p }
+        if strings.Contains(p.String(), "libunwind") {
+            warn(ctx, "%v %v %v", p, *p.filebase, p.stub)
+        }
 
-        var stub, fullStub *filestub
+        var stub, fullstub *filestub
         for stub = p.filestub; stub != nil; stub = stub.other {
             if stub.name == fullname /*&& stub.dir == "" && stub.sub == ""*/ {
-                fullStub = stub; break
+                fullstub = stub; break
             } else if stub.other == p.filestub {
                 break
             }
         }
-        if fullStub == nil {
-            fullStub = &filestub{ name:fullname, other:stub.other }
-            stub.other = fullStub
+        if fullstub == nil {
+            fullstub = &filestub{ name:fullname, other:stub.other }
+            stub.other = fullstub
         }
-        res = &File{p.valbase, p.filebase, fullStub}
+
+        if strings.Contains(p.String(), "libunwind") {
+            warn(ctx, "%v %v %v", p, *p.filebase, p.stub)
+            warnstack(ctx, 3, "file.expand: %v", p).debug(1)
+        }
+        res = &File{p.valbase, p.filebase, fullstub}
     } else {
         res = p
     }
@@ -4603,11 +4626,12 @@ func (p *File) isSysFile() (res bool) {
     }
     return
 }
-func (p *File) traverse(a_ctx Context) (traves travestates) {
+func (p *File) traverse(ctx Context) (traves travestates) {
     if p.isSysFile() { return }
 
-    var ctx = positional(a_ctx, p.position)
-    var projects = a_ctx.projects(ctx)
+    ctx = positional(ctx, p.position)
+
+    var projects = ctx.projects(ctx)
     if len(projects) == 0 {
         var targetValue = getTargetValue(ctx)
         prompt(ctx, "%v: zero closure projects\n", p)
@@ -4622,8 +4646,8 @@ func (p *File) traverse(a_ctx Context) (traves travestates) {
         if proj := p.filemap.project; proj != nil {
             var projs = projects
             for _, p := range projects { if p == proj { goto afterFilemapProject } }
-            projects = a_ctx.projects(ctx, append(projects, proj)...)
-            defer func() { a_ctx.projects(ctx, append([]*Project{nil}, projs...)...) } ()
+            projects = ctx.projects(ctx, append(projects, proj)...)
+            defer func() { ctx.projects(ctx, append([]*Project{nil}, projs...)...) } ()
         afterFilemapProject:
         }
     }
@@ -4632,14 +4656,12 @@ func (p *File) traverse(a_ctx Context) (traves travestates) {
 }
 
 func (p *File) cmp(ctx Context, v Value) (res cmpres) {
-    if isTrivial(v) {
-        // noop
-    } else if a, ok := v.(*Barefile); ok {
-        if a.File != nil { return p.cmp(ctx, a.File) }
-    } else if a, ok := v.(*File); ok {
-        if a == nil {
-            //assert(a != nil, "nil file")
-        } else if p.filebase == a.filebase {
+    if isTrivial(v) { return } else
+    if a, y := v.(*Barefile); y {
+        if a.File != nil { res = p.cmp(ctx, a.File) }
+        return
+    } else if a, y := toFile(v); y {
+        if p.filebase == a.filebase {
             res = cmpEqual
         } else if p.fullname() == a.fullname() {
             s := fmt.Sprintf("\na: %s %s %s (%s)", p.dir, p.sub, p.name, p.fullname())
@@ -4864,7 +4886,8 @@ func (p *Flag) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *Flag) traverse(ctx Context) (traves travestates) {
-    return traverse(ctx, p, p.Strval(positional(ctx, p.position)))
+    ctx = positional(ctx, p.position)
+    return traverse(ctx, p, p.Strval(ctx))
 }
 
 const escapedChars = "\"\r\n"
@@ -5356,6 +5379,13 @@ func (u unexpanded) expand(ctx Context, w expandfacet) Value {
     return u.Value.expand(ctx, w) // NOTE: for a stack in debug traces
 }
 
+type untraversed struct { Value }
+// func (u untraversed) True(ctx Context) bool { return false }
+func (u untraversed) traverse(ctx Context) (traves travestates) { return }
+func (u untraversed) expand(ctx Context, w expandfacet) Value {
+    return untraversed{u.Value.expand(ctx, w)}
+}
+
 // Delegate wraps '$(foo a,b,c)' into Valuer
 type delegate struct {
     valbase
@@ -5768,7 +5798,7 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
     } else {
         if pn, y := t.o.(*ProjectName); y && pn != nil && pn.project != nil {
             // FIXME: closure with pn.project not working
-            ctx = closureWith(ctx, pn.position, pn.project.scope)
+            ctx = closureWith(ctx, pn.project.scope)
         }
 
         if v := t.value(ctx); isNil(v) {
@@ -5955,7 +5985,8 @@ func (p *closure) expand(ctx Context, w expandfacet) (res Value) {
         // s == "&(.test.x)" ||
         // s == "&(objects)" ||
         (false && s == "") {
-        defer func() { if res != nil { if r := res.String(); true ||
+        defer func() { if res != nil { if r := res.String(); //true ||
+            // strings.Contains(r, "libunwind.o") ||
             (false && r == "") {
             var t, y = res.(unexpanded)
             var same = res == p || (y && t.Value == p)
@@ -6014,9 +6045,10 @@ func (p *closure) disclose(ctx Context, w expandfacet) (res Value, final bool) {
         // s == "&(.test.v2)" ||
         s == "&(objects)" ||
         (false && s == "") {
-            defer func() { if r := res.String(); p != res && ( true ||
-                // r == "&(.test.v2)" ||
-                (false && r == "")) {
+        defer func() { if r := res.String(); p != res && ( //true ||
+            strings.Contains(r, "libunwind.o") ||
+            // r == "&(.test.v2)" ||
+            (false && r == "")) {
             if len(p.a)>0 || len(args)>0 || n>0 {
                 warn(ctx, "%T %v %v (merge(p.a))", x, x, merge(p.a...))
                 for _, a := range merge(p.a...) {
@@ -6046,7 +6078,7 @@ func (p *closure) disclose(ctx Context, w expandfacet) (res Value, final bool) {
             warn(ctx, "disclose: %v ; x: %T %v (%v)", p, x, x, (x==unresolved))
             warn(ctx, "disclose: -> %T %v (same=%v)", res, res, same)
             if !same {
-                var t = res.expand(ctx, w)
+                var t = res.expand(ctx, w|expandFullName)
                 warn(ctx, "disclose: -> %T %v", t, t)
             } else if y {
                 warn(ctx, "disclose: unexpanded: %T %v", t.Value, t.Value)
@@ -6107,7 +6139,7 @@ func (p *closure) disclose(ctx Context, w expandfacet) (res Value, final bool) {
         }
     } else if t, y := p.x.(*selection); y && t != nil && !isNil(t.o) {
         if t, y := t.o.(*ProjectName); y && t != nil && t.project != nil {
-            ctx = closureWith(ctx, t.position, t.project.scope)
+            ctx = closureWith(ctx, t.project.scope)
         }
         if v := t.value(ctx); isNil(v) {
             erro(ctx, "selected nil value: %T %v", p.x, p.x).of(p.x).debug(1)
@@ -6128,12 +6160,12 @@ func (p *closure) disclose(ctx Context, w expandfacet) (res Value, final bool) {
     switch p.l {
     case token.STRING, token.COMPOUND:
         // &'xxx' and &"xxx" are fetching entry in the closure context
-        res = closureResolveEntry(ctx, p.position, str)
+        res = closureResolveEntry(ctx, str)
         return
     case token.LBRACE:
-        if t := closureResolveEntry(ctx, p.position, str); t != nil { x = t }
+        if t := closureResolveEntry(ctx, str); t != nil { x = t }
     default: // token.LPAREN, token.ILLEGAL
-        if t := closureResolveObject(ctx, p.position, str); t != nil { x = t }
+        if t := closureResolveObject(ctx, str); t != nil { x = t }
     }
 
     var changed = p.x != x || n > 0
@@ -6158,10 +6190,11 @@ func (p *closure) disclose(ctx Context, w expandfacet) (res Value, final bool) {
     }
 }
 func (p *closure) traverse(ctx Context) (traves travestates) {
-    if val := p.expand(positional(ctx, p.position), expandClosure); isNil(val) {
-        warn(ctx, "closure '%v' expands to nil", p).at(p.position).debug(1)
+    ctx = positional(ctx, p.position)
+    if val := p.expand(ctx, /* expandClosure */plain); isNil(val) {
+        warn(ctx, "closure '%v' expands to nil", p).debug(1)
     } else if isNone(val) {
-        warn(ctx, "closure '%v' expands to none", p).at(p.position).debug(1)
+        warn(ctx, "closure '%v' expands to none", p).debug(1)
     } else {
         traves = val.traverse(ctx)
     }
@@ -6205,7 +6238,7 @@ type selection struct {
 func (p *selection) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *selection) Strval(ctx Context) (s string) {
     if n, ok := p.o.(*ProjectName); ok && n != nil {
-        ctx = closureWith(ctx, n.position, n.project.scope)
+        ctx = closureWith(ctx, n.project.scope)
     }
     if v := p.value(ctx); !isNil(v) {
         s = v.Strval(ctx)
@@ -6795,26 +6828,6 @@ func (ns *namescoper) Scope() *Scope { return ns.scope }
 func NameScope(name string, scope *Scope) NameScoper {
     return &namescoper{ name, scope }
 }
-
-// // Reveal reveals delegated component and Valuer recursively.
-// func Reveal(ctx Context, values ...Value) (res []Value) {
-//     for _, v := range values {
-//         var t Value
-//         if t = v.expand(ctx, expandDelegate); isNil(t) { t = v }
-//         res = append(res, t)
-//     }
-//     return
-// }
-
-// // Disclose expands closures to normal value recursively.
-// func Disclose(ctx Context, values ...Value) (res []Value, err error) {
-//     for _, v := range values {
-//         var t Value
-//         if t = v.expand(ctx, expandClosure); isNil(t) { t = v }
-//         res = append(res, t)
-//     }
-//     return
-// }
 
 func values(args ...interface{}) (elems []Value) {
     for _, a := range args {

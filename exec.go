@@ -408,7 +408,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         var s = fmt.Sprintf("%s", v[4].string)
         lpos.Column = v[4].col + 1
         addScannedDiag(diagWarn, lpos, s)
-        addScannedDiag(diagWarn, pos, s)
+        addScannedDiag(diagWarn,  pos, s)
         if false && !reportIncludedFrom() { warn(ctx, "…reported here").at(lpos).debug(1) }
       }
     case rxProtoFileNotFound:
@@ -423,7 +423,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         var s = fmt.Sprintf(`Import "%v" not found or errors`, v[4].string)
         lpos.Column = v[4].col
         addScannedDiag(diagError, lpos, s)
-        addScannedDiag(diagError, pos, s)
+        addScannedDiag(diagError,  pos, s)
         if false && !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
       }
     case rxProtoNameNotDefined:
@@ -432,7 +432,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         var s = fmt.Sprintf(`"%v" is not defined`, v[4].string)
         lpos.Column = v[4].col
         addScannedDiag(diagError, lpos, s)
-        addScannedDiag(diagError, pos, s)
+        addScannedDiag(diagError,  pos, s)
         if false && !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
       }
     case rxFatalErrorFileNotFound:
@@ -441,7 +441,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         var s = fmt.Sprintf(`"%v" file not found`, v[4].string)
         lpos.Column = v[4].col
         addScannedDiag(diagError, lpos, s)
-        addScannedDiag(diagError, pos, s)
+        addScannedDiag(diagError,  pos, s)
         if false && !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
       }
     case rxArNoSuchFile:
@@ -451,7 +451,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
     case rxArNoArchiveMembers:
       if p.report {
         if false {
-          var obj = closureResolveObject(ctx, lpos, "objects")
+          var obj = closureResolveObject(ctx, "objects")
           erro(ctx, "%s", v[0].string).at(lpos)
           erro(ctx, "%s", obj).at(lpos)
           if !isNil(obj) {
@@ -806,10 +806,9 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   case "all"   , "both": opts.tieStdout, opts.tieStderr = true, true
   }
 
-  // defer func() { warn(ctx, "%v", cmd).debug(8) } ()
+  if false { defer func() { warn(ctx, "%v", cmd).debug(8) } () }
 
   var (
-    t = ctx.traversal()
     programCtx = ctx.programContext()
     program = programCtx.program()
     target = getTargetValue(ctx)
@@ -823,7 +822,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     return
   } else if _, ok := target.(*Flag); ok {
     // no stamp required for Flags
-  } else if _, ok = target.(*File); !ok {
+  } else if _, ok = toFile(target); !ok {
     // no stamp required for non-file targets
   } else if targetName = fullnameOrStrval(ctx, target); ctx.configuration() {
     // does nothing
@@ -881,7 +880,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     }
 
     var strval = func(name string) (str string) {
-      var ctx = closureWith(ctx, pos, container.Scope())
+      var ctx = closureWith(ctx, container.Scope())
       if obj := container.resolveObject(ctx, name); obj != nil {
         if d, _ := obj.(*def); d != nil {
           if v := d.Call(ctx); v != nil {
@@ -1087,7 +1086,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       }
       errostack(ctx, 3, ``).debug(6)
       return
-    } else if files, err := target.stamp(t); err != nil {
+    } else if files, err := target.stamp(ctx); err != nil {
       if pe, ok := err.(*fs.PathError); ok { err = fmt.Errorf(`"%v" not found`, target)
         prompt(ctx, "%v: target not found, stamp \"%v\"\n", pe.Path, target)
       } else {
@@ -1100,6 +1099,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       errostack(ctx, 6, ``).debug(10)
       return
     } else if opts.report {
+      var t = ctx.traversal()
       reportFileUpdates(ctx, t.start, files)
     }
 
@@ -1191,7 +1191,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     if src   != "" { exeres.sh.Args = append(exeres.sh.Args, src) }
     if opts.debug > 0 {
       warn(ctx, "%v: %v", ctx.entry(), target).at(program.position)
-      warn(ctx, "context: %v", t)
+      warn(ctx, "context: %v", ctx.traversal())
       warn(ctx, "exec:\n%v", exeres.sh).debug(opts.debug*2)
     }
 

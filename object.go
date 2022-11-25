@@ -1492,7 +1492,7 @@ type stemmed struct {
 }
 func (p *stemmed) String() (s string) {
         for i, stem := range p.Stems { if i > 0 { s += "," }; s += stem }
-        return fmt.Sprintf("<%s:%s>", p.target, s)
+        return fmt.Sprintf("%s:%s", p.target, s) // "<%s:%s>"
 }
 func (p *stemmed) Target() Value { return p.target }
 func (p *stemmed) expand(ctx Context, w expandfacet) (res Value) {

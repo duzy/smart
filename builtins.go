@@ -249,6 +249,8 @@ var builtins = map[string]BuiltinFunc {
         `grep`:       BuiltinFunc{builtinGrep, false, 1, expandDigits},
 
         // `return`:     BuiltinFunc{builtinReturn, false, 0, expandZero},
+
+        `untraversed`: BuiltinFunc{builtinUntraversed, false, 1, expandZero},
 }
 
 var commands = map[string]BuiltinFunc {
@@ -420,7 +422,7 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                                 return
                         }
 
-                        if file, ok := x.(*File); ok {
+                        if file, y := toFile(x); y {
                                 val.Set(reflect.ValueOf(file))
                         } else if proj := /*current()*/ctx.Project(); proj == nil {
                                 erro(ctx, "no current project to find file '%v'", s).of(x).debug(1)
@@ -791,21 +793,27 @@ func builtinWarning(ctx Context, args... Value) (res Value) {
 type builtinAssertOpts struct {
         generalOpts
 }
-func builtinAssert(ctx Context, args... Value) Value {
-        var opts builtinAssertOpts
-        if len(args) > 0 { args = append(parseOpts(ctx, &opts,
-                /* NOTE: don't expand */expandZero, args[0]), args[1:]...) }
+func builtinAssert(ctx Context, args... Value) (res Value) {
+        return assertion(ctx, generalOpts{}, args...)
+}
+func assertion(ctx Context, g generalOpts, args... Value) (res Value) {
+        var opts = builtinAssertOpts{ g }
+        if len(args) > 0 { args = append(
+                parseOpts(ctx, &opts, expandZero, args[0]), args[1:]...) }
+
         var d = opts.debug ; if d < 1 { d = 1 + 3 }
         for _, a := range args { if !a.True(ctx) {
                 var v = a.expand(ctx, plain)
                 prompt(ctx, "assertion: %T %v -> %T %v\n", a, a, v, v)
                 if opts.warn {
-                        warn(ctx, "").of(a).debug(d)
+                        warnstack(ctx, d, "").of(a).debug(d)
                 } else {
-                        erro(ctx, "").of(a).debug(d)
+                        errostack(ctx, d, "").of(a).debug(d)
                 }
         }}
-        return nil
+
+        ctx.checkErrors(true)
+        return
 }
 
 func builtinSureValue(ctx Context, args... Value) Value {
@@ -1204,20 +1212,28 @@ func builtinForEach(ctx Context, args... Value) (res Value) {
         ctx = &cc
 
         for _, val := range values {
-                if isTrivial(val) {
-                        if !opts.empty { continue }
-                } else if _, y := val.(*delegate); y {
-                        if opts.debug>0 {
-                                warn(ctx, "unexpanded delegate: %T %v", val, val).debug(1)
-                        }
-                        continue
-                } else {
-                        cc.autoSet("_", val)
+                if false && val.Strval(ctx) == "" {
+                        warn(ctx, "foreach: %T %v , %v", val, val, args[1:])//.debug(1)
                 }
+                if !opts.empty { switch t := val.(type) {
+                case *Nil, *None, *delegate, *closure:
+                        if opts.debug>0 { warn(ctx, "empty: %T %v", val, val).debug(1) }
+                        continue
+                case *String:
+                        if t.string == "" {
+                                if opts.debug>0 { warn(ctx, "empty: %T %v", val, val).debug(1) }
+                                continue
+                        }
+                }}
+
+                cc.autoSet("_", val)
 
                 var list []Value
                 for _, a := range args[1:] {
                         var v = a.expand(ctx, expandPlaceholders|plain|expandPairVal)
+                        if val.Strval(ctx) == "" {
+                                warn(ctx, "%T %v -> %v %v %T", val, val, a, v, v).debug(1)
+                        }
                         if false && len(v.defs(ctx, "_")) > 0 {
                                 erro(ctx, "'_' in '%v' not expanded: %v", a, v).of(a).debug(true, 1)
                                 return
@@ -1324,7 +1340,7 @@ func builtinAuto(ctx Context, p *delegate, w expandfacet, args... Value) (res Va
 // $(value <name1>,<name2>...)  -- this is specially useful when <name> is a closure.
 type builtinValueOpts struct {
         generalOpts
-        closure []bool `c,closure`
+        closure []bool `c,clo,closure`
 }
 func builtinValue(ctx Context, args... Value) (res Value) {
         var (
@@ -2172,68 +2188,66 @@ func builtinBareword(ctx Context, args... Value) (result Value) {
 type builtinStrOpts struct {
         generalOpts
         expand bool `x,e,ex,exp,expand`
-        merge bool `m,merge` // TODO: implement this merge opt
+        merge  bool `m,merge` // TODO: implement this merge opt
         join []string `j,join`
-        def []string `def,var`
+        clo  []string `clo,closure`
+        def  []string `def,var`
 }
 func builtinStr(ctx Context, strval bool, args... Value) (result Value) {
         var opts builtinStrOpts
-        if args = parseHeadArgsMerge(ctx, &opts, 0, args...); len(args)>0 || len(opts.def)>0 {
-                var (
-                        w expandfacet
-                        t string
-                )
-                if opts.expand { w = (plain&^expandPlain)|expandPairVal }
-                if len(opts.join)>0 {
-                        var i int
-                        var s bytes.Buffer
-                        for _, name := range opts.def {
-                                if _, o := ctx.Scope().Find(name); o != nil {
-                                        if d, ok := o.(*def); !ok { continue    } else
-                                        if v := d.value; v == nil { t = "<nil>" } else
-                                        if strval { t = v.Strval(ctx)           } else
-                                        if w == 0 { t = v.String()              } else {
-                                                t = v.expand(ctx, w).String()
-                                        }
-                                        s.WriteString(t)
-                                        i += 1
-                                        if opts.debug>0 { warn(ctx, "%T %v -> %v", o, o, t) }
-                                }
+        args = parseHeadArgsMerge(ctx, &opts, 0, args...)
+        if len(args)+len(opts.clo)+len(opts.def) > 0 {
+                var defs []*def
+                for _, name := range opts.clo {
+                        if o := closureResolveObject(ctx, name); o == nil { } else
+                        if d, y := o.(*def); y && d != nil { defs = append(defs, d) }
+                }
+                for _, name := range opts.def {
+                        if _, o := ctx.Scope().Find(name); o == nil { } else
+                        if d, y := o.(*def); y && d != nil { defs = append(defs, d) }
+                }
+
+                var w expandfacet
+                if opts.expand { w = /* (plain&^expandPlain) */plain|expandPairVal }
+
+                var strs []string
+                for _, d := range defs {
+                        var t string
+                        if v := d.value; v == nil { t = "<nil>" } else
+                        if strval { t = v.Strval(ctx)           } else
+                        if w == 0 { t = v.String()              } else {
+                                t = v.expand(ctx, w).String()
                         }
-                        for _, a := range args {
-                                if strval { t = a.Strval(ctx) } else
-                                if w == 0 { t = a.String()    } else {
-                                        t = a.expand(ctx, w).String()
-                                }
+                        strs = append(strs, t)
+                        if opts.debug>0 { warn(ctx, "%T %v -> %v", d.value, d.value, t) }
+                }
+                for _, a := range args {
+                        var t string
+                        if strval { t = a.Strval(ctx) } else
+                        if w == 0 { t = a.String()    } else {
+                                t = a.expand(ctx, w).String()
+                        }
+                        strs = append(strs, t)
+                        if opts.debug>0 { warn(ctx, "%T %v -> %v", a, a, t) }
+                }
+
+                if len(opts.join)>0 {
+                        var s bytes.Buffer
+                        for i, t := range strs {
                                 if i > 0 { s.WriteString(opts.join[i % len(opts.join)]) }
                                 s.WriteString(t)
                                 i += 1
                         }
                         result = MakeString(ctx.Position(), s.String())
                 } else {
-                        var strs []Value
-                        for _, name := range opts.def {
-                                if _, o := ctx.Scope().Find(name); o != nil {
-                                        if d, ok := o.(*def); !ok { continue    } else
-                                        if v := d.value; v == nil { t = "<nil>" } else
-                                        if strval { t = v.Strval(ctx)           } else
-                                        if w == 0 { t = v.String()              } else {
-                                                t = v.expand(ctx, w).String()
-                                        }
-                                        strs = append(strs, MakeString(o.Position(), t))
-                                        if opts.debug>0 { warn(ctx, "%T %v -> %s", o, o, t) }
-                                }
+                        var pos = ctx.Position()
+                        var vals []Value
+                        for _, t := range strs {
+                                vals = append(vals, MakeString(pos, t))
                         }
-                        for _, a := range args {
-                                if strval { t = a.Strval(ctx) } else
-                                if w == 0 { t = a.String()    } else {
-                                        t = a.expand(ctx, w).String()
-                                }
-                                strs = append(strs, MakeString(a.Position(), t))
-                        }
-                        result = MakeListOrScalar(ctx.Position(), strs)
+                        result = MakeListOrScalar(pos, vals)
                 }
-                if n := opts.debug; n>0 { warnstack(ctx, 3, "%v", result).debug(n) }
+                if n := opts.debug; n>0 { warnstack(ctx, n, "%v", result).debug(n) }
         }
         return
 }
@@ -2251,9 +2265,6 @@ type builtinFilterOpts struct {
 }
 func filterValues(ctx Context, pats []Value, opts builtinFilterOpts, neg bool, values... Value) (result []Value, err error) {
         var filter = func(v Value) Value {
-                if strings.HasPrefix(v.String(), "-lcrypto") {
-                        warn(ctx, "pats=%v value=%v (%T); %v", pats, v, v, values).of(v).debug(1)
-                }
                 for _, pat := range pats {
                         if full, s, stems := pat.match(ctx, v); full {
                                 if neg { v = nil } else if opts.stem {
@@ -2265,7 +2276,6 @@ func filterValues(ctx Context, pats []Value, opts builtinFilterOpts, neg bool, v
                 }
                 if neg { return v } else { return nil }
         }
-        // for _, v := range merge(Reveal(ctx, values...)...) {
         for _, v := range mergex(ctx, plain, values...) {
                 if t := filter(v); err != nil { break } else if t != nil {
                         result = append(result, t)
@@ -2417,13 +2427,28 @@ func builtinPatsubst(ctx Context, args... Value) (res Value) {
                 filemaps []*FileMap
                 list []Value
         )
-        if !opts.noFileMap { filemaps = proj.filemaps(ctx, opts.baseFiles, opts.usedFiles) }
+        if !opts.noFileMap {
+                filemaps = proj.filemaps(ctx, opts.baseFiles, opts.usedFiles)
+        }
 
 ForSources:
         for _, src := range sources {
-                var source interface{} = src
-                if opts.findFiles || opts.fullFiles {
-                        if file, ok := src.(*File); ok {
+                var (
+                        source interface{} = src
+                        file *File
+                        ok bool
+                )
+                if file, ok = toFile(src); ok {
+                        source = file
+                } else if opts.findFiles {
+                        var s = src.Strval(ctx)
+                        if file = proj.FindFile(ctx, s); file != nil {
+                                source = file
+                        } else {
+                                source = s
+                        }
+                } else if false && (opts.findFiles || opts.fullFiles) {
+                        if file, ok = toFile(src); ok {
                                 source = file
                         } else if file = proj.FindFile(ctx, src.Strval(ctx)); file != nil {
                                 if (opts.fullname || opts.fullFiles) && !filepath.IsAbs(file.name) {
@@ -2448,14 +2473,15 @@ ForSources:
                         }
                 }
 
+                var full = opts.fullFiles
+                if !full { _, full = src.(fullfile) }
+
                 var (
                         srcPat Value
                         stems []string
                 )
                 for _, srcPat = range srcPats {
-                        if matched, _, m := srcPat.match(ctx, source); matched {
-                                stems = m; goto ForDstPats
-                        }
+                        if ok, _, stems = srcPat.match(ctx, source); ok { goto ForDstPats }
                 }
                 if !isTrivial(src) { list = append(list, src) }
                 continue ForSources // just append src to the list
@@ -2469,22 +2495,18 @@ ForSources:
                                         dst, dst, stems, rest).debug(1)
                                 return
                         } else if opts.debug>0 {
-                                warnstack(ctx, 3, "patsubst: %v %v -> %v %v -> %v %v",
-                                        srcPat, source, stems, dst, nameVal, rest).debug(opts.debug)
+                                warnstack(ctx, opts.debug, "patsubst: %v: %v -> %v -> %v %v -> %v %v",
+                                        srcPat, src, source, stems, dst, nameVal, rest).debug(opts.debug)
                         }
 
                         var name string
-                        if name = nameVal.Strval(ctx); name == "" /*|| len(rest) > 0*/ {
+                        if name = nameVal.Strval(ctx); name == "" {
                                 continue ForDstPats
                         } else if opts.cleanPath {
                                 name = filepath.Clean(name)
                         }
 
-                        // Deal with source value types
-                        // TODO: consider opts.files
-                        var pos = dst.Position()
-                        switch t := src.(type) {
-                        case *File:
+                        if t := file; t != nil {
                                 var (
                                         pre string
                                         match *FileMap
@@ -2496,30 +2518,31 @@ ForSources:
                                         }
                                 }
 
-                                var file *File
+                                var file *File // dest file
                                 if match != nil {
                                         if file = match.stat(ctx, t.dir, pre, name); file != nil {
                                                 assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (t.dir=%s, pre=%s)", file.name, name, t.dir, pre))
                                         } else if file = match.stat(ctx, proj.absPath, pre, name); file != nil {
                                                 assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (proj.absPath=%s, pre=%s)", file.name, name, proj.absPath, pre))
-                                        } /* else if match.Paths != nil {
-                                                var ( path = match.Paths[0] ; sub string )
-                                                if sub, err = path.Strval(); err != nil { erro(ctx, "%v", err); return }
-                                                if filepath.IsAbs(sub) {
-                                                        file = stat(name, "", sub, nil)
-                                                } else {
-                                                        file = stat(name, sub, t.dir, nil)
-                                                }
-                                        } */
+                                        }
                                 }
                                 if file == nil {
                                         file = stat(ctx, name, t.sub, t.dir, nil/* okay missing */)
                                 }
 
-                                file.position = srcPat.Position()
-                                list = append(list, file)
+                                if file.position = srcPat.Position(); full {
+                                        list = append(list, fullfile{file})
+                                } else {
+                                        list = append(list, file)
+                                }
                                 continue ForDstPats
+                        }
 
+                        // Deal with source value types
+                        // TODO: consider opts.files
+                        var pos = dst.Position()
+                        switch src.(type) {
+                        case *File, fullfile:
                         case *String, *Compound:
                                 list = append(list, MakeString(pos, name))
                                 continue ForDstPats
@@ -2604,7 +2627,7 @@ ForSources:
         for _, src := range sources {
                 var source interface{} = src
                 if opts.findFiles || opts.fullFiles {
-                        if file, ok := src.(*File); ok {
+                        if file, ok := toFile(src); ok {
                                 source = file
                         } else if file = proj.FindFile(ctx, src.Strval(ctx)); file != nil {
                                 if (opts.fullname || opts.fullFiles) && !filepath.IsAbs(file.name) {
@@ -3437,7 +3460,7 @@ func builtinFullName(ctx Context, args... Value) (res Value) {
         )
         for _, a := range parseOpts(ctx, &opts, plain, args...) {
                 if opts.debug > 0 {
-                        if f, ok := a.(*File); ok {
+                        if f, ok := toFile(a); ok {
                                 warn(ctx, "dir=%v sub=%v name=%v", f.dir, f.sub, f.name).debug(opts.debug)
                         } else {
                                 warn(ctx, "%T %v", a, a).debug(opts.debug,1)
@@ -4212,7 +4235,7 @@ func builtinFile(ctx Context, args... Value) (res Value) {
         }
         for _, a := range args {
                 var ctx = positional(ctx, a.Position())
-                if file, ok := a.(*File); ok {
+                if file, ok := toFile(a); ok {
                         list = append(list, file)
                         if file.exists() { continue }
                         if opts.report { info(ctx, "%v is no such file", a).debug(1) }
@@ -4358,7 +4381,7 @@ func wildcardPathPatsInDir3(ctx Context, opts *wildcardOpts, pats ...Value) (fil
 
 func wildcardPathPatsInDir(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
         if files = wildcardPathPatsInDir3(ctx, opts, pats...); opts.filetype != "" {
-               var res []*File
+                var res []*File
                 for _, file := range files {
                         switch opts.filetype {
                         case "d", "dir" : if file.info.IsDir() { res = append(res, file) }
@@ -4579,7 +4602,7 @@ func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Tim
         )
         if len(ts) > 0 { at = ts[0] } else { at = time.Now() }
         if len(ts) > 1 { mt = ts[1] } else { mt = time.Now() }
-        if fi, k := file.(*File); k && fi.info != nil {
+        if fi, k := toFile(file); k && fi.info != nil {
                 m = fi.info.Mode()
         } else if fi, e := os.Stat(filename); e == nil && fi != nil {
                 m = fi.Mode()
@@ -4741,7 +4764,7 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                 index, line = 0, 0
         )
         if d := autoGet(ctx, "-file"); d != nil {
-                pos.Filename = d.(*File).fullname()
+                if f, y := toFile(d); y { pos.Filename = f.fullname() }
                 // warn(ctx, "%T %v %v", v, v, pos)
         }
         for _, m := range rxConfigRef.FindAllStringSubmatchIndex(s, -1) {
@@ -4893,6 +4916,12 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
         }
         if index < len(str) { _, err = out.WriteString(str[index:]) }
         return
+}
+
+func builtinUntraversed(ctx Context, args... Value) Value {
+        var pos = ctx.Position()
+        var vals = mergex(ctx, plain, args...)
+        return untraversed{MakeListOrScalar(pos, vals)}
 }
 
 func builtinReturn(ctx Context, args... Value) Value {

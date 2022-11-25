@@ -396,10 +396,13 @@ ForPatterns:
         }
 
         // glob returned file names
-        var ( str string; names []string )
-        if file, ok := pattern.(*File); ok && len(filemap.paths) == 0 {
+        var (
+          names []string
+          str string
+        )
+        if file, y := toFile(pattern); y && len(filemap.paths) == 0 {
           files = append(files, file)
-          if n := opts.debug; n>0 { warn(ctx, "%v -> %v (exists=%v)",
+          if n := opts.debug; n>0 /* && p.name == "lib.unwind" */ { warn(ctx, "%v -> %v (exists=%v)",
             pattern, file, file.exists()).debug(n) }
           continue
         } else if str = pattern.Strval(ctx); str == "" {
@@ -448,12 +451,15 @@ ForPatterns:
                 errostack(ctx, 6, "").of(path).debug(12)
               } else if file.exists() || opts.includeMissing {
                 files = append(files, file)
-                if n := opts.debug; n>0 { warnstack(ctx, n, "%v -> %v %v+%v (exists=%v)",
+                if n := opts.debug; n>0 /* && p.name == "lib.unwind" */ { warnstack(ctx, n, "%v -> %v %v+%v (exists=%v)",
                   pattern, sub, prefix, file, file.exists()).debug(n) }
               } else if opts.errorMissing {
                 erro(ctx, "%v: '%v' not found in %v", p, name, path).of(filemap.patts[0])
                 errostack(ctx, 6, "").of(path).debug(12)
                 if true { fail(path.Position(), "missing %v", path) }
+              }
+              if false && strings.HasSuffix(s, "libunwind.cpp") {
+                warnstack(ctx, 32, "wildcard: %v -> %v", str, s).debug(32)
               }
             }
           } else if !patterned && opts.includeMissing {
@@ -461,7 +467,7 @@ ForPatterns:
             // Append this non-existed/missing file.
             file := stat(ctx, pattern.Strval(ctx), sub, prefix, nil)
             files = append(files, file)
-            if n := opts.debug; n>0 { warn(ctx, "%v -> %v %v+%v",
+            if n := opts.debug; n>0 /* && p.name == "lib.unwind" */ { warn(ctx, "%v -> %v %v+%v",
               pattern, sub, prefix, file).debug(n) }
           } else if patterned && !path.expandible(ctx, expandClosure) && len(filemap.paths) == 1 {
             if false {
@@ -492,7 +498,7 @@ ForFilemaps:
     var matched, pattern, pre = filemap.Match(ctx, name) // TODO: performance
     // warn(ctx, "%T %v ; %v -> %v %v '%v'", filemap, filemap, name, matched, pattern, pre).debug(1)
     if !matched { continue ForFilemaps }
-    if f, ok := pattern.(*File); ok {
+    if f, y := toFile(pattern); y {
       file = f; break ForFilemaps
     }
 
@@ -537,9 +543,8 @@ func (p *Project) matchTempFile(ctx Context, name string) (file *File) {
 }
 
 func (p *Project) configuration(ctx Context) (file *File) {
-  ctx = closureWith(ctx, p.scope.position, p.scope)
-  if file = p.matchTempFile(ctx, "configuration.sm"); file == nil {
-    erro(ctx, "%v: no file configuration.sm", p).at(p.position).debug(1)
+  if file = p.matchTempFile(closureWith(ctx, p.scope), "configuration.sm"); file == nil {
+    erro(ctx, "%v: no file configuration.sm", p).debug(1)
   }
   return
 }
@@ -592,7 +597,7 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
 
   var match = func(entry Entry, name string) (res bool) {
     var target = entry.Target()
-    if file, ok := target.(*File); ok {
+    if file, ok := toFile(target); ok {
       if res = file.name == name; !res {
         var full = file.fullname()
         if res = filepath.IsAbs(name) && name == full; !res && matchingFullSuffix {
@@ -664,7 +669,7 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
 func (p *Project) resolvePatterns(ctx Context, v Value, s string) (res []*stemmed) {
   if res = p.resolvePatterns123(ctx, v, s); false && len(res) > 0 {
     for _, t := range res {
-      if file, _ := t.target.(*File); file != nil {
+      if file, _ := toFile(t.target); file != nil {
         file.position = t.position
       } else if file = p.FindFile(ctx, s); file != nil {
         file.position = t.position

@@ -446,15 +446,12 @@ type modifierClosureOpts struct {
         dump    bool `d,dump`
 }
 func modifierClosure(ctx Context, args... Value) (result Value, traves travestates) {
-        var (
-                opts modifierClosureOpts
-                pos = ctx.Position()
-        )
+        var opts modifierClosureOpts
         // Closure the caller program, the context will be restored when execution is finished.
         if t := ctx.traversal(); t != nil && false {
-                t.Context = closureWith(t.Context, pos)
+                t.Context = closureWith(t.Context)
         } else if pc := ctx.programContext(); pc != nil {
-                pc.Context = closureWith(pc.Context, pos)
+                pc.Context = closureWith(pc.Context)
         } else {
                 erro(ctx, "needs closure context: %v", ctx).debug(1)
                 return
@@ -710,9 +707,9 @@ func (g *greptouch) work(ctx Context, gc *grepctx) (err error) {
         }
         var tt time.Time = g.targetInfo.ModTime()
         for _, val := range g.files {
-                var file, ok = val.(*File)
-                if !ok { 
-                        erro(ctx, "'%v' is not file (%T)", file, file).debug(1)
+                var file *File
+                if file, _ = toFile(val); file == nil {
+                        erro(ctx, "'%v' is not file (%T)", val, val).debug(1)
                         return
                 }
                 if file.info == nil && !file.isSysFile() {
@@ -739,7 +736,7 @@ func (g *grepctx) isTargetFile(ctx Context, file *File) (res bool) {
                 res = true
         } else if fullnameOrStrval(ctx, file) == g.targetFullName {
                 res = true
-        } else if ctx, ok := g.target.(*File); ok && ctx.name == file.name {
+        } else if f, y := toFile(g.target); y && f.name == file.name {
                 res = true
         }
         return
@@ -785,7 +782,7 @@ func saveGrepCache(ctx Context) {
                 if len(l) == 0 { continue }
                 fmt.Fprintf(w, ":%s\n", k)
                 for _, v := range l {
-                        file, ok := v.(*File)
+                        var file, ok = toFile(v)
                         if !ok { continue }
                         fmt.Fprintf(w, "%s|%s|%s\n", file.name, file.sub, file.dir)
                 }
@@ -980,7 +977,7 @@ func loadSavedGrepFile(ctx Context, gc *grepctx) (okay bool, err error) {
                 return // No saved grepfile yet!
         }
 
-        var file, ok = gc.target.(*File)
+        var file, ok = toFile(gc.target)
         if !ok {
                 file = stat(ctx, gc.targetFullName, "", "")
                 if file != nil { gc.target = file }
@@ -1541,7 +1538,7 @@ func loadSavedDepsAndCheckOutdated(ctx Context, args []string) (savedDepsFileNam
         } else if files, traves = parseDeps(ctx, targetVal, targetStr, savedDepsFile, savedDepsFileName, string(savedDepsBytes)); len(files) > 0 {
                 if false { info(ctx, "loaded deps %s (%d files)", savedDepsFileName, len(files)).debug(true, 1) }
                 var savedDepsFileModTime = savedDepsFile.info.ModTime()
-                for _, val := range files { if file, ok := val.(*File); !ok {
+                for _, val := range files { if file, ok := toFile(val); !ok {
                         // ignore
                 } else if file.info.ModTime().After(savedDepsFileModTime) {
                         files = nil // need to reload if outdated
@@ -1865,7 +1862,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, traves travestates
 
         if !(isNil(opts.file) || isNone(opts.file)) {
                 var ( s string; f *File )
-                if f, res = opts.file.(*File); res {
+                if f, res = toFile(opts.file); res {
                         if res = f.exists(); !res && opts.verbose {
                                 warn(ctx, "file '%v' does not exists", opts.file).of(opts.file).debug(1)
                         }
@@ -1889,7 +1886,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, traves travestates
         }
         if !(isNil(opts.dir) || isNone(opts.dir)) {
                 var ( s string; f *File )
-                if f, res = opts.dir.(*File); res {
+                if f, res = toFile(opts.dir); res {
                         if res = f.exists(); !res && opts.verbose {
                                 warn(ctx, "file '%v' does not exists", opts.dir).of(opts.dir).debug(1)
                         }
@@ -2000,7 +1997,7 @@ ForPairs:
                         }
                 case "file", "dir": // file=xxx and dir=xxx, same as -file=xxx and -dir=xxx
                         var ( file *File; res bool )
-                        if file, res = p.Value.(*File); res {
+                        if file, res = toFile(p.Value); res {
                                 // ok
                         } else if str = p.Value.Strval(ctx); filepath.IsAbs(str) {
                                 if file = stat(positional(ctx, p.Value.Position()), str, "", ""); file != nil {
@@ -3435,7 +3432,7 @@ func onceCacheTest2(ctx Context, target Value) (n int) {
         }
 
         for _, t := range merge(target) {
-                if f, ok := t.(*File); ok {
+                if f, ok := toFile(t); ok {
                         fmt.Fprintf(h, "%s", f.fullname())
                 } else {
                         fmt.Fprintf(h, "%s", t.Strval(ctx))
