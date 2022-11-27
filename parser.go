@@ -2402,6 +2402,7 @@ func (p *parser) parseVarModifier(ctx Context, args []Value) (err error) {
 			erro(ctx, "bad var form (%T)", elem).of(elem)
 			continue
 		}
+
 		var name string
 		var k, v = kv.Key, kv.Value
 		if name = k.Strval(positional(ctx, k.Position())); name == "" {

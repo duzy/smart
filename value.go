@@ -3040,6 +3040,70 @@ func compareElems(ctx Context, elemsL, elemsR []Value) (res cmpres) {
     return
 }
 
+type paircomp struct { *Pair }
+func (p paircomp) True(ctx Context) (res bool) {
+    if !(p.Key.expandible(ctx, expandClosure) || p.Value.expandible(ctx, expandClosure)) {
+         res = p.Pair.True(ctx)
+    }
+    return
+}
+func (p paircomp) String() (s string) {
+    return p.Pair.String()
+}
+func (p paircomp) Strval(ctx Context) (s string) {
+    if !(p.Key.expandible(ctx, expandClosure) || p.Value.expandible(ctx, expandClosure)) {
+        s = p.Pair.Strval(ctx)
+    }
+    return
+}
+func (p paircomp) expand(ctx Context, w expandfacet) (res Value) {
+    var a = p.Pair.expand(ctx, w)
+    if res = p; a != p.Pair { res = paircomp{a.(*Pair)} }
+    return
+}
+
+type precomp struct {
+    Value
+    suffix Value
+}
+func (p precomp) True(ctx Context) bool { return p.suffix.True(ctx) }
+func (p precomp) String() (s string) {
+    return p.Value.String() + p.suffix.String()
+}
+func (p precomp) Strval(ctx Context) (s string) {
+    if t := p.suffix.Strval(ctx); t != "" { s = p.Value.Strval(ctx) + t }
+    return
+}
+func (p precomp) expand(ctx Context, w expandfacet) (res Value) {
+    var a, b = p.Value.expand(ctx, w), p.suffix.expand(ctx, w)
+    if res = p; a != p.Value || b != p.suffix { res = precomp{a, b} }
+    return
+}
+// func (p precomp) cmp(ctx Context, v Value) (res cmpres) {
+//     return
+// }
+
+type rearcomp struct {
+    prefix Value
+    Value
+}
+func (p rearcomp) True(ctx Context) bool { return p.prefix.True(ctx) }
+func (p rearcomp) String() (s string) {
+    return p.prefix.String() + p.Value.String()
+}
+func (p rearcomp) Strval(ctx Context) (s string) {
+    if t := p.prefix.Strval(ctx); t != "" { s = t + p.Value.Strval(ctx) }
+    return
+}
+func (p rearcomp) expand(ctx Context, w expandfacet) (res Value) {
+    var a, b = p.prefix.expand(ctx, w), p.Value.expand(ctx, w)
+    if res = p; a != p.Value || b != p.prefix { res = rearcomp{a, b} }
+    return
+}
+// func (p rearcomp) cmp(ctx Context, v Value) (res cmpres) {
+//     return
+// }
+
 type Barecomp struct { valbase ; elements }
 func (_ *Barecomp) kind() kind { return valOther }
 func (p *Barecomp) String() (s string) { return p.elemStr(nil, nil, 0) }
@@ -3078,12 +3142,6 @@ func (p *Barecomp) expandible(ctx Context, w expandfacet) bool {
     return p.elements.expandible(ctx, w)
 }
 func (p *Barecomp) expand(ctx Context, w expandfacet) (res Value) {
-    if false && w&expandFullName != 0 {
-        if file := ctx.Project().FindFile(ctx, p.Strval(ctx)); file != nil {
-            return file.expand(ctx, w)
-        }
-    }
-
     var elems, u, n = expand(ctx, w, p.Elems...)
     if n > 0 { res = &Barecomp{p.valbase, elements{elems}} } else { res = p }
     if u > 0 { res = unexpanded{res} }
@@ -3093,22 +3151,15 @@ func (p *Barecomp) traverse(ctx Context) (traves travestates) {
     return traverse(positional(ctx, p.Position()), p, p.Strval(ctx))
 }
 func (p *Barecomp) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*Barecomp); ok {
-        var (
-            elemsL = mergeBare(p.Elems...)
-            elemsR = mergeBare(a.Elems...)
-        )
-        if false && p.String() == ".test." {
-            defer func() { warn(ctx, "%v: %v %v", res, elemsL, elemsR).debug(6) } ()
-        }
+    var cmp = func(elemsL, elemsR []Value) {
         if res = compareElems(ctx, elemsL, elemsR); res != cmpEqual {
             var i int
             for ; i < len(elemsL) && i < len(elemsR); i += 1 {
                 var cr = elemsL[i].cmp(ctx, elemsR[i])
                 if cr == cmpEqual { continue } else
                 if cr == cmpLPrefix || cr == cmpRPrefix {
-                    if false && p.Strval(ctx) == a.Strval(ctx) { return cmpEqual }
-                    if true  && p.String(   ) == a.String(   ) { return cmpEqual }
+                    if false && p.Strval(ctx) == v.Strval(ctx) { res = cmpEqual ; return }
+                    if true  && p.String(   ) == v.String(   ) { res = cmpEqual ; return }
                 } else {
                     break
                 }
@@ -3117,15 +3168,23 @@ func (p *Barecomp) cmp(ctx Context, v Value) (res cmpres) {
                 for ; i < len(elemsL); i += 1 {
                     if !isTrivial(elemsL[i]) { return }
                 }
-                return cmpEqual
+                res = cmpEqual ; return
             }
             if i == len(elemsL) && i < len(elemsR) {
                 for ; i < len(elemsR); i += 1 {
                     if !isTrivial(elemsR[i]) { return }
                 }
-                return cmpEqual
+                res = cmpEqual ; return
             }
         }
+    }
+
+    if a, ok := v.(*Barecomp); ok {
+        cmp(mergeBare(p.Elems...), mergeBare(a.Elems...))
+    } else if a, ok := v.(precomp); ok {
+        cmp(mergeBare(p.Elems...), mergeBare(a.Value, a.suffix))
+    } else if a, ok := v.(rearcomp); ok {
+        cmp(mergeBare(p.Elems...), mergeBare(a.prefix, a.Value))
     } else if w, ok := v.(*Bareword); ok {
         if s := p.Strval(ctx); s == w.string {
             res = cmpEqual
@@ -3173,9 +3232,6 @@ func (p *Barecomp) cmp(ctx Context, v Value) (res cmpres) {
                 res = compareElems(ctx, pl.Elems[1:], l.Elems[1:])
             }
             p.Elems[1] = a
-
-            if false { warn(ctx, "%v %v ; %T %v ; %v",
-                p.Elems, l.Elems, l.Elems[0], l.Elems[0], res).debug(1) }
         }
     }
     return
@@ -3354,7 +3410,6 @@ func (p *Barefile) stencil(ctx Context, stems []string) (val Value, rest []strin
     }
     return
 }
-
 
 func barefilize(ctx Context, targets ...Value) []Value {
     var project = ctx.Project()
@@ -5315,10 +5370,6 @@ func (p *Pair) stencil(ctx Context, stems []string) (val Value, rest []string) {
         if vNil { v = p.Value }
         val = &Pair{p.valbase, k, v}
     }
-
-    if false && p.String() == "--target=%" {
-        warn(ctx, "%T %v, %T %v; %T %v, %T %v; %v %v %v", p.Key, p.Key, p.Value, p.Value, k, k, v, v, stems, rest, val).debug(1)
-    }
     return
 }
 func (p *Pair) cmp(ctx Context, v Value) (res cmpres) {
@@ -5330,10 +5381,12 @@ func (p *Pair) cmp(ctx Context, v Value) (res cmpres) {
                 res = p.Value.cmp(ctx, a.Value)
             }
         }
-    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
-        res = p.cmp(ctx, l.Elems[0])
+    } else if u, o := v.(paircomp); o && u.Value != nil {
+        res = p.cmp(ctx, u.Pair)
     } else if u, o := v.(unexpanded); o && u.Value != nil {
         res = p.cmp(ctx, u.Value)
+    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
     }
     return
 }
@@ -5970,8 +6023,8 @@ func (p *closure) match(ctx Context, i interface{}) (full bool, s string, stems 
 }
 func (p *closure) expand(ctx Context, w expandfacet) (res Value) {
     if ctx, res = positional(ctx, p.position), p; isNil(p.x) {
-        erro(ctx, "expand nil closure: %v (%d)", p, w).at(p.position).debug(1)
-        return p
+        erro(ctx, "expand nil closure: %v (%d)", p, w).debug(1)
+        return
     } else if w == 0 {
         erro(ctx, "%v: zero expand", p).debug(64)
         return
@@ -6016,6 +6069,7 @@ func (p *closure) expand(ctx Context, w expandfacet) (res Value) {
         w |= offBits
         w &= ^(expandClose)
         // if u, y := res.(unexpanded); y { res = u.Value }
+        // if res == p { return MakeNone(p.position) }
     } else if final {
         return
     } else {
@@ -6025,9 +6079,6 @@ func (p *closure) expand(ctx Context, w expandfacet) (res Value) {
     // avoid self-expand loop
     if u, y := res.(unexpanded); res == p || (y && u.Value == p) {
         return
-    } else if a := ctx.auto(); false && a != nil {
-        // chop off the auto context to preserve $1, $2... in res
-        return res.expand(a.inner(), w)
     } else {
         return res.expand(ctx, w)
     }
@@ -7031,8 +7082,8 @@ func MakeURL(pos Position, s *url.URL) *URL {
     }
 }
 func MakeBareword(pos Position, word string) *Bareword { return &Bareword{valbase{pos},word} }
-func MakeBarecomp(pos Position, elems... Value) *Barecomp { return &Barecomp{valbase{pos},elements{elems}} }
-func MakeCompound(pos Position, elems... Value) *Compound { return &Compound{valbase{pos},elements{elems}} }
+func MakeBarecomp(pos Position, elems... Value) *Barecomp { return &Barecomp{valbase{pos},elements{merge(elems...)}} }
+func MakeCompound(pos Position, elems... Value) *Compound { return &Compound{valbase{pos},elements{merge(elems...)}} }
 func MakeArgumented(val Value, args... Value) *Argumented { return &Argumented{val, args} }
 func MakeList(pos Position, elems... Value) *List {
     if !pos.IsValid() && len(elems) > 0 {

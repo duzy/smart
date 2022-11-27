@@ -803,12 +803,13 @@ func assertion(ctx Context, g generalOpts, args... Value) (res Value) {
 
         var d = opts.debug ; if d < 1 { d = 1 + 3 }
         for _, a := range args { if !a.True(ctx) {
+                var ctx = positional(ctx, a.Position())
                 var v = a.expand(ctx, plain)
                 prompt(ctx, "assertion: %T %v -> %T %v\n", a, a, v, v)
                 if opts.warn {
-                        warnstack(ctx, d, "").of(a).debug(d)
+                        warnstack(ctx, d, "").debug(d)
                 } else {
-                        errostack(ctx, d, "").of(a).debug(d)
+                        errostack(ctx, d, "").debug(d)
                 }
         }}
 
@@ -919,19 +920,22 @@ func builtinEqual(ctx Context, args... Value) (res Value) {
         )
         if t := a.cmp(ctx, b); t == cmpEqual {
                 res = MakeBoolean(ctx.Position(), true)
-        } else if opts.debug>0 {
-                warn(ctx, "equal: %v", args)
+        } else if n := opts.debug; n>0 {
+                warn(ctx, "equal: %v != %v ⇒ %v", a, b, t)
                 if u, y := a.(unexpanded); y {
-                        warn(ctx, "a: %T %v (%T)", a, a, u.Value).of(a)
+                        warn(ctx, "a: %T %v (unexpanded)", u.Value, a).of(a)
                 } else {
                         warn(ctx, "a: %T %v", a, a).of(a)
                 }
                 if u, y := b.(unexpanded); y {
-                        warn(ctx, "b: %T %v (%T)", b, b, u.Value).of(b)
+                        warn(ctx, "b: %T %v (unexpanded)", u.Value, b).of(b)
                 } else {
                         warn(ctx, "b: %T %v", b, b).of(b)
                 }
-                warnstack(ctx, 3, "equal: cmp: %v", t).debug(opts.debug)
+                warnstack(ctx, n, "").debug(n)
+        } else if len(args)>2 {
+                warnstack(ctx, 1, "equal: extra args specified: %v",
+                        args[2]).of(args[2]).debug(1)
         }
         return
 }
@@ -2189,6 +2193,7 @@ type builtinStrOpts struct {
         generalOpts
         expand bool `x,e,ex,exp,expand`
         merge  bool `m,merge` // TODO: implement this merge opt
+        name   bool `n,name,file-name,non-full`
         join []string `j,join`
         clo  []string `clo,closure`
         def  []string `def,var`
@@ -2213,7 +2218,9 @@ func builtinStr(ctx Context, strval bool, args... Value) (result Value) {
                 var strs []string
                 for _, d := range defs {
                         var t string
-                        if v := d.value; v == nil { t = "<nil>" } else
+                        var v = d.value
+                        if f, y := v.(fullfile); y && opts.name { v = f.File }
+                        if v == nil { t = "<nil>" } else
                         if strval { t = v.Strval(ctx)           } else
                         if w == 0 { t = v.String()              } else {
                                 t = v.expand(ctx, w).String()
@@ -2223,6 +2230,7 @@ func builtinStr(ctx Context, strval bool, args... Value) (result Value) {
                 }
                 for _, a := range args {
                         var t string
+                        if f, y := a.(fullfile); y && opts.name { a = f.File }
                         if strval { t = a.Strval(ctx) } else
                         if w == 0 { t = a.String()    } else {
                                 t = a.expand(ctx, w).String()
@@ -3035,10 +3043,17 @@ func builtinAddPrefix(ctx Context, args... Value) (res Value) {
                 if !prefix.True(ctx) { continue }
                 var p, y = prefix.(*Pair)
                 for _, val := range vals {
-                        if y {
-                                if !isNil(p.Value) {
-                                        val = MakeBarecomp(val.Position(), p.Value, val)
+                        if /* false && !val.True(ctx) */isTrivial(val) { continue }
+                        if y && !isTrivial(p.Value) {
+                                val = MakeBarecomp(val.Position(), p.Value, val)
+                        }
+                        if val.expandible(ctx, expandClosure) {
+                                if y {
+                                        val = paircomp{MakePair(p.Position(), p.Key, val)}
+                                } else {
+                                        val = precomp{prefix, val}
                                 }
+                        } else if y {
                                 val = MakePair(p.Position(), p.Key, val)
                         } else {
                                 val = MakeBarecomp(val.Position(), prefix, val)
@@ -3053,6 +3068,7 @@ func builtinAddPrefix(ctx Context, args... Value) (res Value) {
 
 type builtinAddSuffixOpts struct {
         generalOpts
+        final bool `final`
 }
 func builtinAddSuffix(ctx Context, args... Value) (res Value) {
         if len(args) < 1 {
@@ -3072,14 +3088,24 @@ func builtinAddSuffix(ctx Context, args... Value) (res Value) {
         for _, suffix := range suffixs {
                 if !suffix.True(ctx) { continue }
                 for _, val := range vals {
-                        if p, y := val.(*Pair); y {
-                                if isNil(p.Value) {
-                                        p.Value = val
+                        if /* false && !val.True(ctx) */isTrivial(val) {
+                                continue
+                        }
+                        var pos = val.Position()
+                        var p, y = val.(*Pair)
+                        if y && !isTrivial(p.Value) {
+                                val = MakeBarecomp(p.Key.Position(), val, p.Key)
+                        }
+                        if val.expandible(ctx, expandClosure) {
+                                if y {
+                                        val = paircomp{MakePair(pos, val, p.Value)}
                                 } else {
-                                        p.Value = MakeBarecomp(p.Value.Position(), p.Value, suffix)
+                                        val = rearcomp{val, suffix}
                                 }
+                        } else if y {
+                                val = MakePair(pos, val, p.Value)
                         } else {
-                                val = MakeBarecomp(val.Position(), val, suffix)
+                                val = MakeBarecomp(pos, val, suffix)
                         }
                         list = append(list, val)
                 }
