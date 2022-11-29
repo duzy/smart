@@ -856,6 +856,12 @@ func (d *def) call1(ctx Context, w expandfacet, a... Value) (res Value) {
 }
 
 func (d *def) call(ctx Context, w expandfacet, a... Value) (res Value) {
+        if false && d.name == "cflags" && len(a) == 1 && // FIXME: cflags should not be void
+                a[0].String() == "/Volumes/workspace/external/openssl/crypto/modes/ctr128.c" {
+                warn(ctx, "%v", d)
+                warn(ctx, "%v", a)
+                warn(ctx, "%v", d.origin).debug(1)
+        }
         switch d.origin {
         case DefArg, DefAuto:
                 if w&expandPlaceholders == 0 && d.name == "_" {
@@ -867,7 +873,7 @@ func (d *def) call(ctx Context, w expandfacet, a... Value) (res Value) {
                 } else if t := ctx.autoGet(d.name); t != nil {
                         res = t.call1(ctx, w, a...)
                 }
-        case DefDefault:
+        case DefDefault, DefVoid:
                 res = d.call1(ctx, w, a...)
         case DefExecute:
                 res = d.execute(ctx, a...)

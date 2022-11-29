@@ -1867,7 +1867,7 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
 ListLoop:
     for _, d := range list {
         var name = d.Name()
-        if strings.HasPrefix(name, "~") ||
+        if  strings.HasPrefix(name, "~") ||
             strings.HasSuffix(name, ".#") ||
             strings.HasSuffix(name, ".smart") ||
             strings.HasSuffix(name, ".sm") { continue ListLoop }

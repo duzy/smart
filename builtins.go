@@ -62,6 +62,7 @@ type BuiltinFunc struct {
 
 var builtins = map[string]BuiltinFunc {
         `typeof`:       BuiltinFunc{builtinTypeof, false, 0, expandZero},
+        `origin`:       BuiltinFunc{builtinOrigin, false, 0, expandZero},
         `defined`:      BuiltinFunc{builtinDefined, false, 0, expandZero},
 
         `position`:     BuiltinFunc{builtinPosition, false, 0, expandZero},
@@ -612,6 +613,28 @@ func builtinTypeof(ctx Context, args... Value) (res Value) {
         return MakeListOrScalar(pos, elems)
 }
 
+type builtinOriginOpts struct {
+        generalOpts
+}
+func builtinOrigin(ctx Context, args... Value) (res Value) {
+        var (
+                scope = ctx.Scope()
+                opts builtinOriginOpts
+                elems []Value
+        )
+        for _, arg := range parseHeadArgsMerge(ctx, &opts, 0, args...) {
+                var pos = arg.Position()
+                if name := arg.Strval(ctx); name == "" {
+                        elems = append(elems, MakeNil(pos))
+                } else if def := scope.FindDef(name); def != nil {
+                        elems = append(elems, MakeString(pos, def.origin.String()))
+                } else {
+                        elems = append(elems, MakeNil(pos))
+                }
+        }
+        return MakeListOrScalar(ctx.Position(), elems)
+}
+
 type builtinDefinedOpts struct {
         generalOpts
 }
@@ -655,24 +678,37 @@ func builtinPushContext(ctx Context, args... Value) (res Value) {
 
 type builtinPopContextOpts struct {
         generalOpts
+        rules []Value `r,rule,rules`
 }
 func builtinPopContext(ctx Context, args... Value) (res Value) {
-        var (
-                dc = ctx.defaultContext()
-                l = len(dc.stack)
-        )
-        if l == 0 { return }
-
-        var (
-                scope = ctx.Scope()
-                m = dc.stack[l-1]
-                opts builtinPopContextOpts
-        )
+        var opts builtinPopContextOpts
         for _, arg := range parseHeadArgsMerge(ctx, &opts, plain, args...) {
                 warn(ctx, "unused argument: %T %v", arg, arg).debug(1)
                 break
         }
-        for s, d := range m {
+
+        var rules []Value
+        var ents []Entry
+        var proj = ctx.Project()
+        for _, r := range opts.rules {
+                if v, y := r.(*Group); !y { rules = append(rules, v) } else {
+                       rules = append(rules, v.Elems...)
+                }
+        }
+        ForEntries: for _, e := range proj.concrete {
+                var name = e.Name(ctx)
+                for _, r := range rules {
+                        if r.Strval(ctx) == name { continue ForEntries }
+                }
+                ents = append(ents, e)
+        }
+        proj.concrete = ents
+
+        var scope = ctx.Scope()
+        var dc = ctx.defaultContext()
+        var l = len(dc.stack)
+        if l == 0 { return }
+        for s, d := range dc.stack[l-1] {
                 if d == nil { if s == "" { continue }
                         scope.mutex.Lock()
                         delete(scope.elems, s)
@@ -3223,8 +3259,8 @@ func builtinFindstring(ctx Context, args... Value) (res Value) {
 // $(contains a b -or=(c1 c2 c3), v1 v2 …)     -- xx
 type builtinContainsOpts struct {
         generalOpts
-        string bool `s,str,string`
         match bool `m,mat,match,p,pat,pattern`
+        string bool `s,str,string`
 }
 func builtinContains(ctx Context, args... Value) (res Value) {
         var (
@@ -3237,7 +3273,7 @@ func builtinContains(ctx Context, args... Value) (res Value) {
                 return
         }
 
-        var w = plain|expandPairVal
+        const w = plain|expandPairVal
         vals, list = parseHeadArgsRequired(ctx, &opts, w, args...)
         if len(vals) == 0 || len(list) == 0 { return }
         list = mergex(ctx, w, list...)
@@ -3248,7 +3284,7 @@ func builtinContains(ctx Context, args... Value) (res Value) {
         )
         // NOTE: returns true if list contains all vals in it's presented order.
         ForVals: for _, val := range vals {
-                if opts.string { s = val.Strval(ctx)}
+                if opts.string { s = val.Strval(ctx) }
                 for _, elem := range list {
                         if opts.string {
                                 if elem.Strval(ctx) == s {
@@ -3261,13 +3297,12 @@ func builtinContains(ctx Context, args... Value) (res Value) {
                         } else if elem.cmp(ctx, val) == cmpEqual {
                                 y += 1; continue ForVals
                         }
-                        if opts.debug>0 && !opts.string && val.Strval(ctx) == elem.Strval(ctx) {
+                        if opts.debug>0 && !opts.string && !isNil(elem) &&
+                                val.Strval(ctx) == elem.Strval(ctx) {
                                 warn(ctx, "wrong: %T %v <-> %T %v", val, val, elem, elem).of(val)
                         }
                 }
-                if opts.debug>0 {
-                        warn(ctx, "found 0: %T %v", val, val).of(val)
-                }
+                if opts.debug>0 { warn(ctx, "found 0: %T %v", val, val).of(val) }
         }
 
         var b = (y == len(vals))

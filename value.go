@@ -5656,6 +5656,7 @@ func (p *delegate) expandible(ctx Context, w expandfacet) (res bool) {
     }
     return
 }
+var dd bool
 func (p *delegate) expand(ctx Context, w expandfacet) (res Value) {
     if ctx = positional(ctx, p.position); isNil(p.x) {
         erro(ctx, "delegate of nil: %v (w=%024b)", p, w).at(p.position)
@@ -5680,17 +5681,16 @@ func (p *delegate) expand(ctx Context, w expandfacet) (res Value) {
         // s == "$(foreach $1,&(.test.foo)$_)" ||
         // s == "$(value -c &(.test.x))" ||
         // s == "$(.test$1)" ||
-        s == "$(.test)" ||
+        // s == "$(.test)" ||
         (false && s == "") {
         defer func() { if r := res.String();
-            r == "foobar $1-$2 foobar $1$1$1$1-$2$2$2$2 foobar $1$1$1$1-$2$2$2$2" ||
+            // r == "foobar $1-$2 foobar $1$1$1$1-$2$2$2$2 foobar $1$1$1$1-$2$2$2$2" ||
             (false && r == "") {
             var t, y = res.(unexpanded)
             var same = res == p || (y && t.Value == p)
-            var t1 = autoGet(ctx, "1")
-            var t2 = autoGet(ctx, "2")
-            var t3 = autoGet(ctx, "_")
-            warn(ctx, "delegate.expand: %v ; %v ; %v", t1, t2, t3)
+            warn(ctx, "delegate.expand: 1: %v", autoGet(ctx, "1"))
+            warn(ctx, "delegate.expand: 2: %v", autoGet(ctx, "2"))
+            warn(ctx, "delegate.expand: _: %v", autoGet(ctx, "_"))
             warn(ctx, "delegate.expand: %v", s)
             warn(ctx, "delegate.expand: -> %T %v", res, res)
             if true {
@@ -5756,6 +5756,8 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
         // s == "$(.test.z y$1,y$2)" ||
         // s == "$(ext $@)" ||
         // (db > 0 && s == "$1") ||
+        // s == "$(debug -s=50 -n=60 $1)" ||
+        // (dd && s == "$(-std.$_)") ||
         (false && s == "")) { db += 1
         defer func() { if res != nil { if r := res.String(); true ||
             // r == "foobar $1-$2 foobar $1$1$1$1-$2$2$2$2 foobar $1$1$1$1-$2$2$2$2" ||
@@ -5767,33 +5769,34 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
                 warn(ctx, "%T %v %v (merge(p.a))", x, x, merge(p.a...))
                 for _, a := range merge(p.a...) {
                     var t = a.expand(ctx, plain)
-                    warn(ctx, ">  %p %T %v; %T %v", a, a, a, t, t) }
+                    warn(ctx, ">  %T %v; %T %v", a, a, t, t) }
                 warn(ctx, "%T %v %v (merge(args))", x, x, merge(args...))
                 for _, a := range merge(args...) {
                     var t = a.expand(ctx, plain)
-                    warn(ctx, ">  %p %T %v; %T %v", a, a, a, t, t) }
+                    warn(ctx, ">  %T %v; %T %v", a, a, t, t) }
 
                 warn(ctx, "%T %v %v (p.a)", x, x, p.a)
                 for _, a := range p.a {
                     var t = a.expand(ctx, plain)
-                    warn(ctx, ">  %p %T %v; %T %v", a, a, a, t, t) }
+                    warn(ctx, ">  %T %v; %T %v", a, a, t, t) }
                 warn(ctx, "%T %v %v (args)", x, x, args)
                 for _, a := range args {
                     var t = a.expand(ctx, plain)
-                    warn(ctx, ">  %p %T %v; %T %v", a, a, a, t, t) }
+                    warn(ctx, ">  %T %v; %T %v", a, a, t, t) }
             }
             var t, y = res.(unexpanded)
             var same = res == p || (y && t.Value == p)
-            var t1 = autoGet(ctx, "1")
-            var t2 = autoGet(ctx, "2")
-            var t3 = autoGet(ctx, "_")
-            warn(ctx, "reveal: %v ; %v ; %v", t1, t2, t3)
+            warn(ctx, "reveal: 1: %v", autoGet(ctx, "1"))
+            warn(ctx, "reveal: 2: %v", autoGet(ctx, "2"))
+            warn(ctx, "reveal: _: %v", autoGet(ctx, "_"))
             warn(ctx, "reveal: %v", p)
             warn(ctx, "reveal: args=%v, unexpanded=%v, transformed=%v", args, u, n)
             warn(ctx, "reveal: -> %T %v (same=%v)", res, res, same)
             if !same {
+                ; dd = true
                 var t = res.expand(ctx, w)
                 warn(ctx, "reveal: -> %T %v", t, t)
+                ; dd = false
             } else if y {
                 warn(ctx, "reveal: unexpanded: %T %v", t.Value, t.Value)
             }
@@ -6084,47 +6087,49 @@ func (p *closure) expand(ctx Context, w expandfacet) (res Value) {
     }
 }
 func (p *closure) disclose(ctx Context, w expandfacet) (res Value, final bool) {
-    res = p // set default result to self
-
     var (
         args, u, n = p.args(ctx, w)
         unresolved *unresolvedobject
+        str string // the name in string form
         x Object
         y bool
     )
-    if true { if s := p.String();
+    if false { if s := p.String();
         // s == "&(.test.v2)" ||
-        s == "&(objects)" ||
+        // s == "&(objects)" ||
+        s == "&(cflags $<)" ||
+        (dd && s == "&(-std.$_)") ||
         (false && s == "") {
-        defer func() { if r := res.String(); p != res && ( //true ||
-            strings.Contains(r, "libunwind.o") ||
+        defer func() { if r := res.String(); p != res && ( true ||
+            // strings.Contains(r, "libunwind.o") ||
             // r == "&(.test.v2)" ||
             (false && r == "")) {
             if len(p.a)>0 || len(args)>0 || n>0 {
                 warn(ctx, "%T %v %v (merge(p.a))", x, x, merge(p.a...))
                 for _, a := range merge(p.a...) {
                     var t = a.expand(ctx, plain)
-                    warn(ctx, ">  %p %T %v; %T %v", a, a, a, t, t) }
+                    warn(ctx, ">  %T %v -> %T %v", a, a, t, t) }
+
                 warn(ctx, "%T %v %v (merge(args))", x, x, merge(args...))
                 for _, a := range merge(args...) {
                     var t = a.expand(ctx, plain)
-                    warn(ctx, ">  %p %T %v; %T %v", a, a, a, t, t) }
+                    warn(ctx, ">  %T %v -> %T %v", a, a, t, t) }
 
                 warn(ctx, "%T %v %v (p.a)", x, x, p.a)
                 for _, a := range p.a {
                     var t = a.expand(ctx, plain)
-                    warn(ctx, ">  %p %T %v; %T %v", a, a, a, t, t) }
+                    warn(ctx, ">  %T %v -> %T %v", a, a, t, t) }
+
                 warn(ctx, "%T %v %v (args)", x, x, args)
                 for _, a := range args {
                     var t = a.expand(ctx, plain)
-                    warn(ctx, ">  %p %T %v; %T %v", a, a, a, t, t) }
+                    warn(ctx, ">  %T %v -> %T %v", a, a, t, t) }
             }
             var t, y = res.(unexpanded)
             var same = res == p || (y && t.Value == p)
-            var t1 = autoGet(ctx, "1")
-            var t2 = autoGet(ctx, "2")
-            var t3 = autoGet(ctx, "_")
-            warn(ctx, "disclose: %v ; %v ; %v", t1, t2, t3)
+            warn(ctx, "disclose: 1: %v", autoGet(ctx, "1"))
+            warn(ctx, "disclose: 2: %v", autoGet(ctx, "2"))
+            warn(ctx, "disclose: _: %v", autoGet(ctx, "_"))
             warn(ctx, "disclose: args=%v ; unexpanded=%v, transformed=%v", args, u, n)
             warn(ctx, "disclose: %v ; x: %T %v (%v)", p, x, x, (x==unresolved))
             warn(ctx, "disclose: -> %T %v (same=%v)", res, res, same)
@@ -6139,7 +6144,8 @@ func (p *closure) disclose(ctx Context, w expandfacet) (res Value, final bool) {
         }} ()
     }}
 
-    var str string // the name in string form
+    res = p // set default result to self
+
     if unresolved, y = p.x.(*unresolvedobject); y {
         // Expand name first, for example of $(.test$1) containing '$1':
         //     .test.y := &(.test$1)
@@ -6967,9 +6973,9 @@ func permVal(ctx Context, v Value, i uint32) (res os.FileMode) {
 
 func expand(ctx Context, w expandfacet, values ...Value) (elems []Value, u, n int) {
     for _, elem := range values {
-        if elem == nil {
-            continue // TODO: report nil expand ??
-        } else if val := elem.expand(ctx, w); val == nil {
+        if elem == nil { continue } // TODO: report nil expand ??
+        var ctx = positional(ctx, elem.Position())
+        if val := elem.expand(ctx, w); val == nil {
             errostack(ctx, 5, "nil: %T %v", elem, elem).debug(10)
             return
         } else if elems = append(elems, val); val != elem {
