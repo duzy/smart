@@ -1191,7 +1191,7 @@ func (p *parser) parseClosureDelegate(ctx Context) (result Value) {
 				}
 
 				erro(ctx, "%v: %T %v -> '%s', is nil", proj, name, name, str).of(name)
-				errostack(ctx, 5, "%v: %v", proj, ctx).of(name).debug(64)
+				errostack(ctx, 128, "%v: %v", proj, ctx).of(name).debug(64)
 			} else if sel, ok := resolved.(*selection); ok && sel != nil {
 				obj, okay = sel, true
 				return

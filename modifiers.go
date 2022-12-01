@@ -3031,9 +3031,9 @@ func isDirtyAfter(ctx Context, target Value, t time.Time) (res bool) {
 
 type predictionOutdatedOpts struct {
         generalOpts
-        checksum bool "c,cs,checksum,crc"
         verboseUpdated  bool "vu,verbose-updated"
         verboseOutdated bool "vo,verbose-outdated"
+        checksum bool "c,cs,checksum,crc"
         silent   bool "s,silent"
 }
 func predictionOutdated(ctx Context, args... Value) (result Value) {
@@ -3052,7 +3052,7 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
         if target, _, _, err = wait(ctx); err != nil {
                 erro(ctx, "waiting traversal failed: %v", err).debug(1)
                 return
-        } else if ts := target.stat(ctx); ts == nil {
+        } else if ts := target.stat(ctx); ts == nil || ts.exists() != existenceConfirmed {
                 outdated, reason = true, "target not exists"
         } else if isDirty(ctx, target, args...) && isDirtyAfter(ctx, target, ts.mod()) {
                 outdated, reason = true, "updated prerequisites"
