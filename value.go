@@ -5430,6 +5430,7 @@ func containsUndefinedAutos(ctx Context, noUnderscore bool, vals... Value) (res 
 type unexpanded struct { Value }
 func (u unexpanded) True(ctx Context) bool { return false }
 func (u unexpanded) traverse(ctx Context) (traves travestates) { return }
+func (u unexpanded) match(_ Context, _ interface{}) (b bool, s string, a []string) { return }
 func (u unexpanded) expand(ctx Context, w expandfacet) Value {
     return u.Value.expand(ctx, w) // NOTE: for a stack in debug traces
 }
@@ -5936,7 +5937,8 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
 }
 func (p *delegate) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
     if v := p.expand(ctx, plain); v != nil {
-        return v.match(ctx, i)
+        if v != p { full, s, stems = v.match(ctx, i) }
+        return
     } else {
         erro(ctx, "%v: expand to nil", p).debug(1)
     }
