@@ -3042,7 +3042,8 @@ func compareElems(ctx Context, elemsL, elemsR []Value) (res cmpres) {
 
 type paircomp struct { *Pair }
 func (p paircomp) True(ctx Context) (res bool) {
-    if !(p.Key.expandible(ctx, expandClosure) || p.Value.expandible(ctx, expandClosure)) {
+    if !(p.Key.expandible(ctx, expandDelegate|expandClosure) ||
+        p.Value.expandible(ctx, expandDelegate|expandClosure)) {
          res = p.Pair.True(ctx)
     }
     return
@@ -3051,7 +3052,8 @@ func (p paircomp) String() (s string) {
     return p.Pair.String()
 }
 func (p paircomp) Strval(ctx Context) (s string) {
-    if !(p.Key.expandible(ctx, expandClosure) || p.Value.expandible(ctx, expandClosure)) {
+    if !(p.Key.expandible(ctx, expandDelegate|expandClosure) ||
+        p.Value.expandible(ctx, expandDelegate|expandClosure)) {
         s = p.Pair.Strval(ctx)
     }
     return

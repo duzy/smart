@@ -3083,7 +3083,7 @@ func builtinAddPrefix(ctx Context, args... Value) (res Value) {
                         if y && !isTrivial(p.Value) {
                                 val = MakeBarecomp(val.Position(), p.Value, val)
                         }
-                        if val.expandible(ctx, expandClosure) {
+                        if val.expandible(ctx, expandDelegate|expandClosure) {
                                 if y {
                                         val = paircomp{MakePair(p.Position(), p.Key, val)}
                                 } else {
@@ -3132,7 +3132,7 @@ func builtinAddSuffix(ctx Context, args... Value) (res Value) {
                         if y && !isTrivial(p.Value) {
                                 val = MakeBarecomp(p.Key.Position(), val, p.Key)
                         }
-                        if val.expandible(ctx, expandClosure) {
+                        if val.expandible(ctx, expandDelegate|expandClosure) {
                                 if y {
                                         val = paircomp{MakePair(pos, val, p.Value)}
                                 } else {
