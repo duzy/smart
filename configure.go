@@ -635,14 +635,10 @@ func modifierConfigure(ctx Context, args ...Value) (result Value, _ travestates)
 
     var value Value
     if len(args) == 0 { // Empty configuration: (configure)
-        if h := autoGet(ctx,"-"); h == nil {
-            erro(ctx, " `%v` not configured (%v)", target, d).debug(1)
+        if value = autoGet(ctx,"-"); value == nil || value == d || value.refs(ctx, d) {
             return
-        } else if h == d || h.refs(ctx, d) {
-            return
-        } else {
-            value = h
         }
+
         switch v := value.(type) {
         default: d.set(ctx, DefConfig, value)
         case *ExecResult:
