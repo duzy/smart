@@ -1814,7 +1814,7 @@ func (l *loader) parseFile(ctx Context, filename string, src interface{}, mode M
             erro(ctx, "parse file failed: %v", err).debug(128)
         }
 
-        if d := time.Now().Sub(t); d > 999*time.Millisecond {
+        if d := time.Now().Sub(t); d > time.Duration(options.slow)*time.Millisecond {
             warnstack(ctx, 10, "%v: slow loading (%v)", l.project, d).debug(1) //  → %s, filename
         } else if options.verbose {
             info(ctx, "loaded %v (%v)", filename, d).debug(1)

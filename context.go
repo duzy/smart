@@ -73,6 +73,8 @@ type commandLineOpts struct {
   noDepsGrep      bool `nodg,ngd,no-deps-grep,no-grep-deps`
   noImportFiles   bool `noif,no-import-files`
 
+  slow int64 `sl,slow`
+
   fastMode        bool `f,fm,fast,fast-mode`
   failOnErrors    bool `fe,foe,fail-on-errors`
 
@@ -185,6 +187,8 @@ var options = commandLineOpts{
 
   failOnErrors: true,
   fastMode: true,
+
+  slow: 1999,
 }
 
 type diagType int
