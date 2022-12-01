@@ -249,16 +249,14 @@ func configureDump(ctx Context, fields map[string]Value, params ...Value) (resul
 }
 
 func configureBoolValue(ctx Context) (result bool) {
-    if d := autoGet(ctx, "-"); d == nil {
-        return
-    } else if value := d.expand(ctx, plain); isNil(value) || value == d {
-        return
-    } else { for i, v := range merge(value) {
+    var d = autoGet(ctx, "-")
+    if d = autoGet(ctx, "-"); d == nil { return }
+    for i, v := range merge(d.expand(ctx, plain)) {
         if v == nil { continue } else {
             result = (i == 0 || result) && v.True(ctx)
         }
         if !result { break }
-    }}
+    }
     return
 }
 
@@ -418,8 +416,8 @@ ForInParams:
         )
         if _, ok := value.(*Compound); ok {
             value = MakeString(pos, value.Strval(ctx))
-        } else if v := value.expand(ctx, plain); v != nil && v != value {
-            value = v
+        } else if value != nil {
+            value = value.expand(ctx, plain)
         }
 
         for _, par := range prog.params {
@@ -698,7 +696,7 @@ ForConfig:
             value = MakeNil(a.Position())
         } else if isNil(v) || isNone(v) || isUndef(v) {
             // noop
-        } else if v = value.expand(ctx, plain); !isNil(v) && v != value {
+        } else if v = value.expand(ctx, plain); v != nil && v != value {
             value = v
         }
 
