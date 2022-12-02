@@ -25,6 +25,8 @@ import (
 
 const productVerTag = "dev" // dev, alpha, beta, release
 
+var dd bool
+
 type commandLineOpts struct {
   help            bool `h,help`
 

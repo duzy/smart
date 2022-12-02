@@ -4853,7 +4853,9 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                         }
                         continue
                 } else if val = def.Call(ctx); isNil(val) {
-                        if true { warn(ctx, "%v is nil (%T)", name, val).of(def).debug(1) }
+                        if def.origin != DefExecute || def.value != nil {
+                                warn(ctx, "%v is nil (%T)", name, val).of(def).debug(1)
+                        }
                         if cf := project.configuration(ctx); cf == nil {
                                 erro(ctx, "%v: configuration file not defined", name, cf).of(def).debug(1)
                                 return

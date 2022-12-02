@@ -16,8 +16,9 @@ import (
 )
 
 // A Scope maintains a set of objects;
-type Scope struct {
+type Scope struct { // TODO: remote Scope struct, use scopeContext instead
 	mutex sync.Mutex
+
 	elems map[string]Object
 	position Position
 	project *Project

@@ -1136,6 +1136,12 @@ func (p *parser) parseClosureDelegate(ctx Context) (result Value) {
 		}
 
 		if val := name.expand(ctx, ident); val != name {
+			if false && strings.Contains(val.String(), "configure~darwin.include.type.$_") {
+				; dd = true
+				info(ctx, "%T %v ; %v ; %v", val, val, name.expand(ctx, ident|expandPlaceholders),
+					ctx.Scope().FindDef("_")).debug(1)
+				; dd = false
+			}
 			if u, y := val.(unexpanded); y {
 				obj, okay = unresolved(proj, u.Value), true
 				return
@@ -2819,25 +2825,20 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, 
 
 	defer p.closeScope(p.openScope("template block"))
 
-	var position = p.Position()
-	ctx = positional(ctx, position)
+	ctx = p.posit(ctx)
 
-	if true { /* NOTE: vars has definition for "_" */ } else
-	if def, alt := p.def(position, "_"); alt != nil {
-		erro(ctx, "name `_' already taken, not automatic (%T).", alt)
-	} else if def == nil {
-		erro(ctx, "'_' can not be defined")
-	} else {
-		assert(def.value == nil, "initial automatic values must be nil")
-		def.origin = DefAuto
-	}
+	var position = p.Position()
+	// var cc = autoContext{ Context:ctx, defs:make(autoDefMap) }
 
 	for s, v := range vars {
-		var def, alt = p.def(p.Position(), s)
-		if alt == nil { def.set(ctx, DefAuto, v) } else {
-			erro(ctx, "variable '%s' already taken", s).at(p.Position()).debug(1)
+		if def, alt := p.def(position, s); alt == nil {
+			def.set(ctx, DefAuto, v)
+		} else {
+			erro(ctx, "variable '%s' already taken", s).debug(1)
 		}
 	}
+
+	// ctx = &cc
 
 	var savedBits = p.bits
 	p.bits |= parsingTemplateBlock

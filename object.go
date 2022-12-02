@@ -312,7 +312,7 @@ func (am autoDefMap) clone() (res autoDefMap) {
 
 type autoContext struct {
         Context
-        defs autoDefMap // autos
+        defs autoDefMap
         //mutex sync.RWMutex
 }
 func (ac *autoContext) inner() Context { return ac.Context }
@@ -331,6 +331,9 @@ func (ac *autoContext) closureResolveAuto(name string) (obj Object, found bool) 
                 obj, found = ac.defs[name]
                 //ac.mutex.Unlock()
         }
+        if false && obj == nil { if o := ac.Scope().FindDef(name); o != nil {
+                obj, found = o, true
+        }}
         return
 }
 func (ac *autoContext) auto() *autoContext { return ac }
@@ -346,6 +349,7 @@ func (ac *autoContext) autoGet(name string) (res *def) {
         } else if res = ic.autoGet(name); traverseArgumentedExpand || res != nil {
                 // done!
         }
+        if false && res == nil { res = ac.Scope().FindDef(name) }
         return
 }
 
@@ -824,8 +828,6 @@ func isDigits(s string) bool {
         return !scanner.IsDigit(c) }) < 0
 }
 
-//TODO: func (*def) prepend(Context, ...Value) (error)
-
 func (d *def) call1(ctx Context, w expandfacet, a... Value) (res Value) {
         if d.bits&defUnavail == 0 && d.value != nil {
                 if len(a)>0 {
@@ -840,38 +842,25 @@ func (d *def) call1(ctx Context, w expandfacet, a... Value) (res Value) {
                 res = d.value.expand(ctx, w|expandDigits)
                 d.bits = savedBits
                 // d.mutex.Unlock()
-
-                if false && res != nil && d.name == ".test.z" { if s := res.String(); (
-                        s == "$(.test.z y$1,y$2)" ||
-                        false) {
-                        info(ctx, "%v len=%d", a, len(a))
-                        info(ctx, "%v %v", autoGet(ctx.inner(), "1"), autoGet(ctx, "1"))
-                        info(ctx, "%v %v", autoGet(ctx.inner(), "2"), autoGet(ctx, "2"))
-                        info(ctx, "%T %v (%s)", d.value, d.value, d.name)
-                        info(ctx, "%T %v", res, res)
-                        infostack(ctx, 1, "").debug(8)
-                }}
         }
         return
 }
 
 func (d *def) call(ctx Context, w expandfacet, a... Value) (res Value) {
-        if false && d.name == "cflags" && len(a) == 1 && // FIXME: cflags should not be void
-                a[0].String() == "/Volumes/workspace/external/openssl/crypto/modes/ctr128.c" {
-                warn(ctx, "%v", d)
-                warn(ctx, "%v", a)
-                warn(ctx, "%v", d.origin).debug(1)
-        }
         switch d.origin {
         case DefArg, DefAuto:
                 if w&expandPlaceholders == 0 && d.name == "_" {
-                        // nil
+                        // nil ⇒ unexpanded
                 } else if w&expandDigits == 0 && isDigits(d.name) {
-                        // nil
+                        // nil ⇒ unexpanded
                 } else if w&expandAuto == 0 {
-                        // nil
+                        // nil ⇒ unexpanded
                 } else if t := ctx.autoGet(d.name); t != nil {
                         res = t.call1(ctx, w, a...)
+                } else if isTrivial(d.value) {
+                        res = d.value
+                } else {
+                        res = d.call1(ctx, w, a...)
                 }
         case DefDefault, DefVoid:
                 res = d.call1(ctx, w, a...)
@@ -903,14 +892,17 @@ func (d *def) call(ctx Context, w expandfacet, a... Value) (res Value) {
 }
 
 func call(ctx Context, p *delegate, w expandfacet, d *def, args ...Value) (res Value, final bool) {
-    if res = d.call(ctx, w, args...); res == nil {
-        if final = true; d.value == nil {
-            res = unexpanded{p}
-        } else {
-            res = d.value
+        if res = d.call(ctx, w, args...); res == nil {
+                if final = true; d.value == nil {
+                        if o := ctx.Scope().FindDef(d.name); o != nil && o != d {
+                                res = o.call(ctx, w, args...)
+                        }
+                        if res == nil { res = unexpanded{p} }
+                } else {
+                        res = d.value
+                }
         }
-    }
-    return
+        return
 }
 
 func (d *def) execute(ctx Context, a... Value) (res Value) {

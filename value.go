@@ -5623,9 +5623,8 @@ func (p *delegate) elemStr(ctx Context, o Object, k elemkind) string {
     return p._elemStr(ctx, o, k, "$")
 }
 func (p *delegate) args(ctx Context, w expandfacet) (args []Value, u, n int) {
-    if len(p.a) < 1 {
-        return // does nothing
-    } else if b, y := p.x.(*Builtin); y {
+    if len(p.a) < 1 { return } else
+    if b, y := p.x.(*Builtin); y {
         if l, m := len(p.a), b.s.m; m == expandZero || l <= b.s.n {
             args, u, n = expand(ctx, w|m, p.a...)
         } else if l == 0 { // NOTE: b.s.n could be -1
@@ -5659,7 +5658,6 @@ func (p *delegate) expandible(ctx Context, w expandfacet) (res bool) {
     }
     return
 }
-var dd bool
 func (p *delegate) expand(ctx Context, w expandfacet) (res Value) {
     if ctx = positional(ctx, p.position); isNil(p.x) {
         erro(ctx, "delegate of nil: %v (w=%024b)", p, w).at(p.position)
@@ -5761,6 +5759,7 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
         // (db > 0 && s == "$1") ||
         // s == "$(debug -s=50 -n=60 $1)" ||
         // (dd && s == "$(-std.$_)") ||
+        (dd && s == "$_") ||
         (false && s == "")) { db += 1
         defer func() { if res != nil { if r := res.String(); true ||
             // r == "foobar $1-$2 foobar $1$1$1$1-$2$2$2$2 foobar $1$1$1$1-$2$2$2$2" ||
@@ -5792,7 +5791,8 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
             warn(ctx, "reveal: 1: %v", autoGet(ctx, "1"))
             warn(ctx, "reveal: 2: %v", autoGet(ctx, "2"))
             warn(ctx, "reveal: _: %v", autoGet(ctx, "_"))
-            warn(ctx, "reveal: %v", p)
+            warn(ctx, "reveal: _: %v", ctx.Scope().FindDef("_"))
+            warn(ctx, "reveal: %T: %v", p.x, p)
             warn(ctx, "reveal: args=%v, unexpanded=%v, transformed=%v", args, u, n)
             warn(ctx, "reveal: -> %T %v (same=%v)", res, res, same)
             if !same {
@@ -5896,14 +5896,8 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
         // TODO: only callable if args[0] is plain
     }
 
-    if false && done {
-        if p.x != x || n > 0 { res = &delegate{p.valbase, p.l, x, args} }
-        if w&expandClose != 0 { return res, true }
-        return unexpanded{res}, true
-    } else if d, y := x.(*def); y {
+    if d, y := x.(*def); y {
         return call(ctx, p, w, d, args...)
-    } else if false && binc {
-        return builtinCall(ctx, p, w, args...), true
     } else if done {
         if p.x != x || n > 0 { res = &delegate{p.valbase, p.l, x, args} }
         if w&expandClose != 0 { return res, true }
