@@ -122,10 +122,12 @@ func (filemap *FileMap) stat(ctx Context, base, pre, name string) (file *File) {
 
     var sub string
     if sub = path.Strval(ctx); sub == "" {
-      erro(ctx, "filemap path '%v' is empty", path).at(path.Position())
-      erro(ctx, "filemap path '%v' is empty (pattern=%v)", path, filemap.patts).at(pos)
-      erro(ctx, "filemap path '%v' is empty (project=%v)", path, ctx.Project())//.at(pos)
-      erro(ctx, "filemap path '%v' is empty in %v", path, ctx).debug(64)
+      if true {
+        erro(ctx, "filemap path '%v' is empty (%T)", path, path).at(path.Position())
+        erro(ctx, "filemap path '%v' is empty (pattern=%v)", path, filemap.patts).at(pos)
+        erro(ctx, "filemap path '%v' is empty (project=%v)", path, ctx.Project())//.at(pos)
+        erro(ctx, "filemap path '%v' is empty in %v", path, ctx).debug(64)
+      }
       return
     } else if s := filepath.Clean(sub); sub != s {
       if false {

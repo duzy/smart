@@ -669,21 +669,30 @@ func (d *def) isEmpty(ctx Context) bool {
         return isTrivial(val) //isNone(val) || isNil(val)
 }
 func (d *def) val(ctx Context, value Value) { d.set(ctx, d.origin, value) }
-func (d *def) set(ctx Context, origin Origin, value Value, appendVals... Value) {
+func (d *def) set(ctx Context, origin Origin, value Value, app... Value) {
+        var pos = d.position
         if value == nil {
-                // NOTE: will append values iif len(appendVals) > 0
+                // NOTE: will append values iif len(app) > 0
         } else if d.value == value {
                 if d.origin != origin { d.origin = origin }
                 return
-        } else if def, ok := value.(*def); ok {
-                // Appending Def value is not recommended, but if it does, we make
-                // a warning here to give a chance for further optimization.
-                warn(ctx, "%v; (%v)", d, d.origin)
-                warnstack(ctx, 5, "%v: append a Def value: %v", d.name, def).debug(16)
-        } else if false && len(appendVals) > 0 {
-                errostack(ctx, 5, "%v: set and append values at the same time, %v",
-                        d.name, appendVals).debug(16)
-                return
+        }
+
+        if !pos.IsValid() {
+                if value != nil { pos =  value.Position() } else
+                if len(app) > 0 { pos = app[0].Position() }
+        }
+
+        var vals []Value
+        if value != nil { vals = merge(value) }
+        if len(app) > 0 { vals = append(vals, app...) }
+        for _, val := range vals {
+                if def, ok := val.(*def); ok {
+                        // Appending Def value is not recommended, but if it does, we make
+                        // a warning here to give a chance for further optimization.
+                        warn(ctx, "%v; (%v)", d, d.origin)
+                        warnstack(ctx, 5, "%v: append a Def value: %v", d.name, def).debug(16)
+                }
         }
 
         if d.origin == DefArg || d.origin == DefAuto {
@@ -691,136 +700,57 @@ func (d *def) set(ctx Context, origin Origin, value Value, appendVals... Value) 
                         warnstack(ctx, 3, "%s: %v != %v", d.name, d.origin, origin).debug(6)
                 }
 
-                var pos = ctx.Position()
-                if !pos.IsValid() { pos = d.position }
-                if value == nil && len(appendVals) != 0 {
+                if value == nil && len(app) != 0 {
                         if a := ctx.autoGet(d.name); a != nil {
-                                if isTrivial(value) {
-                                        value = MakeListOrScalar(pos, appendVals)
-                                } else if l, ok := value.(*List); ok {
-                                        l.Append(appendVals...)
-                                } else {
-                                        var vals = []Value{ value }
-                                        vals = append(vals, appendVals...)
-                                        value = MakeList(pos, vals...)
+                                if !isTrivial(a.value) {
+                                        vals = append(merge(a.value), vals...)
                                 }
                                 // a.mutex.Lock()
-                                a.value = value
+                                a.value = MakeListOrScalar(pos, vals)
                                 // a.mutex.Unlock()
                                 return
                         }
                 }
 
-                ctx.autoSet(d.name, value)
+                ctx.autoSet(d.name, MakeListOrScalar(pos, vals))
                 return
         }
 
-        if origin != DefExpand1 && origin != DefExpand2 && value != nil && value.refs(ctx, d) {
-                var (
-                        pos = d.position
-                        val = d.value
-                )
-                if !pos.IsValid() && val != nil { pos = val.Position() }
-                if options.verbose { prompt(ctx, "set %s (%v): %v\n", origin, d.name, value) }
-                if options.debug { info(ctx, "from here").at(pos).debug(1) }
-                erro(ctx, "value refers to assigning Def '%s': %v (%T)",
-                        d.name, value, value).at(pos).debug(1)
-                return
-        }
-
-        var a Value = value
-        if value == nil { if len(appendVals) > 0 {
-                // d.mutex.Lock()
-                value = d.value
-                d.value = nil // take the value
-                // d.mutex.Unlock()
-
-                var pos = appendVals[0].Position()
-                if isTrivial(value) {
-                        value = MakeListOrScalar(pos, appendVals)
-                } else if l, ok := value.(*List); ok {
-                        l.Append(appendVals...)
-                } else {
-                        var vals = []Value{ value }
-                        vals = append(vals, appendVals...)
-                        value = MakeList(pos, vals...)
-                }
-        } else if origin != DefExecute {
-                value = MakeNone(d.position)
-        }} else { switch w := plain&^expandPlain; origin {
-        case DefExpand1: // (:=) expands delegates
-                value = value.expand(ctx, w&^expandClosure)
-        case DefExpand2: // (::=) expands delegates and closures
-                value = value.expand(ctx, w|expandClosure)
-        case DefExecute: // TODO: use DefExecute1 (!=), DefExecute2 (!!=)
-                /*if err = d.execute(); err != nil {
-                        erro(ctx, "%v: stringify value '%v' failed: %v", d.origin, value, err).of(value).
-                                debug(1)
+        switch w := plain&^expandPlain; origin {
+        case DefExpand1: vals, _, _ = expand(ctx, w&^expandClosure, vals...) //  :=
+        case DefExpand2: vals, _, _ = expand(ctx, w| expandClosure, vals...) // ::=
+        default: for _, val := range vals {
+                if val != nil && val.refs(ctx, d) {
+                        if options.verbose { prompt(ctx, "set %s (%v): %v\n", origin, d.name, val) }
+                        if options.debug { info(ctx, "from here").at(pos).debug(1) }
+                        erro(ctx, "value refers to assigning Def '%s': %v (%T)",
+                                d.name, val, val).at(pos).debug(1)
                         return
-                }*/
+                }
         }}
 
-        // d.mutex.Lock()
-        d.origin, d.value = origin, value
-        // d.mutex.Unlock()
-
-        if v := value; v == nil { return } else if true {} else
-        if s := v.String(); s == "&(.test.s) $(value .test~&(.test.s))    " ||
-                s == "$(foreach $1 B b,$(value .test.$_) $(value .test~&(.test.s).$_))" ||
-                false {
-                warn(ctx, "set: %v", a)
-                warn(ctx, "set: %v", v).debug(1)
+        if value == nil {
+                if len(app) > 0 {
+                        // d.mutex.Lock()
+                        if !isTrivial(d.value) {
+                                vals = append(merge(d.value), vals...)
+                        }
+                        // d.mutex.Unlock()
+                } else if origin != DefExecute {
+                        // d.mutex.Lock()
+                        d.origin, d.value = origin, MakeNone(d.position)
+                        // d.mutex.Unlock()
+                        return
+                }
         }
+
+        // d.mutex.Lock()
+        d.origin, d.value = origin, MakeListOrScalar(pos, vals)
+        // d.mutex.Unlock()
         return
 }
 func (d *def) append(ctx Context, va... Value) {
-        if len(va) == 0 { return }
-
-        var pos = ctx.Position()
-        if !pos.IsValid() { pos = d.position }
-        for i, val := range va { // NOTE: fix Def as delegate value
-                if i == 0 { pos = val.Position() }
-
-                var def, ok = val.(*def)
-                if !ok { continue } else {
-                        // Appending Def value is not recommended, but if it does, we
-                        // make a warning here to give a chance for further optimization.
-                        warn(ctx, "%v; (%v)", d, d.origin)
-                        warnstack(ctx, 5, "%v: append Def value: %v",
-                                d.name, def).at(d.position).debug(10)
-                }
-
-                // def.mutex.Lock()
-                val = def.value
-                // def.mutex.Unlock()
-                if def == d || val.refs(ctx, d) {
-                        errostack(ctx, 5, "%v: append recursive variable '%s'", d.owner, d.name).debug(6)
-                        return
-                }
-
-                switch d.origin {
-                case DefExpand1, DefExpand2: va[i] = val
-                default: va[i] = MakeDelegate(/*val.Position()*/pos, token.LPAREN, def)
-                }
-        }
-
-        var origin = d.origin
-        switch w := plain&^expandPlain; origin {
-        case DefExpand1: // :=     expands delegates
-                if va, _, _ = expand(ctx, w&^expandClosure, va...); len(va) == 0 { return }
-        case DefExpand2: // ::=    expands delegates and closures
-                if va, _, _ = expand(ctx, w|expandClosure, va...); len(va) == 0 { return }
-        }
-
-        for _, v := range va {
-                if v != nil && (v.refs(ctx, d)/* || v.refs(ctx, d.value)*/) {
-                        warnstack(ctx, 5, "%v: append recursive variable '%s'",
-                                d.owner, d.name).debug(6)
-                        return
-                }
-        }
-
-        d.set(ctx, origin, nil, va...)
+        if len(va) > 0 { d.set(ctx, d.origin, nil, va...) }
 }
 
 func isDigits(s string) bool {
@@ -894,6 +824,7 @@ func (d *def) call(ctx Context, w expandfacet, a... Value) (res Value) {
 func call(ctx Context, p *delegate, w expandfacet, d *def, args ...Value) (res Value, final bool) {
         if res = d.call(ctx, w, args...); res == nil {
                 if final = true; d.value == nil {
+                        if false {    } else
                         if o := ctx.Scope().FindDef(d.name); o != nil && o != d {
                                 res = o.call(ctx, w, args...)
                         }

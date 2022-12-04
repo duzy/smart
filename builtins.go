@@ -4853,7 +4853,7 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                         }
                         continue
                 } else if val = def.Call(ctx); isNil(val) {
-                        if def.origin != DefExecute || def.value != nil {
+                        if false && (def.origin != DefExecute || def.value != nil) {
                                 warn(ctx, "%v is nil (%T)", name, val).of(def).debug(1)
                         }
                         if cf := project.configuration(ctx); cf == nil {

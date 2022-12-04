@@ -1136,12 +1136,6 @@ func (p *parser) parseClosureDelegate(ctx Context) (result Value) {
 		}
 
 		if val := name.expand(ctx, ident); val != name {
-			if false && strings.Contains(val.String(), "configure~darwin.include.type.$_") {
-				; dd = true
-				info(ctx, "%T %v ; %v ; %v", val, val, name.expand(ctx, ident|expandPlaceholders),
-					ctx.Scope().FindDef("_")).debug(1)
-				; dd = false
-			}
 			if u, y := val.(unexpanded); y {
 				obj, okay = unresolved(proj, u.Value), true
 				return
@@ -3355,6 +3349,9 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 			// NOTE: do.smart is always the first loaded, so the loadee will be pointed to it
 			if linfo.loadee == nil { linfo.loadee = p.Project() }
 			defer func(proj *Project) {
+				if def := proj.scope.FindDef(".after.all"); def != nil {
+					warn(ctx, "%v: %v", def.name, def.value.expand(ctx, plain)).debug(1)
+				}
 				if false && loaderProj != nil && filepath.Base(filename) == "do.smart" {
 					var ctx = positional(ctx, ident.Position())
 					assert(p.project == proj, "diverged project: %v != %v", p.project, proj)
