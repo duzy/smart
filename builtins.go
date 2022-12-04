@@ -2196,13 +2196,26 @@ func builtinPath(ctx Context, args... Value) (result Value) {
         return
 }
 
+type builtinBareOpts struct {
+        generalOpts
+        name   bool `n,name,file-name,non-full`
+}
 func builtinBare(ctx Context, args... Value) (result Value) {
+        var opts builtinBareOpts
         var vals []Value
-        for _, a := range mergex(ctx, plain, args...) {
+        for _, a := range parseHeadArgsMerge(ctx, &opts, plain, args...) {
                 var val Value
-                switch a.(type) {
+                switch t := a.(type) {
                 case *String, *Compound:
                         val = MakeBareword(a.Position(), a.Strval(ctx));
+                case *File:
+                        val = MakeBareword(a.Position(), t.name);
+                case fullfile:
+                        if opts.name {
+                                val = MakeBareword(a.Position(), t.name);
+                        } else {
+                                val = MakeBareword(a.Position(), t.Strval(ctx));
+                        }
                 default: val = a
                 }
                 vals = append(vals, val)
