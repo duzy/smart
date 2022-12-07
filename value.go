@@ -869,7 +869,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         warn(ctx, "recursion: %T %v", prereqValue, prereqValue)//.of(prereqValue)
         warn(ctx, "recursion: %T %v", targetValue, targetValue)//.of(targetValue)
         warn(ctx, "recursion: %v : %v ; in %v", targetValue, prereqFile, projects)
-        warnstack(ctx, 3, "").debug(16)
+        warnstack(ctx, 16, "").debug(32)
         return
     }}
     if traveseDetectLoops { for c := ctx.programContext(); c != nil; c = c.caller() {
