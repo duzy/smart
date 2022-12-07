@@ -32,7 +32,7 @@ func (p *Plain) Strval(_ Context) string { return p.Value.string }
 func (p *Plain) True(_ Context) bool { return strings.TrimSpace(p.Value.string) != "" }
 func (p *Plain) Integer(_ Context) (n int64, e error) { return strconv.ParseInt(p.Value.string, 10, 64) }
 func (p *Plain) Float(_ Context) (n float64, e error) { return strconv.ParseFloat(p.Value.string, 64) }
-func (p *Plain) expand(_ Context, _ expandfacet) (val Value) {
+func (p *Plain) expand(_ Context, _ facet) (val Value) {
         val = p.Value //MakeString(p.position, p.Value)
         return
 }

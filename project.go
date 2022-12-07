@@ -48,7 +48,7 @@ func (filemap *FileMap) Patterns(ctx Context) (pats []Value) {
         erro(ctx, "merge pattern '%v' failed: %v", pattern, err).of(pattern)
       } else*/
       var unexpanded int
-      if pats, unexpanded, _ = expand(ctx, plain, pattern); unexpanded>0 {
+      if pats, unexpanded, _ = plain.expand(ctx, pattern); unexpanded>0 {
         errostack(ctx, 3, "unexpanded file pattern: %v", pats).of(pattern).debug(15)
         ctx.checkErrors(true) // check here to report warnings immediately
       }

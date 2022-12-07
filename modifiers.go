@@ -53,7 +53,7 @@ func (m *modifier) refs(ctx Context, v Value) bool {
         }
         return false
 }
-func (m *modifier) expandible(ctx Context, w expandfacet) (res bool) {
+func (m *modifier) expandible(ctx Context, w facet) (res bool) {
         if res = m.name.expandible(ctx, w); !res {
                 for _, a := range m.args {
                         if res = a.expandible(ctx, w); res { break }
@@ -61,7 +61,7 @@ func (m *modifier) expandible(ctx Context, w expandfacet) (res bool) {
         }
         return
 }
-func (m *modifier) expand(ctx Context, _ expandfacet) (Value) { return m }
+func (m *modifier) expand(ctx Context, _ facet) (Value) { return m }
 func (_ *modifier) cmp(ctx Context, v Value) (res cmpres) {
         if _, ok := v.(*modifier); ok { res = cmpEqual }
         return
@@ -94,13 +94,13 @@ func (g *modifiergroup) refs(ctx Context, v Value) (res bool) {
         }
         return
 }
-func (g *modifiergroup) expandible(ctx Context, w expandfacet) (res bool) {
+func (g *modifiergroup) expandible(ctx Context, w facet) (res bool) {
         for _, m := range g.modifiers {
                 if res = m.expandible(ctx, w); res { break }
         }
         return
 }
-func (g *modifiergroup) expand(ctx Context, _ expandfacet) (Value) { return g }
+func (g *modifiergroup) expand(ctx Context, _ facet) (Value) { return g }
 func (_ *modifiergroup) cmp(ctx Context, v Value) (res cmpres) {
         if _, ok := v.(*modifiergroup); ok { res = cmpEqual }
         return

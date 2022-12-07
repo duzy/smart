@@ -37,9 +37,9 @@ const (
 )
 
 type (
-    cmpres       int
-    existence    int
-    expandfacet uint
+    cmpres    int
+    existence int
+    facet    uint
     HashBytes [sha256.Size]byte
 )
 const (
@@ -56,12 +56,14 @@ const (
     existenceNegated
 )
 const (
-    expandZero expandfacet = 0
-    expandNone expandfacet = 1<<(iota-1) // NOTE: iota starts at 2 here
+    expandZero facet = 0
+    expandNone facet = 1<<(iota-1) // NOTE: iota starts at 2 here
     expandClosure   // &(...)            -> $(...)
     expandDelegate  // $(...)            -> ......
     expandPlaceholders // $_
     expandDigits       // $1 $2 $3 ...
+    expandUnPlaceholders
+    expandUnDigits
     expandAuto      // TODO: $0 $1 $3 $@ $<    -> ...       TODO: auto -> placeholder
     expandArgList   // expanding delegate arg list
     expandArgedArgs // foo($(args))      -> foo(...)
@@ -650,8 +652,9 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
     if s != "" && s != "<#" && s != "#>" {
         point = diag(ctx, dt, s, a...)
     } else if entry == nil {
-        point = ctx.diag(dt, "in project %v:", proj)
-        if false && proj != nil { point.at(proj.position) }
+        if point = ctx.diag(dt, "in project %v:", proj); proj != nil {
+            point.at(proj.position)
+        }
         for last, i := ctx.Position(), ctx.inner(); i != nil; i = i.inner() {
             if pos := i.Position(); !pos.Same(&last) {
                 point = ctx.diag(dt, "%v: from here", proj).at(pos)
@@ -1680,13 +1683,13 @@ type Value interface {
     defs(Context, ...string) []*def
 
     // Test if this value is expandible for some bits.
-    expandible(Context, expandfacet) bool
+    expandible(Context, facet) bool
 
     // &(...)        -> $(...)
     // $(...)        -> ......
     // $(...)=$(...) -> ...=$(...), ...=...
     // foo->bar      -> ...
-    expand(Context, expandfacet) Value // result is nil or identical to this value if no expansions
+    expand(Context, facet) Value // result is nil or identical to this value if no expansions
 
     stat(Context) (*statinfo)
 
@@ -1748,7 +1751,7 @@ func (_ *valbase) Float(_ Context) (f float64, e error) { return }
 func (_ *valbase) True(_ Context) (res bool) { return }
 func (_ *valbase) refs(_ Context, _ Value) (res bool) { return }
 func (_ *valbase) defs(_ Context, _ ...string) (res []*def) { return }
-func (_ *valbase) expandible(_ Context, _ expandfacet) bool { return false }
+func (_ *valbase) expandible(_ Context, _ facet) bool { return false }
 func (_ *valbase) cmp(_ Context, _ Value) (res cmpres) { return }
 func (_ *valbase) patterned(_ Context) bool { return false }
 func (_ *valbase) match(_ Context, i interface{}) (full bool, s string, stems []string) { return }
@@ -1775,7 +1778,7 @@ func (_ *valbase) _match(ctx Context, p Value, i interface{}) (full bool, s stri
 func (_ *valbase) kind() kind { return valOther }
 
 type undef struct { Value }
-func (p undef) expand(Context, expandfacet) Value { return p }
+func (p undef) expand(Context, facet) Value { return p }
 func (p undef) String() string { return fmt.Sprintf("undef{%s}",p.Value) }
 func (p undef) Strval(Context) (s string) { return }
 func (p undef) Integer(Context) (i int64, e error) { return }
@@ -1786,8 +1789,8 @@ type returner struct {
     valbase
     Values []Value
 }
-func (p *returner) expand(ctx Context, w expandfacet) (res Value) {
-    var vals, u, n = expand(ctx, w, p.Values...)
+func (p *returner) expand(ctx Context, w facet) (res Value) {
+    var vals, u, n = w.expand(ctx, p.Values...)
     if n > 0 { res = &returner{p.valbase, vals} } else { res = p }
     if u > 0 { res = unexpanded{res} }
     return
@@ -1815,7 +1818,7 @@ func (p *Argumented) defs(ctx Context, s ...string) (res []*def) {
 }
 func (p *Argumented) updated(ctx Context, v ...bool) bool { return p.value.updated(ctx, v...) }
 func (p *Argumented) updatedDeps(ctx Context, v ...Value) []Value { return p.value.updatedDeps(ctx, v...) }
-func (p *Argumented) expandible(ctx Context, w expandfacet) (res bool) {
+func (p *Argumented) expandible(ctx Context, w facet) (res bool) {
     if res = p.value.expandible(ctx, w); !res && w&expandArgedArgs != 0 {
         for _, a := range p.args {
             if res = a.expandible(ctx, w); res { break }
@@ -1823,14 +1826,14 @@ func (p *Argumented) expandible(ctx Context, w expandfacet) (res bool) {
     }
     return
 }
-func (p *Argumented) expand(ctx Context, w expandfacet) (res Value) {
+func (p *Argumented) expand(ctx Context, w facet) (res Value) {
     var (
         args []Value = p.args
         val = p.value.expand(ctx, w)
         u, n int
     )
     if w&expandArgedArgs != 0 {
-        args, u, n = expand(ctx, w, args...)
+        args, u, n = w.expand(ctx, args...)
     }
     if len(args) == 0 {
         res = val
@@ -1935,7 +1938,7 @@ func (p *Argumented) traverse(ctx Context) (traves travestates) {
 }
 
 type None struct { valbase }
-func (p *None) expand(_ Context, _ expandfacet) Value { return p }
+func (p *None) expand(_ Context, _ facet) Value { return p }
 func (p *None) cmp(ctx Context, v Value) (res cmpres) {
     if _, ok := v.(*None); ok {
         res = cmpEqual
@@ -1952,7 +1955,7 @@ func (p *None) cmp(ctx Context, v Value) (res cmpres) {
 }
 
 type Nil struct { valbase }
-func (p *Nil) expand(_ Context, _ expandfacet) Value { return p }
+func (p *Nil) expand(_ Context, _ facet) Value { return p }
 func (p *Nil) cmp(ctx Context, v Value) (res cmpres) {
     if _, ok := v.(*Nil); ok {
         res = cmpEqual
@@ -2087,7 +2090,7 @@ func (p *Any) stat(ctx Context) (si *statinfo) {
     if v, ok := p.value.(Value); ok && v != nil { si = v.stat(ctx) }
     return
 }
-func (p *Any) expand(ctx Context, w expandfacet) (res Value) {
+func (p *Any) expand(ctx Context, w facet) (res Value) {
     if val, ok := p.value.(Value); ok && !isNil(val) {
         res = val.expand(ctx, w)
     } else {
@@ -2103,7 +2106,7 @@ func (p *Any) defs(ctx Context, s ...string) (res []*def) {
     if v, ok := p.value.(Value); ok { res = v.defs(ctx, s...) }
     return
 }
-func (p *Any) expandible(ctx Context, w expandfacet) (res bool) {
+func (p *Any) expandible(ctx Context, w facet) (res bool) {
     if v, ok := p.value.(Value); ok { res = v.expandible(ctx, w) }
     return
 }
@@ -2165,8 +2168,8 @@ func (p *Any) traverse(ctx Context) (traves travestates) {
 type negative struct { valbase; x Value }
 func (p *negative) refs(ctx Context, o Value) bool { return p.x.refs(ctx, o) }
 func (p *negative) defs(ctx Context, s ...string) []*def { return p.x.defs(ctx, s...) }
-func (p *negative) expandible(ctx Context, w expandfacet) bool { return p.x.expandible(ctx, w) }
-func (p *negative) expand(ctx Context, w expandfacet) (res Value) {
+func (p *negative) expandible(ctx Context, w facet) bool { return p.x.expandible(ctx, w) }
+func (p *negative) expand(ctx Context, w facet) (res Value) {
     if val := p.x.expand(ctx, w); val != p.x {
         res = &negative{p.valbase, val}
     } else {
@@ -2223,7 +2226,7 @@ func (p *boolean) Integer(_ Context) (v int64, _ error) {
     if p.bool { v = 1 }
     return
 }
-func (p *boolean) expand(_ Context, _ expandfacet) Value { return p }
+func (p *boolean) expand(_ Context, _ facet) Value { return p }
 func (p *boolean) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*option); ok {
         if p.bool == a.bool {
@@ -2280,7 +2283,7 @@ func (p *answer) Integer(ctx Context) (v int64, _ error) {
     if p.bool { v = 1 }
     return
 }
-func (p *answer) expand(_ Context, _ expandfacet) Value { return p }
+func (p *answer) expand(_ Context, _ facet) Value { return p }
 func (p *answer) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*option); ok {
         if p.bool == a.bool {
@@ -2339,7 +2342,7 @@ func (p *option) Integer(ctx Context) (v int64, _ error) {
 }
 func (p *option) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *option) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
-func (p *option) expand(_ Context, _ expandfacet) Value { return p }
+func (p *option) expand(_ Context, _ facet) Value { return p }
 func (p *option) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*option); ok {
         if p.bool == a.bool {
@@ -2408,28 +2411,28 @@ func (p *Bin) String() string { return fmt.Sprintf("0b%s", strconv.FormatInt(int
 func (p *Bin) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),2) }
 func (p *Bin) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *Bin) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
-func (p *Bin) expand(_ Context, _ expandfacet) Value { return p }
+func (p *Bin) expand(_ Context, _ facet) Value { return p }
 
 type Oct struct { integer }
 func (p *Oct) String() string { return fmt.Sprintf("0%s", strconv.FormatInt(int64(p.int64),8)) }
 func (p *Oct) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),8) }
 func (p *Oct) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *Oct) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
-func (p *Oct) expand(_ Context, _ expandfacet) Value { return p }
+func (p *Oct) expand(_ Context, _ facet) Value { return p }
 
 type Int struct { integer }
 func (p *Int) String() string { return strconv.FormatInt(int64(p.int64),10) }
 func (p *Int) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),10) }
 func (p *Int) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *Int) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
-func (p *Int) expand(_ Context, _ expandfacet) Value { return p }
+func (p *Int) expand(_ Context, _ facet) Value { return p }
 
 type Hex struct { integer }
 func (p *Hex) String() string { return fmt.Sprintf("0x%s", strconv.FormatInt(int64(p.int64),16)) }
 func (p *Hex) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),16) }
 func (p *Hex) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *Hex) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
-func (p *Hex) expand(_ Context, _ expandfacet) Value { return p }
+func (p *Hex) expand(_ Context, _ facet) Value { return p }
 
 const FloatEpsilon = 1e-15 /* 1e-16 */
 type Float struct { valbase; float64 } // IEEE-754 64-bit binary floating-point
@@ -2441,7 +2444,7 @@ func (p *Float) Float(ctx Context) (f float64, _ error) { return p.float64, nil 
 func (p *Float) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *Float) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Float) kind() kind { return valFloat }
-func (p *Float) expand(_ Context, _ expandfacet) Value { return p }
+func (p *Float) expand(_ Context, _ facet) Value { return p }
 func (p *Float) cmp(ctx Context, v Value) (res cmpres) {
     if _, ok := v.(*Float); ok {
         if f, e := v.Float(ctx); e != nil {
@@ -2472,7 +2475,7 @@ func (p *DateTime) Integer(ctx Context) (i int64, _ error) { return p.t.Unix(), 
 func (p *DateTime) Float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
 func (p *DateTime) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *DateTime) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
-func (p *DateTime) expand(_ Context, _ expandfacet) Value { return p }
+func (p *DateTime) expand(_ Context, _ facet) Value { return p }
 func (p *DateTime) cmp(ctx Context, v Value) (res cmpres) {
     var vt time.Time
     switch a := v.(type) {
@@ -2507,7 +2510,7 @@ func (p *Date) Integer(ctx Context) (i int64, _ error) { return p.t.Unix(), nil 
 func (p *Date) Float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
 func (p *Date) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *Date) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
-func (p *Date) expand(_ Context, _ expandfacet) Value { return p }
+func (p *Date) expand(_ Context, _ facet) Value { return p }
 
 type Time struct { DateTime }
 func (p *Time) String() string { return time.Time(p.t).Format("15:04:05.999999999Z07:00") }
@@ -2516,7 +2519,7 @@ func (p *Time) Integer(ctx Context) (i int64, _ error) { return p.t.Unix(), nil 
 func (p *Time) Float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
 func (p *Time) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
 func (p *Time) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
-func (p *Time) expand(_ Context, _ expandfacet) Value { return p }
+func (p *Time) expand(_ Context, _ facet) Value { return p }
 
 // ie. https://en.wikipedia.org/wiki/URL
 // ▶▶─<scheme>─(:)┬──────────────────────────────────────┬<path>┬───────────┬┬──────────────┬─▶◀
@@ -2665,7 +2668,7 @@ func (p *URL) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *URL) expand(ctx Context, w expandfacet) (res Value) {
+func (p *URL) expand(ctx Context, w facet) (res Value) {
     var o = &URL{ valbase: p.valbase }
     if nil != p.Scheme   { o.Scheme   = p.Scheme.expand(ctx, w) }
     if nil != p.Username { o.Username = p.Username.expand(ctx, w) }
@@ -2711,7 +2714,7 @@ func (p *Raw) Integer(ctx Context) (i int64, err error) {
 func (p *Raw) Float(ctx Context) (f float64, err error) {
     return strconv.ParseFloat(p.string, 64)
 }
-func (p *Raw) expand(_ Context, _ expandfacet) Value { return p }
+func (p *Raw) expand(_ Context, _ facet) Value { return p }
 func (p *Raw) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Raw); ok {
         if p.string == a.string { res = cmpEqual }
@@ -2753,7 +2756,7 @@ func (p *String) Integer(ctx Context) (i int64, err error) {
 func (p *String) Float(ctx Context) (f float64, err error) {
     return strconv.ParseFloat(p.string, 64)
 }
-func (p *String) expand(_ Context, _ expandfacet) Value { return p }
+func (p *String) expand(_ Context, _ facet) Value { return p }
 func (p *String) cmp(ctx Context, v Value) (res cmpres) {
     switch t := v.(type) {
     case *Group:
@@ -2800,7 +2803,7 @@ func (p *Punctuation) Strval(ctx Context) string { return p.tok.String() }
 func (p *Punctuation) True(ctx Context) bool { return false }
 func (p *Punctuation) Integer(ctx Context) (i int64, _ error) { return 0, nil }
 func (p *Punctuation) Float(ctx Context) (f float64, _ error) { return 0, nil }
-func (p *Punctuation) expand(_ Context, _ expandfacet) Value { return p }
+func (p *Punctuation) expand(_ Context, _ facet) Value { return p }
 func (p *Punctuation) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Punctuation); ok {
         if p.tok == a.tok {
@@ -2880,7 +2883,7 @@ func (p *Bareword) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *Bareword) expand(ctx Context, w expandfacet) (res Value) {
+func (p *Bareword) expand(ctx Context, w facet) (res Value) {
     if res = p; false && w&expandFullName != 0 {
         if file := ctx.Project().FindFile(ctx, p.Strval(ctx)); file != nil {
             res = file.expand(ctx, w)
@@ -2905,7 +2908,7 @@ func (p *Qualiword) Strval(ctx Context) string { return p.String() }
 func (p *Qualiword) True(ctx Context) bool { return len(p.words)!=0 }
 func (p *Qualiword) Integer(ctx Context) (i int64, _ error) { return int64(len(p.words)), nil }
 func (p *Qualiword) Float(ctx Context) (f float64, _ error) { return 0, nil }
-func (p *Qualiword) expand(_ Context, _ expandfacet) Value { return p }
+func (p *Qualiword) expand(_ Context, _ facet) Value { return p }
 func (p *Qualiword) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Qualiword); ok {
         var n int
@@ -2982,7 +2985,7 @@ func (p *elements) defs(ctx Context, s ...string) (res []*def) {
     for _, elem := range p.Elems { res = append(res, elem.defs(ctx, s...)...) }
     return
 }
-func (p *elements) expandible(ctx Context, w expandfacet) (res bool) {
+func (p *elements) expandible(ctx Context, w facet) (res bool) {
     var pos = ctx.Position()
     for _, elem := range p.Elems {
         if elem == nil {
@@ -3058,7 +3061,7 @@ func (p paircomp) Strval(ctx Context) (s string) {
     }
     return
 }
-func (p paircomp) expand(ctx Context, w expandfacet) (res Value) {
+func (p paircomp) expand(ctx Context, w facet) (res Value) {
     var a = p.Pair.expand(ctx, w)
     if res = p; a != p.Pair { res = paircomp{a.(*Pair)} }
     return
@@ -3076,7 +3079,7 @@ func (p precomp) Strval(ctx Context) (s string) {
     if t := p.suffix.Strval(ctx); t != "" { s = p.Value.Strval(ctx) + t }
     return
 }
-func (p precomp) expand(ctx Context, w expandfacet) (res Value) {
+func (p precomp) expand(ctx Context, w facet) (res Value) {
     var a, b = p.Value.expand(ctx, w), p.suffix.expand(ctx, w)
     if res = p; a != p.Value || b != p.suffix { res = precomp{a, b} }
     return
@@ -3097,7 +3100,7 @@ func (p rearcomp) Strval(ctx Context) (s string) {
     if t := p.prefix.Strval(ctx); t != "" { s = t + p.Value.Strval(ctx) }
     return
 }
-func (p rearcomp) expand(ctx Context, w expandfacet) (res Value) {
+func (p rearcomp) expand(ctx Context, w facet) (res Value) {
     var a, b = p.prefix.expand(ctx, w), p.Value.expand(ctx, w)
     if res = p; a != p.Value || b != p.prefix { res = rearcomp{a, b} }
     return
@@ -3140,11 +3143,11 @@ func (p *Barecomp) elemStr(ctx Context, o Object, k elemkind) (s string) {
     }
     return
 }
-func (p *Barecomp) expandible(ctx Context, w expandfacet) bool {
+func (p *Barecomp) expandible(ctx Context, w facet) bool {
     return p.elements.expandible(ctx, w)
 }
-func (p *Barecomp) expand(ctx Context, w expandfacet) (res Value) {
-    var elems, u, n = expand(ctx, w, p.Elems...)
+func (p *Barecomp) expand(ctx Context, w facet) (res Value) {
+    var elems, u, n = w.expand(ctx, p.Elems...)
     if n > 0 { res = &Barecomp{p.valbase, elements{elems}} } else { res = p }
     if u > 0 { res = unexpanded{res} }
     return
@@ -3338,8 +3341,8 @@ func (p *Barefile) Float(ctx Context) (f float64, _ error) {
 func (p *Barefile) refs(ctx Context, v Value) bool { return p.Name.refs(ctx, v) }
 func (p *Barefile) defs(ctx Context, s ...string) []*def { return p.Name.defs(ctx, s...) }
 func (p *Barefile) elemStr(ctx Context, o Object, k elemkind) (s string) { return elementString(ctx, o, p.Name, k) }
-func (p *Barefile) expandible(ctx Context, w expandfacet) bool { return p.Name.expandible(ctx, w) }
-func (p *Barefile) expand(ctx Context, w expandfacet) (res Value) {
+func (p *Barefile) expandible(ctx Context, w facet) bool { return p.Name.expandible(ctx, w) }
+func (p *Barefile) expand(ctx Context, w facet) (res Value) {
     var name Value
 
     if w&expandFullName != 0 {
@@ -3728,7 +3731,7 @@ func globMatchFile(ctx Context, patVal Value, filename string, tailMatch bool) (
 type GlobMeta struct { valbase ; token.Token }
 func (p *GlobMeta) String() string { return p.Token.String() }
 func (p *GlobMeta) Strval(ctx Context) string { return p.Token.String() }
-func (p *GlobMeta) expand(_ Context, _ expandfacet) Value { return p }
+func (p *GlobMeta) expand(_ Context, _ facet) Value { return p }
 func (p *GlobMeta) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*GlobMeta); ok {
         if p.Token == a.Token { res = cmpEqual }
@@ -3759,8 +3762,8 @@ func (p *GlobRange) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *GlobRange) expandible(ctx Context, w expandfacet) bool { return p.Chars.expandible(ctx, w) }
-func (p *GlobRange) expand(ctx Context, w expandfacet) (res Value) {
+func (p *GlobRange) expandible(ctx Context, w facet) bool { return p.Chars.expandible(ctx, w) }
+func (p *GlobRange) expand(ctx Context, w facet) (res Value) {
     if val := p.Chars.expand(ctx, w); val != p.Chars {
         res = &GlobRange{p.valbase, val}
     } else {
@@ -3808,8 +3811,8 @@ func (p *Path) True(ctx Context) (t bool) {
 }
 func (p *Path) refs(ctx Context, v Value) (res bool) { return p.elements.refs(ctx, v) }
 func (p *Path) defs(ctx Context, s ...string) (res []*def) { return p.elements.defs(ctx, s...) }
-func (p *Path) expandible(ctx Context, w expandfacet) bool { return p.elements.expandible(ctx, w) }
-func (p *Path) expand(ctx Context, w expandfacet) (res Value) {
+func (p *Path) expandible(ctx Context, w facet) bool { return p.elements.expandible(ctx, w) }
+func (p *Path) expand(ctx Context, w facet) (res Value) {
     var elems, u, n = expandPathElems(ctx, w, p.Elems...)
     if n > 0 { res = &Path{p.valbase, elements{elems}} } else { res = p }
     if u > 0 { res = unexpanded{res} }
@@ -3895,9 +3898,9 @@ func (p *Path) elemStr(ctx Context, o Object, k elemkind) (s string) {
     return
 }
 
-func expandPathElems(ctx Context, w expandfacet, elems ...Value) (res []Value, u, n int) {
+func expandPathElems(ctx Context, w facet, elems ...Value) (res []Value, u, n int) {
     var xelems []Value
-    xelems, u, n = expand(ctx, w, elems...)
+    xelems, u, n = w.expand(ctx, elems...)
     for _, elem := range xelems {
         if p, ok := elem.(*Path); ok {
             var ev, u1, n1 = expandPathElems(ctx, w, p.Elems...)
@@ -4254,7 +4257,7 @@ func (p *PathSeg) Strval(ctx Context) (s string) {
     }
     return
 }
-func (p *PathSeg) expand(_ Context, _ expandfacet) Value { return p }
+func (p *PathSeg) expand(_ Context, _ facet) Value { return p }
 func (p *PathSeg) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*PathSeg); ok {
         if p.rune == a.rune { res = cmpEqual }
@@ -4527,7 +4530,7 @@ func toFile(v Value) (f *File, y bool) {
 type fullfile struct { *File }
 func (u fullfile) String() string { return u.fullname() }
 func (u fullfile) Strval(ctx Context) (s string) { return u.fullname() }
-func (u fullfile) expand(ctx Context, w expandfacet) Value {
+func (u fullfile) expand(ctx Context, w facet) Value {
     if w != expandZero && (w&expandFullName == 0 /* || filepath.IsAbs(u.name) */) {
         if v := u.File.expand(ctx, w); v != u.File {
             if f, y := v.(*File); y && f != u.File { return fullfile{f} }
@@ -4601,10 +4604,10 @@ func (p *File) stamp(ctx Context) (files []*File, err error) {
     }
     return
 }
-func (p *File) expandible(ctx Context, w expandfacet) (res bool) {
+func (p *File) expandible(ctx Context, w facet) (res bool) {
     return w&expandFullName != 0 && !filepath.IsAbs(p.name)
 }
-func (p *File) expand(ctx Context, w expandfacet) (res Value) {
+func (p *File) expand(ctx Context, w facet) (res Value) {
     if w&expandFullName != 0 && !filepath.IsAbs(p.name) {
         res = fullfile{p}
     } else if /* w&expandFullName != 0 && !filepath.IsAbs(p.name) */false {
@@ -4825,8 +4828,8 @@ func (p *Flag) match(ctx Context, i interface{}) (full bool, s string, stems []s
     }
     return
 }
-func (p *Flag) expandible(ctx Context, w expandfacet) bool { return p.name.expandible(ctx, w) }
-func (p *Flag) expand(ctx Context, w expandfacet) (res Value) {
+func (p *Flag) expandible(ctx Context, w facet) bool { return p.name.expandible(ctx, w) }
+func (p *Flag) expand(ctx Context, w facet) (res Value) {
     if name := p.name.expand(ctx, w); name != p.name {
         res = &Flag{p.valbase, name}
     } else {
@@ -4966,9 +4969,9 @@ func (p *Compound) Integer(ctx Context) (i int64, err error) {
 func (p *Compound) True(ctx Context) bool { return p.elements.True(ctx) }
 func (p *Compound) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
 func (p *Compound) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
-func (p *Compound) expandible(ctx Context, w expandfacet) bool { return p.elements.expandible(ctx, w) }
-func (p *Compound) expand(ctx Context, w expandfacet) (res Value) {
-    var elems, u, n = expand(ctx, w, p.Elems...)
+func (p *Compound) expandible(ctx Context, w facet) bool { return p.elements.expandible(ctx, w) }
+func (p *Compound) expand(ctx Context, w facet) (res Value) {
+    var elems, u, n = w.expand(ctx, p.Elems...)
     if n > 0 { res = &Compound{p.valbase, elements{elems}} } else { res = p }
     if u > 0 { res = unexpanded{res} }
     return
@@ -5066,8 +5069,8 @@ func (p *List) elemStr(ctx Context, o Object, k elemkind) (s string) {
     }
     return strings.Join(strs, " ")
 }
-func (p *List) expand(ctx Context, w expandfacet) (res Value) {
-    var elems, u, n = expand(ctx, w, p.Elems...)
+func (p *List) expand(ctx Context, w facet) (res Value) {
+    var elems, u, n = w.expand(ctx, p.Elems...)
     if res = p; n > 0 { res = &List{p.position, elements{elems}}}
     if u > 0 { res = unexpanded{res} }
     return
@@ -5251,9 +5254,9 @@ func (p *Group) elemStr(ctx Context, o Object, k elemkind) string {
     }
     return fmt.Sprintf("(%s)", strings.Join(strs, " "))
 }
-func (p *Group) expandible(ctx Context, w expandfacet) bool { return p.elements.expandible(ctx, w) }
-func (p *Group) expand(ctx Context, w expandfacet) (res Value) {
-    var elems, u, n = expand(ctx, w, p.Elems...)
+func (p *Group) expandible(ctx Context, w facet) bool { return p.elements.expandible(ctx, w) }
+func (p *Group) expand(ctx Context, w facet) (res Value) {
+    var elems, u, n = w.expand(ctx, p.Elems...)
     if n > 0 { res = &Group{p.valbase, elements{elems}} } else { res = p }
     if u > 0 { res = unexpanded{res} }
     return
@@ -5340,11 +5343,11 @@ func (p *Pair) traverse(ctx Context) (traves travestates) {
     errostack(positional(ctx, p.position), -1, "pair is not traversible: %v", p).debug(16)
     return
 }
-func (p *Pair) expandible(ctx Context, w expandfacet) bool {
+func (p *Pair) expandible(ctx Context, w facet) bool {
     if p.Key.expandible(ctx, w) { return true }
     return w&expandPairVal != 0 && p.Value.expandible(ctx, w)
 }
-func (p *Pair) expand(ctx Context, w expandfacet) (res Value) {
+func (p *Pair) expand(ctx Context, w facet) (res Value) {
     res = p
 
     // NOTE: The value (p.Value) could be used as template arguments in many
@@ -5431,14 +5434,14 @@ type unexpanded struct { Value }
 func (u unexpanded) True(ctx Context) bool { return false }
 func (u unexpanded) traverse(ctx Context) (traves travestates) { return }
 func (u unexpanded) match(_ Context, _ interface{}) (b bool, s string, a []string) { return }
-func (u unexpanded) expand(ctx Context, w expandfacet) Value {
+func (u unexpanded) expand(ctx Context, w facet) Value {
     return u.Value.expand(ctx, w) // NOTE: for a stack in debug traces
 }
 
 type untraversed struct { Value }
 // func (u untraversed) True(ctx Context) bool { return false }
 func (u untraversed) traverse(ctx Context) (traves travestates) { return }
-func (u untraversed) expand(ctx Context, w expandfacet) Value {
+func (u untraversed) expand(ctx Context, w facet) Value {
     return untraversed{u.Value.expand(ctx, w)}
 }
 
@@ -5622,30 +5625,41 @@ func (p *delegate) _elemStr(ctx Context, o Object, k elemkind, l string) (s stri
 func (p *delegate) elemStr(ctx Context, o Object, k elemkind) string {
     return p._elemStr(ctx, o, k, "$")
 }
-func (p *delegate) args(ctx Context, w expandfacet) (args []Value, u, n int) {
+func (p *delegate) call(ctx Context, w facet, d *def, args ...Value) (res Value, final bool) {
+    if res = d.call(ctx, w, args...); res == nil {
+        if final = true; d.value == nil {
+            if false {    } else
+            if o := ctx.Scope().FindDef(d.name); o != nil && o != d {
+                res = o.call(ctx, w, args...)
+            }
+            if res == nil { res = unexpanded{p} }
+        } else {
+            res = d.value
+        }
+    }
+    return
+}
+func (p *delegate) args(ctx Context, w facet) (args []Value, u, n int) {
     if len(p.a) < 1 { return } else
     if b, y := p.x.(*Builtin); y {
-        if l, m := len(p.a), b.s.m; m == expandZero || l <= b.s.n {
-            args, u, n = expand(ctx, w|m, p.a...)
+        var ( left = (w|b.s.m) ; right = (w&^b.s.m|b.s.o) )
+        if l := len(p.a); b.s.m == expandZero || l <= b.s.n {
+            args, u, n = left.expand(ctx, p.a...)
         } else if l == 0 { // NOTE: b.s.n could be -1
             // does nothing...
         } else if b.s.n <= 0 {
-            args, u, n = expand(ctx, w&^m, p.a...)
-        } else if args, u, n = expand(ctx, w|m, p.a[:b.s.n]...); b.s.n < l {
-            rest, x, y := expand(ctx, w&^m, p.a[b.s.n:]...)
-            if args = append(args, rest...); true {
-                u, n = u+x, n+y
-            } else {
-                u, n = x, y
-            }
+            args, u, n = right.expand(ctx, p.a...)
+        } else if args, u, n = left.expand(ctx, p.a[:b.s.n]...); b.s.n < l {
+            a, x, y := right.expand(ctx, p.a[b.s.n:]...)
+            args, u, n = append(args, a...), u+x, n+y
         }
     } else {
-        args, u, n = expand(ctx, w, p.a...)
+        args, u, n = w.expand(ctx, p.a...)
     }
     if len(args) == 0 && u == 0 && n == 0 { args = p.a }
     return
 }
-func (p *delegate) expandible(ctx Context, w expandfacet) (res bool) {
+func (p *delegate) expandible(ctx Context, w facet) (res bool) {
     if res = w&expandDelegate != 0; !res {
         if def, ok := p.x.(*def); ok && (def.origin == DefAuto && w&expandAuto == 0) {
             res = false // p.x.expandible(ctx, w) // TODO: auto -> placeholder
@@ -5658,7 +5672,7 @@ func (p *delegate) expandible(ctx Context, w expandfacet) (res bool) {
     }
     return
 }
-func (p *delegate) expand(ctx Context, w expandfacet) (res Value) {
+func (p *delegate) expand(ctx Context, w facet) (res Value) {
     if ctx = positional(ctx, p.position); isNil(p.x) {
         erro(ctx, "delegate of nil: %v (w=%024b)", p, w).at(p.position)
         errostack(ctx, 5, "delegate nil: %v (%p)", p, p).at(p.position).debug(64)
@@ -5730,7 +5744,7 @@ func (p *delegate) expand(ctx Context, w expandfacet) (res Value) {
         return res.expand(ctx, w)
     }
 }
-func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
+func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
     res = p // set default to selfing
 
     var (
@@ -5756,8 +5770,9 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
         // s == "$(.test)" ||
         // s == "$(.test.z y$1,y$2)" ||
         // s == "$(ext $@)" ||
-        // (db > 0 && s == "$1") ||
         // s == "$(debug -s=50 -n=60 $1)" ||
+        // s == "$(.test.s $_,AsmParser)" ||
+        // (db > 0 && s == "$1") ||
         // (dd && s == "$(-std.$_)") ||
         (dd && s == "$_") ||
         (false && s == "")) { db += 1
@@ -5791,7 +5806,6 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
             warn(ctx, "reveal: 1: %v", autoGet(ctx, "1"))
             warn(ctx, "reveal: 2: %v", autoGet(ctx, "2"))
             warn(ctx, "reveal: _: %v", autoGet(ctx, "_"))
-            warn(ctx, "reveal: _: %v", ctx.Scope().FindDef("_"))
             warn(ctx, "reveal: %T: %v", p.x, p)
             warn(ctx, "reveal: args=%v, unexpanded=%v, transformed=%v", args, u, n)
             warn(ctx, "reveal: -> %T %v (same=%v)", res, res, same)
@@ -5884,36 +5898,56 @@ func (p *delegate) reveal(ctx Context, w expandfacet) (res Value, final bool) {
         infostack(ctx, 3, "").debug(64)
     }
 
-    var binc bool
-    var done = (w&expandDelegate == 0) || (w&expandClose == 0 && u > 0)
-    if bin, _ := x.(*Builtin); bin == nil {
-        // does nothing, keep going..
-    } else if bin.name == "auto" {
-        return builtinAuto(ctx, p, w, args...), final
-    } else if bin.name == "value" { // NOTE: (w&expandDelegate == 0) may be true
-        if u > 0 { done = true }
-    } else if binc = bin.name == "call"; binc {
-        // TODO: only callable if args[0] is plain
+    var unexpand = (w&expandDelegate == 0)
+    if !unexpand && u > 0 {
+        if w&expandClose == 0 {
+            unexpand = true
+        } else if w&expandPlaceholders == 0 && w&expandUnPlaceholders != 0 {
+            for _, a := range args {
+                if d := a.defs(ctx, "_"); len(d) > 0 {
+                    unexpand = true; break
+                }
+            }
+        } else if w&expandDigits == 0 && w&expandUnDigits != 0 {
+            var ds = []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}
+            for _, a := range args {
+                if d := a.defs(ctx, ds...); len(d) > 0 {
+                    unexpand = true; break
+                }
+            }
+        }
     }
 
-    if d, y := x.(*def); y {
-        return call(ctx, p, w, d, args...)
-    } else if done {
+    var bin, _ = x.(*Builtin)
+    if bin == nil {
+        // def, Caller, Executer ...
+    } else if bin.name == "auto" {
+        return builtinAuto(ctx, p, w, args...), final
+    }
+
+    if unexpand {
         if p.x != x || n > 0 { res = &delegate{p.valbase, p.l, x, args} }
         if w&expandClose != 0 { return res, true }
         return unexpanded{res}, true
-    } else if binc {
-        return builtinCall(ctx, p, w, args...), true
+    } else if bin != nil {
+        if ctx = positional(ctx, p.position); bin.name == "call" {
+            res, final = builtinCall(ctx, p, w, args...), true
+        } else if bin.s.f == nil {
+            // ...
+        } else if res = bin.s.f(ctx, w, args...); false && db > 0 {
+            for i, a := range p.a  { info(ctx, "p.a[%d]: %T %v",  i, a, a) }
+            for i, a := range args { info(ctx, "args[%d]: %T %v", i, a, a) }
+            infostack(ctx, 5, "%v %v -> %T %v ; %v %v ; %v %v", x, args, res, res,
+                autoGet(ctx, "3"), autoGet(ctx, "4"), u, n).debug(64)
+        }
+        return
+    } else if d, y := x.(*def); y {
+        return p.call(ctx, w, d, args...)
     }
 
     switch t := x.(type) {
     case Caller:
-        if res = t.Call(ctx, args...); true && db > 0 {
-            for i, a := range p.a  { info(ctx, "p.a[%d]: %T %v",  i, a, a) }
-            for i, a := range args { info(ctx, "args[%d]: %T %v", i, a, a) }
-            infostack(ctx, 5, "%v %v -> %T %v ; %v %v ; %v %v %v", x, args, res, res,
-                autoGet(ctx, "3"), autoGet(ctx, "4"), u, n, binc).debug(64)
-        }
+        res = t.Call(ctx, args...)
         return
     case Executer:
         if vals, traves := t.Execute(ctx, args...); traves.has(traveFail) {
@@ -6004,7 +6038,7 @@ func (p *closure) True(ctx Context) (t bool) {
 func (p *closure) elemStr(ctx Context, o Object, k elemkind) string {
     return p._elemStr(ctx, o, k, "&")
 }
-func (p *closure) expandible(ctx Context, w expandfacet) (res bool) {
+func (p *closure) expandible(ctx Context, w facet) (res bool) {
     if res = w&expandClosure != 0; !res {
         if res = p.x.expandible(ctx, w); !res {
             for _, a := range p.a {
@@ -6022,7 +6056,7 @@ func (p *closure) match(ctx Context, i interface{}) (full bool, s string, stems 
     }
     return
 }
-func (p *closure) expand(ctx Context, w expandfacet) (res Value) {
+func (p *closure) expand(ctx Context, w facet) (res Value) {
     if ctx, res = positional(ctx, p.position), p; isNil(p.x) {
         erro(ctx, "expand nil closure: %v (%d)", p, w).debug(1)
         return
@@ -6084,7 +6118,7 @@ func (p *closure) expand(ctx Context, w expandfacet) (res Value) {
         return res.expand(ctx, w)
     }
 }
-func (p *closure) disclose(ctx Context, w expandfacet) (res Value, final bool) {
+func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
     var (
         args, u, n = p.args(ctx, w)
         unresolved *unresolvedobject
@@ -6385,13 +6419,13 @@ func (p *selection) value(ctx Context) (v Value) {
     }
     return
 }
-func (p *selection) expandible(ctx Context, w expandfacet) (res bool) {
+func (p *selection) expandible(ctx Context, w facet) (res bool) {
     if res = w&expandSelection != 0; !res {
         res = p.o.expandible(ctx, w) || p.s.expandible(ctx, w)
     }
     return
 }
-func (p *selection) expand(ctx Context, w expandfacet) (res Value) {
+func (p *selection) expand(ctx Context, w facet) (res Value) {
     if res = p; w&expandSelection != 0 {
         return p.value(ctx)
     } else if isNil(p.o) {
@@ -6505,8 +6539,8 @@ func (p *PercPattern) Strval(ctx Context) (s string) {
 }
 func (p *PercPattern) refs(ctx Context, v Value) bool { return p.Prefix.refs(ctx, v) || p.Suffix.refs(ctx, v) }
 func (p *PercPattern) defs(ctx Context, s ...string) []*def { return append(p.Prefix.defs(ctx, s...), p.Suffix.defs(ctx, s...)...) }
-func (p *PercPattern) expandible(ctx Context, w expandfacet) bool { return p.Prefix.expandible(ctx, w) || p.Suffix.expandible(ctx, w) }
-func (p *PercPattern) expand(ctx Context, w expandfacet) (res Value) {
+func (p *PercPattern) expandible(ctx Context, w facet) bool { return p.Prefix.expandible(ctx, w) || p.Suffix.expandible(ctx, w) }
+func (p *PercPattern) expand(ctx Context, w facet) (res Value) {
     var (
         prefix Value
         suffix Value
@@ -6764,14 +6798,14 @@ func (p *GlobPattern) defs(ctx Context, s ...string) (res []*def) {
     }
     return
 }
-func (p *GlobPattern) expandible(ctx Context, w expandfacet) (res bool) {
+func (p *GlobPattern) expandible(ctx Context, w facet) (res bool) {
     for _, comp := range p.Components {
         if res = comp.expandible(ctx, w); res { break }
     }
     return
 }
-func (p *GlobPattern) expand(ctx Context, w expandfacet) (res Value) {
-    var components, u, n = expand(ctx, w, p.Components...)
+func (p *GlobPattern) expand(ctx Context, w facet) (res Value) {
+    var components, u, n = w.expand(ctx, p.Components...)
     if n > 0 { res = &GlobPattern{p.valbase, components} } else { res = p }
     if u > 0 { res = unexpanded{res} }
     return
@@ -6839,7 +6873,7 @@ func (p *RegexpPattern) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *RegexpPattern) traverse(ctx Context) (traves travestates) { return traverse(ctx, p, "") }
-func (p *RegexpPattern) expand(_ Context, _ expandfacet) Value { return p }
+func (p *RegexpPattern) expand(_ Context, _ facet) Value { return p }
 
 func NewRegexpPattern(pos Position) Value {
     return &RegexpPattern{valbase{pos}} // TODO: RegexpPattern implementation
@@ -6930,8 +6964,8 @@ func merge(args... Value) (elems []Value) {
     return
 }
 
-func mergex(ctx Context, w expandfacet, values ...Value) (res []Value) {
-    res, _, _ = expand(ctx, w, values...)
+func mergex(ctx Context, w facet, values ...Value) (res []Value) {
+    res, _, _ = w.expand(ctx, values...)
     return merge(res...)
 }
 
@@ -6969,7 +7003,7 @@ func permVal(ctx Context, v Value, i uint32) (res os.FileMode) {
     return
 }
 
-func expand(ctx Context, w expandfacet, values ...Value) (elems []Value, u, n int) {
+func (w facet) expand(ctx Context, values ...Value) (elems []Value, u, n int) {
     for _, elem := range values {
         if elem == nil { continue } // TODO: report nil expand ??
         var ctx = positional(ctx, elem.Position())
@@ -6984,8 +7018,6 @@ func expand(ctx Context, w expandfacet, values ...Value) (elems []Value, u, n in
             } else if elem.cmp(ctx, val) != cmpEqual {
                 n += 1
             }
-        } else if false {
-            // skip
         } else if _, y := val.(unexpanded); y {
             u += 1
         }
@@ -6994,7 +7026,7 @@ func expand(ctx Context, w expandfacet, values ...Value) (elems []Value, u, n in
 }
 
 func Expand(ctx Context, values ...Value) (res []Value) {
-    res, _, _ = expand(ctx, plain, values...)
+    res, _, _ = plain.expand(ctx, values...)
     return
 }
 

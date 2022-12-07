@@ -82,7 +82,7 @@ func (p *knownobject) rescope(_ Context, scope *Scope) {
                 }
         }
 }
-func (p *knownobject) expand(_ Context, _ expandfacet) Value { return p }
+func (p *knownobject) expand(_ Context, _ facet) Value { return p }
 func (p *knownobject) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*knownobject); ok {
                 assert(ok, "value is not knownobject")
@@ -125,7 +125,7 @@ func (p *unresolvedobject) rescope(ctx Context, scope *Scope) {
                 if p.scope = scope; p.scope != nil { p.scope.elems[name] = p }
         }
 }
-func (p *unresolvedobject) expand(_ Context, _ expandfacet) Value { return p }
+func (p *unresolvedobject) expand(_ Context, _ facet) Value { return p }
 func (p *unresolvedobject) cmp(ctx Context, v Value) (res cmpres) {
         if a, y := v.(*unresolvedobject); y {
                 res = p.name.cmp(ctx, a.name)
@@ -193,7 +193,7 @@ func (p *ProjectName) stat(ctx Context) (si *statinfo) {
         }
         return
 }
-func (p *ProjectName) expand(_ Context, _ expandfacet) Value { return p }
+func (p *ProjectName) expand(_ Context, _ facet) Value { return p }
 func (p *ProjectName) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*ProjectName); ok {
                 assert(ok, "value is not ProjectName")
@@ -224,7 +224,7 @@ func (n *ScopeName) Get(ctx Context, name string) (Value, error) {
         }
         return nil, fmt.Errorf("Undefined `%s' in scope `%s'.", name, n.Name(ctx))
 }
-func (p *ScopeName) expand(_ Context, _ expandfacet) Value { return p }
+func (p *ScopeName) expand(_ Context, _ facet) Value { return p }
 func (p *ScopeName) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*ScopeName); ok {
                 assert(ok, "value is not ScopeName")
@@ -565,7 +565,7 @@ func (d *def) defs(ctx Context, s ...string) (res []*def) {
         }
         return
 }
-func (d *def) expandible(ctx Context, w expandfacet) (res bool) {
+func (d *def) expandible(ctx Context, w facet) (res bool) {
         if d.origin == DefArg || d.origin == DefAuto {
                 // res = true // expand to DefAutoVal
                 if v := autoGet(ctx,d.name); !isTrivial(v) {
@@ -582,7 +582,7 @@ func (d *def) expandible(ctx Context, w expandfacet) (res bool) {
         }
         return
 }
-func (d *def) expand(ctx Context, w expandfacet) (res Value) {
+func (d *def) expand(ctx Context, w facet) (res Value) {
         if d == nil {
                 errostack(ctx, 3, "expand nil def (w=%016b)", w).debug(16)
                 return
@@ -717,8 +717,8 @@ func (d *def) set(ctx Context, origin Origin, value Value, app... Value) {
         }
 
         switch w := plain&^expandPlain; origin {
-        case DefExpand1: vals, _, _ = expand(ctx, w&^expandClosure, vals...) //  :=
-        case DefExpand2: vals, _, _ = expand(ctx, w| expandClosure, vals...) // ::=
+        case DefExpand1: vals, _, _ = (w&^expandClosure).expand(ctx, vals...) //  :=
+        case DefExpand2: vals, _, _ = (w| expandClosure).expand(ctx, vals...) // ::=
         default: for _, val := range vals {
                 if val != nil && val.refs(ctx, d) {
                         if options.verbose { prompt(ctx, "set %s (%v): %v\n", origin, d.name, val) }
@@ -758,7 +758,7 @@ func isDigits(s string) bool {
         return !scanner.IsDigit(c) }) < 0
 }
 
-func (d *def) call1(ctx Context, w expandfacet, a... Value) (res Value) {
+func (d *def) call1(ctx Context, w facet, a... Value) (res Value) {
         if d.bits&defUnavail == 0 && d.value != nil {
                 if len(a)>0 {
                         ac := autoContext{ Context:ctx, defs:make(autoDefMap) }
@@ -767,16 +767,16 @@ func (d *def) call1(ctx Context, w expandfacet, a... Value) (res Value) {
                 }
 
                 // d.mutex.Lock()
-                var savedBits = d.bits
+                var bits = d.bits
                 d.bits |= defUnavail
                 res = d.value.expand(ctx, w|expandDigits)
-                d.bits = savedBits
+                d.bits = bits
                 // d.mutex.Unlock()
         }
         return
 }
 
-func (d *def) call(ctx Context, w expandfacet, a... Value) (res Value) {
+func (d *def) call(ctx Context, w facet, a... Value) (res Value) {
         switch d.origin {
         case DefArg, DefAuto:
                 if w&expandPlaceholders == 0 && d.name == "_" {
@@ -817,21 +817,6 @@ func (d *def) call(ctx Context, w expandfacet, a... Value) (res Value) {
                 res = MakeNone(pos)
         } else if n == 1 {
                 res = list.Elems[0]
-        }
-        return
-}
-
-func call(ctx Context, p *delegate, w expandfacet, d *def, args ...Value) (res Value, final bool) {
-        if res = d.call(ctx, w, args...); res == nil {
-                if final = true; d.value == nil {
-                        if false {    } else
-                        if o := ctx.Scope().FindDef(d.name); o != nil && o != d {
-                                res = o.call(ctx, w, args...)
-                        }
-                        if res == nil { res = unexpanded{p} }
-                } else {
-                        res = d.value
-                }
         }
         return
 }
@@ -955,10 +940,10 @@ func (p *undetermined) refs(ctx Context, v Value) bool {
 func (p *undetermined) defs(ctx Context, s ...string) (res []*def) {
         return append(p.identifier.defs(ctx, s...), p.value.defs(ctx, s...)...)
 }
-func (p *undetermined) expandible(ctx Context, w expandfacet) bool {
+func (p *undetermined) expandible(ctx Context, w facet) bool {
         return p.identifier.expandible(ctx, w) || p.value.expandible(ctx, w)
 }
-func (p *undetermined) expand(ctx Context, w expandfacet) (res Value) {
+func (p *undetermined) expand(ctx Context, w facet) (res Value) {
         var (
                 i = p.identifier.expand(ctx, w)
                 v = p.value.expand(ctx, w)
@@ -1002,11 +987,11 @@ type Builtin struct {
 }
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
 func (p *Builtin) True(_ Context) bool { return p.s.f != nil }
-func (p *Builtin) Call(ctx Context, a... Value) (res Value) {
-        if p.s.f != nil { res = p.s.f(positional(ctx, p.position), a...) }
-        return
-}
-func (p *Builtin) expand(_ Context, _ expandfacet) Value { return p }
+// func (p *Builtin) Call(ctx Context, a... Value) (res Value) {
+//         if p.s.f != nil { res = p.s.f(positional(ctx, p.position), plain, a...) }
+//         return
+// }
+func (p *Builtin) expand(_ Context, _ facet) Value { return p }
 func (p *Builtin) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*Builtin); ok {
                 assert(ok, "value is not Builtin")
@@ -1254,7 +1239,7 @@ func (entry *RuleEntry) defs(ctx Context, s ...string) (res []*def) {
         }
         return
 }
-func (entry *RuleEntry) expandible(ctx Context, w expandfacet) (res bool) {
+func (entry *RuleEntry) expandible(ctx Context, w facet) (res bool) {
         if res = entry.target.expandible(ctx, w); res { return }
         if false {
                 for _, prog := range entry.programs {
@@ -1268,7 +1253,7 @@ func (entry *RuleEntry) expandible(ctx Context, w expandfacet) (res bool) {
         }
         return
 }
-func (entry *RuleEntry) expand(ctx Context, w expandfacet) (res Value) {
+func (entry *RuleEntry) expand(ctx Context, w facet) (res Value) {
         if entry == nil {
                 // happens from some &{xxx} exprs
                 erro(ctx, "expand nil entry (w=%016b)", w).debug(1)
@@ -1377,7 +1362,7 @@ func (entry *RuleEntry) option(ctx Context) (res bool, infos []Value) {
 }
 
 type PatternEntry struct { RuleEntry }
-func (p *PatternEntry) expand(ctx Context, w expandfacet) (res Value) {
+func (p *PatternEntry) expand(ctx Context, w facet) (res Value) {
         if ent := p.RuleEntry.expand(ctx, w); ent != &p.RuleEntry {
                 res = &PatternEntry{ *ent.(*RuleEntry) }
         } else {
@@ -1424,7 +1409,7 @@ func (p *stemmed) String() (s string) {
         return fmt.Sprintf("%s:%s", p.target, s) // "<%s:%s>"
 }
 func (p *stemmed) Target() Value { return p.target }
-func (p *stemmed) expand(ctx Context, w expandfacet) (res Value) {
+func (p *stemmed) expand(ctx Context, w facet) (res Value) {
         if v := p.PatternEntry.expand(ctx, w); v != p.PatternEntry {
                 res = &stemmed{v.(*PatternEntry), p.target, p.Stems}
         } else {

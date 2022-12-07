@@ -158,7 +158,6 @@ const (
 	EVAL       // evaluate a builtin immediately
 	EXPORT     // export ...
 	INCLUDE    // include a.smart
-	IMPORT     // import a.smart
 	INSTANCE   // instance
 	FILES      // files
 	TEMPLATE   // template
@@ -299,7 +298,6 @@ var tokens = [...]string{
 	EVAL:       "eval",
 	EXPORT:     "export",
 	INCLUDE:    "include",
-	IMPORT:     "import",
 	INSTANCE:   "instance",
 	FILES:      "files",
 	TEMPLATE:   "template",

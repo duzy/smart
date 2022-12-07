@@ -578,7 +578,7 @@ type ExecResult struct {
 
   scannedDiags []*scannedExecDiag
 }
-func (p *ExecResult) expand(_ Context, _ expandfacet) Value { return p }
+func (p *ExecResult) expand(_ Context, _ facet) Value { return p }
 func (p *ExecResult) cmp(ctx Context, v Value) (res cmpres) {
   if a, ok := v.(*ExecResult); ok {
     assert(ok, "value is not ExecResult")

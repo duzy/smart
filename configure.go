@@ -148,7 +148,7 @@ func (ce *configureExecutor) close() {
     if ce.file != nil   { if err := ce.file.Close();   err != nil {} }
 }
 
-func (ctx *defaultContext) configure() {
+func (ctx *universeContext) configure() {
     var (
         project *Project
         err error

@@ -33,14 +33,14 @@ func (p *use) defs(ctx Context, s ...string) (res []*def) {
     }
     return
 }
-func (p *use) expandible(ctx Context, w expandfacet) (res bool) {
+func (p *use) expandible(ctx Context, w facet) (res bool) {
         for _, a := range p.params {
                 if res = a.expandible(ctx, w); res { return }
         }
         return
 }
-func (p *use) expand(ctx Context, w expandfacet) (res Value) {
-        var params, une, num = expand(ctx, w, p.params...)
+func (p *use) expand(ctx Context, w facet) (res Value) {
+        var params, une, num = w.expand(ctx, p.params...)
         if num > 0 { res = &use{p.valbase,p.project,params,p.opts} } else { res = p }
         if une > 0 { res = unexpanded{res} }
         return
@@ -224,13 +224,13 @@ func (p *uselist) defs(ctx Context, s ...string) (res []*def) {
     }
     return
 }
-func (p *uselist) expandible(ctx Context, w expandfacet) (res bool) {
+func (p *uselist) expandible(ctx Context, w facet) (res bool) {
         for _, a := range p.list {
                 if res = a.expandible(ctx, w); res { break }
         }
         return
 }
-func (p *uselist) expand(ctx Context, w expandfacet) (res Value) {
+func (p *uselist) expand(ctx Context, w facet) (res Value) {
         var ( list []*use; num int )
         for _, elem := range p.list {
                 var v = elem.expand(ctx, w)

@@ -279,9 +279,9 @@ func (opts *useVarOpts) apply(ctx Context, def *def, vals []Value) {
         if def.append(ctx, vals...); len(opts.args) > 0 {
             var position = ctx.Position()
             var args = MakeList(position, opts.args...)
-            def.value = builtinUnique(ctx, args, def.value)
+            def.value = builtinUnique(ctx, plain, args, def.value)
         } else {
-            def.value = builtinUnique(ctx, def.value)
+            def.value = builtinUnique(ctx, plain, def.value)
         }
     }
 }
@@ -1480,6 +1480,20 @@ func (l *loader) declare(ctx Context, keyword token.Token, ident *Barecomp, iden
     return true
 }
 
+func (l *loader) loadAutoAfter(ctx Context, tag string) {
+    if proj := l.project; proj.name == ".configure" /* || tag == "" */ {
+        // skip...
+    } else if name := fmt.Sprintf(".auto.after.%s", tag); false {
+        // skip...
+    } else if obj := proj.resolveObject(ctx, name); obj == nil {
+        // skip...
+    } else if d, y := obj.(*def); !y {
+        warnstack(ctx, 3, "%v: unsupported .auto: %T %v", proj, obj).debug(1)
+    } else if val := d.value.expand(ctx, plain); !isTrivial(val) {
+        l.includeFile(ctx, includeFileOpts{}, val)
+    }
+}
+
 func (l *loader) loadProjectConfiguration(ident *Barecomp, identStr string, declared bool) (result bool) {
     if false { defer un(tracef(t_traverse, "loadProjectConfiguration(%v)", ident)) }
 
@@ -1503,9 +1517,10 @@ func (l *loader) loadProjectConfiguration(ident *Barecomp, identStr string, decl
         } else if options.verbose {
             info(ctx, "%v for %s (%s)", file, l.project.spec, l.project).debug(16)
         }
+        var isIncludingConf = l.isIncludingConf
         l.isIncludingConf = true
         l.includeFile(ctx, includeFileOpts{isConfiguration: true}, file)
-        l.isIncludingConf = false
+        l.isIncludingConf = isIncludingConf
     }
 
     if l.project.name != dotConfigure {

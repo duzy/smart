@@ -1192,8 +1192,9 @@ func (p *parser) parseClosureDelegate(ctx Context) (result Value) {
 
 				erro(ctx, "%v: %T %v -> '%s', is nil", proj, name, name, str).of(name)
 				errostack(ctx, 128, "%v: %v", proj, ctx).of(name).debug(64)
-			} else if sel, ok := resolved.(*selection); ok && sel != nil {
-				obj, okay = sel, true
+			} else if obj, okay = resolved.(*selection); okay {
+				return
+			} else if obj, okay = resolved.(*Builtin); okay {
 				return
 			} else if caller, _ := resolved.(Caller); caller == nil {
 				erro(ctx, "%v is not callable: %T", name, resolved).at(lPos).debug(16)
@@ -1709,7 +1710,7 @@ type genericClauseOpts struct {
 	conds []Value `cond,if,where`
 
     keyword token.Token // e.g. use, files, eval, etc.
-    dontOperate bool // e.g. -cond(false)
+    skip bool // e.g. -cond(false)
     all  []Value // all option values (unparsed)
     vals []Value // remaining option values after parsed
 	spec []Value
@@ -1775,8 +1776,8 @@ func (p *parser) _parseUseSpecProps(ctx Context, props []Value) (opts useOpts, p
     return
 }
 
-func (p *parser) parseUseSpec(ctx Context, doc *CommentGroup, gOpts *genericClauseOpts, _ int) {
-	if p.imports = append(p.imports, &usespec{ gOpts.spec }); gOpts.dontOperate {
+func (p *parser) parseUseSpec(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
+	if p.imports = append(p.imports, &usespec{ g.spec }); g.skip {
 		// TODO: maybe give some information
 		return
 	}
@@ -1784,8 +1785,8 @@ func (p *parser) parseUseSpec(ctx Context, doc *CommentGroup, gOpts *genericClau
 	ctx = p.posit(ctx)
 
 	var (
-		args = append(gOpts.vals, gOpts.spec[1:]...)
-		specVal = gOpts.spec[0]
+		args = append(g.vals, g.spec[1:]...)
+		specVal = g.spec[0]
         specNames []string
 		opts useOpts
 	)
@@ -1860,21 +1861,21 @@ loadSpecNames:
 	return
 }
 
-func (p *parser) parseIncludeSpec(ctx Context, doc *CommentGroup, gOpts *genericClauseOpts, _ int) {
+func (p *parser) parseIncludeSpec(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Spec")) }
 
-	var opts = includeFileOpts{ genericClauseOpts: gOpts }
-	if vals := parseOpts(ctx, &opts, 0, gOpts.vals...); len(vals) > 0 {
+	var opts = includeFileOpts{ genericClauseOpts: g }
+	if vals := parseOpts(ctx, &opts, 0, g.vals...); len(vals) > 0 {
 		// TODO: deal with the unparsed generic options
 		warn(ctx, "unknown opts: %v", vals).debug(1)
 	}
 
-	if len(gOpts.spec) < 1 {
-		erro(ctx, "expecting include file: %v", gOpts.spec).debug(1)
+	if len(g.spec) < 1 {
+		erro(ctx, "expecting include file: %v", g.spec).debug(1)
 		return
 	}
 
-	var x = gOpts.spec[0]
+	var x = g.spec[0]
 	if p.skipSpaces(ctx); p.tok == token.COLON {
 		switch x.(type) {
 		case *File, *String, *Compound: // escape from file searching
@@ -1886,7 +1887,7 @@ func (p *parser) parseIncludeSpec(ctx Context, doc *CommentGroup, gOpts *generic
 
 		x = p.parseRuleEntry(ctx, specialRuleNor, nil, []Value{x}) // this should return a RuleEntry
 	}
-	if !gOpts.dontOperate { p.includeFile(ctx, opts, x) }
+	if !g.skip { p.includeFile(ctx, opts, x) }
 }
 
 func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
@@ -1941,10 +1942,10 @@ func (p *parser) importFileMaps1(ctx Context, opts useOpts, projects ...*Project
 type filesOpts struct {
 	public bool `p,pub;p,public`
 }
-func (p *parser) parseFilesSpec(ctx Context, doc *CommentGroup, gOpts *genericClauseOpts, _ int) {
+func (p *parser) parseFilesSpec(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
 	defer p.setbits(p.setbit(parsingFilesSpec))
-	if len(gOpts.spec) != 1 {
-		erro(ctx, "too many files properties: %v", gOpts.spec).debug(1)
+	if len(g.spec) != 1 {
+		erro(ctx, "too many files properties: %v", g.spec).debug(1)
 		return
 	}
 
@@ -1959,7 +1960,7 @@ func (p *parser) parseFilesSpec(ctx Context, doc *CommentGroup, gOpts *genericCl
 	if p.skipSpaces(ctx); p.lineComment != nil {
 		//spec.Comment = p.lineComment
 	}
-	if gOpts.dontOperate {
+	if g.skip {
 		// TODO: maybe give some information
 		return
 	}
@@ -1967,11 +1968,11 @@ func (p *parser) parseFilesSpec(ctx Context, doc *CommentGroup, gOpts *genericCl
 	ctx = p.posit(ctx)
 
 	var (
-		val = gOpts.spec[0]
+		val = g.spec[0]
 		opts filesOpts
 		pats []Value
 	)
-	parseOpts(ctx, &opts, 0, gOpts.vals...)
+	parseOpts(ctx, &opts, 0, g.vals...)
 
 	if g, ok := val.(*Group); ok {
 		pats = g.Elems
@@ -2037,7 +2038,7 @@ func (p *parser) parseFilesSpec(ctx Context, doc *CommentGroup, gOpts *genericCl
 	}
 }
 
-func (p *parser) evalConfiguration(ctx Context, gOpts *genericClauseOpts, props []Value) {
+func (p *parser) evalConfiguration(ctx Context, g *genericClauseOpts, props []Value) {
 	if project := p.Project(); project == nil {
 		erro(ctx, "configuration: nil project").debug(1)
 	} else if project.configure == nil {
@@ -2081,81 +2082,61 @@ func (p *parser) evalConfiguration(ctx Context, gOpts *genericClauseOpts, props 
 					break
 				}
 			}
-			project.configured = true // let defaultContext.configure skip
+			project.configured = true // let universeContext.configure skip
 		}
 	}
 }
 
-func (p *parser) parseAssertSpec(ctx Context, doc *CommentGroup, gOpts *genericClauseOpts, _ int) {
-	if !gOpts.dontOperate { assertion(p.posit(ctx), gOpts.generalOpts, gOpts.spec...) }
+func (p *parser) parseAssertSpec(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
+	if !g.skip { assertion(p.posit(ctx), g.generalOpts, plain, g.spec...) }
 }
 
-func (p *parser) parseEvalSpec(ctx Context, doc *CommentGroup, gOpts *genericClauseOpts, _ int) {
+func (p *parser) parseEvalSpec(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
 	var (
-		prop0, resolved Value
+		prop0, resolved, res Value
 		name string
 	)
 
-	if gOpts.dontOperate { return }
-	if prop0 = gOpts.spec[0]; isNil(prop0) {
+	if g.skip { return } else
+	if prop0 = g.spec[0]; isTrivial(prop0) {
 		erro(ctx, "illegal").debug(1)
 		return
 	}
 
-	var position = prop0.Position()
-	if !position.IsValid() {
-		erro(ctx, "command name '%v' has invalid position", prop0).debug(1)
-		return
-	} else {
-		ctx = positional(ctx, position)
-	}
+	ctx = positional(ctx, prop0.Position())
 
 	if name, resolved = p.resolveObject(prop0); false {
 		erro(ctx, "resolve '%v' failed", prop0).debug(1)
 		return
-	} else if isTrivial(resolved) {
-		if name == "configuration" {
-			// NOTE: see also defaultContext.configure()
-			p.evalConfiguration(positional(ctx, position), gOpts, gOpts.spec)
-			return
-		}
-		erro(ctx, "resolved '%v' is nil (options = %v)", prop0, *gOpts).debug(1)
+	} else if !isTrivial(resolved) {
+		// ...
+	} else if name == "configuration" {
+		// NOTE: see also universeContext.configure()
+		p.evalConfiguration(ctx, g, g.spec)
+		return
+	} else {
+		erro(ctx, "resolved '%v' is nil (options = %v)", prop0, *g).debug(1)
 		return
 	}
-
-	if b, ok := resolved.(*Builtin); !ok {
-		erro(ctx, "resolved '%v' is not a command (%s)", prop0, typeof(resolved)).debug(1)
-		return
-	} else if !b.s.command {
-		erro(ctx, "resolved builtin '%v' is not a command", prop0).debug(1)
-		return
-	}
-
-	//p.evalspec(spec)
 
 	// At the point of `eval` was represented, the closure context
 	// might be empty. So we start closure with the current scope.
-	//defer setclosure(setclosure(cloctx.unshift(p.scope)))
-	var res Value
-	switch op := prop0.(type) {
-	case Caller: res = op.Call(ctx, gOpts.spec[1:]...)
-	default:
-		if name := op.Strval(ctx); name == "" {
-			erro(ctx, "empty op: %T %s", op, op).debug(1)
-		} else if _, obj := p.Scope().Find(name); obj == nil {
-			erro(ctx, "`%s` undefined", name).debug(1)
-		} else if f, _ := obj.(Caller); f == nil {
-			erro(ctx, "`%T` is not caller (%s)", obj, name).debug(1)
-		} else {
-			res = f.Call(ctx, gOpts.spec[1:]...)
-		}
+	if op, y := resolved.(*Builtin); !y {
+		erro(ctx, "resolved '%v' is not a command (%s)", prop0, typeof(resolved)).debug(1)
+		return
+	} else if !op.s.command {
+		erro(ctx, "resolved builtin '%v' is not a command", prop0).debug(1)
+		return
+	} else if op.s.f != nil {
+		//defer setclosure(setclosure(cloctx.unshift(p.scope)))
+		res = op.s.f(ctx, plain, g.spec[1:]...)
 	}
 
-	if ctx.checkErrors(true); isTrivial(res) {
-		return
-	} else if false/*TODO: c, y := res.(code); y */ {
+	if ctx.checkErrors(true); isTrivial(res) { return }
+
+	/* TODO: if c, y := res.(code); y {
 		// TODO: evalue code result
-	}
+	} */
 }
 
 func (p *parser) parseDirectiveSpec(ctx Context) (props []Value) {
@@ -2193,7 +2174,7 @@ func (p *parser) parseGenericClause(ctx Context, keyword token.Token, pos token.
 
 	for _, cond := range opts.conds {
 		if t := cond.True(positional(ctx, cond.Position())); !t {
-			opts.dontOperate = true
+			opts.skip = true
 			break
 		}
 	}
@@ -2654,7 +2635,7 @@ func (p *parser) parseRuleEntry(ctx Context, special specialRule, options, targe
 
 	// NOTE: expand targets to speed up for later usage, it might spend lots of time in
 	// project.entry while matching for entry looked up if not expanded right now.
-	targets, _, _ = expand(ctx, plain & ^expandArgedArgs, targets...)
+	targets, _, _ = (plain&^expandArgedArgs).expand(ctx, targets...)
 
 	defer func(t []Value) { p.targets = t } (p.targets)
 	p.next(ctx, true) // skip rule delimeters and spaces
@@ -2992,17 +2973,16 @@ func (p *parser) templateCall(ctx Context, name Value, args []Value) {
 	erro(ctx, "undefined template: %v", name).of(name).debug(1)
 }
 func (p *parser) parseTemplateClause(ctx Context) {
-	var starting = p.Position()
+	var (
+		starting = p.Position()
+		arged *Argumented
+		verb string
+	)
 	p.expect(ctx, token.TEMPLATE) // expect and skip 'template'
 	p.skipSpaces(ctx)
-	if false { ctx = p.posit(ctx) }
 
-	var (
-		verb string
-		arged *Argumented
-		op = p.parseExpr(ctx, false)
-	)
-	if p.skipSpaces(ctx); p.tok == token.EOF {
+	var op = p.parseExpr(ctx, false) ; p.skipSpaces(ctx)
+	if p.tok == token.EOF {
 		erro(ctx, "unexpected end of file after %v", op).of(op).debug(1)
 		return
 	} else if w, ok := op.(*Bareword); ok {
@@ -3167,9 +3147,12 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 	// Likely not a Go source file at all.
 	if p.countErrors() > 0 { return nil }
 
+	const infoLoadAutoAfter = false
+
 	ctx = p.posit(ctx)
 
 	var (
+		isMainFile bool
 		abs, rel, tmp string
 		ident *Barecomp //Bareword
 		identStr string
@@ -3231,16 +3214,14 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 				p.next(ctx, true) // skip the '.' token and consequence spaces
 			}
 
-			basename := filepath.Base(filepath.Dir(filename))
+			var basename = filepath.Base(filepath.Dir(filename))
 			ident = MakeBarecomp(position, MakeBareword(position, basename))
 
 		default:
 			erro(ctx, "unknown configuration '%v', currently only 'configure .' is supported", p.tok)
 		}
 	case token.PROJECT, token.PACKAGE, token.MODULE:
-		if p.mode&Flat != 0 {
-			erro(ctx, "forbidden `%v` in flat file", p.tok)
-		}
+		if p.mode&Flat != 0 { erro(ctx, "forbidden `%v` in flat file", p.tok) }
 
 		p.next(ctx, true)
 
@@ -3333,7 +3314,7 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 		}
 
 		var (
-			loaderProj = p.project
+			loaderProj  = p.project
 			_, declared = linfo.declares[identStr]
 		)
 		if (p.mode&Flat == 0) && p.declare(positional(ctx, ident.Position()), keyword, ident, identStr, optVals) {
@@ -3349,9 +3330,6 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 			// NOTE: do.smart is always the first loaded, so the loadee will be pointed to it
 			if linfo.loadee == nil { linfo.loadee = p.Project() }
 			defer func(proj *Project) {
-				if def := proj.scope.FindDef(".after.all"); def != nil {
-					warn(ctx, "%v: %v", def.name, def.value.expand(ctx, plain)).debug(1)
-				}
 				if false && loaderProj != nil && filepath.Base(filename) == "do.smart" {
 					var ctx = positional(ctx, ident.Position())
 					assert(p.project == proj, "diverged project: %v != %v", p.project, proj)
@@ -3363,6 +3341,14 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 				}
 				p.closeCurrent(ident, identStr)
 			} (p.project)
+
+			isMainFile = !declared // true
+
+			switch ctx := p.posit(ctx); filepath.Base(filename) {
+			case "do.smart"/* , "build.smart" */:
+				if infoLoadAutoAfter { info(ctx, "%s %v", filename, isMainFile).debug(1) }
+				p.loadAutoAfter(ctx, "declare")
+			}
 		}
 
 		var basePos Position
@@ -3417,13 +3403,9 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 
 	if p.mode&ModuleClauseOnly == 0 {
 		if p.mode&Flat == 0 {
-		ForInit:
-			for p.tok != token.EOF {
+			ForInit: for p.tok != token.EOF {
 				switch p.tok {
-				case token.IMPORT:
-					p.expected(ctx, p.pos, "`use`, keyword `import` is replaced by `use`")
-				case token.LINEND:
-					p.next(ctx, true) // skip empty lines
+				case token.LINEND: p.next(ctx, true) // skip empty lines
 				case token.USE:
 					p.parseGenericClause(ctx, p.tok, p.expect(ctx, token.USE), p.parseUseSpec)
 				case token.ASSERT:
@@ -3447,8 +3429,7 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 				}
 			}
 		}
-		if p.mode&ImportsOnly == 0 {
-			// rest of module body
+		if p.mode&ImportsOnly == 0 { // rest of module body
 			for /* p.totalErrors() == 0 && */ p.tok != token.EOF {
 				if p.tok == token.LINEND ||
 					(p.tok == token.COMMENT && p.lineComment != nil) {
@@ -3458,6 +3439,13 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 					if ctx.checkErrors(true) > 0 { break }
 				}
 			}
+		}
+	}
+	if (p.mode&Flat == 0) && isMainFile {
+		switch ctx := p.posit(ctx); filepath.Base(filename) {
+		case "do.smart"/* , "build.smart" */:
+			if infoLoadAutoAfter { info(ctx, "%s", filename).debug(1) }
+			p.loadAutoAfter(ctx, "main")
 		}
 	}
 
