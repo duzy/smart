@@ -2765,17 +2765,13 @@ func reportFileUpdates(ctx Context, start time.Time, files []*File) {
 }
 
 type modifierStampOpts struct {
-        next bool "n,nxt,next" // traveNext if failed to stamp
-        error bool "e,err;e,error" // traveErro if failed to stamp
+        generalOpts
         prompt bool "m,prompt"
-        verbose bool "v,verbose"
-        debug int "d,debug"
+        next   bool "n,nxt,next" // traveNext if failed to stamp
+        error  bool "e,err;e,error" // traveErro if failed to stamp
 }
 func modifierStamp(ctx Context, args... Value) (result Value, traves travestates) {
-        var (
-                opts modifierStampOpts
-                pos = ctx.Position()
-        )
+        var opts modifierStampOpts
         args = parseOpts(ctx, &opts, plain, args...)
 
         var target = getTargetValue(ctx)
@@ -2789,7 +2785,8 @@ func modifierStamp(ctx Context, args... Value) (result Value, traves travestates
         var _, err = target.stamp(ctx)
         if err == nil { return /* Done! */ }
 
-        prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err).debug(1)
+        var p = prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err)
+        if n := opts.debug; n>0 { p.debug(n) }
         if opts.next {
                 if opts.verbose { warn(ctx, "%v", err).debug(1) }
                 s := traves.add(ctx, traveNext, target)
@@ -2802,19 +2799,19 @@ func modifierStamp(ctx Context, args... Value) (result Value, traves travestates
                 if false {
                         prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err).debug(1)
                         erro(ctx, "stamp(%v) error")
-                        errostack(ctx, -1, "%v", ctx).debug(1)
+                        errostack(ctx, 10, "%v", ctx).debug(1)
                 } else {
                         prompt(ctx, "%v: %v: %v\n", target, ctx.Project(), err).debug(1)
                         warn(ctx, "stamp(%v) error")
-                        warnstack(ctx, -1, "%v", ctx).debug(1)
+                        warnstack(ctx, 10, "%v", ctx).debug(1)
                 }
-        } else if pos.IsValid() {
+        } else if pos := ctx.Position(); pos.IsValid() {
                 erro(ctx, "failed stamp(%v)", target)
-                errostack(ctx, -1, "failed: %v", ctx).debug(10)
+                errostack(ctx, 10, "failed: %v", ctx).debug(10)
         } else if pos = target.Position(); pos.IsValid() {
                 ctx = positional(ctx, pos)
                 erro(ctx, "failed stamp(%v)", target)
-                errostack(ctx, -1, "failed: %v", ctx).debug(10)
+                errostack(ctx, 10, "failed: %v", ctx).debug(10)
         }
 
         if err != nil { if pe, ok := err.(*fs.PathError); ok {

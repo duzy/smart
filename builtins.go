@@ -4070,7 +4070,7 @@ foo: foobar
 type builtinSymlinkOpts struct {
         generalOpts
         path bool `p,path`
-        force bool `f,force`
+        force bool `force;ow,overwrite`
         update bool `u,update`
         relative bool `r,relative;l,rel`
 }
