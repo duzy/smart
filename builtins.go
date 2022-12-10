@@ -4069,10 +4069,10 @@ foo: foobar
 */
 type builtinSymlinkOpts struct {
         generalOpts
-        path bool `p,path`
-        force bool `force;ow,overwrite`
-        update bool `u,update`
-        relative bool `r,relative;l,rel`
+        path     bool `p,path`
+        force    bool `force;ow,overwrite`
+        update   bool `u,update`
+        relative bool `r,rel,relative;l`
 }
 func builtinSymlink(ctx Context, w facet, args... Value) (res Value) {
         var opts builtinSymlinkOpts
@@ -4081,33 +4081,34 @@ ForArgs:
         for i, na := 0, len(args); i < na; i += 1 {
                 var (
                         opts = opts // make a copy
-                        oldNameVal, newNameVal Value
-                        oldName   , newName    string
+                        srcNameVal, dstNameVal Value
+                        srcName   , dstName    string
+                        srcDir    , dstDir     string
                         aa []Value
                 )
                 switch t := args[i].(type) {
-                case *Pair: // symlink oldName=newName oldName=>newName...
-                        oldNameVal, newNameVal = t.Key, t.Value
-                case *Group: // symlink (-u oldName newName) (-v oldName newName)...
+                case *Pair: // symlink srcName=dstName srcName=>dstName...
+                        srcNameVal, dstNameVal = t.Key, t.Value
+                case *Group: // symlink (-u srcName dstName) (-v srcName dstName)...
                         if aa = parseOpts(ctx, &opts, plain, t.Elems...); len(aa) != 2 {
                                 erro(ctx, "expects two values for group").of(t).debug(1)
                                 return
                         } else {
-                                oldNameVal, newNameVal = aa[0], aa[1]
+                                srcNameVal, dstNameVal = aa[0], aa[1]
                         }
                 case *List: // XXX: symlink old new, old new, ...
                         if aa = parseOpts(ctx, &opts, plain, t.Elems...); len(aa) != 2 {
                                 erro(ctx, "expects two values for list").of(t).debug(1)
                                 return
                         } else {
-                                oldNameVal, newNameVal = aa[0], aa[1]
+                                srcNameVal, dstNameVal = aa[0], aa[1]
                         }
                 default:// Multiple pairs of names:
                         // symlink  new old, new old ...
                         // symlink  new old  new old ...
                         if i+1 < na {
-                                oldNameVal = args[i+0]
-                                newNameVal = args[i+1]
+                                srcNameVal = args[i+0]
+                                dstNameVal = args[i+1]
                                 i += 1
                         } else {
                                 var a = autoGet(ctx,"@")
@@ -4120,68 +4121,73 @@ ForArgs:
                         }
                 }
 
-                if oldName = oldNameVal.Strval(ctx); oldName == "" {
+                if srcDir, srcName = splitFileName(ctx, srcNameVal); srcName == "" {
                         prompt(ctx, "symlink: args=%v\n", args)
-                        prompt(ctx, "symlink: old=%v\n", oldNameVal)
-                        errostack(ctx, 5, "empty old filename (%T)", oldNameVal).of(oldNameVal).debug(6)
+                        prompt(ctx, "symlink: src=%v\n", srcNameVal)
+                        errostack(ctx, 5, "empty src filename (%T)", srcNameVal).of(srcNameVal).debug(6)
                         return
                 }
-                if newName = newNameVal.Strval(ctx); newName == "" {
+                if dstDir, dstName = splitFileName(ctx, dstNameVal); dstName == "" {
                         prompt(ctx, "symlink: args=%v\n", args)
-                        prompt(ctx, "symlink: new=%v\n", newNameVal)
-                        errostack(ctx, 5, "empty new filename (%T)", newNameVal).of(newNameVal).debug(6)
+                        prompt(ctx, "symlink: dest=%v\n", dstNameVal)
+                        errostack(ctx, 6, "empty dest filename (%T)", dstNameVal).
+                                of(dstNameVal).debug(12)
                         return
                 }
 
-                if opts.force {
-                        if err := os.Remove(newName); err != nil {
-                                erro(ctx, "%v", err).of(newNameVal).debug(1)
-                        }
-                } else if opts.update {
-                        if s, err := os.Readlink(newName); err != nil {
-                                if false {
-                                        prompt(ctx, "%v: readlink failed (%T)\n", newName, err)
-                                        erro(ctx, "%v", err).of(newNameVal)
-                                        errostack(ctx, 6, "%v", ctx).of(newNameVal).debug(8)
-                                }
-                        } else if s == newName {
-                                continue ForArgs
-                        } else if err = os.Remove(newName); err != nil {
-                                if true {
-                                        prompt(ctx, "%v: remove old symlink failed (%T)\n", newName, err)
-                                        erro(ctx, "%v", err).of(newNameVal)
-                                        errostack(ctx, 6, "%v", ctx).of(newNameVal).debug(8)
-                                }
-                        }
+                var src = filepath.Join(srcDir, srcName)
+                var dst = filepath.Join(dstDir, dstName)
+                if _, err := os.Stat(src); err != nil {
+                        prompt(ctx, "symlink: %v: %v\n", srcName, err)
+                        errostack(ctx, 6, "%v does not exist", srcName).of(srcNameVal).debug(8)
+                        return
                 }
 
-                if opts.relative && filepath.IsAbs(oldName) {
-                        var (
-                                dir = filepath.Dir(newName)
-                                s = oldName
-                                err error
-                        )
-                        if oldName, err = filepath.Rel(dir, oldName); err != nil {
-                                prompt(ctx, "%s: symlink: rel(%s, %s)\n", newName, dir, s)
-                                erro(ctx, "%v", err).of(newNameVal)
-                                errostack(ctx, 8, "%v", ctx).of(newNameVal).debug(10)
-                                return
+                if !opts.relative {/* no rel required */} else
+                if s, e := filepath.Rel(filepath.Dir(dst), src); e != nil {
+                        prompt(ctx, "symlink: %s: rel(%s, %s)\n", dstName, dst, src)
+                        errostack(ctx, 8, "%v", e).of(dstNameVal).debug(10)
+                        return
+                } else {
+                        if false {
+                                info(ctx, "%v %v\t%s", srcDir, srcName, src)
+                                info(ctx, "%v %v\t%s", dstDir, dstName, dst)
+                                info(ctx, "%v", s).debug(1)
                         }
+                        src = s
                 }
 
-                if dir := filepath.Dir(newName); opts.path && dir != "." && dir != PathSep {
-                        if err := os.MkdirAll(dir, os.FileMode(0755)); err != nil {
-                                erro(ctx, "%v", err).of(newNameVal).debug(1)
-                                return
-                        }
+                if !opts.path {/* no mkdir */} else
+                if dstDir == "" || dstDir == "." || dstDir == PathSep {
+                        // no need to mkdir: . or /
+                } else if err := os.MkdirAll(dstDir, os.FileMode(0755)); err != nil {
+                        erro(ctx, "%v", err).of(dstNameVal).debug(1)
+                        return
                 }
 
-                if err := os.Symlink(oldName, newName); err != nil {
+                var rm bool
+                if rm = opts.force; rm {
+                        // overwrite...
+                } else if s, e := os.Readlink(dst); e != nil {
+                        if false {
+                                prompt(ctx, "%v: readlink failed (%T)\n", dstName, e)
+                                errostack(ctx, 6, "%v", e).of(dstNameVal).debug(8)
+                        }
+                } else if rm = s != src; !rm {
+                        continue ForArgs
+                }
+
+                if rm { if e := os.Remove(dst); e != nil {
+                        prompt(ctx, "%v: remove old symlink failed (%T)\n", dstName, e)
+                        errostack(ctx, 6, "%v", e).of(dstNameVal).debug(8)
+                        return
+                }}
+                if err := os.Symlink(src, dst); err != nil {
                         if opts.verbose { prompt(ctx, "… %s\n", err) }
                         break
                 } else if opts.verbose {
-                        var d = trimPromptString(newName)
-                        var s = filepath.Base(oldName)
+                        var d = trimPromptString(dstName)
+                        var s = filepath.Base(srcName)
                         prompt(ctx, "%s -> %s …… ok\n", d, s)
                 }
         }
@@ -4191,7 +4197,7 @@ ForArgs:
 type builtinStatOpts struct {
         generalOpts
         dir bool `di,dr,dir`
-        file bool `f,fi,file`
+        file bool `fi,file`
         symbol bool `s,sym,symlink,symbol;l,link`
 }
 func builtinStat(ctx Context, w facet, args... Value) (res Value) {
@@ -4257,8 +4263,8 @@ func builtinStat(ctx Context, w facet, args... Value) (res Value) {
 
 type builtinFileOpts struct {
         generalOpts
-        caller bool `c,caller;cc,callercontext;cc,caller-context`
-        report bool `r,report;r,reportmissing;rm,report-missing;e,error`
+        caller bool `c,cc,caller,callercontext,caller-context`
+        report bool `r,report,reportmissing;rm,report-missing;e,error`
 }
 func builtinFile(ctx Context, w facet, args... Value) (res Value) {
         var (
@@ -4301,8 +4307,8 @@ func builtinFile(ctx Context, w facet, args... Value) (res Value) {
 type builtinGlobOpts struct {
         generalOpts
         dir bool `di,dir,directory`
-        file bool `f,file`
-        symbol bool `s,symlink;sym,symbol;sym,symbolic`
+        file bool `fi,file`
+        symbol bool `s,sym,symlink,symbol,symbolic`
 }
 func builtinGlob(ctx Context, w facet, args... Value) (res Value) {
         var (

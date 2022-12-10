@@ -320,11 +320,6 @@ func (traves *travestates) add(ctx Context, what travekind, target Value) *trave
     var pos = ctx.Position()
     var s = &travestate{ pos:pos, what:what, target:target }
     if *traves = append(*traves, s); false {
-        var t = getTargetValue(ctx) // t.String() == "bn/armv8-mont.S" &&
-        if false && what == traveNext &&
-            strings.HasSuffix(pos.Filename, "crypto/build.smart") {
-            warnstack(ctx, 3, "%v %v", t, ctx).debug(12)
-        }
     }
     return s
 }
@@ -773,17 +768,21 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         prereqObj Object
     )
 
-    // NOTE: Don't delete, keep this to save time for future debugging.
+    // NOTE: Don't delete, keep it for future debugging.
+    if false {
     // if true && (strings.HasSuffix(prereq, ".o") || strings.HasSuffix(prereq, ".a")) {
-    if false && (targetValue.String() == "libunwind.a") {
+    // if true && strings.Contains(prereqValue.String(), "&(objects)($(objDeps))") {
+    // if true && strings.Contains(targetValue.String(), "llvm-tools-driver") {
         prompt(ctx, "%v : %v\n", targetValue, prereqValue)
         warn(ctx, "@: %T %v", targetValue, targetValue)
         warn(ctx, ">: %T %v", prereqValue, prereqValue)
-        warn(ctx, "%v", ctx.program().depends)
-        warn(ctx, "%v", projects)
+        warn(ctx, "^: %v", ctx.program().depends)
+        warn(ctx, "&: %v", projects)
         warnstack(ctx, 3, "").debug(10)
-        defer func() { warn(ctx, "%v : %v, %v, %v (%T)", targetValue,
-            prereqValue, prereqFile, prereqObj, prereqObj).debug(10) } ()
+        defer func() {
+            warn(ctx, "%v : %v, %v, %v (%T)", targetValue,
+                prereqValue, prereqFile, prereqObj, prereqObj).debug(10)
+        } ()
     }
 
     if len(projects) == 0 { projects = ctx.projects(ctx) }
@@ -979,26 +978,6 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 trave.depend = prereqFile
             }
         }
-        if false && dbg {
-            prompt(ctx, "%v: %v; (%T %T; okay=%v)\n",
-                targetValue, prereqValue, targetValue, prereqValue, okay)
-            prompt(ctx, "%v: %v; okay=%v traversed=%v traves=%v projects=%v\n",
-                targetValue, prereqValue, okay, traversed, traves, projects)
-            if prereqFile != nil { prompt(ctx, "%v: %v; file=%v exists=%v\n",
-                targetValue, prereqValue, prereqFile.fullname(), prereqFile.exists()) }
-            warnstack(ctx, 5, "").debug(6)
-        }
-        if false ||
-            // prereq == "llvm-driver-objcopy.cpp" ||
-            // strings.Contains(targetValue.Strval(ctx), "Unwind") ||
-            // strings.Contains(prereq, "Unwind") ||
-            // strings.Contains(prereq, "ui/apple/metal.o") ||
-            false {
-            prompt(ctx, "%v: %T: %T %v ; %v file=%v okay=%v rules=(%d,%d)\n",
-                targetValue, targetValue, prereqValue, prereqValue,
-                traves, prereqFile, okay, len(concreteList), len(stemmedList))
-            infostack(ctx, 5, "").debug(24)
-        }
     } ()
 
     var searchObjects = func() {
@@ -1037,19 +1016,6 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 return
             }
         } // ForProjectsObjects
-
-        if false && traversed > 0 {
-            for _, project := range projects {
-                e := project.resolveEntries(ctx, prereq, t.grepping, true)
-                o := project.resolveObject(ctx, prereq)
-                prompt(ctx, "%v: %v; %v: %v; %T %v\n", project, project.bases, prereq, e, o, o)
-            }
-            prompt(ctx, "%v: %T: %v %T; projects=%v okay=%v traversed=%d file=%v obj=%v traves=%v\n",
-                targetValue, targetValue, prereqValue, prereqValue,
-                projects, okay, traversed, prereqFile, obj, traves).debug(1)
-            for i, s := range traves { info(ctx, "%v: %v: %d. %v", targetValue, prereqValue, i, s).at(s.pos) }
-            info(ctx, "%T %v; %T %v", targetValue, targetValue, prereqValue, prereqValue).debug(1)
-        }
     }
     if objectsFirst {
         if searchObjects(); okay { return }
@@ -1082,14 +1048,6 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             s.depend = entry
         }
 
-        if false && strings.Contains(prereq, "ui/apple/metal") {
-            if s, ok := entry.(*stemmed); ok {
-                warn(ctx, "%v: %v: %v %v", prereq, s.PatternEntry, entry, t).of(entry).debug(1)
-            } else {
-                warn(ctx, "%v: %v %v", prereq, entry, t).of(entry).debug(1)
-            }
-            defer func() { prompt(ctx, "%v: %v\n", targetValue, result).debug(6) } ()
-        }
         if !t.has() { return traveResContinue }
         if promptTraveEntries || false && t.has(traveFail, traveNext) {
             var g = targetValue.Strval(ctx)
@@ -1138,9 +1096,6 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             for _, s := range tt {
                 if /*s.what == traveDone*/true { if ok, f := nonFilePrereqTravedFile(s); ok {
                     okay, prereqFile = true, f
-                    if false { prompt(ctx, "filed: %T %v: %T %v : %T %v ; %v\n",
-                        targetValue, targetValue, prereqValue, prereqValue,
-                        s.target, s.target, s).debug(1) }
                     return traveResReturn
                 }}
                 // if g, d := s.target, s.depend; g != nil && d != nil &&
@@ -1248,19 +1203,6 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         } else {
             continue ForProjectsConcretes
         }
-        if false && strings.Contains(prereq, "test.o") {
-            for i, entry := range entries.all {
-                warn(ctx, "%d. %T %v (%v)", i, entry, entry, project).debug(1)
-            }
-            defer func (p *Project) {
-                // var patterns = p.resolvePatterns(ctx, prereqValue, prereq)
-                // warn(ctx, "%v", patterns)
-                warn(ctx, "%T %v", targetValue, targetValue)
-                warn(ctx, "%T %v ; %v %v", prereqValue, prereqValue, prereqFile, prereqFile.exists())
-                warn(ctx, "%d, %v, %v ; %v, %v", len(entries.all),
-                    p, traves, okay, traversed).debug(10)
-            } (project)
-        }
         ForEntries: for _, entry := range entries.all {
             if !isNil(entry) && targetValue == entry { continue ForEntries }
             if w, k := targetValue.(*Bareword); k && w.string == prereq {
@@ -1279,15 +1221,6 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             stemmedList = append(stemmedList, patterns...)
         } else {
             continue ForProjectsPatterns
-        }
-        if false && strings.Contains(prereq, "llvm-driver-objcopy.o") {
-            for i, entry := range patterns {
-                warn(ctx, "%d. %v %v (%v)", i, entry.PatternEntry, entry, project).debug(1)
-            }
-            defer func (p *Project) {
-                warn(ctx, "%d, %v, %v ; %v, %v", len(patterns),
-                    p, traves, okay, traversed).debug(10)
-            } (project)
         }
         ForPatterns: for _, entry := range patterns {
             switch trave(project, entry, true) {
@@ -1934,6 +1867,10 @@ func (p *Argumented) traverse(ctx Context) (traves travestates) {
     } else {
         args = p.args
     }
+    if false && strings.Contains(p.String(), "&(objects)($(objDeps))") &&
+        getTargetValue(ctx).String() == "llvm-tools-driver" {
+        warn(ctx, "%T %v -> %v", p.value, p.value, p.value.expand(ctx, plain)).debug(1)
+    }
     return p.value.traverse(&argumentedContext{ ctx, args })
 }
 
@@ -2008,6 +1945,10 @@ func isNil(v Value) (t bool) {
         t = true
     }
     return
+}
+
+func eq(c Context, l, r Value) bool {
+    return l == r || l.cmp(c, r) == cmpEqual
 }
 
 // Any is used to box an arbitrary value
@@ -4527,8 +4468,23 @@ func toFile(v Value) (f *File, y bool) {
     return
 }
 
+func splitFileName(ctx Context, val Value) (dir, name string) {
+    var f  *File
+    switch t := val.(type) {
+    case fullfile: f = t.File
+    case    *File: f = f
+    }
+    if f != nil {
+        dir, name = filepath.Join(f.dir, f.sub), f.name
+    } else {
+        name = val.Strval(ctx)
+        dir = filepath.Dir(name)
+    }
+    return
+}
+
 type fullfile struct { *File }
-func (u fullfile) String() string { return u.fullname() }
+// func (u fullfile) String() string { return u.fullname() }
 func (u fullfile) Strval(ctx Context) (s string) { return u.fullname() }
 func (u fullfile) expand(ctx Context, w facet) Value {
     if w != expandZero && (w&expandFullName == 0 /* || filepath.IsAbs(u.name) */) {
@@ -4613,9 +4569,6 @@ func (p *File) expand(ctx Context, w facet) (res Value) {
     } else if /* w&expandFullName != 0 && !filepath.IsAbs(p.name) */false {
         var fullname = p.fullname()
         if false && !filepath.IsAbs(fullname) { return p }
-        if strings.Contains(p.String(), "libunwind") {
-            warn(ctx, "%v %v %v", p, *p.filebase, p.stub)
-        }
 
         var stub, fullstub *filestub
         for stub = p.filestub; stub != nil; stub = stub.other {
@@ -4630,10 +4583,6 @@ func (p *File) expand(ctx Context, w facet) (res Value) {
             stub.other = fullstub
         }
 
-        if strings.Contains(p.String(), "libunwind") {
-            warn(ctx, "%v %v %v", p, *p.filebase, p.stub)
-            warnstack(ctx, 3, "file.expand: %v", p).debug(1)
-        }
         res = &File{p.valbase, p.filebase, fullstub}
     } else {
         res = p
@@ -5442,7 +5391,8 @@ type untraversed struct { Value }
 // func (u untraversed) True(ctx Context) bool { return false }
 func (u untraversed) traverse(ctx Context) (traves travestates) { return }
 func (u untraversed) expand(ctx Context, w facet) Value {
-    return untraversed{u.Value.expand(ctx, w)}
+    if v := u.Value.expand(ctx, w); v != u.Value { u = untraversed{v} }
+    return u
 }
 
 // Delegate wraps '$(foo a,b,c)' into Valuer

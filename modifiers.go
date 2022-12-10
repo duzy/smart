@@ -298,7 +298,7 @@ func modifierDebug(ctx Context, args... Value) (result Value, traves travestates
         for _, v := range opts.error { erro(ctx, "%s", v.Strval(ctx)).of(v).debug(1) }
 
         var (
-                target = autoGet(ctx, "@")
+                target  = autoGet(ctx, "@")
                 depends = autoGet(ctx, "^")
         )
         if opts.checkOutdated && !isNil(target) {
@@ -2767,8 +2767,8 @@ func reportFileUpdates(ctx Context, start time.Time, files []*File) {
 type modifierStampOpts struct {
         generalOpts
         prompt bool "m,prompt"
-        next   bool "n,nxt,next" // traveNext if failed to stamp
-        error  bool "e,err;e,error" // traveErro if failed to stamp
+        next   bool "n,nxt,next"  // traveNext if failed to stamp
+        error  bool "e,err,error" // traveErro if failed to stamp
 }
 func modifierStamp(ctx Context, args... Value) (result Value, traves travestates) {
         var opts modifierStampOpts
@@ -2806,11 +2806,19 @@ func modifierStamp(ctx Context, args... Value) (result Value, traves travestates
                         warnstack(ctx, 10, "%v", ctx).debug(1)
                 }
         } else if pos := ctx.Position(); pos.IsValid() {
-                erro(ctx, "failed stamp(%v)", target)
+                if f, y := target.(*File); y {
+                        erro(ctx, "failed stamp(%v): %v %v", target, f.fullname(), f.info)
+                } else {
+                        erro(ctx, "failed stamp(%v)", target)
+                }
                 errostack(ctx, 10, "failed: %v", ctx).debug(10)
         } else if pos = target.Position(); pos.IsValid() {
                 ctx = positional(ctx, pos)
-                erro(ctx, "failed stamp(%v)", target)
+                if f, y := target.(*File); y {
+                        erro(ctx, "failed stamp(%v): %v %v", target, f.fullname(), f.info)
+                } else {
+                        erro(ctx, "failed stamp(%v)", target)
+                }
                 errostack(ctx, 10, "failed: %v", ctx).debug(10)
         }
 
@@ -3030,7 +3038,7 @@ type predictionOutdatedOpts struct {
         generalOpts
         verboseUpdated  bool "vu,verbose-updated"
         verboseOutdated bool "vo,verbose-outdated"
-        checksum bool "c,cs,checksum,crc"
+        checksum bool "c,cs,crc,checksum"
         silent   bool "s,silent"
 }
 func predictionOutdated(ctx Context, args... Value) (result Value) {

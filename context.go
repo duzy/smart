@@ -73,6 +73,8 @@ type commandLineOpts struct {
 
   slow int64 `sl,slow`
 
+  parallel        bool `p,par,para,parallel`
+
   fastMode        bool `f,fm,fast,fast-mode`
   failOnErrors    bool `fe,foe,fail-on-errors`
 

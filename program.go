@@ -654,10 +654,10 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
 }
 
 func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves travestates) {
-    var asyncUnsafe = true
-    if !asyncUnsafe { for _, prerequisite := range prerequisites {
+    var distinguishing = !options.parallel // TODO:FIXME: parallel traversal
+    if false && !distinguishing { for _, prerequisite := range prerequisites {
         if _, ok := prerequisite.(*modifiergroup); !ok {
-            asyncUnsafe = true; break
+            distinguishing = true; break
         }
     }}
 
@@ -666,8 +666,8 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
     var (
         stems = ctx.stems()
         verb  = options.verbose || options.verboseBreaks
-        mu sync.Mutex
         wg sync.WaitGroup
+        mu sync.Mutex
     )
     defer func() {
         wg.Wait()
@@ -688,29 +688,30 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
         // FIXME: optimization: the traves may grow into large number of traveFile
     } ()
 
-    if asyncUnsafe {
-        var depends valueList
-        var ent = autoGet(ctx, "@")
+    var depends valueList
+    var ent = autoGet(ctx, "@")
+    if distinguishing {
         ForPrerequisites: for _, prerequisite := range prerequisites {
-            if u, y := prerequisite.(unexpanded); y {
+            /****/ if u, y := prerequisite.(untraversed); y {
+                warn(ctx, "%v: untraversed %v", ent, u.Value).debug(1)
+                continue
+            } else if u, y := prerequisite.(unexpanded); y {
                 warn(ctx, "%v: unexpanded %v", ent, u.Value).debug(1)
                 continue
             } else if _, y := prerequisite.(*modifiergroup); y {
                 wg.Wait()
-            } else {
-                // wg.Add(1)
             }
 
             var t = prerequisite.traverse(ctx)
-            if false { if a := autoGet(ctx, "@"); a.String() == "libunwind.a" {
+            if false { if a := autoGet(ctx, "@"); a.String() == "llvm-tools-driver" {
+                for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
                 info(ctx, "%v: %v %v", a, prerequisite, autoGet(ctx, ">")).of(prerequisite).debug(1)
-                info(ctx, "%v: %v", a, prerequisite.expand(ctx, plain))
-                for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a) }
+                defer func(s Value) { info(ctx, "%v -> %v", prerequisite, s).
+                    of(prerequisite).debug(4) } (autoGet(ctx, "^"))
             }}
 
             if !t.has() { continue } else {
-                // NOTE: collect all travestates at this point
-                traves = append(traves, t...)
+                traves = append(traves, t.not(traveNext)...)
             }
 
             var target = autoGet(ctx, "@") // fetch updated $@
@@ -720,7 +721,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                 var (
                     m = ctx.stemmed()
                     isPatternContextForMyTarget = m != nil && m.target != nil &&
-                        m.target.cmp(ctx, target) == cmpEqual
+                        eq(ctx, m.target, target)
                 )
                 if isPatternContextForMyTarget {
                     // TODO: convert traveFail into traveNext for stemmed entries ?
@@ -778,58 +779,57 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
 
             if tt := t.of(traveDone); tt.has() {
                 for _, s := range tt {
-                    if g := s.target; g != nil &&
-                        (target == g || target.cmp(ctx, g) == cmpEqual) {
-                        return //break ForPrerequisites
-                    }
+                    if eq(ctx, target, s.target) { return }
                 }
-                if false { traves = traves.not(traveDone) }
             }
 
             if tt := t.of(traveCase); tt.has() {
                 for _, s := range tt {
-                    if g := s.target; g != nil &&
-                        (target == g || target.cmp(ctx, g) == cmpEqual) {
-                        return //break ForPrerequisites
-                    }
+                    if eq(ctx, target, s.target) { return }
                 }
-                if false { traves = traves.not(traveCase) }
             }
 
             if tt := t.of(traveNext); tt.has() {
+                var deps []Value
                 for _, s := range tt {
-                    if g := s.target; g != nil &&
-                        (target == g || target.cmp(ctx, g) == cmpEqual) {
-                        // info(ctx, "%v", s).of(prerequisite).debug(16)
-                        return //break ForPrerequisites
-                    } else if d := s.depend; d != nil &&
-                        (target == d || target.cmp(ctx, d) == cmpEqual) {
-                        info(ctx, "%v", s).of(prerequisite).debug(16)
+                    if eq(ctx, target, s.target) { deps = append(deps, s.depend) } else
+                    if eq(ctx, target, s.depend) {
+                        info(ctx, "%v %v ; %v", target, depend, prerequisite).of(prerequisite)
+                        info(ctx, "%v %v ; %d", s.target, s.depend,  len(tt)).of(prerequisite).debug(1)
                         continue ForPrerequisites
                     }
                 }
-                if false { info(ctx, "%v", traves).of(prerequisite).debug(6) }
-                if false { traves = traves.not(traveNext) }
+                if len(deps) == 1 {
+                    // %.h : %.h.cmake configure-file($>,$@)
+                    if deps[0] == nil { return }
+                    // %.o : %.cpp
+                    if eq(ctx, depend, deps[0]) { return }
+                } else {
+                    if false {
+                        for i, dep := range deps { info(ctx, "%d. %v %v",
+                            i, target, dep).of(prerequisite) }
+                        info(ctx, "%v %v", target, prerequisite).
+                            of(prerequisite).debug(1)
+                    }
+                    continue ForPrerequisites
+                }
             }
 
             if tt := t.of(traveFile); tt.has() {
-                if false { traves = traves.not(traveFile) }
-                continue
+                continue ForPrerequisites
             }
 
             if tt := t.of(traveRule); tt.has() {
-                if false { traves = traves.not(traveRule) }
-                continue
+                continue ForPrerequisites
             }
 
             if tt := t.of(traveObj); tt.has() {
-                if false { traves = traves.not(traveObj) }
-                continue
+                continue ForPrerequisites
             }
 
             if tt := t.not(traveCase, traveDone, traveNext); tt.has() {
                 var str string
-                if ent == target || ent.cmp(ctx, target) == cmpEqual {
+                if eq(ctx, ent, target) {
                     str = ent.String()
                 } else {
                     str = fmt.Sprintf("%v(%v)", ent, target)
@@ -842,23 +842,213 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
         }
         return
     } else if num := len(prerequisites); num > 0 {
+        const (
+            stateCont int = 0
+            stateBrek     = 1
+        )
+        var state int
         for _, prerequisite := range prerequisites {
-            warn(ctx, "%v: %T %v %v %v\n",
-                autoGet(ctx,"@"), prerequisite, prerequisite,
-                ctx.entry().Target(), ctx.stems()).debug(1)
-            wg.Add(1)
-            go func (ctx Context) {
-                defer checkPanicsErrors(ctx)
-                defer wg.Done()
-                if t := prerequisite.traverse(ctx); t.has() {
-                    mu.Lock(); defer mu.Unlock()
-                    traves = append(traves, t...)
+            /****/ if u, y := prerequisite.(untraversed); y {
+                warn(ctx, "%v: untraversed %v", ent, u.Value).debug(1)
+                continue
+            } else if u, y := prerequisite.(unexpanded); y {
+                warn(ctx, "%v: unexpanded %v", ent, u.Value).debug(1)
+                continue
+            } else if _, y := prerequisite.(*modifiergroup); y {
+                wg.Wait()
+            }
 
-                    var proj = ctx.Project()
-                    if t = t.not(traveNext, traveCase, traveDone); t.has() {
-                        for _, s := range t { warn(ctx, "%v: %v", prerequisite, s).at(s.pos) }
-                        warnstack(ctx, 5, "%v: %v: %v", proj, ctx.entry(), prerequisite).debug(36)
+            wg.Add(1) ; go func (ctx Context) {
+                defer func() {
+                    checkPanicsErrors(ctx)
+                    wg.Done()
+                } ()
+
+                var t = prerequisite.traverse(ctx)
+                if false { if a := autoGet(ctx, "@"); a.String() == "llvm-tools-driver" {
+                    for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
+                    info(ctx, "%v: %v %v", a, prerequisite, autoGet(ctx, ">")).of(prerequisite).debug(1)
+                    defer func(s Value) { info(ctx, "%v -> %v", prerequisite, s).
+                        of(prerequisite).debug(4) } (autoGet(ctx, "^"))
+                }}
+
+                if !t.has() { return }
+
+                var brek bool
+                var target, depend Value
+                mu.Lock()
+                if state == stateBrek { brek = true } else {
+                    traves = append(traves, t.not(traveNext)...)
+                    target = autoGet(ctx, "@") // fetch updated $@
+                    depend = autoGet(ctx, ">") // fetch updated $>
+                    if depend != nil { depends.add(depend) }
+                }
+                mu.Unlock()
+
+                if brek { return } else
+                if tt := t.of(traveFail); tt.has() {
+                    var (
+                        m = ctx.stemmed()
+                        isPatternContextForMyTarget = m != nil && m.target != nil &&
+                            eq(ctx, m.target, target)
+                    )
+                    if isPatternContextForMyTarget {
+                        // TODO: convert traveFail into traveNext for stemmed entries ?
+                        const dbgInfoStates = false
+                        for _, s := range tt {
+                            var dbgFail2Next bool
+                            var dependMine = depends.contains(s.depend)
+                            if s.error == traveTargetNotDefinedFile && dependMine {
+                                // add traveNext to try the next pattern
+                                // trave := traves.remove(s).add(ctx, traveNext, target)
+                                // trave.depend = s.depend
+                                traves.remove(s).add(ctx, traveNext, target)
+                                if dbgFail2Next {
+                                    warn(ctx, "%v", tt)
+                                    warn(ctx, "%v", traves).debug(1)
+                                }
+                            } else if depend == nil {
+                                prompt(ctx, "%v: %v\n", target, s).debug(1)
+                                erro(ctx, "%v", s).at(s.pos).debug(1)
+                                erro(ctx, "1. %T %v %s", target, target, target.Strval(ctx)).of(target)
+                                erro(ctx, "2. %T %v mine=%v", s.depend, s.depend, dependMine).of(s.depend)
+                                erro(ctx, "3. %T %v", prerequisite, prerequisite).of(prerequisite)
+                                errostack(ctx, 5, "#>").debug(10)
+                            } else {
+                                prompt(ctx, "%v: %v: %v\n", target, depend, s).debug(1)
+                                erro(ctx, "%v", s).at(s.pos).debug(1)
+                                erro(ctx, "1. %T %v %s", target, target, target.Strval(ctx)).of(target)
+                                erro(ctx, "2. %T %v %s", depend, depend, depend.Strval(ctx)).of(depend)
+                                erro(ctx, "3. %T %v mine=%v", s.depend, s.depend, dependMine).of(s.depend)
+                                erro(ctx, "4. %T %v", prerequisite, prerequisite).of(prerequisite)
+                                errostack(ctx, 5, "#>").debug(10)
+                            }
+
+                            mu.Lock()
+                            state = stateBrek
+                            mu.Unlock()
+                            return
+                        }
                     }
+
+                    if true || dbg || verb {
+                        var p = ctx.Project()
+                        prompt(ctx, "%v:(%T): %T %v ; project=%s, stems=%v ; %v\n",
+                            t, target, prerequisite, prerequisite, p, stems, m)
+
+                        var a []interface{}
+                        for _, s := range tt {
+                            if pe, ok := s.error.(*fs.PathError); ok { // NOTE: pe.Path == s.target
+                                warn(ctx, "%v: %v: %v", t, s.target, pe.Err).at(s.pos)
+                            } else {
+                                warn(ctx, "%v: %v: %v (%T)", t,
+                                    s.target, s.error, s.error).at(s.pos)
+                            }
+                            a = append(a, s.target) // if !s.target.Position().Same(&s.pos)
+                        }
+                        warnstack(ctx, 5, "#>", a...).debug(16)
+                    }
+
+                    mu.Lock()
+                    state = stateBrek
+                    mu.Unlock()
+                    return
+                }
+
+                if tt := t.of(traveDone); tt.has() {
+                    for _, s := range tt {
+                        if eq(ctx, target, s.target) {
+                            mu.Lock()
+                            state = stateBrek
+                            mu.Unlock()
+                            return
+                        }
+                    }
+                }
+
+                if tt := t.of(traveCase); tt.has() {
+                    for _, s := range tt {
+                        if eq(ctx, target, s.target) {
+                            mu.Lock()
+                            state = stateBrek
+                            mu.Unlock()
+                            return
+                        }
+                    }
+                }
+
+                if tt := t.of(traveNext); tt.has() {
+                    var deps []Value
+                    for _, s := range tt {
+                        if eq(ctx, target, s.target) { deps = append(deps, s.depend) } else
+                        if eq(ctx, target, s.depend) {
+                            info(ctx, "%v %v ; %v", target, depend, prerequisite).of(prerequisite)
+                            info(ctx, "%v %v ; %d", s.target, s.depend,  len(tt)).of(prerequisite).debug(1)
+                            mu.Lock()
+                            state = stateCont
+                            mu.Unlock()
+                            return
+                        }
+                    }
+                    if len(deps) == 1 {
+                        // %.h : %.h.cmake configure-file($>,$@)
+                        // %.o : %.cpp
+                        if deps[0] == nil || eq(ctx, depend, deps[0]) {
+                            mu.Lock()
+                            state = stateBrek
+                            mu.Unlock()
+                            return
+                        }
+                    } else {
+                        if false {
+                            for i, dep := range deps { info(ctx, "%d. %v %v",
+                                i, target, dep).of(prerequisite) }
+                            info(ctx, "%v %v", target, prerequisite).
+                                of(prerequisite).debug(1)
+                        }
+                        mu.Lock()
+                        state = stateCont
+                        mu.Unlock()
+                        return
+                    }
+                }
+
+                if tt := t.of(traveFile); tt.has() {
+                    mu.Lock()
+                    state = stateCont
+                    mu.Unlock()
+                    return
+                }
+
+                if tt := t.of(traveRule); tt.has() {
+                    mu.Lock()
+                    state = stateCont
+                    mu.Unlock()
+                    return
+                }
+
+                if tt := t.of(traveObj); tt.has() {
+                    mu.Lock()
+                    state = stateCont
+                    mu.Unlock()
+                    return
+                }
+
+                if tt := t.not(traveCase, traveDone, traveNext); tt.has() {
+                    var str string
+                    if eq(ctx, ent, target) {
+                        str = ent.String()
+                    } else {
+                        str = fmt.Sprintf("%v(%v)", ent, target)
+                    }
+                    prompt(ctx, "%s: %v ; traves=%d\n", str, prerequisite, len(t))
+                    for i, s := range t { prompt(ctx, "%s: %d. %v\n", str, i, s) }
+                    errostack(ctx, 5, "").debug(16)
+
+                    mu.Lock()
+                    state = stateBrek
+                    mu.Unlock()
+                    return
                 }
             } (ctx.spawn())
         }
