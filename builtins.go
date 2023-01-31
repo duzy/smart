@@ -3874,14 +3874,11 @@ func builtinRemove(ctx Context, w facet, args... Value) (res Value) {
                                 return
                         }
                         for _, s := range names {
-                                if opts.verbose { prompt(ctx, "remove %s\n", s) }
                                 if opts.debug>0 { info(ctx, "remove %s", s).debug(opts.debug) }
-                                if opts.all {
-                                        err = os.RemoveAll(s)
+                                if opts.all { err = os.RemoveAll(s) } else { err = os.Remove(s) }
+                                if err == nil {
+                                        if opts.verbose { prompt(ctx, "remove %s (%s)\n", s, typeof(a)) }
                                 } else {
-                                        err = os.Remove(s)
-                                }
-                                if err != nil {
                                         erro(ctx, "remove failed: %v", err)
                                         return
                                 }
@@ -3899,19 +3896,22 @@ func builtinRemove(ctx Context, w facet, args... Value) (res Value) {
                                 errostack(ctx, 3, "").debug(32)
                                 break
                         }
-                } else {
-                        if opts.verbose { prompt(ctx, "remove %s\n", str) }
+                } else if file != nil && file.exists() {
                         if opts.debug>0 { warn(ctx, "remove %s", str).debug(opts.debug) }
-                        if opts.all {
-                                err = os.RemoveAll(str)
+                        if opts.all { err = os.RemoveAll(str) } else { err = os.Remove(str) }
+                        if err == nil {
+                                if opts.verbose { prompt(ctx, "remove %s (%s)\n", str, typeof(a)) }
                         } else {
-                                err = os.Remove(str)
-                        }
-                        if err != nil {
                                 erro(ctx, "%v", err)
                                 erro(ctx, "source: %v (%T)", a, a)
                                 erro(ctx, "source: %v", str).debug(1)
                                 return
+                        }
+                } else if opts.verbose {
+                        if file != nil {
+                                prompt(ctx, "remove: no such file %s (%s)\n", str, typeof(a))
+                        } else {
+                                prompt(ctx, "remove: no such %s (%s)\n", str, typeof(a))
                         }
                 }
         }
@@ -3919,8 +3919,7 @@ func builtinRemove(ctx Context, w facet, args... Value) (res Value) {
 }
 
 type builtinRemoveAllOpts struct {
-        debug bool `d,debug`
-        verbose bool `v,verbose`
+        generalOpts
 }
 func builtinRemoveAll(ctx Context, w facet, args... Value) (res Value) {
         var (
@@ -3950,7 +3949,7 @@ func builtinRemoveAll(ctx Context, w facet, args... Value) (res Value) {
                         break
                 } else {
                         if opts.verbose { info(ctx, "remove %s", str) }
-                        if opts.debug   { info(ctx, "remove %s", str).debug(1) }
+                        if opts.debug>0 { info(ctx, "remove %s", str).debug(1) }
                         if err := os.RemoveAll(str); err != nil {
                                 erro(ctx, "remove failed: %v", err).debug(1)
                                 return
@@ -4346,23 +4345,23 @@ func builtinGlob(ctx Context, w facet, args... Value) (res Value) {
         return MakeListOrScalar(pos, list)
 }
 
-func readDirNames(ctx Context, inDir string) (names []string) {
+func readDirNames(ctx Context, opts *wildcardOpts) (names []string) {
         var dir *os.File
-        if fi, err := os.Stat(inDir); err != nil {
-                erro(ctx, "%v", err).debug(1)
+        if fi, err := os.Stat(opts.dir); err != nil {
+                if opts.errorMissing { erro(ctx, "%v", err).debug(1) }
                 return
         } else if !fi.IsDir() {
-                erro(ctx, "not dir: %v", inDir).debug(1)
+                erro(ctx, "not dir: %v", opts.dir).debug(1)
                 return
-        } else if dir, err = os.Open(inDir); err != nil {
-                erro(ctx, "not dir: %v", inDir).debug(1)
+        } else if dir, err = os.Open(opts.dir); err != nil {
+                erro(ctx, "not dir: %v", opts.dir).debug(1)
                 return
         }
 
         // NOTE: see alsl filepath.Glob(...)
         var _names, err = dir.Readdirnames(-1); dir.Close()
         if err != nil {
-                erro(ctx, "readdir: %v", err).debug(1)
+                if opts.errorMissing { erro(ctx, "readdir: %v", err).debug(1) }
                 return
         } else { names = _names }
         return
@@ -4370,7 +4369,7 @@ func readDirNames(ctx Context, inDir string) (names []string) {
 
 func wildcardPathPatsInDir3(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
         var dbg = false //strings.Contains(opts.dir, "/external/llvm-project/llvm/include")
-        var names = readDirNames(ctx, opts.dir)
+        var names = readDirNames(ctx, opts)
         forNames: for _, name := range names {
                 for _, x := range opts.exclude {
                         if full, _, _ := x.match(ctx, name); full { continue forNames }
@@ -4448,11 +4447,11 @@ func wildcardPathPatsInDir(ctx Context, opts *wildcardOpts, pats ...Value) (file
 
 type wildcardOpts struct {
         generalOpts
-        includeMissing bool `im,includemissing;m,include-missing`
-        errorMissing bool `em,errormissing;e,error-missing`
+        includeMissing bool `im,includemissing,include-missing,m,missing`
+        errorMissing bool `em,errormissing,e,err,error-missing,no-missing`
         baseFiles bool `b,base,bases;bf,base-files`
         usedFiles bool `u,used;u,using;uf,used-files`
-        names bool `n,name,names;bare`
+        names bool `bare,n,name,names`
         strs bool `s,str,strs,string,strings`
         exclude []Value `x,ex,excl,exclude,except,no,not`
         filetype string `ft,filetype,file-type` // dir, file, etc.

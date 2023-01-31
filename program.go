@@ -374,8 +374,8 @@ func (prog *Program) env(ctx Context) (env []string, osi int) {
 func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     var (
         ctx Context = cc
-        args  = cc.arguments()
         entry = cc.entry()
+        args  = cc.arguments()
         pos   = cc.Position()
     )
     if !pos.IsValid() { pos = entry.Position() }
@@ -452,23 +452,26 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     } ()
 
     if cc != nil {
-        var depth int
-        if false {
-            for c := cc.traversal(); c != nil; c = c.caller() {
-                if c.program() == prog {
-                    if depth += 1; depth == maxCallRecursion { break }
-                }
+        var depth, loop int = 0, -1
+        var a = []Value{ autoGet(cc, "@") }
+        ForPC: for c := cc.programContext(); c != nil; c = c.caller() {
+            if c.program() == prog {
+                if depth += 1; depth == maxCallRecursion { break ForPC }
+                var t = autoGet(c, "@")
+                for i, v := range a { if eq(cc, t, v) { loop = i; break ForPC } }
+                if loop < 0 { a = append(a, t) }
             }
-        } else {
-            for c := cc.programContext(); c != nil; c = c.caller() {
-                if c.program() == prog {
-                    if depth += 1; depth == maxCallRecursion { break }
-                }
-            }
+        }
+        if 0 <= loop {
+            for i, t := range a { warn(ctx, "%v: %v", i, t).of(t) }
+            warnstack(ctx, 3, "%v", a).at(prog.position).debug(1)
+            errostack(ctx, 128, "loop call, %d (%d, %v, %v)\n",
+                ctx.checkErrors(true), depth, a[loop], a).at(prog.position)
+            return
         }
         if depth < maxCallRecursion {
             // continues
-        } else if c := /*cc.traversal()*/cc.programContext(); c != nil {
+        } else if c := cc.programContext(); c != nil {
             var tt Value = autoGet(c, "@")
             prompt(ctx, "%v: max recursion call (%d)\n", fullnameOrStrval(ctx, tt), depth)
             warn(ctx, "max recursion call (%d)\n", depth).of(tt).debug(1)
@@ -689,8 +692,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
     } ()
 
     var depends valueList
-    var ent = autoGet(ctx, "@")
-    if distinguishing {
+    if ent := autoGet(ctx, "@"); distinguishing {
         ForPrerequisites: for _, prerequisite := range prerequisites {
             /****/ if u, y := prerequisite.(untraversed); y {
                 warn(ctx, "%v: untraversed %v", ent, u.Value).debug(1)
@@ -703,11 +705,19 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
             }
 
             var t = prerequisite.traverse(ctx)
+            if false { if prog.project.name == "llvm.ADT" {
+                for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
+                infostack(ctx, 12, "%v: %v: %v %v", prog.project, ent, prerequisite,
+                    autoGet(ctx, ">")).of(prerequisite).debug(10)
+                defer func(pre, v Value) {
+                    infostack(ctx, 12, "%v → %v → %v", pre, v, prerequisite).of(pre).debug(20)
+                } (prerequisite, autoGet(ctx, "^"))
+            }}
             if false { if a := autoGet(ctx, "@"); a.String() == "llvm-tools-driver" {
                 for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
                 info(ctx, "%v: %v %v", a, prerequisite, autoGet(ctx, ">")).of(prerequisite).debug(1)
-                defer func(s Value) { info(ctx, "%v -> %v", prerequisite, s).
-                    of(prerequisite).debug(4) } (autoGet(ctx, "^"))
+                defer func(s Value) { info(ctx, "%v → %v", prerequisite, s).
+                    of(prerequisite).debug(10) } (autoGet(ctx, "^"))
             }}
 
             if !t.has() { continue } else {
