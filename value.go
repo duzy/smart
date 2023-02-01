@@ -865,10 +865,14 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     if traveseDetectLoops { if targetValue.cmp(ctx, prereqValue) == cmpEqual {
         prompt(ctx, "%v: %v: self dependency, consider using [(once)] to avoid\n",
             targetValue, prereqValue)
-        warn(ctx, "recursion: %T %v", prereqValue, prereqValue)//.of(prereqValue)
-        warn(ctx, "recursion: %T %v", targetValue, targetValue)//.of(targetValue)
+        warn(ctx, "recursion: %T %v", prereqValue, prereqValue).of(prereqValue)
+        warn(ctx, "recursion: %T %v", targetValue, targetValue).of(targetValue)
         warn(ctx, "recursion: %v : %v ; in %v", targetValue, prereqFile, projects)
-        warnstack(ctx, 16, "").debug(32)
+        if false {
+            warnstack(ctx, 16, "").debug(32)
+        } else {
+            errostack(ctx, 16, "").debug(32)
+        }
         return
     }}
     if traveseDetectLoops { for c := ctx.programContext(); c != nil; c = c.caller() {
