@@ -1130,14 +1130,37 @@ func (l *loader) loadBases(ctx Context, linfo *loadinfo, implicitBase string, pa
             implicitBases = append(implicitBases, file)
         }
     }
+
+    if ns := strings.Split(l.project.name, "."); len(ns) > 2 && ns[len(ns)-1] == "base" {
+        var numBaseParams int
+        for _, elem := range params {
+            if l, y := elem.(*List); y && len(l.Elems) == 1 { elem = l.Elems[0] }
+            if a, y := elem.(*Argumented); y { elem = a.value }
+            if _, y := elem.(*Pair); y { continue }
+            numBaseParams += 1
+        }
+        if numBaseParams == 0 {
+            var segs []Value
+            for _, s := range ns[:len(ns)-2] {
+                segs = append(segs, MakeBareword(position, s))
+            }
+            implicitBases = append(implicitBases, MakePath(position, segs...))
+            if false { warn(ctx, "%v, %v, %v; %v, %v, %v", l.project.name, ns, segs,
+                implicitBase, implicitBases, params).debug(1) }
+            implicitBase = "" // discard the implicit base
+        } else if false /* && numBaseParams == 1 */ {
+            warn(ctx, "%v, %v, %v, %v; %v, %v, %v",
+                l.project.name, ns, filepath.Join(ns[:len(ns)-2]...), numBaseParams,
+                implicitBase, implicitBases, params)//.debug(6)
+        }
+    }
+
     if implicitBase != "" {
         implicitIndex = len(implicitBases)
         implicitBases = append(implicitBases, MakePathStr(position, implicitBase))
     }
-    params = append(implicitBases, params...)
 
-ParamsLoop:
-    for i, elem := range params {
+    ParamsLoop: for i, elem := range append(implicitBases, params...) {
         var (
             elemPos = elem.Position()
             absPath string
@@ -1145,9 +1168,9 @@ ParamsLoop:
             isDir bool
             err error
         )
-        if list, ok := elem.(*List); ok && len(list.Elems) == 1 { elem = list.Elems[0] }
-        if a, ok := elem.(*Argumented); ok { elem, args = a.value, a.args }
-        if p, ok := elem.(*Pair); ok {
+        if list, y := elem.(*List); y && len(list.Elems) == 1 { elem = list.Elems[0] }
+        if a, y := elem.(*Argumented); y { elem, args = a.value, a.args }
+        if p, y := elem.(*Pair); y {
             var (
                 identifier = p.Key
                 position = identifier.Position()
@@ -1196,9 +1219,7 @@ ParamsLoop:
         if n := ctx.checkErrors(true); n > 0 {
             warn(ctx, "%v: %d errors: %v -> %v", l.project, n, elem, specName).at(position).debug(1)
             break ParamsLoop
-        }
-
-        if f, ok := toFile(elem); ok && f.info != nil {
+        } else if f, ok := toFile(elem); ok && f.info != nil {
             if absPath = f.fullname(); true { assert(filepath.IsAbs(absPath), "invalid abs path: %v", f) }
             isDir = f.info.IsDir()
         } else if absPath, isDir, err = l.searchSpecPath(linfo, specName); err != nil {
@@ -1249,6 +1270,7 @@ ParamsLoop:
             break ParamsLoop
         }
     }
+
     if false {
         // bypass ...
     } else if o := l.project.resolveObject(ctx, "use.*"); o == nil {
