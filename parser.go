@@ -849,7 +849,7 @@ func (p *parser) parseBasicLit(ctx Context, lhs bool) (v Value) {
 
 	// ESCAPE is handled in value.EscapeChar
     var position = p.loc(pos)
-	defer checkPanicsErrors(positional(p, position)) // panics from parse{int,float,hex,...}
+	defer checkFailure(positional(p, position)) // panics from parse{int,float,hex,...}
     switch tok {
     case token.BAR: erro(p, "`|` is deprecated, changed the modifiers!").at(p.loc(pos))
     case token.BIN:      v = ParseBin(position, lit)
@@ -1838,7 +1838,7 @@ loadSpecNames:
 		} else {
 			var dc = diagContext{ Context: ctx } // redefine ctx
 			wg.Add(1); go func() {
-				defer checkPanicsErrors(&dc, true)
+				defer checkFailure(&dc, true)
 				defer func() {
 					if len(dc.points) > 0 { dc.inner().diagnostic().nest(dc.points) }
 					wg.Done()
@@ -1906,7 +1906,7 @@ func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
 		)
 		if false { // FIXME: parellel loading failed
 			wg.Add(1); go func() {
-				defer checkPanicsErrors(ctx, true)
+				defer checkFailure(ctx, true)
 				defer wg.Done()
 				var loaded = p.loadUseSpecName(ctx, opts, val, name, nil)
 				projMutx.Lock()
@@ -2965,7 +2965,7 @@ func (p *parser) callTemplate(ctx Context, t *template, name Value, args []Value
 }
 func (p *parser) templateCall(ctx Context, name Value, args []Value) {
 	for _, tmpl := range p.templates {
-		if tmpl.name != nil && tmpl.name.cmp(ctx, name) == cmpEqual {
+		if tmpl.name != nil && eq(ctx, tmpl.name, name) {
 			p.callTemplate(positional(ctx, tmpl.name.Position()), tmpl, name, args)
 			return
 		}

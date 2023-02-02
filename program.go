@@ -22,7 +22,8 @@ func (*dependPatternUnfit) Error() string { return "pattern unfit" }
 
 type programContext struct {
     autoContext
-    mutex sync.Mutex
+    sync.Mutex
+    sync.WaitGroup
     by    modifierSetDirtyPatsOpts
     projs []*Project
     prog *Program
@@ -30,6 +31,10 @@ type programContext struct {
     dirt string // reason of outdated
 }
 
+func (pc *programContext) wait() { pc.WaitGroup.Wait() }
+func (pc *programContext) aquireLock() (unlock func()) {
+    pc.Lock() ; return func() { pc.Unlock() }
+}
 func (pc *programContext) inner() Context { return &pc.autoContext }
 func (pc *programContext) caller() *programContext { return pc.Context.programContext() }
 //XXX: func (pc *programContext) stems() []string { return nil }
@@ -73,20 +78,6 @@ func (pc *programContext) Position() Position {
     if pc.prog != nil { return pc.prog.position }
     return pc.autoContext.Position()
 }
-func (pc *programContext) spawn() Context {
-    pc.mutex.Lock(); defer pc.mutex.Unlock()
-
-    var ctx = pc.Context
-    switch t := ctx.(type) {
-    case *closureContext, *traverseContext: ctx = t.spawn()
-    default: erro(pc, "program needs to spawn %v", ctx).debug(1)
-    }
-    return &programContext{
-        autoContext{ Context: ctx, defs: pc.defs.clone() },
-        sync.Mutex{}, modifierSetDirtyPatsOpts{}, //travestates{},
-        pc.projs, pc.prog, pc.params, pc.dirt,
-    }
-}
 func (pc *programContext) appendCallerUpdated() bool { return true }
 func (pc *programContext) mustExists() bool { return false }
 func (pc *programContext) closureScopes() (scopes []*Scope) {
@@ -123,7 +114,7 @@ func (pc *programContext) dirtyMark(vals ...Value) {
         vals = merge(vals...)
         for _, t := range tt {
             ForVals: for _, val := range vals {
-                if val == t /*|| val.cmp(pc,t) == cmpEqual*/ {
+                if eq(pc, val, t) {
                     dup = true; continue ForVals
                 }
                 for _, pat := range opts.pats {
@@ -463,10 +454,27 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
             }
         }
         if 0 <= loop {
-            for i, t := range a { warn(ctx, "%v: %v", i, t).of(t) }
-            warnstack(ctx, 3, "%v", a).at(prog.position).debug(1)
-            errostack(ctx, 128, "loop call, %d (%d, %v, %v)\n",
-                ctx.checkErrors(true), depth, a[loop], a).at(prog.position)
+            var t = autoGet(cc, "@")
+            if o := cc.closure(); o != nil {
+                if v := autoGet(o, "@"); v != nil && eq(cc, v, t) {
+                    if true { warnstack(ctx, 3, "skip closure loop: %v %v", o, t).debug(1) }
+                    // FIXES: skip execution as it's closure, for example:
+                    //
+                    //   %.h($(headers)): $(srcinc)/%.h update-file
+                    //
+                    // where the 'update-file' is like:
+                    //
+                    //   update-file: [((in)) (closure) (set @=&@)] $(in) \
+                    //       [(read-file $>) (update-file -p)]
+                    //
+                    // see also RuleEntry.traverse for the same skip.
+                    return
+                }
+            }
+
+            prompt(ctx, "%v: %v: %v, %v\n", a[0], autoGet(cc.closure(), "@"), cc, cc.closure())
+            for i, t := range a { erro(ctx, "loop: %v: %v", i, t).of(t) }
+            errostack(ctx, 128, "loop, (depth=%d, %v, %v)\n", depth, a[loop], a).at(prog.position).debug(6)
             return
         }
         if depth < maxCallRecursion {
@@ -481,7 +489,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
                 var n int
                 if collapse { for next := c.caller(); next != nil; next = next.caller() {
                     if d := autoGet(next, "@"); d == nil { continue } else
-                    if t := d; t != nil && t.cmp(ctx, tt) == cmpEqual {
+                    if t := d; t != nil && eq(ctx, t, tt) {
                         n += 1;  continue
                     }
                     if next.program() == c.program() { n += 1; c = next } else { break }
@@ -657,23 +665,16 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
 }
 
 func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves travestates) {
-    var distinguishing = !options.parallel // TODO:FIXME: parallel traversal
-    if false && !distinguishing { for _, prerequisite := range prerequisites {
-        if _, ok := prerequisite.(*modifiergroup); !ok {
-            distinguishing = true; break
-        }
-    }}
-
     const dbg = false
 
     var (
-        stems = ctx.stems()
+        parallel = false && options.parallel
         verb  = options.verbose || options.verboseBreaks
-        wg sync.WaitGroup
-        mu sync.Mutex
+        pc = ctx.programContext()
+        stems = ctx.stems()
     )
     defer func() {
-        wg.Wait()
+        pc.Wait()
 
         // NOTE: warnings if travestates go too large
         if true {
@@ -692,16 +693,21 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
     } ()
 
     var depends valueList
-    if ent := autoGet(ctx, "@"); distinguishing {
-        ForPrerequisites: for _, prerequisite := range prerequisites {
+    var num = len(prerequisites)
+    if ent := autoGet(ctx, "@"); !parallel {
+        ForPrerequisites: for i, prerequisite := range prerequisites {
+            var _, g = prerequisite.(*modifiergroup)
             /****/ if u, y := prerequisite.(untraversed); y {
                 warn(ctx, "%v: untraversed %v", ent, u.Value).debug(1)
                 continue
             } else if u, y := prerequisite.(unexpanded); y {
                 warn(ctx, "%v: unexpanded %v", ent, u.Value).debug(1)
                 continue
-            } else if _, y := prerequisite.(*modifiergroup); y {
-                wg.Wait()
+            } else if g {
+                pc.Wait()
+            } else {
+                if i == 0 { ctx.autoSet("<", prerequisite) }
+                if false  { ctx.autoSet(">", prerequisite) }
             }
 
             var t = prerequisite.traverse(ctx)
@@ -851,30 +857,52 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
             }
         }
         return
-    } else if num := len(prerequisites); num > 0 {
+    } else if num > 0 {
         const (
+            deferWait = false
             stateCont int = 0
             stateBrek     = 1
         )
         var state int
-        for _, prerequisite := range prerequisites {
+        for i, prerequisite := range prerequisites {
+            var _, g = prerequisite.(*modifiergroup)
             /****/ if u, y := prerequisite.(untraversed); y {
                 warn(ctx, "%v: untraversed %v", ent, u.Value).debug(1)
                 continue
             } else if u, y := prerequisite.(unexpanded); y {
                 warn(ctx, "%v: unexpanded %v", ent, u.Value).debug(1)
                 continue
-            } else if _, y := prerequisite.(*modifiergroup); y {
-                wg.Wait()
+            } else if g {
+                if !deferWait { pc.Wait() }
+            } else {
+                if i == 0 { ctx.autoSet("<", prerequisite) }
+                if false  { ctx.autoSet(">", prerequisite) }
             }
 
-            wg.Add(1) ; go func (ctx Context) {
+            pc.Add(1)
+            go func (ctx Context, i int, prerequisite Value) {
                 defer func() {
-                    checkPanicsErrors(ctx)
-                    wg.Done()
+                    pc.Done()
+                    checkFailure(ctx)
                 } ()
 
+                var set = func(s int) {
+                    var unlock = ctx.aquireLock()
+                    state = s
+                    if unlock != nil { unlock() }
+                }
+
+                ctx.autoSet(">", prerequisite)
+
                 var t = prerequisite.traverse(ctx)
+                if false { if prerequisite.String() == ".test.fxxbar" {
+                    for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
+                    infostack(ctx, 12, "%v: %v: %v %v", prog.project, ent, prerequisite,
+                        autoGet(ctx, ">")).of(prerequisite).debug(10)
+                    defer func(pre, v Value) {
+                        infostack(ctx, 12, "%v → %v → %v", pre, v, prerequisite).of(pre).debug(20)
+                    } (prerequisite, autoGet(ctx, "^"))
+                }}
                 if false { if a := autoGet(ctx, "@"); a.String() == "llvm-tools-driver" {
                     for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
                     info(ctx, "%v: %v %v", a, prerequisite, autoGet(ctx, ">")).of(prerequisite).debug(1)
@@ -886,14 +914,14 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
 
                 var brek bool
                 var target, depend Value
-                mu.Lock()
+                var unlock = ctx.aquireLock()
                 if state == stateBrek { brek = true } else {
                     traves = append(traves, t.not(traveNext)...)
                     target = autoGet(ctx, "@") // fetch updated $@
                     depend = autoGet(ctx, ">") // fetch updated $>
                     if depend != nil { depends.add(depend) }
                 }
-                mu.Unlock()
+                if unlock != nil { unlock() }
 
                 if brek { return } else
                 if tt := t.of(traveFail); tt.has() {
@@ -934,9 +962,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                                 errostack(ctx, 5, "#>").debug(10)
                             }
 
-                            mu.Lock()
-                            state = stateBrek
-                            mu.Unlock()
+                            set(stateBrek)
                             return
                         }
                     }
@@ -959,18 +985,14 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                         warnstack(ctx, 5, "#>", a...).debug(16)
                     }
 
-                    mu.Lock()
-                    state = stateBrek
-                    mu.Unlock()
+                    set(stateBrek)
                     return
                 }
 
                 if tt := t.of(traveDone); tt.has() {
                     for _, s := range tt {
                         if eq(ctx, target, s.target) {
-                            mu.Lock()
-                            state = stateBrek
-                            mu.Unlock()
+                            set(stateBrek)
                             return
                         }
                     }
@@ -979,9 +1001,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                 if tt := t.of(traveCase); tt.has() {
                     for _, s := range tt {
                         if eq(ctx, target, s.target) {
-                            mu.Lock()
-                            state = stateBrek
-                            mu.Unlock()
+                            set(stateBrek)
                             return
                         }
                     }
@@ -994,9 +1014,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                         if eq(ctx, target, s.depend) {
                             info(ctx, "%v %v ; %v", target, depend, prerequisite).of(prerequisite)
                             info(ctx, "%v %v ; %d", s.target, s.depend,  len(tt)).of(prerequisite).debug(1)
-                            mu.Lock()
-                            state = stateCont
-                            mu.Unlock()
+                            set(stateCont)
                             return
                         }
                     }
@@ -1004,9 +1022,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                         // %.h : %.h.cmake configure-file($>,$@)
                         // %.o : %.cpp
                         if deps[0] == nil || eq(ctx, depend, deps[0]) {
-                            mu.Lock()
-                            state = stateBrek
-                            mu.Unlock()
+                            set(stateBrek)
                             return
                         }
                     } else {
@@ -1016,31 +1032,23 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                             info(ctx, "%v %v", target, prerequisite).
                                 of(prerequisite).debug(1)
                         }
-                        mu.Lock()
-                        state = stateCont
-                        mu.Unlock()
+                        set(stateCont)
                         return
                     }
                 }
 
                 if tt := t.of(traveFile); tt.has() {
-                    mu.Lock()
-                    state = stateCont
-                    mu.Unlock()
+                    set(stateCont)
                     return
                 }
 
                 if tt := t.of(traveRule); tt.has() {
-                    mu.Lock()
-                    state = stateCont
-                    mu.Unlock()
+                    set(stateCont)
                     return
                 }
 
                 if tt := t.of(traveObj); tt.has() {
-                    mu.Lock()
-                    state = stateCont
-                    mu.Unlock()
+                    set(stateCont)
                     return
                 }
 
@@ -1055,12 +1063,11 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                     for i, s := range t { prompt(ctx, "%s: %d. %v\n", str, i, s) }
                     errostack(ctx, 5, "").debug(16)
 
-                    mu.Lock()
-                    state = stateBrek
-                    mu.Unlock()
+                    set(stateBrek)
                     return
                 }
-            } (ctx.spawn())
+            } (ctx.spawn(ctx), i, prerequisite)
+            if g && deferWait { pc.Wait() }
         }
         return
     } else {

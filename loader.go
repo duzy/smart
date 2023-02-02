@@ -990,6 +990,24 @@ func (l *loader) includeFile(ctx Context, opts includeFileOpts, spec Value) {
         err error
     )
 
+    defer func(t time.Time) {
+        ctx = l.parser.posit(ctx)
+
+        var panics, _ = checkFailure(ctx, true)
+        if proj := l.project; panics > 0 {
+            if err != nil { erro(ctx, "panics with error: %v", panics, err) }
+            erro(ctx, "failed: got %d panics from %v (%s)", panics, proj, proj.spec).debug(128)
+        } else if err != nil {
+            erro(ctx, "parse file failed: %v", err).debug(128)
+        }
+
+        if d := time.Now().Sub(t); d > time.Duration(options.slow)*time.Millisecond {
+            warnstack(ctx, 10, "%v: slow include (%v)", l.project, d).debug(1) //  → %s, filename
+        } else if options.verbose {
+            info(ctx, "included %v (%v)", spec, d).debug(1)
+        }
+    } (time.Now())
+
     ctx = positional(ctx, spec.Position())
 
     // Execute the rule entry to update include source.
@@ -1843,7 +1861,7 @@ func (l *loader) parseFile(ctx Context, filename string, src interface{}, mode M
     defer func(t time.Time, saved *parser, m Mode) {
         ctx = l.parser.posit(ctx)
 
-        var panics, _ = checkPanicsErrors(ctx, true)
+        var panics, _ = checkFailure(ctx, true)
         if proj := l.project; panics > 0 {
             if err != nil { erro(ctx, "panics with error: %v", panics, err) }
             erro(ctx, "failed: got %d panics from %v (%s)", panics, proj, proj.spec).debug(128)

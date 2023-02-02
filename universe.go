@@ -41,9 +41,11 @@ type universeContext struct {
 func (ctx *universeContext) arguments() []Value { return nil }
 func (ctx *universeContext) argumented() *argumentedContext { return nil }
 func (ctx *universeContext) argumentedSet([]Value) []Value { return nil }
+func (ctx *universeContext) aquireLock() (unlock func()) { return nil }
+func (ctx *universeContext) wait() { }
 func (ctx *universeContext) universe() *universeContext { return ctx }
 func (ctx *universeContext) inner() Context { return nil }
-func (ctx *universeContext) spawn() Context { return nil }
+func (ctx *universeContext) spawn(c Context) Context { return c }
 func (ctx *universeContext) auto() *autoContext { return nil }
 func (ctx *universeContext) closure() *closureContext { return nil }
 func (ctx *universeContext) travestates() *travestates { return nil }

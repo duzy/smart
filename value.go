@@ -294,10 +294,8 @@ ForTravestates:
             if s.what == w {
                 for _, s2 := range res {
                     // FIXME: seems not working
-                    if s.what == s2.what && (s == s2 || (true &&
-                        (s.target == s2.target || s.target.cmp(ctx, s2.target) == cmpEqual) &&
-                        (s.depend == s2.depend || (s.depend != nil && s2.depend != nil &&
-                            s.depend.cmp(ctx, s2.depend) == cmpEqual)))) {
+                    if s.what == s2.what && (s == s2 || (true && eq(ctx, s.target, s2.target) &&
+                        ((s.depend != nil && s2.depend != nil && eq(ctx, s.depend, s2.depend))))) {
                         continue ForTravestates
                     }
                 } 
@@ -418,20 +416,6 @@ func (cc *closureContext) closureScopes() (scopes []*Scope) {
         }
     }
     return
-}
-
-type spawnClosureContext struct { closureContext }
-func (cc *spawnClosureContext) String() string {
-    if fullContextStringer {
-        return fmt.Sprintf("spawn-%s", cc.closureContext.String())
-    } else {
-        return cc.Context.String()
-    }
-}
-func (cc *closureContext) spawn() Context {
-    var ctx = cc.Context
-    if t, ok := ctx.(*traverseContext); ok { ctx = t.spawn() }
-    return &spawnClosureContext{closureContext{ ctx, cc.scopes }}
 }
 
 func closureProjects(ctx Context) (projects []*Project) {
@@ -570,9 +554,6 @@ func refdef(ctx Context, val Value, origin Origin) (res bool) {
     }
     return
 }
-
-type spawnTraverseContext struct { traverseContext }
-func (sc *spawnTraverseContext) String() string { return fmt.Sprintf("spawn-%s", sc.traverseContext.String()) }
 
 // traverseContext is a single thread traverse context, for traversing in a new goroutine,
 // a spawned traversal must be used and then merge.
@@ -720,14 +701,14 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
 func (t *traverseContext) arguments() []Value { return nil }
 func (t *traverseContext) argumented() *argumentedContext { return nil }
 func (t *traverseContext) argumentedSet([]Value) []Value { return nil }
-func (t *traverseContext) spawn() Context {
-    return &spawnTraverseContext{traverseContext{
-        Context: t.Context,
-        print:   t.print,
-        execRec: make(map[Value]int),
-        start:   time.Now(),
-    }}
-}
+// func (t *traverseContext) spawn(ctx Context) Context {
+//     return &traverseContext{
+//         Context: t.Context.spawn(ctx),
+//         print:   t.print,
+//         execRec: make(map[Value]int),
+//         start:   time.Now(),
+//     }
+// }
 
 func exists(ctx Context, v Value) bool {
     // FIXME: returns true if existenceMatterless ??
@@ -862,7 +843,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     }}
 
     // Recursion detection -- simply return to break it if this happens.
-    if traveseDetectLoops { if targetValue.cmp(ctx, prereqValue) == cmpEqual {
+    if traveseDetectLoops { if eq(ctx, targetValue, prereqValue) {
         prompt(ctx, "%v: %v: self dependency, consider using [(once)] to avoid\n",
             targetValue, prereqValue)
         warn(ctx, "recursion: %T %v", prereqValue, prereqValue).of(prereqValue)
@@ -876,7 +857,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         return
     }}
     if traveseDetectLoops { for c := ctx.programContext(); c != nil; c = c.caller() {
-        if val := autoGet(c, "@"); val != nil && val.cmp(c, prereqValue) == cmpEqual {
+        if val := autoGet(c, "@"); val != nil && eq(c, val, prereqValue) {
             if traveseLoopBreakState != traveUnkn {
                 var s = traves.add(ctx, traveseLoopBreakState, targetValue)
                 if s.dependPat = prereqPattern; prereqFile == nil {
@@ -1085,9 +1066,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 }
             }
             for _, s := range tt {
-                if g := s.target; g != nil &&
-                    (prereqValue == g || prereqValue.cmp(ctx, g) == cmpEqual) &&
-                    true {
+                if g := s.target; g != nil && eq(ctx, prereqValue, g) && true {
                     warn(ctx, "%v (%T) (by %v, in %v)", entry, entry.Target(), targetValue,
                         entry.OwnerProject()).of(entry).debug(1)
                     return traveResContinue
@@ -1104,11 +1083,10 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 }}
                 // if g, d := s.target, s.depend; g != nil && d != nil &&
                 if g := s.target; g != nil &&
-                    // (targetValue == g || targetValue.cmp(ctx, g) == cmpEqual) &&
-                    // (prereqValue == d || prereqValue.cmp(ctx, d) == cmpEqual) &&
-                    // (targetValue == d || targetValue.cmp(ctx, d) == cmpEqual) &&
-                    (prereqValue == g || prereqValue.cmp(ctx, g) == cmpEqual) &&
-                    true {
+                    // eq(ctx, targetValue, g) &&
+                    // eq(ctx, prereqValue, d) &&
+                    // eq(ctx, targetValue, d) &&
+                    eq(ctx, prereqValue, g) && true {
                     // traves = traves.not(traveCase, traveDone)
                     okay = true
                     return traveResReturn
@@ -1122,7 +1100,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             const dbgNext = false
             var stemmedThisTarget bool
             if s := ctx.stemmed(); s != nil && s.target != nil {
-                stemmedThisTarget = s.target.cmp(ctx, targetValue) == cmpEqual
+                stemmedThisTarget = eq(ctx, s.target, targetValue)
             }
             for _, s := range tt {
                 if g := s.target; g == nil {
@@ -1130,8 +1108,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                     erro(ctx, "%v: %v %v %v\n", targetValue.Strval(ctx),
                         prereqPattern, prereqValue, pattern)
                     errostack(ctx, 5, "").debug(1)
-                } else if true &&
-                    (targetValue == g || targetValue.cmp(ctx, g) == cmpEqual) {
+                } else if true && eq(ctx, targetValue, g) {
                     if dbgNext || false {
                         prompt(ctx, "%v: %v\n", targetValue.Strval(ctx), t)
                         prompt(ctx, "%v: %v %v (%v,%v)\n", targetValue.Strval(ctx),
@@ -1143,8 +1120,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                         traves = append(traves, s) // collect the state
                     }
                     return traveResContinue // try the next pattern
-                } else if true &&
-                    (prereqValue == g || prereqValue.cmp(ctx, g) == cmpEqual) {
+                } else if true && eq(ctx, prereqValue, g) {
                     if dbgNext {
                         prompt(ctx, "%v: %v\n", targetValue.Strval(ctx), t)
                         prompt(ctx, "%v: %v %v (%v,%v)\n", targetValue.Strval(ctx),
@@ -1169,8 +1145,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 if ok, f := nonFilePrereqTravedFile(s); ok {
                     okay, prereqFile = true, f
                     return traveResReturn // file processed
-                } else if g := s.target; g != nil &&
-                    (prereqValue == g || prereqValue.cmp(ctx, g) == cmpEqual) &&
+                } else if g := s.target; g != nil && eq(ctx, prereqValue, g) &&
                     true {
 
                     // NOTE:2: turn of this so that files get updated if changed
@@ -1493,11 +1468,13 @@ func isRecipesChanged(ctx Context, target Value) (outdated bool, err error) {
 }
 
 func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *ExecResult, err error) {
-    // Waiting for prerequisites
-    var (
+    var ( // waiting for prerequisites
         pos Position = ctx.Position()
         calleeErrs []error
     )
+
+    ctx.wait() // aka programContext.WaitGroup.Wait()
+
     if t := ctx.traversal(); t != nil {
         //t.group.Wait()
         t.calleeErrsM.Lock()
@@ -2340,7 +2317,7 @@ func (p *integer) Float(ctx Context) (f float64, _ error) { return float64(p.int
 func (p *integer) kind() kind { return valInteger }
 func (p *integer) cmp(ctx Context, v Value) (res cmpres) {
     if i, e := v.Integer(ctx); e != nil {
-        erro(ctx, "%v: %v", v, e).debug(1)
+        warnstack(ctx, 6, "%T %v: %v", v, v, e).debug(20)
     } else if p.int64 == i {
         res = cmpEqual
     } else if p.int64 < i {
@@ -5651,6 +5628,8 @@ func (p *delegate) expand(ctx Context, w facet) (res Value) {
         // s == "$(value -c &(.test.x))" ||
         // s == "$(.test$1)" ||
         // s == "$(.test)" ||
+        // s == "${.test.foobar}" ||
+        // p.x.String() == ".test.foobar" ||
         (false && s == "") {
         defer func() { if r := res.String();
             // r == "foobar $1-$2 foobar $1$1$1$1-$2$2$2$2 foobar $1$1$1$1-$2$2$2$2" ||
@@ -5728,6 +5707,9 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         // s == "$(.test.s $_,AsmParser)" ||
         // (db > 0 && s == "$1") ||
         // (dd && s == "$(-std.$_)") ||
+        // s == "${.test.foobar}" ||
+        // s == "${.test.foobaz}" ||
+        // s == "${.test.foobay}" ||
         (dd && s == "$_") ||
         (false && s == "")) { db += 1
         defer func() { if res != nil { if r := res.String(); true ||
@@ -5760,6 +5742,8 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
             warn(ctx, "reveal: 1: %v", autoGet(ctx, "1"))
             warn(ctx, "reveal: 2: %v", autoGet(ctx, "2"))
             warn(ctx, "reveal: _: %v", autoGet(ctx, "_"))
+            warn(ctx, "reveal: <: %v", autoGet(ctx, "<"))
+            warn(ctx, "reveal: >: %v", autoGet(ctx, ">"))
             warn(ctx, "reveal: %T: %v", p.x, p)
             warn(ctx, "reveal: args=%v, unexpanded=%v, transformed=%v", args, u, n)
             warn(ctx, "reveal: -> %T %v (same=%v)", res, res, same)

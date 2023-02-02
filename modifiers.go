@@ -1386,7 +1386,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
         var depFile = func(ctx Context, depPos Position, word string) {
                 var dc = depContext{diagContext{ Context: ctx }}; ctx = &dc
                 if parallel { defer func() {
-                        checkPanicsErrors(ctx, true/* don't call checkErrors */)
+                        checkFailure(ctx, true/* don't call checkErrors */)
                         if len(dc.points) > 0 { dc.inner().diagnostic().nest(dc.points) }
                         jobs.Done() // minus 1
                 }() }
@@ -1492,7 +1492,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
                                 }
                                 if parallel {
                                         if false { info(ctx, "spawn %v", ctx) }
-                                        jobs.Add(1); go depFile(ctx.spawn(), depPos, word)
+                                        jobs.Add(1); go depFile(ctx.spawn(ctx), depPos, word)
                                 } else {
                                         depFile(ctx, depPos, word)
                                 }
@@ -1626,8 +1626,6 @@ func (mdc *modifierDepsContext) String() string {
                 return mdc.Context.String()
         }
 }
-func (mdc *modifierDepsContext) spawn() Context { return &modifierDepsContext{mdc.Context.spawn()} }
-//func (mdc *modifierDepsContext) appendCallerUpdated() bool { return false }
 func (mdc *modifierDepsContext) mustExists() bool { return true }
 
 type modifierDepsOpts struct {
@@ -2849,7 +2847,7 @@ func predict(ctx Context, args... Value) (result bool, message string, err error
                 if val := autoGet(caller, "@"); val != nil {
                         var same = target == val
                         if !same && false {
-                                same = (target.cmp(ctx, val) == cmpEqual)
+                                same = eq(ctx, target, val)
                         }
                         if same { num += 1 }
                 } else if n := caller.execRec[target]; n > 0 {
@@ -3122,7 +3120,7 @@ func predictionNoLoop(ctx Context, args... Value) (result Value) {
         for caller := ctx.traversal().caller(); caller != nil; caller = caller.caller() {
                 var t = autoGet(caller, "@")
                 var same = t != nil && target == t
-                if!same && false { same = (target.cmp(ctx, t) == cmpEqual) }
+                if!same && false { same = eq(ctx, target, t) }
                 if same {
                         //fmt.Printf("%s: loop: %v\n", pos, ctx.def.target.value)
                         loop = true
@@ -3155,7 +3153,7 @@ func predictionTarget1stVisit(ctx Context, args... Value) (result Value) {
                 if false {
                         var t = autoGet(caller, "@")
                         var same = t != nil && target == t
-                        if !same && false { same = (target.cmp(ctx, t) == cmpEqual) }
+                        if !same && false { same = eq(ctx, target, t) }
                         if same { num += 1 }
                 } else if n := caller.execRec[target]; n > 0 {
                         num += n

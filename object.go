@@ -12,8 +12,8 @@ import (
         "os/exec"
         "strings"
         "strconv"
+        "sync"
         "bytes"
-        // "sync"
         "time"
         "fmt"
 )
@@ -312,10 +312,17 @@ func (am autoDefMap) clone() (res autoDefMap) {
 
 type autoContext struct {
         Context
+        sync.RWMutex
         defs autoDefMap
-        //mutex sync.RWMutex
 }
 func (ac *autoContext) inner() Context { return ac.Context }
+// func (ac *autoContext) spawn(ctx Context) Context {
+//         ac.mutex.Lock(); defer ac.mutex.Unlock()
+//         return &autoContext{ Context: ac.Context.spawn(ctx), defs: ac.defs.clone() }
+// }
+func (ac *autoContext) aquireLock() (unlock func()) {
+    ac.Lock() ; return func() { ac.Unlock() }
+}
 func (ac *autoContext) String() string {
         if fullContextStringer {
                 return fmt.Sprintf("auto{%s}", ac.Context)
@@ -327,9 +334,9 @@ func (ac *autoContext) closureResolveAuto(name string) (obj Object, found bool) 
         if cc, ok := ac.Context.(*closureContext); ok {
                 obj, found = cc.closureResolveAuto(name)
         } else if /*ac.Scope() == scope*/true {
-                //ac.mutex.Lock()
+                ac.Lock()
                 obj, found = ac.defs[name]
-                //ac.mutex.Unlock()
+                ac.Unlock()
         }
         if false && obj == nil { if o := ac.Scope().FindDef(name); o != nil {
                 obj, found = o, true
@@ -339,9 +346,9 @@ func (ac *autoContext) closureResolveAuto(name string) (obj Object, found bool) 
 func (ac *autoContext) auto() *autoContext { return ac }
 func (ac *autoContext) autoGet(name string) (res *def) {
         var ok bool
-        //ac.mutex.RLock()
+        ac.RLock()
         res, ok = ac.defs[name]
-        //ac.mutex.RUnlock()
+        ac.RUnlock()
         if ok && res != nil {
                 // done!
         } else if ic := ac.inner(); ic == nil {
@@ -362,27 +369,27 @@ func autoGet(ctx Context, name string) (res Value) {
 
 func (ac *autoContext) autoSet(name string, val Value) (out *def, res Value) {
         var ok bool
-        //ac.mutex.RLock()
+        ac.RLock()
         out, ok = ac.defs[name]
-        //ac.mutex.RUnlock()
+        ac.RUnlock()
 
         if ok && out != nil {
                 res = out.value
         } else {
                 var scope = ac.Scope()
                 out = &def{knownobject:knownobject{objbase{scope:scope, owner:scope.project}, name}}
-                //ac.mutex.Lock()
+                ac.Lock()
                 ac.defs[name] = out
-                //ac.mutex.Unlock()
+                ac.Unlock()
         }
 
-        // out.mutex.Lock()
+        // out.Lock()
         if out.value = val; val == nil {
                 out.position = ac.Position()
         } else {
                 out.position = val.Position()
         }
-        // out.mutex.Unlock()
+        // out.Unlock()
         return
 }
 
@@ -399,7 +406,7 @@ func (ac *autoContext) autoArgs(params []*def, args []Value) (names []string, er
         )
         ForArgs: for _, a := range args {
                 if p, ok := a.(*Pair); ok { for _, ca := range compactArgs {
-                        if c, ok := ca.(*Pair); ok && p.Key.cmp(ac, c.Key) == cmpEqual {
+                        if c, ok := ca.(*Pair); ok && eq(ac, p.Key, c.Key) {
                                 var vals = merge(p.Value)
                                 if l, ok := c.Value.(*List); ok {
                                         l.Elems = append(l.Elems, vals...)
@@ -446,7 +453,9 @@ func (ac *autoContext) autoArgs(params []*def, args []Value) (names []string, er
                         erro(ac, "arg '%s' not set ($%s)", name, id).of(a).debug(1)
                         return
                 } else if id != "" && id != name {
+                        ac.Lock()
                         ac.defs[id] = def // NOTE: set an alias or replace it
+                        ac.Unlock()
                 }
                 names = append(names, name)
                 argnum += 1
@@ -1274,29 +1283,46 @@ func (entry *RuleEntry) expand(ctx Context, w facet) (res Value) {
         }
         return
 }
-func (entry *RuleEntry) delete( ctx Context) (files []*File, err error) { return entry.target.delete(ctx) }
-func (entry *RuleEntry) stamp(  ctx Context) (files []*File, err error) { return entry.target.stamp(ctx) }
-func (entry *RuleEntry) traverse(cc Context) (traves travestates) {
-        var (
-                entryPos = entry.Position()
-                target Value
-                result []Value
-        )
-        if target = autoGet(cc, "@"); target == nil {
-                erro(cc, "$@ is not defined").debug(1)
+func (entry *RuleEntry) delete(  ctx Context) (files []*File, err error) { return entry.target.delete(ctx) }
+func (entry *RuleEntry) stamp(   ctx Context) (files []*File, err error) { return entry.target.stamp(ctx) }
+func (entry *RuleEntry) traverse(ctx Context) (traves travestates) {
+        if target := autoGet(ctx, "@"); target == nil {
+                erro(ctx, "$@ is not defined").debug(1)
                 return
-        } else if cc.entry() != entry {
-                cc = &entryContext{ cc, entry }
+        } else if ctx.entry() == entry {
+                var proj = ctx.Project()
+                if c := ctx.closure(); c != nil {
+                        if t := autoGet(c, "@"); t != nil && eq(ctx, t, target) {
+                                if false { warn(ctx, "%v: %v: %v\n", proj, entry, t) }
+                                // FIXES: skip traversal as it's closure, for example:
+                                //
+                                //   %.h($(headers)): $(srcinc)/%.h update-file
+                                //
+                                // where the 'update-file' is like:
+                                //
+                                //   update-file: [((in)) (closure) (set @=&@)] $(in) \
+                                //       [(read-file $>) (update-file -p)]
+                                //
+                                // see also program.execute for the same skip.
+                                return
+                        }
+                }
+                prompt(ctx, "%v: %v: %v\n", proj, entry, target)
+                warnstack(ctx, 8, "%v: %v: %v", proj, entry, target).debug(16)
         } else {
-            warn(cc, "%v %v %v", cc.Project(), target, entry).debug(1)
+                ctx = &entryContext{ ctx, entry }
         }
 
+        var (
+                entryPos = entry.Position()
+                result []Value
+        )
 ForPrograms:
         for _, prog := range entry.programs {
                 var pos = prog.position
                 if !pos.IsValid() { pos = entryPos }
 
-                var res, t = prog.execute(positional(cc, pos))
+                var res, t = prog.execute(positional(ctx, pos))
                 result = append(result, merge(res)...)
                 traves = append(traves, t...)
                 if t.has(traveFail) { break ForPrograms }

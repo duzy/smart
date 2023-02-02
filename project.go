@@ -620,7 +620,7 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
     for pc := ctx.programContext(); pc != nil; { // loop detection
       if pc.entry() == entry {
         var t2 = autoGet(pc, "@")
-        if t1 == t2 || t1.cmp(ctx, t2) == cmpEqual || t1.Strval(ctx) == t2.Strval(ctx) {
+        if eq(ctx, t1, t2) || t1.Strval(ctx) == t2.Strval(ctx) {
           if false {
             warn(ctx, "%v: %p %v %T", entry, t1, t1, t1).of(t1)
             warn(ctx, "%v: %p %v %T", entry, t2, t2, t2).of(t1)

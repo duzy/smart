@@ -104,6 +104,9 @@ type Context interface {
   // String() returns a string representation of the context
   String() string
 
+  aquireLock() (unlock func())
+  wait()
+
   universe() *universeContext
 
   auto() *autoContext
@@ -118,12 +121,11 @@ type Context interface {
   colonResolve(string) (Object, bool)
 
   inner() Context
-  spawn() Context
+  spawn(Context) Context
 
   positional() *positionalContext
 
   travestates() *travestates
-
   traversal() *traverseContext
   traversed(target Value) []Value
 
@@ -187,6 +189,8 @@ var options = commandLineOpts{
 
   failOnErrors: true,
   fastMode: true,
+
+  parallel: true,
 
   slow: 1999,
 }
@@ -308,6 +312,12 @@ type diagContext struct {
   errs int
 }
 func (diag *diagContext) inner() Context { return diag.Context }
+func (diag *diagContext) spawn(ctx Context) Context {
+  return &diagContext{ Context: diag.Context.spawn(ctx) }
+}
+func (diag *diagContext) aquireLock() (unlock func()) {
+    diag.Lock() ; return func() { diag.Unlock() }
+}
 func (diag *diagContext) String() string {
   if fullContextStringer {
     return fmt.Sprintf("diag{%s}", diag.Context)
@@ -405,13 +415,6 @@ func (pc *positionalContext) String() string {
   } else {
     return pc.Context.String()
   }
-}
-func (pc *positionalContext) spawn() Context {
-  switch t := pc.Context.(type) {
-  case *programContext, *traverseContext, *closureContext:
-    return &positionalContext{ t.spawn(), pc.position }
-  }
-  return pc
 }
 func (pc *positionalContext) caller() *positionalContext { return pc.Context.positional() }
 func (pc *positionalContext) positional() *positionalContext { return pc }
@@ -560,7 +563,7 @@ func positionForDir(dir string) (pos Position) {
   return
 }
 
-func checkPanicsErrors(ctx Context, dontCheckErrors ...bool) (panics, errs int) {
+func checkFailure(ctx Context, dontCheckErrors ...bool) (panics, errs int) {
   for e := recover(); e != nil; e = recover() {
     switch t := e.(type) {
     case bailout: continue
@@ -591,7 +594,7 @@ func checkPanicsErrors(ctx Context, dontCheckErrors ...bool) (panics, errs int) 
 
 func CommandLine() {
   var context = &universe
-  defer checkPanicsErrors(context)
+  defer checkFailure(context)
 
   if options.traceLaunch { defer un(trace(t_launch, "CommandLine")) }
 
