@@ -893,7 +893,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
 
 type includeFileOpts struct {
     *genericClauseOpts
-    ifExists bool `ie,if-exists,ifexists`
+    ifExists bool `if-exists,ifexists`
     isConfiguration bool // internal
 }
 func (l *loader) includeFile(ctx Context, opts includeFileOpts, spec Value) {
@@ -940,6 +940,7 @@ func (l *loader) includeFile(ctx Context, opts includeFileOpts, spec Value) {
 
     switch t := spec.(type) {
     case *File:
+        if !t.exists() { _ = t.stat(ctx) }
         if !t.exists() && opts.ifExists {
             if opts.debug>0 {
                 prompt(ctx, "%v: file not found\n", spec)
@@ -958,7 +959,18 @@ func (l *loader) includeFile(ctx Context, opts includeFileOpts, spec Value) {
             erro(ctx, "include: empty string: %v", spec).of(spec)
             errostack(ctx, 5, "").debug(16)
             return
-        } else if file := l.project.FindFile(ctx, specName); file != nil && file.exists() {
+        }
+
+        var file = l.project.FindFile(ctx, specName)
+        if file == nil {
+            if filepath.IsAbs(specName) {
+                file = stat(ctx, specName, "", "")
+            } else {
+                file = stat(ctx, specName, "", linfo.absDir)
+            }
+        } else if !file.exists() { _ = file.stat(ctx) }
+
+        if file != nil && file.exists() {
             fullname = file.fullname()
         } else if opts.ifExists {
             if opts.debug>0 {
@@ -966,10 +978,6 @@ func (l *loader) includeFile(ctx Context, opts includeFileOpts, spec Value) {
                 warn(ctx, "").debug(opts.debug)
             }
             return // ignore non-exists files
-        } else if filepath.IsAbs(specName) {
-            fullname = specName
-        } else {
-            fullname = filepath.Join(linfo.absDir, specName)
         }
     }
     if specName == "" {

@@ -4289,14 +4289,35 @@ func builtinFile(ctx Context, w facet, args... Value) (res Value) {
 
         for _, a := range args {
                 var ctx = at(ctx, a.Position())
-                if file, ok := toFile(a); ok {
+                if file, y := toFile(a); y {
+                        if list = append(list, file); !file.exists() { file.stat(ctx) }
+                        if !file.exists() && opts.report {
+                                info(ctx, "%v is no such file", a).debug(1)
+                        }
+                        continue
+                } else if s := a.Strval(ctx); s == "" {
+                        erro(ctx, `%v: %T "%v" is empty`, proj, a, a)
+                        errostack(ctx, 3, "(%T): %v", ctx, proj).debug(6)
+                        continue
+                } else if file = proj.FindFile(ctx, s); file != nil {
                         list = append(list, file)
-                        if file.exists() { continue }
                         if opts.report { info(ctx, "%v is no such file", a).debug(1) }
-                } else if file = proj.FindFile(ctx, a.Strval(ctx)); file != nil {
+                        continue
+                } else if filepath.IsAbs(s) {
+                        if file = stat(ctx, s, "", ""); file != nil {
+                                list = append(list, file)
+                                if opts.report { info(ctx, "%v is no such file", a).debug(1) }
+                                continue
+                        }
+                } else if file = stat(ctx, s, "", proj.absPath); file != nil {
                         list = append(list, file)
                         if opts.report { info(ctx, "%v is no such file", a).debug(1) }
-                } else if !opts.ignore {
+                        continue
+                }
+
+                if opts.ignore {
+                        if opts.verbose { info(ctx, "%v", a).debug(1) }
+                } else {
                         erro(ctx, `%v: "%v" is not a file (%T)`, proj, a, a)
                         errostack(ctx, 3, "(%T): %v", ctx, proj).debug(16)
                 }
