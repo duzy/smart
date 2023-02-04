@@ -997,7 +997,7 @@ type Builtin struct {
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
 func (p *Builtin) True(_ Context) bool { return p.s.f != nil }
 func (p *Builtin) Call(ctx Context, a... Value) (res Value) {
-        if p.s.f != nil { res = p.s.f(positional(ctx, p.position), plain, a...) }
+        if p.s.f != nil { res = p.s.f(at(ctx, p.position), plain, a...) }
         return
 }
 func (p *Builtin) expand(_ Context, _ facet) Value { return p }
@@ -1188,7 +1188,7 @@ ForPrograms:
                 var pos = program.position
                 if !pos.IsValid() { pos = entry.Position() }
 
-                var res, t = program.execute(positional(cc, pos))
+                var res, t = program.execute(at(cc, pos))
                 result = append(result, merge(res)...)
                 traves = append(traves, t...)
                 if t.has(traveFail) { break ForPrograms }
@@ -1322,7 +1322,7 @@ ForPrograms:
                 var pos = prog.position
                 if !pos.IsValid() { pos = entryPos }
 
-                var res, t = prog.execute(positional(ctx, pos))
+                var res, t = prog.execute(at(ctx, pos))
                 result = append(result, merge(res)...)
                 traves = append(traves, t...)
                 if t.has(traveFail) { break ForPrograms }

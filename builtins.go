@@ -672,7 +672,7 @@ func builtinPushContext(ctx Context, w facet, args... Value) (res Value) {
                 }}
                 m[s] = t
         }
-        dc.stack = append(dc.stack, m)
+        dc.globe.stack = append(dc.globe.stack, m)
         return
 }
 
@@ -706,9 +706,9 @@ func builtinPopContext(ctx Context, w facet, args... Value) (res Value) {
 
         var scope = ctx.Scope()
         var dc = ctx.universe()
-        var l = len(dc.stack)
+        var l = len(dc.globe.stack)
         if l == 0 { return }
-        for s, d := range dc.stack[l-1] {
+        for s, d := range dc.globe.stack[l-1] {
                 if d == nil { if s == "" { continue }
                         scope.mutex.Lock()
                         delete(scope.elems, s)
@@ -717,7 +717,7 @@ func builtinPopContext(ctx Context, w facet, args... Value) (res Value) {
                         *t = *d
                 }}
         }
-        dc.stack = dc.stack[0:l-1]
+        dc.globe.stack = dc.globe.stack[0:l-1]
         return
 }
 
@@ -839,7 +839,7 @@ func assertion(ctx Context, g generalOpts, w facet, args... Value) (res Value) {
 
         var d = opts.debug ; if d < 1 { d = 1 + 3 }
         for _, a := range args {
-                var ctx = positional(ctx, a.Position())
+                var ctx = at(ctx, a.Position())
                 if v := a.expand(ctx, w); !v.True(ctx) {
                         prompt(ctx, "assertion: %T %v -> %T %v\n", a, a, v, v)
                         if opts.warn {
@@ -3850,6 +3850,7 @@ func builtinRename(ctx Context, w facet, args... Value) (res Value) {
 
 type builtinRemoveOpts struct {
         generalOpts
+        warnNotFile bool `warn-not-file`
         all bool `a,all;r,recursive`
 }
 func builtinRemove(ctx Context, w facet, args... Value) (res Value) {
@@ -3862,7 +3863,7 @@ func builtinRemove(ctx Context, w facet, args... Value) (res Value) {
         )
         for _, a := range parseOpts(ctx, &opts, plain, args...) {
                 var (
-                        ctx = positional(ctx, a.Position())
+                        ctx = at(ctx, a.Position())
                         file *File
                         err error
                 )
@@ -3886,11 +3887,11 @@ func builtinRemove(ctx Context, w facet, args... Value) (res Value) {
                         continue
                 } else if file, str, ok = asOptFullname2(ctx, a, closured...); !ok || str == "" {
                         if file != nil { ok = true } else
-                        if opts.all {
+                        if opts.all { if opts.warnNotFile {
                                 warn(ctx, "not a file: %v (%T)", a, a)
                                 warn(ctx, "in %v", closured)
                                 warnstack(ctx, 3, "").debug(32)
-                        } else {
+                        }} else {
                                 erro(ctx, "not a file: %v (%T)", a, a)
                                 erro(ctx, "in %v", closured)
                                 errostack(ctx, 3, "").debug(32)
@@ -3930,7 +3931,7 @@ func builtinRemoveAll(ctx Context, w facet, args... Value) (res Value) {
                 ok bool
         )
         for _, a := range parseOpts(ctx, &opts, plain, args...) {
-                var ctx = positional(ctx, a.Position())
+                var ctx = at(ctx, a.Position())
                 if a.patterned(ctx) {
                         var err error
                         if names, err = filepath.Glob(a.Strval(ctx)); err != nil {
@@ -4262,6 +4263,7 @@ func builtinStat(ctx Context, w facet, args... Value) (res Value) {
 
 type builtinFileOpts struct {
         generalOpts
+        ignore bool `i,ig,ignore,ignore-missing`
         caller bool `c,cc,caller,callercontext,caller-context`
         report bool `r,report,reportmissing;rm,report-missing;e,error`
 }
@@ -4284,8 +4286,9 @@ func builtinFile(ctx Context, w facet, args... Value) (res Value) {
         } else {
                 proj = ctx.Project()
         }
+
         for _, a := range args {
-                var ctx = positional(ctx, a.Position())
+                var ctx = at(ctx, a.Position())
                 if file, ok := toFile(a); ok {
                         list = append(list, file)
                         if file.exists() { continue }
@@ -4293,7 +4296,7 @@ func builtinFile(ctx Context, w facet, args... Value) (res Value) {
                 } else if file = proj.FindFile(ctx, a.Strval(ctx)); file != nil {
                         list = append(list, file)
                         if opts.report { info(ctx, "%v is no such file", a).debug(1) }
-                } else {
+                } else if !opts.ignore {
                         erro(ctx, `%v: "%v" is not a file (%T)`, proj, a, a)
                         errostack(ctx, 3, "(%T): %v", ctx, proj).debug(16)
                 }
@@ -4375,7 +4378,7 @@ func wildcardPathPatsInDir3(ctx Context, opts *wildcardOpts, pats ...Value) (fil
                         if full, _, _ := x.match(ctx, name); full { continue forNames }
                 }
                 for _, pat := range pats {
-                        var ctx = positional(ctx, pat.Position())
+                        var ctx = at(ctx, pat.Position())
                         var p, ok = pat.(*Path)
                         if !ok || len(p.Elems) <= 1 {
                                 var full, s, stems = pat.match(ctx, name)

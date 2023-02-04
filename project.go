@@ -98,7 +98,7 @@ func (filemap *FileMap) match(ctx Context, pat Value, str string) (matched bool,
 }
 
 func (filemap *FileMap) stat(ctx Context, base, pre, name string) (file *File) {
-  var pos = filemap.patts[0].Position(); if false { ctx = positional(ctx, pos) }
+  var pos = filemap.patts[0].Position(); if false { ctx = at(ctx, pos) }
   if base = filepath.Clean(base); len(filemap.paths) == 0 {
     file = stat(ctx, name, "", base, nil) // simply stat file name if no paths
     return

@@ -157,7 +157,7 @@ func (prog *Program) Project() *Project { return prog.project }
 func (prog *Program) Scope() *Scope { return prog.scope }
 func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err error) {
     if pos := ctx.Position(); !pos.IsValid() && prog.position.IsValid() {
-        ctx = positional(ctx, prog.position)
+        ctx = at(ctx, prog.position)
     }
 
     var (
@@ -252,7 +252,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
                 }
             }
         }
-        if value, traves = f(positional(ctx, m.position), args...); traves.has() {
+        if value, traves = f(at(ctx, m.position), args...); traves.has() {
             if t := traves.not(traveCase, traveNext, traveDone); false && t.has() {
                 if options.verbose || options.verboseBreaks {
                     var _, ent, _ = entryStr(ctx, ctx.entry())
@@ -619,7 +619,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     ctx.autoSet(">", nil)
     traves = append(traves, prog.traverse(normalTraverseContext{ctx}, prog.depends)...)
     if errs := ctx.checkErrors(true); errs > 0 {
-        s := traves.add(positional(ctx, prog.position), traveFail, nil)
+        s := traves.add(at(ctx, prog.position), traveFail, nil)
         s.error = fmt.Errorf("%d errors counted", errs)
         prompt(ctx, "%v: execute failed, project %s; traves=%v\n",
             entry, proj, traves).debug(1)
@@ -636,7 +636,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     ctx.autoSet("|", nil)
     traves = append(traves, prog.traverse(orderTraverseContext{ctx}, prog.ordered)...)
     if errs := ctx.checkErrors(true); errs > 0 {
-        s := traves.add(positional(ctx, prog.position), traveFail, nil)
+        s := traves.add(at(ctx, prog.position), traveFail, nil)
         s.error = fmt.Errorf("%d errors counted", errs)
         prompt(ctx, "%v: execute failed, project %s; traves=%v\n",
             entry, proj, traves).debug(1)
@@ -668,6 +668,8 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
     const dbg = false
 
     var (
+        // FIXME:NOTE: parallel prerequisite traversal does not work here, as they
+        //             must be go in ordered. See List.traverse for parallel instead.
         parallel = false && options.parallel
         verb  = options.verbose || options.verboseBreaks
         pc = ctx.programContext()

@@ -17,6 +17,7 @@ import (
     "strconv"
     "strings"
     "time"
+    "flag"
     "fmt"
     "os"
 )
@@ -27,23 +28,35 @@ var (
     universe universeContext
 )
 
-func init() { universe.init() }
+func init() {
+    flag.Var(&universe.paths, "search", "comma-separated list of search paths")
+    universe.init()
+}
+
+type searchlist []string
+func (sl *searchlist) String() string { return fmt.Sprint(*sl) }
+func (sl *searchlist) Set(value string) error {
+    *sl = append(*sl, strings.Split(value, ",")...)
+    return nil
+}
 
 type universeContext struct {
     diagContext
+
     workdir  string
     prefix   string // FIXME: prefix for distribution
+
     scope   *Scope
     globe   *Globe
-    stack  []map[string]*def
-    loader  *loader
+
+    paths   searchlist
 }
 func (ctx *universeContext) arguments() []Value { return nil }
 func (ctx *universeContext) argumented() *argumentedContext { return nil }
 func (ctx *universeContext) argumentedSet([]Value) []Value { return nil }
 func (ctx *universeContext) aquireLock() (unlock func()) { return nil }
-func (ctx *universeContext) wait() { }
 func (ctx *universeContext) universe() *universeContext { return ctx }
+func (ctx *universeContext) loader() *loader { return ctx.globe.top }
 func (ctx *universeContext) inner() Context { return nil }
 func (ctx *universeContext) spawn(c Context) Context { return c }
 func (ctx *universeContext) auto() *autoContext { return nil }
@@ -64,11 +77,12 @@ func (ctx *universeContext) projects(_ Context, projs ...*Project) []*Project {
 }
 func (ctx *universeContext) program() *Program { return nil }
 func (ctx *universeContext) programContext() *programContext { return nil }
-func (ctx *universeContext) positional() *positionalContext { return nil }
+func (ctx *universeContext) positionContext() *positionContext { return nil }
 func (ctx *universeContext) Position() (res Position) {
     res.Filename, res.Line = ctx.workdir, 1
     return
 }
+func (ctx *universeContext) wait() {}
 func (ctx *universeContext) appendCallerUpdated() bool { return false }
 func (ctx *universeContext) mustExists() bool { return false }
 func (ctx *universeContext) WorkDir() string { return ctx.workdir }
@@ -113,13 +127,13 @@ func (ctx *universeContext) helpFlags()  { print_flag_trace(ctx) }
 func (ctx *universeContext) helpConfig() { print_configuration(ctx) }
 
 func (ctx *universeContext) init() {
-    var err error
-    if ctx.workdir, err = os.Getwd(); err != nil {
-        erro(ctx, "%v", err).debug(6)
+    if s, e := os.Getwd(); e != nil {
+        erro(ctx, "%v", e).debug(6)
         return
     } else {
-        ctx.Context = ctx // self context for diagnostic
+        ctx.workdir = s
     }
+    ctx.Context = ctx // self context for diagnostic
 
     var (
         pos Position = ctx.Position()
@@ -148,6 +162,8 @@ func (ctx *universeContext) init() {
 
     ctx.globe = &Globe{
         scope: NewScope(ctx.Position(), ctx.scope, nil, `globe "smart"`),
+        fset: token.NewFileSet(), // the global fileset
+        loaded: make(map[string]*Project),
         args: make(map[Value][]Value),
         flagEntries: make(map[string][]Entry),
         //_timestamps: make(map[string]time.Time),
@@ -158,6 +174,74 @@ func (ctx *universeContext) init() {
     // TODO: determines absPath, relPath, tmpPath, spec
     ctx.globe.os = ctx.globe.project(ctx, nil, absPath, relPath, tmpPath, spec, runtime.GOOS)
     //ctx.globe.os.scope.define(g.os, "name", &None{})
+}
+
+func (dc *universeContext) AddSearchPaths(paths... string) (err error) {
+    for _, s := range paths {
+        if s, err = filepath.Abs(s); err != nil { break }
+        if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
+            dc.paths = append(dc.paths, s)
+        } else {
+            return fmt.Errorf("path '%s' is not dir", s)
+        }
+    }
+    return nil
+}
+
+func (dc *universeContext) search(linfo *loadinfo, specName string) (absPath string, isDir bool, err error) {
+    var fi os.FileInfo
+    if specName == "." {
+        err = fmt.Errorf("Not possible to chain itself.")
+    } else if abs := filepath.IsAbs(specName); abs ||
+        specName == "~" || specName == ".." ||
+        strings.HasPrefix(specName, "~\\") ||
+        strings.HasPrefix(specName, "~/") ||
+        strings.HasPrefix(specName, "./") ||
+        strings.HasPrefix(specName, "../") ||
+        strings.HasPrefix(specName, ".\\") ||
+        strings.HasPrefix(specName, "..\\") {
+        var (
+            s = specName
+            sx string
+        )
+        if !abs && linfo.absDir != "" {
+            sx = filepath.Join(linfo.absDir, s)
+            if a, e := filepath.Abs(sx); e == nil {
+                s = a
+            } else {
+                err = e
+                return
+            }
+        }
+        if fi, err = os.Stat(s); err != nil {
+            sx = s + ".smart"
+            if fi, er := os.Stat(sx); fi != nil {
+                isDir, absPath, err = fi.IsDir(), sx, er
+                return
+            }
+            sx = s + ".sm"
+            if fi, er := os.Stat(sx); fi != nil {
+                isDir, absPath, err = fi.IsDir(), sx, er
+                return
+            }
+        } else {
+            isDir, absPath = fi.IsDir(), s
+        }
+    } else {
+        for _, base := range universe.paths {
+            var s string
+            if filepath.IsAbs(base) {
+                s = filepath.Join(base, specName)
+            } else {
+                s = filepath.Join(dc.workdir, base, specName)
+            }
+            if fi, err = os.Stat(s); err == nil && fi != nil {
+                isDir, absPath = fi.IsDir(), s
+                return
+            }
+        }
+    }
+    return
 }
 
 func (dc *universeContext) run() (result []Value, travestates []*travestate) {
@@ -230,7 +314,7 @@ func (dc *universeContext) run() (result []Value, travestates []*travestate) {
         var entries, _ = dc.globe.flagEntries[s]
         for _, entry := range entries {
             var ( res []Value; traves []*travestate )
-            if res, traves = entry.Execute(positional(ctx, entry.Position()), args...); len(traves) > 0 {
+            if res, traves = entry.Execute(at(ctx, entry.Position()), args...); len(traves) > 0 {
                 for _, brk := range traves {
                     if brk.what == traveFail {
                         erro(ctx, "execute '%v': %v", entry, brk).at(brk.pos).debug(1)
@@ -298,7 +382,7 @@ func (dc *universeContext) run() (result []Value, travestates []*travestate) {
                         args = merge(t.args...)
                         found int
                     )
-                    for _, p := range dc.globe.projects {
+                    for _, p := range dc.globe.loaded {
                         if p.name == s || p.spec == s { found += 1
                             if !collect(p, args) { return false }
                         }
@@ -332,20 +416,19 @@ func (dc *universeContext) run() (result []Value, travestates []*travestate) {
 }
 
 // load loads smart files, making it as individual func to avoid being abused by loaders.
-func (dc *universeContext) load() (err error) {
+func (dc *universeContext) loadTopWork() (err error) {
     if options.traceLaunch { defer un(trace(t_launch, "universeContext.load")) }
-    defer func(prevLoader *loader) {
-        dc.globe.projects = dc.loader.loaded
-        dc.loader = prevLoader
-    }(dc.loader)
+    defer func(l *loader) { dc.globe.top = l } (dc.globe.top)
 
     var (
         ctx Context = dc
         base = baseWorkDir
         pos = positionForDir(base) // FIXME: find a useful position
-        sp = filepath.Join(base, ".smart", "modules")
         args []Value
     )
+    if s := filepath.Join(base, ".smart", "modules"); /* s != "" */true {
+        if _, e := os.Stat(s); e == nil { dc.AddSearchPaths(s) }
+    }
     if f := filepath.Join(base, "do.smart"); f != "" {
         if _, e := os.Stat(f); e != nil {
             f = filepath.Join(base, "build.smart")
@@ -356,15 +439,12 @@ func (dc *universeContext) load() (err error) {
             pos.Filename = f
             pos.Line = 1
             // pos.Column = 1
-            ctx = positional(ctx, pos)
+            ctx = at(ctx, pos)
         }
     }
 
-    dc.loader = &loader{
+    dc.globe.top = &loader{
         closureContext: closureContext{ctx, []*Scope{dc.globe.scope}},
-        fset:   token.NewFileSet(),
-        paths:  []string(globalPaths),
-        loaded: make(map[string]*Project),
     }
     dc.globe.goals = &def{
         knownobject: knownobject{objbase{scope:dc.globe.scope}, "goals"},
@@ -375,11 +455,9 @@ func (dc *universeContext) load() (err error) {
         origin: DefDefault, value: MakeNone(pos),
     }
 
-    if _, e := os.Stat(sp); e == nil { dc.loader.AddSearchPaths(sp) }
-
     if text := strings.Join(os.Args[1:], " "); text == "" {
         // Relax!
-    } else if args = dc.loader.loadText(ctx, "@", text); len(args) == 0 {
+    } else if args = dc.globe.top.loadText(ctx, "@", text); len(args) == 0 {
         // ohh...
     } else {
         args = parseOpts(ctx, &options, 0, args...)
@@ -466,7 +544,7 @@ func (dc *universeContext) load() (err error) {
         var d = time.Now().Sub(t)
         if options.verboseImport {
             var name string
-            if p := dc.loader.Project(); p != nil { name = p.name }
+            if p := dc.globe.top.Project(); p != nil { name = p.name }
             fmt.Fprintf(stderr, "└·%s … (%s)\n", name, d)
         } else if d > 2999*time.Millisecond {
             if m := dc.globe.main; m != nil {
@@ -478,7 +556,7 @@ func (dc *universeContext) load() (err error) {
     } (time.Now())
     if options.verboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
 
-    if !dc.loader.loadPath(ctx, base, nil) { return }
+    if !dc.globe.top.loadPath(ctx, base, nil) { return }
     if dc.globe.main == nil { fmt.Fprintf(stderr, "nothing loaded\n") }
     return
 }
@@ -486,9 +564,16 @@ func (dc *universeContext) load() (err error) {
 // A Globe represents a global execution context. 
 type Globe struct {
     scope  *Scope
+
+    fset    *token.FileSet
+    loads []*loadinfo
+    top     *loader
+
     os     *Project
     main   *Project
-    projects    map[string]*Project // all projects
+    loaded map[string]*Project // loaded projects
+
+    stack  []map[string]*def
 
     args    map[Value][]Value
     flagEntries map[string][]Entry
@@ -511,6 +596,10 @@ func (g *Globe) AddFlagEntry(name string, entry Entry) {
     flags     = append(flags, entry)
     g.flagEntries[name] = flags
     return
+}
+
+func (g *Globe) file(filename string, src []byte) *token.File {
+    return g.fset.AddFile(filename, -1, len(src))
 }
 
 // project returns a new Project for the given project path and name;
@@ -554,6 +643,18 @@ func (g *Globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, sp
             }
         }
         g.main = m
+    }
+    return
+}
+
+func AddSearchPaths(paths... string) (err error) {
+    for _, s := range paths {
+        if s, err = filepath.Abs(s); err != nil {
+            break
+        }
+        if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
+           universe.paths = append(universe.paths, s)
+        }
     }
     return
 }

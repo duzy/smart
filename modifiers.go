@@ -67,7 +67,7 @@ func (_ *modifier) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (m *modifier) traverse(ctx Context) (traves travestates) {
-        ctx = positional(ctx, m.position)
+        ctx = at(ctx, m.position)
         traves = ctx.program().modify(ctx, m)
         if n := ctx.checkErrors(true); n > 0 { // if n := ctx.countErrors(); n > 0 {
                 brk := traves.add(ctx, traveFail, nil)
@@ -107,7 +107,7 @@ func (_ *modifiergroup) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (g *modifiergroup) traverse(ctx Context) (traves travestates) {
         for _, m := range g.modifiers {
-                var ctx = positional(ctx, m.position)
+                var ctx = at(ctx, m.position)
                 if t := m.traverse(ctx); t.has() {
                         traves = append(traves, t...) // collect travestates
                 } else {
@@ -1865,7 +1865,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, traves travestates
                                 warn(ctx, "file '%v' does not exists", opts.file).of(opts.file).debug(1)
                         }
                 } else if s = opts.file.Strval(ctx); filepath.IsAbs(s) {
-                        if f = stat(positional(ctx, opts.file.Position()), s, "", ""); f != nil {
+                        if f = stat(at(ctx, opts.file.Position()), s, "", ""); f != nil {
                                 res = f.exists()
                         }
                 } else if f = ctx.Project().FindFile(ctx, s); f != nil {
@@ -1889,7 +1889,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, traves travestates
                                 warn(ctx, "file '%v' does not exists", opts.dir).of(opts.dir).debug(1)
                         }
                 } else if s = opts.dir.Strval(ctx); filepath.IsAbs(s) {
-                        if f = stat(positional(ctx, opts.dir.Position()), s, "", ""); f != nil {
+                        if f = stat(at(ctx, opts.dir.Position()), s, "", ""); f != nil {
                                 res = f.exists()
                         }
                 } else if f = ctx.Project().FindFile(ctx, s); f != nil {
@@ -1998,7 +1998,7 @@ ForPairs:
                         if file, res = toFile(p.Value); res {
                                 // ok
                         } else if str = p.Value.Strval(ctx); filepath.IsAbs(str) {
-                                if file = stat(positional(ctx, p.Value.Position()), str, "", ""); file != nil {
+                                if file = stat(at(ctx, p.Value.Position()), str, "", ""); file != nil {
                                         // ok
                                 }
                         } else if file = ctx.Project().FindFile(ctx, str); file != nil {
@@ -2554,7 +2554,7 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
         } else {
                 if opts.keep {
                         // keep file
-                } else if file := stat(positional(ctx, target.Position()), filename, "", ""); file != nil && file.info != nil && file.info.Size() == 0 {
+                } else if file := stat(at(ctx, target.Position()), filename, "", ""); file != nil && file.info != nil && file.info.Size() == 0 {
                         file.info = nil
                         if err := os.Remove(filename); err != nil {
                                 erro(ctx, "remove file failed: %v", err).debug(1)
@@ -2811,7 +2811,7 @@ func modifierStamp(ctx Context, args... Value) (result Value, traves travestates
                 }
                 errostack(ctx, 10, "failed: %v", ctx).debug(10)
         } else if pos = target.Position(); pos.IsValid() {
-                ctx = positional(ctx, pos)
+                ctx = at(ctx, pos)
                 if f, y := target.(*File); y {
                         erro(ctx, "failed stamp(%v): %v %v", target, f.fullname(), f.info)
                 } else {
@@ -2910,7 +2910,7 @@ ForArgs:
                                 erro(ctx, "predictor '%s' undefined (%T %v)", g.Elems[0], a, a).at(g.position).debug(1)
                                 return
                         } else {
-                                a = pret(positional(ctx, g.Elems[0].Position()), g.Elems[1:]...)
+                                a = pret(at(ctx, g.Elems[0].Position()), g.Elems[1:]...)
                         }
 
                         if a == nil {
@@ -3449,9 +3449,10 @@ func onceCacheTest2(ctx Context, target Value) (n int) {
 
 func onceSHA256Test(ctx Context, sum HashBytes) (n int) {
         onceSHA256Mutex.Lock()
-        onceSHA256Cache[sum] += 1
+        n = onceSHA256Cache[sum]+1
+        onceSHA256Cache[sum] = n
         onceSHA256Mutex.Unlock()
-        return onceSHA256Cache[sum]
+        return
 }
 
 func onceSHA256(ctx Context, target Value, opts *modifierOnceOpts, args... Value) (n int) {
@@ -3520,7 +3521,7 @@ func modifierOnce(ctx Context, args... Value) (result Value, traves travestates)
 
         if opts.debug {
                 warn(ctx, "%T %v %p %v", target, target, target, n)
-                warnstack(positional(ctx, target.Position()), -1, "%p %v %v", target, target, n).debug(16)
+                warnstack(at(ctx, target.Position()), -1, "%p %v %v", target, target, n).debug(16)
         }
 
         // TODO: new once algorithm:

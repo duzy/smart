@@ -1197,7 +1197,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
 
     exeres.Stdout.report = !opts.silentErrs
     exeres.Stderr.report = !opts.silentErrs
-    exeres.Status, err = exeres.run(positional(ctx, pos))
+    exeres.Status, err = exeres.run(at(ctx, pos))
     if false { warn(ctx, "%v: %v --> %v", cmd, src, exeres.Status).debug(1) }
     if (!opts.silentErrs || opts.debug>0) && (len(exeres.scannedDiags) > 0 || exeres.Status != 0 || err != nil) {
       if opts.silentErrs || opts.retStatus {

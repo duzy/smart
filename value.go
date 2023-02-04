@@ -184,8 +184,8 @@ type travestate struct {
     pos Position
     prog *Program
     what travekind
-    error error
     target, depend, dependPat Value
+    error error
 }
 
 func (p *travestate) String() (s string) { //_error
@@ -489,7 +489,7 @@ func closureResolveObject(ctx Context, name string) (obj Object) {
         warn(ctx, "%s: %T, %v", scope.project, val, val).debug(24)
     } () }
     for _, scope = range ctx.closureScopes() {
-        var ctx Context = positional(ctx, scope.position)
+        var ctx Context = at(ctx, scope.position)
         if infos { warn(ctx, "%s", scope).debug(1) }
         if scope.project == nil || scope != scope.project.scope {
             if _, obj = scope.Find(name); isNil(obj) {
@@ -663,7 +663,7 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
         point = ctx.diag(dt, "%v: %v: %v", proj, str, ctx)
     }
 
-    if pc := ctx.positional(); pc != nil {
+    if pc := ctx.positionContext(); pc != nil {
         point = point.at(pc.position)
 
         if s == "#>" && len(a) > 0 { for _, t := range a {
@@ -676,7 +676,7 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
             }
         }}
 
-        for last := &pc.position; pc != nil && n > 0; pc = pc.Context.positional() {
+        for last := &pc.position; pc != nil && n > 0; pc = pc.Context.positionContext() {
             var pos = &pc.position
             if (last == pos || last./* SameLine */Same(pos)) { continue }
 
@@ -1339,10 +1339,10 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     if len(ctx.stems()) == 0 || ctx.mustExists() {
         if s := traves.add(ctx, traveFail, targetValue); prereqFile != nil {
             s.error = fileNotFoundError{proj, prereqFile}
-            ctx = positional(ctx, prereqFile.position)
+            ctx = at(ctx, prereqFile.position)
         } else {
             s.error = targetNotFoundError{proj, prereq}
-            if prereqValue != nil { ctx = positional(ctx, prereqValue.Position()) }
+            if prereqValue != nil { ctx = at(ctx, prereqValue.Position()) }
         }
 
         if prereqFile != nil && prereqValue != prereqFile {
@@ -1473,7 +1473,7 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
         calleeErrs []error
     )
 
-    ctx.wait() // aka programContext.WaitGroup.Wait()
+    if false { ctx.wait() } // aka programContext.WaitGroup.Wait(), FIXME: deadlock
 
     if t := ctx.traversal(); t != nil {
         //t.group.Wait()
@@ -2702,7 +2702,7 @@ func (p *String) stencil(ctx Context, stems []string) (val Value, rest []string)
     return p, stems
 }
 func (p *String) traverse(ctx Context) (traves travestates) {
-    return traverse(positional(ctx, p.position), p, p.string)
+    return traverse(at(ctx, p.position), p, p.string)
 }
 func (p *String) elemStr(_ Context, o Object, k elemkind) (s string) {
     if k&elemNoQuote == 0 { s = `'`+p.string+`'` } else { s = p.string }
@@ -2821,7 +2821,7 @@ func (p *Bareword) stencil(ctx Context, stems []string) (val Value, rest []strin
     return p, stems
 }
 func (p *Bareword) traverse(ctx Context) (traves travestates) {
-    return traverse(positional(ctx, p.position), p, p.string)
+    return traverse(at(ctx, p.position), p, p.string)
 }
 
 type Qualiword struct { valbase; words []string } // foo.bar.zar, foo.&(bar).zar
@@ -2866,7 +2866,7 @@ func (p *Qualiword) stencil(ctx Context, stems []string) (val Value, rest []stri
     return p, stems
 }
 func (p *Qualiword) traverse(ctx Context) (traves travestates) {
-    return traverse(positional(ctx, p.position), p, p.Strval(ctx))
+    return traverse(at(ctx, p.position), p, p.Strval(ctx))
 }
 
 type elements struct { Elems []Value }
@@ -3075,7 +3075,7 @@ func (p *Barecomp) expand(ctx Context, w facet) (res Value) {
     return
 }
 func (p *Barecomp) traverse(ctx Context) (traves travestates) {
-    return traverse(positional(ctx, p.Position()), p, p.Strval(ctx))
+    return traverse(at(ctx, p.Position()), p, p.Strval(ctx))
 }
 func (p *Barecomp) cmp(ctx Context, v Value) (res cmpres) {
     var cmp = func(elemsL, elemsR []Value) {
@@ -3283,7 +3283,7 @@ func (p *Barefile) expand(ctx Context, w facet) (res Value) {
     return
 }
 func (p *Barefile) traverse(ctx Context) (traves travestates) {
-    return traverse(positional(ctx, p.position), p, p.Strval(ctx))
+    return traverse(at(ctx, p.position), p, p.Strval(ctx))
 }
 func (p *Barefile) updated(ctx Context, v ...bool) (res bool) {
     if p.File != nil { res = p.File.updated(ctx, v...) }
@@ -3742,7 +3742,7 @@ func (p *Path) expand(ctx Context, w facet) (res Value) {
 }
 func (p *Path) delete(ctx Context) (files []*File, err error) {
     var pathname string
-    if positionalValueCtx { ctx = positional(ctx, p.position) }
+    if positionalValueCtx { ctx = at(ctx, p.position) }
     if pathname = p.Strval(ctx); pathname == "" {
         erro(ctx, "no pathname for `%s`", p)
     } else if file := stat(ctx,pathname,"","",nil); file != nil {
@@ -3754,7 +3754,7 @@ func (p *Path) delete(ctx Context) (files []*File, err error) {
 }
 func (p *Path) stamp(ctx Context) (files []*File, err error) {
     var pathname string
-    if positionalValueCtx { ctx = positional(ctx, p.position) }
+    if positionalValueCtx { ctx = at(ctx, p.position) }
     if pathname = p.Strval(ctx); pathname == "" {
         erro(ctx, "no pathname for `%s`", p)
     } else if file := stat(ctx,pathname,"","",nil); file != nil {
@@ -3770,7 +3770,7 @@ func (p *Path) stamp(ctx Context) (files []*File, err error) {
     return
 }
 func (p *Path) stat(ctx Context) (si *statinfo) {
-    ctx = positional(ctx, p.position)
+    ctx = at(ctx, p.position)
 
     var file *File
     if p.patterned(ctx) {
@@ -3788,7 +3788,7 @@ func (p *Path) stat(ctx Context) (si *statinfo) {
     return
 }
 func (p *Path) traverse(ctx Context) (traves travestates) {
-    return traverse(positional(ctx, p.position), p, "")
+    return traverse(at(ctx, p.position), p, "")
 }
 func (p *Path) patterned(ctx Context) (result bool) {
     for _, seg := range p.Elems {
@@ -4050,7 +4050,7 @@ SegsSrcsLoop:
     return
 }
 func (p *Path) match(ctx Context, i interface{}) (full bool, result string, stems []string) {
-    ctx = positional(ctx, p.position)
+    ctx = at(ctx, p.position)
     switch t := i.(type) {
     case  string  : return p.match1(ctx, t)
     case *filestub:
@@ -4509,7 +4509,7 @@ func (p *File) searchInMatchedPaths(ctx Context, proj *Project) (res bool) {
     return
 }
 func (p *File) absolute_delete(ctx Context) (files []*File, err error) {
-    if positionalValueCtx { ctx = positional(ctx, p.position) }
+    if positionalValueCtx { ctx = at(ctx, p.position) }
 
     var fullname string
     if fullname = p.fullname(); fullname == "" {
@@ -4529,7 +4529,7 @@ func (p *File) absolute_delete(ctx Context) (files []*File, err error) {
     return
 }
 func (p *File) stamp(ctx Context) (files []*File, err error) {
-    if positionalValueCtx { ctx = positional(ctx, p.position) }
+    if positionalValueCtx { ctx = at(ctx, p.position) }
     if fullname := p.fullname(); fullname == "" {
         erro(ctx, "file `%s` has no fullname", p).of(p).debug(1)
     } else if p.info, err = os.Stat(fullname); err != nil {
@@ -4619,7 +4619,7 @@ func (p *File) isSysFile() (res bool) {
 func (p *File) traverse(ctx Context) (traves travestates) {
     if p.isSysFile() { return }
 
-    ctx = positional(ctx, p.position)
+    ctx = at(ctx, p.position)
 
     var projects = ctx.projects(ctx)
     if len(projects) == 0 {
@@ -4876,7 +4876,7 @@ func (p *Flag) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *Flag) traverse(ctx Context) (traves travestates) {
-    ctx = positional(ctx, p.position)
+    ctx = at(ctx, p.position)
     return traverse(ctx, p, p.Strval(ctx))
 }
 
@@ -5006,17 +5006,57 @@ func (p *List) expand(ctx Context, w facet) (res Value) {
     return
 }
 func (p *List) traverse(ctx Context) (traves travestates) {
-    for _, elem := range p.Elems {
-        var t = elem.traverse(ctx)
-        traves = append(traves, t...)
-        if _, ok := elem.(*modifiergroup); ok && t.has(traveNext) {
-            warn(ctx, "%T %v", elem, elem).debug(1)
+    if options.parallel {
+        const (
+            stateCont int = 0
+            stateBrek     = 1
+        )
+        var state int
+        var m sync.Mutex
+        var pc sync.WaitGroup //= ctx.programContext()
+        defer pc.Wait() ; for i, elem := range p.Elems {
+            if state == stateBrek { break } else { pc.Add(1) }
+            go func (ctx Context, i int, elem Value) {
+                defer func() {
+                    pc.Done()
+                    if n, e := checkFailure(ctx); n>0 || e> 0 {
+                        // TODO: panics and errors
+                    }
+                } ()
+
+                var t = elem.traverse(ctx)
+                {
+                    m.Lock() //var unlock = ctx.aquireLock()
+                    traves = append(traves, t...)
+                    m.Unlock() //if unlock != nil { unlock() }
+                }
+
+                if _, ok := elem.(*modifiergroup); ok && t.has(traveNext) {
+                    warn(ctx, "%T %v", elem, elem).debug(1)
+                }
+                if _, ok := elem.(*modifier); ok && t.has(traveNext) {
+                    warn(ctx, "%T %v", elem, elem).debug(1)
+                }
+                if t.has(/*traveCase, traveNext, traveDone, */traveFail) {
+                    m.Lock() //var unlock = ctx.aquireLock()
+                    state = stateBrek
+                    m.Unlock() //if unlock != nil { unlock() }
+                }
+            } (ctx.spawn(ctx), i, elem)
         }
-        if _, ok := elem.(*modifier); ok && t.has(traveNext) {
-            warn(ctx, "%T %v", elem, elem).debug(1)
-        }
-        if t.has(/*traveCase, traveNext, traveDone, */traveFail) {
-            break
+    } else {
+        for _, elem := range p.Elems {
+            var t = elem.traverse(ctx)
+            traves = append(traves, t...)
+            if _, ok := elem.(*modifiergroup); ok && t.has(traveNext) {
+                warn(ctx, "%T %v", elem, elem).debug(1)
+            }
+            if _, ok := elem.(*modifier); ok && t.has(traveNext) {
+                warn(ctx, "%T %v", elem, elem).debug(1)
+            }
+            if t.has(/*traveCase, traveNext, traveDone, */traveFail) {
+                break
+            }
         }
     }
     return
@@ -5270,7 +5310,7 @@ func (p *Pair) defs(ctx Context, s ...string) []*def {
 }
 func (p *Pair) traverse(ctx Context) (traves travestates) {
     erro(ctx, "traversing pair '%v' is undefined", p).at(p.position)
-    errostack(positional(ctx, p.position), -1, "pair is not traversible: %v", p).debug(16)
+    errostack(at(ctx, p.position), -1, "pair is not traversible: %v", p).debug(16)
     return
 }
 func (p *Pair) expandible(ctx Context, w facet) bool {
@@ -5486,7 +5526,7 @@ func (p *delegate) defs(ctx Context, s ...string) (res []*def) {
     return
 }
 func (p *delegate) traverse(ctx Context) (traves travestates) {
-    ctx = positional(ctx, p.position)
+    ctx = at(ctx, p.position)
     if val := p.expand(ctx, plain); val == nil {
         warn(ctx, "delegate '%v' expands to nil", p).at(p.position)
         warnstack(ctx, -1, "").debug(16)
@@ -5604,7 +5644,7 @@ func (p *delegate) expandible(ctx Context, w facet) (res bool) {
     return
 }
 func (p *delegate) expand(ctx Context, w facet) (res Value) {
-    if ctx = positional(ctx, p.position); isNil(p.x) {
+    if /* ctx = at(ctx, p.position) */; isNil(p.x) {
         erro(ctx, "delegate of nil: %v (w=%024b)", p, w).at(p.position)
         errostack(ctx, 5, "delegate nil: %v (%p)", p, p).at(p.position).debug(64)
         return
@@ -5868,7 +5908,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         if w&expandClose != 0 { return res, true }
         return unexpanded{res}, true
     } else if bin != nil {
-        if ctx = positional(ctx, p.position); bin.name == "call" {
+        if ctx = at(ctx, p.position); bin.name == "call" {
             res, final = builtinCall(ctx, p, w, args...), true
         } else if bin.s.f == nil {
             // ...
@@ -5995,7 +6035,7 @@ func (p *closure) match(ctx Context, i interface{}) (full bool, s string, stems 
     return
 }
 func (p *closure) expand(ctx Context, w facet) (res Value) {
-    if ctx, res = positional(ctx, p.position), p; isNil(p.x) {
+    if ctx, res = at(ctx, p.position), p; isNil(p.x) {
         erro(ctx, "expand nil closure: %v (%d)", p, w).debug(1)
         return
     } else if w == 0 {
@@ -6217,7 +6257,7 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
     }
 }
 func (p *closure) traverse(ctx Context) (traves travestates) {
-    ctx = positional(ctx, p.position)
+    ctx = at(ctx, p.position)
     if val := p.expand(ctx, /* expandClosure */plain); isNil(val) {
         warn(ctx, "closure '%v' expands to nil", p).debug(1)
     } else if isNone(val) {
@@ -6378,7 +6418,7 @@ func (p *selection) expand(ctx Context, w facet) (res Value) {
     return
 }
 func (p *selection) traverse(ctx Context) (traves travestates) {
-    ctx = positional(ctx, p.position)
+    ctx = at(ctx, p.position)
     if val := p.value(ctx); isTrivial(val) {
         warn(ctx, "selected value '%v' is trivial", p).debug(1)
     } else {
@@ -6944,7 +6984,6 @@ func permVal(ctx Context, v Value, i uint32) (res os.FileMode) {
 func (w facet) expand(ctx Context, values ...Value) (elems []Value, u, n int) {
     for _, elem := range values {
         if elem == nil { continue } // TODO: report nil expand ??
-        var ctx = positional(ctx, elem.Position())
         if val := elem.expand(ctx, w); val == nil {
             errostack(ctx, 5, "nil: %T %v", elem, elem).debug(10)
             return

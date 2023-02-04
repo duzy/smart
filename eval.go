@@ -28,7 +28,7 @@ ForRecipes:
         if opts.fullname { w |= expandFullName }
 
         var (
-            ctx = positional(ctx, recipe.Position())
+            ctx = at(ctx, recipe.Position())
             vals = mergex(ctx, w, recipe)
         )
         if n := len(vals); n < 1 {
@@ -39,7 +39,7 @@ ForRecipes:
             continue
         }
 
-        ctx = positional(ctx, vals[0].Position())
+        ctx = at(ctx, vals[0].Position())
 
         var v Value
         switch tv := vals[0].(type) {

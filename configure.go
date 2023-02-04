@@ -74,7 +74,7 @@ type configureExecutor struct {
 func (ce *configureExecutor) execute(ctx Context, project *Project, entry Entry) (result *Project, okay bool) {
     if n := ctx.checkErrors(true); n > 0 {
         return
-    } else if ctx = positional(ctx, entry.Position()); ctx == nil {
+    } else if ctx = at(ctx, entry.Position()); ctx == nil {
         erro(ctx, "%v: nil positional context", project).debug(1)
         return
     } else if p := entry.OwnerProject(); p != project && p != nil {
@@ -433,10 +433,10 @@ ForInParams:
             var params []string
             for _, p := range prog.params { params = append(params, p.name) }
 
-            var at = autoGet(ctx,"@")
-            ctx = positional(ctx, a.Position())
-            warn(ctx, "ignored param: %T %v; target: %T %v", a, a, at, at)
-            warn(ctx, "%v params = %v", at, params).at(prog.position).debug(16)
+            var t = autoGet(ctx,"@")
+            ctx = at(ctx, a.Position())
+            warn(ctx, "ignored param: %T %v; target: %T %v", a, a, t, t)
+            warn(ctx, "%v params = %v", t, params).at(prog.position).debug(16)
             return
         }
     }

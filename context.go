@@ -109,6 +109,8 @@ type Context interface {
 
   universe() *universeContext
 
+  loader() *loader // only in load stage
+
   auto() *autoContext
   autoGet(string) *def
   autoSet(string, Value) (*def, Value)
@@ -121,9 +123,10 @@ type Context interface {
   colonResolve(string) (Object, bool)
 
   inner() Context
+  // at(Context) Context
   spawn(Context) Context
 
-  positional() *positionalContext
+  positionContext() *positionContext
 
   travestates() *travestates
   traversal() *traverseContext
@@ -190,7 +193,7 @@ var options = commandLineOpts{
   failOnErrors: true,
   fastMode: true,
 
-  parallel: true,
+  parallel: false, // FIXME: Program.traverse not working in parallel
 
   slow: 1999,
 }
@@ -406,23 +409,39 @@ func warn(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx,
 func erro(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagError, f, a...) }
 func prompt(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagPrompt, f, a...) }
 
-type positionalContext struct { Context; position Position }
-func (pc *positionalContext) inner() Context { return pc.Context }
-func (pc *positionalContext) Position() Position { return pc.position }
-func (pc *positionalContext) String() string {
+type positionContext struct { Context; position Position }
+func (pc *positionContext) positionContext() *positionContext { return pc }
+func (pc *positionContext) caller() *positionContext { return pc.Context.positionContext() }
+func (pc *positionContext) inner() Context { return pc.Context }
+func (pc *positionContext) Position() Position { return pc.position }
+func (pc *positionContext) String() string {
   if fullContextStringer {
     return fmt.Sprintf("positional{%s}", pc.Context)
   } else {
     return pc.Context.String()
   }
 }
-func (pc *positionalContext) caller() *positionalContext { return pc.Context.positional() }
-func (pc *positionalContext) positional() *positionalContext { return pc }
-func positional(ctx Context, pos Position) Context {
-  if ctx == nil { panic("nil inner context") }
-  if pc, ok := ctx.(*positionalContext); !pos.IsValid() ||
-    (ok && pos.Same(&pc.position)) { return ctx }
-  return &positionalContext{ ctx, pos }
+
+func at(ctx Context, pos Position) Context {
+  if ctx == nil { panic("nil inner context") } else
+  if p := ctx.Position(); p.IsValid() && pos.IsValid() && !p.Same(&pos) {
+    var ( wrap bool = true ; num int )
+    for c, i, y := ctx, 0, true; c != &universe; c, i = c.inner(), i+1 {
+      if _, y = c.(*positionContext); y && i > 9999 {
+        if wrap { wrap, num = false, i }
+        if true {
+          warn(ctx, "too many positions: %v, %v, %v ; %v",
+            i, num, ctx, p).at(pos).debug(16)
+          ctx.checkErrors(true)
+        }
+      }
+    }
+    if wrap { ctx = &positionContext{ ctx, pos } } else {
+      warn(ctx, "too many positions: %v, %v", num, ctx).at(pos).debug(32)
+      ctx.checkErrors(true)
+    }
+  }
+  return ctx
 }
 
 type argumentedContext struct {
@@ -446,7 +465,7 @@ func (ac *argumentedContext) argumentedSet(args []Value) (prev []Value) {
 
 func executeEntry(ctx Context, entry *RuleEntry, args ...Value) (result []Value, okay bool) {
   var traves travestates
-  if result, traves = entry.Execute(positional(ctx, entry.position), args...); !traves.has() {
+  if result, traves = entry.Execute(at(ctx, entry.position), args...); !traves.has() {
     okay = true; return
   }
 
@@ -474,7 +493,7 @@ func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
     var okay bool
     switch g := goal.(type) {
     case *RuleEntry:
-      if result, okay = executeEntry(positional(ctx, g.position), g, args...); !okay {
+      if result, okay = executeEntry(at(ctx, g.position), g, args...); !okay {
         erro(ctx, "update '%v' failed", g).at(ctx.Position()).debug(1)
       }
     default:
@@ -609,7 +628,7 @@ func CommandLine() {
   modulesPaths = append(modulesPaths, filepath.Join(context.prefix, "user", "lib", "smart", "modules"))
 
   // make sure that .smart dirs have higher priority.
-  globalPaths = append(modulesPaths, globalPaths...)
+  universe.paths = append(modulesPaths, universe.paths...)
   for _, s := range modulesPaths {
     searchFile := filepath.Join(s, ".search")
     if fi, _ := os.Stat(searchFile); fi == nil { continue }
@@ -631,7 +650,7 @@ func CommandLine() {
         line = filepath.Clean(filepath.Join(s, line))
       }
       if fi, err = os.Stat(line); err == nil && fi.IsDir() {
-        globalPaths = append(globalPaths, line)
+        universe.paths = append(universe.paths, line)
       }
     }
     if err != nil { fmt.Fprintf(stderr, "%v: %v", file, err); return }
@@ -641,7 +660,7 @@ func CommandLine() {
 
   //loadGrepCache()
 
-  if err := context.load(); err != nil {
+  if err := context.loadTopWork(); err != nil {
     erro(context, "loading work failed: %v", err).at(context.Position())
   } else if context.checkErrors(true) > 0 {
     prompt(context, "loading work got %d errors\n", context.totalErrors())
