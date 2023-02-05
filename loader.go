@@ -74,6 +74,7 @@ const (
 )
 
 const (
+    dotBase = ".base"
     dotContainer = ".container"
     dotConfigure = ".configure"
 )
@@ -1055,12 +1056,12 @@ func (l *loader) loadBases(ctx Context, linfo *loadinfo, implicitBase string, pa
         implicitBases []Value
         position = ctx.Position()
     )
-    if file := stat(ctx, "./.base", "", l.project.absPath); file != nil /*&& file.info.IsDir()*/ {
+    if file := stat(ctx, dotBase, "", l.project.absPath); file != nil /*&& file.info.IsDir()*/ {
         if true {
             var s = file.Strval(ctx)
-            assert(s == file.name && s == "./.base", "invalid strval: %v => %v", file, s)
+            assert(s == file.name && s == dotBase, "invalid strval: %v => %v", file, s)
         }
-        if !file.info.IsDir() && (l.project.spec == ".base" /*|| l.project.spec == ".configure"*/) {
+        if !file.info.IsDir() && (l.project.spec == dotBase /*|| l.project.spec == dotConfigure*/) {
             // skip the regular file '.base' to avoid self loading recursively
             // info(ctx, "%v", file).debug(1)
         } else {
@@ -1333,7 +1334,7 @@ func (l *loader) loadDotConfigure(ctx Context, ident *Barecomp, identStr string,
     return
 }
 
-func (l *loader) declare(ctx Context, keyword token.Token, ident *Barecomp, identStr string, declOpts []Value) (result bool) {
+func (l *loader) declare(ctx Context, keyword token.Token, ident *Barecomp, identStr string, declOpts *projectDeclOpts) (result bool) {
     if identStr == "@" {
         var (
             linfo = universe.globe.loads[0]
@@ -1394,7 +1395,7 @@ func (l *loader) declare(ctx Context, keyword token.Token, ident *Barecomp, iden
         }
     }
 
-    declOpts = parseOpts(ctx, &dec.project.opts, 0, declOpts...)
+    dec.project.opts = declOpts
     dec.backscope = l.Scope()
     l.useesExecuted = nil
     l.project = dec.project
@@ -1441,7 +1442,7 @@ func (l *loader) declare(ctx Context, keyword token.Token, ident *Barecomp, iden
 
 func isConfigureProject(proj *Project) bool {
     return proj == nil ||
-        proj.name == ".configure" ||
+        proj.name == dotConfigure ||
         proj.name == "configure" ||
         proj.name == "configure.base"
 }
@@ -1462,13 +1463,10 @@ func (l *loader) loadAutoAfter(ctx Context, tag string) {
     }
 }
 
-func (l *loader) loadProjectConfiguration(ident *Barecomp, identStr string, declared bool) (result bool) {
+func (l *loader) loadProjectConfiguration(ctx Context, linfo *loadinfo, ident *Barecomp, identStr string, declared bool) (result bool) {
     if false { defer un(tracef(t_traverse, "loadProjectConfiguration(%v)", ident)) }
 
-    var (
-        pos = ident.Position()
-        ctx = at(l, pos)
-    )
+    // ctx = at(ctx, ident.Position())
 
     // Get configuration file name for the project and include it in flat mode.
     if file := l.project.configuration(ctx); file == nil {
@@ -1491,24 +1489,84 @@ func (l *loader) loadProjectConfiguration(ident *Barecomp, identStr string, decl
         l.parser.isIncludingConf = isIncludingConf
     }
 
-    if l.project.name != dotConfigure {
-        // Looking for project specific .configure module
-        if file := stat(ctx, dotConfigure, "", l.project.absPath); file.exists() {
-            if identStr == dotConfigure {
-                erro(ctx, "provided .configure for a .configure project").debug(1)
-            } else if !l.loadDotConfigure(ctx, ident, identStr, file) {
-                //erro(ctx, "declare %s: %s/.configure", name, l.project.absPath)
+    if s := l.project.name; s == dotConfigure { return }
+    if l.project.opts.configure || l.project.opts.configureName != "" {
+        var s = l.project.opts.configureName
+        if s == "" { s = "configure" }
+
+        var load = func(absPath string, isDir bool) bool {
+            if isDir {
+                return l.loadDir(ctx, s, absPath, nil)
+            } else {
+                return l.loadFile(ctx, absPath, nil)
             }
+        }
+
+        if absPath, isDir, err := universe.search(linfo, s); err != nil {
+            erro(ctx, "%v: search configure failed: %v", l.project, s)
+            erro(ctx, "%v: search configure failed: %v", l.project, err).debug(6)
+            return false
+        } else if !load(absPath, isDir) {
+            erro(ctx, "%s: load %v failed  (%s)", ident, dotConfigure, absPath).debug(1)
+            return
+        } else if loaded, y := universe.globe.loaded[absPath]; !y || loaded == nil {
+            erro(ctx, "not loaded: %s (dir=%v)", absPath, isDir).debug(1)
+            return
+        } else {
+            if name, _ := l.Scope().Lookup(dotConfigure).(*ProjectName); name == nil {
+                if _, alt := l.Scope().ProjectName(ctx, dotConfigure, loaded); alt != nil {
+                    if val, ok := alt.(*ProjectName); !ok || val == nil {
+                        erro(ctx, "name `%s' already taken (%T).", loaded.name, alt).debug(1)
+                    }
+                }
+            }
+            if l.project.configure == loaded { return }
+            if l.project.configure != nil {
+                erro(ctx, ".configure already specified").debug(1)
+                return
+            }
+
+            l.project.configure, result = loaded, true
+
+            var opts = useOpts{}
+            if false {
+                applyUseeVars(ctx, l.project, loaded)  // aka.       ABC += $(use.ABC)
+                applyUserVars(ctx, l.project, loaded) // aka. use.ABC += $(use.ABC)
+            } else if false {
+                for _, usee := range loaded.usees(true, false, false, false) {
+                    applyUseeVars(ctx, l.project, usee)  // aka.       ABC += $(use.ABC)
+                    applyUserVars(ctx, l.project, usee) // aka. use.ABC += $(use.ABC)
+                    //warn(l, "%v %v %v", l.project, loaded, usee).debug(1)
+                }
+            } else if false {
+                if err := l.addUsing(ctx, loaded, nil, opts); err != nil {
+                    erro(ctx, "using '%v' failed: %v", loaded, err).debug(1)
+                }
+                //l.importFileMaps(ctx, public, specVal)
+            } else if true {
+                for _, usee := range loaded.usees(true, false, false, false) {
+                    if err := l.addUsing(ctx, usee, nil, opts); err != nil {
+                        erro(ctx, "using '%v' failed: %v", usee, err).debug(1)
+                        break
+                    }
+                    l.parser.importFileMaps1(ctx, opts, usee)
+                }
+            }
+        }
+    } else if file := stat(ctx, dotConfigure, "", l.project.absPath); file.exists() {
+        if true {
+            warn(ctx, ".configure is deprecated").debug(1)
+        } else if identStr == dotConfigure {
+            erro(ctx, "provided .configure for a .configure project").debug(1)
+        } else if !l.loadDotConfigure(ctx, ident, identStr, file) {
+            //erro(ctx, "declare %s: %s/.configure", name, l.project.absPath)
         }
     }
     return true
 }
 
-func (l *loader) loadProjectContainer(ident *Barecomp, identStr string) (result bool) {
-    var (
-        pos = ident.Position()
-        ctx = at(l, pos)
-    )
+func (l *loader) loadProjectContainer(ctx Context, ident *Barecomp, identStr string) (result bool) {
+    ctx = at(ctx, ident.Position())
     if l.project.name != dotContainer {
         if _, e := os.Stat(".dock"); e == nil {
             erro(ctx, "Must rename .dock into .container !").debug(1)
@@ -1792,6 +1850,8 @@ func (l *loader) parseFile(ctx Context, filename string, src interface{}, mode M
         l.parser.loader, l.parser, l.mode = nil, saved, m
     } (time.Now(), l.parser, l.mode)
 
+    l.mode = mode
+
     // set the current parser
     if err = l.newParser(ctx, filename, src); err != nil {
         if _, ok := err.(*fs.PathError); ok && incOpts.ifExists {
@@ -1805,7 +1865,7 @@ func (l *loader) parseFile(ctx Context, filename string, src interface{}, mode M
             errostack(ctx, 5, "").debug(32)
         }
         return
-    } else if l.mode = mode; incOpts != nil {
+    } else if incOpts != nil {
         l.parser.isIncludingConf = incOpts.isConfiguration
     }
 
@@ -2183,7 +2243,7 @@ func (l *loader) loadFile(ctx Context, filename string, source interface{}) bool
     if options.traceLaunch { defer un(trace(t_launch, "loader.loadFile")) }
     var spec string
     switch dir, base := filepath.Split(filename); base {
-    case ".base", ".configure": spec = base
+    case dotBase, dotConfigure: spec = base
     default: spec, _  = filepath.Rel(l.WorkDir(), dir)
     }
 

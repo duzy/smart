@@ -4871,7 +4871,7 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                 if def = project.config(ctx, name); def == nil {
                         if true {
                                 prompt(ctx, "%v: %v undefined\n", pos, name)
-                                warnstack(ctx, 3, "in %v", project).debug(6)
+                                warnstack(ctx, 10, "in %v", project).debug(6)
                         }
                         continue
                 } else if val = def.Call(ctx); isNil(val) {

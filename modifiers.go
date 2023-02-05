@@ -2364,14 +2364,11 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, traves travestate
     var (
         opts modifierReadFileOpts
         args []Value
-    )
-    args = parseOpts(ctx, &opts, plain, aa...)
-
-    var (
-        file *File
         filename string
+        file *File
         target Value
     )
+    args = parseOpts(ctx, &opts, plain, aa...)
     if n := len(args); n > 1 {
         erro(ctx, "too many files: %v", args).debug(1)
         return
@@ -2401,12 +2398,11 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, traves travestate
         return
     }
 
-    var err error
-    var bytes []byte
+    var ( bytes []byte ; err error )
     if bytes, err = ioutil.ReadFile(filename); err == nil {
         var s string
         if opts.head != nil { s = opts.head.Strval(ctx) }
-        s += string(bytes)
+        if len(bytes) > 0   { s += string(bytes) }
         if opts.foot != nil { s = opts.foot.Strval(ctx) }
         ctx.autoSet("-", MakeString(ctx.Position(), s))
         ctx.autoSet("-file", file)

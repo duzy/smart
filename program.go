@@ -725,8 +725,10 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                     infostack(ctx, 12, "%v → %v → %v", pre, v, prerequisite).of(pre).debug(20)
                 } (prerequisite, autoGet(ctx, "^"))
             }}
-            if false { if a := autoGet(ctx, "@"); a.String() == "Unwind-EHABI.o" {
-                warn(ctx, "%v: %v: %v %T ; %v", entry, a, prerequisite, prerequisite, stemd).of(prerequisite).debug(1)
+            if false { if a := autoGet(ctx, "@"); strings.Contains(a.String(), "dlfcn_simple.") {
+                var s = a.Strval(ctx)
+                if f, y := a.(*File); y { s = f.fullname() }
+                warn(ctx, "%v: %v: %s, %v %T ; %v", entry, a, s, prerequisite, prerequisite, stemd).of(prerequisite).debug(1)
                 for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
                 infostack(ctx, 12, "%v: %v: %v %v", prog.project, ent, prerequisite,
                     autoGet(ctx, ">")).of(prerequisite).debug(10)

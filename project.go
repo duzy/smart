@@ -281,7 +281,7 @@ type Project struct {
   plugin *plugin.Plugin
   pluginScope *Scope
 
-  opts projectDeclOpts
+  opts *projectDeclOpts
 }
 
 func (p *Project) AbsPath() string { return p.absPath }

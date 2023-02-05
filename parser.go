@@ -3122,10 +3122,12 @@ func (p *parser) parseClause(ctx Context) {
 }
 
 type projectDeclOpts struct {
-	final bool `f,final`
-	noDock bool `n,nod;n,nodock;nd,no-dock`
+	configure bool `c,conf,configure` // detects dotConfigure if empty
+	configureName string `configure-with`
+	noDock bool `n,nd,nod,nodock,no-dock` // don't load container project
     traveUseLoop bool `b,break;l,loop` // don't recursively use this project
     multiUseAllowed bool `m,multi`  // this project is used multiple times
+	final bool `f,final`
 }
 
 func (p *parser) parseFile(ctx Context) *parsedFile {
@@ -3197,6 +3199,9 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 	}
 
 	switch keyword {
+	case token.PACKAGE, token.MODULE:
+		erro(ctx, "deprecated keyword '%s'", keyword).debug(1)
+		return nil
 	case token.CONFIGURE:
 		switch p.next(ctx, true); p.tok {
 		case token.DOT:
@@ -3212,7 +3217,7 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 		default:
 			erro(ctx, "unknown configuration '%v', currently only 'configure .' is supported", p.tok)
 		}
-	case token.PROJECT, token.PACKAGE, token.MODULE:
+	case token.PROJECT:
 		if p.loader.mode&Flat != 0 { erro(ctx, "forbidden `%v` in flat file", p.tok) }
 
 		p.next(ctx, true)
@@ -3245,7 +3250,7 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 			var dir = filepath.Dir(filename)
 			if linfo.loadee != nil && linfo.absDir == dir {
 				ident = MakeBarecomp(position, MakeBareword(position, linfo.loadee.name))
-			} else if name := filepath.Base(filename); name == ".base" || name == dotConfigure {
+			} else if name := filepath.Base(filename); name == dotBase || name == dotConfigure {
 				// NOTE: loading the .base or .configure file
 				ident = MakeBarecomp(position, MakeBareword(position, name))
 			} else if base := filepath.Base(dir); base != "" {
@@ -3309,7 +3314,7 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 			loaderProj  = p.loader.project
 			_, declared = linfo.declares[identStr]
 		)
-		if (p.loader.mode&Flat == 0) && p.loader.declare(at(ctx, ident.Position()), keyword, ident, identStr, optVals) {
+		if (p.loader.mode&Flat == 0) && p.loader.declare(at(ctx, ident.Position()), keyword, ident, identStr, &opts) {
 			// Change the 'default' owners into the new declared project
 			if s := ctx.Scope(); s != nil {
 				if def := s.FindDef("."  ); def != nil { def.owner = ctx.Project() }
@@ -3372,13 +3377,11 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 			erro(ctx, "loading bases failed").at(basePos).debug(1)
 			return nil
 		}
-		if p.skipSpaces(ctx); p.tok != token.EOF {
-			p.expectLinend(ctx)
-		}
 
+		if p.skipSpaces(ctx); p.tok != token.EOF { p.expectLinend(ctx) }
 		if keyword != token.PACKAGE {
-			p.loader.loadProjectConfiguration(ident, identStr, declared)
-			if !opts.noDock { p.loader.loadProjectContainer(ident, identStr) }
+			p.loader.loadProjectConfiguration(ctx, linfo, ident, identStr, declared)
+			if !opts.noDock { p.loader.loadProjectContainer(ctx, ident, identStr) }
 		}
 	case token.EOF:
 		return nil
