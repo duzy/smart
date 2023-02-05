@@ -546,7 +546,7 @@ func (p *parser) isEndOfDotConcat(lhs bool) bool {
 	return p.isEndOfLine() || p.isEndOfList(lhs)
 }
 
-func (p *parser) parseDependList(ctx Context) (list []Value) {
+func (p *parser) parseDependList(ctx Context, normal bool) (list []Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Depends")) }
 	for p.tok != token.SEMICOLON && p.tok != token.BAR && !p.isEndOfLine() {
 		if p.tok == token.COLON { // FIXME: this check is not working!
@@ -554,7 +554,16 @@ func (p *parser) parseDependList(ctx Context) (list []Value) {
 			erro(ctx, "unexpected colon").at(p.Position()).debug(1)
 			p.next(ctx, true) // just ignore this colon
 		} else if p.skipSpaces(ctx); !p.isEndOfLine() {
-			list = append(list, p.parseExpr(ctx, false))
+			var val = p.parseExpr(ctx, false)
+			if normal {
+				if g, y := val.(*Group); y && len(g.Elems) == 1 {
+					if g, y = g.Elems[0].(*Group); y {
+						p.parseRuleParams(ctx, g.Elems)
+						continue
+					}
+				}
+			}
+			list = append(list, val)
 			if p.tok == token.SPACE { p.next(ctx, true) } //p.skipSpaces(ctx)
 		}
 	}
@@ -2404,7 +2413,7 @@ func (p *parser) defineConfigureTargets(ctx Context) {
 	}
 }
 
-func (p *parser) parseModifyParams(ctx Context, args []Value) (err error) {
+func (p *parser) parseRuleParams(ctx Context, args []Value) (err error) {
 	for _, elem := range args {
 		var ctx = at(ctx, elem.Position())
 		switch elem.(type) {
@@ -2475,7 +2484,9 @@ ForModifiersExpr:
 			goto checkNameAndAdd
 		case *Group: // parameters: ((foo bar))
 			hasParameters = true
-			p.parseModifyParams(ctx, n.Elems)
+			if p.parseRuleParams(ctx, n.Elems); true {
+				warn(ctx, "move parameters into depend list: %v", n).debug(1)
+			}
 			continue ForModifiersExpr
 		case *delegate, *closure, *Barecomp, *String:
 			var ctx = at(ctx, n.Position())
@@ -2569,10 +2580,8 @@ func (p *parser) parseRuleEntry(ctx Context, special specialRule, options, targe
 		scopeComment string
 	)
 	switch special {
-	case specialRuleUse:
-		scopeComment = fmt.Sprintf(usecomment)
-	default:
-		scopeComment = fmt.Sprintf("rule %v", targets)
+	case specialRuleUse: scopeComment = fmt.Sprintf(usecomment)
+	default:             scopeComment = fmt.Sprintf("rule %v", targets)
 	}
 
 	defer p.loader.closeScope(p.loader.openScope(scopeComment))
@@ -2625,12 +2634,11 @@ func (p *parser) parseRuleEntry(ctx Context, special specialRule, options, targe
 	p.targets = targets // save targets for later refering
 
 	if p.tok != token.SEMICOLON && p.tok != token.BAR && !p.isEndOfLine() {
-		depends = p.parseDependList(ctx)
+		depends = p.parseDependList(ctx, true)
 	}
-	if p.tok == token.BAR {
-		p.next(ctx, true) // '|' starts the ordered prerequisites
-		if p.tok != token.SEMICOLON && !p.isEndOfLine() {
-			ordered = p.parseDependList(ctx)
+	if p.tok == token.BAR { // '|' starts the ordered prerequisites
+		if p.next(ctx, true); p.tok != token.SEMICOLON && !p.isEndOfLine() {
+			ordered = p.parseDependList(ctx, false)
 		}
 	}
 

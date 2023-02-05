@@ -284,7 +284,8 @@ type modifierDebugOpts struct {
     info  []Value `i,info`
     warn  []Value `w,warn`
     error []Value `e,er,err,error`
-    checkOutdated bool `dirty;cd,checkdirty;cd,check-dirty;co,check-outdated`
+    checkOutdated bool `dirty,cd,checkdirty,check-dirty,co,check-outdated`
+    traverse int `tr,trave,traverse`
     s int `s,stack,sn,stack-number`
     n int `c,count,n,num,cn,call-number`
 }
@@ -292,6 +293,7 @@ func modifierDebug(ctx Context, args... Value) (result Value, traves travestates
     var opts modifierDebugOpts
     args = parseOpts(ctx, &opts, plain, args...)
     if opts.cond != nil && !opts.cond.True(ctx) { return }
+    if n := opts.traverse; n > 0 { ctx.program().debug_traverse += n }
 
     for _, v := range opts.info  { info(ctx, "%s", v.Strval(ctx)).of(v).debug(1) }
     for _, v := range opts.warn  { warn(ctx, "%s", v.Strval(ctx)).of(v).debug(1) }

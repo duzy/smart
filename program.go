@@ -142,16 +142,16 @@ type Program struct {
     position Position
     project *Project
     scope   *Scope
-    params  []*def
-    depends []Value // normal
-    ordered []Value // order-only
-    recipes []Value
+    params   []*def
+    depends  []Value // normal
+    ordered  []Value // order-only
+    recipes  []Value
     defaultVal Value
-    language string
+    language  string
     changedWD string
     configure bool
+    debug_traverse int
 }
-
 func (prog *Program) Position() Position { return prog.position }
 func (prog *Program) Project() *Project { return prog.project }
 func (prog *Program) Scope() *Scope { return prog.scope }
@@ -721,6 +721,14 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                     infostack(ctx, 12, "%v → %v → %v", pre, v, prerequisite).of(pre).debug(20)
                 } (prerequisite, autoGet(ctx, "^"))
             }}
+            if true { if a := autoGet(ctx, "@"); a.String() == "libexternal.python.module._ctypes.a" {
+                for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
+                infostack(ctx, 12, "%v: %v: %v %v", prog.project, ent, prerequisite,
+                    autoGet(ctx, ">")).of(prerequisite).debug(10)
+                defer func(pre, v Value) {
+                    infostack(ctx, 12, "%v → %v → %v", pre, v, prerequisite).of(pre).debug(20)
+                } (prerequisite, autoGet(ctx, "^"))
+            }}
             if false { if a := autoGet(ctx, "@"); a.String() == "llvm-tools-driver" {
                 for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
                 info(ctx, "%v: %v %v", a, prerequisite, autoGet(ctx, ">")).of(prerequisite).debug(1)
@@ -728,6 +736,12 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                     of(prerequisite).debug(10) } (autoGet(ctx, "^"))
             }}
 
+            if prog.debug_traverse > 0 {
+                if true { prog.debug_traverse -= 1 }
+                for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
+                infostack(ctx, 12, "%v: %v: %v %v", prog.project, ent, prerequisite,
+                    autoGet(ctx, ">")).of(prerequisite).debug(10)
+            }
             if !t.has() { continue } else {
                 traves = append(traves, t.not(traveNext)...)
             }
