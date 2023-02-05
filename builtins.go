@@ -3850,6 +3850,7 @@ func builtinRename(ctx Context, w facet, args... Value) (res Value) {
 
 type builtinRemoveOpts struct {
         generalOpts
+        skip string `save,skip`
         warnNotFile bool `warn-not-file`
         all bool `a,all;r,recursive`
 }
@@ -3898,6 +3899,13 @@ func builtinRemove(ctx Context, w facet, args... Value) (res Value) {
                                 break
                         }
                 } else if file != nil && file.exists() {
+                        if false && strings.HasSuffix(str, "prov/bio.h") {
+                                warn(ctx, "%T %v %s", a, a, str).debug(1)
+                        }
+                        if opts.skip != "" && strings.HasPrefix(str, opts.skip) {
+                                prompt(ctx, "remove: skip %v\t-> %s\n", a, str)
+                                continue
+                        }
                         if opts.debug>0 { warn(ctx, "remove %s", str).debug(opts.debug) }
                         if opts.all { err = os.RemoveAll(str) } else { err = os.Remove(str) }
                         if err == nil {

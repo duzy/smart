@@ -672,8 +672,13 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
         //             must be go in ordered. See List.traverse for parallel instead.
         parallel = false && options.parallel
         verb  = options.verbose || options.verboseBreaks
-        pc = ctx.programContext()
+        num   = len(prerequisites)
+        pc    = ctx.programContext()
+        stemd = ctx.stemmed()
         stems = ctx.stems()
+        entry = ctx.entry()
+        // patEnt, isPatEnt = entry.(*PatternEntry)
+        depends valueList
     )
     defer func() {
         pc.Wait()
@@ -694,8 +699,6 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
         // FIXME: optimization: the traves may grow into large number of traveFile
     } ()
 
-    var depends valueList
-    var num = len(prerequisites)
     if ent := autoGet(ctx, "@"); !parallel {
         ForPrerequisites: for i, prerequisite := range prerequisites {
             var _, g = prerequisite.(*modifiergroup)
@@ -714,6 +717,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
 
             var t = prerequisite.traverse(ctx)
             if false { if prog.project.name == "llvm.ADT" {
+                warn(ctx, "%v: %v: %v", prog.project, entry, prerequisite).of(prerequisite).debug(1)
                 for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
                 infostack(ctx, 12, "%v: %v: %v %v", prog.project, ent, prerequisite,
                     autoGet(ctx, ">")).of(prerequisite).debug(10)
@@ -721,15 +725,17 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                     infostack(ctx, 12, "%v → %v → %v", pre, v, prerequisite).of(pre).debug(20)
                 } (prerequisite, autoGet(ctx, "^"))
             }}
-            if true { if a := autoGet(ctx, "@"); a.String() == "libexternal.python.module._ctypes.a" {
+            if false { if a := autoGet(ctx, "@"); a.String() == "Unwind-EHABI.o" {
+                warn(ctx, "%v: %v: %v %T ; %v", entry, a, prerequisite, prerequisite, stemd).of(prerequisite).debug(1)
                 for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
                 infostack(ctx, 12, "%v: %v: %v %v", prog.project, ent, prerequisite,
                     autoGet(ctx, ">")).of(prerequisite).debug(10)
-                defer func(pre, v Value) {
-                    infostack(ctx, 12, "%v → %v → %v", pre, v, prerequisite).of(pre).debug(20)
-                } (prerequisite, autoGet(ctx, "^"))
+                defer func(pre, l, r, v Value) {
+                    infostack(ctx, 12, "%v → %v %v %v → %v", pre, l, r, v, prerequisite).of(pre).debug(20)
+                } (prerequisite, autoGet(ctx, "<"), autoGet(ctx, ">"), autoGet(ctx, "^"))
             }}
             if false { if a := autoGet(ctx, "@"); a.String() == "llvm-tools-driver" {
+                warn(ctx, "%v: %v: %v %T", entry, a, prerequisite, prerequisite).of(prerequisite).debug(1)
                 for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
                 info(ctx, "%v: %v %v", a, prerequisite, autoGet(ctx, ">")).of(prerequisite).debug(1)
                 defer func(s Value) { info(ctx, "%v → %v", prerequisite, s).
@@ -746,16 +752,15 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                 traves = append(traves, t.not(traveNext)...)
             }
 
-            var target = autoGet(ctx, "@") // fetch updated $@
-            var depend = autoGet(ctx, ">") // fetch updated $>
+            var (
+                target = autoGet(ctx, "@") // fetch updated $@
+                depend = autoGet(ctx, ">") // fetch updated $>
+                isPatternStemmedForTarget = stemd != nil && stemd.target != nil &&
+                    eq(ctx, stemd.target, target)
+            )
             if depend != nil { depends.add(depend) }
             if tt := t.of(traveFail); tt.has() {
-                var (
-                    m = ctx.stemmed()
-                    isPatternContextForMyTarget = m != nil && m.target != nil &&
-                        eq(ctx, m.target, target)
-                )
-                if isPatternContextForMyTarget {
+                if isPatternStemmedForTarget {
                     // TODO: convert traveFail into traveNext for stemmed entries ?
                     const dbgInfoStates = false
                     for _, s := range tt {
@@ -792,7 +797,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                 if true || dbg || verb {
                     var p = ctx.Project()
                     prompt(ctx, "%v:(%T): %T %v ; project=%s, stems=%v ; %v\n",
-                        t, target, prerequisite, prerequisite, p, stems, m)
+                        t, target, prerequisite, prerequisite, p, stems, stemd)
 
                     var a []interface{}
                     for _, s := range tt {
@@ -809,6 +814,33 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                 return // fail
             }
 
+            if tt := t.of(traveNext); tt.has() {
+                var deps []Value
+                for _, s := range tt {
+                    if eq(ctx, target, s.target) { deps = append(deps, s.depend) } else
+                    if eq(ctx, target, s.depend) {
+                        info(ctx, "%v %v ; %v", target, depend, prerequisite).of(prerequisite)
+                        info(ctx, "%v %v ; %d", s.target, s.depend,  len(tt)).of(prerequisite).
+                            debug(1)
+                        continue ForPrerequisites
+                    }
+                }
+
+                var _, isPP = prerequisite.(*PercPattern)
+                if isPP && isPatternStemmedForTarget && len(deps) == 1 {
+                    if deps[0] == nil           { return } // %.h : %.h.cmake configure-file($>,$@)
+                    if eq(ctx, depend, deps[0]) { return } // %.o : %.cpp
+                } else {
+                    if false {
+                        for i, dep := range deps { info(ctx, "%d. %v %v",
+                            i, target, dep).of(prerequisite) }
+                        info(ctx, "%v %v", target, prerequisite).
+                            of(prerequisite).debug(1)
+                    }
+                    continue ForPrerequisites
+                }
+            }
+
             if tt := t.of(traveDone); tt.has() {
                 for _, s := range tt {
                     if eq(ctx, target, s.target) { return }
@@ -818,32 +850,6 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
             if tt := t.of(traveCase); tt.has() {
                 for _, s := range tt {
                     if eq(ctx, target, s.target) { return }
-                }
-            }
-
-            if tt := t.of(traveNext); tt.has() {
-                var deps []Value
-                for _, s := range tt {
-                    if eq(ctx, target, s.target) { deps = append(deps, s.depend) } else
-                    if eq(ctx, target, s.depend) {
-                        info(ctx, "%v %v ; %v", target, depend, prerequisite).of(prerequisite)
-                        info(ctx, "%v %v ; %d", s.target, s.depend,  len(tt)).of(prerequisite).debug(1)
-                        continue ForPrerequisites
-                    }
-                }
-                if len(deps) == 1 {
-                    // %.h : %.h.cmake configure-file($>,$@)
-                    if deps[0] == nil { return }
-                    // %.o : %.cpp
-                    if eq(ctx, depend, deps[0]) { return }
-                } else {
-                    if false {
-                        for i, dep := range deps { info(ctx, "%d. %v %v",
-                            i, target, dep).of(prerequisite) }
-                        info(ctx, "%v %v", target, prerequisite).
-                            of(prerequisite).debug(1)
-                    }
-                    continue ForPrerequisites
                 }
             }
 
@@ -943,10 +949,10 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                 if tt := t.of(traveFail); tt.has() {
                     var (
                         m = ctx.stemmed()
-                        isPatternContextForMyTarget = m != nil && m.target != nil &&
+                        isPatternStemmedForTarget = m != nil && m.target != nil &&
                             eq(ctx, m.target, target)
                     )
-                    if isPatternContextForMyTarget {
+                    if isPatternStemmedForTarget {
                         // TODO: convert traveFail into traveNext for stemmed entries ?
                         const dbgInfoStates = false
                         for _, s := range tt {
