@@ -750,7 +750,8 @@ func (p *ExecResult) run(ctx Context) (status int, err error) {
 type (
   executorOpts struct {
     generalOpts
-    deprecated  bool `v,vo;w,ve;a,a;d,dump`
+    deprecated  bool `dump,deprecate`
+    dropFailed  bool `df,drop-fail`
     infos       bool `sci,scan-infos`
     silentErrs  bool `s,silent,silent-errors` // silent errors
     zeroErrs    bool `ze,zero-errors` // require zero error scaned from STDERR
@@ -761,7 +762,7 @@ type (
     stdin       bool `i,stdin;in,input`
     stamp       bool `st,stamp;sf,stamp-file`
     noStamp     bool `ns,nostamp,no-stamp,no-stamp-file`
-    wait        bool `w,wr,wait,waitres,wait-res,waitresult,wait-result` // wait for execution finished
+    wait        bool `wr,wait,waitres,wait-res,waitresult,wait-result` // wait for execution finished
     report      bool `r,report;rs,report-stamp;vs,verbose-stamp`
     retStdout   bool `ro,return-stdout,result-stdout,stdout`
     retStderr   bool `re,return-stderr,result-stderr,stderr`
@@ -1248,6 +1249,11 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       var diffLogPos = !logPos.SameLine(&pos)
       var str, _, _ = entryStr(ctx, ctx.entry())
       if (!opts.retStatus && exeres.Status != 0) || en > 0 {
+        if opts.dropFailed {
+          if e := os.RemoveAll(targetName); e != nil {
+            warn(ctx, "remove: %v", e).debug(1)
+          }
+        }
         if diffLogPos { erro(ctx, "%v: %d known errors", str, en).at(logPos) }
         erro(ctx, "%v: exit status %d (%d known errors)",
           str, exeres.Status, en).at(positions[i])
@@ -1255,6 +1261,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       } else if wn > 0 {
         if diffLogPos { warn(ctx, "%v: %d known warnings", str, wn).at(logPos) }
         warn(ctx, "%v: exit status %d", str, exeres.Status).at(positions[i])
+
         warn(ctx, "%v: %d known warnings", str, wn)
         warnstack(ctx, 3, "").debug(1)
       } else if in > 0 && opts.infos {
