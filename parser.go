@@ -2842,9 +2842,9 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, 
 func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 	var count int64
 	defer func(t time.Time, pos token.Pos, tok token.Token, lit string, state scanner.ScanState) {
-        if d := time.Now().Sub(t); d > 1999*time.Millisecond {
+        if d := time.Now().Sub(t); d > time.Duration(options.slow)*time.Millisecond {
 			var c = time.Duration(count)
-            infostack(ctx, 3, "slow: %v, %d * %v, prof-%d", d, count, d/c, pprofCounter).debug(1)
+            warnstack(ctx, 3, "slow: %v, %d * %v, prof-%d", d, count, d/c, pprofCounter).debug(1)
         }
 		p.pos, p.tok, p.lit	 = pos, tok, lit
 		p.scanner.SetState(state)
