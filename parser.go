@@ -114,9 +114,6 @@ type autoctx struct {
 }
 
 type parser struct {
-	loader *loader
-
-	file    *token.File
 	scanner scanner.Scanner
 
 	// Comments
@@ -204,7 +201,7 @@ func (p *parser) scanNext(ctx Context) {
 func (p *parser) consumeComment(ctx Context) (comment *Comment, endline int) {
 	// /*-style comments may end on a different line than where they start.
 	// Scan the comment for '\n' chars and adjust endline accordingly.
-	endline = p.file.Line(p.pos)
+	endline = p.scanner.File().Line(p.pos)
 	if len(p.lit) > 1 && p.lit[1] == '*' {
 		// don't use range here - no need to decode Unicode code points
 		for i := 0; i < len(p.lit); i++ {
@@ -230,8 +227,8 @@ func (p *parser) consumeCommentGroup(ctx Context, n int) (comments *CommentGroup
 	// add comment group to the comments list
 	p.comments = append(p.comments, comments)
 
-	endline = p.file.Line(p.pos)
-	for p.tok == token.COMMENT && p.file.Line(p.pos) <= endline+n {
+	endline = p.scanner.File().Line(p.pos)
+	for p.tok == token.COMMENT && p.scanner.File().Line(p.pos) <= endline+n {
 		var comment *Comment
 		comment, endline = p.consumeComment(ctx)
 		comments.List = append(comments.List, comment)
@@ -264,9 +261,9 @@ func (p *parser) _next(ctx Context) {
 
 		// If the comment is on same line as the previous token; it
 		// cannot be a lead comment but may be a line comment.
-		if p.file.Line(p.pos) == p.file.Line(prev) {
+		if p.scanner.File().Line(p.pos) == p.scanner.File().Line(prev) {
 			comment, endline = p.consumeCommentGroup(ctx, 0)
-			if p.file.Line(p.pos) != endline {
+			if p.scanner.File().Line(p.pos) != endline {
 				// The next token is on a different line, thus
 				// the last comment group is a line comment.
 				p.lineComment = comment
@@ -279,7 +276,7 @@ func (p *parser) _next(ctx Context) {
 			comment, endline = p.consumeCommentGroup(ctx, 1)
 		}
 
-		if endline+1 == p.file.Line(p.pos) {
+		if endline+1 == p.scanner.File().Line(p.pos) {
 			// The next token is following on the line immediately after the
 			// comment group, thus the last comment group is a lead comment.
 			p.leadComment = comment
@@ -324,7 +321,7 @@ func (p *parser) skipSpaces(ctx Context) {
 }
 
 func (p *parser) Position() Position { return p.loc(p.pos) }
-func (p *parser) loc(pos token.Pos) Position { return Position(p.file.Position(pos)) }
+func (p *parser) loc(pos token.Pos) Position { return Position(p.scanner.File().Position(pos)) }
 func (p *parser) posit(c Context) Context { return at(c, p.Position()) }
 
 // A bailout panic is raised to indicate early termination.
@@ -395,10 +392,10 @@ func (p *parser) isRecipeStart(ctx Context) (res bool) {
 /*func (p *parser) _safePos(pos token.Pos) (res token.Pos) {
 	defer func() {
 		if recover() != nil {
-			res = token.Pos(p.file.Base() + p.file.Size()) // EOF position
+			res = token.Pos(p.scanner.File().Base() + p.scanner.File().Size()) // EOF position
 		}
 	}()
-	_ = p.file.Offset(pos) // trigger a panic if position is out-of-range
+	_ = p.scanner.File().Offset(pos) // trigger a panic if position is out-of-range
 	return pos
 }*/
 
@@ -442,8 +439,9 @@ func (p *parser) parseSelect(ctx Context, lhs Value) (res Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Select")) }
 
 	var (
+		loader = ctx.loader()
 		tok = p.tok // the arrow '->' or '=>'
-		proj = p.loader.Project()
+		proj = loader.Project()
 	)
 	ctx = p.posit(ctx)
 	p._next(ctx) // skip '->' or '=>'
@@ -462,12 +460,12 @@ func (p *parser) parseSelect(ctx Context, lhs Value) (res Value) {
         case "use", "usee": lhs = proj.use
         case "self": lhs = proj.self
         case "goals", "os", "mode":
-			if lhs, okay = p.loader.colonResolve(t.string); !okay {
+			if lhs, okay = loader.colonResolve(t.string); !okay {
 				erro(ctx, `"%s" not defined`, t.string).debug(1)
 				return
 			}
         default:
-            if name, o := p.loader.resolveObject(lhs); false {
+            if name, o := loader.resolveObject(lhs); false {
 				erro(ctx, "resolve '%v' failed", lhs).at(lhs.Position())
 				erro(ctx, "parser is here (tok=%s)", tok)
 				erro(ctx, "parser to go here (tok=%s, lit=%s)", p.tok, p.lit).at(p.Position()).debug(8)
@@ -485,7 +483,7 @@ func (p *parser) parseSelect(ctx Context, lhs Value) (res Value) {
             }
         }
     case *Barecomp: // for cases like '.foo'
-        if name, o := p.loader.resolveObject(t); false {
+        if name, o := loader.resolveObject(t); false {
 			erro(ctx, "resolve selection object '%v' (%s) error", lhs, name).of(lhs).debug(1)
 			return
         } else if !isNil(o) {
@@ -1063,8 +1061,9 @@ func (p *parser) parseClosureDelegate(ctx Context) (result Value) {
 	ctx = p.posit(ctx)
 
 	var (
-		scope = p.loader.Scope()
-		proj = p.loader.Project()
+		loader = ctx.loader()
+		scope = loader.Scope()
+		proj = loader.Project()
 		tok = p.tok
 		resolved Value // Object or *selection
 		rest []Value
@@ -1124,7 +1123,7 @@ func (p *parser) parseClosureDelegate(ctx Context) (result Value) {
 			if allowClosureName && name.expandible(ctx, expandDelegate|expandClosure) {
 				obj, okay = unresolved(proj, name), true // recursive delegation or closure
 				return
-			} else if str, resolved = p.loader.resolveObject(name); false {
+			} else if str, resolved = loader.resolveObject(name); false {
 				erro(ctx, "resolve '%v' (%s) failed", name, str).at(name.Position()).debug(1)
 				return
 			} else if str == "" {
@@ -1133,7 +1132,7 @@ func (p *parser) parseClosureDelegate(ctx Context) (result Value) {
 			} else if isNil(resolved) {
 				if p.isIncludingConf {
 					// Create an empty Def if it's referred in configuration.sm.
-					def, _ := p.loader.def(name.Position(), str)
+					def, _ := loader.def(name.Position(), str)
 					def.origin = DefConfRef
 					obj, okay = def, true
 					return
@@ -1187,7 +1186,7 @@ func (p *parser) parseClosureDelegate(ctx Context) (result Value) {
 			if allowClosureName && name.expandible(ctx, expandDelegate|expandClosure) {
 				erro(ctx, "%v: name '%v' (%T) is closured", proj, name, name).of(name).debug(1)
 				return
-			} else if resolved = p.loader.resolveEntries(name); isNil(resolved) {
+			} else if resolved = loader.resolveEntries(name); isNil(resolved) {
 				if name.expandible(ctx, plain) {
 					var s = name.Strval(ctx)
 					erro(ctx, "resolved '%v' (aka. %s) is nil (project=%v)", name, s, proj).of(name).debug(1)
@@ -1400,9 +1399,10 @@ func (p *parser) parseSpecialClosureDelegate(ctx Context, lhs bool) Value {
 	p._next(ctx)
 
 
+	var loader = ctx.loader()
 	if c := s[0]; /*p.bits&parsingDefineClause != 0*/true &&
 		len(s) == 1 && (('0' <= c && c <= '9') /*|| c == '_'*/) {
-		var scope = p.loader.Scope()
+		var scope = loader.Scope()
 		for _, a := range p.autos {
 			if a.name == s { obj = a ; break }
 		}
@@ -1421,12 +1421,12 @@ func (p *parser) parseSpecialClosureDelegate(ctx Context, lhs bool) Value {
 			if a.name == s { obj = a ; goto DashNxt }
 		}
 		if obj == nil && p.bits&parsingTemplateBlock != 0 {
-			if _, resolved = p.loader.resolveObject(w); resolved != nil {
+			if _, resolved = loader.resolveObject(w); resolved != nil {
 				obj, _ = resolved.(Object)
 			}
 		}
 	DashNxt:
-	} else if _, resolved = p.loader.resolveObject(w); resolved == nil {
+	} else if _, resolved = loader.resolveObject(w); resolved == nil {
 		erro(ctx, "'%v' is undefined (autos: %v)", s, p.autos).debug(16)
 		return MakeNil(position)
 	} else if def, y := resolved.(Caller); def == nil || !y {
@@ -1521,7 +1521,7 @@ func (p *parser) parseUnaryExpr(ctx Context, lhs bool) (x Value) {
 		}
 	}
 
-	prompt(ctx, "%v: bad unary '%v' (lit=%s,lhs=%v)\n", p.file.Name(), p.tok, p.lit, lhs)
+	prompt(ctx, "%v: bad unary '%v' (lit=%s,lhs=%v)\n", p.scanner.File().Name(), p.tok, p.lit, lhs)
 	if p.lineComment == nil {
 		erro(ctx, "bad unary expression '%v'", p.tok).debug(32)
 	} else {
@@ -1811,10 +1811,11 @@ loadSpecNames:
     }
 
 	var wg sync.WaitGroup
+	var loader = ctx.loader()
     for _, specName = range specNames {
 		var ctx = at(ctx, specVal.Position())
 		if true {
-			p.loader.loadUseSpecName(ctx, opts, specVal, specName, arged, args...)
+			loader.loadUseSpecName(ctx, opts, specVal, specName, arged, args...)
 		} else {
 			var dc = diagContext{ Context: ctx } // redefine ctx
 			wg.Add(1); go func() {
@@ -1823,7 +1824,7 @@ loadSpecNames:
 					if len(dc.points) > 0 { dc.inner().diagnostic().nest(dc.points) }
 					wg.Done()
 				} ()
-				p.loader.loadUseSpecName(ctx, opts, specVal, specName, arged, args...)
+				loader.loadUseSpecName(ctx, opts, specVal, specName, arged, args...)
 			} ()
 		}
     }
@@ -1832,7 +1833,7 @@ loadSpecNames:
 	if errs := ctx.checkErrors(true); errs > 0 {
 		var (
 			pos = p.Position()
-			proj = p.loader.Project()
+			proj = loader.Project()
 		)
         prompt(ctx, "%s: use %v failed; %d errors\n", proj, specNames, errs)
 		erro(ctx, "%v errors: use %v", errs, specNames).at(pos).debug(6)
@@ -1856,10 +1857,11 @@ func (p *parser) parseIncludeSpec(ctx Context, doc *CommentGroup, g *genericClau
 	}
 
 	var x = g.spec[0]
+	var loader = ctx.loader()
 	if p.skipSpaces(ctx); p.tok == token.COLON {
 		switch x.(type) {
 		case *File, *String, *Compound: // escape from file searching
-		default: if file := p.loader.project.FindFile(ctx, x.Strval(ctx)); file != nil {
+		default: if file := loader.project.FindFile(ctx, x.Strval(ctx)); file != nil {
 			x = file
 		} else if val := x.expand(ctx, plain); !isNil(val) && val != x {
 			x = val
@@ -1867,7 +1869,7 @@ func (p *parser) parseIncludeSpec(ctx Context, doc *CommentGroup, g *genericClau
 
 		x = p.parseRuleEntry(ctx, specialRuleNor, nil, []Value{x}) // this should return a RuleEntry
 	}
-	if !g.skip { p.loader.includeFile(ctx, opts, x) }
+	if !g.skip { loader.includeFile(ctx, opts, x) }
 }
 
 func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
@@ -1879,6 +1881,8 @@ func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
 		projMutx sync.Mutex
 		wg sync.WaitGroup
 	)
+
+	var loader = ctx.loader()
 	for _, val := range paths {
 		var (
 			ctx = at(ctx, val.Position())
@@ -1888,13 +1892,13 @@ func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
 			wg.Add(1); go func() {
 				defer checkFailure(ctx, true)
 				defer wg.Done()
-				var loaded = p.loader.loadUseSpecName(ctx, opts, val, name, nil)
+				var loaded = loader.loadUseSpecName(ctx, opts, val, name, nil)
 				projMutx.Lock()
 				projects = append(projects, loaded)
 				projMutx.Unlock()
 			} ()
 		} else {
-			var loaded = p.loader.loadUseSpecName(ctx, opts, val, name, nil)
+			var loaded = loader.loadUseSpecName(ctx, opts, val, name, nil)
 			projects = append(projects, loaded)
 		}
 	}
@@ -2085,7 +2089,8 @@ func (p *parser) parseEvalSpec(ctx Context, doc *CommentGroup, g *genericClauseO
 
 	ctx = at(ctx, prop0.Position())
 
-	if name, resolved = p.loader.resolveObject(prop0); false {
+	var loader = ctx.loader()
+	if name, resolved = loader.resolveObject(prop0); false {
 		erro(ctx, "resolve '%v' failed", prop0).debug(1)
 		return
 	} else if !isTrivial(resolved) {
@@ -2108,16 +2113,16 @@ func (p *parser) parseEvalSpec(ctx Context, doc *CommentGroup, g *genericClauseO
 		erro(ctx, "resolved builtin '%v' is not a command", prop0).debug(1)
 		return
 	} else if op.s.f != nil {
-		if false && strings.Contains(p.file.Name(), ".after.") {
-			warn(ctx, "%v: %v", p.file.Name(), ctx.Scope()).debug(1)
-			warn(ctx, "%v: %v", p.file.Name(), ctx).debug(1)
+		if false && strings.Contains(p.scanner.File().Name(), ".after.") {
+			warn(ctx, "%v: %v", p.scanner.File().Name(), ctx.Scope()).debug(1)
+			warn(ctx, "%v: %v", p.scanner.File().Name(), ctx).debug(1)
 			ctx.checkErrors(true)
 			for i, v := range g.spec[1:] {
-				warn(ctx, "%v: %v %s - %T %v - %d", p.file.Name(), p.tok, p.lit, v, v, i).debug(1)
+				warn(ctx, "%v: %v %s - %T %v - %d", p.scanner.File().Name(), p.tok, p.lit, v, v, i).debug(1)
 				ctx.checkErrors(true)
-				warn(ctx, "%v: %v %s %v", p.file.Name(), p.tok, p.lit, v.expand(ctx, plain)).debug(1)
+				warn(ctx, "%v: %v %s %v", p.scanner.File().Name(), p.tok, p.lit, v.expand(ctx, plain)).debug(1)
 				ctx.checkErrors(true)
-				warn(ctx, "%v: %v %s %v", p.file.Name(), p.tok, p.lit, mergex(ctx, plain, v)).debug(1)
+				warn(ctx, "%v: %v %s %v", p.scanner.File().Name(), p.tok, p.lit, mergex(ctx, plain, v)).debug(1)
 				ctx.checkErrors(true)
 			}
 		}
@@ -2235,11 +2240,12 @@ func (p *parser) parseDefineClause(ctx Context, tok token.Token, ident Value) (d
 
 	// NOTE: Put all explicit defs into project scope. It's important for defs enclosed
 	//       in templates work.
-	if scope := p.loader.project.scope; len(p.loader.scopes) == 0 || p.loader.scopes[0] != scope {
-		defer func(s []*Scope) { p.loader.scopes = s } (p.loader.scopes)
-		p.loader.scopes = append([]*Scope{ scope }, p.loader.scopes...)
+	var loader = ctx.loader()
+	if scope := loader.project.scope; len(loader.scopes) == 0 || loader.scopes[0] != scope {
+		defer func(s []*Scope) { loader.scopes = s } (loader.scopes)
+		loader.scopes = append([]*Scope{ scope }, loader.scopes...)
 	}
-	var defs = p.loader.define(at(ctx, position), tok, ident, value)
+	var defs = loader.define(at(ctx, position), tok, ident, value)
 	if n := len(defs); n > 0 {  def = defs[n-1] }
 	return
 }
@@ -2261,6 +2267,7 @@ func (p *parser) parseRecipeExpr(ctx Context) Value {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Recipe")) }
 
 	var (
+		loader = ctx.loader()
 		// TODO: comment *CommentGroup
 		// TODO: doc = p.leadComment
 		position = p.Position()
@@ -2287,7 +2294,7 @@ SwitchDialect:
 				// no resolving commands
 			} else if t, ok := x.(*Bareword); !ok {
 				// does nothing
-			} else if _, sym := p.loader.resolveObject(t); false {
+			} else if _, sym := loader.resolveObject(t); false {
 				erro(ctx, "resolve '%v' failed", x)
 			} else if isTrivial(sym) {
 				erro(ctx, "resolved '%v' (from %v) is nil", t.string, x).of(x)
@@ -2367,6 +2374,7 @@ SwitchDialect:
 }
 
 func (p *parser) parseVarModifier(ctx Context, args []Value) (err error) {
+	var loader = ctx.loader()
 	// Parsing (var a=xxx,b=yyy) definitions
 	for _, elem := range args[1:] {
 		var kv, ok = elem.(*Pair)
@@ -2380,7 +2388,7 @@ func (p *parser) parseVarModifier(ctx Context, args []Value) (err error) {
 		if name = k.Strval(at(ctx, k.Position())); name == "" {
 			erro(ctx, "name '%v' is empty", k).of(k)
 		}
-		if def, alt := p.loader.def(elem.Position(), name); alt != nil {
+		if def, alt := loader.def(elem.Position(), name); alt != nil {
 			erro(ctx, "Def '%v' already existed: %T", name, alt).of(k)
 		} else if def != nil {
 			var ctx = at(ctx, v.Position())
@@ -2395,6 +2403,7 @@ func (p *parser) parseVarModifier(ctx Context, args []Value) (err error) {
 }
 
 func (p *parser) defineConfigureTargets(ctx Context) {
+	var loader = ctx.loader()
 	for _, t := range p.targets {
 		var pos = t.Position()
 		if !pos.IsValid() { pos = p.Position() }
@@ -2404,9 +2413,9 @@ func (p *parser) defineConfigureTargets(ctx Context) {
 			name = t.Strval(ctx)
 		)
 
-		var d, a = p.loader.project.scope.define(ctx, /*defVoid*/DefConfig, name, nil)
+		var d, a = loader.project.scope.define(ctx, /*defVoid*/DefConfig, name, nil)
 		if d == nil && a != nil { if d, _ = a.(*def); d == nil {
-			erro(ctx, "configure %v: already defined in '%v' as %v", t, p.loader.project, a).debug(6)
+			erro(ctx, "configure %v: already defined in '%v' as %v", t, loader.project, a).debug(6)
 			return
 		}}
 		if !d.position.IsValid() { d.position = pos }
@@ -2414,12 +2423,13 @@ func (p *parser) defineConfigureTargets(ctx Context) {
 }
 
 func (p *parser) parseRuleParams(ctx Context, args []Value) (err error) {
+	var loader = ctx.loader()
 	for _, elem := range args {
 		var ctx = at(ctx, elem.Position())
 		switch elem.(type) {
 		case *Bareword, *Barecomp:
 			var s = elem.Strval(ctx)
-			var d, a = p.loader.def(elem.Position(), s)
+			var d, a = loader.def(elem.Position(), s)
 			if a != nil {
 				var y bool
 				if d, y = a.(*def); !y {
@@ -2584,13 +2594,14 @@ func (p *parser) parseRuleEntry(ctx Context, special specialRule, options, targe
 	default:             scopeComment = fmt.Sprintf("rule %v", targets)
 	}
 
-	defer p.loader.closeScope(p.loader.openScope(scopeComment))
+	var loader = ctx.loader()
+	defer loader.closeScope(loader.openScope(scopeComment))
 	p.params = nil
 	p.dialect = ""
 
 	var position = ctx.Position()
 	for _, s := range automatics {
-		var def, alt = p.loader.def(position, s)
+		var def, alt = loader.def(position, s)
 		if alt != nil {
 			erro(ctx, "name `%s' already taken, not automatic (%T).", s, alt)
 		} else if def == nil {
@@ -2601,7 +2612,7 @@ func (p *parser) parseRuleEntry(ctx Context, special specialRule, options, targe
 		}
 	}
 	for i := 1; i < 10; i += 1 {
-		var def, alt = p.loader.def(position, strconv.Itoa(i))
+		var def, alt = loader.def(position, strconv.Itoa(i))
 		if alt != nil {
 			erro(ctx, "name `%v` already taken, not numberred (%T).", i, alt)
 		} else if def == nil {
@@ -2689,7 +2700,8 @@ func (p *parser) parseRuleEntry(ctx Context, special specialRule, options, targe
 
 	if special != specialRuleRec {
 		var res []Entry
-		if res = p.loader.rule(parsedData); len(res) == 1 {
+		var loader = ctx.loader()
+		if res = loader.rule(parsedData); len(res) == 1 {
 			result = res[0]
 		} else if len(res) > 1 {
 			var list = MakeList(res[0].Position())
@@ -2789,14 +2801,15 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, 
 		} ()
 	}
 
-	defer p.loader.closeScope(p.loader.openScope("template block"))
+	var loader = ctx.loader()
+	defer loader.closeScope(loader.openScope("template block"))
 	ctx = p.posit(ctx)
 
 	var position = ctx.Position()
 	// var cc = autoContext{ Context:ctx, defs:make(autoDefMap) }
 
 	for s, v := range vars {
-		if def, alt := p.loader.def(position, s); alt == nil {
+		if def, alt := loader.def(position, s); alt == nil {
 			def.set(ctx, DefAuto, v)
 		} else {
 			erro(ctx, "variable '%s' already taken", s).debug(1)
@@ -2932,12 +2945,13 @@ func (p *parser) callTemplate(ctx Context, t *template, name Value, args []Value
 	p.pos, p.tok, p.lit = t.pos, t.tok, t.lit
 
 	// NOTE: a new scope is required for template expansion
-	defer p.loader.closeScope(p.loader.openScope("template call "))
+	var loader = ctx.loader()
+	defer loader.closeScope(loader.openScope("template call "))
 
 	var params = merge(t.params...)
 	for i, param := range params {
 		var s = param.Strval(ctx)
-		if def, alt := p.loader.def(p.Position(), s); alt != nil {
+		if def, alt := loader.def(p.Position(), s); alt != nil {
 			erro(ctx, "duplicated parameter '%s'", s).at(param.Position()).debug(1)
 		} else if i < len(args) {
 			def.set(ctx, DefAuto, args[i])
@@ -3111,9 +3125,10 @@ func (p *parser) parseClause(ctx Context) {
 	}
 
 	var isIncludingConf = p.isIncludingConf
-	// for pp := p.loader.parser; !isIncludingConf && pp != nil && pp != p; {
+	// var loader = ctx.loader()
+	// for pp := loader.parser; !isIncludingConf && pp != nil && pp != p; {
 	// 	isIncludingConf = pp.isIncludingConf
-	// 	pp = p.loader.parser
+	// 	pp = loader.parser
 	// }
 	if isIncludingConf {
 		warn(ctx, "bad clause: %v (kit=%s) after %v", p.tok, p.lit, list).debug(10)
@@ -3133,8 +3148,8 @@ type projectDeclOpts struct {
 
 func (p *parser) parseFile(ctx Context) *parsedFile {
 	if options.traceLaunch { defer un(trace(t_launch, "parser.parseFile")) }
-	if t_traverse.enabled  { defer un(trace(t_traverse, "File '"+p.file.Name()+"'")) }
-    if false { defer un(tracef(t_traverse, "parseFile(%s)", p.file.Name())) }
+	if t_traverse.enabled  { defer un(trace(t_traverse, "File '"+p.scanner.File().Name()+"'")) }
+    if false { defer un(tracef(t_traverse, "parseFile(%s)", p.scanner.File().Name())) }
 
 	// Don't bother parsing the rest if we had errors scanning the first token.
 	// Likely not a Go source file at all.
@@ -3150,39 +3165,42 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 		identStr string
 		implicitBase string // aka. foo.bar.Baz implicitly load base 'foo/bar'
 		keyword  = p.tok
-		filename = p.file.Name()
+		filename = p.scanner.File().Name()
 		position = ctx.Position()
+		loader = ctx.loader()
 	)
+	assert(loader != nil, "nil loader")
+	assert(loader == loader, "bad loader")
 	// if (p.mode&Flat == 0)
-	defer p.loader.closeScope(p.loader.openScope(fmt.Sprintf("file %s", filename)))
+	defer loader.closeScope(loader.openScope(fmt.Sprintf("file %s", filename)))
 
 	/*if filename == confinitFilename {
         abs, rel = context.workdir, "."
         tmp = joinTmpPath(context.workdir, rel)
 	} else*/ {
-		if p.loader.mode&Flat != 0 {
+		if loader.mode&Flat != 0 {
 			abs = ctx.Project().absPath
 		} else {
 			abs = filepath.Dir(filename)
 		}
-		rel, _ = filepath.Rel(p.loader.WorkDir(), abs)
-		tmp = joinTmpPath(ctx, p.loader.WorkDir(), rel)
+		rel, _ = filepath.Rel(loader.WorkDir(), abs)
+		tmp = joinTmpPath(ctx, loader.WorkDir(), rel)
 	}
 
 	if s := ctx.Scope(); s != nil {
 		//defer p.closeScope()
 		var d *def
-		if p.loader.mode&Flat == 0 {
-			d, _ = p.loader.def(position, ".")
+		if loader.mode&Flat == 0 {
+			d, _ = loader.def(position, ".")
 			d.set(ctx, DefAuto, MakePathStr(position, rel))
 
-			d, _ = p.loader.def(position, "/")
+			d, _ = loader.def(position, "/")
 			d.set(ctx, DefAuto, MakePathStr(position, abs))
 
-			d, _ = p.loader.def(position, "CTD") // Current Temp Directory, TODO: make it $:ctd:
+			d, _ = loader.def(position, "CTD") // Current Temp Directory, TODO: make it $:ctd:
 			d.set(ctx, DefAuto, MakePathStr(position, tmp))
 
-			d, _ = p.loader.def(position, "CWD") // Current Work Directory, TODO: make it $:cwd:
+			d, _ = loader.def(position, "CWD") // Current Work Directory, TODO: make it $:cwd:
 			d.set(ctx, DefAuto, MakePathStr(position, abs))
 		} else if d = s.FindDef("/");   d == nil {
 			erro(ctx, "/ not in the scope: %v", s.comment)
@@ -3198,14 +3216,14 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 		return nil
 	}
 
-	switch keyword {
+	switch position = p.Position(); keyword {
 	case token.PACKAGE, token.MODULE:
 		erro(ctx, "deprecated keyword '%s'", keyword).debug(1)
 		return nil
 	case token.CONFIGURE:
 		switch p.next(ctx, true); p.tok {
 		case token.DOT:
-			if err := p.loader.ParseConfigDir(abs, abs); err != nil {
+			if err := loader.ParseConfigDir(abs, abs); err != nil {
 				erro(ctx, "parsing configure directory failed, '%s': %v", abs, err)
 			} else {
 				p.next(ctx, true) // skip the '.' token and consequence spaces
@@ -3218,7 +3236,7 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 			erro(ctx, "unknown configuration '%v', currently only 'configure .' is supported", p.tok)
 		}
 	case token.PROJECT:
-		if p.loader.mode&Flat != 0 { erro(ctx, "forbidden `%v` in flat file", p.tok) }
+		if loader.mode&Flat != 0 { erro(ctx, "forbidden `%v` in flat file", p.tok) }
 
 		p.next(ctx, true)
 
@@ -3298,23 +3316,23 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 
 		if identStr = ident.Strval(ctx); linfo.loadee != nil && identStr != linfo.loadee.name {
 			warn(ctx, "%s: declare multiple project in the same directory", ctx.Project()).at(ident.position).debug(24)
-		} else if identStr == "_" && p.loader.mode&DeclarationErrors != 0 {
+		} else if identStr == "_" && loader.mode&DeclarationErrors != 0 {
 			erro(ctx, "package name '_' is preserved").at(ident.Position()).debug(1)
 			return nil
 		}
 
 		// Don't bother parsing the rest if we had errors parsing the package clause.
 		// Likely not a Go source file at all.
-		if n := p.loader.countErrors(); n > 0 {
+		if n := loader.countErrors(); n > 0 {
 			erro(ctx, "got %d errors parsing file: %s", filename).at(p.Position()).debug(1)
 			return nil
 		}
 
 		var (
-			loaderProj  = p.loader.project
+			loaderProj  = loader.project
 			_, declared = linfo.declares[identStr]
 		)
-		if (p.loader.mode&Flat == 0) && p.loader.declare(at(ctx, ident.Position()), keyword, ident, identStr, &opts) {
+		if (loader.mode&Flat == 0) && loader.declare(at(ctx, ident.Position()), keyword, ident, identStr, &opts) {
 			// Change the 'default' owners into the new declared project
 			if s := ctx.Scope(); s != nil {
 				if def := s.FindDef("."  ); def != nil { def.owner = ctx.Project() }
@@ -3329,15 +3347,15 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 			defer func(proj *Project) {
 				if false && loaderProj != nil && filepath.Base(filename) == "do.smart" {
 					var ctx = at(ctx, ident.Position())
-					assert(p.loader.project == proj, "diverged project: %v != %v", p.loader.project, proj)
+					assert(loader.project == proj, "diverged project: %v != %v", loader.project, proj)
 					//applyUseeVars(ctx, loaderProj, p.project)  // aka. ABC += $(use.ABC)
-					applyUserVars(ctx, loaderProj, p.loader.project) // aka. use.ABC += $(use.ABC)
+					applyUserVars(ctx, loaderProj, loader.project) // aka. use.ABC += $(use.ABC)
 					if loaderProj.name == "llvm.Analysis" {
-						warn(ctx, "%v, %v", loaderProj, p.loader.project).debug(24)
+						warn(ctx, "%v, %v", loaderProj, loader.project).debug(24)
 					}
 				}
-				p.loader.closeCurrent(ident, identStr)
-			} (p.loader.project)
+				loader.closeCurrent(ident, identStr)
+			} (loader.project)
 
 			isMainFile = !declared;
 		}
@@ -3364,7 +3382,7 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 					)
 					if keyword == token.PACKAGE || opts.final {
 						// No bases for PACKAGE or final project
-					} else if !p.loader.loadBases(ctx, linfo, "", merge(t...)...) {
+					} else if !loader.loadBases(ctx, linfo, "", merge(t...)...) {
 						erro(ctx, "loading base '%v' failed", t).of(param).debug(1)
 						return nil
 					}
@@ -3373,30 +3391,30 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 			}
 			p.expect(ctx, token.RPAREN)
 			if false { defer func() { warn(ctx, "%v", ident).debug(32) } () }
-		} else if !p.loader.loadBases(ctx, linfo, implicitBase) { // for special bases, e.g. .base
+		} else if !loader.loadBases(ctx, linfo, implicitBase) { // for special bases, e.g. .base
 			erro(ctx, "loading bases failed").at(basePos).debug(1)
 			return nil
 		}
 
 		if p.skipSpaces(ctx); p.tok != token.EOF { p.expectLinend(ctx) }
 		if keyword != token.PACKAGE {
-			p.loader.loadProjectConfiguration(ctx, linfo, ident, identStr, declared)
-			if !opts.noDock { p.loader.loadProjectContainer(ctx, ident, identStr) }
+			loader.loadProjectConfiguration(ctx, linfo, ident, identStr, declared)
+			if !opts.noDock { loader.loadProjectContainer(ctx, ident, identStr) }
 		}
 	case token.EOF:
 		return nil
 	default:
-		if p.loader.mode&Flat == 0 {
+		if loader.mode&Flat == 0 {
 			p.expected(ctx, p.pos, "configure, project, module or package keyword")
 		}
 	}
 
-	var autoAfter = (p.loader.mode&Flat == 0) && isMainFile &&
+	var autoAfter = (loader.mode&Flat == 0) && isMainFile &&
 		filepath.Base(filename) == "do.smart"
 
-	if autoAfter { p.loader.loadAutoAfter(p.posit(ctx), "declare") }
-	if p.loader.mode&ModuleClauseOnly == 0 {
-		if p.loader.mode&Flat == 0 {
+	if autoAfter { loader.loadAutoAfter(p.posit(ctx), "declare") }
+	if loader.mode&ModuleClauseOnly == 0 {
+		if loader.mode&Flat == 0 {
 			ForInit: for p.tok != token.EOF {
 				switch p.tok {
 				case token.LINEND: p.next(ctx, true) // skip empty lines
@@ -3423,8 +3441,8 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 				}
 			}
 		}
-		if false && autoAfter { p.loader.loadAutoAfter(p.posit(ctx), "amid") }
-		if p.loader.mode&ImportsOnly == 0 { // rest of module body
+		if false && autoAfter { loader.loadAutoAfter(p.posit(ctx), "amid") }
+		if loader.mode&ImportsOnly == 0 { // rest of module body
 			for /* p.totalErrors() == 0 && */ p.tok != token.EOF {
 				if p.tok == token.LINEND || (p.tok == token.COMMENT && p.lineComment != nil) {
 					p.next(ctx, true)
@@ -3434,7 +3452,10 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 			}
 		}
 	}
-	if autoAfter { p.loader.loadAutoAfter(p.posit(ctx), "appendix") }
+	if autoAfter {
+		// ctx = at(ctx, )
+		loader.loadAutoAfter(ctx, "appendix")
+	}
 
 	return &parsedFile{
 		// TODO: doc: doc,

@@ -65,6 +65,8 @@ func (s *Scanner) bitsPop(bits scanbits) {
 	}
 }
 
+func (s *Scanner) File() *token.File { return s.file }
+
 func (s *Scanner) SetBits(bits scanbits) (prev scanbits) {
 	prev = s.bits
 	s.bits = bits
