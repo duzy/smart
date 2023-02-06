@@ -464,10 +464,11 @@ func (l *loader) loadUseSpecName(ctx Context, opts useOpts, specVal Value, specN
     }
     if loaded == nil {
         var okay bool
+        defer l.setArgs(l.setArgs(arged))
         if isDir {
-            okay = l.loadDirWithArgs(ctx, specName, absPath, arged, nil)
+            okay = l.loadDir(ctx, specName, absPath, nil)
         } else {
-            okay = l.loadWithArgs(ctx, specName, absPath, arged, nil)
+            okay = l.load(ctx, specName, absPath, nil)
         }
         if !okay {
             erro(ctx, "failed loading `%v` (%v)", specName, absPath).debug(1)
@@ -1187,10 +1188,11 @@ func (l *loader) loadBases(ctx Context, linfo *loadinfo, implicitBase string, pa
             implicitSaved = l.implicit
             ctx = at(ctx, elem.Position())
         )
+        defer l.setArgs(l.setArgs(args))
         if l.implicit = implicit; isDir {
-            okay = l.loadDirWithArgs(ctx, specName, absPath, args, nil)
+            okay = l.loadDir(ctx, specName, absPath, nil)
         } else {
-            okay = l.loadWithArgs(ctx, specName, absPath, args, nil)
+            okay = l.load(ctx, specName, absPath, nil)
         }
         l.implicit = implicitSaved // restore implicit flag
 
@@ -2227,18 +2229,6 @@ func (l *loader) loadDir(ctx Context, specName, absDir string, filter func(os.Fi
         erro(ctx, "%s not loaded (as %s, implicit=%v)", specName, absDir, l.implicit).debug(1)
     }
     return
-}
-
-func (l *loader) loadWithArgs(ctx Context, specName, absPath string, args []Value, source interface{}) bool {
-    if options.traceLaunch { defer un(trace(t_launch, "loader.loadWithArgs")) }
-    defer l.setArgs(l.setArgs(args))
-    return l.load(ctx, specName, absPath, source)
-}
-
-func (l *loader) loadDirWithArgs(ctx Context, specName, absPath string, args []Value, filter func(os.FileInfo) bool) bool {
-    if options.traceLaunch { defer un(trace(t_launch, "loader.loadDirWithArgs")) }
-    defer l.setArgs(l.setArgs(args))
-    return l.loadDir(ctx, specName, absPath, filter)
 }
 
 func (l *loader) loadFile(ctx Context, filename string, source interface{}) bool {

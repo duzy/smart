@@ -1372,6 +1372,7 @@ func builtinAuto(ctx Context, p *delegate, w facet, args... Value) (res Value) {
 type builtinValueOpts struct {
         generalOpts
         closure bool `c,clo,closure`
+        undef bool `u,undef`
 }
 func builtinValue(ctx Context, w facet, args... Value) (res Value) {
         var (
@@ -1379,7 +1380,9 @@ func builtinValue(ctx Context, w facet, args... Value) (res Value) {
                 vals []Value
                 closure bool
         )
-        args = parseOpts(ctx, &opts, plain, args...)
+        if args = parseOpts(ctx, &opts, plain, args...); opts.undef {
+                vals = append(vals, &undef{&None{valbase{ctx.Position()}}})
+        }
         closure = opts.closure
         for _, a := range args {
                 var (
@@ -4890,6 +4893,7 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                 }
 
                 switch t := val.(type) {
+                case *undef: // FIXME: fmt.Fprintf(res, "#undef")
                 case *Plain: fmt.Fprintf(res, "%s", t.Value)
                 case *answer, *boolean:
                         if i, e := t.Integer(ctx); e == nil {
@@ -4897,7 +4901,6 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                         } else {
                                 erro(ctx, "%: %v", t, i).debug(1)
                         }
-
                 case *Group:
                         fmt.Fprintf(res, "%s", parseGroupValue(ctx, t).Strval(ctx))
                 default:

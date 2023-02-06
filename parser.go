@@ -2023,52 +2023,61 @@ func (p *parser) parseFilesSpec(ctx Context, doc *CommentGroup, g *genericClause
 }
 
 func (p *parser) evalConfiguration(ctx Context, g *genericClauseOpts, props []Value) {
-	if project := ctx.Project(); project == nil {
+	var project = ctx.Project()
+	if project == nil {
 		erro(ctx, "configuration: nil project").debug(1)
+		return
 	} else if project.configure == nil {
-		erro(ctx, "configuration: no .configure for %v", project).debug(1)
-	} else {
-		if entry := project.configure.DefaultEntry(); entry == nil {
-			// no init entry from .configure
-		} else if _, traves := entry.Execute(ctx); len(traves) > 0 {
-			for _, brk := range traves {
-				if brk.what == traveFail {
-					erro(ctx, "execute '%v' failed: %v", entry, brk).of(entry).debug(1)
-				}
+		erro(ctx, "configuration: no %s for %v", dotConfigure, project).debug(1)
+		return
+	}
+
+	if entry := project.configure.DefaultEntry(); entry == nil {
+		// no init entry from .configure
+	} else if _, ts := entry.Execute(at(ctx, entry.Position())); len(ts) > 0 {
+		// FIXME: the entry might be a configure operation (see configure/.base/do.smart)
+		for _, brk := range ts {
+			if brk.what == traveFail {
+				erro(ctx, "execute '%v' failed: %v", entry, brk).of(entry).debug(1)
 			}
-		}
-		if project.configured {
-			prompt(ctx, "configuration: %v already configured\n", project)
-		} else {
-			var (
-				okay bool
-				cp *Project
-				ce = &configureExecutor{ defs:make(map[string]*def) }
-			)
-			defer ce.close()
-			for _, dep := range mergex(ctx, plain, props[1:]...) {
-				switch prereq := dep.(type) {
-				case *RuleEntry:
-					if _, traves := prereq.Execute(ctx); len(traves) > 0 {
-						for _, brk := range traves {
-							if brk.what == traveFail {
-								erro(ctx, "execute '%v' failed: %v", prereq, brk).of(prereq).debug(1)
-							}
-						}
-					}
-				default:
-					erro(ctx, "prerequisite: unsupported %T %v", dep, dep).debug(1)
-				}
-			}
-			for _, entry := range project.configs {
-				if cp, okay = ce.execute(ctx, cp, entry); !okay {
-					erro(ctx, "configure '%v' failed", entry).debug(1)
-					break
-				}
-			}
-			project.configured = true // let universeContext.configure skip
 		}
 	}
+
+	if ctx.checkErrors(true)>0 { return }
+	if project.configured {
+		prompt(ctx, "configuration: %v already configured\n", project)
+		return
+	}
+
+	var (
+		okay bool
+		cp *Project
+		ce = &configureExecutor{ defs:make(map[string]*def) }
+	)
+	defer ce.close()
+
+	for _, dep := range mergex(ctx, plain, props[1:]...) {
+		if re, y := dep.(*RuleEntry); !y {
+			erro(ctx, "unsupported prerequisite: %T %v", dep, dep).debug(1)
+		} else if _, ts := re.Execute(ctx); len(ts) > 0 {
+			for _, brk := range ts {
+				if brk.what == traveFail {
+					erro(ctx, "execute '%v' failed: %v", re, brk).of(re).debug(1)
+				}
+			}
+		}
+	}
+
+	if ctx.checkErrors(true)>0 { return }
+
+	for _, entry := range project.configs {
+		if cp, okay = ce.execute(at(ctx, entry.Position()), cp, entry); !okay {
+			erro(ctx, "configure '%v' failed", entry).debug(1)
+			break
+		}
+	}
+
+	project.configured = true // relaxes universeContext.configure
 }
 
 func (p *parser) parseAssertSpec(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {

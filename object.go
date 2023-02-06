@@ -1173,13 +1173,9 @@ func (entry *RuleEntry) Execute(ctx Context, a ...Value) (result []Value, traves
         case PatternRuleEntry, PathPattRuleEntry:
                 erro(ctx, "executing pattern entry '%v'", entry.target).debug(1)
                 return
+        default:
+                return entry.execute(ctx, a...)
         }
-        // ctx = traverseContext{
-        //         Context: ctx,
-        //         execRec: make(map[Value]int),
-        //         start: time.Now(),
-        // }
-        return entry.execute(ctx, a...)
 }
 func (entry *RuleEntry) execute(cc Context, a... Value) (result []Value, traves travestates) {
         if cc = (&entryContext{ cc, entry }); len(a) > 0 { cc = &argumentedContext{ cc, a } }
