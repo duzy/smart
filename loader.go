@@ -1824,6 +1824,8 @@ func (l *loader) parse(ctx Context, filename string, src interface{}, mode Mode,
         }
     }
     defer func(t time.Time, saved *parser, m Mode) {
+        if true { ctx = l.parser.posit(ctx) }
+
         var panics, _ = checkFailure(ctx, true)
         if proj := l.project; panics > 0 {
             if err != nil { erro(ctx, "panics with error: %v", panics, err) }
@@ -1872,7 +1874,7 @@ func (l *loader) parse(ctx Context, filename string, src interface{}, mode Mode,
     })
 	l.parser.next(ctx, true)
 
-    if l.mode&parsingText != 0 {
+    if ctx = l.parser.posit(ctx); l.mode&parsingText != 0 {
         res = l.parser.parseText(ctx)
     } else if f = l.parser.parseFile(ctx); f == nil {
         // Source is not a valid source file, returnning a valid but empty parsedFile
