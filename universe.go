@@ -62,7 +62,6 @@ func (ctx *universeContext) spawn(c Context) Context { return c }
 func (ctx *universeContext) auto() *autoContext { return nil }
 func (ctx *universeContext) closure() *closureContext { return nil }
 func (ctx *universeContext) travestates() *travestates { return nil }
-func (ctx *universeContext) traversal() *traverseContext { return nil }
 func (ctx *universeContext) traversed(target Value) []Value { fail(ctx.Position(), "%v", target); return nil }
 func (ctx *universeContext) entry() Entry { return nil }
 func (ctx *universeContext) entryContext() *entryContext { return nil }

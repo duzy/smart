@@ -877,7 +877,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
             return
         } else if same {
             var tt = file.info.ModTime()
-            for _, d := range merge(ctx.traversal().targets...) {
+            for _, d := range merge(ctx.programContext().targets...) {
                 if f, ok := toFile(d); !ok { continue } else
                 if dt := f.info.ModTime(); dt.After(tt) { tt = dt }
             }

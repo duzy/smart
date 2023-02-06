@@ -450,7 +450,7 @@ type modifierClosureOpts struct {
 func modifierClosure(ctx Context, args... Value) (result Value, traves travestates) {
     var opts modifierClosureOpts
     // Closure the caller program, the context will be restored when execution is finished.
-    if t := ctx.traversal(); t != nil && false {
+    if t := ctx.programContext(); t != nil && false {
         t.Context = closureWith(t.Context)
     } else if pc := ctx.programContext(); pc != nil {
         pc.Context = closureWith(pc.Context)
@@ -1122,10 +1122,10 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
     //var infos = strings.Contains(gc.targetFullName, "...")
     const infos = false
 
-    if false { defer un(tt(t_traverse, ctx.traversal(), gc.target)) }
+    if false { defer un(tt(t_traverse, ctx.programContext(), gc.target)) }
 
     defer func(restore []Value) {
-        var t = ctx.traversal()
+        var t = ctx.programContext()
         var touch = gc.greptouch // copy greptouch value
         if len(touch.files) > 0 {
             grepcacheM.Lock()
@@ -1180,7 +1180,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
         return
     } else if savedGrepFileLoaded && len(gc.files) > 0 {
         if infos { info(ctx, "loadSavedGrepFile: %v files=%d grepped=%d",
-            gc.targetFullName, len(gc.files), len(ctx.traversal().grepped)).debug(1) }
+            gc.targetFullName, len(gc.files), len(ctx.programContext().grepped)).debug(1) }
         return
     }
     if dir := filepath.Dir(gc.savedGrepFileName); dir != "." && dir != ".." {
@@ -1268,7 +1268,7 @@ func modifierGrep(ctx Context, args... Value) (result Value, traves travestates)
     var (
         target = autoGet(ctx, "@")
         targets = args
-        grepped = ctx.traversal().grepped
+        grepped = ctx.programContext().grepped
     )
     if len(targets) == 0 { if target == nil || isNil(target) || isNone(target) {
         erro(ctx, "no grep target").debug(1)
@@ -1295,7 +1295,7 @@ func modifierGrep(ctx Context, args... Value) (result Value, traves travestates)
         } (time.Now())
     }
 
-    var t = ctx.traversal()
+    var t = ctx.programContext()
     var tar = target
     defer func(v bool) { t.grepping = v } (t.grepping)
     t.grepping = true
@@ -1774,7 +1774,7 @@ CorrectCC:
         }
         stdout.Reset() // release buffers (optional)
     }
-    if t := ctx.traversal(); t != nil && len(files) > 0 {
+    if t := ctx.programContext(); t != nil && len(files) > 0 {
         t.grepped = append(t.grepped, files...)
     }
     return
@@ -1805,7 +1805,7 @@ func modifierTouch(ctx Context, args... Value) (result Value, traves travestates
     }
 
     var program = ctx.program()
-    if opts.verbose { reportFileUpdates(ctx, ctx.traversal().start, files) }
+    if opts.verbose { reportFileUpdates(ctx, ctx.programContext().start, files) }
     if len(program.getModifiers(ctx, "stamp")) > 0 {
         warn(ctx, "no need to use a (stamp) after (touch)").debug(1)
     }
@@ -2652,7 +2652,7 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
                     erro(ctx, "%v", err).debug(1)
                     return
                 } else if false && opts.verbose {
-                    var t = ctx.traversal()
+                    var t = ctx.programContext()
                     reportFileUpdates(ctx, t.start, files)
                 }
                 result = file // resulting the updated file
@@ -2841,7 +2841,7 @@ func predict(ctx Context, args... Value) (result bool, message string, err error
         errostack(ctx, 5, "target is trivial, %v", ctx).debug(10)
         return
     }
-    for caller := ctx.traversal().caller(); caller != nil; caller = caller.caller() {
+    for caller := ctx.programContext().caller(); caller != nil; caller = caller.caller() {
         if val := autoGet(caller, "@"); val != nil {
             var same = target == val
             if !same && false {
@@ -3086,7 +3086,7 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
     }
 
     if opts.debug>0 || opts.verbose || (opts.verboseOutdated && outdated) || (opts.verboseUpdated && !outdated) {
-        var ( t = ctx.traversal(); m, s string )
+        var ( t = ctx.programContext(); m, s string )
         if outdated { m = "outdated" } else { m = "updated" }
         if s = time.Now().Sub(t.start).String(); reason != "" {
             s += "; " + strings.TrimSpace(strings.TrimPrefix(reason, "outdated:"))
@@ -3115,7 +3115,7 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
 func predictionNoLoop(ctx Context, args... Value) (result Value) {
     var loop bool
     var target = autoGet(ctx, "@")
-    for caller := ctx.traversal().caller(); caller != nil; caller = caller.caller() {
+    for caller := ctx.programContext().caller(); caller != nil; caller = caller.caller() {
         var t = autoGet(caller, "@")
         var same = t != nil && target == t
         if!same && false { same = eq(ctx, target, t) }
@@ -3147,7 +3147,7 @@ func predictionTarget1stVisit(ctx Context, args... Value) (result Value) {
     }
 
     var num int
-    for caller := ctx.traversal().caller(); caller != nil; caller = caller.caller() {
+    for caller := ctx.programContext().caller(); caller != nil; caller = caller.caller() {
         if false {
             var t = autoGet(caller, "@")
             var same = t != nil && target == t
@@ -3196,7 +3196,7 @@ func predictionTargetMaxVisit(ctx Context, args... Value) (result Value) {
         erro(ctx, "target is <nil>").debug(1)
         return
     }
-    for caller := ctx.traversal().caller(); caller != nil; caller = caller.caller() {
+    for caller := ctx.programContext().caller(); caller != nil; caller = caller.caller() {
         var ct = autoGet(caller, "@")
         if n := caller.execRec[target]; n > 0 { num += int64(n) }
         if opts.debug && num > 0 {

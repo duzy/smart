@@ -1055,7 +1055,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     return
   }
 
-  var caller = ctx.traversal().caller()
+  var caller = ctx.programContext().caller()
   defer func() {
     if log != nil && log.writer != nil { log.writer.Flush() }
     if logFile != nil { logFile.Close() }
@@ -1100,7 +1100,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       errostack(ctx, 6, ``).debug(10)
       return
     } else if opts.report {
-      var t = ctx.traversal()
+      var t = ctx.programContext()
       reportFileUpdates(ctx, t.start, files)
     }
 
@@ -1192,7 +1192,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     if src   != "" { exeres.sh.Args = append(exeres.sh.Args, src) }
     if opts.debug > 0 {
       warn(ctx, "%v: %v", ctx.entry(), target).at(program.position)
-      warn(ctx, "context: %v", ctx.traversal())
+      warn(ctx, "context: %v", ctx.programContext())
       warn(ctx, "exec:\n%v", exeres.sh).debug(opts.debug*2)
     }
 

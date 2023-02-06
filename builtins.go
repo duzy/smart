@@ -4289,7 +4289,7 @@ func builtinFile(ctx Context, w facet, args... Value) (res Value) {
                 if false {
                         proj = ctx.closure().Project()
                 } else {
-                        proj = ctx.traversal().Project()
+                        proj = ctx.programContext().Project()
                 }
         } else {
                 proj = ctx.Project()

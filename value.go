@@ -557,46 +557,14 @@ func refdef(ctx Context, val Value, origin Origin) (res bool) {
 
 // traverseContext is a single thread traverse context, for traversing in a new goroutine,
 // a spawned traversal must be used and then merge.
-type traverseContext struct {
-    Context
-
-    start time.Time // start time
-
-    execRec map[Value]int
-
-    calleeErrs []error
-    calleeErrsM sync.Mutex
-
-    targets []Value // all targets def
-    grepped []Value
-    grepping bool
-
-    traceLevel int
-
-    interpreted []interpreter
-
-    print bool // printing work directories (Entering/Leaving)
-}
-func (t *traverseContext) inner() Context { return t.Context }
-func (t *traverseContext) String() string {
-    if fullContextStringer {
-        return fmt.Sprintf("traversal{%s}", t.Context)
-    } else {
-        return t.Context.String()
-    }
-}
-
-func (t *traverseContext) level(n int) { t.traceLevel += n }
-func (t *traverseContext) trace(a ...interface{}) { printIndentDots(t.traceLevel, a...) }
-func (t *traverseContext) tracef(s string, a ...interface{}) { printIndentDots(t.traceLevel, fmt.Sprintf(s, a...)) }
-
-func (t *traverseContext) caller() *traverseContext { return t.Context.traversal() }
-func (t *traverseContext) traversal() *traverseContext { return t }
-func (t *traverseContext) traversed(target Value) (targets []Value) {
+func (pc *programContext) level(n int) { pc.traceLevel += n }
+func (pc *programContext) trace(a ...interface{}) { printIndentDots(pc.traceLevel, a...) }
+func (pc *programContext) tracef(s string, a ...interface{}) { printIndentDots(pc.traceLevel, fmt.Sprintf(s, a...)) }
+func (pc *programContext) traversed(target Value) (targets []Value) {
     if !isTrivial(target) {
-        t.targets = append(t.targets, target)
+        pc.targets = append(pc.targets, target)
     }
-    targets = t.targets
+    targets = pc.targets
     return
 }
 
@@ -698,34 +666,33 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
     return
 }
 
-func (t *traverseContext) arguments() []Value { return nil }
-func (t *traverseContext) argumented() *argumentedContext { return nil }
-func (t *traverseContext) argumentedSet([]Value) []Value { return nil }
-// func (t *traverseContext) spawn(ctx Context) Context {
+func (pc *programContext) arguments() []Value { return nil }
+func (pc *programContext) argumented() *argumentedContext { return nil }
+func (pc *programContext) argumentedSet([]Value) []Value { return nil }
+// func (pc *programContext) spawn(ctx Context) Context {
 //     return &traverseContext{
-//         Context: t.Context.spawn(ctx),
-//         print:   t.print,
+//         Context: pc.Context.spawn(ctx),
+//         print:   pc.print,
 //         execRec: make(map[Value]int),
 //         start:   time.Now(),
 //     }
 // }
 
+func (pc *programContext) depth() (res int) {
+    for c := pc.caller(); c != nil; c = c.caller() { res += 1 }
+    return
+}
+func (pc *programContext) calleeError(err error) {
+    if err != nil {
+        pc.calleeErrsM.Lock()
+        pc.calleeErrs = append(pc.calleeErrs, err)
+        pc.calleeErrsM.Unlock()
+    }
+}
+
 func exists(ctx Context, v Value) bool {
     // FIXME: returns true if existenceMatterless ??
     return v != nil && v.stat(ctx).exists() == existenceConfirmed
-}
-
-func (t *traverseContext) depth() (res int) {
-    for c := t.caller(); c != nil; c = c.caller() { res += 1 }
-    return
-}
-
-func (t *traverseContext) calleeError(err error) {
-    if err != nil {
-        t.calleeErrsM.Lock()
-        t.calleeErrs = append(t.calleeErrs, err)
-        t.calleeErrsM.Unlock()
-    }
 }
 
 // traverse - traverse the prerrequiste for the current target $@
@@ -915,7 +882,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
 
     var (
         verb = options.verbose || options.verboseBreaks
-        t = ctx.traversal()
+        t = ctx.programContext()
         concreteList []Entry
         stemmedList []*stemmed
         traversed int
@@ -1362,6 +1329,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 targetValue, targetValue, prereqValue, prereqValue,
                 okay, traversed, projects).debug(1)
         }
+
         for i, s := range traves { erro(ctx, "%v: %v: %d. %v", targetValue, prereqValue, i, s).at(s.pos) }
         for i, c := range ctx.closureScopes() { erro(ctx, "%v: closure: %v. %v", proj, i, c) }
         for i, concrete := range concreteList { erro(ctx, "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs())).at(concrete.Position()) }
@@ -1475,7 +1443,7 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
 
     if false { ctx.wait() } // aka programContext.WaitGroup.Wait(), FIXME: deadlock
 
-    if t := ctx.traversal(); t != nil {
+    if t := ctx.programContext(); t != nil {
         //t.group.Wait()
         t.calleeErrsM.Lock()
         calleeErrs = t.calleeErrs; t.calleeErrs = nil
@@ -1543,7 +1511,7 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
         erro(ctx, "%v", err).at(pos).debug(1)
         return
     } else if optReportFileUpdates {
-        reportFileUpdates(ctx, ctx.traversal().start, files)
+        reportFileUpdates(ctx, ctx.programContext().start, files)
     }
     return
 }
@@ -1847,10 +1815,6 @@ func (p *Argumented) traverse(ctx Context) (traves travestates) {
         }
     } else {
         args = p.args
-    }
-    if false && strings.Contains(p.String(), "&(objects)($(objDeps))") &&
-        getTargetValue(ctx).String() == "llvm-tools-driver" {
-        warn(ctx, "%T %v -> %v", p.value, p.value, p.value.expand(ctx, plain)).debug(1)
     }
     return p.value.traverse(&argumentedContext{ ctx, args })
 }

@@ -29,14 +29,32 @@ type programContext struct {
     prog *Program
     params []string // $0, $1, $2, ...
     dirt string // reason of outdated
-}
 
+    /// traverseContext
+
+    start time.Time // start time
+
+    execRec map[Value]int
+
+    calleeErrs []error
+    calleeErrsM sync.Mutex
+
+    targets []Value // all targets def
+    grepped []Value
+    grepping bool
+
+    traceLevel int
+
+    interpreted []interpreter
+
+    print bool // printing work directories (Entering/Leaving)
+}
+func (pc *programContext) caller() *programContext { return pc.Context.programContext() }
+func (pc *programContext) inner() Context { return &pc.autoContext }
 func (pc *programContext) wait() { pc.WaitGroup.Wait() }
 func (pc *programContext) aquireLock() (unlock func()) {
     pc.Lock() ; return func() { pc.Unlock() }
 }
-func (pc *programContext) inner() Context { return &pc.autoContext }
-func (pc *programContext) caller() *programContext { return pc.Context.programContext() }
 //XXX: func (pc *programContext) stems() []string { return nil }
 func (pc *programContext) String() string {
     if fullContextStringer {
@@ -62,6 +80,10 @@ func (pc *programContext) projects(ctx Context, projects ...*Project) []*Project
     }
     return pc.projs
 }
+func (pc *programContext) Position() Position {
+    if pc.prog != nil { return pc.prog.position }
+    return pc.autoContext.Position()
+}
 func (pc *programContext) Project() *Project {
     if cc, ok := pc.Context.(*closureContext); ok && true {
         return cc.Project()
@@ -73,10 +95,6 @@ func (pc *programContext) Project() *Project {
 func (pc *programContext) Scope() *Scope {
     if pc.prog != nil { return pc.prog.scope }
     return pc.autoContext.Scope()
-}
-func (pc *programContext) Position() Position {
-    if pc.prog != nil { return pc.prog.position }
-    return pc.autoContext.Position()
 }
 func (pc *programContext) appendCallerUpdated() bool { return true }
 func (pc *programContext) mustExists() bool { return false }
@@ -201,7 +219,7 @@ func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err 
         prompt(ctx, "%v: %s\n", ent, nam)
         erro(ctx, "update recipes hash failed: %v", err)
         errostack(ctx, 3, "%v", ctx).debug(1)
-    } else if t := ctx.traversal(); t != nil {
+    } else if t := ctx.programContext(); t != nil {
         t.interpreted = append(t.interpreted, i)
     }
     return
@@ -240,7 +258,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
     if f, ok := modifiers[name]; ok {
         var value Value //= autoGet(ctx, "-")
         // Special modifier processing (implicit interpretation) before (configure)
-        if len(ctx.traversal().interpreted) == 0 && len(prog.recipes) > 0 && name == "configure" {
+        if len(ctx.programContext().interpreted) == 0 && len(prog.recipes) > 0 && name == "configure" {
             // Evaluate for configure modifier
             if i, ok := dialects["eval"]; ok && i != nil {
                 if err := prog.interpret(ctx, i, args); err != nil {
@@ -384,15 +402,13 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
     assert(prog.project == prog.scope.project, "mismatched scope/project")
     if options.verbose { info(ctx, "%v: %v", entry, args).debug(1) }
 
-    var t = traverseContext{
-        Context: cc,
+    var pc = programContext{
+        autoContext: autoContext{ Context:cc, defs:make(autoDefMap) },
+        prog: prog,
+
         execRec: make(map[Value]int),
         start: time.Now(),
         print: true,
-    }
-    var pc = programContext{
-        autoContext: autoContext{ Context:&t, defs:make(autoDefMap) },
-        prog: prog,
     }
     ctx = &pc
 
@@ -480,6 +496,8 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
         if depth < maxCallRecursion {
             // continues
         } else if c := cc.programContext(); c != nil {
+            if /*options.traceTraversalNestIndent*/true { pc.traceLevel = c.traceLevel }
+
             var tt Value = autoGet(c, "@")
             prompt(ctx, "%v: max recursion call (%d)\n", fullnameOrStrval(ctx, tt), depth)
             warn(ctx, "max recursion call (%d)\n", depth).of(tt).debug(1)
@@ -516,7 +534,6 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
             if false { fail(prog.position, "max call depth") }
             return
         }
-        if /*options.traceTraversalNestIndent*/true { t.traceLevel = cc.traversal().traceLevel }
         if stems := cc.stems(); stems != nil { ctx.autoSet("*", MakeString(pos, stems[0])) }
     }
 
@@ -531,7 +548,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
         return
     } else {
         switch a := target.(type) {
-        case *Flag: t.print = false // Flag target (-foo) turns off printing automatically
+        case *Flag: pc.print = false // Flag target (-foo) turns off printing automatically
         case *File: // alreadyUpdated = a.info != nil && a.updated
         case *String, *Compound: // NOTE: escape 'String' and "Compound" values from file searching
         default:
@@ -541,7 +558,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
             }
         }
 
-        if t.execRec[target] += 1; false { if t.execRec[target] > 1 {
+        if pc.execRec[target] += 1; false { if pc.execRec[target] > 1 {
             if options.traceExec { t_exec.trace(fmt.Sprintf("exec: %v", target)) }
             return
         }}
@@ -600,12 +617,12 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
         if false { return }
     }
 
-    if t.print && entry.Class() == UseRuleEntry { t.print = false }
-    if t.print && prog.configure { t.print = false }
-    cd.stack[0].silent = !t.print
+    if pc.print && entry.Class() == UseRuleEntry { pc.print = false }
+    if pc.print && prog.configure { pc.print = false }
+    cd.stack[0].silent = !pc.print
 
     if options.traceExec {
-        var d = t.depth()
+        var d = pc.depth()
         var t = autoGet(ctx, "@")
         var s = fmt.Sprintf("%s: %v (%p, exec.depth=%d)", typeof(t), t, t, d)
         defer un(trace(t_exec, s))
@@ -649,7 +666,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
         return
     }
 
-    if prog.language != "" || len(t.interpreted) > 0 || len(prog.recipes) == 0 {
+    if prog.language != "" || len(pc.interpreted) > 0 || len(prog.recipes) == 0 {
         // does nothing
     } else if d := autoGet(ctx,"-"); d == nil {
         // Using the default statements interpreter (aka. evaluation).
@@ -701,6 +718,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
 
     if ent := autoGet(ctx, "@"); !parallel {
         ForPrerequisites: for i, prerequisite := range prerequisites {
+            var ctx = at(ctx, prerequisite.Position())
             var _, g = prerequisite.(*modifiergroup)
             /****/ if u, y := prerequisite.(untraversed); y {
                 warn(ctx, "%v: untraversed %v", ent, u.Value).debug(1)
