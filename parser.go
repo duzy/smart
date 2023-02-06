@@ -403,28 +403,33 @@ func (p *parser) isRecipeStart(ctx Context) (res bool) {
 // Barewords & Identifiers
 
 func (p *parser) parseBarewordConstant(ctx Context, lhs bool) (x Value) {
-	var pos, tok, value = p.pos, p.tok, ""
-	switch tok {
+	var pos, tok, lit = p.Position(), p.tok, p.lit
+	switch p._next(ctx); tok {
 	case token.BAREWORD:
-		value = p.lit
+		if lit == "undef" && p.tok == token.LBRACE { // undef{}
+			if p.next(ctx, true); p.tok == token.RBRACE {
+				x = &undef{&None{valbase{p.Position()}}}
+			} else if v := p.parseExpr(ctx, false); v != nil {
+				x = &undef{v}
+			} else {
+				erro(ctx, "undef invalid expression: %v, %v", p.tok, p.lit).debug(1)
+			}
+			return
+		}
 	case token.AT, token.DOT, token.DOTDOT: // TODO: parse token.DOT into Qualiword
-		value = tok.String() // Special bareword.
+		lit = tok.String() // Special bareword.
 	default:
-		if tok.IsKeyword() {
-			value = tok.String()
-		} else {
-			p.expect(ctx, token.BAREWORD)
+		if tok.IsKeyword() { lit = tok.String() } else {
+			erro(ctx, "%v %v ; %v %v", tok, lit, p.tok, p.lit) // p.expect(ctx, token.BAREWORD)
 		}
 	}
 
-	p._next(ctx) // consumes the word
-
-	switch position := p.loc(pos); tok {
-	case token.TRUE:  x = MakeBoolean(position,  true)
-	case token.FALSE: x = MakeBoolean(position,  false)
-	case token.YES:   x = MakeAnswer(position,   true)
-	case token.NO:    x = MakeAnswer(position,   false)
-	default:          x = MakeBareword(position, value)
+	switch tok {
+	case token.TRUE:  x = MakeBoolean(pos,  true)
+	case token.FALSE: x = MakeBoolean(pos,  false)
+	case token.YES:   x = MakeAnswer(pos,   true)
+	case token.NO:    x = MakeAnswer(pos,   false)
+	default:          x = MakeBareword(pos, lit)
 	}
 	return
 }

@@ -1063,7 +1063,7 @@ func (l *loader) loadBases(ctx Context, linfo *loadinfo, implicitBase string, pa
         implicitBases []Value
         position = ctx.Position()
     )
-    if file := stat(ctx, dotBase, "", l.project.absPath); file != nil /*&& file.info.IsDir()*/ {
+    if file := stat(ctx, dotBase, "", l.project.absPath); file != nil {
         if true {
             var s = file.Strval(ctx)
             assert(s == file.name && s == dotBase, "invalid strval: %v => %v", file, s)

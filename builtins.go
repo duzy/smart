@@ -4837,13 +4837,13 @@ var (
         rxConfigRef = regexp.MustCompile(rsConfigRef)
 )
 
-func (project *Project) config(ctx Context, name string) (res *def) {
+func (project *Project) resolveDef(ctx Context, name string) (res *def) {
         var obj Object
         if obj = project.resolveObject(ctx, name); !isNil(obj) { res, _ = obj.(*def) }
         return
 }
 
-func (project *Project) configExpand(ctx Context, s string) (result string, err error) {
+func (project *Project) strExpandConfig(ctx Context, s string) (result string, err error) {
         var (
                 pos Position
                 res = new(bytes.Buffer)
@@ -4871,7 +4871,7 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                         def *def
                         val Value
                 )
-                if def = project.config(ctx, name); def == nil {
+                if def = project.resolveDef(ctx, name); def == nil {
                         if true {
                                 prompt(ctx, "%v: %v undefined\n", pos, name)
                                 warnstack(ctx, 10, "in %v", project).debug(6)
@@ -4893,7 +4893,7 @@ func (project *Project) configExpand(ctx Context, s string) (result string, err 
                 }
 
                 switch t := val.(type) {
-                case *undef: // FIXME: fmt.Fprintf(res, "#undef")
+                case *undef, undef: // FIXME: fmt.Fprintf(res, "#undef")
                 case *Plain: fmt.Fprintf(res, "%s", t.Value)
                 case *answer, *boolean:
                         if i, e := t.Integer(ctx); e == nil {
@@ -4924,39 +4924,38 @@ func autoconf(ctx Context, out *bytes.Buffer, project *Project, str string) (err
 }
 
 func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (err error) {
-        var index = 0
-        if str, err = project.configExpand(ctx, str); err != nil {
-                erro(ctx, "%v", err).debug(1)
-                return
-        }
+        if s, e := project.strExpandConfig(ctx, str); e != nil {
+                erro(ctx, "%v: %v", str, err).debug(1)
+                return e
+        } else { str = s }
 
+        var index = 0
         for _, m := range rxConfigure.FindAllStringSubmatchIndex(str, -1) {
                 if _, err = out.WriteString(str[index:m[0]]); err != nil {
-                        erro(ctx, "%v", err).debug(1)
+                        erro(ctx, "WriteString: %v", err).debug(1)
                         return
-                }
-                index = m[1] // reset index immediately to keep forward
+                } else { index = m[1] }
 
-                var t bool
-                var s string
-                var verb = str[m[2]:m[3]]
-                var name = str[m[4]:m[5]]
-                var hasv = m[6] > m[0] && m[7] > m[6]
-                var def *def
-                if def = project.config(ctx, name); def != nil {
-                        t = def.True(ctx);
-                } else if val := def.Call(ctx); val != nil {
-                        if _, undef := val.(*undef); undef {
-                                s = fmt.Sprintf("#undef /* %s */", name)
-                                if _, err = out.WriteString(s); err != nil {
-                                        erro(ctx, "%v", err)
-                                        return
-                                }
+                var (
+                        t bool
+                        s string
+                        def *def
+                        verb = str[m[2]:m[3]]
+                        name = str[m[4]:m[5]]
+                        hasv = m[6] > m[0] && m[7] > m[6]
+                )
+                if def = project.resolveDef(ctx, name); def != nil { // t = def.True(ctx);
+                        if val := def.Call(ctx); val == nil {
+                                // noop, TODO: or #undef?
+                        } else if _, undef := val.(*undef); undef {
+                                _, err = out.WriteString(fmt.Sprintf("#undef /* %s */", name))
+                                if err != nil { erro(ctx, "%v", err); return }
                                 continue
+                        } else {
+                               t = val.True(ctx)
                         }
                 }
 
-                //fmt.Fprintf(stderr, "%v: configure: %v %v %v\n", scope.comment, verb, name, def)
                 switch verb {
                 case "define":
                         if hasv /*&& !(def == nil || def.value == nil)*/ {
