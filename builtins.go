@@ -4945,6 +4945,15 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
                 var def *def
                 if def = project.config(ctx, name); def != nil {
                         t = def.True(ctx);
+                } else if val := def.Call(ctx); val != nil {
+                        if _, undef := val.(*undef); undef {
+                                s = fmt.Sprintf("#undef /* %s */", name)
+                                if _, err = out.WriteString(s); err != nil {
+                                        erro(ctx, "%v", err)
+                                        return
+                                }
+                                continue
+                        }
                 }
 
                 //fmt.Fprintf(stderr, "%v: configure: %v %v %v\n", scope.comment, verb, name, def)
