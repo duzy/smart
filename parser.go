@@ -2176,7 +2176,7 @@ func (p *parser) parseGenericClause(ctx Context, keyword token.Token, pos token.
 			for p.tok == token.SPACE || p.tok == token.LINEND { p.next(ctx, true) }
 			if p.tok == token.RPAREN || p.tok == token.EOF { break  }
 			if opts.spec = p.parseDirectiveSpec(ctx); true {
-				f(p.posit(ctx), p.leadComment, &opts, iota)
+				f(ctx, p.leadComment, &opts, iota)
 			}
 			if p.tok == token.COMMA || p.tok == token.LINEND { p.next(ctx, true) }
 		}
@@ -2186,7 +2186,7 @@ func (p *parser) parseGenericClause(ctx Context, keyword token.Token, pos token.
 
 	if p.tok != token.LINEND && p.tok != token.EOF && (p.stop == 0 || p.pos < p.stop) {
 		if opts.spec = p.parseDirectiveSpec(ctx); true {
-			f(p.posit(ctx), nil, &opts, 0)
+			f(ctx, nil, &opts, 0)
 		}
 		if p.tok == token.COMMA { p.next(ctx, true) }
 	}
@@ -3067,7 +3067,8 @@ func (p *parser) parseClause(ctx Context) {
 		defer un(tracef(t_traverse, "parseClause(%v, %v)", p.tok, p.pos))
 	}
 
-	switch ctx = p.posit(ctx); p.tok {
+	if false { ctx = p.posit(ctx) }
+	switch p.tok {
 	case token.USE:
 		erro(ctx, "`%v` unexpected here", p.tok).debug(1)
 		return
@@ -3138,10 +3139,9 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 	// Don't bother parsing the rest if we had errors scanning the first token.
 	// Likely not a Go source file at all.
 	if ctx.countErrors() > 0 { return nil }
+	if false { ctx = p.posit(ctx) }
 
 	const infoLoadAutoAfter = false
-
-	ctx = p.posit(ctx)
 
 	var (
 		isMainFile bool
