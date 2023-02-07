@@ -57,6 +57,7 @@ func (ctx *universeContext) argumentedSet([]Value) []Value { return nil }
 func (ctx *universeContext) aquireLock() (unlock func()) { return nil }
 func (ctx *universeContext) universe() *universeContext { return ctx }
 func (ctx *universeContext) loader() *loader { return ctx.globe.top }
+func (ctx *universeContext) parser() *parser { return nil }
 func (ctx *universeContext) inner() Context { return nil }
 func (ctx *universeContext) spawn(c Context) Context { return c }
 func (ctx *universeContext) auto() *autoContext { return nil }

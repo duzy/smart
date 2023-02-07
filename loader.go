@@ -119,7 +119,7 @@ func (li *loadinfo) traveUseLoop() (result bool) {
 
 type loader struct {
     closureContext
-    parser *parser
+    p *parser
     mode Mode // parsing mode
     project  *Project
     loadArgs []Value
@@ -130,6 +130,7 @@ type loader struct {
     vs string // verbose prefix
 }
 func (l *loader) loader() *loader { return l }
+func (l *loader) parser() *parser { return l.p }
 func (l *loader) inner() Context { return &l.closureContext }
 func (l *loader) String() string { return fmt.Sprintf("loader{%s}", &l.closureContext) }
 func (l *loader) Project() (project *Project) { return l.project }
@@ -327,8 +328,8 @@ func applyUserVars(ctx Context, user, usee *Project) {
 }
 
 func (l *loader) Position() (res Position) {
-    if l.parser != nil {
-        res = l.parser.Position()
+    if l.p != nil {
+        res = l.p.Position()
     } else {
         res = l.Context.Position()
     }
@@ -548,9 +549,9 @@ func (l *loader) loadUseSpecName(ctx Context, opts useOpts, specVal Value, specN
     }
     if opts.files || opts.filesPub {
         if false {
-            l.parser.importFileMaps(ctx, opts.public || opts.filesPub, specVal)
+            l.p.importFileMaps(ctx, opts.public || opts.filesPub, specVal)
         } else {
-            l.parser.importFileMaps1(ctx, opts, loaded)
+            l.p.importFileMaps1(ctx, opts, loaded)
         }
     }
     return
@@ -827,7 +828,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
     }
 
     var prog = &Program{
-        language: l.parser.dialect,
+        language: l.p.dialect,
         project:  l.project,
         scope:    progScope,
         params:   params,
@@ -1022,7 +1023,7 @@ func (l *loader) closureScopes() (scopes []*Scope) {
 func (l *loader) openScope(comment string) (scopes []*Scope) {
     if false && options.traceLaunch { defer un(trace(t_launch, "loader.openScope")) }
     var pos Position
-    if l.parser != nil { pos = l.Position() } else {
+    if l.p != nil { pos = l.Position() } else {
         // TODO: pos.Filename = l.path(), 1
     }
 
@@ -1334,7 +1335,7 @@ func (l *loader) loadDotConfigure(ctx Context, ident *Barecomp, identStr string,
                         erro(ctx, "using '%v' failed: %v", usee, err).debug(1)
                         break
                     }
-                    l.parser.importFileMaps1(ctx, opts, usee)
+                    l.p.importFileMaps1(ctx, opts, usee)
                 }
             }
         }
@@ -1491,10 +1492,10 @@ func (l *loader) loadProjectConfiguration(ctx Context, linfo *loadinfo, ident *B
         } else if options.verbose {
             info(ctx, "%v for %s (%s)", file, l.project.spec, l.project).debug(16)
         }
-        var isIncludingConf = l.parser.isIncludingConf
-        l.parser.isIncludingConf = true
+        var isIncludingConf = l.p.isIncludingConf
+        l.p.isIncludingConf = true
         l.includeFile(ctx, includeFileOpts{isConfiguration: true}, file)
-        l.parser.isIncludingConf = isIncludingConf
+        l.p.isIncludingConf = isIncludingConf
     }
 
     if s := l.project.name; s == dotConfigure { return }
@@ -1557,7 +1558,7 @@ func (l *loader) loadProjectConfiguration(ctx Context, linfo *loadinfo, ident *B
                         erro(ctx, "using '%v' failed: %v", usee, err).debug(1)
                         break
                     }
-                    l.parser.importFileMaps1(ctx, opts, usee)
+                    l.p.importFileMaps1(ctx, opts, usee)
                 }
             }
         }
@@ -1823,8 +1824,11 @@ func (l *loader) parse(ctx Context, filename string, src interface{}, mode Mode,
             info(ctx, "loading %v", filename)
         }
     }
+
+    assert(ctx.loader() == l, "require the same loader context")
+
     defer func(t time.Time, saved *parser, m Mode) {
-        if true { ctx = l.parser.posit(ctx) }
+        if true { ctx = l.p.posit(ctx) }
 
         var panics, _ = checkFailure(ctx, true)
         if proj := l.project; panics > 0 {
@@ -1840,8 +1844,8 @@ func (l *loader) parse(ctx Context, filename string, src interface{}, mode Mode,
             info(ctx, "loaded %v (%v)", filename, d).debug(1)
         }
 
-        l.parser, l.mode = saved, m
-    } (time.Now(), l.parser, l.mode)
+        l.p, l.mode = saved, m
+    } (time.Now(), l.p, l.mode)
 
     l.mode = mode
 
@@ -1860,8 +1864,8 @@ func (l *loader) parse(ctx Context, filename string, src interface{}, mode Mode,
         return
     }
 
-    if l.parser = new(parser); opts != nil {
-        l.parser.isIncludingConf = opts.isConfiguration
+    if l.p = (&parser{ Context: ctx }); opts != nil {
+        l.p.isIncludingConf = opts.isConfiguration
     }
 
 	var scanMode scanner.Mode
@@ -1869,14 +1873,14 @@ func (l *loader) parse(ctx Context, filename string, src interface{}, mode Mode,
 		//scanMode = scanner.ScanComments
 	}
     var file = universe.globe.file(filename, text)
-	l.parser.scanner.Init(file, text, scanMode, func(p token.Position, s string) {
+	l.p.scanner.Init(file, text, scanMode, func(p token.Position, s string) {
         errostack(ctx, 3, "%s", s).at(Position(p)).debug(128)
     })
-	l.parser.next(ctx, true)
+	l.p.next(true)
 
-    if ctx = l.parser.posit(ctx); l.mode&parsingText != 0 {
-        res = l.parser.parseText(ctx)
-    } else if f = l.parser.parseFile(ctx); f == nil {
+    if ctx = l.p.posit(ctx); l.mode&parsingText != 0 {
+        res = l.p.parseText(ctx)
+    } else if f = l.p.parseFile(ctx); f == nil {
         // Source is not a valid source file, returnning a valid but empty parsedFile
         defer l.closeScope(l.openScope(fmt.Sprintf("file %s", filename)))
         f = &parsedFile{ scope:l.Scope() }
@@ -1906,7 +1910,7 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
 
     defer l.closeScope(l.OpenNamedScope(ident, fmt.Sprintf("config %s", pathname)))
 
-    var ctx = l.parser.posit(l)
+    var ctx = l.p.posit(l)
     var def *def
 ListLoop:
     for _, d := range list {
@@ -2078,7 +2082,7 @@ ListLoop:
                 d = erro(ctx, "parsed module name is <none>")
             }
             if d != nil {
-                if l.parser != nil && l.parser.scanner.File() != nil {
+                if l.p != nil && l.p.scanner.File() != nil {
                     var s = "… parser stopped here here"
                     if d.dt == diagWarn {
                         d = warn(ctx, s)
@@ -2257,7 +2261,7 @@ func (l *loader) loadPath(path string, filter func(os.FileInfo) bool) bool {
 func (l *loader) loadText(filename string, text string) (res []Value) {
     if options.traceLaunch { defer un(trace(t_launch, "loader.loadText")) }
 
-    defer func(saved *parser) { l.parser = saved } (l.parser)
+    defer func(saved *parser) { l.p = saved } (l.p)
 
     if g := l.Globe(); g.main == nil {
         l.scopes[0] = g.os.scope

@@ -114,6 +114,8 @@ type autoctx struct {
 }
 
 type parser struct {
+	Context
+
 	scanner scanner.Scanner
 
 	// Comments
@@ -155,6 +157,9 @@ type parser struct {
 	configure bool // is parsing configure program?
 }
 
+func (p *parser) parser() *parser { return p }
+func (p *parser) inner() Context { return p.Context }
+
 func (p *parser) setbits(bits parsingBits) { p.bits = bits }
 func (p *parser) setbit(bit parsingBits) (bits parsingBits) {
 	bits = p.bits
@@ -173,7 +178,7 @@ func (p *parser) clearbit(bit parsingBits) (bits parsingBits) {
 func (p *parser) trace(a ...interface{}) { t_traverse.traceAt(p.Position(), a...) }
 
 // Advance to the next token.
-func (p *parser) scanNext(ctx Context) {
+func (p *parser) scanNext() {
 	// Because of one-token look-ahead, print the previous token
 	// when tracing as it provides a more readable output. The
 	// very first token (!p.pos.IsValid()) is not initialized
@@ -193,12 +198,12 @@ func (p *parser) scanNext(ctx Context) {
 	var pos = p.pos
 	p.pos, p.tok, p.lit = p.scanner.Scan()
 	if false && p.tok == token.EOF {
-		erro(ctx, "unexpected end of file").at(p.loc(pos)).debug(1)
+		erro(p, "unexpected end of file").at(p.loc(pos)).debug(1)
 	}
 }
 
 // Consume a comment and return it and the line on which it ends.
-func (p *parser) consumeComment(ctx Context) (comment *Comment, endline int) {
+func (p *parser) consumeComment() (comment *Comment, endline int) {
 	// /*-style comments may end on a different line than where they start.
 	// Scan the comment for '\n' chars and adjust endline accordingly.
 	endline = p.scanner.File().Line(p.pos)
@@ -212,7 +217,7 @@ func (p *parser) consumeComment(ctx Context) (comment *Comment, endline int) {
 	}
 
 	comment = &Comment{ Pos: p.Position(), Text: p.lit }
-	p.scanNext(ctx)
+	p.scanNext()
 
 	return
 }
@@ -222,7 +227,7 @@ func (p *parser) consumeComment(ctx Context) (comment *Comment, endline int) {
 // the last comment in the group ends. A non-comment token or n
 // empty lines terminate a comment group.
 //
-func (p *parser) consumeCommentGroup(ctx Context, n int) (comments *CommentGroup, endline int) {
+func (p *parser) consumeCommentGroup(n int) (comments *CommentGroup, endline int) {
 	comments = new(CommentGroup)
 	// add comment group to the comments list
 	p.comments = append(p.comments, comments)
@@ -230,7 +235,7 @@ func (p *parser) consumeCommentGroup(ctx Context, n int) (comments *CommentGroup
 	endline = p.scanner.File().Line(p.pos)
 	for p.tok == token.COMMENT && p.scanner.File().Line(p.pos) <= endline+n {
 		var comment *Comment
-		comment, endline = p.consumeComment(ctx)
+		comment, endline = p.consumeComment()
 		comments.List = append(comments.List, comment)
 	}
 	return
@@ -251,18 +256,18 @@ func (p *parser) consumeCommentGroup(ctx Context, n int) (comments *CommentGroup
 // Lead and line comments may be considered documentation that is
 // stored in the AST.
 //
-func (p *parser) _next(ctx Context) {
+func (p *parser) _next() {
 	p.leadComment = nil
 	p.lineComment = nil
 	prev := p.pos
-	if p.scanNext(ctx); p.tok == token.COMMENT {
+	if p.scanNext(); p.tok == token.COMMENT {
 		var comment *CommentGroup
 		var endline int
 
 		// If the comment is on same line as the previous token; it
 		// cannot be a lead comment but may be a line comment.
 		if p.scanner.File().Line(p.pos) == p.scanner.File().Line(prev) {
-			comment, endline = p.consumeCommentGroup(ctx, 0)
+			comment, endline = p.consumeCommentGroup(0)
 			if p.scanner.File().Line(p.pos) != endline {
 				// The next token is on a different line, thus
 				// the last comment group is a line comment.
@@ -273,7 +278,7 @@ func (p *parser) _next(ctx Context) {
 		// consume successor comments, if any
 		endline = -1
 		for p.tok == token.COMMENT {
-			comment, endline = p.consumeCommentGroup(ctx, 1)
+			comment, endline = p.consumeCommentGroup(1)
 		}
 
 		if endline+1 == p.scanner.File().Line(p.pos) {
@@ -287,8 +292,8 @@ func (p *parser) _next(ctx Context) {
 	// }
 }
 
-func (p *parser) next(ctx Context, skipWS bool) {
-	if p._next(ctx); skipWS { p.skipSpaces(ctx) }
+func (p *parser) next(skipWS bool) {
+	if p._next(); skipWS { p.skipSpaces() }
 	// if p._next(); skipWS && p.tok == token.SPACE { p._next() }
 	// if p._next(); skipWS {
 	// 	if p.tok == token.SPACE ||
@@ -298,18 +303,18 @@ func (p *parser) next(ctx Context, skipWS bool) {
 	// }
 }
 
-func (p *parser) skipSpaces(ctx Context) {
+func (p *parser) skipSpaces() {
 	for p.lineComment == nil && p.tok != token.EOF {
 		if p.tok == token.SPACE || (p.tok == token.RECIPE && p.bits&parsingRecipeBuiltin != 0) {
-			p._next(ctx)
+			p._next()
 		} else if p.tok == token.ESCAPE && p.lit == "\n" {
-			if p._next(ctx); p.tok == token.LINEND || p.lineComment != nil { break }
+			if p._next(); p.tok == token.LINEND || p.lineComment != nil { break }
 			if p.bits&parsingRecipeBuiltin != 0 {
 				TokFor: for p.tok != token.EOF {
 					switch p.tok {
 					case token.RECIPE: // TODO: using p.isRecipeStart()
 						p.scanner.LeaveCompoundLineContext()
-						p._next(ctx)
+						p._next()
 					default: break TokFor
 					}
 				}
@@ -327,7 +332,7 @@ func (p *parser) posit(c Context) Context { return at(c, p.Position()) }
 // A bailout panic is raised to indicate early termination.
 type bailout struct{}
 
-func (p *parser) expected(ctx Context, pos token.Pos, msg string, a... interface{}) {
+func (p *parser) expected(pos token.Pos, msg string, a... interface{}) {
 	if len(a) > 0 { msg = fmt.Sprintf(msg, a...) }
 	if msg = "expected " + msg; pos == p.pos {
 		// the error happened at the current position;
@@ -341,33 +346,33 @@ func (p *parser) expected(ctx Context, pos token.Pos, msg string, a... interface
 			}
 		}
 	}
-	erro(ctx, msg).at(p.loc(pos)).debug(24)
+	erro(p, msg).at(p.loc(pos)).debug(24)
 }
 
-func (p *parser) expect(ctx Context, tok token.Token) token.Pos {
+func (p *parser) expect(tok token.Token) token.Pos {
 	pos := p.pos
 	if p.tok != tok {
-		p.expected(ctx, pos, "'"+tok.String()+"'")
+		p.expected(pos, "'"+tok.String()+"'")
 	}
-	p._next(ctx) // make progress
+	p._next() // make progress
 	return pos
 }
 
-func (p *parser) expectLinend(ctx Context) (ok bool) {
+func (p *parser) expectLinend() (ok bool) {
 	if p.lineComment != nil {
 		// The line comment is treated as LINEND, simply ignore it.
 		p.lineComment, ok = nil, true
 	} else if p.tok == token.EOF {
 		ok = true
 	} else if p.tok == token.LINEND {
-		p._next(ctx); ok = true
+		p._next(); ok = true
 	} else {
-		p.expected(ctx, p.pos, "'\\n'")
+		p.expected(p.pos, "'\\n'")
 	}
 	return
 }
 
-func (p *parser) isRecipeStart(ctx Context) (res bool) {
+func (p *parser) isRecipeStart() (res bool) {
 	if p.tok == token.RECIPE {
 		res = true
 	} else if p.tok == token.SPACE && p.lit == "\t" {
@@ -402,34 +407,34 @@ func (p *parser) isRecipeStart(ctx Context) (res bool) {
 // ----------------------------------------------------------------------------
 // Barewords & Identifiers
 
-func (p *parser) parseBareExpr(ctx Context, lhs bool) (x Value) {
+func (p *parser) parseBareExpr(lhs bool) (x Value) {
 	var pos, tok, lit = p.Position(), p.tok, p.lit
 	if lit == "nodoc" { defer func(){
-		warn(ctx, "%v %v", tok, lit).debug(4)
-		ctx.checkErrors(true)
+		warn(p, "%v %v", tok, lit).at(pos).debug(4)
+		p.checkErrors(true)
 	}() }
-	switch p._next(ctx); tok {
+	switch p._next(); tok {
 	case token.UNDEF:
 		if p.tok == token.LBRACE { // undef{}, undef{ ... }
-			if p.next(ctx, true); p.tok == token.RBRACE {
+			if p.next(true); p.tok == token.RBRACE {
 				x = &undef{&None{valbase{p.Position()}}}
-				p._next(ctx)
-			} else if v := p.parseExpr(ctx, false); v != nil {
+				p._next()
+			} else if v := p.parseExpr(p, false); v != nil {
 				x = &undef{v}
-				p.expect(ctx, token.RBRACE)
+				p.expect(token.RBRACE)
 			} else {
-				erro(ctx, "undef invalid expression: %v, %v", p.tok, p.lit).at(pos).debug(1)
+				erro(at(p,pos), "undef invalid expression: %v, %v", p.tok, p.lit).debug(1)
 			}
 			return
 		}
 	case token.ANSWER, token.BOOL:
 		if p.tok == token.LBRACE { // answer{...}, bool{...}
-			if p.next(ctx, true); p.tok == token.RBRACE {
+			if p.next(true); p.tok == token.RBRACE {
 				switch pos := p.Position(); tok {
 				case token.ANSWER: x = &answer{valbase{pos},false}
 				case token.BOOL: x = &boolean{valbase{pos},false}
 				}
-				p._next(ctx)
+				p._next()
 				return
 			}
 
@@ -438,13 +443,13 @@ func (p *parser) parseBareExpr(ctx Context, lhs bool) (x Value) {
 			case token.TRUE, token.YES: v = true
 			case token.FALSE, token.NO: v = false
 			default:
-				if t := p.parseExpr(ctx, false); t != nil {
-					v = t.True(at(ctx,pos))
+				if t := p.parseExpr(p, false); t != nil {
+					v = t.True(p)
 				} else {
-					erro(ctx, "undef invalid expression: %v, %v", p.tok, p.lit).at(pos).debug(1)
+					erro(at(p,pos), "undef invalid expression: %v, %v", p.tok, p.lit).debug(1)
 				}
 			}
-			switch p.expect(ctx, token.RBRACE); tok {
+			switch p.expect(token.RBRACE); tok {
 			case token.ANSWER: x = &answer{valbase{pos},v}
 			case token.BOOL: x = &boolean{valbase{pos},v}
 			}
@@ -452,8 +457,8 @@ func (p *parser) parseBareExpr(ctx Context, lhs bool) (x Value) {
 		}
 	case token.TRUE, token.YES, token.FALSE, token.NO:
 		if p.tok == token.LBRACE { // true{}, false{}, yes{}, no{}
-			if p.next(ctx, true); p.tok == token.RBRACE {
-				switch p._next(ctx); tok {
+			if p.next(true); p.tok == token.RBRACE {
+				switch p._next(); tok {
 				case token.TRUE:  x = MakeBoolean(pos,  true)
 				case token.FALSE: x = MakeBoolean(pos,  false)
 				case token.YES:   x = MakeAnswer( pos,  true)
@@ -461,13 +466,13 @@ func (p *parser) parseBareExpr(ctx Context, lhs bool) (x Value) {
 				}
 			} else {
 				// TODO: true{ expr }, yes{ expr }, ...
-				erro(ctx, "%s expects: %v, not %v %v", tok, token.RBRACE, p.tok, p.lit).at(pos).debug(1)
+				erro(at(p,pos), "%s expects: %v, not %v %v", tok, token.RBRACE, p.tok, p.lit).debug(1)
 			}
 			return
 		}
 	case token.FILE:
 		if p.tok == token.LBRACE { // file{ ... }
-			erro(ctx, "TODO: %v", tok).debug(1)
+			erro(p, "TODO: %v", tok).debug(1)
 			return
 		}
 	case token.AT, token.DOT, token.DOTDOT: // TODO: parse token.DOT into Qualiword
@@ -478,9 +483,9 @@ func (p *parser) parseBareExpr(ctx Context, lhs bool) (x Value) {
 	default:
 		if tok.IsKeyword() { lit = tok.String() } else {
 			if true {
-				erro(ctx, "%v %v -> %v %v", tok, lit, p.tok, p.lit).at(pos)
+				erro(at(p,pos), "%v %v -> %v %v", tok, lit, p.tok, p.lit)
 			} else {
-				p.expect(ctx, token.BAREWORD)
+				p.expect(token.BAREWORD)
 			}
 		}
 	}
@@ -503,7 +508,7 @@ func (p *parser) parseSelect(ctx Context, lhs Value) (res Value) {
 		proj = loader.Project()
 	)
 	ctx = p.posit(ctx)
-	p._next(ctx) // skip '->' or '=>'
+	p._next() // skip '->' or '=>'
 
 	var okay bool
 	switch t := lhs.(type) {
@@ -609,8 +614,8 @@ func (p *parser) parseDependList(ctx Context, normal bool) (list []Value) {
 		if p.tok == token.COLON { // FIXME: this check is not working!
 			// FIXME: detects unexpected colon ':'
 			erro(ctx, "unexpected colon").at(p.Position()).debug(1)
-			p.next(ctx, true) // just ignore this colon
-		} else if p.skipSpaces(ctx); !p.isEndOfLine() {
+			p.next(true) // just ignore this colon
+		} else if p.skipSpaces(); !p.isEndOfLine() {
 			var val = p.parseExpr(ctx, false)
 			if normal {
 				if g, y := val.(*Group); y && len(g.Elems) == 1 {
@@ -621,7 +626,7 @@ func (p *parser) parseDependList(ctx Context, normal bool) (list []Value) {
 				}
 			}
 			list = append(list, val)
-			if p.tok == token.SPACE { p.next(ctx, true) } //p.skipSpaces(ctx)
+			if p.tok == token.SPACE { p.next(true) } //p.skipSpaces()
 		}
 	}
 	return
@@ -630,10 +635,10 @@ func (p *parser) parseDependList(ctx Context, normal bool) (list []Value) {
 // If lhs is set, result list elements which are identifiers are not resolved.
 func (p *parser) parseExprList(ctx Context, lhs bool) (list []Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "List")) }
-	for p.skipSpaces(ctx); !p.isEndOfList(lhs); p.skipSpaces(ctx) {
-		p.skipSpaces(ctx)
+	for p.skipSpaces(); !p.isEndOfList(lhs); p.skipSpaces() {
+		p.skipSpaces()
 		list = append(list, p.parseExpr(ctx, lhs))
-		// p.skipSpaces(ctx)
+		// p.skipSpaces()
 		// If there's a comment right after the parsed expression, we break
 		// the expression list to treat the end-of-line comment like a LINEND.
 		if p.lineComment != nil  { break }
@@ -672,14 +677,14 @@ func (p *parser) parseGroupExpr(ctx Context, lhs bool) *Group {
 
 	position := p.Position()
 	ctx = p.posit(ctx)
-	p.next(ctx, true)
+	p.next(true)
 	elems, converted := p.parseExprList(ctx, false), false
 	for /*p.tok == token.COMMA*/p.tok != token.RPAREN && p.tok != token.EOF {
 		//p.next(true) // skip token.COMMA
 		switch p.tok {
 		case token.BAR, token.COMMA, token.SEMICOLON:
 			elems = append(elems, p.parsePunctuation(ctx))
-			p.skipSpaces(ctx)
+			p.skipSpaces()
 		}
 		var next *List
 		next = p.parseListExpr(ctx, false)
@@ -690,7 +695,7 @@ func (p *parser) parseGroupExpr(ctx Context, lhs bool) *Group {
 			elems = append(elems, next)
 		}
 	}
-	p.expect(ctx, token.RPAREN)
+	p.expect(token.RPAREN)
 	return MakeGroup(position, elems...)
 }
 
@@ -698,29 +703,29 @@ func (p *parser) parseArgumentedExpr(ctx Context, x Value) *Argumented {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Argumented")) }
 
 	ctx = p.posit(ctx)
-	p.next(ctx, true) // skip token.LPAREN
+	p.next(true) // skip token.LPAREN
 
 	var a = []Value{ p.parseListExpr(ctx, false) }
 	for p.tok != token.RPAREN && p.tok != token.LINEND && p.tok != token.EOF {
 		switch p.tok {
-		case token.COMMA: p.next(ctx, true) // skip token.COMMA
+		case token.COMMA: p.next(true) // skip token.COMMA
 		case token.BAR, token.SEMICOLON:
 			if false {
 				a = append(a, p.parsePunctuation(ctx))
-				p.skipSpaces(ctx)
+				p.skipSpaces()
 			} else {
 				erro(ctx, "unexpected punctuation: %v", p.tok).debug(1)
 			}
 		}
 		a = append(a, p.parseListExpr(p.posit(ctx), false))
 	}
-	p.expect(p.posit(ctx), token.RPAREN)
+	p.expect(token.RPAREN)
 	return MakeArgumented(x, a...)
 }
 
 func (p *parser) parseGlobMeta(ctx Context) (x *GlobMeta) {
 	pos, tok := p.Position(), p.tok
-	p._next(p.posit(ctx))
+	p._next()
 	return MakeGlobMeta(pos, tok)
 }
 
@@ -729,10 +734,10 @@ func (p *parser) parseGlobRange(ctx Context) (x *GlobRange) {
 
 	position := p.Position()
 	ctx = p.posit(ctx)
-	p.expect(ctx, token.LBRACK) // skip '['
+	p.expect(token.LBRACK) // skip '['
 
 	chars := p.parseExpr(ctx, false)
-	p.expect(ctx, token.RBRACK) // skip ']'
+	p.expect(token.RBRACK) // skip ']'
 
 	return MakeGlobRange(position, chars)
 }
@@ -782,7 +787,7 @@ func (p *parser) parsePercExpr(ctx Context, lhs bool, x Value) Value {
 		pos = p.pos
 		y Value
 	)
-	if p._next(ctx); pos+1 == p.pos { // joint, e.g. '%.o', but skip '% .o'
+	if p._next(); pos+1 == p.pos { // joint, e.g. '%.o', but skip '% .o'
 		switch p.tok {
 		case token.COLON, token.COLON2,
 			token.LPAREN, token.RPAREN,
@@ -792,7 +797,7 @@ func (p *parser) parsePercExpr(ctx Context, lhs bool, x Value) Value {
 			token.COMMA,  token.SPACE,
 			token.LINEND:
 		case token.PERC: // %%
-			p._next(ctx) // consume the second %
+			p._next() // consume the second %
 			position := p.Position()
 			perc2 := MakePercPattern(position, nil, nil)
 			if pos+2 == p.pos {
@@ -836,7 +841,7 @@ func (p *parser) parseRegexpExpr(ctx Context) (x Value) {
 func (p *parser) parseKeyValueExpr(ctx Context, x Value) *Pair {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Pair")) }
 	ctx = p.posit(ctx)
-	p._next(ctx)
+	p._next()
 	var y Value
 	if p.isEndOfList(false) {
 		y = MakeNil(ctx.Position())
@@ -851,7 +856,7 @@ func (p *parser) parseFlagExpr(ctx Context, lhs bool) *Flag {
 
 	var x Value
 	ctx = p.posit(ctx)
-	p._next(ctx) // skip dash '-'
+	p._next() // skip dash '-'
 
 	// Flag expressions, excluding "-)" "-]" "-}" "-\n", "-=", "-:", etc.
 	if p.isEndOfLine() || p.isEndOfList(false) ||
@@ -868,14 +873,14 @@ func (p *parser) parseFlagExpr(ctx Context, lhs bool) *Flag {
 
 func (p *parser) parseNegExpr(ctx Context, lhs bool) *negative {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Negative")) }
-	p.expect(ctx, token.EXC)
+	p.expect(token.EXC)
 	return Negative(p.parseExpr(ctx, lhs))
 }
 
 func (p *parser) parsePunctuation(ctx Context) *Punctuation {
 	if t_traverse.enabled { defer un(trace(t_traverse, "punctuation")) }
 	var tok = p.tok
-	p._next(ctx)
+	p._next()
 	return &Punctuation{valbase{p.Position()}, tok}
 }
 
@@ -887,7 +892,7 @@ func (p *parser) parseBasicLit(ctx Context, lhs bool) (v Value) {
 	}
 
 	ctx = p.posit(ctx)
-	p._next(ctx)
+	p._next()
 
 	// ESCAPE is handled in value.EscapeChar
 	defer checkFailure(ctx) // panics from parse{int,float,hex,...}
@@ -917,7 +922,7 @@ func (p *parser) parseCompoundLit(ctx Context, lhs bool) *Compound {
 		elems []Value
 	)
 	ctx = p.posit(ctx)
-	p._next(ctx)
+	p._next()
 
 	defer p.setbits(p.setbit(parsingCompound))
 
@@ -936,7 +941,7 @@ ForCompound:
 		}
 		elems = append(elems, x)
 	}
-	p.expect(ctx, token.COMPOSED)
+	p.expect(token.COMPOSED)
 	return MakeCompound(p.loc(lpos), elems...)
 }
 
@@ -965,7 +970,7 @@ func (p *parser) parseDotExpr(ctx Context, lhs bool, x Value) (res *Barecomp) {
 		if p.tok == token.DOT /*&& comp.End() == p.pos*/ {
 			var dot = MakeBareword(p.Position(), ".") // TODO: parse to Qualiword instead
 			comp.Elems = append(comp.Elems, dot)
-			p._next(ctx) // '.'
+			p._next() // '.'
 		}
 	}
 
@@ -1003,7 +1008,7 @@ func (p *parser) parsePathExpr(ctx Context, lhs bool, start Value) *Path {
 	)
 	if start == nil {
 		erro(ctx, "bad closure/delegate name").debug(1)
-		p._next(ctx)
+		p._next()
 		return MakePath(position) // empty path
 	} else if path, ok = start.(*Path); !ok {
 		path = MakePath(position, start)
@@ -1012,7 +1017,7 @@ func (p *parser) parsePathExpr(ctx Context, lhs bool, start Value) *Path {
 BuildPath:
 	for p.tok == token.PCON {
 		var pos = p.Position() // skips repeated '/' sequence
-		for p._next(ctx); p.tok == token.PCON; p._next(ctx) { pos = p.Position() }
+		for p._next(); p.tok == token.PCON; p._next() { pos = p.Position() }
 		switch p.tok {
 		case token.RPAREN, token.LPAREN, token.RBRACE, token.LBRACE,
 			 token.RCOLON, token.COMMA, token.SPACE, token.LINEND:
@@ -1045,16 +1050,16 @@ func (p *parser) parseURLExpr(ctx Context, lhs bool, scheme Value) (res Value) {
 
 	var (
 		url = &URL{ Scheme:scheme }
-		colon1 = p.expect(ctx, token.COLON) // consumes ':'
+		colon1 = p.expect(token.COLON) // consumes ':'
 		colon2 = token.NoPos
 		//colon3 = token.NoPos
 		at = token.NoPos // @
 	)
 
 	if p.tok == token.PCON {
-		p._next(ctx) // the first '/'
+		p._next() // the first '/'
 		if p.tok == token.PCON {
-			p.expect(ctx, token.PCON) // the second '/'
+			p.expect(token.PCON) // the second '/'
 		} else {
 			erro(ctx, "TODO: URL path: %v (%T) (next: %s (%s))", scheme, scheme,  p.tok, p.lit).debug(1)
 			res = MakeNil(p.Position())
@@ -1071,7 +1076,7 @@ func (p *parser) parseURLExpr(ctx Context, lhs bool, scheme Value) (res Value) {
 		userOrHost := p.parseComposedExpr(ctx, false)
 		if p.tok == token.COLON {
 			url.Username, colon2 = userOrHost, p.pos
-			p._next(ctx) // ':'
+			p._next() // ':'
 			if p.tok != token.AT && p.tok != token.PCON && !p.isEndOfURL(lhs) {
 				url.Password = p.parseComposedExpr(ctx, false)
 			}
@@ -1079,14 +1084,14 @@ func (p *parser) parseURLExpr(ctx Context, lhs bool, scheme Value) (res Value) {
 			url.Host = userOrHost
 		}
 		if p.tok == token.AT {
-			p._next(ctx) // '@'
+			p._next() // '@'
 		}
 	}
 	if url.Host == nil && colon2 == token.NoPos && at == token.NoPos && !p.isEndOfURL(lhs) {
 		url.Host = p.parseComposedExpr(ctx, false)
 		if p.tok == token.COLON {
 			//colon3 = p.pos
-			p._next(ctx) // ':'
+			p._next() // ':'
 			if p.tok != token.SPACE && p.tok != token.LINEND {
 				url.Port = p.parseComposedExpr(ctx, false)
 			}
@@ -1098,13 +1103,13 @@ func (p *parser) parseURLExpr(ctx Context, lhs bool, scheme Value) (res Value) {
 	// scanning '#' as token.HASH instead of token.COMMENT
 	defer p.scanner.SetBits(p.scanner.AddBits(scanner.NoComments))
 	if p.tok == token.QUE {
-		p._next(ctx) // '?'
+		p._next() // '?'
 		if p.tok != token.HASH && !p.isEndOfURL(lhs) {
 			url.Query = p.parseComposedExpr(ctx, false)
 		}
 	}
 	if p.tok == token.HASH {
-		p._next(ctx) // '#'
+		p._next() // '#'
 		if !p.isEndOfURL(lhs) {
 			url.Fragment = p.parseComposedExpr(ctx, false)
 		}
@@ -1281,10 +1286,10 @@ func (p *parser) parseClosureDelegate(ctx Context) (result Value) {
 		obj Value
 		okay bool
 	)
-	switch p._next(ctx); p.tok {
+	switch p._next(); p.tok {
 	case token.LPAREN, token.LBRACE, token.LCOLON: // $(...), ${...}, $:...:
 		var posLp = p.Position()
-		tokLp = p.tok ; p._next(ctx) // skips LPAREN, LBRACE, LCOLON
+		tokLp = p.tok ; p._next() // skips LPAREN, LBRACE, LCOLON
 
 		var posName = p.Position()
 		switch p.tok {
@@ -1292,7 +1297,7 @@ func (p *parser) parseClosureDelegate(ctx Context) (result Value) {
 			erro(ctx, "unexpected spaces").at(posName).debug(1)
 			return MakeNil(posName)
 		case token.COLON:
-			p._next(ctx);  posName = p.Position()
+			p._next();  posName = p.Position()
 			warn(ctx, "colon").at(posName).debug(1)
 		}
 
@@ -1329,9 +1334,9 @@ func (p *parser) parseClosureDelegate(ctx Context) (result Value) {
 				if tokLp != token.LPAREN {
 					erro(ctx, "%v: auto: incorrect left paren", proj).at(posLp).debug(1)
 				}
-				p.skipSpaces(ctx) // skip the imediate spaces
+				p.skipSpaces() // skip the imediate spaces
 				var al = p.parseListExpr(ctx, false)
-				if rest = append(rest, al); p.tok == token.COMMA { p.next(ctx, true) }
+				if rest = append(rest, al); p.tok == token.COMMA { p.next(true) }
 				for _, val := range merge(al) {
 					var pos = val.Position()
 					var s string
@@ -1370,27 +1375,27 @@ func (p *parser) parseClosureDelegate(ctx Context) (result Value) {
 				rest = append(rest, p.parseListExpr(ctx, false))
 				p.bits |= parsingUndefValue
 				for ; p.tok == token.COMMA; {
-					p.next(ctx, true) // consumes COMMA
+					p.next(true) // consumes COMMA
 					rest = append(rest, p.parseListExpr(ctx, false))
 				}
 				p.bits = savedBits
 			} else if nameStr == "and" {
 				p.bits |= parsingUndefValue
 				for rest = append(rest, p.parseListExpr(ctx, false)); p.tok == token.COMMA; {
-					p.next(ctx, true) // consumes COMMA
+					p.next(true) // consumes COMMA
 					rest = append(rest, p.parseListExpr(ctx, false))
 				}
 				p.bits = savedBits
 			} else if nameStr == "or" {
 				p.bits |= parsingUndefValue
 				for rest = append(rest, p.parseListExpr(ctx, false)); p.tok == token.COMMA; {
-					p.next(ctx, true) // consumes COMMA
+					p.next(true) // consumes COMMA
 					rest = append(rest, p.parseListExpr(ctx, false))
 				}
 				p.bits = savedBits
 			} else {
 				for rest = append(rest, p.parseListExpr(ctx, false)); p.tok == token.COMMA; {
-					p.next(ctx, true) // consumes COMMA
+					p.next(true) // consumes COMMA
 					rest = append(rest, p.parseListExpr(ctx, false))
 				}
 			}
@@ -1399,9 +1404,9 @@ func (p *parser) parseClosureDelegate(ctx Context) (result Value) {
 		}
 
 		switch tokLp {
-		case token.LPAREN: p.expect(ctx, token.RPAREN)
-		case token.LBRACE: p.expect(ctx, token.RBRACE)
-		case token.LCOLON: p.expect(ctx, token.RCOLON)
+		case token.LPAREN: p.expect(token.RPAREN)
+		case token.LBRACE: p.expect(token.RBRACE)
+		case token.LCOLON: p.expect(token.RCOLON)
 			if p.tok == token.ASSIGN { erro(ctx, "unexpected assignment").at(p.Position()).debug(1) }
 		}
 
@@ -1456,7 +1461,7 @@ func (p *parser) parseSpecialClosureDelegate(ctx Context, lhs bool) Value {
 	var resolved Value
 	var pos, tok, s = p.pos, p.tok, p.lit
 	var position = p.loc(pos)
-	p._next(ctx)
+	p._next()
 
 
 	var loader = ctx.loader()
@@ -1512,7 +1517,7 @@ func (p *parser) parseUnaryExpr(ctx Context, lhs bool) (x Value) {
 
 	switch p.tok {
 	case token.BAREWORD, token.AT:
-		return p.parseBareExpr(ctx, lhs)
+		return p.parseBareExpr(lhs)
 
 	case token.BIN, token.OCT, token.INT, token.HEX, token.FLOAT,
 		token.DATETIME, token.DATE, token.TIME, token.URI,
@@ -1532,7 +1537,7 @@ func (p *parser) parseUnaryExpr(ctx Context, lhs bool) (x Value) {
 		var str = p.tok.String()
 		tok, pos, end := p.tok, p.pos, p.pos+token.Pos(len(str))
 		position := p.loc(pos)
-		if p._next(ctx); end != p.pos { // FIXME: ~user
+		if p._next(); end != p.pos { // FIXME: ~user
 			// '~', '.' or '..' used as bareword
 			return MakeBareword(position, str)
 		} else if p.tok == token.PCON { // check /
@@ -1577,20 +1582,21 @@ func (p *parser) parseUnaryExpr(ctx Context, lhs bool) (x Value) {
 		if p.tok.IsClosure() || p.tok.IsDelegate() {
 			return p.parseSpecialClosureDelegate(ctx, lhs)
 		} else if p.tok.IsKeyword() { // keywords here are barewords
-			return p.parseBareExpr(ctx, lhs)
+			return p.parseBareExpr(lhs)
 		}
 	}
 
-	prompt(ctx, "%v: bad unary '%v' (lit=%s,lhs=%v)\n", p.scanner.File().Name(), p.tok, p.lit, lhs)
+	prompt(p, "%v: bad unary '%v' (lit=%s,lhs=%v)\n", p.scanner.File().Name(), p.tok, p.lit, lhs)
 	if p.lineComment == nil {
-		erro(ctx, "bad unary expression '%v'", p.tok).debug(32)
+		erro(p, "bad unary expression '%v'", p.tok).debug(32)
 	} else {
 		for _, comment := range p.lineComment.List {
-			erro(ctx, "# %s", comment.Text).at(comment.Pos)
+			erro(p, "# %s", comment.Text).at(comment.Pos)
 		}
-		erro(ctx, "bad unary expression '%v'", p.tok).debug(32)
+		erro(p, "bad unary expression '%v'", p.tok).debug(32)
 	}
-	p._next(ctx) // go to the next token
+
+	p._next() // go to the next token
 	return MakeNil(p.Position())
 }
 
@@ -1645,7 +1651,7 @@ func (p *parser) parseComposedExpr(ctx Context, lhs bool) (x Value) {
 func (p *parser) parseText(ctx Context) (res []Value) {
 	if false && t_traverse.enabled { defer un(trace(t_traverse, "Text")) }
 	for p.tok != token.EOF {
-		if p.tok == token.SPACE { p.next(ctx, true) } else {
+		if p.tok == token.SPACE { p.next(true) } else {
 			res = append(res, p.parseExpr(ctx, false))
 			if ctx.checkErrors(true) > 0 {
 				warn(ctx, "parse text got %d errors", ctx.totalErrors()).debug(16)
@@ -1918,7 +1924,7 @@ func (p *parser) parseIncludeSpec(ctx Context, doc *CommentGroup, g *genericClau
 
 	var x = g.spec[0]
 	var loader = ctx.loader()
-	if p.skipSpaces(ctx); p.tok == token.COLON {
+	if p.skipSpaces(); p.tok == token.COLON {
 		switch x.(type) {
 		case *File, *String, *Compound: // escape from file searching
 		default: if file := loader.project.FindFile(ctx, x.Strval(ctx)); file != nil {
@@ -1995,13 +2001,13 @@ func (p *parser) parseFilesSpec(ctx Context, doc *CommentGroup, g *genericClause
 
 	var path Value
 	if p.tok == token.SELECT_PROG1 {
-		p.next(ctx, true) // step forward with spaces skipped
+		p.next(true) // step forward with spaces skipped
 		if p.tok == token.LINEND || p.lineComment != nil {
 			erro(ctx, "expecting files path")
 		}
 		path = p.parseExpr(ctx, false)
 	}
-	if p.skipSpaces(ctx); p.lineComment != nil {
+	if p.skipSpaces(); p.lineComment != nil {
 		//spec.Comment = p.lineComment
 	}
 	if g.skip {
@@ -2211,7 +2217,7 @@ func (p *parser) parseDirectiveSpec(ctx Context) (props []Value) {
 
 ParamsParseLoop: // Parse the directive parameters
 	for p.tok != token.EOF {
-		switch p.skipSpaces(ctx); p.tok {
+		switch p.skipSpaces(); p.tok {
 		case token.COMMA, token.LINEND, token.RPAREN, token.RBRACE, token.RCOLON,
 			token.SELECT_PROG1, token.COLON: break ParamsParseLoop
 		}
@@ -2231,7 +2237,7 @@ func (p *parser) parseGenericClause(ctx Context, keyword token.Token, pos token.
 	if t_traverse.enabled { defer un(trace(t_traverse, "Clause("+keyword.String()+")")) }
 
 	var opts = genericClauseOpts{ keyword: keyword }
-	for p.skipSpaces(ctx); p.tok == token.MINUS; p.skipSpaces(ctx) {
+	for p.skipSpaces(); p.tok == token.MINUS; p.skipSpaces() {
 		opts.all = append(opts.all, p.parseExpr(ctx, false))
 	}
 	opts.vals = parseOpts(ctx, &opts, expandZero, opts.all...)
@@ -2243,18 +2249,18 @@ func (p *parser) parseGenericClause(ctx Context, keyword token.Token, pos token.
 		}
 	}
 
-	if p.skipSpaces(ctx); p.tok == token.LPAREN {
-		p.next(ctx, true)
+	if p.skipSpaces(); p.tok == token.LPAREN {
+		p.next(true)
 		for iota := 0; p.tok != token.RPAREN && p.tok != token.EOF && (p.stop == 0 || p.pos < p.stop); iota++ {
 			// TODO: collect documentation comments
-			for p.tok == token.SPACE || p.tok == token.LINEND { p.next(ctx, true) }
+			for p.tok == token.SPACE || p.tok == token.LINEND { p.next(true) }
 			if p.tok == token.RPAREN || p.tok == token.EOF { break  }
 			if opts.spec = p.parseDirectiveSpec(ctx); true {
 				f(ctx, p.leadComment, &opts, iota)
 			}
-			if p.tok == token.COMMA || p.tok == token.LINEND { p.next(ctx, true) }
+			if p.tok == token.COMMA || p.tok == token.LINEND { p.next(true) }
 		}
-		if p.expect(ctx, token.RPAREN); p.tok != token.EOF { p.expectLinend(ctx) }
+		if p.expect(token.RPAREN); p.tok != token.EOF { p.expectLinend() }
 		return
 	}
 
@@ -2262,10 +2268,10 @@ func (p *parser) parseGenericClause(ctx Context, keyword token.Token, pos token.
 		if opts.spec = p.parseDirectiveSpec(ctx); true {
 			f(ctx, nil, &opts, 0)
 		}
-		if p.tok == token.COMMA { p.next(ctx, true) }
+		if p.tok == token.COMMA { p.next(true) }
 	}
 	if p.tok != token.EOF && (p.stop == 0 || p.pos < p.stop) {
-		if p.lineComment == nil { p.expectLinend(ctx) }
+		if p.lineComment == nil { p.expectLinend() }
 	}
 }
 
@@ -2290,7 +2296,7 @@ func (p *parser) parseDefineClause(ctx Context, tok token.Token, ident Value) (d
 		savedAutos = p.autos // save for $1, $2, $3, etc...
 		// TODO: doc = p.leadComment
 		// TODO: comment = p.lineComment
-		position = p.loc(p.expect(ctx, tok))
+		position = p.loc(p.expect(tok))
 		elems = p.parseRhsList(ctx)
 		value Value
 	)
@@ -2348,7 +2354,7 @@ SwitchDialect:
 	switch p.dialect {
 	case "", "eval", "value":
 		p.scanner.LeaveCompoundLineContext()
-		p.next(ctx, true) // skip RECIPE or SEMICOLON and parse in list mode
+		p.next(true) // skip RECIPE or SEMICOLON and parse in list mode
 		position = p.Position()
 		if isList = true; !p.isEndOfLine() {
 			defer p.setbit(p.setbit(parsingRecipeBuiltin))
@@ -2385,7 +2391,7 @@ SwitchDialect:
 
 			var cmdargs []Value
 			for p.tok != token.EOF && p.tok != token.SEMICOLON && p.tok != token.LINEND && p.lineComment == nil {
-				if p.skipSpaces(ctx); p.lineComment != nil {
+				if p.skipSpaces(); p.lineComment != nil {
 					// TODO: comment = p.lineComment
 					break
 				}
@@ -2402,7 +2408,7 @@ SwitchDialect:
 
 				cmdargs = append(cmdargs, x)
 				if p.tok == token.COMMA {
-					p.next(ctx, true)
+					p.next(true)
 					elems = append(elems, MakeList(p.Position(), cmdargs...))
 					cmdargs = []Value{}
 				}
@@ -2415,7 +2421,7 @@ SwitchDialect:
 		}
 
 	default:
-		p.next(ctx, true) // skip RECIPE or SEMICOLON and parse in line-string mode
+		p.next(true) // skip RECIPE or SEMICOLON and parse in line-string mode
 		position = p.Position()
 		for !p.isEndOfLine() {
 			var bits = p.setbit(parsingRecipeText)
@@ -2432,7 +2438,7 @@ SwitchDialect:
 			p.setbits(bits)
 		}
 	}
-	if p.tok != token.EOF { p.expectLinend(ctx) }
+	if p.tok != token.EOF { p.expectLinend() }
     if len(elems) == 0 {
         return MakeNone(position)
     } else if isList {
@@ -2523,7 +2529,7 @@ func (p *parser) parseModifiersExpr(ctx Context) *modifiergroup {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Modifiers")) }
 
 	var (
-		posLp = p.loc(p.expect(ctx, token.LBRACK))
+		posLp = p.loc(p.expect(token.LBRACK))
 		hasParameters bool // ((foo bar))
 		elems []*modifier
 	)
@@ -2533,7 +2539,7 @@ func (p *parser) parseModifiersExpr(ctx Context) *modifiergroup {
 
 ForModifiersExpr:
 	for p.tok != token.RBRACK && p.tok != token.EOF {
-		p.skipSpaces(ctx)
+		p.skipSpaces()
 
 		var (
 			x = p.parseExpr(ctx, false)
@@ -2608,8 +2614,8 @@ ForModifiersExpr:
 			elems = append(elems, m)
 		}
 	}
-	p.skipSpaces(ctx)
-	/*rpos := */p.expect(ctx, token.RBRACK)
+	p.skipSpaces()
+	/*rpos := */p.expect(token.RBRACK)
 	if len(elems) == 0 && !hasParameters {
 		erro(ctx, "empty modifier group").at(posLp).debug(1)
 	}
@@ -2710,14 +2716,14 @@ func (p *parser) parseRuleEntry(ctx Context, special specialRule, options, targe
 	targets, _, _ = (plain&^expandArgedArgs).expand(ctx, targets...)
 
 	defer func(t []Value) { p.targets = t } (p.targets)
-	p.next(ctx, true) // skip rule delimeters and spaces
+	p.next(true) // skip rule delimeters and spaces
 	p.targets = targets // save targets for later refering
 
 	if p.tok != token.SEMICOLON && p.tok != token.BAR && !p.isEndOfLine() {
 		depends = p.parseDependList(ctx, true)
 	}
 	if p.tok == token.BAR { // '|' starts the ordered prerequisites
-		if p.next(ctx, true); p.tok != token.SEMICOLON && !p.isEndOfLine() {
+		if p.next(true); p.tok != token.SEMICOLON && !p.isEndOfLine() {
 			ordered = p.parseDependList(ctx, false)
 		}
 	}
@@ -2728,8 +2734,8 @@ func (p *parser) parseRuleEntry(ctx Context, special specialRule, options, targe
 	} else /*if p.tok == token.LINEND || p.lineComment != nil*/ {
 		// Parse recipes in the program scope.
 		p.scanner.TurnRecipesOn() // Turn on recipes before LINEND
-		if p.expectLinend(ctx) /* take the new line */ {
-			for p.tok != token.EOF && p.isRecipeStart(ctx) {
+		if p.expectLinend() /* take the new line */ {
+			for p.tok != token.EOF && p.isRecipeStart() {
 				recipes = append(recipes, p.parseRecipeExpr(ctx))
 			}
 		}
@@ -2794,7 +2800,7 @@ func (p *parser) parseSpecialRuleClause(ctx Context) Value {
 		defer un(trace(t_traverse, "SpecialRule"))
 	}
 
-	p.expect(ctx, token.COLON) // expect and skip ':'
+	p.expect(token.COLON) // expect and skip ':'
 
 	if p.tok != token.BAREWORD {
 		erro(ctx, "unknown special rule")
@@ -2810,7 +2816,7 @@ func (p *parser) parseSpecialRuleClause(ctx Context) Value {
 			erro(ctx, ":user: rules are deprecated, use use.* instead!").debug(1)
 		} else {
 			var options []Value
-			var pos = p.expect(ctx, token.BAREWORD) // USE
+			var pos = p.expect(token.BAREWORD) // USE
 			var bits = p.setbit(parsingSpecialRule)
 			// Options are *Flag or *Pair of a Flag.
 			for p.tok == token.MINUS {
@@ -2891,7 +2897,7 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, 
 	p.bits |= parsingTemplateBlock
 	for p.tok != token.EOF && p.pos < p.stop {
 		if p.tok == token.LINEND || (p.tok == token.COMMENT && p.lineComment != nil) {
-			p.next(ctx, true)
+			p.next(true)
 		} else {
 			p.parseClause(ctx)
 		}
@@ -3030,7 +3036,7 @@ func (p *parser) callTemplate(ctx Context, t *template, name Value, args []Value
 	for p.tok != token.EOF && p.pos < t.endPos {
 		if p.tok == token.LINEND ||
 			(p.tok == token.COMMENT && p.lineComment != nil) {
-			p.next(ctx, true)
+			p.next(true)
 		} else {
 			p.parseClause(ctx)
 		}
@@ -3051,10 +3057,10 @@ func (p *parser) parseTemplateClause(ctx Context) {
 		arged *Argumented
 		verb string
 	)
-	p.expect(ctx, token.TEMPLATE) // expect and skip 'template'
-	p.skipSpaces(ctx)
+	p.expect(token.TEMPLATE) // expect and skip 'template'
+	p.skipSpaces()
 
-	var op = p.parseExpr(ctx, false) ; p.skipSpaces(ctx)
+	var op = p.parseExpr(ctx, false) ; p.skipSpaces()
 	if p.tok == token.EOF {
 		erro(ctx, "unexpected end of file after %v", op).of(op).debug(1)
 		return
@@ -3070,13 +3076,13 @@ func (p *parser) parseTemplateClause(ctx Context) {
 		erro(ctx, "unexpected verb: %s", verb).of(op).debug(1)
 		return
 	case "": if arged != nil {
-		p.expect(ctx, token.LINEND)
+		p.expect(token.LINEND)
 		p.templateCall(ctx, arged.value, arged.args)
 		return //true
 	}}
 
 	var params = p.parseExprList(ctx, false)
-	// DONT: p.expect(ctx, token.LINEND)
+	// DONT: p.expect(token.LINEND)
 
 	// TODO: parse template options - parseOpts
 	params = mergex(ctx, plain, params...)
@@ -3100,7 +3106,7 @@ func (p *parser) parseTemplateClause(ctx Context) {
 	var nested int
 	for p.tok != token.EOF {
 		var newline = p.tok == token.LINEND || p.lineComment != nil
-		if p.lineComment == nil { p._next(ctx) } //else { newline = true }
+		if p.lineComment == nil { p._next() } //else { newline = true }
 		if !newline || p.tok != token.TEMPLATE {
 			// info(ctx, "unexpected %v: %v (verb=%s, nested=%v, newline=%v)",
 			// 	p.tok, p.lit, verb, nested, newline).debug(1)
@@ -3108,7 +3114,7 @@ func (p *parser) parseTemplateClause(ctx Context) {
 		}
 
 		var pos, stop = p.pos, p.stop
-		if p.next(ctx, true); p.tok != token.BAREWORD {
+		if p.next(true); p.tok != token.BAREWORD {
 			erro(ctx, "unexpected %v: %v (nested=%v)",
 				p.tok, p.lit, nested).debug(1)
 			return
@@ -3120,9 +3126,9 @@ func (p *parser) parseTemplateClause(ctx Context) {
 			verb == "foreach") { if nested > 0 {
 			nested -= 1
 		} else {
-			p.next(ctx, true) // consumes the 'expand'
+			p.next(true) // consumes the 'expand'
 			params := p.parseExprList(ctx, false)
-			p.expect(ctx, token.LINEND)
+			p.expect(token.LINEND)
 			p.stop = pos
 			p.templateExpand(ctx, tmpl, params)
 			p.stop = stop
@@ -3130,8 +3136,8 @@ func (p *parser) parseTemplateClause(ctx Context) {
 		}} else if p.lit == "end" && (verb == "def") { if nested > 0 {
 			nested -= 1
 		} else {
-			p.next(ctx, true) // consumes the 'end'
-			p.expect(ctx, token.LINEND)
+			p.next(true) // consumes the 'end'
+			p.expect(token.LINEND)
 			state := p.scanner.State()
 			tmpl.end, tmpl.endPos = &state, pos
 			return //true
@@ -3156,16 +3162,16 @@ func (p *parser) parseClause(ctx Context) {
 		erro(ctx, "`%v` unexpected here", p.tok).debug(1)
 		return
 	case token.INCLUDE:
-		p.parseGenericClause(ctx, token.INCLUDE, p.expect(ctx, token.INCLUDE), p.parseIncludeSpec)
+		p.parseGenericClause(ctx, token.INCLUDE, p.expect(token.INCLUDE), p.parseIncludeSpec)
 		return
 	case token.FILES:
-		p.parseGenericClause(ctx, token.FILES, p.expect(ctx, token.FILES), p.parseFilesSpec)
+		p.parseGenericClause(ctx, token.FILES, p.expect(token.FILES), p.parseFilesSpec)
 		return
 	case token.ASSERT:
-		p.parseGenericClause(ctx, token.ASSERT, p.expect(ctx, token.ASSERT), p.parseAssertSpec)
+		p.parseGenericClause(ctx, token.ASSERT, p.expect(token.ASSERT), p.parseAssertSpec)
 		return
 	case token.EVAL:
-		p.parseGenericClause(ctx, token.EVAL, p.expect(ctx, token.EVAL), p.parseEvalSpec)
+		p.parseGenericClause(ctx, token.EVAL, p.expect(token.EVAL), p.parseEvalSpec)
 		return
 	case token.COLON:
 		p.parseSpecialRuleClause(ctx)
@@ -3177,7 +3183,7 @@ func (p *parser) parseClause(ctx Context) {
 
 	if t_traverse.enabled { defer un(trace(t_traverse, "Clause(?)")) }
 
-	var x = p.parseExpr(ctx, true); p.skipSpaces(ctx)
+	var x = p.parseExpr(ctx, true); p.skipSpaces()
 
 	if p.tok.IsAssign() {
 		p.parseDefine(ctx, x)
@@ -3290,12 +3296,12 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 		erro(ctx, "deprecated keyword '%s'", keyword).debug(1)
 		return nil
 	case token.CONFIGURE:
-		switch p.next(ctx, true); p.tok {
+		switch p.next(true); p.tok {
 		case token.DOT:
 			if err := loader.ParseConfigDir(abs, abs); err != nil {
 				erro(ctx, "parsing configure directory failed, '%s': %v", abs, err)
 			} else {
-				p.next(ctx, true) // skip the '.' token and consequence spaces
+				p.next(true) // skip the '.' token and consequence spaces
 			}
 
 			var basename = filepath.Base(filepath.Dir(filename))
@@ -3307,7 +3313,7 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 	case token.PROJECT:
 		if loader.mode&Flat != 0 { erro(ctx, "forbidden `%v` in flat file", p.tok) }
 
-		p.next(ctx, true)
+		p.next(true)
 
 		// Options are *Flag or *Pair of a Flag.
 		var (
@@ -3316,7 +3322,7 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 			pos Position
 		)
 		for p.tok == token.MINUS {
-			var opt = p.parseExpr(ctx, false);  p.skipSpaces(ctx)
+			var opt = p.parseExpr(ctx, false);  p.skipSpaces()
 			optVals = append(optVals, opt)
 			if !pos.IsValid() { pos = opt.Position() }
 		}
@@ -3358,24 +3364,24 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 				erro(ctx, "`%v` not tilde name", filepath.Base(filename)).
 					at(p.Position()).debug(1)
 			}
-			p.next(ctx, true) // skip tilde
+			p.next(true) // skip tilde
 		} else {
 			// var t = p.tok
 			var implicitBaseSegs []string
 			ident = MakeBarecomp(p.Position())
 		ForProjectName:
 			for p.tok != token.EOF && p.tok != token.SPACE {
-				if w := p.parseBareExpr(ctx, false); w == nil {
+				if w := p.parseBareExpr(false); w == nil {
 					erro(ctx, "expecting a bareword").at(ident.Position()).debug(1)
 				} else if word, ok := w.(*Bareword); !ok {
 					erro(ctx, "expecting a bareword: %v (%T)", w, w).at(ident.Position()).debug(1)
 				} else if ident.Combine(ctx, word); p.tok == token.DOT {
 					ident.Combine(ctx, MakeBareword(p.Position(), ".")) // TODO: parse to Qualiword
 					implicitBaseSegs = append(implicitBaseSegs, word.string)
-					p._next(ctx) // '.'
+					p._next() // '.'
 				} else { break ForProjectName }
 			}
-			if p.skipSpaces(ctx); len(ident.Elems) == 0 {
+			if p.skipSpaces(); len(ident.Elems) == 0 {
 				// erro(ctx, "package name is empty (tok=%v %v)", t, p.tok).debug(1)
 				// return nil
 			} else if len(implicitBaseSegs) > 0 {
@@ -3433,10 +3439,10 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 		if implicitBase != "" { basePos = pos } else { basePos = p.Position() }
 		if p.tok == token.LPAREN {
 			for p.tok != token.EOF {
-				for p.next(ctx, true); !p.isEndOfList(false); {
-					p.skipSpaces(ctx)
+				for p.next(true); !p.isEndOfList(false); {
+					p.skipSpaces()
 					param := p.parseExpr(ctx, false)
-					p.skipSpaces(ctx)
+					p.skipSpaces()
 
 					//if p.lineComment != nil  { break }
 					//if p.tok == token.LINEND { break }
@@ -3458,14 +3464,14 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 				}
 				if p.tok != token.COMMA { break }
 			}
-			p.expect(ctx, token.RPAREN)
+			p.expect(token.RPAREN)
 			if false { defer func() { warn(ctx, "%v", ident).debug(32) } () }
 		} else if !loader.loadBases(ctx, linfo, implicitBase) { // for special bases, e.g. .base
 			erro(ctx, "loading bases failed").at(basePos).debug(1)
 			return nil
 		}
 
-		if p.skipSpaces(ctx); p.tok != token.EOF { p.expectLinend(ctx) }
+		if p.skipSpaces(); p.tok != token.EOF { p.expectLinend() }
 		if keyword != token.PACKAGE {
 			loader.loadProjectConfiguration(ctx, linfo, ident, identStr, declared)
 			if !opts.noDock { loader.loadProjectContainer(ctx, ident, identStr) }
@@ -3474,7 +3480,7 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 		return nil
 	default:
 		if loader.mode&Flat == 0 {
-			p.expected(ctx, p.pos, "configure, project, module or package keyword")
+			p.expected(p.pos, "configure, project, module or package keyword")
 		}
 	}
 
@@ -3486,16 +3492,16 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 		if loader.mode&Flat == 0 {
 			ForInit: for p.tok != token.EOF {
 				switch p.tok {
-				case token.LINEND: p.next(ctx, true) // skip empty lines
+				case token.LINEND: p.next(true) // skip empty lines
 				case token.USE:
-					p.parseGenericClause(ctx, p.tok, p.expect(ctx, token.USE), p.parseUseSpec)
+					p.parseGenericClause(ctx, p.tok, p.expect(token.USE), p.parseUseSpec)
 				case token.ASSERT:
-					p.parseGenericClause(ctx, p.tok, p.expect(ctx, token.ASSERT), p.parseAssertSpec)
+					p.parseGenericClause(ctx, p.tok, p.expect(token.ASSERT), p.parseAssertSpec)
 				case token.EVAL:
-					p.parseGenericClause(ctx, p.tok, p.expect(ctx, token.EVAL), p.parseEvalSpec)
+					p.parseGenericClause(ctx, p.tok, p.expect(token.EVAL), p.parseEvalSpec)
 				default:
 					if p.tok.IsKeyword() { break ForInit }
-					var x = p.parseExpr(ctx, true); p.skipSpaces(ctx)
+					var x = p.parseExpr(ctx, true); p.skipSpaces()
 					if p.tok.IsAssign() { p.parseDefine(ctx, x) } else
 					if p.tok.IsRuleDelim() {
 						if ctx.Project() == nil {
@@ -3514,7 +3520,7 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 		if loader.mode&ImportsOnly == 0 { // rest of module body
 			for /* p.totalErrors() == 0 && */ p.tok != token.EOF {
 				if p.tok == token.LINEND || (p.tok == token.COMMENT && p.lineComment != nil) {
-					p.next(ctx, true)
+					p.next(true)
 				} else if p.parseClause(ctx); ctx.checkErrors(true) > 0 {
 					break
 				}

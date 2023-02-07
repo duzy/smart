@@ -110,6 +110,7 @@ type Context interface {
   universe() *universeContext
 
   loader() *loader // only in load stage
+  parser() *parser // only in parse stage
 
   auto() *autoContext
   autoGet(string) *def
