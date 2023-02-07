@@ -1827,7 +1827,7 @@ func (l *loader) parse(ctx Context, filename string, src interface{}, mode Mode,
     assert(ctx.loader() == l, "require the same loader context")
 
     defer func(t time.Time, saved *parser, m Mode) {
-        if true { ctx = l.p.posit(ctx) }
+        if true { ctx = l.p.posit() }
 
         var panics, _ = checkFailure(ctx, true)
         if proj := l.project; panics > 0 {
@@ -1877,7 +1877,7 @@ func (l *loader) parse(ctx Context, filename string, src interface{}, mode Mode,
     })
 	l.p.next(true)
 
-    if ctx = l.p.posit(ctx); l.mode&parsingText != 0 {
+    if ctx = l.p.posit(); l.mode&parsingText != 0 {
         res = l.p.parseText(ctx)
     } else if f = l.p.parseFile(ctx); f == nil {
         // Source is not a valid source file, returnning a valid but empty parsedFile
@@ -1909,8 +1909,8 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
 
     defer l.closeScope(l.OpenNamedScope(ident, fmt.Sprintf("config %s", pathname)))
 
-    var ctx = l.p.posit(l)
     var def *def
+    var ctx = at(l, l.p.Position())
 ListLoop:
     for _, d := range list {
         var name = d.Name()
