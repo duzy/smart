@@ -804,7 +804,7 @@ func (p *parser) parsePercExpr(lhs bool, x Value) Value {
 					erro(p, "too many %")
 				case token.PCON: // FIXES: %%/xxx -> Path(%% xxx)
 					x = MakePercPattern(position, x, perc2)
-					return p.parsePathExpr(p, lhs, x)
+					return p.parsePathExpr(lhs, x)
 				case token.COLON,    token.COLON2,
 					token.LPAREN,    token.RPAREN,
 					token.LBRACK,    token.RBRACK,
@@ -997,13 +997,14 @@ func makePathSeg(ctx Context, tok token.Token) *PathSeg {
 	return MakePathSeg(ctx.Position(), r)
 }
 
-func (p *parser) parsePathExpr(ctx Context, lhs bool, start Value) *Path {
+func (p *parser) parsePathExpr(lhs bool, start Value) *Path {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Path")) }
 
 	defer p.setbits(p.setbit(composingPATH))
 
 	var (
 		position = start.Position() //p.Position()
+		ctx = at(p, position)
 		path *Path
 		ok bool
 	)
@@ -1098,7 +1099,7 @@ func (p *parser) parseURLExpr(ctx Context, lhs bool, scheme Value) (res Value) {
 		}
 	}
 	if p.tok == token.PCON {
-		url.Path = p.parsePathExpr(ctx, lhs, makePathSeg(ctx, p.tok))
+		url.Path = p.parsePathExpr(lhs, makePathSeg(ctx, p.tok))
 	}
 	// scanning '#' as token.HASH instead of token.COMMENT
 	defer p.scanner.SetBits(p.scanner.AddBits(scanner.NoComments))
@@ -1536,7 +1537,7 @@ func (p *parser) parseUnaryExpr(ctx Context, lhs bool) (x Value) {
 			// '~', '.' or '..' used as bareword
 			return MakeBareword(position, str)
 		} else if p.tok == token.PCON { // check /
-			return p.parsePathExpr(ctx, lhs, makePathSeg(at(ctx, position), tok))
+			return p.parsePathExpr(lhs, makePathSeg(at(ctx, position), tok))
 		} else if tok == token.DOT || tok == token.DOTDOT { // TODO: parse to Qualiword instead
 			if x = MakeBareword(p.loc(pos), str); p.bits&composingDOT == 0 {
 				x = p.parseDotExpr(lhs, x)
@@ -1550,7 +1551,7 @@ func (p *parser) parseUnaryExpr(ctx Context, lhs bool) (x Value) {
 		}
 
 	case token.PCON: // The root of the path
-		return p.parsePathExpr(ctx, lhs, makePathSeg(ctx, p.tok))
+		return p.parsePathExpr(lhs, makePathSeg(ctx, p.tok))
 
 	case token.LBRACK:
 		return p.parseModifiersExpr(ctx)
@@ -1570,7 +1571,7 @@ func (p *parser) parseUnaryExpr(ctx Context, lhs bool) (x Value) {
 	case token.EXC:
 		return p.parseNegExpr(ctx, lhs)
 
-	case token.SEMICOLON, token.BAR:
+	case token.SEMICOLON, token.BAR, token.PLUS:
 		return p.parsePunctuation()
 
 	default:
@@ -1630,7 +1631,7 @@ func (p *parser) parseComposedExpr(ctx Context, lhs bool) (x Value) {
 			// Path expressions, except '-I/path/to/include'
 			switch x.(type) {
 			case *Flag: // By pass expressions like -I/foo/bar.
-			default: x = p.parsePathExpr(ctx, lhs, x)
+			default: x = p.parsePathExpr(lhs, x)
 			}
 		}
 	case token.COLON:
@@ -1697,7 +1698,7 @@ SwitchCompose:
 			// Path expressions, except '-I/path/to/include'
 			switch x.(type) {
 			case *Flag: // By pass expressions like -I/foo/bar.
-			default: x = p.parsePathExpr(ctx, lhs, x)
+			default: x = p.parsePathExpr(lhs, x)
 			}
 		}
 		return // FIXES: a%%b/foo/bar -> Path(a%%b foo bar)

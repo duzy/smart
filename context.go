@@ -432,6 +432,8 @@ func at(ctx Context, pos Position) Context {
       warn(at(ctx,pos), "too many positions: %v, %v", num, ctx).debug(32)
       ctx.checkErrors(true)
     }
+  } else if _, y := ctx.(*parser); false && y && p.Same(&pos) {
+    ctx = &positionContext{ ctx, pos }
   }
   return ctx
 }
