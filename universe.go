@@ -545,7 +545,7 @@ func (dc *universeContext) loadTopWork() (err error) {
             var name string
             if p := dc.globe.top.Project(); p != nil { name = p.name }
             fmt.Fprintf(stderr, "└·%s … (%s)\n", name, d)
-        } else if d > 2999*time.Millisecond {
+        } else if d > time.Duration(options.slow)*time.Millisecond {
             if m := dc.globe.main; m != nil {
                 prompt(ctx, "%v:warning: long loading: %s !!\n", m.position, d).debug(6)
             } else {

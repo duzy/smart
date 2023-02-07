@@ -402,36 +402,90 @@ func (p *parser) isRecipeStart(ctx Context) (res bool) {
 // ----------------------------------------------------------------------------
 // Barewords & Identifiers
 
-func (p *parser) parseBarewordConstant(ctx Context, lhs bool) (x Value) {
+func (p *parser) parseBareExpr(ctx Context, lhs bool) (x Value) {
 	var pos, tok, lit = p.Position(), p.tok, p.lit
+	if lit == "nodoc" { defer func(){
+		warn(ctx, "%v %v", tok, lit).debug(4)
+		ctx.checkErrors(true)
+	}() }
 	switch p._next(ctx); tok {
-	case token.BAREWORD:
-		if lit == "undef" && p.tok == token.LBRACE { // undef{}
+	case token.UNDEF:
+		if p.tok == token.LBRACE { // undef{}, undef{ ... }
 			if p.next(ctx, true); p.tok == token.RBRACE {
 				x = &undef{&None{valbase{p.Position()}}}
+				p._next(ctx)
 			} else if v := p.parseExpr(ctx, false); v != nil {
 				x = &undef{v}
+				p.expect(ctx, token.RBRACE)
 			} else {
-				erro(ctx, "undef invalid expression: %v, %v", p.tok, p.lit).debug(1)
+				erro(ctx, "undef invalid expression: %v, %v", p.tok, p.lit).at(pos).debug(1)
 			}
+			return
+		}
+	case token.ANSWER, token.BOOL:
+		if p.tok == token.LBRACE { // answer{...}, bool{...}
+			if p.next(ctx, true); p.tok == token.RBRACE {
+				switch pos := p.Position(); tok {
+				case token.ANSWER: x = &answer{valbase{pos},false}
+				case token.BOOL: x = &boolean{valbase{pos},false}
+				}
+				p._next(ctx)
+				return
+			}
+
+			var ( pos = p.Position(); v bool )
+			switch p.tok {
+			case token.TRUE, token.YES: v = true
+			case token.FALSE, token.NO: v = false
+			default:
+				if t := p.parseExpr(ctx, false); t != nil {
+					v = t.True(at(ctx,pos))
+				} else {
+					erro(ctx, "undef invalid expression: %v, %v", p.tok, p.lit).at(pos).debug(1)
+				}
+			}
+			switch p.expect(ctx, token.RBRACE); tok {
+			case token.ANSWER: x = &answer{valbase{pos},v}
+			case token.BOOL: x = &boolean{valbase{pos},v}
+			}
+			return
+		}
+	case token.TRUE, token.YES, token.FALSE, token.NO:
+		if p.tok == token.LBRACE { // true{}, false{}, yes{}, no{}
+			if p.next(ctx, true); p.tok == token.RBRACE {
+				switch p._next(ctx); tok {
+				case token.TRUE:  x = MakeBoolean(pos,  true)
+				case token.FALSE: x = MakeBoolean(pos,  false)
+				case token.YES:   x = MakeAnswer( pos,  true)
+				case token.NO:    x = MakeAnswer( pos,  false)
+				}
+			} else {
+				// TODO: true{ expr }, yes{ expr }, ...
+				erro(ctx, "%s expects: %v, not %v %v", tok, token.RBRACE, p.tok, p.lit).at(pos).debug(1)
+			}
+			return
+		}
+	case token.FILE:
+		if p.tok == token.LBRACE { // file{ ... }
+			erro(ctx, "TODO: %v", tok).debug(1)
 			return
 		}
 	case token.AT, token.DOT, token.DOTDOT: // TODO: parse token.DOT into Qualiword
 		lit = tok.String() // Special bareword.
+	case token.BARE: // TODO: bare{ ... }
+	case token.REGEX: // TODO: regex{ ... }
+	case token.BAREWORD:
 	default:
 		if tok.IsKeyword() { lit = tok.String() } else {
-			erro(ctx, "%v %v ; %v %v", tok, lit, p.tok, p.lit) // p.expect(ctx, token.BAREWORD)
+			if true {
+				erro(ctx, "%v %v -> %v %v", tok, lit, p.tok, p.lit).at(pos)
+			} else {
+				p.expect(ctx, token.BAREWORD)
+			}
 		}
 	}
 
-	switch tok {
-	case token.TRUE:  x = MakeBoolean(pos,  true)
-	case token.FALSE: x = MakeBoolean(pos,  false)
-	case token.YES:   x = MakeAnswer(pos,   true)
-	case token.NO:    x = MakeAnswer(pos,   false)
-	default:          x = MakeBareword(pos, lit)
-	}
-	return
+	return MakeBareword(pos, lit)
 }
 
 func (p *parser) parseSelector(ctx Context) (res Value) {
@@ -808,6 +862,7 @@ func (p *parser) parseFlagExpr(ctx Context, lhs bool) *Flag {
 	} else {
 		x = p.parseUnaryExpr(ctx, false)
 	}
+	if x == nil { erro(ctx, "nil flag name").debug(1) }
 	return MakeFlagValue(ctx.Position(), x)
 }
 
@@ -1457,7 +1512,7 @@ func (p *parser) parseUnaryExpr(ctx Context, lhs bool) (x Value) {
 
 	switch p.tok {
 	case token.BAREWORD, token.AT:
-		return p.parseBarewordConstant(ctx, lhs)
+		return p.parseBareExpr(ctx, lhs)
 
 	case token.BIN, token.OCT, token.INT, token.HEX, token.FLOAT,
 		token.DATETIME, token.DATE, token.TIME, token.URI,
@@ -1522,7 +1577,7 @@ func (p *parser) parseUnaryExpr(ctx Context, lhs bool) (x Value) {
 		if p.tok.IsClosure() || p.tok.IsDelegate() {
 			return p.parseSpecialClosureDelegate(ctx, lhs)
 		} else if p.tok.IsKeyword() { // keywords here are barewords
-			return p.parseBarewordConstant(ctx, lhs)
+			return p.parseBareExpr(ctx, lhs)
 		}
 	}
 
@@ -3310,7 +3365,7 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 			ident = MakeBarecomp(p.Position())
 		ForProjectName:
 			for p.tok != token.EOF && p.tok != token.SPACE {
-				if w := p.parseBarewordConstant(ctx, false); w == nil {
+				if w := p.parseBareExpr(ctx, false); w == nil {
 					erro(ctx, "expecting a bareword").at(ident.Position()).debug(1)
 				} else if word, ok := w.(*Bareword); !ok {
 					erro(ctx, "expecting a bareword: %v (%T)", w, w).at(ident.Position()).debug(1)

@@ -241,11 +241,6 @@ var cd = &struct{
   enters: make(map[string]*enterec),
 }
 
-type useRuleEntry struct {
-  RuleEntry
-  post bool
-}
-
 type Project struct {
   position Position
   keyword  token.Token // project, package, module
@@ -269,7 +264,6 @@ type Project struct {
   _filemap_ []*FileMap
 
   // Rule Registry (orderred)
-  //userules []*useRuleEntry // the 'use' rule
   concrete []Entry //*RuleEntry
   patterns []*PatternEntry
 
@@ -749,18 +743,6 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, patte
   if special == specialRuleUse && !closured {
     var opts entryOpts
     parseOpts(ctx, &opts, 0, options...)
-
-    /*var userule = &useRuleEntry{
-      RuleEntry{
-        position: target.Position(),
-
-        class:UseRuleEntry,
-        target:target,
-      },
-      opts.postExec, // post-execute use rule?
-    }
-    p.userules = append(p.userules, userule)
-    entry = userule //&userule.RuleEntry*/
     panic(":use: rule entry is deprecated")
     return
   }

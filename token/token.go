@@ -163,6 +163,12 @@ const (
 	TEMPLATE   // template
 
 	constant_beg
+	UNDEF   // `undef`
+	BARE    // `bare` // TODO
+	ANSWER  // `answer`
+	BOOL    // `bool`
+	FILE    // `file`   // TODO
+	REGEX   // `regex`  // TODO
 	TRUE    // boolean `true`
 	FALSE   // boolean `false`
 	YES     // answer `yes`
@@ -302,6 +308,12 @@ var tokens = [...]string{
 	FILES:      "files",
 	TEMPLATE:   "template",
 
+	UNDEF:  "undef",
+	BARE:   "bare",
+	ANSWER: "answer",
+	BOOL:   "bool",
+	FILE:   "file",
+	REGEX:  "regex",
 	TRUE:   "true",
 	FALSE:  "false",
 	YES:    "yes",

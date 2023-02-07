@@ -2100,7 +2100,7 @@ func Negative(val Value) *negative { return &negative{valbase{val.Position()},va
 type boolean struct { valbase; bool }
 func (p *boolean) String() (s string) {
     if p.bool { s = "true" } else { s = "false" }
-    return
+    return s+"{}" // or: fmt.Sprintf("bool{%s}",p.bool)
 }
 func (p *boolean) Strval(_ Context) string { return p.String() }
 func (p *boolean) True(_ Context) bool { return p.bool }
@@ -2157,7 +2157,7 @@ func (p *boolean) stencil(ctx Context, stems []string) (val Value, rest []string
 type answer struct { valbase; bool }
 func (p *answer) String() (s string) {
     if p.bool { s = "yes" } else { s = "no" }
-    return
+    return s+"{}"
 }
 func (p *answer) Strval(ctx Context) string { return p.String() }
 func (p *answer) True(ctx Context) bool { return p.bool }
