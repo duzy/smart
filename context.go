@@ -169,7 +169,7 @@ func getTargetValue(ctx Context) (res Value) {
   } else if vals, u, n := plain.expand(ctx, val); len(vals) == 1 {
     res = Scalar(vals[0])
   } else {
-    erro(ctx, "target '%v' expaned to many: %v (%d,%d)", val, res, u, n).of(val)
+    erro(of(ctx,val), "target '%v' expaned to many: %v (%d,%d)", val, res, u, n)
   }
   return
 }
@@ -215,14 +215,6 @@ type diagPoint struct {
   position Position
   message string
   stack []byte // see also debug.Stack()
-}
-func (d *diagPoint) at(position Position) *diagPoint {
-  d.position = position
-  return d
-}
-func (d *diagPoint) of(value Value) *diagPoint {
-  if !isNil(value) { d.position = value.Position() }
-  return d
 }
 func (d *diagPoint) debug(args ...interface{}) *diagPoint {
   const skips = 5 // skips the standard stack lines, which is not very useful
@@ -401,7 +393,7 @@ func (diag *diagContext) checkErrors(reset bool) (num int) {
 
 func diagnostic(ctx Context) Context { return &diagContext{ Context: ctx } }
 func diag(ctx Context, dt diagType, f string, a ...interface{}) (p *diagPoint) {
-  if p = ctx.diag(dt, f, a...); p != nil { p.at(ctx.Position()) }
+  if p = ctx.diag(dt, f, a...); p != nil { p.position = ctx.Position() }
   return
 }
 func info(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagInfo, f, a...) }
@@ -422,6 +414,7 @@ func (pc *positionContext) String() string {
   }
 }
 
+func of(ctx Context, val Value) Context { return at(ctx, val.Position()) }
 func at(ctx Context, pos Position) Context {
   if ctx == nil { panic("nil inner context") } else
   if p := ctx.Position(); p.IsValid() && pos.IsValid() && !p.Same(&pos) {
@@ -430,14 +423,13 @@ func at(ctx Context, pos Position) Context {
       if _, y = c.(*positionContext); y && i > 9999 {
         if wrap { wrap, num = false, i }
         if true {
-          warn(ctx, "too many positions: %v, %v, %v ; %v",
-            i, num, ctx, p).at(pos).debug(16)
+          warn(at(ctx,pos), "too many positions: %v, %v, %v ; %v", i, num, ctx, p).debug(16)
           ctx.checkErrors(true)
         }
       }
     }
     if wrap { ctx = &positionContext{ ctx, pos } } else {
-      warn(ctx, "too many positions: %v, %v", num, ctx).at(pos).debug(32)
+      warn(at(ctx,pos), "too many positions: %v, %v", num, ctx).debug(32)
       ctx.checkErrors(true)
     }
   }
@@ -471,7 +463,7 @@ func executeEntry(ctx Context, entry *RuleEntry, args ...Value) (result []Value,
 
   if t := traves.of(traveFail); t.has() {
     traves, okay = traves.not(traveFail), false
-    for _, brk := range t { erro(ctx, "%v: %v", entry, brk).at(brk.pos).debug(1) }
+    for _, brk := range t { erro(at(ctx,brk.pos), "%v: %v", entry, brk).debug(1) }
     return
   }
 
@@ -480,7 +472,7 @@ func executeEntry(ctx Context, entry *RuleEntry, args ...Value) (result []Value,
   }
 
   if traves.has() {
-    for _, brk := range traves { erro(ctx, "%v: %v", entry, brk).at(brk.pos).debug(1) }
+    for _, brk := range traves { erro(at(ctx,brk.pos), "%v: %v", entry, brk).debug(1) }
     okay = false
   }
   return
@@ -494,10 +486,10 @@ func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
     switch g := goal.(type) {
     case *RuleEntry:
       if result, okay = executeEntry(at(ctx, g.position), g, args...); !okay {
-        erro(ctx, "update '%v' failed", g).at(ctx.Position()).debug(1)
+        erro(at(ctx,ctx.Position()), "update '%v' failed", g).debug(1)
       }
     default:
-      erro(ctx, "'%v' is not an entry (%T)", goal, goal).of(goal).debug(1)
+      erro(of(ctx,goal), "'%v' is not an entry (%T)", goal, goal).debug(1)
     }
   }
   return
@@ -586,7 +578,7 @@ func checkFailure(ctx Context, dontCheckErrors ...bool) (panics, errs int) {
   for e := recover(); e != nil; e = recover() {
     switch t := e.(type) {
     case bailout: continue
-    case failure: erro(ctx, "panic: %v", t.metainfo).at(t.position)
+    case failure: erro(at(ctx,t.position), "panic: %v", t.metainfo)
     default     : erro(ctx, "panic: %v", e)
     }
     panics += 1
@@ -600,7 +592,7 @@ func checkFailure(ctx Context, dontCheckErrors ...bool) (panics, errs int) {
       var s = filepath.Join(pos.Filename, "build.smart")
       if _, e := os.Stat(s); e == nil { pos.Filename = s }
     }
-    erro(ctx, "failed: got %d panics", panics).at(pos).debug(128)
+    erro(at(ctx,pos), "failed: got %d panics", panics).debug(128)
   }
   if len(dontCheckErrors) > 0 && dontCheckErrors[0] {
     // okay
@@ -661,7 +653,7 @@ func CommandLine() {
   //loadGrepCache()
 
   if err := context.loadTopWork(); err != nil {
-    erro(context, "loading work failed: %v", err).at(context.Position())
+    erro(context, "loading work failed: %v", err)
   } else if context.checkErrors(true) > 0 {
     prompt(context, "loading work got %d errors\n", context.totalErrors())
   } else if options.help {

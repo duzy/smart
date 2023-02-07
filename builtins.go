@@ -393,14 +393,13 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                         }
                 case reflect.Interface: switch val.Type().String() {
                 case "smart.Value": val.Set(reflect.ValueOf(v))
-                default: erro(ctx, "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).
-                        of(v).debug(1)
+                default: erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
                 }
                 case reflect.Ptr: switch val.Type().Elem().String() {
                 case "smart.optFullname":
                         var x Value
                         if x = v.expand(ctx, plain|expandFullName); isNone(x) {
-                                erro(ctx, "expecting file value: %T %v", v, v).of(v).debug(1)
+                                erro(of(ctx,v), "expecting file value: %T %v", v, v).debug(1)
                                 return
                         }
 
@@ -408,39 +407,38 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                                 val.Set(reflect.ValueOf(&optFullname{ s, x }))
                         } else {
                                 var tv = autoGet(ctx,"@")
-                                erro(ctx, "not a file: %v -> %v -> %s (@=%T %v)", v, x, s, tv, tv).of(v)
+                                erro(of(ctx,v), "not a file: %v -> %v -> %s (@=%T %v)", v, x, s, tv, tv)
                                 errostack(ctx, 5, "%v", ctx).debug(16)
                         }
 
                         if false {
                                 vi := val.Interface().(*optFullname)
-                                warn(ctx, "%v %v %v", /*current().of(v)*/ctx.Project(), v, vi.string).debug(true,1)
+                                warn(of(ctx,v), "%v %v %v", /*current()*/ctx.Project(), v, vi.string).debug(true,1)
                         }
                 case "smart.File":
                         var x Value
                         if x = v.expand(ctx, plain); isNone(x) {
-                                erro(ctx, "expecting file value: %T %v", v, v).of(v).debug(1)
+                                erro(of(ctx,v), "expecting file value: %T %v", v, v).debug(1)
                                 return
                         }
 
                         if file, y := toFile(x); y {
                                 val.Set(reflect.ValueOf(file))
                         } else if proj := /*current()*/ctx.Project(); proj == nil {
-                                erro(ctx, "no current project to find file '%v'", s).of(x).debug(1)
+                                erro(of(ctx,x), "no current project to find file '%v'", s).debug(1)
                         } else if file = proj.FindFile(ctx, x.Strval(ctx)); file != nil {
                                 val.Set(reflect.ValueOf(file))
                         } else {
-                                erro(ctx, "'%s' is not a file", s).of(v).debug(1)
+                                erro(of(ctx,v), "'%s' is not a file", s).debug(1)
                         }
                 case "regexp.Regexp":
                         if rx, e := regexp.Compile(v.Strval(ctx)); e != nil {
-                                erro(ctx, "compile regexp '%v' failed: %v", v, e).of(v).debug(1)
+                                erro(of(ctx,v), "compile regexp '%v' failed: %v", v, e).debug(1)
                         } else {
                                 val.Set(reflect.ValueOf(rx))
                         }
                 default:
-                        erro(ctx, "option type unsupported: %T %v -> %v, %v", v, v, val.Elem().Kind(), val.Type().Elem()).
-                                of(v).debug(1)
+                        erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Elem().Kind(), val.Type().Elem()).debug(1)
                 }
                 default: switch val.Type().String() {
                 case "fs.FileMode": // aka. reflect.Uint32
@@ -448,9 +446,9 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                                 erro(ctx, "%v: %v", v, t).debug(1)
                         }
                 case "regex.Regex": // aka. reflect.Ptr
-                        erro(ctx, "TODO: regexp: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).of(v).debug(1)
+                        erro(of(ctx,v), "TODO: regexp: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
                 default:
-                        erro(ctx, "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).of(v).debug(1)
+                        erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
                 }}
         }
 ForArgs:
@@ -856,7 +854,7 @@ func assertion(ctx Context, g generalOpts, w facet, args... Value) (res Value) {
 
 func builtinSureValue(ctx Context, w facet, args... Value) Value {
         for _, a := range args { if !a.True(ctx) {
-                erro(ctx, "assertion failed: %v", a).of(a).debug(1)
+                erro(of(ctx,a), "assertion failed: %v", a).debug(1)
         }}
         return MakeListOrScalar(ctx.Position(), args)
 }
@@ -960,19 +958,18 @@ func builtinEqual(ctx Context, w facet, args... Value) (res Value) {
         } else if n := opts.debug; n>0 {
                 warn(ctx, "equal: %v != %v ⇒ %v", a, b, t)
                 if u, y := a.(unexpanded); y {
-                        warn(ctx, "a: %T %v (unexpanded)", u.Value, a).of(a)
+                        warn(of(ctx,a), "a: %T %v (unexpanded)", u.Value, a)
                 } else {
-                        warn(ctx, "a: %T %v", a, a).of(a)
+                        warn(of(ctx,a), "a: %T %v", a, a)
                 }
                 if u, y := b.(unexpanded); y {
-                        warn(ctx, "b: %T %v (unexpanded)", u.Value, b).of(b)
+                        warn(of(ctx,a), "b: %T %v (unexpanded)", u.Value, b)
                 } else {
-                        warn(ctx, "b: %T %v", b, b).of(b)
+                        warn(of(ctx,b), "b: %T %v", b, b)
                 }
                 warnstack(ctx, n, "").debug(n)
         } else if len(args)>2 {
-                warnstack(ctx, 1, "equal: extra args specified: %v",
-                        args[2]).of(args[2]).debug(1)
+                warnstack(of(ctx,args[2]), 1, "equal: extra args specified: %v", args[2]).debug(1)
         }
         return
 }
@@ -1107,7 +1104,7 @@ func builtinCase(ctx Context, w facet, args... Value) (res Value) {
                         res = MakeListOrScalar(arg.Position(), vals)
                         return
                 } else {
-                        erro(ctx, "unexpected case: %T %v", arg, arg).of(arg).debug(1)
+                        erro(of(ctx,arg), "unexpected case: %T %v", arg, arg).debug(1)
                         return
                 }
         }
@@ -1524,7 +1521,7 @@ func builtinClosure(ctx Context, w facet, args... Value) (res Value) {
                 }
                 if def == nil {
                         if opts.required {
-                                erro(ctx, "no def '%v' (%v)", name, nameVal).of(nameVal).debug(1)
+                                erro(of(ctx,nameVal), "no def '%v' (%v)", name, nameVal).debug(1)
                         }
                 } else {
                         vals = append(vals, def.Call(ctx, args[1:]...))
@@ -1663,7 +1660,7 @@ func builtinServeHttp(ctx Context, w facet, args... Value) (res Value) {
 }
 
 func builtinServeHttps(ctx Context, w facet, args... Value) (res Value) {
-        erro(ctx, "'serve-https' is unimplemented yet").at(ctx.Position()).debug(1)
+        erro(ctx, "'serve-https' is unimplemented yet").debug(1)
         return
 }
 
@@ -1740,7 +1737,7 @@ func builtinAppend(ctx Context, w facet, args... Value) (result Value) {
         for _, a := range vars {
                 var name string
                 if name = a.Strval(ctx); name == "" {
-                        erro(ctx, "name '%v' is empty", a).of(a).debug(1)
+                        erro(of(ctx,a), "name '%v' is empty", a).debug(1)
                         break
                 }
                 if opts.closure {
@@ -2370,7 +2367,7 @@ func builtinSubstring(ctx Context, w facet, args... Value) (res Value) {
                 }
                 if i2, e = intVal(ctx, args[0], -1); e != nil {
                         if _, ok := e.(*strconv.NumError); !ok {
-                                erro(ctx, "%v", e).of(args[0]).debug(1)
+                                erro(of(ctx,args[0]), "%v", e).debug(1)
                                 return
                         }
                 } else {
@@ -2490,11 +2487,11 @@ ForSources:
                 } else if opts.fullname {
                         var ( s string; ok bool )
                         if _, s, ok = asOptFullname(ctx, src, closured...); s == "" {
-                                erro(ctx, "fullname '%v' is empty", src).of(src)
+                                erro(of(ctx,src), "fullname '%v' is empty", src)
                                 erro(ctx, "called from here", src).debug(1)
                                 return
                         } else if !ok {
-                                erro(ctx, "fullname '%v' failed", src).of(src)
+                                erro(of(ctx,src), "fullname '%v' failed", src)
                                 erro(ctx, "called from here", src).debug(1)
                                 return
                         } else {
@@ -2669,11 +2666,11 @@ ForSources:
                 } else if opts.fullname {
                         var ( s string; ok bool )
                         if _, s, ok = asOptFullname(ctx, src, closured...); s == "" {
-                                erro(ctx, "fullname '%v' is empty", src).of(src)
+                                erro(of(ctx,src), "fullname '%v' is empty", src)
                                 erro(ctx, "called from here", src).debug(1)
                                 return
                         } else if !ok {
-                                erro(ctx, "fullname '%v' failed", src).of(src)
+                                erro(of(ctx,src), "fullname '%v' failed", src)
                                 erro(ctx, "called from here", src).debug(1)
                                 return
                         } else {
@@ -3284,10 +3281,10 @@ func builtinContains(ctx Context, w facet, args... Value) (res Value) {
                         }
                         if false && opts.debug>0 && !opts.string && !isNil(elem) &&
                                 val.Strval(ctx) == elem.Strval(ctx) {
-                                warn(ctx, "wrong: %T %v <-> %T %v", val, val, elem, elem).of(val)
+                                warn(of(ctx,val), "wrong: %T %v <-> %T %v", val, val, elem, elem)
                         }
                 }
-                if opts.debug>0 { warn(ctx, "found 0: %T %v", val, val).of(val) }
+                if opts.debug>0 { warn(of(ctx,val), "found 0: %T %v", val, val) }
         }
 
         var b = (y == len(vals))
@@ -3822,7 +3819,7 @@ func builtinRename(ctx Context, w facet, args... Value) (res Value) {
                                 oldname = t.Get(0).Strval(ctx)
                                 newname = t.Get(1).Strval(ctx)
                         } else {
-                                erro(ctx, "wrong size of group `%v'", t).of(t).debug(1)
+                                erro(of(ctx,t), "wrong size of group `%v'", t).debug(1)
                                 break
                         }
                 case *List: // rename oldname newname, old new, ...
@@ -3830,7 +3827,7 @@ func builtinRename(ctx Context, w facet, args... Value) (res Value) {
                                 oldname = t.Get(0).Strval(ctx)
                                 newname = t.Get(1).Strval(ctx)
                         } else {
-                                erro(ctx, "wrong size of list `%v'", t).of(t).debug(1)
+                                erro(of(ctx,t), "wrong size of list `%v'", t).debug(1)
                                 break
                         }
                 default: // rename newname oldname  newname oldname ...
@@ -3839,12 +3836,12 @@ func builtinRename(ctx Context, w facet, args... Value) (res Value) {
                                 newname = args[i+1].Strval(ctx)
                                 i += 1
                         } else {
-                                erro(ctx, "Wrong arguments `%v'", args).of(t).debug(1)
+                                erro(of(ctx,t), "Wrong arguments `%v'", args).debug(1)
                                 break
                         }
                 }
                 if err := os.Rename(oldname, newname); err != nil {
-                        erro(ctx, "%v", err).at(ctx.Position()).debug(1)
+                        erro(ctx, "%v", err).debug(1)
                         break
                 }
         }
@@ -3951,7 +3948,7 @@ func builtinRemoveAll(ctx Context, w facet, args... Value) (res Value) {
                                 return
                         }
                         for _, s := range names {
-                                if opts.verbose { info(ctx, "remove %s", s).at(a.Position()) }
+                                if opts.verbose { info(of(ctx,a), "remove %s", s) }
                                 if err = os.RemoveAll(s); err != nil {
                                         erro(ctx, "%v", err).debug(1)
                                         return
@@ -4103,14 +4100,14 @@ ForArgs:
                         srcNameVal, dstNameVal = t.Key, t.Value
                 case *Group: // symlink (-u srcName dstName) (-v srcName dstName)...
                         if aa = parseOpts(ctx, &opts, plain, t.Elems...); len(aa) != 2 {
-                                erro(ctx, "expects two values for group").of(t).debug(1)
+                                erro(of(ctx,t), "expects two values for group").debug(1)
                                 return
                         } else {
                                 srcNameVal, dstNameVal = aa[0], aa[1]
                         }
                 case *List: // XXX: symlink old new, old new, ...
                         if aa = parseOpts(ctx, &opts, plain, t.Elems...); len(aa) != 2 {
-                                erro(ctx, "expects two values for list").of(t).debug(1)
+                                erro(of(ctx,t), "expects two values for list").debug(1)
                                 return
                         } else {
                                 srcNameVal, dstNameVal = aa[0], aa[1]
@@ -4128,7 +4125,7 @@ ForArgs:
                                 var r = autoGet(ctx,">")
                                 prompt(ctx, "symlink: args=%v -> %v\n", args, t)
                                 prompt(ctx, "symlink: %v, %v, %v\n", a, l, r)
-                                errostack(ctx, 5, "expects pair of names (%T %v)", t, t).of(t).debug(6)
+                                errostack(of(ctx,t), 5, "expects pair of names (%T %v)", t, t).debug(6)
                                 return
                         }
                 }
@@ -4136,14 +4133,13 @@ ForArgs:
                 if srcDir, srcName = splitFileName(ctx, srcNameVal); srcName == "" {
                         prompt(ctx, "symlink: args=%v\n", args)
                         prompt(ctx, "symlink: src=%v\n", srcNameVal)
-                        errostack(ctx, 5, "empty src filename (%T)", srcNameVal).of(srcNameVal).debug(6)
+                        errostack(of(ctx,srcNameVal), 5, "empty src filename (%T)", srcNameVal).debug(6)
                         return
                 }
                 if dstDir, dstName = splitFileName(ctx, dstNameVal); dstName == "" {
                         prompt(ctx, "symlink: args=%v\n", args)
                         prompt(ctx, "symlink: dest=%v\n", dstNameVal)
-                        errostack(ctx, 6, "empty dest filename (%T)", dstNameVal).
-                                of(dstNameVal).debug(12)
+                        errostack(of(ctx,dstNameVal), 6, "empty dest filename (%T)", dstNameVal).debug(12)
                         return
                 }
 
@@ -4151,14 +4147,14 @@ ForArgs:
                 var dst = filepath.Join(dstDir, dstName)
                 if _, err := os.Stat(src); err != nil {
                         prompt(ctx, "symlink: %v: %v\n", srcName, err)
-                        errostack(ctx, 6, "%v does not exist", srcName).of(srcNameVal).debug(8)
+                        errostack(of(ctx,srcNameVal), 6, "%v does not exist", srcName).debug(8)
                         return
                 }
 
                 if !opts.relative {/* no rel required */} else
                 if s, e := filepath.Rel(filepath.Dir(dst), src); e != nil {
                         prompt(ctx, "symlink: %s: rel(%s, %s)\n", dstName, dst, src)
-                        errostack(ctx, 8, "%v", e).of(dstNameVal).debug(10)
+                        errostack(of(ctx,dstNameVal), 8, "%v", e).debug(10)
                         return
                 } else {
                         if false {
@@ -4173,7 +4169,7 @@ ForArgs:
                 if dstDir == "" || dstDir == "." || dstDir == PathSep {
                         // no need to mkdir: . or /
                 } else if err := os.MkdirAll(dstDir, os.FileMode(0755)); err != nil {
-                        erro(ctx, "%v", err).of(dstNameVal).debug(1)
+                        erro(of(ctx,dstNameVal), "%v", err).debug(1)
                         return
                 }
 
@@ -4183,7 +4179,7 @@ ForArgs:
                 } else if s, e := os.Readlink(dst); e != nil {
                         if false {
                                 prompt(ctx, "%v: readlink failed (%T)\n", dstName, e)
-                                errostack(ctx, 6, "%v", e).of(dstNameVal).debug(8)
+                                errostack(of(ctx,dstNameVal), 6, "%v", e).debug(8)
                         }
                 } else if rm = s != src; !rm {
                         continue ForArgs
@@ -4191,7 +4187,7 @@ ForArgs:
 
                 if rm { if e := os.Remove(dst); e != nil {
                         prompt(ctx, "%v: remove old symlink failed (%T)\n", dstName, e)
-                        errostack(ctx, 6, "%v", e).of(dstNameVal).debug(8)
+                        errostack(of(ctx,dstNameVal), 6, "%v", e).debug(8)
                         return
                 }}
                 if err := os.Symlink(src, dst); err != nil {
@@ -4583,10 +4579,10 @@ func builtinReadFile(ctx Context, w facet, args... Value) (res Value) {
                 )
                 if !apos.IsValid() { apos = pos }
                 if _, str, ok = asOptFullname2(ctx, a, closured...); !ok || str == "" {
-                        erro(ctx, "%v is not a file", a).at(apos).debug(1)
+                        erro(at(ctx,apos), "%v is not a file", a).debug(1)
                         break
                 } else if s, err = ioutil.ReadFile(str); err != nil {
-                        erro(ctx, "read file failed: %v", err).at(apos).debug(1)
+                        erro(at(ctx,apos), "read file failed: %v", err).debug(1)
                         break
                 } else {
                         if opts.trim      { s = bytes.TrimFunc     (s, unicode.IsSpace) } else
@@ -4672,13 +4668,13 @@ ForArgs:
 func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Time) (err error) {
         var _, filename, _ = fullname(ctx, file)
         if  filename == "" {
-                erro(ctx, "touch: file fullname of '%v' is empty", file, err).of(file).debug(1)
+                erro(of(ctx,file), "touch: file fullname of '%v' is empty", file, err).debug(1)
                 return
         }
 
         if dir := filepath.Dir(filename); optPath && dir != "." && dir != PathSep {
                 if err = os.MkdirAll(dir, os.FileMode(optMode|0733)); err != nil {
-                        erro(ctx, "touch: %v", err).of(file).debug(1)
+                        erro(of(ctx,file), "touch: %v", err).debug(1)
                         return
                 }
         }
@@ -4698,19 +4694,19 @@ func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Tim
                 var f *os.File
                 if m = mode; m == 0 { m = os.FileMode(0600); mode = m }
                 if f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, m&os.ModePerm); err != nil {
-                        erro(ctx, "touch: %v", err).of(file).debug(1)
+                        erro(of(ctx,file), "touch: %v", err).debug(1)
                 } else if err = f.Close(); err != nil {
-                        erro(ctx, "touch: %v", err).of(file).debug(1)
+                        erro(of(ctx,file), "touch: %v", err).debug(1)
                 }
         }
         if err == nil {
                 if err = os.Chtimes(filename, at, mt); err != nil {
-                        erro(ctx, "touch: %v", err).of(file).debug(1)
+                        erro(of(ctx,file), "touch: %v", err).debug(1)
                 }
         }
         if err == nil && mode != 0 && m != 0 && mode != m {
                 if err = os.Chmod(filename, mode); err != nil {
-                        erro(ctx, "touch: %v", err).of(file).debug(1)
+                        erro(of(ctx,file), "touch: %v", err).debug(1)
                 }
         }
         return
@@ -4764,10 +4760,10 @@ func builtinGrep(ctx Context, w facet, args... Value) (res Value) {
         }
         for _, a := range vals {
                 if s := a.Strval(ctx); s == "" {
-                        erro(ctx, "empty regexp").of(a).debug(1)
+                        erro(of(ctx,a), "empty regexp").debug(1)
                         return
                 } else if r, e := regexp.Compile(s); e != nil {
-                        erro(ctx, "%v", e).of(a).debug(1)
+                        erro(of(ctx,a), "%v", e).debug(1)
                         return
                 } else {
                         rxs = append(rxs, r)
@@ -4801,12 +4797,12 @@ func builtinGrep(ctx Context, w facet, args... Value) (res Value) {
                 var file *os.File
                 var filename = a.Strval(ctx)
                 if filename == "" {
-                        errostack(ctx, 5, "empty filename: %v (%T) (%v -> %v)",
-                                a, a, args, vals).of(a).debug(64)
+                        errostack(of(ctx,a), 5, "empty filename: %v (%T) (%v -> %v)",
+                                a, a, args, vals).debug(64)
                         return
                 }
                 if file, err = os.Open(filename); err != nil {
-                        errostack(ctx, 5, "%v", err).of(a).debug(128)
+                        errostack(of(ctx,a), 5, "%v", err).debug(128)
                         return
                 }
                 defer file.Close()
@@ -4881,14 +4877,14 @@ func (project *Project) strExpandConfig(ctx Context, s string) (result string, e
                         continue
                 } else if val = def.Call(ctx); isNil(val) {
                         if false && (def.origin != DefExecute || def.value != nil) {
-                                warn(ctx, "%v is nil (%T)", name, val).of(def).debug(1)
+                                warn(of(ctx,def), "%v is nil (%T)", name, val).debug(1)
                         }
                         if cf := project.configuration(ctx); cf == nil {
-                                erro(ctx, "%v: configuration file not defined", name, cf).of(def).debug(1)
+                                erro(of(ctx,def), "%v: configuration file not defined", name, cf).debug(1)
                                 return
                         } else if !cf.exists() {
                                 prompt(ctx, "%s: file not exists (for %v)\n", cf.fullname(), name)
-                                erro(ctx, "%v: configuration file not exists, try -conf first", name).of(def).debug(1)
+                                erro(of(ctx,def), "%v: configuration file not exists, try -conf first", name).debug(1)
                                 return
                         }
                         continue

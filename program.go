@@ -247,7 +247,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
         args = mergex(ctx, plain, m.name)
     )
     if n := len(args); n == 0 {
-        erro(ctx, "modifier name '%v' is empty", m.name).of(m.name).debug(1)
+        erro(of(ctx,m.name), "modifier name '%v' is empty", m.name).debug(1)
         return
     } else {
         name = args[0].Strval(ctx)
@@ -275,7 +275,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
                 if options.verbose || options.verboseBreaks {
                     var _, ent, _ = entryStr(ctx, ctx.entry())
                     prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
-                    for _, s := range t { warn(ctx, "%v: %s: %v", proj, name, s).at(s.pos) }
+                    for _, s := range t { warn(at(ctx,s.pos), "%v: %s: %v", proj, name, s) }
                     warnstack(ctx, 5, "").debug(16)
                 }
             }
@@ -359,7 +359,7 @@ func (prog *Program) env(ctx Context) (env []string, osi int) {
                 if p, ok := t.(*Pair); ok {
                     envars = append(envars, p)
                 } else {
-                    erro(ctx, "env expecting pairs: %T", t).of(t).debug(1)
+                    erro(of(ctx,t), "env expecting pairs: %T", t).debug(1)
                     return
                 }
             }
@@ -489,8 +489,8 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
             }
 
             prompt(ctx, "%v: %v: %v, %v\n", a[0], autoGet(cc.closure(), "@"), cc, cc.closure())
-            for i, t := range a { erro(ctx, "loop: %v: %v", i, t).of(t) }
-            errostack(ctx, 128, "loop, (depth=%d, %v, %v)\n", depth, a[loop], a).at(prog.position).debug(6)
+            for i, t := range a { erro(of(ctx,t), "loop: %v: %v", i, t) }
+            errostack(at(ctx,prog.position), 128, "loop, (depth=%d, %v, %v)\n", depth, a[loop], a).debug(6)
             return
         }
         if depth < maxCallRecursion {
@@ -500,7 +500,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
 
             var tt Value = autoGet(c, "@")
             prompt(ctx, "%v: max recursion call (%d)\n", fullnameOrStrval(ctx, tt), depth)
-            warn(ctx, "max recursion call (%d)\n", depth).of(tt).debug(1)
+            warn(of(ctx,tt), "max recursion call (%d)\n", depth).debug(1)
 
             const collapse = false
             for ; c != nil; c = c.caller() {
@@ -515,17 +515,17 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
 
                 var t = autoGet(c, "@")
                 if prog := c.program(); prog == nil {
-                    erro(ctx, "%v (@=%v)", entry, tt).at(entry.Position())
+                    erro(at(ctx,entry.Position()), "%v (@=%v)", entry, tt)
                     break
                 } else if pos := prog.position; n > 0 {
-                    erro(ctx, "%v (repeated %d times)", t, n).at(pos)
+                    erro(at(ctx,pos), "%v (repeated %d times)", t, n)
                 } else if !collapse {
-                    erro(ctx, "%v : %v", t, autoGet(c, ">")).at(pos)
+                    erro(at(ctx,pos), "%v : %v", t, autoGet(c, ">"))
                 } else if depth -= 1; maxCallRecursion - depth > 5 {
-                    erro(ctx, "%v ... (%d)", t, maxCallRecursion - depth).at(pos)
+                    erro(at(ctx,pos), "%v ... (%d)", t, maxCallRecursion - depth)
                     break
                 } else {
-                    erro(ctx, "%v : %v", t, autoGet(c, ">")).at(pos)
+                    erro(at(ctx,pos), "%v : %v", t, autoGet(c, ">"))
                 }
 
                 ctx.checkErrors(true) // dump immediately
@@ -735,38 +735,34 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
 
             var t = prerequisite.traverse(ctx)
             if false { if prog.project.name == "llvm.ADT" {
-                warn(ctx, "%v: %v: %v", prog.project, entry, prerequisite).of(prerequisite).debug(1)
-                for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
-                infostack(ctx, 12, "%v: %v: %v %v", prog.project, ent, prerequisite,
-                    autoGet(ctx, ">")).of(prerequisite).debug(10)
+                warn(of(ctx,prerequisite), "%v: %v: %v", prog.project, entry, prerequisite).debug(1)
+                for i, a := range t { info(of(ctx,prerequisite), "%v. %v %v", i, a.what, a) }
+                infostack(of(ctx,prerequisite), 12, "%v: %v: %v %v", prog.project, ent, prerequisite, autoGet(ctx, ">")).debug(10)
                 defer func(pre, v Value) {
-                    infostack(ctx, 12, "%v → %v → %v", pre, v, prerequisite).of(pre).debug(20)
+                    infostack(of(ctx,pre), 12, "%v → %v → %v", pre, v, prerequisite).debug(20)
                 } (prerequisite, autoGet(ctx, "^"))
             }}
             if false { if a := autoGet(ctx, "@"); strings.Contains(a.String(), "dlfcn_simple.") {
                 var s = a.Strval(ctx)
                 if f, y := a.(*File); y { s = f.fullname() }
-                warn(ctx, "%v: %v: %s, %v %T ; %v", entry, a, s, prerequisite, prerequisite, stemd).of(prerequisite).debug(1)
-                for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
-                infostack(ctx, 12, "%v: %v: %v %v", prog.project, ent, prerequisite,
-                    autoGet(ctx, ">")).of(prerequisite).debug(10)
+                warn(of(ctx,prerequisite), "%v: %v: %s, %v %T ; %v", entry, a, s, prerequisite, prerequisite, stemd).debug(1)
+                for i, a := range t { info(of(ctx,prerequisite), "%v. %v %v", i, a.what, a) }
+                infostack(of(ctx,prerequisite), 12, "%v: %v: %v %v", prog.project, ent, prerequisite, autoGet(ctx, ">")).debug(10)
                 defer func(pre, l, r, v Value) {
-                    infostack(ctx, 12, "%v → %v %v %v → %v", pre, l, r, v, prerequisite).of(pre).debug(20)
+                    infostack(of(ctx,pre), 12, "%v → %v %v %v → %v", pre, l, r, v, prerequisite).debug(20)
                 } (prerequisite, autoGet(ctx, "<"), autoGet(ctx, ">"), autoGet(ctx, "^"))
             }}
             if false { if a := autoGet(ctx, "@"); a.String() == "llvm-tools-driver" {
-                warn(ctx, "%v: %v: %v %T", entry, a, prerequisite, prerequisite).of(prerequisite).debug(1)
-                for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
-                info(ctx, "%v: %v %v", a, prerequisite, autoGet(ctx, ">")).of(prerequisite).debug(1)
-                defer func(s Value) { info(ctx, "%v → %v", prerequisite, s).
-                    of(prerequisite).debug(10) } (autoGet(ctx, "^"))
+                warn(of(ctx,prerequisite), "%v: %v: %v %T", entry, a, prerequisite, prerequisite).debug(1)
+                for i, a := range t { info(of(ctx,prerequisite), "%v. %v %v", i, a.what, a) }
+                info(of(ctx,prerequisite), "%v: %v %v", a, prerequisite, autoGet(ctx, ">")).debug(1)
+                defer func(s Value) { info(of(ctx,prerequisite), "%v → %v", prerequisite, s).debug(10) } (autoGet(ctx, "^"))
             }}
 
             if prog.debug_traverse > 0 {
                 if true { prog.debug_traverse -= 1 }
-                for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
-                infostack(ctx, 12, "%v: %v: %v %v", prog.project, ent, prerequisite,
-                    autoGet(ctx, ">")).of(prerequisite).debug(10)
+                for i, a := range t { info(of(ctx,prerequisite), "%v. %v %v", i, a.what, a) }
+                infostack(of(ctx,prerequisite), 12, "%v: %v: %v %v", prog.project, ent, prerequisite, autoGet(ctx, ">")).debug(10)
             }
             if !t.has() { continue } else {
                 traves = append(traves, t.not(traveNext)...)
@@ -797,18 +793,18 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                             }
                         } else if depend == nil {
                             prompt(ctx, "%v: %v\n", target, s).debug(1)
-                            erro(ctx, "%v", s).at(s.pos).debug(1)
-                            erro(ctx, "1. %T %v %s", target, target, target.Strval(ctx)).of(target)
-                            erro(ctx, "2. %T %v mine=%v", s.depend, s.depend, dependMine).of(s.depend)
-                            erro(ctx, "3. %T %v", prerequisite, prerequisite).of(prerequisite)
+                            erro(at(ctx,s.pos), "%v", s).debug(1)
+                            erro(of(ctx,target), "1. %T %v %s", target, target, target.Strval(ctx))
+                            erro(of(ctx,s.depend), "2. %T %v mine=%v", s.depend, s.depend, dependMine)
+                            erro(of(ctx,prerequisite), "3. %T %v", prerequisite, prerequisite)
                             errostack(ctx, 5, "#>").debug(10)
                         } else {
                             prompt(ctx, "%v: %v: %v\n", target, depend, s).debug(1)
-                            erro(ctx, "%v", s).at(s.pos).debug(1)
-                            erro(ctx, "1. %T %v %s", target, target, target.Strval(ctx)).of(target)
-                            erro(ctx, "2. %T %v %s", depend, depend, depend.Strval(ctx)).of(depend)
-                            erro(ctx, "3. %T %v mine=%v", s.depend, s.depend, dependMine).of(s.depend)
-                            erro(ctx, "4. %T %v", prerequisite, prerequisite).of(prerequisite)
+                            erro(at(ctx,s.pos), "%v", s).debug(1)
+                            erro(of(ctx,target), "1. %T %v %s", target, target, target.Strval(ctx))
+                            erro(of(ctx,depend), "2. %T %v %s", depend, depend, depend.Strval(ctx))
+                            erro(of(ctx,s.depend), "3. %T %v mine=%v", s.depend, s.depend, dependMine)
+                            erro(of(ctx,prerequisite), "4. %T %v", prerequisite, prerequisite)
                             errostack(ctx, 5, "#>").debug(10)
                         }
                         return
@@ -822,10 +818,9 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                     var a []interface{}
                     for _, s := range tt {
                         if pe, ok := s.error.(*fs.PathError); ok { // NOTE: pe.Path == s.target
-                            warn(ctx, "%v: %v: %v", t, s.target, pe.Err).at(s.pos)
+                            warn(at(ctx,s.pos), "%v: %v: %v", t, s.target, pe.Err)
                         } else {
-                            warn(ctx, "%v: %v: %v (%T)", t,
-                                s.target, s.error, s.error).at(s.pos)
+                            warn(at(ctx,s.pos), "%v: %v: %v (%T)", t, s.target, s.error, s.error)
                         }
                         a = append(a, s.target) // if !s.target.Position().Same(&s.pos)
                     }
@@ -839,8 +834,8 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                 for _, s := range tt {
                     if eq(ctx, target, s.target) { deps = append(deps, s.depend) } else
                     if eq(ctx, target, s.depend) {
-                        info(ctx, "%v %v ; %v", target, depend, prerequisite).of(prerequisite)
-                        info(ctx, "%v %v ; %d", s.target, s.depend,  len(tt)).of(prerequisite).
+                        info(of(ctx,prerequisite), "%v %v ; %v", target, depend, prerequisite)
+                        info(of(ctx,prerequisite), "%v %v ; %d", s.target, s.depend,  len(tt)).
                             debug(1)
                         continue ForPrerequisites
                     }
@@ -852,10 +847,8 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                     if eq(ctx, depend, deps[0]) { return } // %.o : %.cpp
                 } else {
                     if false {
-                        for i, dep := range deps { info(ctx, "%d. %v %v",
-                            i, target, dep).of(prerequisite) }
-                        info(ctx, "%v %v", target, prerequisite).
-                            of(prerequisite).debug(1)
+                        for i, dep := range deps { info(of(ctx,prerequisite), "%d. %v %v", i, target, dep) }
+                        info(of(ctx,prerequisite), "%v %v", target, prerequisite).debug(1)
                     }
                     continue ForPrerequisites
                 }
@@ -938,18 +931,16 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
 
                 var t = prerequisite.traverse(ctx)
                 if false { if prerequisite.String() == ".test.fxxbar" {
-                    for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
-                    infostack(ctx, 12, "%v: %v: %v %v", prog.project, ent, prerequisite,
-                        autoGet(ctx, ">")).of(prerequisite).debug(10)
+                    for i, a := range t { info(of(ctx,prerequisite), "%v. %v %v", i, a.what, a) }
+                    infostack(of(ctx,prerequisite), 12, "%v: %v: %v %v", prog.project, ent, prerequisite, autoGet(ctx, ">")).debug(10)
                     defer func(pre, v Value) {
-                        infostack(ctx, 12, "%v → %v → %v", pre, v, prerequisite).of(pre).debug(20)
+                        infostack(of(ctx,pre), 12, "%v → %v → %v", pre, v, prerequisite).debug(20)
                     } (prerequisite, autoGet(ctx, "^"))
                 }}
                 if false { if a := autoGet(ctx, "@"); a.String() == "llvm-tools-driver" {
-                    for i, a := range t { info(ctx, "%v. %v %v", i, a.what, a).of(prerequisite) }
-                    info(ctx, "%v: %v %v", a, prerequisite, autoGet(ctx, ">")).of(prerequisite).debug(1)
-                    defer func(s Value) { info(ctx, "%v -> %v", prerequisite, s).
-                        of(prerequisite).debug(4) } (autoGet(ctx, "^"))
+                    for i, a := range t { info(of(ctx,prerequisite), "%v. %v %v", i, a.what, a) }
+                    info(of(ctx,prerequisite), "%v: %v %v", a, prerequisite, autoGet(ctx, ">")).debug(1)
+                    defer func(s Value) { info(of(ctx,prerequisite), "%v -> %v", prerequisite, s).debug(4) } (autoGet(ctx, "^"))
                 }}
 
                 if !t.has() { return }
@@ -989,18 +980,18 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                                 }
                             } else if depend == nil {
                                 prompt(ctx, "%v: %v\n", target, s).debug(1)
-                                erro(ctx, "%v", s).at(s.pos).debug(1)
-                                erro(ctx, "1. %T %v %s", target, target, target.Strval(ctx)).of(target)
-                                erro(ctx, "2. %T %v mine=%v", s.depend, s.depend, dependMine).of(s.depend)
-                                erro(ctx, "3. %T %v", prerequisite, prerequisite).of(prerequisite)
+                                erro(at(ctx,s.pos), "%v", s).debug(1)
+                                erro(of(ctx,target), "1. %T %v %s", target, target, target.Strval(ctx))
+                                erro(of(ctx,s.depend), "2. %T %v mine=%v", s.depend, s.depend, dependMine)
+                                erro(of(ctx,prerequisite), "3. %T %v", prerequisite, prerequisite)
                                 errostack(ctx, 5, "#>").debug(10)
                             } else {
                                 prompt(ctx, "%v: %v: %v\n", target, depend, s).debug(1)
-                                erro(ctx, "%v", s).at(s.pos).debug(1)
-                                erro(ctx, "1. %T %v %s", target, target, target.Strval(ctx)).of(target)
-                                erro(ctx, "2. %T %v %s", depend, depend, depend.Strval(ctx)).of(depend)
-                                erro(ctx, "3. %T %v mine=%v", s.depend, s.depend, dependMine).of(s.depend)
-                                erro(ctx, "4. %T %v", prerequisite, prerequisite).of(prerequisite)
+                                erro(at(ctx,s.pos), "%v", s).debug(1)
+                                erro(of(ctx,target), "1. %T %v %s", target, target, target.Strval(ctx))
+                                erro(of(ctx,depend), "2. %T %v %s", depend, depend, depend.Strval(ctx))
+                                erro(of(ctx,s.depend), "3. %T %v mine=%v", s.depend, s.depend, dependMine)
+                                erro(of(ctx,prerequisite), "4. %T %v", prerequisite, prerequisite)
                                 errostack(ctx, 5, "#>").debug(10)
                             }
 
@@ -1017,10 +1008,9 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                         var a []interface{}
                         for _, s := range tt {
                             if pe, ok := s.error.(*fs.PathError); ok { // NOTE: pe.Path == s.target
-                                warn(ctx, "%v: %v: %v", t, s.target, pe.Err).at(s.pos)
+                                warn(at(ctx,s.pos), "%v: %v: %v", t, s.target, pe.Err)
                             } else {
-                                warn(ctx, "%v: %v: %v (%T)", t,
-                                    s.target, s.error, s.error).at(s.pos)
+                                warn(at(ctx,s.pos), "%v: %v: %v (%T)", t, s.target, s.error, s.error)
                             }
                             a = append(a, s.target) // if !s.target.Position().Same(&s.pos)
                         }
@@ -1054,8 +1044,8 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                     for _, s := range tt {
                         if eq(ctx, target, s.target) { deps = append(deps, s.depend) } else
                         if eq(ctx, target, s.depend) {
-                            info(ctx, "%v %v ; %v", target, depend, prerequisite).of(prerequisite)
-                            info(ctx, "%v %v ; %d", s.target, s.depend,  len(tt)).of(prerequisite).debug(1)
+                            info(of(ctx,prerequisite), "%v %v ; %v", target, depend, prerequisite)
+                            info(of(ctx,prerequisite), "%v %v ; %d", s.target, s.depend,  len(tt)).debug(1)
                             set(stateCont)
                             return
                         }
@@ -1069,10 +1059,8 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                         }
                     } else {
                         if false {
-                            for i, dep := range deps { info(ctx, "%d. %v %v",
-                                i, target, dep).of(prerequisite) }
-                            info(ctx, "%v %v", target, prerequisite).
-                                of(prerequisite).debug(1)
+                            for i, dep := range deps { info(of(ctx,prerequisite), "%d. %v %v", i, target, dep) }
+                            info(of(ctx,prerequisite), "%v %v", target, prerequisite).debug(1)
                         }
                         set(stateCont)
                         return

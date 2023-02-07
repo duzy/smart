@@ -177,7 +177,7 @@ func (ctx *universeContext) configure() {
         if traves.has() {
             for _, brk := range traves {
                 if brk.what == traveFail {
-                    erro(ctx, "execute '%v' failed: %v", entry, brk).of(entry).debug(1)
+                    erro(of(ctx,entry), "execute '%v' failed: %v", entry, brk).debug(1)
                 }
             }
         }
@@ -406,7 +406,7 @@ ForInParams:
             ok bool
         )
         if pair, ok = a.(*Pair); !ok {
-            erro(ctx, " unsupported parameter %v (%T)", a, a).of(a).debug(1)
+            erro(of(ctx,a), " unsupported parameter %v (%T)", a, a).debug(1)
             return
         }
 
@@ -436,7 +436,7 @@ ForInParams:
             var t = autoGet(ctx,"@")
             ctx = at(ctx, a.Position())
             warn(ctx, "ignored param: %T %v; target: %T %v", a, a, t, t)
-            warn(ctx, "%v params = %v", t, params).at(prog.position).debug(16)
+            warn(at(ctx,prog.position), "%v params = %v", t, params).debug(16)
             return
         }
     }
@@ -453,20 +453,20 @@ ForInParams:
     )
     for _, entry := range entries.all {
         if reses, traves = entry.execute(ctx, params...); ctx.checkErrors(true) > 0 {
-            warn(ctx, "%v", entry).at(entry.Position())
+            warn(at(ctx,entry.Position()), "%v", entry)
             warnstack(ctx, 5, `configure '%s' got %d error(s)`,
                 entryName, ctx.totalErrors()).debug(1)
             if options.failOnErrors { fail(pos, "fail by %d errors", ctx.totalErrors()) }
         } else if n := len(reses); n != 1 {
             if true { // just bypass, no configuration results - <nil>
-                if false { warn(ctx, "%v", entry).at(entry.Position()).debug(1) }
-            } else if erro(ctx, "%v", entry).at(entry.Position()); n == 0 {
+                if false { warn(at(ctx,entry.Position()), "%v", entry).debug(1) }
+            } else if erro(at(ctx,entry.Position()), "%v", entry); n == 0 {
                 errostack(ctx, 5, `configure "%s" has no results`, entryName).debug(32)
             } else {
                 errostack(ctx, 5, `configure "%s" has multiple results (%d)`, entryName, n).debug(32)
             }
         } else if result = reses[0]; !isNil(result) && result == hyphen {
-            warn(ctx, "%v", entry).at(entry.Position())
+            warn(at(ctx,entry.Position()), "%v", entry)
             warn(ctx, `%v: configure yields value the same as input will be ignored: %v`, entry, result).debug(1)
             result = nil // simply discard the result as it's the same as the input (hyphen) value
         }
@@ -501,7 +501,7 @@ func configureDo(ctx Context, opts *modifierConfigureOpts, target Value, name Va
             params = append(params, MakePair(pos, MakeBareword(pos, "INFO"), t))
             infos = append(infos, t)
         default:
-            erro(ctx, " unsupported parameter: $T %v", t, t).of(arg).debug(1)
+            erro(of(ctx,arg), " unsupported parameter: $T %v", t, t).debug(1)
             return
         }
     }
@@ -608,7 +608,7 @@ func modifierConfigure(ctx Context, args ...Value) (result Value, _ travestates)
 
     var name = target.Strval(ctx)
     if len(program.project.bases) == 0 {
-        warn(ctx, "%v: project has no bases (should have at least .configure)", name).of(target).debug(1)
+        warn(of(ctx,target), "%v: project has no bases (should have at least .configure)", name).debug(1)
     }
 
     var d *def
@@ -664,24 +664,24 @@ ForConfig:
         switch arg := a.(type) {
         case *Argumented:
             if flag, okay := arg.value.(*Flag); !okay {
-                erro(ctx, " `%v` is unsupported value (%T)", arg.value, arg.value).of(a).debug(1)
+                erro(of(ctx,a), " `%v` is unsupported value (%T)", arg.value, arg.value).debug(1)
                 return
             } else {
                 name, para = flag.name, arg.args
             }
         case *Flag:
             if isNil(arg.name) || isNone(arg.name) {
-                erro(ctx, " `%v` is unsupported flag (%T)", arg.name, arg.name).of(a).debug(1)
+                erro(of(ctx,a), " `%v` is unsupported flag (%T)", arg.name, arg.name).debug(1)
                 return
             } else {
                 name = arg.name
             }
         default:
-            erro(ctx, " `%v` is unsupported (%T)", a, a).of(a).debug(1)
+            erro(of(ctx,a), " `%v` is unsupported (%T)", a, a).debug(1)
             return
         }
         if name == nil {
-            erro(ctx, " unknown configure `%v` (%T)", a, a).of(a).debug(1)
+            erro(of(ctx,a), " unknown configure `%v` (%T)", a, a).debug(1)
             return
         }
 

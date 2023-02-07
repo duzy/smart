@@ -303,7 +303,7 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
 func (p *ExecBuffer) startDockerDaemon(pos Position, ctx Context, container *Project, sock string) (err error) {
   var c = exec.Command("dockerd") //c.Stdout, c.Stderr = stdout, stderr
   if err = c.Run(); err != nil {
-    if p.report { erro(ctx, "dokcer daemon not running (at %s)", sock).at(pos).debug(1) }
+    if p.report { erro(at(ctx,pos), "dokcer daemon not running (at %s)", sock).debug(1) }
   } else {
     // TODO: start docker daemon
   }
@@ -321,7 +321,7 @@ func (p *ExecBuffer) convPos(s1, s2, s3 string) Position {
 func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
   var ctx = p.res.ctx
   if p == nil {
-    erro(ctx, "nil exec buffer").at(pos).debug(1)
+    erro(at(ctx,pos), "nil exec buffer").debug(1)
     return
   }
   var (
@@ -329,8 +329,8 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
     lpos Position = pos
     reportIncludedFrom = func() (res bool) {
       if p.includedFrom.pos1.IsValid() && p.includedFrom.pos2.IsValid() {
-        erro(ctx, "… included from here").at(p.includedFrom.pos1)
-        erro(ctx, "… reported here").at(p.includedFrom.pos2).debug(4)
+        erro(at(ctx,p.includedFrom.pos1), "… included from here")
+        erro(at(ctx,p.includedFrom.pos2), "… reported here").debug(4)
         p.includedFrom.pos1 = Position{}
         p.includedFrom.pos2 = Position{}
         res = true
@@ -400,7 +400,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         } else {
           addScannedDiag(diagError, lpos, fmt.Sprintf("%s", v[4].string))
         }
-        if false && !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
+        if false && !reportIncludedFrom() { erro(at(ctx,lpos), "…reported here").debug(1) }
       }
     case rxCompilationWarning:
       if p.report {
@@ -409,7 +409,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         lpos.Column = v[4].col + 1
         addScannedDiag(diagWarn, lpos, s)
         addScannedDiag(diagWarn,  pos, s)
-        if false && !reportIncludedFrom() { warn(ctx, "…reported here").at(lpos).debug(1) }
+        if false && !reportIncludedFrom() { warn(at(ctx,lpos), "…reported here").debug(1) }
       }
     case rxProtoFileNotFound:
       if p.report {
@@ -424,7 +424,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         lpos.Column = v[4].col
         addScannedDiag(diagError, lpos, s)
         addScannedDiag(diagError,  pos, s)
-        if false && !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
+        if false && !reportIncludedFrom() { erro(at(ctx,lpos), "…reported here").debug(1) }
       }
     case rxProtoNameNotDefined:
       if p.report {
@@ -433,7 +433,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         lpos.Column = v[4].col
         addScannedDiag(diagError, lpos, s)
         addScannedDiag(diagError,  pos, s)
-        if false && !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
+        if false && !reportIncludedFrom() { erro(at(ctx,lpos), "…reported here").debug(1) }
       }
     case rxFatalErrorFileNotFound:
       if p.report {
@@ -442,7 +442,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         lpos.Column = v[4].col
         addScannedDiag(diagError, lpos, s)
         addScannedDiag(diagError,  pos, s)
-        if false && !reportIncludedFrom() { erro(ctx, "…reported here").at(lpos).debug(1) }
+        if false && !reportIncludedFrom() { erro(at(ctx,lpos), "…reported here").debug(1) }
       }
     case rxArNoSuchFile:
       if p.report {
@@ -452,11 +452,11 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       if p.report {
         if false {
           var obj = closureResolveObject(ctx, "objects")
-          erro(ctx, "%s", v[0].string).at(lpos)
-          erro(ctx, "%s", obj).at(lpos)
+          erro(at(ctx,lpos), "%s", v[0].string)
+          erro(at(ctx,lpos), "%s", obj)
           if !isNil(obj) {
             if val := obj.expand(ctx.closure().programContext(), plain); !isNil(val) {
-              erro(ctx, "%s -> %v", obj.Name(ctx), val).at(lpos)
+              erro(at(ctx,lpos), "%s -> %v", obj.Name(ctx), val)
             }
           }
           erro(ctx, "%v", ctx).debug(16)
@@ -484,7 +484,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
     //     if s := v[1].string; s != "" { vs = "-" + s }
     //     lpos.Column = v[2].col + 1
     //     if false {
-    //       erro(ctx, "clang%s: %s", vs, v[2].string).at(lpos).debug(1)
+    //       erro(at(ctx,lpos), "clang%s: %s", vs, v[2].string).debug(1)
     //     } else {
     //       addScannedDiag(diagError, lpos, fmt.Sprintf("clang%s: %s", vs, v[2].string))
     //     }
@@ -618,7 +618,7 @@ func (p *ExecResult) onFirstWrote() {
 
 func (p *ExecResult) runContainerAndRetry(ctx Context) (status int, err error) {
   if p.container == nil {
-    erro(ctx, "no container").at(p.position).debug(1)
+    erro(at(ctx,p.position), "no container").debug(1)
     return
   } else if maxRetries < p.num {
     fmt.Fprintf(p.sh.Stderr, "\n---- Retried %d times\n", p.num)
@@ -634,7 +634,7 @@ func (p *ExecResult) runContainerAndRetry(ctx Context) (status int, err error) {
   if entries := p.container.resolveEntries(ctx, "run", false, false); entries != nil {
     for _, run := range entries.all {
       if _, traves := run.execute(p.ctx, nil); traves.has() {
-        erro(ctx, "%d travestates", len(traves)).at(p.position).debug(1)
+        erro(at(ctx,p.position), "%d travestates", len(traves)).debug(1)
         return
       } //else { p.t.group.Wait() }
     }
@@ -710,7 +710,7 @@ func (p *ExecResult) ensureContainerRunning(ctx Context, containerName string) (
     if entries := p.container.resolveEntries(ctx, "run", false, false); entries != nil {
       for _, run := range entries.all {
         if _, traves := run.execute(p.ctx, nil); traves.has() {
-          erro(ctx, "%d travestates", len(traves)).at(p.position).debug(1)
+          erro(at(ctx,p.position), "%d travestates", len(traves)).debug(1)
           return
         } //else { p.t.group.Wait() }
       }
@@ -719,7 +719,7 @@ func (p *ExecResult) ensureContainerRunning(ctx Context, containerName string) (
       return
     }
   } else if err != nil {
-    erro(ctx, "%v", err).at(p.container.position).debug(1)
+    erro(at(ctx,p.container.position), "%v", err).debug(1)
   }
   return
 }
@@ -832,11 +832,9 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   } else if ms := program.getModifiers(ctx, "stamp"); len(ms) > 0 {
     switch target.(type) {
     case *Barefile, *File, *Path:
-      warn(ctx, "use (shell -stamp) instead of stamp modifier (%T %v)",
-        target, target).at(ms[0].position).debug(1)
+      warn(at(ctx,ms[0].position), "use (shell -stamp) instead of stamp modifier (%T %v)", target, target).debug(1)
     default:
-      warn(ctx, "no need to use (shell -stamp) here",
-        target, target).at(ms[0].position).debug(1)
+      warn(at(ctx,ms[0].position), "no need to use (shell -stamp) here", target, target).debug(1)
     }
   } else if ms := program.getModifiers(ctx, "wait"); len(ms) > 0 {
     // should be good to work
@@ -933,7 +931,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     var s string
     if s = filepath.Dir(targetName); s != "" && s != "." && s != "/" {
       if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
-        erro(ctx, "make path '%s' for target failed: %v", s, err).of(target).debug(1)
+        erro(of(ctx,target), "make path '%s' for target failed: %v", s, err).debug(1)
         return
       }
     }
@@ -1025,10 +1023,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   if log == nil || log.filename == "" {
     // no log required
   } else if err = os.MkdirAll(filepath.Dir(log.filename), os.FileMode(0755)); err != nil {
-    erro(ctx, "%v", err).at(program.position).debug(1)
+    erro(at(ctx,program.position), "%v", err).debug(1)
     return
   } else if logFile, err = os.Create(log.filename); err != nil {
-    erro(ctx, "%v", err).at(program.position).debug(1)
+    erro(at(ctx,program.position), "%v", err).debug(1)
     return
   } else {
     cmdline := strings.Join(sources, "\n")
@@ -1047,7 +1045,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     if str := trimPromptString(targetName); filepath.IsAbs(targetName) {
       var pos Position; pos.Filename, pos.Line = targetName, 1
       warn(ctx, "got %d error(s)", ctx.totalErrors())
-      warn(ctx, "cancel execution for %s", str).at(pos).debug(1)
+      warn(at(ctx,pos), "cancel execution for %s", str).debug(1)
     } else {
       warn(ctx, "got %d error(s), cancel execution for %s", ctx.totalErrors(), str).debug(1)
     }
@@ -1191,7 +1189,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     if p.opt != "" { exeres.sh.Args = append(exeres.sh.Args, p.opt) }
     if src   != "" { exeres.sh.Args = append(exeres.sh.Args, src) }
     if opts.debug > 0 {
-      warn(ctx, "%v: %v", ctx.entry(), target).at(program.position)
+      warn(at(ctx,program.position), "%v: %v", ctx.entry(), target)
       warn(ctx, "context: %v", ctx.programContext())
       warn(ctx, "exec:\n%v", exeres.sh).debug(opts.debug*2)
     }
@@ -1225,15 +1223,15 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         if !opts.infos && rec.dt == diagInfo { continue }
         if !logPos.IsValid() { logPos = rec.lpos }
         if i == 0 && !rec.position.Same(&rec.lpos) {
-          diag(ctx, rec.dt, rec.msg).at(rec.lpos)//.debug(1)
+          diag(at(ctx,rec.lpos), rec.dt, rec.msg)//.debug(1)
         }
         if rec.num > 1 {
-          diag(ctx, rec.dt, `%s (%d)`, rec.msg, rec.num).at(rec.position)//.debug(1)
+          diag(at(ctx,rec.position), rec.dt, `%s (%d)`, rec.msg, rec.num)//.debug(1)
         } else {
-          diag(ctx, rec.dt, rec.msg).at(rec.position)//.debug(1)
+          diag(at(ctx,rec.position), rec.dt, rec.msg)//.debug(1)
         }
         if n := (en+wn+in)-(i+1); i == 8 && 0 < n {
-          diag(ctx, rec.dt, "%d more...", n).at(rec.lpos)//.debug(1)
+          diag(at(ctx,rec.lpos), rec.dt, "%d more...", n)//.debug(1)
           break
         }
       }
@@ -1254,19 +1252,18 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
             warn(ctx, "remove: %v", e).debug(1)
           }
         }
-        if diffLogPos { erro(ctx, "%v: %d known errors", str, en).at(logPos) }
-        erro(ctx, "%v: exit status %d (%d known errors)",
-          str, exeres.Status, en).at(positions[i])
+        if diffLogPos { erro(at(ctx,logPos), "%v: %d known errors", str, en) }
+        erro(at(ctx,positions[i]), "%v: exit status %d (%d known errors)", str, exeres.Status, en)
         errostack(ctx, 32, "").debug(32)
       } else if wn > 0 {
-        if diffLogPos { warn(ctx, "%v: %d known warnings", str, wn).at(logPos) }
-        warn(ctx, "%v: exit status %d", str, exeres.Status).at(positions[i])
+        if diffLogPos { warn(at(ctx,logPos), "%v: %d known warnings", str, wn) }
+        warn(at(ctx,positions[i]), "%v: exit status %d", str, exeres.Status)
 
         warn(ctx, "%v: %d known warnings", str, wn)
         warnstack(ctx, 3, "").debug(1)
       } else if in > 0 && opts.infos {
-        if diffLogPos { info(ctx, "%v: %d known messages", str, in).at(logPos) }
-        info(ctx, "%v: exit status %d", str, exeres.Status).at(positions[i])
+        if diffLogPos { info(at(ctx,logPos), "%v: %d known messages", str, in) }
+        info(at(ctx,positions[i]), "%v: exit status %d", str, exeres.Status)
         info(ctx, "%v: %d known messages", str, in)
         infostack(ctx, 8, "").debug(1)
       }

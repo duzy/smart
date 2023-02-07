@@ -482,9 +482,9 @@ func closureResolveObject(ctx Context, name string) (obj Object) {
     if infos { defer func() {
         var val Value
         if obj != nil { val = obj.expand(ctx, plain) }
-        warn(ctx, "%v: name = %s", scope.project, name).at(scope.position)
-        warn(ctx, "%v: %v", scope.project, scope).at(scope.position)
-        warn(ctx, "%v: %v", scope.project, ctx).at(scope.position)
+        warn(at(ctx,scope.position), "%v: name = %s", scope.project, name)
+        warn(at(ctx,scope.position), "%v: %v", scope.project, scope)
+        warn(at(ctx,scope.position), "%v: %v", scope.project, ctx)
         warn(ctx, "%s: %T, %v", scope.project, obj, obj)
         warn(ctx, "%s: %T, %v", scope.project, val, val).debug(24)
     } () }
@@ -597,11 +597,12 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
         point = diag(ctx, dt, s, a...)
     } else if entry == nil {
         if point = ctx.diag(dt, "in project %v:", proj); proj != nil {
-            point.at(proj.position)
+            point.position = proj.position
         }
         for last, i := ctx.Position(), ctx.inner(); i != nil; i = i.inner() {
             if pos := i.Position(); !pos.Same(&last) {
-                point = ctx.diag(dt, "%v: from here", proj).at(pos)
+                point = ctx.diag(dt, "%v: from here", proj)
+                point.position = pos
                 last = pos
             }
         }
@@ -614,10 +615,11 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
     if s == "<#" && len(a) > 0 { for _, t := range a {
         if v, ok := t.(Value); ok {
             if str == "" {
-                point = ctx.diag(dt, "%v: %v (%T)", proj, v, v).of(v)
+                point = ctx.diag(dt, "%v: %v (%T)", proj, v, v)
             } else {
-                point = ctx.diag(dt, "%v: %v: %v (%T)", proj, str, v, v).of(v)
+                point = ctx.diag(dt, "%v: %v: %v (%T)", proj, str, v, v)
             }
+            point.position = v.Position()
         }
     }}
 
@@ -632,15 +634,16 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
     }
 
     if pc := ctx.positionContext(); pc != nil {
-        point = point.at(pc.position)
+        point.position = pc.position
 
         if s == "#>" && len(a) > 0 { for _, t := range a {
             if v, ok := t.(Value); ok {
                 if str == "" {
-                    point = ctx.diag(dt, "%v: %v (%T)", proj, v, v).of(v)
+                    point = ctx.diag(dt, "%v: %v (%T)", proj, v, v)
                 } else {
-                    point = ctx.diag(dt, "%v: %v: %v (%T)", proj, str, v, v).of(v)
+                    point = ctx.diag(dt, "%v: %v: %v (%T)", proj, str, v, v)
                 }
+                point.position = v.Position()
             }
         }}
 
@@ -651,14 +654,15 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
             var suf string
             if n == 1 && pc.caller() != nil { suf = " ..." }
             if entry := pc.entry(); entry == nil {
-                point = ctx.diag(dt, "%v%s", proj, suf).at(*pos)
+                point = ctx.diag(dt, "%v%s", proj, suf)
             } else if str, _, _ := entryStr(pc, entry); str != "" {
-                point = ctx.diag(dt, "%v: (project=%v)%s", str, proj, suf).at(*pos)
+                point = ctx.diag(dt, "%v: (project=%v)%s", str, proj, suf)
             } else {
-                point = ctx.diag(dt, "%v: %v%s", proj, entry, suf).at(*pos)
+                point = ctx.diag(dt, "%v: %v%s", proj, entry, suf)
             }
+            point.position = *pos
 
-            if false && pc != nil { point = ctx.diag(dt, "%v: ...", proj).at(*pos) }
+            if false && pc != nil { point = ctx.diag(dt, "%v: ...", proj) }
 
             last, n = pos, n-1
         }
@@ -699,11 +703,11 @@ func exists(ctx Context, v Value) bool {
 func traverse(ctx Context, prereqValue Value, prereq string, projects... *Project) (traves travestates) {
     var targetValue = getTargetValue(ctx)
     if targetValue == nil {
-        prompt(ctx, "%s: target is nil\n", prereq).of(prereqValue)
+        prompt(of(ctx,prereqValue), "%s: target is nil\n", prereq)
         errostack(ctx, 3, "").debug(6)
         return
     } else if isTrivial(targetValue) {
-        prompt(ctx, "%s: target is trivial (%T)\n", prereq, targetValue).of(prereqValue)
+        prompt(of(ctx,prereqValue), "%s: target is trivial (%T)\n", prereq, targetValue)
         errostack(ctx, 3, "").debug(6)
         return
     }
@@ -813,8 +817,8 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     if traveseDetectLoops { if eq(ctx, targetValue, prereqValue) {
         prompt(ctx, "%v: %v: self dependency, consider using [(once)] to avoid\n",
             targetValue, prereqValue)
-        warn(ctx, "recursion: %T %v", prereqValue, prereqValue).of(prereqValue)
-        warn(ctx, "recursion: %T %v", targetValue, targetValue).of(targetValue)
+        warn(of(ctx,prereqValue), "recursion: %T %v", prereqValue, prereqValue)
+        warn(of(ctx,targetValue), "recursion: %T %v", targetValue, targetValue)
         warn(ctx, "recursion: %v : %v ; in %v", targetValue, prereqFile, projects)
         if false {
             warnstack(ctx, 16, "").debug(32)
@@ -963,7 +967,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
 
             if t.has(traveFail) {
                 prompt(ctx, "%v → %T %v\n", prereq, obj, obj)
-                for _, s := range t { warn(ctx, "%v: (%T) %v", obj, obj, s).at(s.pos) }
+                for _, s := range t { warn(at(ctx,s.pos), "%v: (%T) %v", obj, obj, s) }
                 warnstack(ctx, 5, "").debug(8)
                 return
             }
@@ -1004,11 +1008,9 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         if promptTraveEntries || false && t.has(traveFail, traveNext) {
             var g = targetValue.Strval(ctx)
             if s, ok := entry.(*stemmed); ok {
-                prompt(ctx, "%v:(%T): %T %v ⇒ %v\n",
-                    g, targetValue, prereqValue, prereqValue, s.PatternEntry)
+                prompt(ctx, "%v:(%T): %T %v ⇒ %v\n", g, targetValue, prereqValue, prereqValue, s.PatternEntry)
             } else {
-                prompt(ctx, "%v:(%T): %T %v ⇒ %v\n",
-                    g, targetValue, prereqValue, prereqValue, entry)
+                prompt(ctx, "%v:(%T): %T %v ⇒ %v\n", g, targetValue, prereqValue, prereqValue, entry)
             }
             prompt(ctx, "%v:(%T): %v\n", g, targetValue, t)
             infostack(ctx, 5, "<#", prereqValue).debug(1)
@@ -1020,12 +1022,9 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         if tt := t.of(traveFail); tt.has() {
             if !pattern || verb {
                 var stems = ctx.stems()
-                prompt(ctx, "%s: traverse entry failed (project=%v, target=%v, stems=%v)\n",
-                    entry, project, targetValue, stems)
-                warn(ctx, "%v (%T) (by %v, in %v)", entry, entry.Target(), targetValue,
-                    entry.OwnerProject()).of(entry)
-                for _, s := range traves { warn(ctx, "%v: %v: %v",
-                    targetValue, entry, s).at(s.pos) }
+                prompt(ctx, "%s: traverse entry failed (project=%v, target=%v, stems=%v)\n", entry, project, targetValue, stems)
+                warn(of(ctx,entry), "%v (%T) (by %v, in %v)", entry, entry.Target(), targetValue, entry.OwnerProject())
+                for _, s := range traves { warn(at(ctx,s.pos), "%v: %v: %v", targetValue, entry, s) }
                 if n, m := 5, 16; len(stems) == 0 {
                     errostack(ctx, n, "#>", prereqValue).debug(m)
                 } else {
@@ -1034,8 +1033,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
             }
             for _, s := range tt {
                 if g := s.target; g != nil && eq(ctx, prereqValue, g) && true {
-                    warn(ctx, "%v (%T) (by %v, in %v)", entry, entry.Target(), targetValue,
-                        entry.OwnerProject()).of(entry).debug(1)
+                    warn(of(ctx,entry), "%v (%T) (by %v, in %v)", entry, entry.Target(), targetValue, entry.OwnerProject()).debug(1)
                     return traveResContinue
                 }
             }
@@ -1081,7 +1079,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                         prompt(ctx, "%v: %v %v (%v,%v)\n", targetValue.Strval(ctx),
                             prereqPattern, prereqValue, pattern, stemmedThisTarget)
                         info(ctx, "%T %v ; %v", prereqValue, prereqValue, ctx.stemmed())
-                        infostack(ctx, 5, "").of(prereqValue).debug(1)
+                        infostack(of(ctx,prereqValue), 5, "").debug(1)
                     }
                     if /*pattern && */stemmedThisTarget {
                         traves = append(traves, s) // collect the state
@@ -1093,7 +1091,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                         prompt(ctx, "%v: %v %v (%v,%v)\n", targetValue.Strval(ctx),
                             prereqPattern, prereqValue, pattern, stemmedThisTarget)
                         info(ctx, "%T %v %v", prereqValue, prereqValue, ctx.stemmed())
-                        infostack(ctx, 5, "").of(prereqValue).debug(1)
+                        infostack(of(ctx,prereqValue), 5, "").debug(1)
                     }
                     if pattern && stemmedThisTarget {
                         // IMPORTANT NOTE: traveNext state should be remained
@@ -1257,11 +1255,10 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
         if s, ok := t[0].depend.(*stemmed); ok {
             if false {
                 for i, concrete := range concreteList {
-                    warn(ctx, "concrete: %d. %v (%d programs)", i,
-                        concrete, len(concrete.Programs())).at(concrete.Position())
+                    warn(at(ctx,concrete.Position()), "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs()))
                 }
                 for i, stemmed  := range stemmedList {
-                    warn(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position)
+                    warn(at(ctx,stemmed.position), "stemmed: %d. %v", i, stemmed)
                 }
                 warn(ctx, "%v %s", s.Name(ctx), prereq).debug(1)
             }
@@ -1285,11 +1282,10 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
     if prereqPattern != nil {
         if false {
             for i, concrete := range concreteList {
-                warn(ctx, "concrete: %d. %v (%d programs)", i,
-                    concrete, len(concrete.Programs())).at(concrete.Position())
+                warn(at(ctx,concrete.Position()), "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs()))
             }
             for i, stemmed  := range stemmedList {
-                warn(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position)
+                warn(at(ctx,stemmed.position), "stemmed: %d. %v", i, stemmed)
             }
             warn(ctx, "%v %s", prereqPattern, prereq).debug(1)
         }
@@ -1330,11 +1326,11 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 okay, traversed, projects).debug(1)
         }
 
-        for i, s := range traves { erro(ctx, "%v: %v: %d. %v", targetValue, prereqValue, i, s).at(s.pos) }
+        for i, s := range traves { erro(at(ctx,s.pos), "%v: %v: %d. %v", targetValue, prereqValue, i, s) }
         for i, c := range ctx.closureScopes() { erro(ctx, "%v: closure: %v. %v", proj, i, c) }
-        for i, concrete := range concreteList { erro(ctx, "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs())).at(concrete.Position()) }
-        for i, stemmed  := range stemmedList  { erro(ctx, "stemmed: %d. %v", i, stemmed).at(stemmed.position) }
-        if obj := prereqObj; obj != nil { erro(ctx, "object: %T %v", obj, obj).at(obj.Position()) }
+        for i, concrete := range concreteList { erro(at(ctx,concrete.Position()), "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs())) }
+        for i, stemmed  := range stemmedList  { erro(at(ctx,stemmed.position), "stemmed: %d. %v", i, stemmed) }
+        if obj := prereqObj; obj != nil { erro(at(ctx,obj.Position()), "object: %T %v", obj, obj) }
         errostack(ctx, 12, "").debug(512)
         return
     } else {
@@ -1382,7 +1378,7 @@ func getRecipesHash(ctx Context, target Value, values ...Value) (k, v HashBytes,
 func updateRecipesHash(ctx Context, target Value) (k, v HashBytes, err error) {
     var program = ctx.program()
     if k, v, err = getRecipesHash(ctx, target, program.recipes...); err != nil {
-        erro(ctx, "hashing recipes failed: %v", err).at(program.position).debug(1)
+        erro(at(ctx,program.position), "hashing recipes failed: %v", err).debug(1)
         return
     }
 
@@ -1416,7 +1412,7 @@ func isRecipesChanged(ctx Context, target Value) (outdated bool, err error) {
         erro(ctx, "no program in context %v", ctx).debug(1)
         return
     } else if k, v, err = getRecipesHash(ctx, target, program.recipes...); err != nil {
-        erro(ctx, "compute recipes hash failed: %v", err).at(program.position).debug(1)
+        erro(at(ctx,program.position), "compute recipes hash failed: %v", err).debug(1)
         return
     }
 
@@ -1451,11 +1447,11 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
     }
 
     if target = getTargetValue(ctx); target == nil {
-        erro(ctx, "target is nil").at(pos)
+        erro(at(ctx,pos), "target is nil")
         errostack(ctx, 8, "").debug(8)
         return
     } else if isTrivial(target) {
-        erro(ctx, "trivial target (%T)", target).at(pos)
+        erro(at(ctx,pos), "trivial target (%T)", target)
         errostack(ctx, 8, "").debug(8)
         return
     } else if n := len(calleeErrs); n > 0 /*&& t.stems == nil*/ {
@@ -1471,21 +1467,21 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
         if numRealErrs == 0 { return } // simply return if no real errors
         if !pos.Same(&targetPos) {
             var s string; if n > 1 { s = "s" }
-            erro(ctx, "%d error%s while waiting prerequisites for '%v'", n, s, target).at(targetPos).debug(1)
+            erro(at(ctx,targetPos), "%d error%s while waiting prerequisites for '%v'", n, s, target).debug(1)
         }
 
         var v = target
         if l, ok := v.(*List); ok && l.Len() == 1 { v = l.Elems[0] }
         if targetValuePos.IsValid() && !targetValuePos.Same(&targetPos) {
             if f, y := toFile(v); y && f != nil && f.filemap != nil {
-                erro(ctx, "waiting for '%v'", target).at(targetValuePos)
-                erro(ctx, "via pattern '%v' (of %v)", v, f.filemap.project).of(f.filemap.patts[0]).debug(1)
+                erro(at(ctx,targetValuePos), "waiting for '%v'", target)
+                erro(of(ctx,f.filemap.patts[0]), "via pattern '%v' (of %v)", v, f.filemap.project).debug(1)
             } else {
-                erro(ctx, "waiting for '%v'", target).at(targetValuePos).debug(1)
+                erro(at(ctx,targetValuePos), "waiting for '%v'", target).debug(1)
             }
         }
         if def, ok := v.(*def); ok && target != v && target != def.value { // trace source Def in diagnostics
-            erro(ctx, "waiting for def '%v': %v", def.name, def.value).of(def.value).debug(1)
+            erro(of(ctx,def.value), "waiting for def '%v': %v", def.name, def.value).debug(1)
         }
         return
     }
@@ -1507,8 +1503,8 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
     if !optStampCurrentTarget {
         // done!
     } else if files, err = target.stamp(ctx); err != nil {
-        if p := target.Position(); p.IsValid() { erro(ctx, "%v", err).at(p) }
-        erro(ctx, "%v", err).at(pos).debug(1)
+        if p := target.Position(); p.IsValid() { erro(at(ctx,p), "%v", err) }
+        erro(at(ctx,pos), "%v", err).debug(1)
         return
     } else if optReportFileUpdates {
         reportFileUpdates(ctx, ctx.programContext().start, files)
@@ -1651,7 +1647,7 @@ func (_ *valbase) _match(ctx Context, p Value, i interface{}) (full bool, s stri
     case string: is = t
     case Value : is = t.Strval(ctx)
     default:
-        erro(ctx, "%T: matching unsupported value: %T %v", p, i, i).of(p).debug(1)
+        erro(of(ctx,p), "%T: matching unsupported value: %T %v", p, i, i).debug(1)
         return
     }
     if strings.HasPrefix(is, v) { s, full = v, (len(v) == len(is)) }
@@ -1801,7 +1797,7 @@ func (p *Argumented) traverse(ctx Context) (traves travestates) {
             // TODO: deal with pattern args using expandPatterned instead of stenciling:
             if true && a.patterned(ctx) { if stems := ctx.stems(); len(stems) > 0 {
                 if val, rest := a.stencil(ctx, stems); len(rest) > 0 {
-                    erro(ctx, "partial stencil: %v, %T %v, %v, %v", a, val, val, rest, stems).of(a).debug(1)
+                    erro(of(ctx,a), "partial stencil: %v, %T %v, %v, %v", a, val, val, rest, stems).debug(1)
                     panic(fmt.Sprintf("%T %v", val, val))
                 } else if file, okay := toFile(val); okay {
                     a = file
@@ -2875,7 +2871,7 @@ func (p *elements) expandible(ctx Context, w facet) (res bool) {
     var pos = ctx.Position()
     for _, elem := range p.Elems {
         if elem == nil {
-            warnstack(ctx, 6, "nil element: %v", p).at(pos).debug(32)
+            warnstack(at(ctx,pos), 6, "nil element: %v", p).debug(32)
             break
         } else {
             pos = elem.Position()
@@ -3152,7 +3148,7 @@ func (p *Barecomp) match(ctx Context, i interface{}) (full bool, s string, stems
         case string: is = t
         case Value : is = t.Strval(ctx)
         default:
-            erro(ctx, "%T: matching unsupported value: %T %v", p, i, i).of(p).debug(1)
+            erro(of(ctx,p), "%T: matching unsupported value: %T %v", p, i, i).debug(1)
             return
         }
         if is == "" { return }
@@ -3573,7 +3569,7 @@ func globMatchFile(ctx Context, patVal Value, filename string, tailMatch bool) (
     switch patVal.(type) {
     default: // good to go!
     case *List:
-        erro(ctx, "invalid glob matching pattern: %v", patVal).of(patVal).debug(8)
+        erro(of(ctx,patVal), "invalid glob matching pattern: %v", patVal).debug(8)
         return
     }
 
@@ -3675,8 +3671,8 @@ func (p *Path) Strval(ctx Context) (s string) {
 
         var v string
         if isUndef(seg) {
-            erro(ctx, "undef path segment (%T)", seg).at(seg.Position())
-            erro(ctx, "… from this context: %s", ctx).at(ctx.Position()).debug(16)
+            erro(at(ctx,seg.Position()), "undef path segment (%T)", seg)
+            erro(at(ctx,ctx.Position()), "… from this context: %s", ctx).debug(16)
             return
         } else if v = seg.Strval(ctx); i > 0 {
             s += PathSep + v
@@ -3827,7 +3823,7 @@ func (p *Path) match1(ctx Context, str string) (full bool, result string, stems 
         un int
     )
     if srcs = strings.Split(str, PathSep); len(srcs) == 0 {
-        if false { erro(ctx, "empty: %v", str).at(p.position) }
+        if false { erro(at(ctx,p.position), "empty: %v", str) }
         return
     } else if segs, un, _ = expandPathElems(ctx, plain, p.Elems...); un > 0 {
         errostack(ctx, 3, "can't expand path: %v", p).debug(1)
@@ -3856,7 +3852,7 @@ SegsSrcsLoop:
     for ; n < lenSegs && m < lenSrcs; {
         var si, seg, src = n, segs[n], srcs[m]
         if cs := correctPathSegForMatch(seg); cs != nil { seg = cs } else {
-            erro(ctx, "invalid path seg: %v (%T)", seg, seg).of(seg).debug(1)
+            erro(of(ctx,seg), "invalid path seg: %v (%T)", seg, seg).debug(1)
             break SegsSrcsLoop
         }
 
@@ -3867,22 +3863,22 @@ SegsSrcsLoop:
             f    bool
         )
         if pp {
-            if infos { info(ctx, "%d: path=%v seg=%v (%T) src=%v pp=%v pre=%v suf=%v res=%v stems=%v srcs[%d]=%s lenSegs=%d", si, p, seg, seg, src, pp, pre, suf, res, stems, m, src, lenSegs).of(p).debug(1) }
+            if infos { info(of(ctx,p), "%d: path=%v seg=%v (%T) src=%v pp=%v pre=%v suf=%v res=%v stems=%v srcs[%d]=%s lenSegs=%d", si, p, seg, seg, src, pp, pre, suf, res, stems, m, src, lenSegs).debug(1) }
             if !isTrivial(lastSuf) && !isTrivial(pre) {
-                erro(ctx, "the continual %%/%% makes no sense").of(seg)
+                erro(of(ctx,seg), "the continual %%/%% makes no sense")
                 break SegsSrcsLoop
             }
             if /*ps, ok := seg.(*PathSeg);*/ src == "" /*&& ok && (ps.rune == 0 || ps.rune == '/')*/ { // for root path seg '/'
                 // NOTE: seg could also be % or %% here
                 res   = append(res, "") // for '/'
                 stems = append(stems, "")
-                //info(ctx, "%v %v; %v %v; %v %v", p, seg, res, stems, ps, ok).of(p)
+                //info(of(ctx,p), "%v %v; %v %v; %v %v", p, seg, res, stems, ps, ok)
             }
             lastSuf = suf
             n += 1 // move forward to the next seg
             m += 1 // move forward to the next src
         } else if f, s, ss = seg.match(ctx, src); f || s == src {
-            if infos { info(ctx, "%d: path=%v seg=%v (%T); str=%v srcs[%d]=%v -> f=%v s=%v ss=%v => res=%v stems=%v", si, p, seg, seg, str, m, src, f, s, ss, res, stems).of(p).debug(1) }
+            if infos { info(of(ctx,p), "%d: path=%v seg=%v (%T); str=%v srcs[%d]=%v -> f=%v s=%v ss=%v => res=%v stems=%v", si, p, seg, seg, str, m, src, f, s, ss, res, stems).debug(1) }
             // NOTE: `s` could be empty string, e.g. when `str` is absolute path
             res   = append(res  , s)
             stems = append(stems, ss...)
@@ -3896,14 +3892,14 @@ SegsSrcsLoop:
             } else if false {
                 res, stems = nil, nil
             }
-            if infos { info(ctx, "%d: path=%v seg=%v (%T) res=%v stems=%v f=%v s=%s ss=%v src=%s lenSegs=%d str=%s", si, p, seg, seg, res, stems, f, s, ss, src, lenSegs, str).of(p).debug(1) }
+            if infos { info(of(ctx,p), "%d: path=%v seg=%v (%T) res=%v stems=%v f=%v s=%s ss=%v src=%s lenSegs=%d str=%s", si, p, seg, seg, res, stems, f, s, ss, src, lenSegs, str).debug(1) }
             break SegsSrcsLoop
         }
 
         var prefix string
         if !isTrivial(pre) {
             if prefix = pre.Strval(ctx); !strings.HasPrefix(src, prefix) {
-                if infos { info(ctx, "%d: seg=%v (%T) pp=%v pre=%v suf=%v res=%v stems=%v src=%s", si, seg, seg, pp, pre, suf, res, stems, src).of(p).debug(1) }
+                if infos { info(of(ctx,p), "%d: seg=%v (%T) pp=%v pre=%v suf=%v res=%v stems=%v src=%s", si, seg, seg, pp, pre, suf, res, stems, src).debug(1) }
                 break SegsSrcsLoop
             }
         }
@@ -3920,7 +3916,7 @@ SegsSrcsLoop:
                     if strings.HasSuffix(src, suffix) {
                         stem = append(stem, strings.TrimSuffix(src, suffix))
                         stems = append(stems, strings.Join(stem, PathSep))
-                        if infos { info(ctx, "%d: path=%v seg=%v (%T) res=%v stems=%v suffix=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, suffix, src, lenSegs).of(p).debug(1) }
+                        if infos { info(of(ctx,p), "%d: path=%v seg=%v (%T) res=%v stems=%v suffix=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, suffix, src, lenSegs).debug(1) }
                         n += 1 // continue for next seg
                         m += 1 // move forward to the next src
                         continue SegsSrcsLoop
@@ -3933,7 +3929,7 @@ SegsSrcsLoop:
             }
             if len(stem) > 0 {
                 stems = append(stems, strings.Join(stem, PathSep))
-                if infos { info(ctx, "%d: path=%v seg=%v (%T) res=%v stems=%v suffix=%v src=%s lenSegs=%d lenSrcs=%d m=%d", si, p, seg, seg, res, stems, suffix, src, lenSegs, lenSrcs, m).of(p).debug(1) }
+                if infos { info(of(ctx,p), "%d: path=%v seg=%v (%T) res=%v stems=%v suffix=%v src=%s lenSegs=%d lenSrcs=%d m=%d", si, p, seg, seg, res, stems, suffix, src, lenSegs, lenSrcs, m).debug(1) }
             }
         } else if n < lenSegs && !isTrivial(segs[n]) {
             for seg = segs[n]; m < lenSrcs; m += 1 {
@@ -3951,7 +3947,7 @@ SegsSrcsLoop:
                     } else {
                         stems = append(stems, strings.Join(stem, PathSep))
                     }
-                    if infos { info(ctx, "%d: path=%v seg=%v (%T) res=%v stems=%v matched=%v s=%s ss=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, matched, s, ss, src, lenSegs).of(p).debug(1) }
+                    if infos { info(of(ctx,p), "%d: path=%v seg=%v (%T) res=%v stems=%v matched=%v s=%s ss=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, matched, s, ss, src, lenSegs).debug(1) }
                     n += 1 // continue for next seg
                     m += 1 // move forward to the next src
                     continue SegsSrcsLoop
@@ -3962,7 +3958,7 @@ SegsSrcsLoop:
             }
             if len(stem) > 0 {
                 stems = append(stems, strings.Join(stem, PathSep))
-                if infos { info(ctx, "%d: path=%v seg=%v (%T) res=%v stems=%v s=%s ss=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, s, ss, src, lenSegs).of(p).debug(1) }
+                if infos { info(of(ctx,p), "%d: path=%v seg=%v (%T) res=%v stems=%v s=%s ss=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, s, ss, src, lenSegs).debug(1) }
             }
         } else { // the tailing %%
             if /*m < lenSrcs*/true {
@@ -3971,11 +3967,11 @@ SegsSrcsLoop:
                 stem = append(stem, rest...)
                 stems = append(stems, strings.Join(stem, PathSep))
             }
-            if infos { info(ctx, "%d: seg=%v pre=%v suf=%v res=%v stems=%v src=%s", si, seg, pre, suf, res, stems, src).of(p).debug(1) }
+            if infos { info(of(ctx,p), "%d: seg=%v pre=%v suf=%v res=%v stems=%v src=%s", si, seg, pre, suf, res, stems, src).debug(1) }
             break SegsSrcsLoop
         }
         if infos && n == lenSegs {
-            info(ctx, "%d: path=%v seg=%v (%T) str=%v src=%v -> f=%v s=%v ss=%v -> res=%v stems=%v stem=%v m=%d/%d 3.lengSegs=%d", si, p, seg, seg, str, src, f, s, ss, res, stems, stem, m, lenSrcs, lenSegs).of(p).debug(true, 1)
+            info(of(ctx,p), "%d: path=%v seg=%v (%T) str=%v src=%v -> f=%v s=%v ss=%v -> res=%v stems=%v stem=%v m=%d/%d 3.lengSegs=%d", si, p, seg, seg, str, src, f, s, ss, res, stems, stem, m, lenSrcs, lenSegs).debug(true, 1)
         }
     }
     if lenRes := len(res); lenRes > 0 { // full or partial matched
@@ -3989,16 +3985,16 @@ SegsSrcsLoop:
             warn(ctx, "%d/%d, %d/%d, %d: %v %v", n, lenSegs, m, lenSrcs, lenRes, srcs, segs).debug(1)
         }
         if infos { if false {
-            warn(ctx, "Path.match: path=%v str=%v res=%v stems=%v -> full=%v result=%v lens=%d,%d", p, str, res, stems, full, result, lenRes, lenSrcs).of(p).debug(1)
+            warn(of(ctx,p), "Path.match: path=%v str=%v res=%v stems=%v -> full=%v result=%v lens=%d,%d", p, str, res, stems, full, result, lenRes, lenSrcs).debug(1)
         } else {
-            warn(ctx, "Path.match: path=%v res=%v stems=%v lenRes=%d", p, res, stems, lenRes).of(p)
-            warn(ctx, "Path.match: str=%v full=%v result=%v lenSrcs=%d", str, full, result, lenSrcs).of(p).debug(4)
+            warn(of(ctx,p), "Path.match: path=%v res=%v stems=%v lenRes=%d", p, res, stems, lenRes)
+            warn(of(ctx,p), "Path.match: str=%v full=%v result=%v lenSrcs=%d", str, full, result, lenSrcs).debug(4)
         }}
         if correct := (!full && strings.HasPrefix(str, result)) || (full && str == result); false {
             assert(correct, "incorrect result: res=%v result=%v full=%v stems=%v str=%s", res, result, full, stems, str)
         } else if !correct {
             prompt(ctx, "%v: %v: incorrect match: full=%v; segs=%v; srcs=%v; res=%v\n", str, p, full, segs, srcs, res)
-            erro(ctx, "incorrect match: path=%v, str=%s, res=%v result=%v", p, str, res, result).of(p)
+            erro(of(ctx,p), "incorrect match: path=%v, str=%s, res=%v result=%v", p, str, res, result)
             errostack(ctx, 8, "%v", ctx).debug(10)
         }
         if full && p.patterned(ctx) && len(stems) == 0 {
@@ -4006,7 +4002,7 @@ SegsSrcsLoop:
                 stems = res
             } else {
                 prompt(ctx, "%v: %v: incorrect full match: segs=%v; srcs=%v; res=%v\n", str, p, segs, srcs, res)
-                warn(ctx, "incorrect full match: path=%v, str=%s, res=%v result=%v", p, str, res, result).of(p)
+                warn(of(ctx,p), "incorrect full match: path=%v, str=%s, res=%v result=%v", p, str, res, result)
                 warnstack(ctx, 3, "(%T):", ctx).debug(6)
             }
         }
@@ -4053,7 +4049,7 @@ func (p *Path) match(ctx Context, i interface{}) (full bool, result string, stem
             return p.match1(ctx, str)
         }
     default:
-        erro(ctx, "matching unsupport value: %T %v", i, i).at(p.position).debug(8)
+        erro(at(ctx,p.position), "matching unsupport value: %T %v", i, i).debug(8)
     }
     return
 }
@@ -4087,10 +4083,10 @@ func (p *Path) Combine(ctx Context, val Value) {
         tail = p.Elems[ti]
     )
     if isNil(val) || isNone(val) {
-        erro(ctx, "path combines invalid value: %v", val).of(p)
+        erro(of(ctx,p), "path combines invalid value: %v", val)
         return
     } else if isNil(tail) {
-        erro(ctx, "path tail is nil: %v", p).of(p)
+        erro(of(ctx,p), "path tail is nil: %v", p)
         return
     } else if isNone(tail) {
         p.Elems[ti] = val
@@ -4139,7 +4135,7 @@ func (p *PathSeg) Strval(ctx Context) (s string) {
     } else if p.rune == '/' { // root segment,
         s = "" // the 'empty' before the first '/'
     } else if s = p.String(); s == "" {
-        erro(ctx, "unknown segment '%s' ('%v')", string(p.rune), p).at(p.position).debug(1)
+        erro(at(ctx,p.position), "unknown segment '%s' ('%v')", string(p.rune), p).debug(1)
     }
     return
 }
@@ -4477,14 +4473,14 @@ func (p *File) absolute_delete(ctx Context) (files []*File, err error) {
 
     var fullname string
     if fullname = p.fullname(); fullname == "" {
-        erro(ctx, "file `%s` has no fullname", p).of(p).debug(1)
+        erro(of(ctx,p), "file `%s` has no fullname", p).debug(1)
         return
     }
 
     if p.info == nil {
         // ignore
     } else if err = os.Remove(fullname); err != nil {
-        erro(ctx, "%v", err).at(p.position).debug(1)
+        erro(at(ctx,p.position), "%v", err).debug(1)
     } else {
         // TODO: ctx.Globe().delete(fullname)
         files = append(files, p)
@@ -4495,7 +4491,7 @@ func (p *File) absolute_delete(ctx Context) (files []*File, err error) {
 func (p *File) stamp(ctx Context) (files []*File, err error) {
     if positionalValueCtx { ctx = at(ctx, p.position) }
     if fullname := p.fullname(); fullname == "" {
-        erro(ctx, "file `%s` has no fullname", p).of(p).debug(1)
+        erro(of(ctx,p), "file `%s` has no fullname", p).debug(1)
     } else if p.info, err = os.Stat(fullname); err != nil {
         if false { erro(ctx, "%v", err).debug(1) }
     } else if p.info == nil {
@@ -4559,11 +4555,11 @@ func (p *File) stat(ctx Context) (si *statinfo) {
         // good
     } else if pe, ok := err.(*fs.PathError); ok {
         if false {
-            erro(ctx, "File.stat %v: %v", trimPromptString(pe.Path), pe.Err).at(p.position).debug(1)
+            erro(at(ctx,p.position), "File.stat %v: %v", trimPromptString(pe.Path), pe.Err).debug(1)
         }
         return
     } else {
-        erro(ctx, "File.stat failed: %v", err).at(p.position).debug(1)
+        erro(at(ctx,p.position), "File.stat failed: %v", err).debug(1)
     }
     if err == nil { si = &statinfo{ file: p } }
     return
@@ -4652,7 +4648,7 @@ func (p *File) match(ctx Context, i interface{}) (full bool, s string, stems []s
             return p.match1(ctx, t.Strval(ctx))
         }
     default:
-        erro(ctx, "matching file '%v' with unknown input: %v", p, i).at(p.position).debug(1)
+        erro(at(ctx,p.position), "matching file '%v' with unknown input: %v", p, i).debug(1)
     }
     return
 }
@@ -4718,7 +4714,7 @@ func (p *Flag) match(ctx Context, i interface{}) (full bool, s string, stems []s
             s = "-" + s
         }
     default:
-        warn(ctx, "-%v <-> %T %v", p.name, i, i).at(p.position).debug(true, 16)
+        warn(at(ctx,p.position), "-%v <-> %T %v", p.name, i, i).debug(true, 16)
     }
     return
 }
@@ -4746,7 +4742,7 @@ func (p *Flag) elemStr(ctx Context, o Object, k elemkind) (s string) {
 }
 func (p *Flag) opt(ctx Context, name string) (res string, match bool) {
     if isTrivial(p.name) {
-        if false { erro(ctx, "flag name is trivial").of(p).debug(16) }
+        if false { erro(of(ctx,p), "flag name is trivial").debug(16) }
     } else if f, ok := p.name.(*Flag); ok {
         res, match = f.opt(ctx, name)
     } else if s := p.name.Strval(ctx); s == name {
@@ -4764,7 +4760,7 @@ func (p *Flag) opts(ctx Context, try bool, opts ...string) (runes []rune, names 
             if t.string == opt { names = append(names, opt) }
         }
         if !try && len(names) == 0 {
-            erro(ctx, "unknown flag (known: %s)", strings.Join(opts, ", ")).of(p)
+            erro(of(ctx,p), "unknown flag (known: %s)", strings.Join(opts, ", "))
         }
     case *Bareword:
         for _, opt := range opts {
@@ -4783,7 +4779,7 @@ func (p *Flag) opts(ctx Context, try bool, opts ...string) (runes []rune, names 
             }
         }
         if !try && (len(runes) == 0 || len(names) == 0) {
-            erro(ctx, "unknown flag (known: %s)", strings.Join(opts, ", ")).of(p)
+            erro(of(ctx,p), "unknown flag (known: %s)", strings.Join(opts, ", "))
         }
     }
     if enable_assertions {
@@ -4891,7 +4887,7 @@ func (p *Compound) elemStr(ctx Context, o Object, k elemkind) (s string) {
     // Escape string chars
     for i := strings.IndexAny(s, escapedChars); i != -1; {
         if _, err = buf.WriteString(s[:i]); err != nil {
-            erro(ctx, "%v", err).of(p)
+            erro(of(ctx,p), "%v", err)
             return
         }
 
@@ -4902,7 +4898,7 @@ func (p *Compound) elemStr(ctx Context, o Object, k elemkind) (s string) {
         case '\n': esc = `\n`
         }
         if _, err = buf.WriteString(esc); err != nil {
-            erro(ctx, "%v", err).of(p)
+            erro(of(ctx,p), "%v", err)
             return
         }
 
@@ -4910,7 +4906,7 @@ func (p *Compound) elemStr(ctx Context, o Object, k elemkind) (s string) {
         i = strings.IndexAny(s, escapedChars)
     }
     if _, err = buf.WriteString(s); err != nil {
-        erro(ctx, "%v", err).of(p)
+        erro(of(ctx,p), "%v", err)
     }
     return
 }
@@ -5196,7 +5192,7 @@ func (p *Group) expand(ctx Context, w facet) (res Value) {
     return
 }
 func (p *Group) traverse(ctx Context) (traves travestates) {
-    warn(ctx, "traversing group: %v", p).at(p.position).debug(32)
+    warn(at(ctx,p.position), "traversing group: %v", p).debug(32)
     return
 }
 func (p *Group) cmp(ctx Context, v Value) (res cmpres) {
@@ -5230,7 +5226,7 @@ func parseGroupValue(ctx Context, g *Group) (result Value) {
         case *Group: if len(kind.Elems) > 0 {
             var ( name = kind.Elems[0]; ok bool )
             if word, ok = name.(*Bareword); !ok {
-                erro(ctx, "unsupported name type: %T %v", name, name).of(name).debug(1)
+                erro(of(ctx,name), "unsupported name type: %T %v", name, name).debug(1)
             }
         }}
         if word != nil {
@@ -5273,7 +5269,7 @@ func (p *Pair) defs(ctx Context, s ...string) []*def {
     return append(p.Key.defs(ctx, s...), p.Value.defs(ctx, s...)...)
 }
 func (p *Pair) traverse(ctx Context) (traves travestates) {
-    erro(ctx, "traversing pair '%v' is undefined", p).at(p.position)
+    erro(at(ctx,p.position), "traversing pair '%v' is undefined", p)
     errostack(at(ctx, p.position), -1, "pair is not traversible: %v", p).debug(16)
     return
 }
@@ -5391,12 +5387,12 @@ type delegate struct {
 func (p *delegate) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *delegate) Strval(ctx Context) (s string) {
     if v := p.expand(ctx, plain); v == nil {
-        if false { erro(ctx, "delegate value is nil: %v", p).of(p).debug(1) }
+        if false { erro(of(ctx,p), "delegate value is nil: %v", p).debug(1) }
     } else if u, y := v.(unexpanded); (y /* && u.Value == p */) || v == p {
         if false {
-            erro(ctx, "delegate can't expand: %v -> %v", p, u.Value).of(p).debug(1)
+            erro(of(ctx,p), "delegate can't expand: %v -> %v", p, u.Value).debug(1)
         } else if options.debug {
-            warn(ctx, "delegate can't expand: %v (%v)", p, u.Value==p).of(p).debug(1)
+            warn(of(ctx,p), "delegate can't expand: %v (%v)", p, u.Value==p).debug(1)
         }
     } else {
         if v.refs(ctx, p.x) {
@@ -5410,26 +5406,26 @@ func (p *delegate) Strval(ctx Context) (s string) {
 }
 func (p *delegate) True(ctx Context) (t bool) {
     if v := p.expand(ctx, plain); v == nil {
-        if false { erro(ctx, "expand '%v' to nil", p).at(p.position).debug(10) }
+        if false { erro(at(ctx,p.position), "expand '%v' to nil", p).debug(10) }
     } else if u, y := v.(unexpanded); (y /* && u.Value == p */) || v == p {
         if false {
-            erro(ctx, "delegate can't expand: %v -> %v", p, u).of(p).debug(1)
+            erro(of(ctx,p), "delegate can't expand: %v -> %v", p, u).debug(1)
         } else if options.debug {
-            warn(ctx, "delegate can't expand: %v (%v)", p, u.Value==p).of(p).debug(1)
+            warn(of(ctx,p), "delegate can't expand: %v (%v)", p, u.Value==p).debug(1)
         }
     } else if t = v.True(ctx); false {
-        info(ctx, "%v -> %T %v -> %v", p, v, v, t).at(p.position).debug(8)
+        info(at(ctx,p.position), "%v -> %T %v -> %v", p, v, v, t).debug(8)
     }
     return
 }
 func (p *delegate) Integer(ctx Context) (i int64, e error) {
     if v := p.expand(ctx, plain); v == nil {
-        if false { erro(ctx, "delegate value is nil: %v", p).of(p).debug(1) }
+        if false { erro(of(ctx,p), "delegate value is nil: %v", p).debug(1) }
     } else if u, y := v.(unexpanded); (y /* && u.Value == p */) || v == p {
         if false {
-            erro(ctx, "delegate can't expand: %v -> %v", p, u).of(p).debug(1)
+            erro(of(ctx,p), "delegate can't expand: %v -> %v", p, u).debug(1)
         } else if options.debug {
-            warn(ctx, "delegate can't expand: %v (%v)", p, u.Value==p).of(p).debug(1)
+            warn(of(ctx,p), "delegate can't expand: %v (%v)", p, u.Value==p).debug(1)
         }
     } else {
         i, e = v.Integer(ctx)
@@ -5438,12 +5434,12 @@ func (p *delegate) Integer(ctx Context) (i int64, e error) {
 }
 func (p *delegate) Float(ctx Context) (f float64, e error) {
     if v := p.expand(ctx, plain); v == nil {
-        if false { erro(ctx, "delegate value is nil: %v", p).of(p).debug(1) }
+        if false { erro(of(ctx,p), "delegate value is nil: %v", p).debug(1) }
     } else if u, y := v.(unexpanded); (y /* && u.Value == p */) || v == p {
         if false {
-            erro(ctx, "delegate can't expand: %v -> %v", p, u).of(p).debug(1)
+            erro(of(ctx,p), "delegate can't expand: %v -> %v", p, u).debug(1)
         } else if options.debug {
-            warn(ctx, "delegate can't expand: %v (%v)", p, u.Value==p).of(p).debug(1)
+            warn(of(ctx,p), "delegate can't expand: %v (%v)", p, u.Value==p).debug(1)
         }
     } else {
         f, e = v.Float(ctx)
@@ -5462,7 +5458,7 @@ func (p *delegate) isValidToken() (res bool) {
 }
 func (p *delegate) refs(ctx Context, v Value) (res bool) {
     if isNil(p.x) {
-        erro(ctx, "delegation of nil (v=%v)", v).of(p).debug(1)
+        erro(of(ctx,p), "delegation of nil (v=%v)", v).debug(1)
         return
     } else if p.x == v || p.x.refs(ctx, v) {
         return true
@@ -5474,7 +5470,7 @@ func (p *delegate) refs(ctx Context, v Value) (res bool) {
 }
 func (p *delegate) defs(ctx Context, s ...string) (res []*def) {
     if isNil(p.x) {
-        erro(ctx, "delegation of nil (s=%v)", p, s).of(p).debug(1)
+        erro(of(ctx,p), "delegation of nil (s=%v)", p, s).debug(1)
         return
     } else if d, y := p.x.(*def); y {
         if y = len(s) == 0; !y {
@@ -5492,11 +5488,11 @@ func (p *delegate) defs(ctx Context, s ...string) (res []*def) {
 func (p *delegate) traverse(ctx Context) (traves travestates) {
     ctx = at(ctx, p.position)
     if val := p.expand(ctx, plain); val == nil {
-        warn(ctx, "delegate '%v' expands to nil", p).at(p.position)
+        warn(at(ctx,p.position), "delegate '%v' expands to nil", p)
         warnstack(ctx, -1, "").debug(16)
     } else if isTrivial(val) {
         if false {
-            warn(ctx, "delegate '%v' expands to none", p).at(p.position)
+            warn(at(ctx,p.position), "delegate '%v' expands to none", p)
             warnstack(ctx, -1, "", p).debug(16)
         }
     } else {
@@ -5609,12 +5605,12 @@ func (p *delegate) expandible(ctx Context, w facet) (res bool) {
 }
 func (p *delegate) expand(ctx Context, w facet) (res Value) {
     if /* ctx = at(ctx, p.position) */; isNil(p.x) {
-        erro(ctx, "delegate of nil: %v (w=%024b)", p, w).at(p.position)
-        errostack(ctx, 5, "delegate nil: %v (%p)", p, p).at(p.position).debug(64)
+        erro(at(ctx,p.position), "delegate of nil: %v (w=%024b)", p, w)
+        errostack(at(ctx,p.position), 5, "delegate nil: %v (%p)", p, p).debug(64)
         return
     } else if isNone(p.x) {
-        erro(ctx, "invalid delegate: %v (w=%024b)", p, w).at(p.position)
-        errostack(ctx, 5, "%v", p).at(p.position).debug(64)
+        erro(at(ctx,p.position), "invalid delegate: %v (w=%024b)", p, w)
+        errostack(at(ctx,p.position), 5, "%v", p).debug(64)
         return
     } else if w == 0 {
         erro(ctx, "%v: zero expand", p).debug(64)
@@ -5785,7 +5781,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         if _, y := name.(undef); y {
             return res, true
         } else if str := name.Strval(ctx); str == "" {
-            erro(ctx, "empty unresolved name: %v", name).of(name).debug(1)
+            erro(of(ctx,name), "empty unresolved name: %v", name).debug(1)
             return
         } else {
             if _, sym := ctx.Scope().Find(str); sym != nil {
@@ -5894,7 +5890,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
     case Executer:
         if vals, traves := t.Execute(ctx, args...); traves.has(traveFail) {
             for _, s := range traves {
-                erro(ctx, "broken '%v': %v", x, s).at(s.pos).debug(1)
+                erro(at(ctx,s.pos), "broken '%v': %v", x, s).debug(1)
             }
         } else if len(vals) > 0 {
             res = MakeList(ctx.Position(), vals...)
@@ -5915,15 +5911,15 @@ func (p *delegate) match(ctx Context, i interface{}) (full bool, s string, stems
     return
 }
 func (p *delegate) stat(ctx Context) (si *statinfo) {
-    erro(ctx, "cant stat delegate %v, must expand it first", p).at(p.position).debug(16)
+    erro(at(ctx,p.position), "cant stat delegate %v, must expand it first", p).debug(16)
     return
 }
 func (p *delegate) stamp(ctx Context) (file []*File, err error) {
-    erro(ctx, "cant stamp delegate %v, must expand it first", p).at(p.position).debug(16)
+    erro(at(ctx,p.position), "cant stamp delegate %v, must expand it first", p).debug(16)
     return
 }
 func (p *delegate) delete(ctx Context) (file []*File, err error) {
-    erro(ctx, "cant delete delegate %v, must expand it first", p).at(p.position).debug(16)
+    erro(at(ctx,p.position), "cant delete delegate %v, must expand it first", p).debug(16)
     return
 }
 func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
@@ -5950,14 +5946,14 @@ type closure struct { delegate }
 func (p *closure) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *closure) Strval(ctx Context) (s string) {
     if !p.isValidToken() {
-        erro(ctx, "invalid closure token: %v", p.l).at(p.Position()).debug(1)
+        erro(at(ctx,p.Position()), "invalid closure token: %v", p.l).debug(1)
         return
     }
 
     if val := p.expand(ctx, plain); isNil(val) {
-        if false { warn(ctx, "expand '%v' to nil", p).of(p).debug(1) }
+        if false { warn(of(ctx,p), "expand '%v' to nil", p).debug(1) }
     } else if val == p {
-        if false { errostack(ctx, 10, "closure can't expand: %v", p).of(p).debug(32) }
+        if false { errostack(of(ctx,p), 10, "closure can't expand: %v", p).debug(32) }
     } else if u, y := val.(unexpanded); y && u.Value == p {
         // ""
     } else {
@@ -5969,11 +5965,11 @@ func (p *closure) True(ctx Context) (t bool) {
     if val := p.expand(ctx, plain); isNil(val) {
         // does nothing
     } else if val == p {
-        if false { errostack(ctx, 10, "closure can't expand: %v", p).of(p).debug(16) }
+        if false { errostack(of(ctx,p), 10, "closure can't expand: %v", p).debug(16) }
     } else if u, y := val.(unexpanded); y && u.Value == p {
         // false
     } else if t = val.True(ctx); false {
-        info(ctx, "%v -> %T %v -> %v", p, val, val, t).at(p.position).debug(8)
+        info(at(ctx,p.position), "%v -> %T %v -> %v", p, val, val, t).debug(8)
     }
     return
 }
@@ -5994,7 +5990,7 @@ func (p *closure) match(ctx Context, i interface{}) (full bool, s string, stems 
     if v := p.expand(ctx, plain); v != p {
         return v.match(ctx, i)
     } else if false {
-        errostack(ctx, 3, "unexpand closure: %v", v).of(p).debug(16)
+        errostack(of(ctx,p), 3, "unexpand closure: %v", v).debug(16)
     }
     return
 }
@@ -6040,7 +6036,7 @@ func (p *closure) expand(ctx Context, w facet) (res Value) {
     }
 
     if res, final = p.disclose(ctx, w); isNil(res) {
-        erro(ctx, "disclose '%v' to nil (%s '%v')", p, typeof(p.x), p.x).of(p).debug(16)
+        erro(of(ctx,p), "disclose '%v' to nil (%s '%v')", p, typeof(p.x), p.x).debug(16)
         return
     } else if close {
         w |= offBits
@@ -6158,14 +6154,12 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
         }
 
         if x, str = unresolved, name.Strval(ctx); str == "" {
-            erro(ctx, "empty closure name: %T %v -> %T %v ; %v",
-                p.x, p.x, name, name, unresolved).of(p.x).debug(16)
+            erro(of(ctx,p.x), "empty closure name: %T %v -> %T %v ; %v", p.x, p.x, name, name, unresolved).debug(16)
             return
         }
     } else if t, y := p.x.(Object); y && t != nil {
         if x, str = t, t.Name(ctx); str == "" {
-            erro(ctx, "empty closure name: %T %v -> %T %v",
-                p.x, p.x, x, x).of(p.x).debug(16)
+            erro(of(ctx,p.x), "empty closure name: %T %v -> %T %v", p.x, p.x, x, x).debug(16)
             return
         }
     } else if t, y := p.x.(*selection); y && t != nil && !isNil(t.o) {
@@ -6173,18 +6167,17 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
             ctx = closureWith(ctx, t.project.scope)
         }
         if v := t.value(ctx); isNil(v) {
-            erro(ctx, "selected nil value: %T %v", p.x, p.x).of(p.x).debug(1)
+            erro(of(ctx,p.x), "selected nil value: %T %v", p.x, p.x).debug(1)
             return
         } else if t, y := v.(Object); !y {
-            erro(ctx, "selected non object: %T %v", v, v).of(p.x).debug(16)
+            erro(of(ctx,p.x), "selected non object: %T %v", v, v).debug(16)
             return
         } else if x, str = t, t.Name(ctx); str == "" {
-            erro(ctx, "empty closure name: %T %v -> %T %v ; %v",
-                p.x, p.x, x, x, unresolved).of(p.x).debug(16)
+            erro(of(ctx,p.x), "empty closure name: %T %v -> %T %v ; %v", p.x, p.x, x, x, unresolved).debug(16)
             return
         }
     } else {
-        erro(ctx, "undefined closure object: %T %v", p.x, p.x).of(p.x).debug(16)
+        erro(of(ctx,p.x), "undefined closure object: %T %v", p.x, p.x).debug(16)
         return
     }
 
@@ -6207,9 +6200,9 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
     } else if changed {
         if t1, t2 := reflect.TypeOf(p.x), reflect.TypeOf(x); t1 != t2 {
             if unres := reflect.TypeOf((*unresolvedobject)(nil)); t1 != unres {
-                erro(ctx, "closure object type differs: %v (!= %v)", t2, t1).at(p.position)
-                erro(ctx, "%v '%s' is found here", t1, str).at(p.x.Position())
-                erro(ctx, "%v", ctx).at(ctx.Position()).debug(16)
+                erro(at(ctx,p.position), "closure object type differs: %v (!= %v)", t2, t1)
+                erro(at(ctx,p.x.Position()), "%v '%s' is found here", t1, str)
+                erro(at(ctx,ctx.Position()), "%v", ctx).debug(16)
                 return
             }
         }
@@ -6232,15 +6225,15 @@ func (p *closure) traverse(ctx Context) (traves travestates) {
     return
 }
 func (p *closure) stat(ctx Context) (si *statinfo) {
-    erro(ctx, "cant stat closure %v, must expand it first", p).at(p.position).debug(16)
+    erro(at(ctx,p.position), "cant stat closure %v, must expand it first", p).debug(16)
     return
 }
 func (p *closure) stamp(ctx Context) (file []*File, err error) {
-    erro(ctx, "cant stamp closure %v, must expand it first", p).at(p.position).debug(16)
+    erro(at(ctx,p.position), "cant stamp closure %v, must expand it first", p).debug(16)
     return
 }
 func (p *closure) delete(ctx Context) (file []*File, err error) {
-    erro(ctx, "cant stamp closure %v, must expand it first", p).at(p.position).debug(16)
+    erro(at(ctx,p.position), "cant stamp closure %v, must expand it first", p).debug(16)
     return
 }
 func (p *closure) cmp(ctx Context, v Value) (res cmpres) {
@@ -6317,17 +6310,17 @@ func (p *selection) object(ctx Context) (o Object) {
         if v := s.value(ctx); v == nil {
             // sth's wrong!
         } else if o, _ = v.(Object); o == nil {
-            erro(ctx, "selection.object: `%s` is nil", s.String()).at(p.position)
+            erro(at(ctx,p.position), "selection.object: `%s` is nil", s.String())
         }
     } else if o, ok = p.o.(Object); !ok {
-        erro(ctx, "selection.object: '%v' is not object (but %s)", p.o, typeof(p.o)).at(p.position)
+        erro(at(ctx,p.position), "selection.object: '%v' is not object (but %s)", p.o, typeof(p.o))
     }
     return
 }
 func (p *selection) value(ctx Context) (v Value) {
     var o Object
     if isNil(p.s) {
-        erro(ctx, "selection prop is nil: %s", p.String()).at(p.position).debug(1)
+        erro(at(ctx,p.position), "selection prop is nil: %s", p.String()).debug(1)
     } else if o = p.object(ctx); o != nil {
         /*if n, ok := o.(*ProjectName); ok && n != nil && n.project != nil {
             defer setclosure(setclosure(cloctx.unshift(n.project.scope)))
@@ -6342,8 +6335,7 @@ func (p *selection) value(ctx Context) (v Value) {
                 if optional {
                     v = unresolved(pn.project, MakeBareword(p.s.Position(), s))
                 } else {
-                    erro(ctx, "selection.value: no entry `%s` (%+v)",
-                        s, p.String()).at(p.position)
+                    erro(at(ctx,p.position), "selection.value: no entry `%s` (%+v)", s, p.String())
                 }
             } else {
                 v = entries
@@ -6357,7 +6349,7 @@ func (p *selection) value(ctx Context) (v Value) {
             }
         }
     } else /*if o == nil*/ {
-        erro(ctx, "selection.value: nil object `%s`", p.String()).at(p.position)
+        erro(at(ctx,p.position), "selection.value: nil object `%s`", p.String())
     }
     return
 }
@@ -6408,15 +6400,15 @@ func (p *selection) updatedDeps(ctx Context, v ...Value) (res []Value) {  // NOT
     return res
 }
 func (p *selection) stat(ctx Context) (si *statinfo) {
-    erro(ctx, "cant stat selection %v, must expand it first", p).at(p.position).debug(1)
+    erro(at(ctx,p.position), "cant stat selection %v, must expand it first", p).debug(1)
     return
 }
 func (p *selection) stamp(ctx Context) (file []*File, err error) {
-    erro(ctx, "cant stamp selection %v, must expand it first", p).at(p.position).debug(1)
+    erro(at(ctx,p.position), "cant stamp selection %v, must expand it first", p).debug(1)
     return
 }
 func (p *selection) delete(ctx Context) (file []*File, err error) {
-    erro(ctx, "cant stamp selection %v, must expand it first", p).at(p.position).debug(1)
+    erro(at(ctx,p.position), "cant stamp selection %v, must expand it first", p).debug(1)
     return
 }
 func (p *selection) cmp(ctx Context, v Value) (res cmpres) {
@@ -6549,7 +6541,7 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
         }
     } else if a < b && p.Suffix.patterned(ctx) {
         if false {
-            warn(ctx, "mixing % pattern might have performance impact: %v", p).of(p.Suffix).debug(1)
+            warn(of(ctx,p.Suffix), "mixing % pattern might have performance impact: %v", p).debug(1)
         }
         for n := b-1; a < n; n -= 1 {
             if f, s, ss := p.Suffix.match(ctx, rep[n:]); f && s != "" {
@@ -6599,7 +6591,7 @@ func (p *PercPattern) stencil(ctx Context, stems []string) (val Value, rest []st
     if isTrivial(p.Prefix) {
         // does nothing
     } else if p.Prefix.patterned(ctx) {
-        erro(ctx, "patterned prefix: %T %v", p.Prefix, p.Prefix).of(p.Prefix).debug(1)
+        erro(of(ctx,p.Prefix), "patterned prefix: %T %v", p.Prefix, p.Prefix).debug(1)
         return
     } else {
         vals = append(vals, p.Prefix)

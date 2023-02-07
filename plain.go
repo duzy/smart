@@ -65,7 +65,7 @@ func (_ *plainInt) Evaluate(ctx Context, args ...Value) (result Value, err error
                 program.language = name
         }
         if str, err = multiline(ctx, program.recipes...); err != nil {
-                erro(ctx, "%v", err).of(args[0]).debug(1)
+                erro(of(ctx,args[0]), "%v", err).debug(1)
                 return
         } else if len(program.recipes) > 0 {
                 pos = program.recipes[0].Position()

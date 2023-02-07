@@ -317,7 +317,7 @@ func (dc *universeContext) run() (result []Value, travestates []*travestate) {
             if res, traves = entry.Execute(at(ctx, entry.Position()), args...); len(traves) > 0 {
                 for _, brk := range traves {
                     if brk.what == traveFail {
-                        erro(ctx, "execute '%v': %v", entry, brk).at(brk.pos).debug(1)
+                        erro(at(ctx,brk.pos), "execute '%v': %v", entry, brk).debug(1)
                     }
                 }
             }

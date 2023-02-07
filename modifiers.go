@@ -119,7 +119,7 @@ func (g *modifiergroup) traverse(ctx Context) (traves travestates) {
             if true || (options.verbose || options.verboseBreaks) {
                 var _, ent, _ = entryStr(ctx, ctx.entry())
                 warn(ctx, "%v: %s failed\n", ent, m.name)
-                for _, s := range t { warn(ctx, "%v: %v", m.name, s).at(s.pos) }
+                for _, s := range t { warn(at(ctx,s.pos), "%v: %v", m.name, s) }
                 warnstack(ctx, 5, "").debug(16)
             }
             break
@@ -295,9 +295,9 @@ func modifierDebug(ctx Context, args... Value) (result Value, traves travestates
     if opts.cond != nil && !opts.cond.True(ctx) { return }
     if n := opts.traverse; n > 0 { ctx.program().debug_traverse += n }
 
-    for _, v := range opts.info  { info(ctx, "%s", v.Strval(ctx)).of(v).debug(1) }
-    for _, v := range opts.warn  { warn(ctx, "%s", v.Strval(ctx)).of(v).debug(1) }
-    for _, v := range opts.error { erro(ctx, "%s", v.Strval(ctx)).of(v).debug(1) }
+    for _, v := range opts.info  { info(of(ctx,v), "%s", v.Strval(ctx)).debug(1) }
+    for _, v := range opts.warn  { warn(of(ctx,v), "%s", v.Strval(ctx)).debug(1) }
+    for _, v := range opts.error { erro(of(ctx,v), "%s", v.Strval(ctx)).debug(1) }
 
     var (
         target  = autoGet(ctx, "@")
@@ -471,11 +471,11 @@ func modifierClosure(ctx Context, args... Value) (result Value, traves travestat
     } else if scope := proj.scope; scope == nil {
         erro(ctx, "empty closure context").debug(1)
     } else if def := scope.FindDef("/"); def == nil {
-        erro(ctx, "&/ is undefined").at(scope.position).debug(1)
+        erro(at(ctx,scope.position), "&/ is undefined").debug(1)
     } else if dir = def.value.Strval(ctx); dir == "" {
-        erro(ctx, "&/ is empty").at(scope.position).debug(1)
+        erro(at(ctx,scope.position), "&/ is empty").debug(1)
     } else if !filepath.IsAbs(dir) {
-        erro(ctx, "&/ is relative").at(scope.position).debug(1)
+        erro(at(ctx,scope.position), "&/ is relative").debug(1)
     } else if err := enter(ctx, dir); err == nil {
         var program = ctx.program()
         program.project.changedWD = dir
@@ -591,7 +591,7 @@ func modifierPath(ctx Context, args... Value) (result Value, traves travestates)
 }
 
 func modifierSudo(ctx Context, args... Value) (result Value, traves travestates) {
-    erro(ctx, "TODO: sudo modifier is not implemented yet").at(ctx.Position()).debug(1)
+    erro(at(ctx,ctx.Position()), "TODO: sudo modifier is not implemented yet").debug(1)
     return
 }
 
@@ -704,7 +704,7 @@ type greprex struct{ string ; bool ; *regexp.Regexp }
 func (g *greprex) String() string { return g.string }
 func (g *greptouch) work(ctx Context, gc *grepctx) (err error) {
     if g.targetInfo == nil {
-        erro(ctx, "'%v' not exists", g.target).at(g.target.Position()).debug(1)
+        erro(at(ctx,g.target.Position()), "'%v' not exists", g.target).debug(1)
         return
     }
     var tt time.Time = g.targetInfo.ModTime()
@@ -845,9 +845,9 @@ func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name str
             }
         }
         if file == nil { file = stat(ctx, name, "", "", nil) }
-        warn(ctx, "'%s' not found in %v", name, ctx.Project()).at(gp)
+        warn(at(ctx,gp), "'%s' not found in %v", name, ctx.Project())
         warn(ctx, "grepped '%s' has no target dir in %v", name, ctx.Project())
-        warn(ctx, "from project %v (for %v)", ctx.Project(), name).at(ctx.Project().position).debug(8)
+        warn(at(ctx,ctx.Project().position), "from project %v (for %v)", ctx.Project(), name).debug(8)
     }
     return
 }
@@ -891,9 +891,9 @@ func searchGrepped(ctx Context, gp Position, gc *grepctx, sys bool, name string)
     if !gc.report {
         // ...
     } else if file == nil {
-        info(ctx, "%s: `%s` not found", ctx.Project().name, name).at(gp)
+        info(at(ctx,gp), "%s: `%s` not found", ctx.Project().name, name)
     } else if !file.exists() {
-        info(ctx, "%s: `%s` file not existed", ctx.Project().name, name).at(gp)
+        info(at(ctx,gp), "%s: `%s` file not existed", ctx.Project().name, name)
     }
     return
 }
@@ -1016,9 +1016,9 @@ func loadSavedGrepFile(ctx Context, gc *grepctx) (okay bool, err error) {
                 file.position = gp
                 if gc.isTargetFile(ctx, file) { continue }
             } else if sys != 1 && !gc.discard {
-                warn(ctx, "%s is nil file", name).at(gp)
+                warn(at(ctx,gp), "%s is nil file", name)
                 warn(ctx, "grepped %s is nil", name)
-                warn(ctx, "from project %v", ctx.Project()).at(ctx.Project().position).debug(6)
+                warn(at(ctx,ctx.Project().position), "from project %v", ctx.Project()).debug(6)
             }
         }
     }
@@ -1066,9 +1066,9 @@ ForScan:
                 } else if file != nil {
                     if file.position = gp; gc.isTargetFile(ctx, file) { continue }
                 } else if !sys && !gc.discard {
-                    warn(ctx, "%s is nil file", name).at(gp)
+                    warn(at(ctx,gp), "%s is nil file", name)
                     warn(ctx, "grepped %s is nil", name)
-                    warn(ctx, "from project %v", ctx.Project()).at(ctx.Project().position).debug(6)
+                    warn(at(ctx,ctx.Project().position), "from project %v", ctx.Project()).debug(6)
                 }
                 continue ForScan // found one
             }
@@ -1095,7 +1095,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
             gc.targetFullName = filepath.Join(gc.targetDir, targetName)
         }
         if file := stat(ctx, gc.targetFullName, "", ""); file == nil {
-            erro(ctx, "grep: '%s' not found (%v)", gc.targetFullName, gc.target).of(gc.target).debug(16)
+            erro(of(ctx,gc.target), "grep: '%s' not found (%v)", gc.targetFullName, gc.target).debug(16)
             return
         } else {
             gc.targetInfo = file.info
@@ -1134,7 +1134,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
         } else if false {
             var gp Position
             gp.Filename, gp.Line = gc.targetFullName, 1
-            warn(ctx, "grebbed zero files").at(gp)
+            warn(at(ctx,gp), "grebbed zero files")
             warn(ctx, "grebbed zero files: %v", gc.targetFullName).debug(6)
         }
         gc.files = restore
@@ -1321,7 +1321,7 @@ ForTarget:
             for _, val := range t.grepped {
                 if traves = val.traverse(ctx); !traves.has() { continue }
                 for _, brk := range traves {
-                    erro(ctx, "%v: %v", val, brk).at(brk.pos)
+                    erro(at(ctx,brk.pos), "%v: %v", val, brk)
                 }
                 erro(ctx, "broken traversal for grepped %v from %v", val, target)
                 errostack(ctx, 5, "%v", ctx).debug(16)
@@ -1398,22 +1398,22 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
             prompt(ctx, "%v: unknown dep\n", file)
             if savedDepsFile != nil {
                 warn(ctx, "unknown dep '%v' for '%v'", word, firstWord)
-                warn(ctx, "from here: %s", word).at(depPos)
+                warn(at(ctx,depPos), "from here: %s", word)
                 if filepath.IsAbs(firstWord) {
                     var wp Position
                     wp.Filename, wp.Line = firstWord, 1
-                    warn(ctx, "in here: %v", word).at(wp)
+                    warn(at(ctx,wp), "in here: %v", word)
                 }
-                warn(ctx, "for project %v", proj).at(proj.position)//.debug(6)
+                warn(at(ctx,proj.position), "for project %v", proj)//.debug(6)
             } else {
                 erro(ctx, "unknown dep '%v' for '%v'", word, firstWord)
-                erro(ctx, "from here: %s", word).at(depPos)
+                erro(at(ctx,depPos), "from here: %s", word)
                 if filepath.IsAbs(firstWord) {
                     var wp Position
                     wp.Filename, wp.Line = firstWord, 1
-                    erro(ctx, "in here: %v", word).at(wp)
+                    erro(at(ctx,wp), "in here: %v", word)
                 }
-                erro(ctx, "for project %v", proj).at(proj.position)//.debug(6)
+                erro(at(ctx,proj.position), "for project %v", proj)//.debug(6)
             }
         } else if ignored(file.fullname()) {
             //continue // dep is the target itself
@@ -1423,15 +1423,15 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
             prompt(ctx, "%v: missing dep\n", file)
             if savedDepsFile != nil {
                 var s = filepath.Base(file.name)
-                warn(ctx, `%v: missing "%v"`, targetVal, s).at(depPos)
+                warn(at(ctx,depPos), `%v: missing "%v"`, targetVal, s)
                 warnstack(ctx, 3, "%v: (%T):", proj, ctx).debug(4)
             } else {
                 travesMux.Lock()
                 traves = append(traves, t...)
                 travesMux.Unlock()
-                erro(ctx, `%v: missing "%v"`, targetVal, file).at(depPos)
+                erro(at(ctx,depPos), `%v: missing "%v"`, targetVal, file)
                 for _, brk := range t {
-                    erro(ctx, `%v: broken for "%s": %v`, proj, targetVal, brk).at(brk.pos)
+                    erro(at(ctx,brk.pos), `%v: broken for "%s": %v`, proj, targetVal, brk)
                 }
                 errostack(ctx, 5, "%v: (%T):", proj, ctx).debug(16)
             }
@@ -1506,12 +1506,12 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
         if savedDepsFile == nil || savedDepsFileName == "" {
             // deps files not saved yet
         } else if err = os.Remove(savedDepsFileName); err != nil {
-            for s, p := range missing { erro(ctx, `missing "%v"`, s).at(p) }
+            for s, p := range missing { erro(at(ctx,p), `missing "%v"`, s) }
             erro(ctx, `%v: "%v" %d deps missing in "%v"`, proj, targetVal, len(missing), savedDepsFileName)
             errostack(ctx, 3, "%v", ctx).debug(10)
             fail(ctx.Position(), "removed %s", savedDepsFileName)
         } else {
-            for s, p := range missing { warn(ctx, `missing "%v"`, s).at(p) }
+            for s, p := range missing { warn(at(ctx,p), `missing "%v"`, s) }
             warn(ctx, `%v: "%v" missing %d deps (%v in total)`, proj, targetVal, len(missing), len(files))
             warnstack(ctx, 3, "%T:", ctx).debug(6)
             files, traves = nil, nil // To update savedDepsFileName
@@ -1584,7 +1584,7 @@ func traverseMissingDep(ctx Context, dep string) (res bool, traves travestates) 
     }
     if traves.has() {
         prompt(ctx, "%s: traverse dep failed (okay=%v), project %v\n", fullname, okay, proj)
-        for _, brk := range traves { erro(ctx, "%v: missing %v: %v", proj, dep, brk.what   ).at(brk.pos) }
+        for _, brk := range traves { erro(at(ctx,brk.pos), "%v: missing %v: %v", proj, dep, brk.what   ) }
         errostack(ctx, 5, "%v: %v", proj, ctx).debug(10)
     } else {
         res = okay
@@ -1609,7 +1609,7 @@ func traverseMissingDeps(ctx Context, lastTry string, errBytes []byte) (res bool
                     )
                     prompt(ctx, "%s: dep missing, project %v\n", m[4], ctx.Project())
                     prompt(ctx, "%s\n", m[0]) // prompt the entire error line
-                    erro(ctx, "%v", ctx).at(pos).debug(1)
+                    erro(at(ctx,pos), "%v", ctx).debug(1)
                     return
                 } else if tried == "" { tried = dep }
             } else if promptErrors {
@@ -1730,7 +1730,7 @@ CorrectCC:
     )
     ctx = &modifierDepsContext{ ctx }
     if savedDepsFileName, files, traves = loadSavedDepsAndCheckOutdated(ctx, ca); traves.has() {
-        for _, brk := range traves { erro(ctx, "%v", brk).at(brk.pos) }
+        for _, brk := range traves { erro(at(ctx,brk.pos), "%v", brk) }
         errostack(ctx, 5, "%v: %v", proj, ctx).debug(16)
         return
     } else if len(files) == 0 {
@@ -1864,7 +1864,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, traves travestates
         var ( s string; f *File )
         if f, res = toFile(opts.file); res {
             if res = f.exists(); !res && opts.verbose {
-                warn(ctx, "file '%v' does not exists", opts.file).of(opts.file).debug(1)
+                warn(of(ctx,opts.file), "file '%v' does not exists", opts.file).debug(1)
             }
         } else if s = opts.file.Strval(ctx); filepath.IsAbs(s) {
             if f = stat(at(ctx, opts.file.Position()), s, "", ""); f != nil {
@@ -1875,7 +1875,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, traves travestates
         }
         if res { res = !f.info.Mode().IsDir() } // .IsRegular()
         if opts.verbose {
-            warn(ctx, "'%v' is file: %v", opts.file, res).of(opts.file).debug(1)
+            warn(of(ctx,opts.file), "'%v' is file: %v", opts.file, res).debug(1)
         }
         if makeResult != nil {
             values = append(values, makeResult(pos, res))
@@ -1888,7 +1888,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, traves travestates
         var ( s string; f *File )
         if f, res = toFile(opts.dir); res {
             if res = f.exists(); !res && opts.verbose {
-                warn(ctx, "file '%v' does not exists", opts.dir).of(opts.dir).debug(1)
+                warn(of(ctx,opts.dir), "file '%v' does not exists", opts.dir).debug(1)
             }
         } else if s = opts.dir.Strval(ctx); filepath.IsAbs(s) {
             if f = stat(at(ctx, opts.dir.Position()), s, "", ""); f != nil {
@@ -1899,7 +1899,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, traves travestates
         }
         if res { res = f.info.Mode().IsDir() }
         if opts.verbose {
-            warn(ctx, "'%v' is file: %v", opts.dir, res).of(opts.dir).debug(1)
+            warn(of(ctx,opts.dir), "'%v' is file: %v", opts.dir, res).debug(1)
         }
         if makeResult != nil {
             values = append(values, makeResult(pos, res))
@@ -1918,7 +1918,7 @@ ForPairs:
             var exeres, _ = value.(*ExecResult)
             if exeres == nil {
                 traves.addf(ctx, optBreak, "value '%v' is not exec result", value)
-                erro(ctx, "value '%v' (%T) is not exec result", value, value).of(value).debug(6)
+                erro(of(ctx,value), "value '%v' (%T) is not exec result", value, value).debug(6)
                 return
             } else { /*exeres.wg.Wait()*/ }
 
@@ -1942,7 +1942,7 @@ ForPairs:
             if opts.debug>0 {
                 var tar = autoGet(ctx, "@")
                 var val = autoGet(ctx, "-")
-                warn(ctx, "%v: %v", ctx.entry(), tar).at(program.position)
+                warn(at(ctx,program.position), "%v: %v", ctx.entry(), tar)
                 warn(ctx, "status=%v", exeres.Status)
                 warn(ctx, "hyphen=%v", val)
                 warn(ctx, "context: %v", ctx).debug(opts.debug)
@@ -1958,7 +1958,7 @@ ForPairs:
             var exeres, _ = value.(*ExecResult)
             if exeres == nil {
                 traves.addf(ctx, optBreak, "not an exec result (%T)", value)
-                erro(ctx, "value '%v' (%T) is not exec result", value, value).of(value).debug(6)
+                erro(of(ctx,value), "value '%v' (%T) is not exec result", value, value).debug(6)
                 return
             } else { /*exeres.wg.Wait()*/ }
 
@@ -1968,7 +1968,7 @@ ForPairs:
             if opts.debug>0 {
                 var tar = autoGet(ctx, "@")
                 var val = autoGet(ctx, "-")
-                warn(ctx, "%v: %v", ctx.entry(), tar).at(program.position)
+                warn(at(ctx,program.position), "%v: %v", ctx.entry(), tar)
                 warn(ctx, "status=%v", exeres.Status)
                 warn(ctx, "hyphen=%v", val)
                 warn(ctx, "context: %v", ctx).debug(opts.debug)
@@ -2394,7 +2394,7 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, traves travestate
         }
         return
     } else if filename == "" {
-        errostack(ctx, 3, "target filename is empty").of(target).debug(32)
+        errostack(of(ctx,target), 3, "target filename is empty").debug(32)
         return
     }
 
@@ -2563,13 +2563,13 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
                 var pos Position
                 pos.Filename = exeres.Stdout.log.filename
                 pos.Line = exeres.Stdout.log.lines + 1
-                erro(ctx, "empty stdout").at(pos)
+                erro(at(ctx,pos), "empty stdout")
             }
             if exeres.Stderr.log != nil && exeres.Stdout.log != exeres.Stderr.log {
                 var pos Position
                 pos.Filename = exeres.Stderr.log.filename
                 pos.Line = exeres.Stderr.log.lines + 1
-                erro(ctx, "empty stderr").at(pos)
+                erro(at(ctx,pos), "empty stderr")
             }
         }
 
@@ -2902,10 +2902,10 @@ ForArgs:
             if g, ok := a.(*Group); !ok {
                 // preserve the value of 'a'
             } else if len(g.Elems) == 0 {
-                erro(ctx, "predictor is empty group").at(g.position).debug(1)
+                erro(at(ctx,g.position), "predictor is empty group").debug(1)
                 return
             } else if pret, ok := predictors[g.Elems[0].Strval(ctx)]; !ok {
-                erro(ctx, "predictor '%s' undefined (%T %v)", g.Elems[0], a, a).at(g.position).debug(1)
+                erro(at(ctx,g.position), "predictor '%s' undefined (%T %v)", g.Elems[0], a, a).debug(1)
                 return
             } else {
                 a = pret(at(ctx, g.Elems[0].Position()), g.Elems[1:]...)
@@ -2946,7 +2946,7 @@ func modifierAssert(ctx Context, args... Value) (result Value, traves travestate
         var target Value = autoGet(ctx, "@")
         if msg == "" {
             for _, a := range args {
-                erro(ctx, "assertion failed: %v", a).of(a)
+                erro(of(ctx,a), "assertion failed: %v", a)
             }
             errostack(ctx, 8, "(%T):", ctx).debug(6)
         } else {

@@ -38,18 +38,17 @@ func (filemap *FileMap) Patterns(ctx Context) (pats []Value) {
   for _, pattern := range filemap.patts {
     if pattern.expandible(ctx, expandClosure) {
       if false && !options.allowClosureFilemap { // -closure-files
-        warnstack(ctx, 8, "closure filemap pattern may cause recursive file resolving: %v", pattern).
-          of(pattern).debug(32)
+        warnstack(of(ctx,pattern), 8, "closure filemap pattern may cause recursive file resolving: %v", pattern).debug(32)
         ctx.checkErrors(true) // check here to report warnings immediately
       }
 
       // FIXME+TODO: this could be time consuming to expand clousre in the filemap
       /*if pats, err = mergex(ctx, plain, pattern); err != nil {
-        erro(ctx, "merge pattern '%v' failed: %v", pattern, err).of(pattern)
+        erro(of(ctx,pattern), "merge pattern '%v' failed: %v", pattern, err)
       } else*/
       var unexpanded int
       if pats, unexpanded, _ = plain.expand(ctx, pattern); unexpanded>0 {
-        errostack(ctx, 3, "unexpanded file pattern: %v", pats).of(pattern).debug(15)
+        errostack(of(ctx,pattern), 3, "unexpanded file pattern: %v", pats).debug(15)
         ctx.checkErrors(true) // check here to report warnings immediately
       }
       pats = mergex(ctx, plain, pats...)
@@ -107,32 +106,32 @@ func (filemap *FileMap) stat(ctx Context, base, pre, name string) (file *File) {
   }
   for _, path := range filemap.paths {
     if isNil(path) {
-      erro(ctx, "nil path: base=%s)", base).at(pos)
-      erro(ctx, "nil path: pre=%s",   pre).at(pos)
-      erro(ctx, "nil path: name=%s",  name).at(pos)
-      erro(ctx, "nil path: %v", filemap).at(pos).debug(32)
+      erro(at(ctx,pos), "nil path: base=%s)", base)
+      erro(at(ctx,pos), "nil path: pre=%s",   pre)
+      erro(at(ctx,pos), "nil path: name=%s",  name)
+      erro(at(ctx,pos), "nil path: %v", filemap).debug(32)
       fail(pos, "file mapping nil path: %v", filemap)
     } else if isNone(path) {
-      warn(ctx, "nil path: base=%s)", base).at(pos)
-      warn(ctx, "nil path: pre=%s",   pre).at(pos)
-      warn(ctx, "nil path: name=%s",  name).at(pos)
-      warn(ctx, "nil path: %v", filemap).at(pos).debug(32)
+      warn(at(ctx,pos), "nil path: base=%s)", base)
+      warn(at(ctx,pos), "nil path: pre=%s",   pre)
+      warn(at(ctx,pos), "nil path: name=%s",  name)
+      warn(at(ctx,pos), "nil path: %v", filemap).debug(32)
       continue
     }
 
     var sub string
     if sub = path.Strval(ctx); sub == "" {
       if true {
-        erro(ctx, "filemap path '%v' is empty (%T)", path, path).at(path.Position())
-        erro(ctx, "filemap path '%v' is empty (pattern=%v)", path, filemap.patts).at(pos)
+        erro(at(ctx,path.Position()), "filemap path '%v' is empty (%T)", path, path)
+        erro(at(ctx,pos), "filemap path '%v' is empty (pattern=%v)", path, filemap.patts)
         erro(ctx, "filemap path '%v' is empty (project=%v)", path, ctx.Project())//.at(pos)
         erro(ctx, "filemap path '%v' is empty in %v", path, ctx).debug(64)
       }
       return
     } else if s := filepath.Clean(sub); sub != s {
       if false {
-        erro(ctx, "filemap path '%v' is not clean (sub=%s)", path, sub).at(path.Position())
-        erro(ctx, "filemap path '%v' is not clean (pattern=%v)", path, filemap.patts).at(pos)
+        erro(at(ctx,path.Position()), "filemap path '%v' is not clean (sub=%s)", path, sub)
+        erro(at(ctx,pos), "filemap path '%v' is not clean (pattern=%v)", path, filemap.patts)
         erro(ctx, "filemap path '%v' is not clean (project=%v)", path, ctx.Project())//.at(pos)
         erro(ctx, "filemap path '%v' is not clean in %v", ctx).debug(16)
         return
@@ -146,15 +145,15 @@ func (filemap *FileMap) stat(ctx Context, base, pre, name string) (file *File) {
       if filepath.IsAbs(name) { // 'name' is abs too
         if s := sub+PathSep; strings.HasPrefix(name, s) { // 'name' should have 'sub' prefix
           if false {
-            warn(ctx, "sub  = %v", s).at(pos)
-            warn(ctx, "name = %v", name).at(pos)
+            warn(at(ctx,pos), "sub  = %v", s)
+            warn(at(ctx,pos), "name = %v", name)
             warn(ctx, "%v", ctx).debug(6)
           }
           name = strings.TrimPrefix(name, s)
         } else {
           if false {
-            warn(ctx, "sub  = %v", sub).at(pos)
-            warn(ctx, "name = %v", name).at(pos)
+            warn(at(ctx,pos), "sub  = %v", sub)
+            warn(at(ctx,pos), "name = %v", name)
             warn(ctx, "%v", ctx).debug(6)
           }
           continue
@@ -315,15 +314,15 @@ func uniqueAppendFilemap(ctx Context, filemaps []*FileMap, a *FileMap) (result [
           result = filemaps
           return
         } else {
-          warn(ctx, "files might be duplicated: %v (paths=%v),", a, a.paths).of(a.patts[0])
-          warn(ctx, "                     with: %v (paths=%v)" , m, m.paths).of(m.patts[0])
-          warn(ctx, "          differred paths: %v", a.paths[0]).of(a.paths[0])
-          warn(ctx, "                      and: %v", m.paths[0]).of(m.paths[0])
+          warn(of(ctx,a.patts[0]), "files might be duplicated: %v (paths=%v),", a, a.paths)
+          warn(of(ctx,m.patts[0]), "                     with: %v (paths=%v)" , m, m.paths)
+          warn(of(ctx,a.paths[0]), "          differred paths: %v", a.paths[0])
+          warn(of(ctx,m.paths[0]), "                      and: %v", m.paths[0])
           numDuplicated += 1
         }
       }
     }
-    if numDuplicated > 0 { erro(ctx, "duplicated files: %v", a.patts).of(a.patts[0]) }
+    if numDuplicated > 0 { erro(of(ctx,a.patts[0]), "duplicated files: %v", a.patts) }
   }
   result = append(filemaps, a)
   return
@@ -430,8 +429,8 @@ ForPatterns:
           var sub = path.Strval(ctx)
           var subfile = filepath.Join(sub, str)
           if names, err = filepath.Glob(subfile); err != nil {
-            erro(ctx, "%v: %v: %v", p, subfile, err).of(path)
-            errostack(ctx, 6, "").of(path).debug(12)
+            erro(of(ctx,path), "%v: %v: %v", p, subfile, err)
+            errostack(of(ctx,path), 6, "").debug(12)
             break ForPatterns
           }
 
@@ -443,8 +442,8 @@ ForPatterns:
               if file := stat(ctx, name, sub, prefix, nil); file == nil {
                 if n := opts.debug; n>0 { warn(ctx, "%v -> %v %v (nil)",
                   pattern, sub, prefix).debug(n) }
-                erro(ctx, "%v: '%v' not found in %v", p, name, path).of(filemap.patts[0])
-                errostack(ctx, 6, "").of(path).debug(12)
+                erro(of(ctx,filemap.patts[0]), "%v: '%v' not found in %v", p, name, path)
+                errostack(of(ctx,path), 6, "").debug(12)
               } else if file.exists() || opts.includeMissing {
                 files = append(files, file)
                 if n := opts.debug; n>0 /* && p.name == "lib.unwind" */ { warnstack(ctx, n, "%v -> %v %v+%v (exists=%v)",
@@ -452,8 +451,8 @@ ForPatterns:
               } else if opts.ignoreMissing {
                 continue
               } else if opts.errorMissing {
-                erro(ctx, "%v: '%v' not found in %v", p, name, path).of(filemap.patts[0])
-                errostack(ctx, 6, "").of(path).debug(12)
+                erro(of(ctx,filemap.patts[0]), "%v: '%v' not found in %v", p, name, path)
+                errostack(of(ctx,path), 6, "").debug(12)
                 if true { fail(path.Position(), "missing %v", path) }
               }
             }
@@ -468,12 +467,12 @@ ForPatterns:
             if false {
               // Just report that the pattern matches no files in the
               // file system (if only one path specified).
-              warn(ctx, "%s: %v matches no files in '%v'", p.name, filemap, sub).of(pattern)
-              warn(ctx, "%s: here is %v (try using flag -m, aka -include-missing)", p.name, inPat).of(inPat).debug(1)
+              warn(of(ctx,pattern), "%s: %v matches no files in '%v'", p.name, filemap, sub)
+              warn(of(ctx,inPat), "%s: here is %v (try using flag -m, aka -include-missing)", p.name, inPat).debug(1)
             }
           } else if opts.errorMissing {
-            erro(ctx, "%v: '%v' not found in %v", p, pattern, path).of(filemap.patts[0])
-            errostack(ctx, 6, "(%T):", ctx).of(path).debug(12)
+            erro(of(ctx,filemap.patts[0]), "%v: '%v' not found in %v", p, pattern, path)
+            errostack(of(ctx,path), 6, "(%T):", ctx).debug(12)
             if true { fail(path.Position(), "missing %v", path) }
             break ForPatterns
           }
@@ -526,13 +525,13 @@ func (p *Project) matchTempFile(ctx Context, name string) (file *File) {
   if file = p.matchFile(ctx, name, true); file != nil {
     // good
   } else if ctd := p.scope.FindDef("CTD"); ctd == nil {
-    erro(ctx, "%v: CTD is not defined for temp file: %v", p, name).at(pos).debug(1)
+    erro(at(ctx,pos), "%v: CTD is not defined for temp file: %v", p, name).debug(1)
   } else if file = stat(ctx, filepath.Join(ctd.Strval(ctx), name), "", "", nil); file == nil {
-    erro(ctx, "%v: nil stat %v %v", p, ctd.Strval(ctx), name).at(pos).debug(1)
+    erro(at(ctx,pos), "%v: nil stat %v %v", p, ctd.Strval(ctx), name).debug(1)
   } else if false {
     if !pos.IsValid() { pos = p.position }
-    warn(ctx, "using default temp file: %v/%v", ctd.Strval(ctx), name).at(pos)
-    warn(ctx, "suggesting define files rule for '%s' in %v", name, p).at(p.position).debug(12)
+    warn(at(ctx,pos), "using default temp file: %v/%v", ctd.Strval(ctx), name)
+    warn(at(ctx,p.position), "suggesting define files rule for '%s' in %v", name, p).debug(12)
   }
   return // NOTE: temp file may not exists
 }
@@ -615,8 +614,8 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
         var t2 = autoGet(pc, "@")
         if eq(ctx, t1, t2) || t1.Strval(ctx) == t2.Strval(ctx) {
           if false {
-            warn(ctx, "%v: %p %v %T", entry, t1, t1, t1).of(t1)
-            warn(ctx, "%v: %p %v %T", entry, t2, t2, t2).of(t1)
+            warn(of(ctx,t1), "%v: %p %v %T", entry, t1, t1, t1)
+            warn(of(ctx,t1), "%v: %p %v %T", entry, t2, t2, t2)
             warnstack(ctx, 3, "%v: %v, %v %v (same: %v, %v, %v)",
               entry, s, t1, t2, (t1 == t2), t1.cmp(ctx, t2), t2.cmp(ctx, t1)).debug(1)
           }
@@ -757,7 +756,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, patte
     entry = pattern
     return
   } else if name = fullnameOrStrval(ctx, target); name == "" {
-    erro(ctx, "empty target name: %v", target).of(target).debug(1)
+    erro(of(ctx,target), "empty target name: %v", target).debug(1)
     return
   }
 
@@ -800,13 +799,13 @@ func (p *Project) hasLoaded(ctx Context, proj *Project, traveUseLoop bool) (rp *
 func (p *Project) hasLoadedRecur(ctx Context, top, proj *Project, depth int, traveUseLoop bool) (rp *Project, res, isb bool, err error) {
   if depth > 1 && top == p && true {
     err = fmt.Errorf("loop '%v' (depth=%d)", p.loopLoadPath(), depth)
-    erro(ctx, "%v: %v", p, err).at(p.position).debug(128)
+    erro(at(ctx,p.position), "%v: %v", p, err).debug(128)
     return
   } else if depth > 128 {
     err = fmt.Errorf("exceeds maximum base depth (%d) (start=%v, target=%v)", depth, top, proj)
-    erro(ctx, "%v: %v", p, err).at(p.position)
-    erro(ctx, "start: %v", top).at(top.position)
-    erro(ctx, "target: %v", proj).at(proj.position).debug(200)
+    erro(at(ctx,p.position), "%v: %v", p, err)
+    erro(at(ctx,top.position), "start: %v", top)
+    erro(at(ctx,proj.position), "target: %v", proj).debug(200)
     return
   }
   for _, base := range p.bases {
@@ -820,9 +819,9 @@ func (p *Project) hasLoadedRecur(ctx Context, top, proj *Project, depth int, tra
     if imp == top && !traveUseLoop {
       s := top.loopLoadPath()
       err = fmt.Errorf("loop `%v`", s)
-      erro(ctx, "start: %v", top).at(top.position)
-      erro(ctx, "stop: %v", proj).at(proj.position)
-      erro(ctx, "%v: %v", p, err).at(p.position).debug(128)
+      erro(at(ctx,top.position), "start: %v", top)
+      erro(at(ctx,proj.position), "stop: %v", proj)
+      erro(at(ctx,p.position), "%v: %v", p, err).debug(128)
       return
     }
     if res = imp == proj; res { rp = imp; return }

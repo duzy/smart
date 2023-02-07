@@ -101,7 +101,7 @@ type unresolvedobject struct { // named callable/executable objects
 }
 func (p *unresolvedobject) Name(ctx Context) (name string) {
         if isNil(p.name) {
-                erro(ctx, "unresolved object name is nil").at(p.position)
+                erro(at(ctx,p.position), "unresolved object name is nil")
         } else if ctx == nil {
                 name = p.name.String()
         } else {
@@ -170,7 +170,7 @@ func (p *ProjectName) Call(ctx Context, a... Value) (value Value) {
         var pos = p.position
         if !pos.IsValid() { pos = ctx.Position() }
         if p.project == nil {
-                erro(ctx, "nil project '%s'", p.name).at(pos).debug(1)
+                erro(at(ctx,pos), "nil project '%s'", p.name).debug(1)
         } else {
                 value = MakeString(pos, p.project.name)
         }
@@ -427,7 +427,7 @@ func (ac *autoContext) autoArgs(params []*def, args []Value) (names []string, er
                 //<!IMPORTANT: Don't translate Flag, Flag values are valid regular arguments.
                 //             Pair values are special.
                 if a = Scalar(a); false && (isNil(a) || isNone(a)) {
-                        erro(ac, "%T '%v' is invalid scalar", a, a).of(a).debug(1)
+                        erro(of(ac,a), "%T '%v' is invalid scalar", a, a).debug(1)
                         return
                 } else if p, ok := a.(*Pair); ok {
                         var s string
@@ -447,10 +447,10 @@ func (ac *autoContext) autoArgs(params []*def, args []Value) (names []string, er
                 }
 
                 if def, _ := ac.autoSet(name, a); def == nil {
-                        erro(ac, "arg '%s' not set ($%s)", name, id).of(a).debug(1)
+                        erro(of(ac,a), "arg '%s' not set ($%s)", name, id).debug(1)
                         return
                 } else if def, ok := ac.defs[name]; !ok || def == nil {
-                        erro(ac, "arg '%s' not set ($%s)", name, id).of(a).debug(1)
+                        erro(of(ac,a), "arg '%s' not set ($%s)", name, id).debug(1)
                         return
                 } else if id != "" && id != name {
                         ac.Lock()
@@ -731,9 +731,8 @@ func (d *def) set(ctx Context, origin Origin, value Value, app... Value) {
         default: for _, val := range vals {
                 if val != nil && val.refs(ctx, d) {
                         if options.verbose { prompt(ctx, "set %s (%v): %v\n", origin, d.name, val) }
-                        if options.debug { info(ctx, "from here").at(pos).debug(1) }
-                        erro(ctx, "value refers to assigning Def '%s': %v (%T)",
-                                d.name, val, val).at(pos).debug(1)
+                        if options.debug { info(at(ctx,pos), "from here").debug(1) }
+                        erro(at(ctx,pos), "value refers to assigning Def '%s': %v (%T)", d.name, val, val).debug(1)
                         return
                 }
         }}
@@ -895,7 +894,7 @@ func (d *def) Get(ctx Context, name string) (res Value, err error) {
                 }
         default:
                 err = fmt.Errorf("no such property `%s' (Def)", name)
-                erro(ctx, "%v", err).at(d.position).debug(1)
+                erro(at(ctx,d.position), "%v", err).debug(1)
         }
         return
 }
@@ -1144,7 +1143,7 @@ func (entry *RuleEntry) Name(ctx Context) (name string) {
         if entry == nil {
                 erro(ctx, "nil entry")
         } else if isNil(entry.target) {
-                erro(ctx, "entry target is nil").at(entry.position)
+                erro(at(ctx,entry.position), "entry target is nil")
         } else {
                 name = entry.target.Strval(ctx)
         }

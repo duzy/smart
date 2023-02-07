@@ -53,7 +53,7 @@ func (p *use) stat(ctx Context) (si *statinfo) {
         return
 }
 func (p *use) traverse(ctx Context) (_ travestates) {
-        erro(ctx, "cant traverse 'use' %v", p.project).at(p.position).debug(1)
+        erro(at(ctx,p.position), "cant traverse 'use' %v", p.project).debug(1)
         return
 }
 /*func (p *use) _traverse(pc *traversal) {
@@ -245,7 +245,7 @@ func (p *uselist) expand(ctx Context, w facet) (res Value) {
         return
 }
 func (p *uselist) traverse(ctx Context) (_ travestates) {
-        erro(ctx, "cant traverse 'uselist'").at(p.list[0].position).debug(1)
+        erro(at(ctx,p.list[0].position), "cant traverse 'uselist'").debug(1)
         return
 }
 /*func (p *uselist) _traverse(pc *traversal) {

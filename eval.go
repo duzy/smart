@@ -65,7 +65,7 @@ ForRecipes:
                 v = MakeList(recipe.Position(), a...)
             }
             for _, brk := range traves {
-                erro(ctx, "eval '%v': %v", vals, brk).at(brk.pos).debug(1)
+                erro(at(ctx,brk.pos), "eval '%v': %v", vals, brk).debug(1)
             }
 
         default:
