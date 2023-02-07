@@ -3854,6 +3854,7 @@ func builtinRename(ctx Context, w facet, args... Value) (res Value) {
 type builtinRemoveOpts struct {
         generalOpts
         skip string `save,skip`
+        ignoreMissing bool `gm,ignoremissing,ignore-missing`
         warnNotFile bool `warn-not-file`
         all bool `a,all;r,recursive`
 }
@@ -3919,7 +3920,7 @@ func builtinRemove(ctx Context, w facet, args... Value) (res Value) {
                                 erro(ctx, "source: %v", str).debug(1)
                                 return
                         }
-                } else if opts.verbose {
+                } else if opts.verbose && !opts.ignoreMissing {
                         if file != nil {
                                 prompt(ctx, "remove: no such file %s (%s)\n", str, typeof(a))
                         } else {
