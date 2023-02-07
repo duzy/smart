@@ -4483,6 +4483,7 @@ func wildcardPathPatsInDir(ctx Context, opts *wildcardOpts, pats ...Value) (file
 type wildcardOpts struct {
         generalOpts
         includeMissing bool `im,includemissing,include-missing,m,missing`
+        ignoreMissing bool `gm,ignoremissing,ignore-missing`
         errorMissing bool `em,errormissing,e,err,error-missing,no-missing`
         baseFiles bool `b,base,bases;bf,base-files`
         usedFiles bool `u,used;u,using;uf,used-files`

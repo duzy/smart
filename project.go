@@ -449,13 +449,12 @@ ForPatterns:
                 files = append(files, file)
                 if n := opts.debug; n>0 /* && p.name == "lib.unwind" */ { warnstack(ctx, n, "%v -> %v %v+%v (exists=%v)",
                   pattern, sub, prefix, file, file.exists()).debug(n) }
+              } else if opts.ignoreMissing {
+                continue
               } else if opts.errorMissing {
                 erro(ctx, "%v: '%v' not found in %v", p, name, path).of(filemap.patts[0])
                 errostack(ctx, 6, "").of(path).debug(12)
                 if true { fail(path.Position(), "missing %v", path) }
-              }
-              if false && strings.HasSuffix(s, "libunwind.cpp") {
-                warnstack(ctx, 32, "wildcard: %v -> %v", str, s).debug(32)
               }
             }
           } else if !patterned && opts.includeMissing {
