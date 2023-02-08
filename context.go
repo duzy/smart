@@ -134,6 +134,10 @@ type Context interface {
 
   Project() *Project
   projects(Context, ...*Project) []*Project
+  // resolveObject(s string) (obj Object)
+  // resolveEntries(s string, matchingFullSuffix, alwaysResolveBases bool) (entries *ResolveEntries)
+  // resolvePatterns(v Value, s string) (res []*stemmed)
+
   programContext() *programContext
   program() *Program
 

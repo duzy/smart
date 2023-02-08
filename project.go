@@ -562,6 +562,12 @@ func (p *Project) DefaultEntry() (entry Entry) {
   return
 }
 
+func matchFile(c Context, s string, a bool) *File { return c.Project().matchFile(c, s, a) }
+func matchTempFile(c Context, s string) *File { return c.Project().matchTempFile(c, s) }
+func resolveObject(c Context, s string) Object { return c.Project().resolveObject(c, s) }
+func resolveEntries(c Context, s string, a, b bool) *ResolveEntries { return c.Project().resolveEntries(c, s, a, b) }
+func resolvePatterns(c Context, v Value, s string) []*stemmed { return c.Project().resolvePatterns(c, v, s) }
+
 func (p *Project) resolveObject(ctx Context, s string) (obj Object) {
   if _, obj = p.scope.Find(s); isNil(obj) {
     if p.pluginScope != nil {

@@ -75,6 +75,18 @@ func (ctx *universeContext) projects(_ Context, projs ...*Project) []*Project {
     if len(projs) > 0 { fail(ctx.Position(), "%v", projs) }
     return nil
 }
+// func (ctx *universeContext) resolveObject(s string) (obj Object) {
+//     obj = ctx.globe.main.resolveObject(s)
+//     return
+// }
+// func (ctx *universeContext) resolveEntries(s string, matchingFullSuffix, alwaysResolveBases bool) (entries *ResolveEntries) {
+//     entries = ctx.globe.main.resolveObject(s, matchingFullSuffix, alwaysResolveBases)
+//     return
+// }
+// func (ctx *universeContext) resolvePatterns(v Value, s string) (res []*stemmed) {
+//     res = ctx.globe.main.resolveObject(v, s)
+//     return
+// }
 func (ctx *universeContext) program() *Program { return nil }
 func (ctx *universeContext) programContext() *programContext { return nil }
 func (ctx *universeContext) positionContext() *positionContext { return nil }

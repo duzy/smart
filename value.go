@@ -3697,28 +3697,39 @@ func (p *Path) expand(ctx Context, w facet) (res Value) {
     return
 }
 func (p *Path) delete(ctx Context) (files []*File, err error) {
-    var pathname string
-    if positionalValueCtx { ctx = at(ctx, p.position) }
-    if pathname = p.Strval(ctx); pathname == "" {
-        erro(ctx, "no pathname for `%s`", p)
-    } else if file := stat(ctx,pathname,"","",nil); file != nil {
-        if files, err = file.delete(ctx); err != nil {
-            erro(ctx, "stamp: %v (%v)", err, file)
-        }
+    // if positionalValueCtx { ctx = at(ctx, p.position) }
+    // var s string
+    // if s = p.Strval(ctx); s == "" {
+    //     erro(ctx, "no path name for `%s`", p)
+    // } else if file := stat(ctx, s, "", "", nil); file != nil {
+    //     if files, err = file.delete(ctx); err != nil {
+    //         erro(ctx, "stamp: %v (%v)", err, file)
+    //     }
+    // }
+    if si := p.stat(ctx); si == nil || si.file == nil {
+        erro(at(ctx, p.position), "no path name for `%s`", p)
+    } else if files, err = si.file.delete(ctx); err != nil {
+        erro(at(ctx, p.position), "stamp: %v (%v)", err, si.file)
     }
     return
 }
 func (p *Path) stamp(ctx Context) (files []*File, err error) {
-    var pathname string
-    if positionalValueCtx { ctx = at(ctx, p.position) }
-    if pathname = p.Strval(ctx); pathname == "" {
-        erro(ctx, "no pathname for `%s`", p)
-    } else if file := stat(ctx,pathname,"","",nil); file != nil {
-        if files, err = file.stamp(ctx); err != nil {
-            erro(ctx, "stamp: %v (%v)", err, file)
-        } else {
-            return
-        }
+    // if positionalValueCtx { ctx = at(ctx, p.position) }
+    // var s string
+    // if s = p.Strval(ctx); s == "" {
+    //     erro(ctx, "no s for `%s`", p)
+    //     return
+    // } else if file := stat(ctx, s, "", "", nil); file != nil {
+    //     if files, err = file.stamp(ctx); err != nil {
+    //         erro(ctx, "stamp: %v (%v)", err, file)
+    //     } else {
+    //         return
+    //     }
+    // }
+    if si := p.stat(ctx); si == nil || si.file == nil {
+        erro(at(ctx, p.position), "no path name for `%s`", p)
+    } else if files, err = si.file.stamp(ctx); err != nil {
+        erro(at(ctx, p.position), "stamp: %v (%v)", err, si.file)
     }
 
     //p.updated(ctx, true)
@@ -3728,19 +3739,27 @@ func (p *Path) stamp(ctx Context) (files []*File, err error) {
 func (p *Path) stat(ctx Context) (si *statinfo) {
     ctx = at(ctx, p.position)
 
-    var file *File
+    var s string
     if p.patterned(ctx) {
         if val, rest := p.stencil(ctx, ctx.stems()); len(rest) > 0 {
             erro(ctx, "partial match: %v", rest)
             return
         } else {
-            file = stat(ctx, val.Strval(ctx), "", "", nil)
+            s = val.Strval(ctx)
         }
     } else {
-        file = stat(ctx, p.Strval(ctx), "", "", nil)
+        s = p.Strval(ctx)
     }
 
-    if file != nil { si = &statinfo{ file:file }}
+    if filepath.IsAbs(s) {
+        if file := stat(ctx, s, "", "", nil); file != nil {
+            return &statinfo{ file:file }
+        }
+    }
+
+    if file := matchFile(ctx, s, true); file != nil {
+        si = file.stat(ctx)
+    }
     return
 }
 func (p *Path) traverse(ctx Context) (traves travestates) {
