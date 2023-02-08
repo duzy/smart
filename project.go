@@ -562,6 +562,7 @@ func (p *Project) DefaultEntry() (entry Entry) {
   return
 }
 
+func findFile(c Context, s string) *File { return matchFile(c, s, true) }
 func matchFile(c Context, s string, a bool) *File { return c.Project().matchFile(c, s, a) }
 func matchTempFile(c Context, s string) *File { return c.Project().matchTempFile(c, s) }
 func resolveObject(c Context, s string) Object { return c.Project().resolveObject(c, s) }

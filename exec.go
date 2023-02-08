@@ -763,7 +763,7 @@ type (
     stamp       bool `st,stamp;sf,stamp-file`
     noStamp     bool `ns,nostamp,no-stamp,no-stamp-file`
     wait        bool `wr,wait,waitres,wait-res,waitresult,wait-result` // wait for execution finished
-    report      bool `r,report;rs,report-stamp;vs,verbose-stamp`
+    report      bool `r,rs,report,report-stamp;vs,verbose-stamp`
     retStdout   bool `ro,return-stdout,result-stdout,stdout`
     retStderr   bool `re,return-stderr,result-stderr,stderr`
     retStatus   bool `rs,return-status,result-status,status` // may work with zero-errors
@@ -946,6 +946,28 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     w = plain
   )
   if opts.fullname { w |= expandFullName }
+
+  // TODO: regonize file/path/fullname in recipes
+  // var a = mergex(ctx, w, program.recipes...)
+  // for _, v := range program.recipes {
+  //   if strings.Contains(v.String(), ".configure/library") {
+  //     if p, y := v.(*Compound); y {
+  //       for _, v := range p.Elems {
+  //         if strings.Contains(v.String(), ".configure/library/") {
+  //           warn(of(ctx,v), "%v (%T)", v, v)
+  //           warn(of(ctx,v), "%v", v.expand(ctx, expandFullName))
+  //         }
+  //       }
+  //     }
+  //     var t = v.expand(ctx, expandFullName)
+  //     warn(of(ctx,v), "%v (%T)", v, v)
+  //     warn(of(ctx,v), "%v", v.Strval(ctx))
+  //     warn(of(ctx,v), "%v", t)
+  //     warn(of(ctx,v), "%v", t.Strval(ctx))
+  //     warn(of(ctx,v), "%v", a).debug(1)
+  //   }
+  // }
+
   recipes = mergex(ctx, w, program.recipes...)
 
   for i, recipe := range recipes {

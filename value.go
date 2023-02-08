@@ -3221,17 +3221,13 @@ func (p *Barefile) defs(ctx Context, s ...string) []*def { return p.Name.defs(ct
 func (p *Barefile) elemStr(ctx Context, o Object, k elemkind) (s string) { return elementString(ctx, o, p.Name, k) }
 func (p *Barefile) expandible(ctx Context, w facet) bool { return p.Name.expandible(ctx, w) }
 func (p *Barefile) expand(ctx Context, w facet) (res Value) {
-    var name Value
-
     if w&expandFullName != 0 {
         var file = p.File
-        if file == nil { file = ctx.Project().FindFile(ctx, p.Name.Strval(ctx)) }
-        if file != nil { if name = file.expand(ctx, w); name != file {
-            return name
-        }}
+        if file == nil { file = findFile(ctx, p.Name.Strval(ctx)) }
+        if file != nil { if v := file.expand(ctx, w); v != file { return v }}
     }
 
-    if name = p.Name.expand(ctx, w); name != p.Name {
+    if name := p.Name.expand(ctx, w); name != p.Name {
         res = &Barefile{p.valbase, name, p.File}
     } else {
         res = p
@@ -4440,7 +4436,6 @@ func splitFileName(ctx Context, val Value) (dir, name string) {
 }
 
 type fullfile struct { *File }
-// func (u fullfile) String() string { return u.fullname() }
 func (u fullfile) Strval(ctx Context) (s string) { return u.fullname() }
 func (u fullfile) expand(ctx Context, w facet) Value {
     if w != expandZero && (w&expandFullName == 0 /* || filepath.IsAbs(u.name) */) {
@@ -6956,7 +6951,7 @@ func (w facet) expand(ctx Context, values ...Value) (elems []Value, u, n int) {
     for _, elem := range values {
         if elem == nil { continue } // TODO: report nil expand ??
         if val := elem.expand(ctx, w); val == nil {
-            errostack(ctx, 5, "nil: %T %v", elem, elem).debug(10)
+            errostack(of(ctx,elem), 5, "nil: %T %v", elem, elem).debug(10)
             return
         } else if elems = append(elems, val); val != elem {
             if v, y := val.(unexpanded); y {

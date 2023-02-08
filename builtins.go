@@ -526,6 +526,14 @@ func parseOpts(ctx Context, iOpts interface{}, w facet, args... Value) (rest []V
                         }
                 }
                 if gen == nil { return }
+
+                // var a = mergex(ctx, expandFullName, rest...)
+                // for _, v := range rest {
+                //         if strings.Contains(v.String(), ".configure/library") {
+                //                 var t = v.expand(ctx, expandFullName)
+                //                 warn(of(ctx,v), "%v: %v; %v", v, t, a).debug(1)
+                //         }
+                // }
                 if gen.fullname { rest = mergex(ctx, expandFullName, rest...) }
         } else {
                 erro(ctx, "opts is not ptr of struct: %v", opts.Kind()).debug(1)

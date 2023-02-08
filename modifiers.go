@@ -34,12 +34,12 @@ const (
 )
 
 type generalOpts struct {
-    stackNum int  `sn,stack,stacknum,stack-num,stack-number,`
+    stackNum int  `sn,stack,stacknum,stack-num,stack-number`
+    fullname bool `f,fn,fu,ful,full,fullname,full-name`
     debug    int  `d,db,dbg,debug` // NOTE: compatible with 'bool'
     warn     bool `w,warn,warning`
     verbose  bool `v,verb,verbose`
     timing   bool `t,time,timing`
-    fullname bool `f,fn,fu,ful,full,fullname`
 }
 type modifier struct {
     valbase
