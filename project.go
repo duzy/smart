@@ -263,6 +263,7 @@ type Project struct {
   _filemap_ []*FileMap
 
   // Rule Registry (orderred)
+  // concreteMap map[string]Entry // TODO: speedup
   concrete []Entry //*RuleEntry
   patterns []*PatternEntry
 

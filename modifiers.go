@@ -2805,7 +2805,7 @@ func modifierStamp(ctx Context, args... Value) (result Value, traves travestates
         if f, y := target.(*File); y {
             erro(ctx, "failed stamp(%v): %v %v", target, f.fullname(), f.info)
         } else {
-            erro(ctx, "failed stamp(%v)", target)
+            erro(ctx, "failed stamp(%v) (%T)", target, target)
         }
         errostack(ctx, 10, "failed: %v", ctx).debug(10)
     } else if pos = target.Position(); pos.IsValid() {

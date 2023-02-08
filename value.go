@@ -2094,11 +2094,9 @@ func (p *negative) traverse(ctx Context) (traves travestates) {
 func Negative(val Value) *negative { return &negative{valbase{val.Position()},val} }
 
 type boolean struct { valbase; bool }
-func (p *boolean) String() (s string) {
-    if p.bool { s = "true" } else { s = "false" }
-    return s+"{}" // or: fmt.Sprintf("bool{%s}",p.bool)
-}
-func (p *boolean) Strval(_ Context) string { return p.String() }
+func (p *boolean) string() string { if p.bool { return "true" } else { return "false" } }
+func (p *boolean) String() string { return p.string()+"{}" }
+func (p *boolean) Strval(_ Context) string { return p.string() }
 func (p *boolean) True(_ Context) bool { return p.bool }
 func (p *boolean) Float(_ Context) (v float64, _ error) {
     if p.bool { v = 1. }
@@ -2151,11 +2149,9 @@ func (p *boolean) stencil(ctx Context, stems []string) (val Value, rest []string
 }
 
 type answer struct { valbase; bool }
-func (p *answer) String() (s string) {
-    if p.bool { s = "yes" } else { s = "no" }
-    return s+"{}"
-}
-func (p *answer) Strval(ctx Context) string { return p.String() }
+func (p *answer) string() (s string) { if p.bool { return "yes" } else { return "no" } }
+func (p *answer) String() (s string) { return p.string()+"{}" }
+func (p *answer) Strval(_ Context) string { return p.string() }
 func (p *answer) True(ctx Context) bool { return p.bool }
 func (p *answer) Float(ctx Context) (v float64, _ error) {
     if p.bool { v = 1. }

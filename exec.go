@@ -775,8 +775,8 @@ type (
     prompt      bool `pm,prompt;m,msg`
     promptSrc   bool `ps,prompt-src,prompt-source;vs,verbose-source`
     promStr     string `c,cmd;m,msg`
-    tie         string `t,tie` // all, both, stdout, stderr, out, err
     workDir     string `cd,change-dir,wd,workdir,work-dir,work-directory`
+    tie         string `t,tie` // all, both, stdout, stderr, out, err
     logFileName *optFullname "l,log"
   }
   executor struct {
@@ -1136,8 +1136,8 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   var res []Value
   for i, src := range sources {
     var pos = positions[i]
-    if strings.HasPrefix(src, "@") {
-      src = src[1:]
+    if a := "@"; strings.HasPrefix(src, a) {
+      src = strings.TrimPrefix(src, a)
     } else if opts.promptSrc && !opts.prompt {
       var s string = src
       s = strings.Replace(s, "\n", "\\n", -1)
