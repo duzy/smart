@@ -164,11 +164,16 @@ const (
 
 	constant_beg
 	UNDEF   // `undef`
-	BARE    // `bare` // TODO
+	BARE    // `bare`  // TODO
+	REGEX   // `regex` // TODO
+	FILE    // `file`  // TODO
+	Bin     // `bin`
+	Oct     // `oct`
+	Int     // `int`
+	Hex     // `hex`
+	Float   // `float`
 	ANSWER  // `answer`
 	BOOL    // `bool`
-	FILE    // `file`   // TODO
-	REGEX   // `regex`  // TODO
 	TRUE    // boolean `true`
 	FALSE   // boolean `false`
 	YES     // answer `yes`
@@ -310,10 +315,15 @@ var tokens = [...]string{
 
 	UNDEF:  "undef",
 	BARE:   "bare",
+	REGEX:  "regex",
+	FILE:   "file",
+	Bin:    "bin",
+	Oct:    "oct",
+	Int:    "int",
+	Hex:    "hex",
+	Float:  "float",
 	ANSWER: "answer",
 	BOOL:   "bool",
-	FILE:   "file",
-	REGEX:  "regex",
 	TRUE:   "true",
 	FALSE:  "false",
 	YES:    "yes",

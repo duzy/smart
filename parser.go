@@ -414,6 +414,7 @@ func (p *parser) parseBareExpr(lhs bool) (x Value) {
 		p.checkErrors(true)
 	}() }
 	switch p._next(); tok {
+	case token.BAREWORD: // okay
 	case token.UNDEF:
 		if p.tok == token.LBRACE { // undef{}, undef{ ... }
 			if p.next(true); p.tok == token.RBRACE {
@@ -424,6 +425,48 @@ func (p *parser) parseBareExpr(lhs bool) (x Value) {
 				p.expect(token.RBRACE)
 			} else {
 				erro(at(p,pos), "undef invalid expression: %v, %v", p.tok, p.lit).debug(1)
+			}
+			return
+		}
+	case token.BARE: // TODO: bare{ ... }
+		if p.tok == token.LBRACE { // file{ ... }
+			erro(p, "TODO: %v", tok).debug(1)
+			return
+		}
+	case token.REGEX: // TODO: regex{ ... }
+		if p.tok == token.LBRACE { // file{ ... }
+			erro(p, "TODO: %v", tok).debug(1)
+			return
+		}
+	case token.FILE:
+		if p.tok == token.LBRACE { // file{ ... }
+			erro(p, "TODO: %v", tok).debug(1)
+			return
+		}
+	case token.Bin, token.Oct, token.Int, token.Hex, token.Float:
+		if p.tok == token.LBRACE { // answer{...}, bool{...}
+			if p.next(true); p.tok == token.RBRACE {
+				switch p._next(); tok {
+				case token.Bin:   x = MakeBin(pos, 0)
+				case token.Oct:   x = MakeOct(pos, 0)
+				case token.Int:   x = MakeInt(pos, 0)
+				case token.Hex:   x = MakeHex(pos, 0)
+				case token.Float: x = MakeFloat(pos, 0.)
+				}
+			} else if v := p.parseExpr(p, false); v == nil {
+				// TODO: true{ expr }, yes{ expr }, ...
+				erro(at(p,pos), "%s expects: %v, not %v %v", tok, token.RBRACE, p.tok, p.lit).debug(1)
+			} else if p.skipSpaces(); p.tok == token.RBRACE {
+				if p._next(); tok == token.Float {
+					var n, _ = v.Float(p)
+					return MakeFloat(pos, n)
+				}
+				switch n, _ := v.Integer(p); tok {
+				case token.Bin: return MakeBin(pos, n)
+				case token.Oct: return MakeOct(pos, n)
+				case token.Int: return MakeInt(pos, n)
+				case token.Hex: return MakeHex(pos, n)
+				}
 			}
 			return
 		}
@@ -470,16 +513,8 @@ func (p *parser) parseBareExpr(lhs bool) (x Value) {
 			}
 			return
 		}
-	case token.FILE:
-		if p.tok == token.LBRACE { // file{ ... }
-			erro(p, "TODO: %v", tok).debug(1)
-			return
-		}
 	case token.AT, token.DOT, token.DOTDOT: // TODO: parse token.DOT into Qualiword
 		lit = tok.String() // Special bareword.
-	case token.BARE: // TODO: bare{ ... }
-	case token.REGEX: // TODO: regex{ ... }
-	case token.BAREWORD:
 	default:
 		if tok.IsKeyword() { lit = tok.String() } else {
 			if true {
