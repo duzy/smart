@@ -327,7 +327,7 @@ func (p *parser) skipSpaces() {
 
 func (p *parser) Position() Position { return p.loc(p.pos) }
 func (p *parser) loc(pos token.Pos) Position { return Position(p.scanner.File().Position(pos)) }
-func (p *parser) posit() Context { return at(p, p.Position()) }
+func (p *parser) posit() Context { return &positionContext{ p, p.Position() } } //at(p, p.Position())
 
 // A bailout panic is raised to indicate early termination.
 type bailout struct{}
@@ -885,13 +885,7 @@ func (p *parser) parsePunctuation() *Punctuation {
 }
 
 func (p *parser) parseBasicLit(lhs bool) (v Value) {
-	pos, tok, lit := p.pos, p.tok, p.lit
-	end := int(pos) + len(lit)
-	switch tok {
-	case token.STRING: end += 2
-	}
-
-	var ctx = p.posit()
+	var ctx, tok, lit = p.posit(), p.tok, p.lit
 	p._next()
 
 	// ESCAPE is handled in value.EscapeChar
@@ -2897,7 +2891,7 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, 
 		if p.tok == token.LINEND || (p.tok == token.COMMENT && p.lineComment != nil) {
 			p.next(true)
 		} else {
-			p.parseClause(ctx)
+			p.parseClause()
 		}
 	}
 	p.bits = savedBits
@@ -3036,7 +3030,7 @@ func (p *parser) callTemplate(ctx Context, t *template, name Value, args []Value
 			(p.tok == token.COMMENT && p.lineComment != nil) {
 			p.next(true)
 		} else {
-			p.parseClause(ctx)
+			p.parseClause()
 		}
 	}
 }
@@ -3149,11 +3143,12 @@ func (p *parser) parseTemplateClause(ctx Context) {
 	}
 }
 
-func (p *parser) parseClause(ctx Context) {
+func (p *parser) parseClause() {
 	if false && t_traverse.enabled {
 		defer un(tracef(t_traverse, "parseClause(%v, %v)", p.tok, p.pos))
 	}
 
+	var ctx = p.posit()
 	switch p.tok {
 	case token.USE:
 		erro(ctx, "`%v` unexpected here", p.tok).debug(1)
@@ -3195,6 +3190,8 @@ func (p *parser) parseClause(ctx Context) {
 		p.parseRuleEntry(specialRuleNor, nil, list)
 		return
 	}
+
+	if p.tok != token.EOF { return }
 
 	var isIncludingConf = p.isIncludingConf
 	// var loader = ctx.loader()
@@ -3515,7 +3512,7 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 			for /* p.totalErrors() == 0 && */ p.tok != token.EOF {
 				if p.tok == token.LINEND || (p.tok == token.COMMENT && p.lineComment != nil) {
 					p.next(true)
-				} else if p.parseClause(ctx); ctx.checkErrors(true) > 0 {
+				} else if p.parseClause(); ctx.checkErrors(true) > 0 {
 					break
 				}
 			}

@@ -2273,7 +2273,7 @@ func (p *integer) Float(ctx Context) (f float64, _ error) { return float64(p.int
 func (p *integer) kind() kind { return valInteger }
 func (p *integer) cmp(ctx Context, v Value) (res cmpres) {
     if i, e := v.Integer(ctx); e != nil {
-        warnstack(ctx, 6, "%T %v: %v", v, v, e).debug(20)
+        if false { warnstack(ctx, 6, "%T %v: %v", v, v, e).debug(20) }
     } else if p.int64 == i {
         res = cmpEqual
     } else if p.int64 < i {
@@ -2326,7 +2326,7 @@ func (p *Float) expand(_ Context, _ facet) Value { return p }
 func (p *Float) cmp(ctx Context, v Value) (res cmpres) {
     if _, ok := v.(*Float); ok {
         if f, e := v.Float(ctx); e != nil {
-            warn(ctx, "%v: %v", v, e).debug(1)
+            if false { warn(ctx, "%v: %v", v, e).debug(1) }
         } else if p.float64 == f {
             res = cmpEqual
         } else if p.float64 < f {

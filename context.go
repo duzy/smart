@@ -427,13 +427,14 @@ func at(ctx Context, pos Position) Context {
       if _, y = c.(*positionContext); y && i > 9999 {
         if wrap { wrap, num = false, i }
         if true {
-          warn(at(ctx,pos), "too many positions: %v, %v, %v ; %v", i, num, ctx, p).debug(16)
+          prompt(ctx, "%v: too many positions: %T\n", p, c)
+          warn(ctx, "too many positions: %v, %v, %v", i, num, ctx).debug(1)
           ctx.checkErrors(true)
         }
       }
     }
     if wrap { ctx = &positionContext{ ctx, pos } } else {
-      warn(at(ctx,pos), "too many positions: %v, %v", num, ctx).debug(32)
+      warn(ctx, "too many positions: %v, %v", num, ctx).debug(128)
       ctx.checkErrors(true)
     }
   } else if _, y := ctx.(*parser); false && y && p.Same(&pos) {

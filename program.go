@@ -465,11 +465,13 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
             if c.program() == prog {
                 if depth += 1; depth == maxCallRecursion { break ForPC }
                 var t = autoGet(c, "@")
-                for i, v := range a { if eq(cc, t, v) { loop = i; break ForPC } }
+                if /* 1 < depth */true {
+                    for i, v := range a { if eq(cc, t, v) { loop = i; break ForPC } }
+                }
                 if loop < 0 { a = append(a, t) }
             }
         }
-        if 0 <= loop {
+        if /* 1 < depth && */ 0 <= loop {
             var t = autoGet(cc, "@")
             if o := cc.closure(); o != nil {
                 if v := autoGet(o, "@"); v != nil && eq(cc, v, t) {
