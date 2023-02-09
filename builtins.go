@@ -1233,8 +1233,7 @@ type builtinForEachOpts struct {
 }
 func builtinForEach(ctx Context, w facet, args... Value) (res Value) {
         if n := len(args); n < 2 {
-                errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v",
-                        n, args).debug(32)
+                errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v", n, args).debug(32)
                 return
         }
 
@@ -1244,8 +1243,7 @@ func builtinForEach(ctx Context, w facet, args... Value) (res Value) {
         )
         if len(values) == 0 {
                 var d = opts.debug ; if d < 1 { d = 1 }
-                errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v",
-                        len(args), args).debug(d)
+                errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v", len(args), args).debug(d)
                 return
         }
 
@@ -1722,7 +1720,7 @@ type builtinAppendOpts struct {
         generalOpts
         auto bool `a,auto`
         closure bool `c,closure`
-        string bool `s,str;s,string`
+        // string bool `s,str,string`
 }
 func builtinAppend(ctx Context, w facet, args... Value) (result Value) {
         var (

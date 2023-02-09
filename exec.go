@@ -869,7 +869,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       container = program.project
     } else if _, containerSym := program.project.scope.Find(dotContainer); containerSym != nil {
       if pn, _ := containerSym.(*ProjectName); pn != nil {
-        container = pn.NamedProject()
+        container = pn.Project
       }
     }
 

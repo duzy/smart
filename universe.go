@@ -631,10 +631,8 @@ func (g *Globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, sp
         name: name,
     }
     m.scope = NewScope(m.position, outer, m, fmt.Sprintf("project %q", name))
-    m.self.name = name
+    m.self.Project = m
     m.self.scope = m.scope
-    m.self.owner = m
-    m.self.project = m
     m.use.name = "usee"
     m.use.scope = m.scope
     m.use.owner = m

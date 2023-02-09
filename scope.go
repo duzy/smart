@@ -186,15 +186,7 @@ func (s *Scope) FindDef(name string) (res *def) {
 func (scope *Scope) ProjectName(ctx Context, name string, project *Project) (pn *ProjectName, alt Object) {
 	scope.mutex.Lock(); defer scope.mutex.Unlock()
 	if alt = scope.elems[name]; alt == nil {
-		pn = &ProjectName{
-			knownobject{
-				objbase{
-					scope: scope,
-					owner: scope.project,
-				}, name,
-			},
-			project,
-		}
+		pn = &ProjectName{ project, scope }
 		scope.replace(ctx, name, pn)
 	}
 	return
@@ -203,15 +195,7 @@ func (scope *Scope) ProjectName(ctx Context, name string, project *Project) (pn 
 func (scope *Scope) ScopeName(ctx Context, name string, s *Scope) (sn *ScopeName, alt Object) {
 	scope.mutex.Lock(); defer scope.mutex.Unlock()
 	if alt = scope.elems[name]; alt == nil {
-		sn = &ScopeName{
-			knownobject{
-				objbase{
-					scope: scope,
-					owner: scope.project,
-				}, name,
-			},
-			s,
-		}
+		sn = &ScopeName{ s, name } // TODO: scope,
 		scope.replace(ctx, name, sn)
 	}
 	return

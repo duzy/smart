@@ -718,7 +718,7 @@ func (l *loader) define1(ctx Context, tok token.Token, identifier, value Value) 
     var alt Object
     switch t := identifier.(type) {
     case *selection:
-        var v = t.value(ctx)
+        var v = t.value(ctx, ident)
         if a, y := v.(*def); y {
             res = a
         } else {
@@ -1350,14 +1350,14 @@ func (l *loader) declare(ctx Context, keyword token.Token, ident *Barecomp, iden
             at, _ = l.Globe().scope.Lookup(identStr).(*ProjectName)
         )
         if !ok {
-            dec = &declare{ project: at.NamedProject() }
+            dec = &declare{ project: at.Project }
             linfo.declares[identStr] = dec
         }
         dec.backscope = l.Scope()
         l.useesExecuted = nil
-        l.project = at.NamedProject()
+        l.project = at.Project
         //l.scope = l.scope
-        l.scopes[0] = at.NamedProject().scope
+        l.scopes[0] = at.Project.scope
         return true
     } else if _, o := l.Scope().Find(identStr); o != nil {
         if _, ok := o.(*Builtin); ok {
@@ -2171,10 +2171,7 @@ func (l *loader) loadDir(ctx Context, specName, absDir string, filter func(os.Fi
     } (time.Now())
 
     var pos Position = ctx.Position()
-    if !pos.IsValid() {
-        pos = positionForDir(absDir)
-    }
-
+    if !pos.IsValid() { pos = positionForDir(absDir) }
     if !filepath.IsAbs(absDir) {
         erro(ctx, "needs absolute dir `%s' (%s)", absDir, specName).debug(1)
         return

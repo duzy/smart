@@ -145,96 +145,114 @@ func unresolved(p *Project, v Value) *unresolvedobject {
 }
 
 type ProjectName struct {
-        knownobject
-        project *Project
+        *Project
+        scope *Scope
 }
-
-// Imported returns the project that was imported.
-// It is distinct from Project(), which is the project
-// containing the import statement.
-func (p *ProjectName) NamedProject() *Project { return p.project }
-func (p *ProjectName) Position() (pos Position) {
-        if pos = p.position; !pos.IsValid() { pos = p.project.position }
-        return
-}
-func (p *ProjectName) String() string { return p.name }
+func (_ *ProjectName) kind() kind { return valOther }
+func (_ *ProjectName) updated(_ Context, _ ...bool) bool { return false }
+func (_ *ProjectName) updatedDeps(_ Context, _ ...Value) []Value { return nil }
+func (_ *ProjectName) stamp(ctx Context) (files []*File, err error) { return }
+func (_ *ProjectName) delete(_ Context) (files []*File, err error) { return }
+func (_ *ProjectName) defs(_ Context, _ ...string) (res []*def) { return }
+func (_ *ProjectName) refs(_ Context, _ Value) (res bool) { return }
+func (_ *ProjectName) patterned(_ Context) bool { return false }
+func (_ *ProjectName) expandible(_ Context, _ facet) bool { return false }
+func (_ *ProjectName) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
+func (_ *ProjectName) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
+func (_ *ProjectName) Integer(_ Context) (int64, error) { return 0, nil }
+func (_ *ProjectName) Float(_ Context) (float64, error) { return .0, nil }
+func (p *ProjectName) Position() Position { return p.position }
 func (p *ProjectName) Strval(_ Context) string { return p.name }
-func (p *ProjectName) True(_ Context) bool { return p.project != nil }
-func (p *ProjectName) Get(ctx Context, name string) (value Value, err error) {
-        if p.project != nil { value = p.project.resolveObject(ctx, name) }
-        return
-}
-
-// Call a ProjectName returns the project name.
-func (p *ProjectName) Call(ctx Context, a... Value) (value Value) {
-        var pos = p.position
-        if !pos.IsValid() { pos = ctx.Position() }
-        if p.project == nil {
-                erro(at(ctx,pos), "nil project '%s'", p.name).debug(1)
-        } else {
-                value = MakeString(pos, p.project.name)
-        }
-        return
-}
-
+func (p *ProjectName) Name(_ Context) string { return p.name }
+func (p *ProjectName) True(_ Context) bool { return p.Project != nil }
+func (p *ProjectName) DeclScope() *Scope { return p.scope }
+func (p *ProjectName) OwnerProject() *Project { return p.scope.project }
+func (p *ProjectName) Get(ctx Context, name string) (Value, error) { return p.resolveObject(ctx, name), nil }
+func (p *ProjectName) Call(_ Context, _ ...Value) (value Value) { return p }
+func (p *ProjectName) expand(_ Context, _ facet) (res Value) { return p }
 func (p *ProjectName) traverse(ctx Context) (traves travestates) {
-        if entry := p.project.DefaultEntry(); entry != nil {
-                traves = entry.traverse(ctx)
-        }
+        if t := p.Project.DefaultEntry(); t != nil { traves = t.traverse(ctx) }
         return
 }
 func (p *ProjectName) stat(ctx Context) (si *statinfo) {
-        if p.project != nil {
-                if defent := p.project.DefaultEntry(); defent == nil {
-                        // does nothing
-                } else if defent.Class() != UseRuleEntry {
-                        si = defent.stat(ctx)
-                }
-        }
+        if t := p.Project.DefaultEntry(); t != nil && t.Class() != UseRuleEntry { si = t.stat(ctx) }
         return
 }
-func (p *ProjectName) expand(_ Context, _ facet) Value { return p }
 func (p *ProjectName) cmp(ctx Context, v Value) (res cmpres) {
-        if a, ok := v.(*ProjectName); ok {
-                assert(ok, "value is not ProjectName")
-                if p.name == a.name && p.project == a.project {
-                        res = cmpEqual
-                }
-        } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        if a, y := v.(*ProjectName); y {
+                assert(y, "value is not ProjectName")
+                if p.Project == a.Project { res = cmpEqual }
+        } else if l, y := v.(*List); y && len(l.Elems) == 1 {
                 res = p.cmp(ctx, l.Elems[0])
         }
         return
+}
+func (p *ProjectName) rescope(_ Context, scope *Scope) {
+        if p.scope != scope {
+                if p.scope != nil {
+                        delete(p.scope.elems, p.name)
+                }
+                if p.scope = scope; p.scope != nil {
+                        p.scope.elems[p.name] = p
+                }
+        }
 }
 
 type ScopeName struct {
-        knownobject
-        scope *Scope
+        *Scope
+        name string
 }
-// Imported returns the project that was imported.
-// It is distinct from Project(), which is the project
-// containing the import statement.
-func (n *ScopeName) NamedScope() *Scope { return n.scope }
-func (n *ScopeName) String() string  { return fmt.Sprintf("{scope %s}", n.name) }
-func (n *ScopeName) Strval(ctx Context) string { return fmt.Sprintf("scope %s", n.name) }
-func (n *ScopeName) True(ctx Context) bool { return n.scope != nil }
-func (n *ScopeName) Get(ctx Context, name string) (Value, error) {
-        if sym := n.scope.Resolve(name); sym != nil {
-                value, _ := sym.(Value)
-                return value, nil
-        }
-        return nil, fmt.Errorf("Undefined `%s' in scope `%s'.", name, n.Name(ctx))
-}
-func (p *ScopeName) expand(_ Context, _ facet) Value { return p }
-func (p *ScopeName) cmp(ctx Context, v Value) (res cmpres) {
-        if a, ok := v.(*ScopeName); ok {
-                assert(ok, "value is not ScopeName")
-                if p.name == a.name && p.scope == a.scope {
-                        res = cmpEqual
+func (_ *ScopeName) kind() kind { return valOther }
+func (_ *ScopeName) updated(_ Context, _ ...bool) bool { return false }
+func (_ *ScopeName) updatedDeps(_ Context, _ ...Value) []Value { return nil }
+func (_ *ScopeName) stamp(ctx Context) (files []*File, err error) { return }
+func (_ *ScopeName) delete(_ Context) (files []*File, err error) { return }
+func (_ *ScopeName) defs(_ Context, _ ...string) (res []*def) { return }
+func (_ *ScopeName) refs(_ Context, _ Value) (res bool) { return }
+func (_ *ScopeName) patterned(_ Context) bool { return false }
+func (_ *ScopeName) expandible(_ Context, _ facet) bool { return false }
+func (_ *ScopeName) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
+func (_ *ScopeName) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
+func (_ *ScopeName) stat(ctx Context) (si *statinfo) { return }
+func (_ *ScopeName) traverse(ctx Context) (traves travestates) { return }
+func (_ *ScopeName) Integer(_ Context) (int64, error) { return 0, nil }
+func (_ *ScopeName) Float(_ Context) (float64, error) { return .0, nil }
+func (p *ScopeName) Position() Position { return p.position }
+func (p *ScopeName) String() string  { return fmt.Sprintf("{scope %s}", p.name) }
+func (p *ScopeName) Strval(_ Context) string { return p.name }
+func (p *ScopeName) Name(_ Context) string { return p.name }
+func (p *ScopeName) True(_ Context) bool { return p.Scope != nil }
+func (p *ScopeName) OwnerProject() *Project { return p.Scope.project }
+func (p *ScopeName) DeclScope() *Scope { return p.Scope.outer }
+func (p *ScopeName) Call(_ Context, _ ...Value) (value Value) { return p }
+func (p *ScopeName) expand(_ Context, _ facet) (res Value) { return p }
+func (p *ScopeName) Get(ctx Context, name string) (value Value, err error) {
+        if s := p.Resolve(name); s != nil {
+                if value, _ = s.(Value); value == nil {
+                        err = fmt.Errorf("`%s' in scope is invalid (%T)", name, p.name, s)
                 }
-        } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+        } else {
+                err = fmt.Errorf("undefined `%s' in scope `%s'", name, p.name)
+        }
+        return
+}
+func (p *ScopeName) cmp(ctx Context, v Value) (res cmpres) {
+        if a, y := v.(*ScopeName); y {
+                if p.Scope == a.Scope { res = cmpEqual }
+        } else if l, y := v.(*List); y && len(l.Elems) == 1 {
                 res = p.cmp(ctx, l.Elems[0])
         }
         return
+}
+func (p *ScopeName) rescope(_ Context, scope *Scope) {
+        // if p.scope != scope {
+        //         if p.scope != nil {
+        //                 delete(p.scope.elems, p.name)
+        //         }
+        //         if p.scope = scope; p.scope != nil {
+        //                 p.scope.elems[p.name] = p
+        //         }
+        // }
 }
 
 type Origin int

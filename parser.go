@@ -548,7 +548,7 @@ func (p *parser) parseSelect(lhs Value) (res Value) {
 	var okay bool
 	switch t := lhs.(type) {
 	case *selection:
-		if v := t.value(at(ctx, t.Position())); isNil(v) {
+		if v := t.value(at(ctx, t.Position()), ident); isNil(v) {
 			erro(ctx, "nil selection: %v", lhs).debug(1)
 			return
 		} else {
@@ -1176,25 +1176,33 @@ func (p *parser) parseClosureDelegate() (result Value) {
 			} else if false {
 				// NOTE: selected defs could have closured, have to preserve selection
 				if obj, okay = sel, true; false {
-					o := sel.object(ctx)
-					v := sel.value(ctx)
+					o := sel.object(ctx, ident)
+					v := sel.value(ctx, plain)
 					warn(of(ctx,name), "`%v`; %T %v", sel, o, o)
 					warn(of(ctx,name), "`%v`; %T %v", sel, v, v)
 					warn(of(ctx,name), "`%v`; closured = %v", sel, v.expandible(ctx, expandClosure)).debug(1)
 				}
-			} else if o := sel.object(ctx); o.DeclScope().comment == usecomment/*TODO: remove this check?*/ {
-				obj, okay = unresolved(proj, name), true
-			} else if isNil(o) {
-				erro(of(ctx,sel), "`%v` nil selection object", name).debug(1)
-			} else if v := sel.value(ctx); isNil(v) {
-				erro(of(ctx,name), "`%v` not found in %v", sel.s, o).debug(1)
-			} else if obj, okay = v.(Object); !okay {
+			// } else if o := sel.object(ctx, plain); o != nil && o.DeclScope().comment == usecomment {
+			// 	obj, okay = unresolved(proj, name), true
+			// } else if _, y := sel.o.(*delegate); y {
+			// 	obj, okay = unresolved(proj, name), true
+			// } else if o == nil {
+			// 	erro(of(ctx,sel), "`%v` nil selection object", name).debug(1)
+			} else if v := sel.value(ctx, plain); v == nil {
+				erro(of(ctx,name), "`%v` not selected nil value", sel).debug(1)
+			} else if u, y := v.(unexpanded); y {
+				obj, okay = unresolved(proj, u.Value), true
+			} else if s, y := v.(selected); !y {
+				erro(of(ctx,name), "`%v` not selected: %v (%T)", sel, v, v).debug(1)
+			} else if obj, okay = s.Value.(Object); !okay {
 				// return // just use the selected value
 			}
 			switch lTok {
 			case token.LPAREN:
 				if _, ok := obj.(Caller); !ok {
-					erro(of(ctx,name), "selected object '%v' is not callable: %T %v", name, obj, obj).debug(16)
+					o := sel.object(ctx, plain)
+					v := sel.value(ctx, plain)
+					erro(of(ctx,name), "selected object '%v' is not callable: %T %v ; %T %v ; %T %v", name, obj, obj, o, o, v, v).debug(16)
 				}
 			case token.LBRACE:
 				if _, ok := obj.(Executer); !ok {
