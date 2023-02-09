@@ -285,6 +285,7 @@ func (p *uselist) Get(ctx Context, name string) (result Value, err error) {
 }
 
 func (p *uselist) Call(ctx Context, a... Value) (result Value) {
+        if p.list == nil { return }
         var targets []Value
         for _, usee := range p.list {
                 if entry := usee.project.DefaultEntry(); entry != nil {

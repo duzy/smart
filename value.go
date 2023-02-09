@@ -5810,7 +5810,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
                 return
             } else if x, y = s.Value.(Object); !y {
                 // to call this selected object
-            } else if x, y = s.Value.(*uselist); !y {
+            } else if x, y = s.Value.(*uselist); false && !y {
                 // to call this selected object
             } else {
                 // use the selected value
