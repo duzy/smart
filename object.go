@@ -157,8 +157,8 @@ func (_ *ProjectName) defs(_ Context, _ ...string) (res []*def) { return }
 func (_ *ProjectName) refs(_ Context, _ Value) (res bool) { return }
 func (_ *ProjectName) patterned(_ Context) bool { return false }
 func (_ *ProjectName) expandible(_ Context, _ facet) bool { return false }
-func (_ *ProjectName) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
-func (_ *ProjectName) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
+func (p *ProjectName) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
+func (p *ProjectName) match(ctx Context, i interface{}) (bool, string, []string) { return matchStrval(ctx, p, i) }
 func (_ *ProjectName) Integer(_ Context) (int64, error) { return 0, nil }
 func (_ *ProjectName) Float(_ Context) (float64, error) { return .0, nil }
 func (p *ProjectName) Position() Position { return p.position }
@@ -211,8 +211,8 @@ func (_ *ScopeName) defs(_ Context, _ ...string) (res []*def) { return }
 func (_ *ScopeName) refs(_ Context, _ Value) (res bool) { return }
 func (_ *ScopeName) patterned(_ Context) bool { return false }
 func (_ *ScopeName) expandible(_ Context, _ facet) bool { return false }
-func (_ *ScopeName) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
-func (_ *ScopeName) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
+func (p *ScopeName) match(ctx Context, i interface{}) (bool, string, []string) { return matchStrval(ctx, p, i) }
+func (p *ScopeName) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
 func (_ *ScopeName) stat(ctx Context) (si *statinfo) { return }
 func (_ *ScopeName) traverse(ctx Context) (traves travestates) { return }
 func (_ *ScopeName) Integer(_ Context) (int64, error) { return 0, nil }

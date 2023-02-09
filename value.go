@@ -1640,7 +1640,9 @@ func (_ *valbase) updated(_ Context, _ ...bool) bool { return false }
 func (_ *valbase) updatedDeps(_ Context, _ ...Value) []Value { return nil }
 func (_ *valbase) delete(ctx Context) (file []*File, err error) { return }
 func (_ *valbase) traverse(ctx Context) (traves travestates) { return }
-func (_ *valbase) _match(ctx Context, p Value, i interface{}) (full bool, s string, stems []string) {
+func (_ *valbase) kind() kind { return valOther }
+
+func matchStrval(ctx Context, p Value, i interface{}) (full bool, s string, stems []string) {
     var is string
     var v = p.Strval(ctx)
     switch t := i.(type) {
@@ -1653,7 +1655,6 @@ func (_ *valbase) _match(ctx Context, p Value, i interface{}) (full bool, s stri
     if strings.HasPrefix(is, v) { s, full = v, (len(v) == len(is)) }
     return
 }
-func (_ *valbase) kind() kind { return valOther }
 
 type undef struct { Value }
 func (p undef) expand(Context, facet) Value { return p }
@@ -2140,7 +2141,7 @@ func (p *boolean) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *boolean) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
-    full, s, stems = p._match(ctx, p, i)
+    full, s, stems = matchStrval(ctx, p, i)
     return
 }
 func (p *boolean) stencil(ctx Context, stems []string) (val Value, rest []string) {
@@ -2195,7 +2196,7 @@ func (p *answer) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *answer) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
-    full, s, stems = p._match(ctx, p, i)
+    full, s, stems = matchStrval(ctx, p, i)
     return
 }
 func (p *answer) stencil(ctx Context, stems []string) (val Value, rest []string) {
@@ -2218,7 +2219,7 @@ func (p *option) Integer(ctx Context) (v int64, _ error) {
     if p.bool { v = 1 }
     return
 }
-func (p *option) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
+func (p *option) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return matchStrval(ctx, p, i) }
 func (p *option) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *option) expand(_ Context, _ facet) Value { return p }
 func (p *option) cmp(ctx Context, v Value) (res cmpres) {
@@ -2287,28 +2288,28 @@ func (p *integer) cmp(ctx Context, v Value) (res cmpres) {
 type Bin struct { integer }
 func (p *Bin) String() string { return fmt.Sprintf("0b%s", strconv.FormatInt(int64(p.int64),2)) }
 func (p *Bin) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),2) }
-func (p *Bin) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
+func (p *Bin) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return matchStrval(ctx, p, i) }
 func (p *Bin) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Bin) expand(_ Context, _ facet) Value { return p }
 
 type Oct struct { integer }
 func (p *Oct) String() string { return fmt.Sprintf("0%s", strconv.FormatInt(int64(p.int64),8)) }
 func (p *Oct) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),8) }
-func (p *Oct) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
+func (p *Oct) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return matchStrval(ctx, p, i) }
 func (p *Oct) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Oct) expand(_ Context, _ facet) Value { return p }
 
 type Int struct { integer }
 func (p *Int) String() string { return strconv.FormatInt(int64(p.int64),10) }
 func (p *Int) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),10) }
-func (p *Int) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
+func (p *Int) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return matchStrval(ctx, p, i) }
 func (p *Int) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Int) expand(_ Context, _ facet) Value { return p }
 
 type Hex struct { integer }
 func (p *Hex) String() string { return fmt.Sprintf("0x%s", strconv.FormatInt(int64(p.int64),16)) }
 func (p *Hex) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),16) }
-func (p *Hex) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
+func (p *Hex) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return matchStrval(ctx, p, i) }
 func (p *Hex) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Hex) expand(_ Context, _ facet) Value { return p }
 
@@ -2319,7 +2320,7 @@ func (p *Float) Strval(ctx Context) string { return strconv.FormatFloat(float64(
 func (p *Float) True(ctx Context) bool { return math.Abs(p.float64)-0 > FloatEpsilon }
 func (p *Float) Integer(ctx Context) (i int64, _ error) { return int64(p.float64), nil }
 func (p *Float) Float(ctx Context) (f float64, _ error) { return p.float64, nil }
-func (p *Float) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
+func (p *Float) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return matchStrval(ctx, p, i) }
 func (p *Float) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Float) kind() kind { return valFloat }
 func (p *Float) expand(_ Context, _ facet) Value { return p }
@@ -2351,7 +2352,7 @@ func (p *DateTime) Strval(ctx Context) string { return p.String() } // time.RFC3
 func (p *DateTime) True(ctx Context) bool { return !p.t.IsZero() }
 func (p *DateTime) Integer(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
 func (p *DateTime) Float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
-func (p *DateTime) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
+func (p *DateTime) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return matchStrval(ctx, p, i) }
 func (p *DateTime) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *DateTime) expand(_ Context, _ facet) Value { return p }
 func (p *DateTime) cmp(ctx Context, v Value) (res cmpres) {
@@ -2386,7 +2387,7 @@ func (p *Date) String() string { return time.Time(p.t).Format("2006-01-02") }
 func (p *Date) Strval(ctx Context) string { return p.String() }
 func (p *Date) Integer(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
 func (p *Date) Float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
-func (p *Date) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
+func (p *Date) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return matchStrval(ctx, p, i) }
 func (p *Date) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Date) expand(_ Context, _ facet) Value { return p }
 
@@ -2395,7 +2396,7 @@ func (p *Time) String() string { return time.Time(p.t).Format("15:04:05.99999999
 func (p *Time) Strval(ctx Context) string { return p.String() }
 func (p *Time) Integer(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
 func (p *Time) Float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
-func (p *Time) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return p._match(ctx, p, i) }
+func (p *Time) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return matchStrval(ctx, p, i) }
 func (p *Time) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Time) expand(_ Context, _ facet) Value { return p }
 
@@ -2571,7 +2572,7 @@ func (p *URL) expand(ctx Context, w facet) (res Value) {
     return
 }
 func (p *URL) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
-    full, s, stems = p._match(ctx, p, i)
+    full, s, stems = matchStrval(ctx, p, i)
     return
 }
 func (p *URL) stencil(ctx Context, stems []string) (val Value, rest []string) {
@@ -2604,7 +2605,7 @@ func (p *Raw) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *Raw) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
-    full, s, stems = p._match(ctx, p, i)
+    full, s, stems = matchStrval(ctx, p, i)
     return
 }
 func (p *Raw) stencil(ctx Context, stems []string) (val Value, rest []string) {
@@ -2651,7 +2652,7 @@ func (p *String) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *String) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
-    full, s, stems = p._match(ctx, p, i)
+    full, s, stems = matchStrval(ctx, p, i)
     return
 }
 func (p *String) stencil(ctx Context, stems []string) (val Value, rest []string) {
@@ -2770,7 +2771,7 @@ func (p *Bareword) expand(ctx Context, w facet) (res Value) {
     return
 }
 func (p *Bareword) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
-    full, s, stems = p._match(ctx, p, i)
+    full, s, stems = matchStrval(ctx, p, i)
     return
 }
 func (p *Bareword) stencil(ctx Context, stems []string) (val Value, rest []string) {
@@ -2815,7 +2816,7 @@ func (p *Qualiword) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *Qualiword) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
-    full, s, stems = p._match(ctx, p, i)
+    full, s, stems = matchStrval(ctx, p, i)
     return
 }
 func (p *Qualiword) stencil(ctx Context, stems []string) (val Value, rest []string) {
@@ -3127,7 +3128,7 @@ func (p *Barecomp) patterned(ctx Context) (res bool) {
 }
 func (p *Barecomp) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
     if false {
-        full, s, stems = p._match(ctx, p, i)
+        full, s, stems = matchStrval(ctx, p, i)
         if false && strings.HasPrefix(p.String(), "llvm.tools.") && strings.HasPrefix(fmt.Sprintf("%s", i), "llvm.tools.") {
             for n, elem := range p.Elems {
                 var a, b, c = elem.match(ctx, i)

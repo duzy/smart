@@ -2909,18 +2909,21 @@ func builtinTrimRight(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
+type builtinTrimPrefixOpts struct {
+        generalOpts
+}
 // $(trim-prefix foo%, fooxxx foo123)
 // $(trim-prefix %/foo, xxx/foo/a/b/c)
 // $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
 func builtinTrimPrefix(ctx Context, w facet, args... Value) (res Value) {
-        const info = false
         var (
+                opts builtinTrimPrefixOpts
                 prefixs, values, list []Value
                 err error
         )
-        if len(args) == 0 { return }
-        prefixs = mergex(ctx, plain, args[0])
-
+        if len(args) == 0 { return } else {
+                prefixs = parseOpts(ctx, &opts, plain, args[0])
+        }
         if len(args) == 1 {
                 if len(prefixs) > 1 { values = prefixs[1:] }
         } else {
@@ -2934,43 +2937,43 @@ func builtinTrimPrefix(ctx Context, w facet, args... Value) (res Value) {
                 return
         }
 
-        if info { warn(ctx, "%v %v", prefixs, values) }
-        for _, value := range values {
+        if opts.verbose { warn(ctx, "prefix=%v values=%v", prefixs, values) }
+        ForValues: for _, value := range values {
                 var (
                         pos = value.Position()
                         p, s string
                 )
                 if s = value.Strval(ctx); s == "" { continue }
-        ForPrefix:
-                for _, prefix := range prefixs {
-                        if prefix.patterned(ctx) {
-                                // fallthrough
-                        } else if p = prefix.Strval(ctx); p == "" {
-                                continue
+                ForPrefix: for _, prefix := range prefixs {
+                        if p = prefix.Strval(ctx); p == "" { continue }
+
+                        // FIXME: matched cutset is empty: %-xxx- and *-xxx-
+                        var full, cutset, stems = prefix.match(ctx, value)
+                        if opts.verbose /*|| (strings.Contains(s, "/.smart/modules/") && prefix.String() == "%%/.smart/modules/")*/ {
+                                warn(ctx, "full=%v cutset=%v stems=%v", full, cutset, stems)
+                                warn(ctx, "prefix = %T %v", prefix, prefix)
+                                warn(ctx, "value  = %T %v", value, value)
+                                warn(ctx, "trim   = %v", strings.TrimPrefix(s, cutset)).debug(1)
+                        }
+
+                        if full {
+                                continue ForValues
                         } else if strings.HasPrefix(s, p) {
                                 s = strings.TrimPrefix(s, p)
                                 pos = prefix.Position()
                                 break ForPrefix
+                        } else if prefix.patterned(ctx) {
+                                if !full && s == cutset {
+                                        continue
+                                } else if len(s) > len(cutset) && strings.HasPrefix(s, cutset) {
+                                        s = strings.TrimPrefix(s, cutset)
+                                } else {
+                                        s = strings.TrimLeftFunc(s, unicode.IsSpace)
+                                }
+                                pos = prefix.Position()
+                                break ForPrefix
                         }
-
-                        var full, cutset, stems = prefix.match(ctx, value)
-                        if info /*|| (strings.Contains(s, "/.smart/modules/") && prefix.String() == "%%/.smart/modules/")*/ {
-                                warn(ctx, "prefix = %T %v", prefix, prefix)
-                                warn(ctx, "value  = %T %v", value, value)
-                                warn(ctx, "trim   = %v", strings.TrimPrefix(s, cutset))
-                                warn(ctx, "full=%v cutset=%v stems=%v", full, cutset, stems).debug(1)
-                        }
-                        if !full && s == cutset {
-                                continue
-                        } else if len(s) > len(cutset) && strings.HasPrefix(s, cutset) {
-                                s = strings.TrimPrefix(s, cutset)
-                        } else {
-                                s = strings.TrimLeftFunc(s, unicode.IsSpace)
-                        }
-                        pos = prefix.Position()
-                        break ForPrefix
                 }
-                if info { warn(ctx, "list=%v trimmed=%v", list, s).debug(true, 1) }
                 if s != "" { list = append(list, MakeString(pos, s)) }
         }
         if err == nil { res = MakeListOrScalar(ctx.Position(), list) }
