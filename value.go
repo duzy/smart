@@ -5707,7 +5707,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         x Object
         db int
     )
-    if true { if s := p.String(); (
+    if false { if s := p.String(); (
         // s == "$(call -c &(.test.x),$1$1,$2$2)" ||
         // s == "$(foreach $1 $2,$(value .test.$_) $(value .test~&(.test.s).$_))" ||
         // s == "$(foreach $1,$(value -c .test.$_)$1)" ||
@@ -5730,7 +5730,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         // s == "${.test.foobaz}" ||
         // s == "${.test.foobay}" ||
         // s == "$($_→tool.name)" ||
-        s == "$(dee $($_→tool.syms),$($_→tool.name))" ||
+        // s == "$(dee $($_→tool.syms),$($_→tool.name))" ||
         // (db > 0 && s == "$1") ||
         // (dd && s == "$(-std.$_)") ||
         (false && s == "")) { db += 1
@@ -5897,7 +5897,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
 
     var bin, _ = x.(*Builtin)
     if bin != nil && bin.name == "auto" {
-        return builtinAuto(ctx, p, w, args...), final
+        return builtinAuto(at(ctx, p.position), p, w, args...), final
     } else if unexpand {
         if p.x != x || n > 0 { res = &delegate{p.valbase, p.l, x, args} }
         if w&expandClose != 0 { return res, true }
@@ -5919,6 +5919,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
     switch t := x.(type) {
     case *def:
         res, final = p.call(ctx, w, t, args...)
+        // if _, y := res.(unexpanded); y { res = unexpanded{ p } }
         return
     case Caller:
         res = t.Call(ctx, args...)
@@ -6387,7 +6388,7 @@ func (p *selection) value(ctx Context, w facet) (v Value) {
         if p.t.IsSelectProg() {
             if n, y := o.(*ProjectName); !y {
                 erro(at(ctx,p.position), "selection.value: not a project: %v (%T)", o, o).debug(1)
-            } else if entries := n.Project.resolveEntries(ctx, s, false, false); entries != nil {
+            } else if entries := n.resolveEntries(ctx, s, false, false); entries != nil {
                 return selected{ entries }
             } else if optional {
                 v = unresolved(n.Project, MakeBareword(p.s.Position(), s))
@@ -6427,7 +6428,7 @@ func (p *selection) expand(ctx Context, w facet) (res Value) {
 func (p *selection) traverse(ctx Context) (traves travestates) {
     ctx = at(ctx, p.position)
     if val := p.value(ctx, plain); isTrivial(val) {
-        warn(ctx, "selected value '%v' is trivial", p).debug(1)
+        warn(ctx, "selected trivial value '%v' (%T %v, %T %v) ", p, p.o, p.o, p.s, p.s).debug(10)
     } else {
         _ = val.updated(ctx) // NOTE: ensure that updated flag is correct (see RuleEntry.updated)
         traves = val.traverse(ctx)

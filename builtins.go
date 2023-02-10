@@ -1722,14 +1722,12 @@ func builtinAppend(ctx Context, w facet, args... Value) (result Value) {
         return __append(ctx, generalOpts{}, w, args...)
 }
 func __append(ctx Context, g generalOpts, w facet, args... Value) (result Value) {
-        var (
-                opts = builtinAppendOpts{ generalOpts:g }
-        )
         if len(args) < 2 {
                 erro(ctx, "insufficient number of arguments: %v", args).debug(1)
                 return
         }
 
+        var opts = builtinAppendOpts{ generalOpts:g }
         var names, list []Value
         if names = parseOpts(ctx, &opts, plain, args[0]); len(names) == 0 {
                 warn(ctx, "append to nowhere: %T %v", args[0], args[0]).debug(1)

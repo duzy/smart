@@ -3180,7 +3180,7 @@ func (p *parser) parseClause() {
 	var ctx = p.posit()
 	switch p.tok {
 	case token.USE:
-		erro(ctx, "`%v` unexpected here", p.tok).debug(1)
+		erro(ctx, "`%v` unexpected here", p.tok).debug(10)
 		return
 	case token.INCLUDE:
 		p.parseGenericClause(ctx, p.tok, p.expect(p.tok), p.parseIncludeSpec)
@@ -3523,6 +3523,8 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 					p.parseGenericClause(ctx, p.tok, p.expect(p.tok), p.parseAppendSpec)
 				case token.EVAL:
 					p.parseGenericClause(ctx, p.tok, p.expect(p.tok), p.parseEvalSpec)
+				case token.TEMPLATE:
+					p.parseTemplateClause(ctx)
 				default:
 					if p.tok.IsKeyword() { break ForInit }
 					var x = p.parseExpr(ctx, true); p.skipSpaces()
