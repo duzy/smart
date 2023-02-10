@@ -350,7 +350,7 @@ func (p *parser) expected(pos token.Pos, msg string, a... interface{}) {
 }
 
 func (p *parser) expect(tok token.Token) token.Pos {
-	pos := p.pos
+	var pos = p.pos
 	if p.tok != tok {
 		p.expected(pos, "'"+tok.String()+"'")
 	}
@@ -1173,21 +1173,6 @@ func (p *parser) parseClosureDelegate() (result Value) {
 		if sel, ok := name.(*selection); ok {
 			if sel == nil {
 				erro(at(ctx,name.Position()), "nil selection: %v", name).debug(1)
-			} else if false {
-				// NOTE: selected defs could have closured, have to preserve selection
-				if obj, okay = sel, true; false {
-					o := sel.object(ctx, ident)
-					v := sel.value(ctx, plain)
-					warn(of(ctx,name), "`%v`; %T %v", sel, o, o)
-					warn(of(ctx,name), "`%v`; %T %v", sel, v, v)
-					warn(of(ctx,name), "`%v`; closured = %v", sel, v.expandible(ctx, expandClosure)).debug(1)
-				}
-			// } else if o := sel.object(ctx, plain); o != nil && o.DeclScope().comment == usecomment {
-			// 	obj, okay = unresolved(proj, name), true
-			// } else if _, y := sel.o.(*delegate); y {
-			// 	obj, okay = unresolved(proj, name), true
-			// } else if o == nil {
-			// 	erro(of(ctx,sel), "`%v` nil selection object", name).debug(1)
 			} else if v := sel.value(ctx, plain); v == nil {
 				erro(of(ctx,name), "`%v` not selected nil value", sel).debug(1)
 			} else if u, y := v.(unexpanded); y {
@@ -1200,9 +1185,8 @@ func (p *parser) parseClosureDelegate() (result Value) {
 			switch lTok {
 			case token.LPAREN:
 				if _, ok := obj.(Caller); !ok {
-					o := sel.object(ctx, plain)
 					v := sel.value(ctx, plain)
-					erro(of(ctx,name), "selected object '%v' is not callable: %T %v ; %T %v ; %T %v", name, obj, obj, o, o, v, v).debug(16)
+					erro(of(ctx,name), "selected object '%v' is not callable: %T %v ; %T %v ; %T %v", name, obj, obj, sel.o, sel.o, v, v).debug(16)
 				}
 			case token.LBRACE:
 				if _, ok := obj.(Executer); !ok {
@@ -2182,6 +2166,10 @@ func (p *parser) parseAssertSpec(ctx Context, doc *CommentGroup, g *genericClaus
 	if !g.skip { assertion(p.posit(), g.generalOpts, plain, g.spec...) }
 }
 
+func (p *parser) parseAppendSpec(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
+	if !g.skip { __append(p.posit(), g.generalOpts, plain, g.spec...) }
+}
+
 func (p *parser) parseEvalSpec(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
 	var (
 		prop0, resolved, res Value
@@ -2297,9 +2285,7 @@ func (p *parser) parseGenericClause(ctx Context, keyword token.Token, pos token.
 	}
 
 	if p.tok != token.LINEND && p.tok != token.EOF && (p.stop == 0 || p.pos < p.stop) {
-		if opts.spec = p.parseDirectiveSpec(ctx); true {
-			f(ctx, nil, &opts, 0)
-		}
+		if opts.spec = p.parseDirectiveSpec(ctx); true { f(ctx, nil, &opts, 0) }
 		if p.tok == token.COMMA { p.next(true) }
 	}
 	if p.tok != token.EOF && (p.stop == 0 || p.pos < p.stop) {
@@ -3197,16 +3183,18 @@ func (p *parser) parseClause() {
 		erro(ctx, "`%v` unexpected here", p.tok).debug(1)
 		return
 	case token.INCLUDE:
-		p.parseGenericClause(ctx, token.INCLUDE, p.expect(token.INCLUDE), p.parseIncludeSpec)
+		p.parseGenericClause(ctx, p.tok, p.expect(p.tok), p.parseIncludeSpec)
 		return
 	case token.FILES:
-		p.parseGenericClause(ctx, token.FILES, p.expect(token.FILES), p.parseFilesSpec)
+		p.parseGenericClause(ctx, p.tok, p.expect(p.tok), p.parseFilesSpec)
 		return
 	case token.ASSERT:
-		p.parseGenericClause(ctx, token.ASSERT, p.expect(token.ASSERT), p.parseAssertSpec)
+		p.parseGenericClause(ctx, p.tok, p.expect(p.tok), p.parseAssertSpec)
 		return
+	case token.APPEND:
+		p.parseGenericClause(ctx, p.tok, p.expect(p.tok), p.parseAppendSpec)
 	case token.EVAL:
-		p.parseGenericClause(ctx, token.EVAL, p.expect(token.EVAL), p.parseEvalSpec)
+		p.parseGenericClause(ctx, p.tok, p.expect(p.tok), p.parseEvalSpec)
 		return
 	case token.COLON:
 		p.parseSpecialRuleClause()
@@ -3528,11 +3516,13 @@ func (p *parser) parseFile(ctx Context) *parsedFile {
 				switch p.tok {
 				case token.LINEND: p.next(true) // skip empty lines
 				case token.USE:
-					p.parseGenericClause(ctx, p.tok, p.expect(token.USE), p.parseUseSpec)
+					p.parseGenericClause(ctx, p.tok, p.expect(p.tok), p.parseUseSpec)
 				case token.ASSERT:
-					p.parseGenericClause(ctx, p.tok, p.expect(token.ASSERT), p.parseAssertSpec)
+					p.parseGenericClause(ctx, p.tok, p.expect(p.tok), p.parseAssertSpec)
+				case token.APPEND:
+					p.parseGenericClause(ctx, p.tok, p.expect(p.tok), p.parseAppendSpec)
 				case token.EVAL:
-					p.parseGenericClause(ctx, p.tok, p.expect(token.EVAL), p.parseEvalSpec)
+					p.parseGenericClause(ctx, p.tok, p.expect(p.tok), p.parseEvalSpec)
 				default:
 					if p.tok.IsKeyword() { break ForInit }
 					var x = p.parseExpr(ctx, true); p.skipSpaces()

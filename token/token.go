@@ -155,6 +155,7 @@ const (
 	CONFIGURE  // configure [...] TODO: use a different keyword
 	USE        // use b
 	ASSERT     // assert clause
+	APPEND     // append values
 	EVAL       // evaluate a builtin immediately
 	EXPORT     // export ...
 	INCLUDE    // include a.smart
@@ -306,6 +307,7 @@ var tokens = [...]string{
 	CONFIGURE:  "configure",
 	USE:        "use",
 	ASSERT:     "assert",
+	APPEND:     "append",
 	EVAL:       "eval",
 	EXPORT:     "export",
 	INCLUDE:    "include",
@@ -365,6 +367,8 @@ func (tok Token) IsClosure() bool { return closure_beg < tok && tok < closure_en
 func (tok Token) IsDelegate() bool { return delegate_beg < tok && tok < delegate_end }
 func (tok Token) IsAssign() bool { return assign_beg < tok && tok < assign_end }
 func (tok Token) IsRuleDelim() bool { return ruledelim_beg < tok && tok < ruledelim_end }
+func (tok Token) IsSelectProg() bool { return SELECT_PROG1 == tok && tok == SELECT_PROG2 }
+func (tok Token) IsSelectProp() bool { return SELECT_PROP == tok }
 func (tok Token) IsListDelim() bool {
 	return tok.IsRuleDelim() ||
 		tok == RPAREN || tok == RBRACK || tok == RBRACE || tok == RCOLON ||

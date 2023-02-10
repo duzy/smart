@@ -5707,7 +5707,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         x Object
         db int
     )
-    if false { if s := p.String(); (
+    if true { if s := p.String(); (
         // s == "$(call -c &(.test.x),$1$1,$2$2)" ||
         // s == "$(foreach $1 $2,$(value .test.$_) $(value .test~&(.test.s).$_))" ||
         // s == "$(foreach $1,$(value -c .test.$_)$1)" ||
@@ -5726,12 +5726,13 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         // s == "$(ext $@)" ||
         // s == "$(debug -s=50 -n=60 $1)" ||
         // s == "$(.test.s $_,AsmParser)" ||
-        // (db > 0 && s == "$1") ||
-        // (dd && s == "$(-std.$_)") ||
         // s == "${.test.foobar}" ||
         // s == "${.test.foobaz}" ||
         // s == "${.test.foobay}" ||
         // s == "$($_→tool.name)" ||
+        s == "$(dee $($_→tool.syms),$($_→tool.name))" ||
+        // (db > 0 && s == "$1") ||
+        // (dd && s == "$(-std.$_)") ||
         (false && s == "")) { db += 1
         defer func() { if res != nil { if r := res.String(); true ||
             // r == "foobar $1-$2 foobar $1$1$1$1-$2$2$2$2 foobar $1$1$1$1-$2$2$2$2" ||
@@ -5763,6 +5764,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
             warn(ctx, "reveal: 1: %v", autoGet(ctx, "1"))
             warn(ctx, "reveal: 2: %v", autoGet(ctx, "2"))
             warn(ctx, "reveal: _: %v", autoGet(ctx, "_"))
+            warn(ctx, "reveal: @: %v", autoGet(ctx, "@"))
             warn(ctx, "reveal: <: %v", autoGet(ctx, "<"))
             warn(ctx, "reveal: >: %v", autoGet(ctx, ">"))
             warn(ctx, "reveal: %T: %v", p.x, p)
@@ -5845,9 +5847,8 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         errostack(ctx, 3, "%v", ctx).debug(16)
         return
     } else {
-        if pn, y := t.o.(*ProjectName); y && pn != nil && pn.Project != nil {
-            // FIXME: closure with pn.project not working
-            ctx = closureWith(ctx, pn.Project.scope)
+        if n, y := t.o.(*ProjectName); y && n != nil && n.Project != nil {
+            ctx = closureWith(ctx, n.Scope())
         }
 
         if v := t.value(ctx, w); isNil(v) {
@@ -5895,13 +5896,9 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
     }
 
     var bin, _ = x.(*Builtin)
-    if bin == nil {
-        // def, Caller, Executer ...
-    } else if bin.name == "auto" {
+    if bin != nil && bin.name == "auto" {
         return builtinAuto(ctx, p, w, args...), final
-    }
-
-    if unexpand {
+    } else if unexpand {
         if p.x != x || n > 0 { res = &delegate{p.valbase, p.l, x, args} }
         if w&expandClose != 0 { return res, true }
         return unexpanded{res}, true
@@ -5917,11 +5914,12 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
                 autoGet(ctx, "3"), autoGet(ctx, "4"), u, n).debug(64)
         }
         return
-    } else if d, y := x.(*def); y {
-        return p.call(ctx, w, d, args...)
     }
 
     switch t := x.(type) {
+    case *def:
+        res, final = p.call(ctx, w, t, args...)
+        return
     case Caller:
         res = t.Call(ctx, args...)
         return
@@ -6105,7 +6103,7 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
     if false { if s := p.String();
         // s == "&(.test.v2)" ||
         // s == "&(objects)" ||
-        s == "&(cflags $<)" ||
+        // s == "&(cflags $<)" ||
         (dd && s == "&(-std.$_)") ||
         (false && s == "") {
         defer func() { if r := res.String(); p != res && ( true ||
@@ -6181,7 +6179,24 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
         }}
 
         var ux unexpanded
-        if ux, y = name.(unexpanded); y {
+        if name == nil {
+            erro(of(ctx,unresolved.name), "name is nil: %v (%T)", unresolved.name, unresolved.name).debug(10)
+            return
+        } else if _, y := name.(undef); y {
+            return res, true
+        } else if s, y := name.(selected); y {
+            if s.Value == nil {
+                erro(of(ctx,name), "%v: selected nil value", name).debug(1)
+                return
+            } else if x, y = s.Value.(Object); !y {
+                // to call this selected object
+            } else if x, y = s.Value.(*uselist); false && !y {
+                // to call this selected object
+            } else {
+                // use the selected value
+                return s.Value, true
+            }
+        } else if ux, y = name.(unexpanded); y {
             if t := unresolved.name != ux.Value; n > 0 || t {
                 if t { unresolved = &unresolvedobject{unresolved.objbase, ux.Value}}
                 res = &closure{delegate{p.valbase, p.l, unresolved, args}}
@@ -6327,32 +6342,39 @@ func (p *selection) refs(ctx Context, v Value) bool { return p.o.refs(ctx, v) ||
 func (p *selection) defs(ctx Context, s ...string) []*def {
     return append(p.o.defs(ctx, s...), p.s.defs(ctx, s...)...)
 }
-func (p *selection) object(ctx Context, w facet) (o Object) {
+func (p *selection) value(ctx Context, w facet) (v Value) {
+    if p.s == nil {
+        erro(at(ctx,p.position), "selection prop is nil: %v", p).debug(12)
+        return
+    }
+
+    var delegateObject bool // delegated object
+    var o Object
     if s, y := p.o.(*selection); y {
         if v := s.value(ctx, w); v == nil {
-            // sth's wrong!
-        } else if o, _ = v.(Object); o == nil {
-            erro(at(ctx,p.position), "selection.object: `%s` is nil", s.String()).debug(1)
+            // sth is wrong!
+        } else if o, y = v.(Object); !y || o == nil {
+            erro(at(ctx,p.position), "selection.object: `%s` is not an object: %v (%T)", s, v, v).debug(1)
         }
-    } else if o, y = p.o.(Object); y && !isNil(o) {
-        // good
     } else if d, y := p.o.(*delegate); y {
         if v := d.expand(ctx, w); v == nil {
             erro(at(ctx,d.position), "selection.object: %v is not an object", p.o).debug(1)
-        } else if _, y = v.(unexpanded); y {
-            // unresolved
-        } else if o, y = v.(Object); !y {
+        } else if u, y := v.(unexpanded); y {
+            if o, y = u.Value.(Object); !y {
+                // unresolved
+            }
+        } else if o, y = v.(Object); !y || o == nil {
             erro(at(ctx,d.position), "selection.object: %v is not an object: %v (%T)", p.o, v, v).debug(1)
         }
+
+        delegateObject = true // marking object via delegate
+    } else if o, y = p.o.(Object); y && o != nil {
+        // good
     } else {
         erro(at(ctx,p.position), "selection.object: %v is not an object (but %s)", p.o, typeof(p.o)).debug(1)
     }
-    return
-}
-func (p *selection) value(ctx Context, w facet) (v Value) {
-    if isNil(p.s) {
-        erro(at(ctx,p.position), "selection prop is nil: %v", p).debug(12)
-    } else if o := p.object(ctx, w); o != nil {
+
+    if o != nil {
         // if n, ok := o.(*ProjectName); ok && n != nil && n.project != nil {
         //     defer setclosure(setclosure(cloctx.unshift(n.project.scope)))
         // }
@@ -6362,23 +6384,24 @@ func (p *selection) value(ctx Context, w facet) (v Value) {
             optional = strings.HasSuffix(s, "?")
         )
         if optional { s = strings.TrimSuffix(s, "?") }
-        if pn, ok := o.(*ProjectName); ok && (p.t == token.SELECT_PROG1 || p.t == token.SELECT_PROG2) {
-            if entries := pn.Project.resolveEntries(ctx, s, false, false); entries != nil {
+        if p.t.IsSelectProg() {
+            if n, y := o.(*ProjectName); !y {
+                erro(at(ctx,p.position), "selection.value: not a project: %v (%T)", o, o).debug(1)
+            } else if entries := n.Project.resolveEntries(ctx, s, false, false); entries != nil {
                 return selected{ entries }
             } else if optional {
-                v = unresolved(pn.Project, MakeBareword(p.s.Position(), s))
+                v = unresolved(n.Project, MakeBareword(p.s.Position(), s))
             } else {
-                erro(at(ctx,p.position), "selection.value: no entry `%s` (%+v)", s, p.String())
+                erro(at(ctx,p.position), "selection.value: no entry `%s` (%+v)", s, p).debug(1)
             }
         } else if v, e = o.Get(ctx, s); e != nil {
             erro(ctx, "%v.get(%s): %v", o, s, e).debug(1)
         } else if v != nil {
             return selected{ v }
         } else if optional {
-            v = unresolved(pn.Project, MakeBareword(p.s.Position(), s))
+            v = unresolved(o.OwnerProject(), MakeBareword(p.s.Position(), s))
         }
-    } else if _, y := p.o.(*delegate); y {
-        // warn(at(ctx,p.position), "selection.value: `%v` yields nil object (%v %T)", p, p.o, p.o).debug(512)
+    } else if delegateObject {
         v = unexpanded{ p }
     } else {
         erro(at(ctx,p.position), "selection.value: `%v` yields nil object (%v %T)", p, p.o, p.o).debug(12)
@@ -6403,7 +6426,7 @@ func (p *selection) expand(ctx Context, w facet) (res Value) {
 }
 func (p *selection) traverse(ctx Context) (traves travestates) {
     ctx = at(ctx, p.position)
-    if val := p.value(ctx, ident); isTrivial(val) {
+    if val := p.value(ctx, plain); isTrivial(val) {
         warn(ctx, "selected value '%v' is trivial", p).debug(1)
     } else {
         _ = val.updated(ctx) // NOTE: ensure that updated flag is correct (see RuleEntry.updated)
@@ -6412,7 +6435,7 @@ func (p *selection) traverse(ctx Context) (traves travestates) {
     return
 }
 func (p *selection) updated(ctx Context, v ...bool) (res bool) { // NOTE: this seems not affecting the result
-    if val := p.value(ctx, ident); isTrivial(val) {
+    if val := p.value(ctx, plain); isTrivial(val) {
         warn(ctx, "selected value '%v' is trivial", p).debug(1)
     } else {
         res = val.updated(ctx, v...)
@@ -6420,7 +6443,7 @@ func (p *selection) updated(ctx Context, v ...bool) (res bool) { // NOTE: this s
     return res
 }
 func (p *selection) updatedDeps(ctx Context, v ...Value) (res []Value) {  // NOTE: this seems not affecting the result
-    if val := p.value(ctx, ident); isTrivial(val) {
+    if val := p.value(ctx, plain); isTrivial(val) {
         warn(ctx, "selected value '%v' is trivial", p).debug(1)
     } else {
         res = val.updatedDeps(ctx, v...)

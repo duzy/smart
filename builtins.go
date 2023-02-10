@@ -373,15 +373,15 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                         if t := v == nil || v.True(ctx); true { val.SetBool(t) }
                 case reflect.Float32, reflect.Float64:
                         if t, e := v.Float(ctx); e == nil { val.SetFloat(t) } else {
-                                erro(ctx, "%v: %v", v, e).debug(1)
+                                erro(ctx, "%v: %v", v, e).debug(10)
                         }
                 case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
                         if t, e := v.Integer(ctx); e == nil { val.SetInt(t) } else {
-                                erro(ctx, "%v: %v", v, e).debug(1)
+                                erro(ctx, "%v: %v", v, e).debug(10)
                         }
                 case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
                         if t, e := v.Integer(ctx); e == nil { val.SetUint(uint64(t)) } else {
-                                erro(ctx, "%v: %v", v, t).debug(1)
+                                erro(ctx, "%v: %v", v, t).debug(10)
                         }
                  case reflect.String:
                         val.SetString(v.Strval(ctx))
@@ -1374,8 +1374,10 @@ func builtinAuto(ctx Context, p *delegate, w facet, args... Value) (res Value) {
 // $(value <name1>,<name2>...)  -- this is specially useful when <name> is a closure.
 type builtinValueOpts struct {
         generalOpts
+        // def  []string `def,var`
         closure bool `c,clo,closure`
-        undef bool `u,undef`
+        unexp bool `ux,unexpand,unexpanded`
+        undef bool `u,un,undef`
 }
 func builtinValue(ctx Context, w facet, args... Value) (res Value) {
         var (
@@ -1408,10 +1410,9 @@ func builtinValue(ctx Context, w facet, args... Value) (res Value) {
                 if opts.debug>0 { warnstack(ctx, 3, "value: %v ; %v -> %v -> %v (closure=%v)",
                         args, a, name, val, closure).debug(2*opts.debug) }
                 if val != nil {
-                        // ...
+                        if opts.unexp { val = unexpanded{val} }
                 } else if closure {
-                        val = MakeClosure(ctx.Position(), token.LPAREN,
-                                unresolved(ctx.Project(), a))
+                        val = MakeClosure(ctx.Position(), token.LPAREN, unresolved(ctx.Project(), a))
                 } else if false {
                         val = MakeNone(a.Position())
                 } else {
@@ -1477,11 +1478,6 @@ func builtinCall(ctx Context, p *delegate, w facet, args ...Value) (res Value) {
 
         if d, y := o.(*def); true && y {
                 res, _ = p.call(ctx, w, d, args...)
-                if res != nil && res.String() == "foobar $1$1$1$1-$2$2$2$2" &&
-                        d.value.String() == "foobar $1-$2" {
-                        warn(ctx, "%T %v", d.value, d.value)
-                        warn(ctx, "%T %v", res, res).debug(1)
-                }
         } else {
                 res = o.Call(ctx, args...)
         }
@@ -1539,8 +1535,8 @@ func builtinClosure(ctx Context, w facet, args... Value) (res Value) {
 type builtinDefListOpts struct {
         rxs []*regexp.Regexp `r,re,rx,reg,regex,regexp`
         not   *regexp.Regexp `nr,neg,not,ex,except,exclude`
-        rn int `rn`
         n int `n,num,g`
+        rn int `rn`
 }
 func builtinDefList(ctx Context, w facet, args... Value) (res Value) {
         var (
@@ -1723,53 +1719,48 @@ type builtinAppendOpts struct {
         // string bool `s,str,string`
 }
 func builtinAppend(ctx Context, w facet, args... Value) (result Value) {
+        return __append(ctx, generalOpts{}, w, args...)
+}
+func __append(ctx Context, g generalOpts, w facet, args... Value) (result Value) {
         var (
-                opts builtinAppendOpts
-                vars []Value
-                list []Value
+                opts = builtinAppendOpts{ generalOpts:g }
         )
         if len(args) < 2 {
                 erro(ctx, "insufficient number of arguments: %v", args).debug(1)
                 return
         }
 
-        vars = parseOpts(ctx, &opts, plain, args[0])
+        var names, list []Value
+        if names = parseOpts(ctx, &opts, plain, args[0]); len(names) == 0 {
+                warn(ctx, "append to nowhere: %T %v", args[0], args[0]).debug(1)
+                return
+        }
         if list = mergex(ctx, plain, args[1:]...); len(list) == 0 {
-                warn(ctx, "append no values").debug(1)
+                warn(ctx, "append no values: %v", args[1:]).debug(1)
                 return
         }
 
-        var pos = ctx.Position()
-        for _, a := range vars {
-                var name string
-                if name = a.Strval(ctx); name == "" {
+        for _, a := range names {
+                if name := a.Strval(ctx); name == "" {
                         erro(of(ctx,a), "name '%v' is empty", a).debug(1)
-                        break
-                }
-                if opts.closure {
-                        if def := closureGet(ctx, name); def != nil && !isTrivial(def.value) {
-                                list = append(merge(def.value), list...)
-                        }
-                        closureSet(ctx, name, MakeListOrScalar(pos, list))
-                } else if opts.auto {
-                        if v := autoGet(ctx,name); !isTrivial(v) {
-                                list = append(merge(v), list...)
-                        }
-                        ctx.autoSet(name, MakeListOrScalar(pos, list))
-                } else if proj := ctx.Project(); proj != nil {
-                        var d *def
-                        if obj := proj.resolveObject(ctx, name); obj != nil {
-                                d, _ = obj.(*def)
-                        }
-                        if d == nil {
-                                erro(ctx, "'%s' (%v) is undefined (%T)", name, a, ctx).debug(1)
-                                break
+                } else if opts.closure {
+                        if def := closureGet(ctx, name); def != nil {
+                                def.append(ctx, list...)
                         } else {
-                                d.append(ctx, list...)
+                                erro(ctx, "'%s' (%v) is undefined (%T)", name, a, ctx).debug(1)
+                        }
+                } else if opts.auto {
+                        if def := ctx.autoGet(name); def != nil {
+                                def.append(ctx, list...)
+                        } else {
+                                erro(ctx, "'%s' (%v) is undefined (%T)", name, a, ctx).debug(1)
+                        }
+                } else if o := resolveObject(ctx, name); o != nil {
+                        if d, y := o.(*def); y && d != nil { d.append(ctx, list...) } else {
+                                erro(ctx, "'%s' (%v) is undefined (%T)", name, a, ctx).debug(1)
                         }
                 } else {
                         erro(ctx, "%s", ctx).debug(1)
-                        break
                 }
         }
         return
