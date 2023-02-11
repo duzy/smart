@@ -336,49 +336,55 @@ func (l *loader) Position() (res Position) {
     return
 }
 
-func (l *loader) loadUseSpecName(ctx Context, opts useOpts, specVal Value, specName string, arged []Value, params ...Value) (loaded *Project) {
+func (l *loader) loadUseSpecName(ctx Context, opts useOpts, specVal Value, arged []Value, params ...Value) (loaded *Project) {
     var (
         linfo = universe.globe.loads[len(universe.globe.loads)-1]
-        absPath string
-        isDir bool
+        absPath, specName string
+        isDir, traveUseLoop bool
         err error
     )
-    if absPath, isDir, err = universe.search(linfo, specName); err != nil {
+    if n, y := specVal.(*ProjectName); y {
+        if false { warnstack(ctx, 3, "use project: %v %s", n, n.spec).debug(6) }
+        loaded = n.Project
+    } else if specName = specVal.Strval(ctx); specName == "" {
+        errostack(ctx, 3, "empty spec: %v (%T)", specVal, specVal).debug(6)
+        return
+    } else if absPath, isDir, err = universe.search(linfo, specName); err != nil {
         errostack(ctx, 3, "no such package `%v` (%T)", specName, specVal).debug(6)
         return
     } else if absPath == "" {
         errostack(ctx, 3, "missing `%s` (in %v)", specName, universe.paths).debug(6)
         return
-    }
-
-    loaded, _ = universe.globe.loaded[absPath]
-
-    // Checking circular loads. See also Project.loopImportPath()!
-    var traveUseLoop bool
-    for i, load := range universe.globe.loads {
-        if load.absDir == absPath {
-            var s string
-            var loop, loopTravestates []*loadinfo
-            for n := i; n < len(universe.globe.loads); n += 1 {
-                var load = universe.globe.loads[n]
-                loop = append(loop, load)
-                if load.traveUseLoop() {
-                    loopTravestates = append(loopTravestates, load)
-                    s += "<" + load.specName + "> → "
-                } else {
-                    s += load.specName + " → "
+    } else {
+        if loaded, y = universe.globe.loaded[absPath]; !y {
+            if false { warnstack(ctx, 3, "not project: %s", absPath).debug(6) }
+        }
+        // Checking circular loads. See also Project.loopImportPath()!
+        for i, load := range universe.globe.loads {
+            if load.absDir == absPath {
+                var s string
+                var loop, loopTravestates []*loadinfo
+                for n := i; n < len(universe.globe.loads); n += 1 {
+                    var load = universe.globe.loads[n]
+                    loop = append(loop, load)
+                    if load.traveUseLoop() {
+                        loopTravestates = append(loopTravestates, load)
+                        s += "<" + load.specName + "> → "
+                    } else {
+                        s += load.specName + " → "
+                    }
                 }
-            }
-            if loaded != nil && loaded.opts.traveUseLoop {
-                s += "<" + specName + ">"
-            } else {
-                s += specName
-            }
+                if loaded != nil && loaded.opts.traveUseLoop {
+                    s += "<" + specName + ">"
+                } else {
+                    s += specName
+                }
 
-            if traveUseLoop = (loopTravestates != nil); !traveUseLoop {
-                erro(ctx, "%s: loop detected: %s", l.project, s).debug(10)
-            } else if options.verboseImport || options.verboseUsing || options.verboseLoads {
-                prompt(ctx, "%s: loop detected: %v\n", l.project, s).debug(10)
+                if traveUseLoop = (loopTravestates != nil); !traveUseLoop {
+                    erro(ctx, "%s: loop detected: %s", l.project, s).debug(10)
+                } else if options.verboseImport || options.verboseUsing || options.verboseLoads {
+                    prompt(ctx, "%s: loop detected: %v\n", l.project, s).debug(10)
+                }
             }
         }
     }

@@ -1844,15 +1844,42 @@ func (p *parser) parseUseSpec(ctx Context, doc *CommentGroup, g *genericClauseOp
 		return
 	}
 
-	ctx = p.posit()
+	ctx = at(ctx, g.spec[0].Position()) // p.posit()
 
-	var (
-		args = append(g.vals, g.spec[1:]...)
-		specVal = g.spec[0]
-        specNames []string
-		opts useOpts
-	)
-	args = parseOpts(ctx, &opts, 0, args...)
+	var specVals, arged []Value
+	switch v := g.spec[0].(type) {
+	case *delegate:
+        for _, val := range mergex(ctx, plain, v) {
+            if !isTrivial(val) { specVals = append(specVals, val) }
+		}
+    case *Pair:
+        var s string
+        if f, ok := v.Key.(*Flag); !ok {
+            erro(ctx, "'%v' invalid use spec", v.Key)
+            return
+        } else if s = f.name.Strval(ctx); s != "list" {
+            erro(ctx, "'%v' invalid use spec, do you mean -list?", v.Key)
+            return
+        }
+
+        for _, val := range mergex(ctx, plain, v.Value) {
+            if !isTrivial(val) { specVals = append(specVals, val) }
+        }
+	case *Argumented:
+        for _, val := range mergex(ctx, plain, v.value) {
+            if !isTrivial(val) { specVals = append(specVals, val) }
+        }
+		arged = v.args
+	default:
+		specVals = append(specVals, v)
+    }
+	if len(specVals) == 0 {
+        erro(ctx, "empty use spec: %v (%T)", g.spec[0], g.spec[0]).debug(1)
+        return
+    }
+
+	var opts useOpts
+	var args = parseOpts(ctx, &opts, 0, append(g.vals, g.spec[1:]...)...)
 	for _, a := range args {
 		if _, ok := a.(*Flag); ok || true {
 			erro(of(ctx,a), "unkown use opts: %T %v", a, a).debug(1)
@@ -1860,44 +1887,11 @@ func (p *parser) parseUseSpec(ctx Context, doc *CommentGroup, g *genericClauseOp
 		}
 	}
 
-	var arged []Value
-	var specName string
-	switch v := specVal.(type) {
-    case *Pair:
-        var s string
-        if f, ok := v.Key.(*Flag); !ok {
-            erro(of(ctx,specVal), "'%v' invalid use spec", v.Key)
-            return
-        } else if s = f.name.Strval(ctx); s != "list" {
-            erro(of(ctx,specVal), "'%v' invalid use spec, do you mean -list?", v.Key)
-            return
-        }
-
-        for _, val := range mergex(ctx, plain, v.Value) {
-            if s = val.Strval(ctx); s == "" { continue }
-            specNames = append(specNames, s)
-        }
-		goto loadSpecNames
-	case *Argumented:
-		arged, specVal = v.args, v.value
-    }
-
-	if specName = specVal.Strval(ctx); specName != "" {
-		specNames = append(specNames, specName)
-	}
-
-loadSpecNames:
-	if len(specNames) == 0 {
-        erro(of(ctx,specVal), "empty use spec (%v)", specVal).debug(1)
-        return
-    }
-
 	var wg sync.WaitGroup
 	var loader = ctx.loader()
-    for _, specName = range specNames {
-		var ctx = at(ctx, specVal.Position())
-		if true {
-			loader.loadUseSpecName(ctx, opts, specVal, specName, arged, args...)
+	for _, specVal := range specVals {
+		if ctx := at(ctx, specVal.Position()); true {
+			loader.loadUseSpecName(ctx, opts, specVal, arged, args...)
 		} else {
 			var dc = diagContext{ Context: ctx } // redefine ctx
 			wg.Add(1); go func() {
@@ -1906,10 +1900,10 @@ loadSpecNames:
 					if len(dc.points) > 0 { dc.inner().diagnostic().nest(dc.points) }
 					wg.Done()
 				} ()
-				loader.loadUseSpecName(ctx, opts, specVal, specName, arged, args...)
+				loader.loadUseSpecName(ctx, opts, specVal, arged, args...)
 			} ()
 		}
-    }
+	}
 	wg.Wait()
 
 	if errs := ctx.checkErrors(true); errs > 0 {
@@ -1917,9 +1911,9 @@ loadSpecNames:
 			pos = p.Position()
 			proj = loader.Project()
 		)
-        prompt(ctx, "%s: use %v failed; %d errors\n", proj, specNames, errs)
-		erro(at(ctx,pos), "%v errors: use %v", errs, specNames).debug(6)
-		if true { fail(pos, "%s: use %v failed; %d errors", proj, specNames, errs) }
+        prompt(ctx, "%s: use %v failed; %d errors\n", proj, specVals, errs)
+		erro(at(ctx,pos), "%v errors: use %v", errs, specVals).debug(6)
+		if true { fail(pos, "%s: use %v failed; %d errors", proj, specVals, errs) }
 	}
 	return
 }
@@ -1966,21 +1960,17 @@ func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
 
 	var loader = ctx.loader()
 	for _, val := range paths {
-		var (
-			ctx = at(ctx, val.Position())
-			name = val.Strval(ctx)
-		)
-		if false { // FIXME: parellel loading failed
+		if ctx := at(ctx, val.Position()); false { // FIXME: parellel loading failed
 			wg.Add(1); go func() {
 				defer checkFailure(ctx, true)
 				defer wg.Done()
-				var loaded = loader.loadUseSpecName(ctx, opts, val, name, nil)
+				var loaded = loader.loadUseSpecName(ctx, opts, val, nil)
 				projMutx.Lock()
 				projects = append(projects, loaded)
 				projMutx.Unlock()
 			} ()
 		} else {
-			var loaded = loader.loadUseSpecName(ctx, opts, val, name, nil)
+			var loaded = loader.loadUseSpecName(ctx, opts, val, nil)
 			projects = append(projects, loaded)
 		}
 	}
