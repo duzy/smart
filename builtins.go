@@ -1593,7 +1593,10 @@ func builtinShell(ctx Context, w facet, args... Value) (res Value) {
                 sh.Stdout, sh.Stderr = &bufout, &buferr
                 if err = sh.Run(); err != nil {
                         s = strings.TrimSpace(buferr.String())
-                        erro(ctx, "%s", err).debug(1)
+                        if !strings.HasPrefix(s, ":") { s = ":\n" + s }
+                        prompt(ctx, "%s%s\n", a.Strval(ctx), s)
+                        errostack(ctx, 3, "%s", err).debug(10)
+                        if true { fail(ctx.Position(), "%v", err) }
                         return
                 }
                 val := MakeString(pos, strings.TrimSpace(bufout.String()))
