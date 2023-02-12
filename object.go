@@ -95,40 +95,50 @@ func (p *knownobject) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 
-type unresolvedobject struct { // named callable/executable objects
-        objbase
-        name Value // name could be closured
+type unresolved struct { // named callable/executable objects
+        Value
+        project *Project
 }
-func (p *unresolvedobject) Name(ctx Context) (name string) {
-        if isNil(p.name) {
-                erro(at(ctx,p.position), "unresolved object name is nil")
+func (p unresolved) Name(ctx Context) (name string) {
+        if p.Value == nil {
+                erro(at(ctx,p.Position()), "unresolved object name is nil")
         } else if ctx == nil {
-                name = p.name.String()
+                name = p.Value.String()
         } else {
-                name = p.name.Strval(ctx)
+                name = p.Value.Strval(ctx)
         }
         return
 }
-func (p *unresolvedobject) String() string { return p.name.String() }
-func (p *unresolvedobject) Strval(_ Context) string {
-        // The string value of a unresolved object is "", so that a
-        // unresolved &(var) is stringed to ""
-        return /*p.name.Strval()*/""
-}
-func (p *unresolvedobject) True(_ Context) bool { return false }
-func (p *unresolvedobject) Call(ctx Context, a ...Value) (result Value) { result = p; return }
-func (p *unresolvedobject) Execute(ctx Context, a ...Value) (result []Value, err error) { return []Value{p}, nil }
-func (p *unresolvedobject) rescope(ctx Context, scope *Scope) {
-        if p.scope != scope {
-                var name = p.name.Strval(ctx)
-                if p.scope != nil { delete(p.scope.elems, name) }
-                if p.scope = scope; p.scope != nil { p.scope.elems[name] = p }
+func (p unresolved) Position() Position { return p.Value.Position() }
+func (p unresolved) String() string { return p.Value.String() }
+func (p unresolved) Strval(_ Context) (s string) { return "" }
+func (p unresolved) Float(_ Context) (float64, error) { return 0.0, nil }
+func (p unresolved) Integer(_ Context) (int64, error) { return 0, nil }
+func (p unresolved) True(_ Context) bool { return false }
+func (p unresolved) refs(_ Context, _ Value) (res bool) { return }
+func (p unresolved) defs(_ Context, _ ...string) (res []*def) { return }
+func (p unresolved) expandible(_ Context, _ facet) bool { return false }
+func (p unresolved) patterned(_ Context) bool { return false }
+func (p unresolved) Get(_ Context, name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
+func (p unresolved) Call(ctx Context, a ...Value) (result Value) { result = p; return }
+func (p unresolved) Execute(ctx Context, a ...Value) (result []Value, err error) { return []Value{p}, nil }
+func (p unresolved) OwnerProject() *Project { return p.project }
+func (p unresolved) DeclScope() *Scope { return p.project.scope }
+func (p unresolved) rescope(ctx Context, scope *Scope) {
+        if true {
+                fail(p.Value.Position(), "cant rescope a unresolved object")
+        } else if p.project != scope.project {
+                var name = p.Value.Strval(ctx)
+                if p.project.scope != nil { delete(p.project.scope.elems, name) }
+                if p.project = scope.project; p.project.scope != nil {
+                        p.project.scope.elems[name] = p
+                }
         }
 }
-func (p *unresolvedobject) expand(_ Context, _ facet) Value { return p }
-func (p *unresolvedobject) cmp(ctx Context, v Value) (res cmpres) {
-        if a, y := v.(*unresolvedobject); y {
-                res = p.name.cmp(ctx, a.name)
+func (p unresolved) expand(_ Context, _ facet) Value { return p }
+func (p unresolved) cmp(ctx Context, v Value) (res cmpres) {
+        if a, y := v.(unresolved); y {
+                res = p.Value.cmp(ctx, a.Value)
         } else if l, y := v.(*List); y && len(l.Elems) == 1 {
                 res = p.cmp(ctx, l.Elems[0])
         } else if u, y := v.(unexpanded); y && u.Value != nil {
@@ -136,13 +146,7 @@ func (p *unresolvedobject) cmp(ctx Context, v Value) (res cmpres) {
         }
         return
 }
-func (p *unresolvedobject) traverse(ctx Context) (traves travestates) { return }
-
-func unresolved(p *Project, v Value) *unresolvedobject {
-        var pos = v.Position()
-        if !pos.IsValid() { pos = p.position }
-        return &unresolvedobject{objbase{valbase:valbase{pos}, scope:p.scope, owner:p}, v}
-}
+func (p unresolved) traverse(ctx Context) (traves travestates) { return }
 
 type ProjectName struct {
         *Project

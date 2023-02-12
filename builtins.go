@@ -651,7 +651,7 @@ func builtinDefined(ctx Context, w facet, args... Value) (res Value) {
                 elems []Value
         )
         for _, arg := range parseHeadArgsMerge(ctx, &opts, 0, args...) {
-                var _, unresolved = arg.(*unresolvedobject)
+                var _, unresolved = arg.(unresolved)
                 elems = append(elems, MakeBoolean(pos, !unresolved))
         }
         return MakeListOrScalar(pos, elems)
@@ -870,7 +870,7 @@ func builtinSureValue(ctx Context, w facet, args... Value) Value {
 // $(defor $(x),$(y),$(z)) is identical to $(if $(defined $(x)),$(x),...)
 func builtinDefOr(ctx Context, w facet, args... Value) (res Value) {
         for _, a := range mergex(ctx, plain, args...) {
-                var _, unresolved = a.(*unresolvedobject)
+                var _, unresolved = a.(unresolved)
                 if unresolved { continue } else {
                         res = a
                         break
@@ -1412,7 +1412,7 @@ func builtinValue(ctx Context, w facet, args... Value) (res Value) {
                 if val != nil {
                         if opts.unexp { val = unexpanded{val} }
                 } else if closure {
-                        val = MakeClosure(ctx.Position(), token.LPAREN, unresolved(ctx.Project(), a))
+                        val = MakeClosure(ctx.Position(), token.LPAREN, unresolved{a, ctx.Project()})
                 } else if false {
                         val = MakeNone(a.Position())
                 } else {

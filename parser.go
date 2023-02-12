@@ -1170,13 +1170,17 @@ func (p *parser) parseClosureDelegate() (result Value) {
 
 	const allowClosureName = true
 	resolveObject := func(lPos Position, lTok token.Token, name Value) (str string, obj Value, okay bool) {
-		if sel, ok := name.(*selection); ok {
+		if sel, y := name.(*selection); y {
 			if sel == nil {
 				erro(at(ctx,name.Position()), "nil selection: %v", name).debug(1)
 			} else if v := sel.value(ctx, plain); v == nil {
 				erro(of(ctx,name), "`%v` not selected nil value", sel).debug(1)
+			} else if u, y := v.(unresolved); y {
+				obj, okay = u, true
 			} else if u, y := v.(unexpanded); y {
-				obj, okay = unresolved(proj, u.Value), true
+				if obj, okay = u.Value.(unresolved); !okay {
+					obj, okay = unresolved{u.Value, proj}, true
+				}
 			} else if s, y := v.(selected); !y {
 				erro(of(ctx,name), "`%v` not selected: %v (%T)", sel, v, v).debug(1)
 			} else if obj, okay = s.Value.(Object); !okay {
@@ -1200,7 +1204,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 
 		if val := name.expand(ctx, ident); val != name {
 			if u, y := val.(unexpanded); y {
-				obj, okay = unresolved(proj, u.Value), true
+				obj, okay = unresolved{u.Value, proj}, true
 				return
 			} else { name = val }
 		}
@@ -1208,7 +1212,7 @@ func (p *parser) parseClosureDelegate() (result Value) {
 		switch lTok {
 		case token.LPAREN:
 			if allowClosureName && name.expandible(ctx, expandDelegate|expandClosure) {
-				obj, okay = unresolved(proj, name), true // recursive delegation or closure
+				obj, okay = unresolved{name, proj}, true // recursive delegation or closure
 				return
 			} else if str, resolved = loader.resolveObject(name); false {
 				erro(at(ctx,name.Position()), "resolve '%v' (%s) failed", name, str).debug(1)
@@ -1246,10 +1250,10 @@ func (p *parser) parseClosureDelegate() (result Value) {
 					return
 				} else if tok.IsClosure() || name.expandible(ctx, expandClosure|expandDelegate) ||
 					refdef(ctx, name, defany) {
-					obj, okay = unresolved(proj, name), true // recursive delegation or closure
+					obj, okay = unresolved{name, proj}, true // recursive delegation or closure
 					return
 				} else if p.bits&parsingUndefValue != 0 {
-					obj, okay = unresolved(proj, undef{name}), true
+					obj, okay = unresolved{undef{name}, proj}, true
 					return
 				}
 

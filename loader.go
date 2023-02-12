@@ -1688,7 +1688,7 @@ func (l *loader) resolveObject(value Value) (name string, result Value) {
         return
     } else if result = project.resolveObject(ctx, name); isNil(result) {
         if optional {
-            result = unresolved(project, MakeBareword(pos, name))
+            result = unresolved{value, project}
             return
         }
         //erro(ctx, "%v: resolved object '%v' is nil", project, name).debug(1)

@@ -948,7 +948,7 @@ func traverse(ctx Context, prereqValue Value, prereq string, projects... *Projec
                 }
                 if prereqFile != nil { return }  // let it find rule entries
             }
-            case *Builtin, *def, *ScopeName, *unresolvedobject:
+            case *Builtin, *def, *ScopeName, unresolved:
                 continue ForProjectsObjects
             default: if isTrivial(obj) { continue ForProjectsObjects }
             }
@@ -1849,7 +1849,7 @@ func (p *Nil) cmp(ctx Context, v Value) (res cmpres) {
 // aka. isNil(v) || isNone(v) || isUndef(v) || isEmpty(v)
 func isTrivial(v Value) (t bool) {
     switch a := v.(type) {
-    case *None, *Nil, *unresolvedobject: t = true
+    case *None, *Nil, unresolved: t = true
     case *String: t = a.string == ""
     case *List: t = len(a.Elems) == 0 ||
         (len(a.Elems) == 1 && isTrivial(a.Elems[0]))
@@ -1869,7 +1869,7 @@ func isEmpty(v Value) (t bool) {
     }
     return
 }
-func isUndef(v Value) (t bool) { _, t = v.(*unresolvedobject); return }
+func isUndef(v Value) (t bool) { _, t = v.(unresolved); return }
 func isNone(v Value) (t bool) {
     switch a := v.(type) {
     case *None: t = true
@@ -4710,7 +4710,7 @@ func (p *Flag) refs(ctx Context, v Value) bool { return p.name.refs(ctx, v) }
 func (p *Flag) defs(ctx Context, s ...string) []*def { return p.name.defs(ctx, s...) }
 func (p *Flag) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
     switch t := i.(type) {
-    case *None, *Nil, *unresolvedobject:
+    case *None, *Nil, unresolved:
     case *Flag:
         full, s, stems = p.name.match(ctx, t.name)
         s = "-" + s
@@ -5784,18 +5784,18 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         }}} ()
     }}
 
-    if ur, y := p.x.(*unresolvedobject); y {
+    if ur, y := p.x.(unresolved); y {
         // Expand name first, for example of $(.test$1) containing '$1':
         //     .test.y := $(.test$1)
         //     .test.x := $(.test.y .$1)
         //     .test   := $(.test.x)
         //     assert $(equal -d $(string -e $(.test)),'$(.test.$1)')
         var ux unexpanded
-        var name = ur.name.expand(ctx, w|expandUnresName)
-        if ux, y = ur.name.(unexpanded); !y { ux, y = name.(unexpanded) }
+        var name = ur.Value.expand(ctx, w|expandUnresName)
+        if ux, y = ur.Value.(unexpanded); !y { ux, y = name.(unexpanded) }
         if y {
-            if res = p; ux.Value != ur.name || n>0 {
-                res = &delegate{p.valbase, p.l, &unresolvedobject{ur.objbase, ux.Value}, args}
+            if res = p; ux.Value != ur.Value || n>0 {
+                res = &delegate{p.valbase, p.l, unresolved{ux.Value,ur.project}, args}
             }
             return res, true // not ready to reveal (call/execute)
         }
@@ -5803,7 +5803,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         // NOTE: return immediately if there are any autos/args not defined yet
         var str string
         if name == nil {
-            erro(of(ctx,ur.name), "name is nil: %v (%T)", ur.name, ur.name).debug(10)
+            erro(of(ctx,ur.Value), "name is nil: %v (%T)", ur.Value, ur.Value).debug(10)
             return
         } else if _, y := name.(undef); y {
             return res, true
@@ -5829,8 +5829,8 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         }
 
         if x == nil {
-            if res = p; name != ur.name || n>0 {
-                res = &delegate{p.valbase, p.l, &unresolvedobject{ur.objbase, name}, args}
+            if res = p; name != ur.Value || n>0 {
+                res = &delegate{p.valbase, p.l, unresolved{name,ur.project}, args}
             }
             return res, true // not ready to reveal (call/execute)
         }
@@ -6096,7 +6096,7 @@ func (p *closure) expand(ctx Context, w facet) (res Value) {
 func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
     var (
         args, u, n = p.args(ctx, w)
-        unresolved *unresolvedobject
+        ur unresolved
         str string // the name in string form
         x Object
         y bool
@@ -6138,7 +6138,7 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
             warn(ctx, "disclose: 2: %v", autoGet(ctx, "2"))
             warn(ctx, "disclose: _: %v", autoGet(ctx, "_"))
             warn(ctx, "disclose: args=%v ; unexpanded=%v, transformed=%v", args, u, n)
-            warn(ctx, "disclose: %v ; x: %T %v (%v)", p, x, x, (x==unresolved))
+            warn(ctx, "disclose: %v ; x: %T %v (%v)", p, x, x, (x==ur))
             warn(ctx, "disclose: -> %T %v (same=%v)", res, res, same)
             if !same {
                 var t = res.expand(ctx, w|expandFullName)
@@ -6153,35 +6153,35 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
 
     res = p // set default result to self
 
-    if unresolved, y = p.x.(*unresolvedobject); y {
+    if ur, y = p.x.(unresolved); y {
         // Expand name first, for example of $(.test$1) containing '$1':
         //     .test.y := &(.test$1)
         //     .test.x := $(.test.y .$1)
         //     .test   := $(.test.x)
         //     assert $(equal -d $(string -e $(.test)),'&(.test.$1)')
-        var name Value   = unresolved.name.expand(ctx, w|expandUnresName)
-        if false { if s := unresolved.name.String();
+        var name Value   = ur.Value.expand(ctx, w|expandUnresName)
+        if false { if s := ur.Value.String();
             s == ".test.x.$_" || s == ".test.x.o.$_" {
-            if bc, y := unresolved.name.(*Barecomp); y {
+            if bc, y := ur.Value.(*Barecomp); y {
                 for i, elem := range bc.Elems {
                     warn(ctx, "%d. %T %v", i, elem, elem)
                 }
             }
-            if bc, y := name.(*Barecomp); y && name != unresolved.name {
+            if bc, y := name.(*Barecomp); y && name != ur.Value {
                 for i, elem := range bc.Elems {
                     warn(ctx, "%d. %T %v", i, elem, elem)
                 }
             }
             warn(ctx, "%v", autoGet(ctx, "_"))
             warnstack(ctx, 3, "%T %v -> %T %v, %024b %024b",
-                unresolved.name, unresolved.name, name, name, w,
+                ur.Value, ur.Value, name, name, w,
                 w & (expandPlaceholders | expandDigits)).debug(32)
             ctx.checkErrors(true)
         }}
 
         var ux unexpanded
         if name == nil {
-            erro(of(ctx,unresolved.name), "name is nil: %v (%T)", unresolved.name, unresolved.name).debug(10)
+            erro(of(ctx,ur.Value), "name is nil: %v (%T)", ur.Value, ur.Value).debug(10)
             return
         } else if _, y := name.(undef); y {
             return res, true
@@ -6198,17 +6198,17 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
                 return s.Value, true
             }
         } else if ux, y = name.(unexpanded); y {
-            if t := unresolved.name != ux.Value; n > 0 || t {
-                if t { unresolved = &unresolvedobject{unresolved.objbase, ux.Value}}
-                res = &closure{delegate{p.valbase, p.l, unresolved, args}}
+            if t := ur.Value != ux.Value; n > 0 || t {
+                if t { ur = unresolved{ux.Value, ur.project}}
+                res = &closure{delegate{p.valbase, p.l, ur, args}}
             }
             return unexpanded{res}, true // not ready to disclose (call/execute)
-        } else if unresolved.name != name {
-            unresolved = &unresolvedobject{unresolved.objbase, name}
+        } else if ur.Value != name {
+            ur = unresolved{name, ur.project}
         }
 
-        if x, str = unresolved, name.Strval(ctx); str == "" {
-            erro(of(ctx,p.x), "empty closure name: %T %v -> %T %v ; %v", p.x, p.x, name, name, unresolved).debug(16)
+        if x, str = ur, name.Strval(ctx); str == "" {
+            erro(of(ctx,p.x), "empty closure name: %T %v -> %T %v ; %v", p.x, p.x, name, name, ur).debug(16)
             return
         }
     } else if t, y := p.x.(Object); y && t != nil {
@@ -6227,7 +6227,7 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
             erro(of(ctx,p.x), "selected non object: %T %v", v, v).debug(16)
             return
         } else if x, str = t, t.Name(ctx); str == "" {
-            erro(of(ctx,p.x), "empty closure name: %T %v -> %T %v ; %v", p.x, p.x, x, x, unresolved).debug(16)
+            erro(of(ctx,p.x), "empty closure name: %T %v -> %T %v ; %v", p.x, p.x, x, x, ur).debug(16)
             return
         }
     } else {
@@ -6247,13 +6247,13 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
     }
 
     var changed = p.x != x || n > 0
-    if w&expandClosure == 0 || (unresolved != nil) {
+    if w&expandClosure == 0 || (ur.Value != nil) {
         if changed { res = &closure{delegate{p.valbase, p.l, x, args}} }
         if w&expandClose != 0 { return res, true }
         return unexpanded{res}, true
     } else if changed {
         if t1, t2 := reflect.TypeOf(p.x), reflect.TypeOf(x); t1 != t2 {
-            if unres := reflect.TypeOf((*unresolvedobject)(nil)); t1 != unres {
+            if unres := reflect.TypeOf(unresolved{}); t1 != unres {
                 erro(at(ctx,p.position), "closure object type differs: %v (!= %v)", t2, t1)
                 erro(at(ctx,p.x.Position()), "%v '%s' is found here", t1, str)
                 erro(at(ctx,ctx.Position()), "%v", ctx).debug(16)
@@ -6391,7 +6391,7 @@ func (p *selection) value(ctx Context, w facet) (v Value) {
             } else if entries := n.resolveEntries(ctx, s, false, false); entries != nil {
                 return selected{ entries }
             } else if optional {
-                v = unresolved(n.Project, MakeBareword(p.s.Position(), s))
+                v = unresolved{MakeBareword(p.s.Position(), s), n.Project}
             } else {
                 erro(at(ctx,p.position), "selection.value: no entry `%s` (%+v)", s, p).debug(1)
             }
@@ -6400,7 +6400,7 @@ func (p *selection) value(ctx Context, w facet) (v Value) {
         } else if v != nil {
             return selected{ v }
         } else if optional {
-            v = unresolved(o.OwnerProject(), MakeBareword(p.s.Position(), s))
+            v = unresolved{MakeBareword(p.s.Position(), s), o.OwnerProject()}
         }
     } else if delegateObject {
         v = unexpanded{ p }
