@@ -263,8 +263,10 @@ type Project struct {
   _filemap_ []*FileMap
 
   // Rule Registry (orderred)
-  // concreteMap map[string]Entry // TODO: speedup
-  concrete []Entry //*RuleEntry
+  entries map[string]Entry
+  defaultEntry Entry
+
+  // concrete []Entry //*RuleEntry
   patterns []*PatternEntry
 
   filescopes []*Scope
@@ -557,10 +559,7 @@ func (p *Project) FindFile(ctx Context, name string) (file *File) {
 //   return
 // }
 
-func (p *Project) DefaultEntry() (entry Entry) {
-  if len(p.concrete) > 0 { entry = p.concrete[0] }
-  return
-}
+func (p *Project) DefaultEntry() (entry Entry) { return p.defaultEntry }
 
 func findFile(c Context, s string) *File { return matchFile(c, s, true) }
 func matchFile(c Context, s string, a bool) *File { return c.Project().matchFile(c, s, a) }
@@ -597,26 +596,8 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
     }
   }
 
-  var match = func(entry Entry, name string) (res bool) {
-    var target = entry.Target()
-    if file, ok := toFile(target); ok {
-      if res = file.name == name; !res {
-        var full = file.fullname()
-        if res = filepath.IsAbs(name) && name == full; !res && matchingFullSuffix {
-          res = strings.HasSuffix(full, PathSep+filepath.Clean(name))
-        }
-      }
-    } else {
-      res = target.Strval(ctx) == name
-    }
-    return
-  }
-
-  var found Entry
-  var t1 = autoGet(ctx, "@")
-  ForConcretes: for _, entry := range p.concrete {
-    if match(entry, s) { found = entry } else { continue ForConcretes }
-
+  if entry, y := p.entries[s]; y {
+    var t1 = autoGet(ctx, "@")
     for pc := ctx.programContext(); pc != nil; { // loop detection
       if pc.entry() == entry {
         var t2 = autoGet(pc, "@")
@@ -627,7 +608,7 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
             warnstack(ctx, 3, "%v: %v, %v %v (same: %v, %v, %v)",
               entry, s, t1, t2, (t1 == t2), t1.cmp(ctx, t2), t2.cmp(ctx, t1)).debug(1)
           }
-          continue ForConcretes // break the loop
+          goto skipMyEntry
         }
       }
       if c := pc.inner(); c != nil {
@@ -638,8 +619,9 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
     }
 
     add(entry)
+
+  skipMyEntry:
   }
-  if entries == nil && found != nil { add(found) }
 
   if alwaysResolveBases || entries == nil {
     for _, base := range p.bases {
@@ -769,7 +751,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, patte
   }
 
   // Looking for concrete rule entries.
-  for _, rec := range p.concrete {
+  /*for _, rec := range p.concrete {
     var sv string
     if closured && rec.String() == name { entry = rec; break }
     if sv = fullnameOrStrval(ctx, rec); sv == name { entry = rec; break }
@@ -779,7 +761,20 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, patte
       position: target.Position(), class: GeneralRuleEntry, target: target, argumented: arged,
     }
     p.concrete = append(p.concrete, entry)
+  }*/
+  if p.entries == nil {
+    p.entries = make(map[string]Entry)
+  } else {
+    entry, _ = p.entries[name]
   }
+  if entry == nil {
+    entry = &RuleEntry{
+      position: target.Position(), class: GeneralRuleEntry, target: target, argumented: arged,
+    }
+    p.entries[name] = entry
+  }
+
+  if entry != nil && p.defaultEntry == nil { p.defaultEntry = entry }
   return
 }
 

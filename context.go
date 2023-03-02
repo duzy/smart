@@ -199,7 +199,7 @@ var options = commandLineOpts{
 
   parallel: false, // FIXME: Program.traverse not working in parallel
 
-  slow: 1999 * 80,
+  slow: 999 * 1, // *90
 }
 
 type diagType int

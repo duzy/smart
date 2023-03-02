@@ -694,21 +694,16 @@ func builtinPopContext(ctx Context, w facet, args... Value) (res Value) {
         }
 
         var rules []Value
-        var ents []Entry
-        var proj = ctx.Project()
         for _, r := range opts.rules {
                 if v, y := r.(*Group); !y { rules = append(rules, v) } else {
                        rules = append(rules, v.Elems...)
                 }
         }
-        ForEntries: for _, e := range proj.concrete {
-                var name = e.Name(ctx)
+        if proj := ctx.Project(); proj.entries != nil {
                 for _, r := range rules {
-                        if r.Strval(ctx) == name { continue ForEntries }
+                        delete(proj.entries, r.Strval(ctx))
                 }
-                ents = append(ents, e)
         }
-        proj.concrete = ents
 
         var scope = ctx.Scope()
         var dc = ctx.universe()

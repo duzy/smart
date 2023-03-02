@@ -21,8 +21,8 @@ import (
     "path/filepath"
     "regexp"
     "strings"
-    "syscall"
     "sync"
+    "syscall"
     "time"
 )
 
@@ -445,7 +445,8 @@ func modifierSetDirtyPats(ctx Context, args... Value) (result Value, traves trav
 // create closure context for the traversal
 type modifierClosureOpts struct {
     generalOpts
-    dump    bool `d,dump`
+    dump   bool `d,dump`
+    target bool `@,target`
 }
 func modifierClosure(ctx Context, args... Value) (result Value, traves travestates) {
     var opts modifierClosureOpts
@@ -464,6 +465,7 @@ func modifierClosure(ctx Context, args... Value) (result Value, traves travestat
     args = parseOpts(ctx, &opts, plain, args...)
     if opts.verbose { info(ctx, "%v: %v", ctx.Project(), ctx).debug(1) }
     if opts.dump { infostack(ctx, -1, "%v: %v", ctx.Project(), ctx).debug(1) }
+    if opts.target { warn(ctx, "TODO: %v: set @=&@; %v", ctx.Project(), ctx).debug(1) }
 
     var dir string // closure work directory
     if proj := ctx.Project(); proj == nil {
