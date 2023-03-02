@@ -617,9 +617,7 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
         break
       }
     }
-
     add(entry)
-
   skipMyEntry:
   }
 
@@ -745,23 +743,13 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, patte
     p.patterns = append(p.patterns, pattern)
     entry = pattern
     return
-  } else if name = fullnameOrStrval(ctx, target); name == "" {
-    erro(of(ctx,target), "empty target name: %v", target).debug(1)
+  }
+
+  if name = target.Strval(ctx); name == "" {
+    erro(of(ctx, target), "empty target name: %v", target).debug(1)
     return
   }
 
-  // Looking for concrete rule entries.
-  /*for _, rec := range p.concrete {
-    var sv string
-    if closured && rec.String() == name { entry = rec; break }
-    if sv = fullnameOrStrval(ctx, rec); sv == name { entry = rec; break }
-  }
-  if entry == nil {
-    entry = &RuleEntry{
-      position: target.Position(), class: GeneralRuleEntry, target: target, argumented: arged,
-    }
-    p.concrete = append(p.concrete, entry)
-  }*/
   if p.entries == nil {
     p.entries = make(map[string]Entry)
   } else {
