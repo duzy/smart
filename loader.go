@@ -846,11 +846,6 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
     }
 
     for _, target := range clause.targets {
-        var (
-            entry Entry
-            name string
-            err error
-        )
         if isTrivial(target) {
             if true { continue } else {
                 erro(ctx, "trivial target; %v", clause.targets).debug(1)
@@ -858,49 +853,25 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
             }
         }
 
-        var args []Value // e.g. for pattern filtering
-        switch t := target.(type) {
-        case *Group:
-            erro(ctx, "group target not supported: %v", t).debug(1)
-            return
-        case *Argumented:
-            target, args = t.value, merge(t.args...)
-        }
-
-        name = target.Strval(ctx)
-
-        var patterned = target.patterned(ctx)
-        if true && !patterned {
-            // NOTE: it should work too if not checking against files
-            switch target.(type) {
-            case *File, *Path, *Barefile, *PercPattern, *GlobPattern, *RegexpPattern:
-            default:
-                if file := l.project.FindFile(ctx, name); file != nil {
-                    file.position = target.Position()
-                    target = file
-                }
-            }
-        }
-
-        entry, err = l.project.entry(ctx, clause.special, clause.options, patterned, target, args, prog)
+        var entry, err = l.project.entry(ctx, clause.special, clause.options, target, prog)
         if err != nil {
             erro(of(ctx,target), "creating entry '%v' failed: %v", target, err)
             return
-        } else /*if entry != nil*/ {
+        } else {
             entries = append(entries, entry)
         }
+
         if t, okay := entry.Target().(*Flag); okay && t != nil {
             var s = t.name.Strval(ctx)
-            if l.project.name != "~" {
-                l.Globe().AddFlagEntry(s, entry)
-            }
+            if l.project.name != "~" { l.Globe().AddFlagEntry(s, entry) }
         } else if configure {
-            if patterned {
+            if _, y := entry.(*PatternEntry); y {
                 erro(ctx, "unsupported pattern configures: %v", target).debug(1)
                 return
+            } else {
+                l.project.configs = append(l.project.configs, entry)
+                configuration.entries = append(configuration.entries, entry)
             }
-            l.project.configs = append(l.project.configs, entry)
-            configuration.entries = append(configuration.entries, entry)
         }
     }
     return

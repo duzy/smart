@@ -266,7 +266,6 @@ type Project struct {
   entries map[string]Entry
   defaultEntry Entry
 
-  // concrete []Entry //*RuleEntry
   patterns []*PatternEntry
 
   filescopes []*Scope
@@ -627,24 +626,23 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
 
   if alwaysResolveBases || entries == nil {
     for _, base := range p.bases {
-      if ents := base.resolveEntries(ctx, s, matchingFullSuffix, alwaysResolveBases); ents != nil {
-        add(ents.all...)
+      if t := base.resolveEntries(ctx, s, matchingFullSuffix, alwaysResolveBases); t != nil {
+        add(t.all...)
         break
       }
     }
   }
   if p.configure != nil && ctx.configuration() {
-    if ents := p.configure.resolveEntries(ctx, s, matchingFullSuffix, true); ents != nil {
-      add(ents.all...)
+    if t := p.configure.resolveEntries(ctx, s, matchingFullSuffix, true); t != nil {
+      add(t.all...)
     }
   }
   if true {
     /* FAST */
   } else if entries == nil { /* SLOW */
     for _, use := range p.use.list {
-      ents := use.project.resolveEntries(ctx, s, matchingFullSuffix, alwaysResolveBases)
-      if ents != nil {
-        add(ents.all...)
+      if t := use.project.resolveEntries(ctx, s, matchingFullSuffix, alwaysResolveBases); t != nil {
+        add(t.all...)
         break
       }
     }
@@ -721,7 +719,26 @@ func (p *Project) resolvePatterns3(ctx Context, val Value, s string) (res []*ste
 type entryOpts struct {
   postExec bool `p,post;pe,post-execute;pe,post-exec`
 }
-func (p *Project) entry(ctx Context, special specialRule, options []Value, patterned bool, target Value, arged []Value, prog *Program) (entry Entry, err error) {
+func (p *Project) entry(ctx Context, special specialRule, options []Value, target Value, prog *Program) (entry Entry, err error) {
+  var name string
+  if name = target.Strval(ctx); name == "" {
+    erro(of(ctx, target), "empty target name: %v", target).debug(1)
+    return
+  }
+
+  var patterned = target.patterned(ctx)
+  if true && !patterned {
+    // NOTE: it should work too if not checking against files
+    switch target.(type) {
+    case *File, *Path, *Barefile, *PercPattern, *GlobPattern, *RegexpPattern:
+    default:
+      if file := p.FindFile(ctx, name); file != nil {
+        file.position = target.Position()
+        target = file
+      }
+    }
+  }
+
   defer func() {
     if entry != nil && err == nil {
       entry.setPrograms(append(entry.Programs(), prog))
@@ -737,7 +754,15 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, patte
     return
   }
 
-  var name string
+  var arged []Value // e.g. for pattern filtering
+  switch t := target.(type) {
+  case *Group:
+    erro(ctx, "group target not supported: %v", t).debug(1)
+    return
+  case *Argumented:
+    target, arged = t.value, merge(t.args...)
+  }
+
   if patterned {
     var class = PatternRuleEntry
     if _, ok := target.(*Path); ok { class = PathPattRuleEntry }
@@ -746,11 +771,6 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, patte
     }}
     p.patterns = append(p.patterns, pattern)
     entry = pattern
-    return
-  }
-
-  if name = target.Strval(ctx); name == "" {
-    erro(of(ctx, target), "empty target name: %v", target).debug(1)
     return
   }
 

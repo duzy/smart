@@ -1223,8 +1223,11 @@ func builtinFor(ctx Context, w facet, args... Value) (res Value) {
 }
 
 type builtinForEachOpts struct {
-        generalOpts
-        empty bool `e,empty,allow-empty`
+        // NOTE: disable all $(foreach) options to avoid messing with flag values.
+        // generalOpts
+        // empty bool `empty,allow-empty`
+        debug int
+        empty bool
 }
 func builtinForEach(ctx Context, w facet, args... Value) (res Value) {
         if n := len(args); n < 2 {
@@ -1251,16 +1254,23 @@ func builtinForEach(ctx Context, w facet, args... Value) (res Value) {
         ctx = &cc
 
         for _, val := range values {
-                if !opts.empty { switch t := val.(type) {
-                case *Nil, *None, *delegate, *closure:
-                        if opts.debug>0 { warn(ctx, "empty: %T %v", val, val).debug(1) }
-                        continue
-                case *String:
-                        if t.string == "" {
+                if !opts.empty {
+                        switch t := val.(type) {
+                        case *Nil, *None, *delegate, *closure:
                                 if opts.debug>0 { warn(ctx, "empty: %T %v", val, val).debug(1) }
                                 continue
+                        case *String:
+                                if t.string == "" {
+                                        if opts.debug>0 { warn(ctx, "empty: %T %v", val, val).debug(1) }
+                                        continue
+                                }
+                        default:
+                                if s := val.Strval(ctx); s == "" {
+                                        if true || opts.debug>0 { warn(ctx, "empty: %T %v", val, val).debug(1) }
+                                        continue
+                                }
                         }
-                }}
+                }
 
                 cc.autoSet("_", val)
 

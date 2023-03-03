@@ -2000,7 +2000,7 @@ func (p *parser) importFileMaps1(ctx Context, opts useOpts, projects ...*Project
 }
 
 type filesOpts struct {
-	public bool `p,pub;p,public`
+	public bool `p,pub,public`
 }
 func (p *parser) parseFilesSpec(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
 	defer p.setbits(p.setbit(parsingFilesSpec))
