@@ -597,24 +597,28 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
   }
 
   if entry, y := p.entries[s]; y {
-    var t1 = autoGet(ctx, "@")
-    for pc := ctx.programContext(); pc != nil; { // loop detection
-      if pc.entry() == entry {
-        var t2 = autoGet(pc, "@")
-        if eq(ctx, t1, t2) || t1.Strval(ctx) == t2.Strval(ctx) {
-          if false {
-            warn(of(ctx,t1), "%v: %p %v %T", entry, t1, t1, t1)
-            warn(of(ctx,t1), "%v: %p %v %T", entry, t2, t2, t2)
-            warnstack(ctx, 3, "%v: %v, %v %v (same: %v, %v, %v)",
-              entry, s, t1, t2, (t1 == t2), t1.cmp(ctx, t2), t2.cmp(ctx, t1)).debug(1)
+    if false {
+      // if s == "touch" { warnstack(ctx, 3, "%v: %s %v %v", p, s, entry, y).debug(1) }
+      var t1 = autoGet(ctx, "@")
+      for pc := ctx.programContext(); pc != nil; { // loop detection
+        if pc.entry() == entry {
+          var t2 = autoGet(pc, "@")
+          if eq(ctx, t1, t2) || t1.Strval(ctx) == t2.Strval(ctx) {
+            if false {
+              warn(of(ctx,t1), "%v: %p %v %T", entry, t1, t1, t1)
+              warn(of(ctx,t1), "%v: %p %v %T", entry, t2, t2, t2)
+              warnstack(ctx, 3, "%v: %v, %v %v (same: %v, %v, %v)",
+                entry, s, t1, t2, (t1 == t2), t1.cmp(ctx, t2), t2.cmp(ctx, t1)).debug(1)
+            }
+            if s == "touch" { warnstack(ctx, 3, "%v: %s %v - skip: %v %v", p, s, entry, t1, t2).debug(1) }
+            goto skipMyEntry
           }
-          goto skipMyEntry
         }
-      }
-      if c := pc.inner(); c != nil {
-        pc = c.programContext()
-      } else {
-        break
+        if c := pc.inner(); c != nil {
+          pc = c.programContext()
+        } else {
+          break
+        }
       }
     }
     add(entry)
