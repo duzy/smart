@@ -46,7 +46,7 @@ func (p *use) expand(ctx Context, w facet) (res Value) {
         return
 }
 func (p *use) stat(ctx Context) (si *statinfo) {
-        if entry := p.project.DefaultEntry(); entry != nil {
+        if entry := p.project.defaultEntry; entry != nil {
                 // FIXME: entry maybe not pointing to the real target
                 si = entry.stat(ctx)
         }
@@ -63,7 +63,7 @@ func (p *use) traverse(ctx Context) (_ travestates) {
                 // FIXME: allow re-use the project
                 return
         }
-        if entry := p.project.DefaultEntry(); entry != nil {
+        if entry := p.project.defaultEntry; entry != nil {
                 if p.project.opts.traveUseLoop {
                         // FIXME: break use loop
                 } else if entry.traverse(pc); pc.hasTravestates() {
@@ -75,13 +75,13 @@ func (p *use) traverse(ctx Context) (_ travestates) {
         return
 }*/
 func (p *use) stamp(ctx Context) (files []*File, err error) {
-        if entry := p.project.DefaultEntry(); entry != nil {
+        if entry := p.project.defaultEntry; entry != nil {
                 files, err = entry.stamp(ctx)
         }
         return
 }
 func (p *use) delete(ctx Context) (files []*File, err error) {
-        if entry := p.project.DefaultEntry(); entry != nil {
+        if entry := p.project.defaultEntry; entry != nil {
                 files, err = entry.delete(ctx)
         }
         return
@@ -100,13 +100,13 @@ func (p *use) match(ctx Context, i interface{}) (full bool, s string, stems []st
 func (p *use) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
 func (p *use) True(ctx Context) bool { return p.project != nil }
 func (p *use) updated(ctx Context, v ...bool) (res bool) {
-        if entry := p.project.DefaultEntry(); entry != nil {
+        if entry := p.project.defaultEntry; entry != nil {
                 res = entry.updated(ctx, v...)
         }
         return
 }
 func (p *use) updatedDeps(ctx Context, v ...Value) (res []Value) {
-        if entry := p.project.DefaultEntry(); entry != nil {
+        if entry := p.project.defaultEntry; entry != nil {
                 res = entry.updatedDeps(ctx, v...)
         }
         return
@@ -288,7 +288,7 @@ func (p *uselist) Call(ctx Context, a... Value) (result Value) {
         if p.list == nil { return }
         var targets []Value
         for _, usee := range p.list {
-                if entry := usee.project.DefaultEntry(); entry != nil {
+                if entry := usee.project.defaultEntry; entry != nil {
                         if usee.project.opts.traveUseLoop {
                                 // FIXME: break use loop
                         } else if false {

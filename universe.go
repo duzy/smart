@@ -16,6 +16,7 @@ import (
     "runtime"
     "strconv"
     "strings"
+    "sync"
     "time"
     "flag"
     "fmt"
@@ -50,6 +51,9 @@ type universeContext struct {
     globe   *Globe
 
     paths   searchlist
+
+    statmutex sync.Mutex
+    filecache map[string]*filebase // File.fullname() -> File
 }
 func (ctx *universeContext) arguments() []Value { return nil }
 func (ctx *universeContext) argumented() *argumentedContext { return nil }
@@ -146,6 +150,7 @@ func (ctx *universeContext) init() {
         ctx.workdir = s
     }
     ctx.Context = ctx // self context for diagnostic
+    ctx.filecache = make(map[string]*filebase)
 
     var (
         pos Position = ctx.Position()
@@ -344,7 +349,7 @@ func (dc *universeContext) run() (result []Value, travestates []*travestate) {
     var collect func(proj *Project, vals []Value) bool
     collect = func(proj *Project, vals []Value) bool {
         if len(vals) == 0 {
-            if entry := proj.DefaultEntry(); entry != nil {
+            if entry := proj.defaultEntry; entry != nil {
                 goals = append(goals, entry)
             } else {
                 // NOTE: ignored project
@@ -414,7 +419,7 @@ func (dc *universeContext) run() (result []Value, travestates []*travestate) {
 
     if collect(main, merge(dc.globe.goals.value)) {
         if len(goals) == 0 {
-            if entry := main.DefaultEntry(); entry != nil {
+            if entry := main.defaultEntry; entry != nil {
                 goals = append(goals, entry)
             }
         }

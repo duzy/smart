@@ -2457,7 +2457,7 @@ func builtinPatsubst(ctx Context, w facet, args... Value) (res Value) {
                 list []Value
         )
         if !opts.noFileMap {
-                filemaps = proj.filemaps(ctx, opts.baseFiles, opts.usedFiles)
+                filemaps = proj._filemaps(ctx, opts.baseFiles, opts.usedFiles)
         }
 
 ForSources:
@@ -2650,7 +2650,7 @@ func builtinPatsubst_buggy(ctx Context, w facet, args... Value) (res Value) {
         var closured = closureProjects(ctx)
 
         var filemaps []*FileMap
-        if !opts.noFileMap { filemaps = proj.filemaps(ctx, opts.baseFiles, opts.usedFiles) }
+        if !opts.noFileMap { filemaps = proj._filemaps(ctx, opts.baseFiles, opts.usedFiles) }
 
 ForSources:
         for _, src := range sources {

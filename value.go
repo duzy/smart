@@ -4205,17 +4205,15 @@ type filebase struct {
 }
 func (p *filebase) exists() bool { return p.info != nil }
 
-var statmutex sync.Mutex
-var filecache = make(map[string]*filebase) // File.fullname() -> File
-
 func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File) {
     var (
         base *filebase
         stub *filestub
         fullname string
+        uni = ctx.universe()
     )
 
-    statmutex.Lock(); defer statmutex.Unlock()
+    uni.statmutex.Lock(); defer uni.statmutex.Unlock()
 
     // Trims / suffix
     if dir != "" { dir = filepath.Clean(dir) }
@@ -4334,7 +4332,7 @@ func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
 
     var okay bool // NOTE: filepath.Join can have the same efffect as filepath.Clean
     var cleanFullname = filepath.Clean(fullname) // clean paths like /path/to/foo/../bar -> /path/to/bar
-    if base, okay = filecache[cleanFullname]; okay {
+    if base, okay = uni.filecache[cleanFullname]; okay {
         if base.info == nil {
             if fileInfo == nil { fileInfo, _ = os.Stat(fullname) }
             if fileInfo == nil && !addNotExisted { return nil } // file not exists
@@ -4374,7 +4372,7 @@ func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
         base = &filebase{ filestub{ dir, sub, name, nil, nil }, fileInfo, false, nil }
         base.stub.other = &base.stub
         stub = &base.stub
-        filecache[cleanFullname] = base
+        uni.filecache[cleanFullname] = base
     }
     GotFile: file = &File{valbase{ctx.Position()},base,stub}
 

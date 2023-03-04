@@ -296,10 +296,6 @@ func (p *Project) mapfile(ctx Context, opts filesOpts, patts, paths []Value) {
   p._filemap_ = append(p._filemap_, &FileMap{ p, patts, paths, opts.public })
 }
 
-func (p *Project) myFilemaps(ctx Context) (filemap []*FileMap) {
-  return p._filemap_
-}
-
 func uniqueAppendFilemap(ctx Context, filemaps []*FileMap, a *FileMap) (result []*FileMap) {
   if false {
     var numDuplicated int
@@ -330,17 +326,17 @@ func uniqueAppendFilemap(ctx Context, filemaps []*FileMap, a *FileMap) (result [
   return
 }
 
-func (p *Project) filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*FileMap) {
+func (p *Project) _filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*FileMap) {
   var appendUnique = func(a *FileMap) {
     filemaps = uniqueAppendFilemap(ctx, filemaps, a)
   }
 
-  for _, m := range p.myFilemaps(ctx) { appendUnique(m) }
+  for _, m := range p._filemap_ { appendUnique(m) }
   if baseFiles { for _, base := range p.bases {
-    for _, m := range base.filemaps(ctx, true, usedFiles) { appendUnique(m) }
+    for _, m := range base._filemaps(ctx, true, usedFiles) { appendUnique(m) }
   }}
   if p.configure != nil && ctx.configuration() {
-    for _, m := range p.configure.filemaps(ctx, true, usedFiles) { appendUnique(m) }
+    for _, m := range p.configure._filemaps(ctx, true, usedFiles) { appendUnique(m) }
   }
   if usedFiles && false/* FIXME: performance */ {
     // takes a big longer time to map usee filemaps, but acceptable
@@ -351,10 +347,10 @@ func (p *Project) filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*
     appendUselist = func(p *Project) {
       var fms []*FileMap
       if true {
-        fms = p.myFilemaps(ctx)
+        fms = p._filemap_
       } else {
         // FIXME: this is the expensive way, really slow!
-        fms = p.filemaps(ctx, baseFiles, usedFiles)
+        fms = p._filemaps(ctx, baseFiles, usedFiles)
       }
       for _, m := range fms { appendUnique(m) }
       appendUsedFiles(p)
@@ -370,7 +366,7 @@ func (p *Project) filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*
 }
 
 func (p *Project) wildcard(ctx Context, opts wildcardOpts, patterns ...Value) (files []*File, err error) {
-  var filemaps = p.filemaps(ctx, opts.baseFiles, opts.usedFiles)
+  var filemaps = p._filemaps(ctx, opts.baseFiles, opts.usedFiles)
 ForPatterns:
   for _, inPat := range patterns {
     var (
@@ -489,7 +485,7 @@ func (p *Project) matchFile(ctx Context, name string, baseFiles bool) (file *Fil
   var first *File
 
 ForFilemaps:
-  for _, filemap := range p.filemaps(ctx, /*true*/baseFiles, false) {
+  for _, filemap := range p._filemaps(ctx, /*true*/baseFiles, false) {
     // Match the represented file name.
     var matched, pattern, pre = filemap.Match(ctx, name) // TODO: performance
     // warn(ctx, "%T %v ; %v -> %v %v '%v'", filemap, filemap, name, matched, pattern, pre).debug(1)
@@ -514,7 +510,7 @@ ForFilemaps:
     // usefull when the bases (or imported projects) have also
     // matched files. The current project have the highest
     // priority to match.
-    for _, fm := range p.myFilemaps(ctx) {
+    for _, fm := range p._filemap_ {
       if fm.project == p && filemap == fm { break ForFilemaps }
     }
   }
@@ -548,17 +544,6 @@ func (p *Project) configuration(ctx Context) (file *File) {
 func (p *Project) FindFile(ctx Context, name string) (file *File) {
   return p.matchFile(ctx, name, true)
 }
-
-// func (p *Project) isFileName(ctx Context, s string) (res bool) {
-//   if len(s) > 0 {
-//     for _, filemap := range p.filemaps(ctx, true, true) {
-//       if res, _, _ = filemap.Match(ctx, s); res { break }
-//     }
-//   }
-//   return
-// }
-
-func (p *Project) DefaultEntry() (entry Entry) { return p.defaultEntry }
 
 func findFile(c Context, s string) *File { return matchFile(c, s, true) }
 func matchFile(c Context, s string, a bool) *File { return c.Project().matchFile(c, s, a) }

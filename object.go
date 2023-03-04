@@ -175,11 +175,11 @@ func (p *ProjectName) Get(ctx Context, name string) (Value, error) { return p.re
 func (p *ProjectName) Call(_ Context, _ ...Value) (value Value) { return p }
 func (p *ProjectName) expand(_ Context, _ facet) (res Value) { return p }
 func (p *ProjectName) traverse(ctx Context) (traves travestates) {
-        if t := p.Project.DefaultEntry(); t != nil { traves = t.traverse(ctx) }
+        if t := p.Project.defaultEntry; t != nil { traves = t.traverse(ctx) }
         return
 }
 func (p *ProjectName) stat(ctx Context) (si *statinfo) {
-        if t := p.Project.DefaultEntry(); t != nil && t.Class() != UseRuleEntry { si = t.stat(ctx) }
+        if t := p.Project.defaultEntry; t != nil && t.Class() != UseRuleEntry { si = t.stat(ctx) }
         return
 }
 func (p *ProjectName) cmp(ctx Context, v Value) (res cmpres) {

@@ -168,7 +168,7 @@ func (ctx *universeContext) configure() {
     var configureInits = make(map[Entry]int)
     for _, entry := range configuration.entries {
         var project = entry.OwnerProject()
-        if defent := project.configure.DefaultEntry(); defent != nil {
+        if defent := project.configure.defaultEntry; defent != nil {
             configureInits[defent] += 1
         }
     }

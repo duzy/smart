@@ -1985,9 +1985,9 @@ func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
 
 func (p *parser) importFileMaps1(ctx Context, opts useOpts, projects ...*Project) {
 	if !opts.public && opts.filesPub { opts.public = true }
+	var filemaps = ctx.Project()._filemap_
 	for _, proj := range projects {
-		var filemaps = ctx.Project()._filemap_
-		for _, fm := range proj.filemaps(ctx, false, false) {
+		for _, fm := range proj._filemaps(ctx, false, false) {
 			if fm.public {
 				if !opts.public {
 					fm = &FileMap{ fm.project, fm.patts, fm.paths, opts.public }
@@ -1995,8 +1995,8 @@ func (p *parser) importFileMaps1(ctx Context, opts useOpts, projects ...*Project
 				filemaps = uniqueAppendFilemap(ctx, filemaps, fm)
 			}
 		}
-		ctx.Project()._filemap_ = filemaps
 	}
+	ctx.Project()._filemap_ = filemaps
 }
 
 type filesOpts struct {
@@ -2108,7 +2108,7 @@ func (p *parser) evalConfiguration(ctx Context, g *genericClauseOpts, props []Va
 		return
 	}
 
-	if entry := project.configure.DefaultEntry(); entry == nil {
+	if entry := project.configure.defaultEntry; entry == nil {
 		// no init entry from .configure
 	} else if _, ts := entry.Execute(at(ctx, entry.Position())); len(ts) > 0 {
 		// FIXME: the entry might be a configure operation (see configure/.base/do.smart)
