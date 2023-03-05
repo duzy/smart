@@ -947,7 +947,7 @@ func (l *loader) includeFile(ctx Context, opts includeFileOpts, spec Value) {
             return
         }
 
-        var file = l.project.FindFile(ctx, spec)
+        var file = l.project.matchFile(ctx, spec)
         if file == nil {
             if filepath.IsAbs(specName) {
                 file = stat(ctx, specName, "", "")

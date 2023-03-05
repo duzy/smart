@@ -801,7 +801,7 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
         // escape file parsing for optimizaition
     } else {
         for _, project := range projects {
-            if prereqFile = project.FindFile(ctx, prereqStrval); prereqFile != nil {
+            if prereqFile = project.matchFile(ctx, prereqStrval); prereqFile != nil {
                 prereqValue = prereqFile
                 break
             }
@@ -1192,7 +1192,7 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
             }
         }
     } else if !okay && traversed == 0 { ForProjectsFiles: for _, project := range projects {
-        if prereqFile = project.FindFile(ctx, prereqStrval); prereqFile != nil {
+        if prereqFile = project.matchFile(ctx, prereqStrval); prereqFile != nil {
             if prereqFile.position = ctx.Position(); prereqFile.isSysFile() {
                 continue ForProjectsFiles
             }
@@ -1797,7 +1797,7 @@ func (p *Argumented) traverse(ctx Context) (traves travestates) {
                     panic(fmt.Sprintf("%T %v", val, val))
                 } else if file, okay := toFile(val); okay {
                     a = file
-                } else if file := proj.FindFile(ctx, val.Strval(ctx)); file != nil {
+                } else if file := proj.matchFile(ctx, val.Strval(ctx)); file != nil {
                     a = file
                 } else {
                     a = val //MakeString(a.Position(), str)
@@ -2759,7 +2759,7 @@ func (p *Bareword) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *Bareword) expand(ctx Context, w facet) (res Value) {
     if res = p; false && w&expandFullName != 0 {
-        if file := ctx.Project().FindFile(ctx, p.Strval(ctx)); file != nil {
+        if file := matchFile(ctx, p.Strval(ctx)); file != nil {
             res = file.expand(ctx, w)
         }
     }
@@ -3220,7 +3220,7 @@ func (p *Barefile) expandible(ctx Context, w facet) bool { return p.Name.expandi
 func (p *Barefile) expand(ctx Context, w facet) (res Value) {
     if w&expandFullName != 0 {
         var file = p.File
-        if file == nil { file = findFile(ctx, p.Name.Strval(ctx)) }
+        if file == nil { file = matchFile(ctx, p.Name.Strval(ctx)) }
         if file != nil { if v := file.expand(ctx, w); v != file { return v }}
     }
 
@@ -3293,7 +3293,7 @@ func barefilize(ctx Context, targets ...Value) []Value {
         if target.patterned(ctx) { continue }
         switch t := target.(type) {
         case *Bareword:
-            if file := project.FindFile(ctx, t.string); file != nil {
+            if file := project.matchFile(ctx, t.string); file != nil {
                 var pos = target.Position()
                 targets[i] = &Barefile{ valbase{pos}, target, file }
                 file.position = pos
@@ -3301,7 +3301,7 @@ func barefilize(ctx Context, targets ...Value) []Value {
         case *Barecomp, *Path:
             if t.patterned(ctx) || t.expandible(ctx, expandClosure) || refdef(ctx, t, DefArg) {
                 break
-            } else if file := project.FindFile(ctx, t.Strval(ctx)); file != nil {
+            } else if file := project.matchFile(ctx, t.Strval(ctx)); file != nil {
                 var pos = target.Position()
                 targets[i] = &Barefile{ valbase{pos}, target, file }
                 file.position = pos
@@ -3750,7 +3750,7 @@ func (p *Path) stat(ctx Context) (si *statinfo) {
         }
     }
 
-    if file := matchFile(ctx, s, true); file != nil {
+    if file := matchFile(ctx, s); file != nil {
         si = file.stat(ctx)
     }
     return

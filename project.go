@@ -493,7 +493,7 @@ ForPatterns:
   return
 }
 
-func (p *Project) matchFile(ctx Context, iname interface{}, baseFiles bool) (file *File) {
+func (p *Project) matchFile(ctx Context, iname interface{}) (file *File) {
   var a, b, c []matchedFileMap
   for _, m := range ctx.universe().unmapfile(ctx, p, iname) {
     if m.project == p {
@@ -556,7 +556,7 @@ func (p *Project) matchFile(ctx Context, iname interface{}, baseFiles bool) (fil
 
 func (p *Project) matchTempFile(ctx Context, name string) (file *File) {
   var pos = ctx.Position()
-  if file = p.matchFile(ctx, name, true); file != nil {
+  if file = p.matchFile(ctx, name); file != nil {
     // good
   } else if ctd := p.scope.FindDef("CTD"); ctd == nil {
     erro(at(ctx,pos), "%v: CTD is not defined for temp file: %v", p, name).debug(1)
@@ -577,12 +577,7 @@ func (p *Project) configuration(ctx Context) (file *File) {
   return
 }
 
-func (p *Project) FindFile(ctx Context, name interface{}) (file *File) {
-  return p.matchFile(ctx, name, true)
-}
-
-func findFile(c Context, s string) *File { return matchFile(c, s, true) }
-func matchFile(c Context, s string, a bool) *File { return c.Project().matchFile(c, s, a) }
+func matchFile(c Context, s string) *File { return c.Project().matchFile(c, s) }
 func matchTempFile(c Context, s string) *File { return c.Project().matchTempFile(c, s) }
 func resolveObject(c Context, s string) Object { return c.Project().resolveObject(c, s) }
 func resolveEntries(c Context, s string, a, b bool) *ResolveEntries { return c.Project().resolveEntries(c, s, a, b) }
@@ -676,7 +671,7 @@ func (p *Project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
     for _, t := range res {
       if file, _ := toFile(t.target); file != nil {
         file.position = t.position
-      } else if file = p.FindFile(ctx, s); file != nil {
+      } else if file = p.matchFile(ctx, s); file != nil {
         file.position = t.position
         t.target = file
       }
@@ -753,7 +748,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
     switch target.(type) {
     case *File, *Path, *Barefile, *PercPattern, *GlobPattern, *RegexpPattern:
     default:
-      if file := p.FindFile(ctx, name); file != nil {
+      if file := p.matchFile(ctx, name); file != nil {
         file.position = target.Position()
         target = file
       }

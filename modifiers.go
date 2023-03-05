@@ -799,7 +799,7 @@ func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name str
         file = stat(ctx, name, "", "", nil)
     } else if isRel = isRelPath(name); isRel { // relative to targetDir
         file = stat(ctx, name, "", gc.targetDir, nil)
-    } else if file = ctx.Project().FindFile(ctx, name); file != nil && file.exists() {
+    } else if file = matchFile(ctx, name); file != nil && file.exists() {
         return // found existed file
     }
 
@@ -829,7 +829,7 @@ func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name str
 
     // Search 'name.xxx' and check dir for
     // 'foo/bar' suffix. We use it if found.
-    alt = ctx.Project().FindFile(ctx, filepath.Base(name))
+    alt = matchFile(ctx, filepath.Base(name))
     if alt != nil && strings.HasSuffix(alt.dir, PathSep+s) {
         dir := strings.TrimSuffix(alt.dir, PathSep+s)
         ok1 := alt.change(dir, s, alt.name) // <dir>, foo/bar, name.xxx
@@ -1366,7 +1366,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
     var findDepFile = func(name string) (file *File) {
         if filepath.IsAbs(name) {
             file = stat(ctx, name, "", "", nil)
-        } else if file = proj.FindFile(ctx, name); file != nil && file.exists() {
+        } else if file = proj.matchFile(ctx, name); file != nil && file.exists() {
             // good!
         } else {
             // fail!
@@ -1563,7 +1563,7 @@ func traverseMissingDep(ctx Context, dep string) (res bool, traves travestates) 
         erro(ctx, "%s: no current project for dep", dep)
         errostack(ctx, 5, "%s: %v", dep, ctx).debug(10)
         return
-    } else if file := proj.FindFile(ctx, dep); file == nil {
+    } else if file := proj.matchFile(ctx, dep); file == nil {
         if false {
             // FIXME: traverse won't work with 'nil' target value
             traves = traverse(ctx, nil, dep)
@@ -1872,7 +1872,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, traves travestates
             if f = stat(at(ctx, opts.file.Position()), s, "", ""); f != nil {
                 res = f.exists()
             }
-        } else if f = ctx.Project().FindFile(ctx, s); f != nil {
+        } else if f = matchFile(ctx, s); f != nil {
             res = f.exists()
         }
         if res { res = !f.info.Mode().IsDir() } // .IsRegular()
@@ -1896,7 +1896,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, traves travestates
             if f = stat(at(ctx, opts.dir.Position()), s, "", ""); f != nil {
                 res = f.exists()
             }
-        } else if f = ctx.Project().FindFile(ctx, s); f != nil {
+        } else if f = matchFile(ctx, s); f != nil {
             res = f.exists()
         }
         if res { res = f.info.Mode().IsDir() }
@@ -2005,7 +2005,7 @@ ForPairs:
                 if file = stat(at(ctx, p.Value.Position()), str, "", ""); file != nil {
                     // ok
                 }
-            } else if file = ctx.Project().FindFile(ctx, str); file != nil {
+            } else if file = matchFile(ctx, str); file != nil {
                 // ok
             }
             switch key {
@@ -2233,7 +2233,7 @@ func modifierCopyFile(ctx Context, args... Value) (result Value, traves travesta
         }
     default:
         filename = target.Strval(ctx)
-        if file := project.FindFile(ctx, filename); file != nil {
+        if file := project.matchFile(ctx, filename); file != nil {
             target, filename = file, file.fullname()
             if file.info != nil {
                 filetime = file.info.ModTime()
@@ -2247,7 +2247,7 @@ func modifierCopyFile(ctx Context, args... Value) (result Value, traves travesta
         }
     default:
         srcname = source.Strval(ctx)
-        if file := project.FindFile(ctx, srcname); file != nil {
+        if file := project.matchFile(ctx, srcname); file != nil {
             source, srcname = file, file.fullname()
             if file.info != nil { srctime = file.info.ModTime() }
         }
@@ -2485,7 +2485,7 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
                 s string
             )
             for _, proj := range projs {
-                if file = proj.FindFile(ctx, filename); file != nil {
+                if file = proj.matchFile(ctx, filename); file != nil {
                     s = file.fullname()
                     break
                 }
@@ -2507,7 +2507,7 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
         case *File: filename = p.fullname()
         case *Path: filename = p.Strval(ctx)
         default:    filename = target.Strval(ctx)
-            if file := ctx.Project().FindFile(ctx, filename); file != nil {
+            if file := matchFile(ctx, filename); file != nil {
                 target, filename = file, file.fullname()
             }
         }
@@ -2521,11 +2521,11 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
         if p := filepath.Dir(filename); p != "." && p != "/" {
             if fi, _ := os.Stat(p); fi != nil && !fi.IsDir() {
                 if e := os.Remove(p); e != nil {
-                    erro(ctx, "%v", e).debug(1)
+                    erro(ctx, "%v (%T %v)", e, target, target).debug(1)
                 }
             }
-            if err := os.MkdirAll(p, os.FileMode(0755)); err != nil {
-                erro(ctx, "%v", err).debug(1)
+            if e := os.MkdirAll(p, os.FileMode(0755)); e != nil {
+                erro(ctx, "%v (%T %v)", e, target, target).debug(1)
                 return
             }
         }

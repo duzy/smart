@@ -426,7 +426,7 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                                 val.Set(reflect.ValueOf(file))
                         } else if proj := /*current()*/ctx.Project(); proj == nil {
                                 erro(of(ctx,x), "no current project to find file '%v'", s).debug(1)
-                        } else if file = proj.FindFile(ctx, x.Strval(ctx)); file != nil {
+                        } else if file = proj.matchFile(ctx, x.Strval(ctx)); file != nil {
                                 val.Set(reflect.ValueOf(file))
                         } else {
                                 erro(of(ctx,v), "'%s' is not a file", s).debug(1)
@@ -2471,7 +2471,7 @@ ForSources:
                         source = file
                 } else if opts.findFiles {
                         var s = src.Strval(ctx)
-                        if file = proj.FindFile(ctx, s); file != nil {
+                        if file = proj.matchFile(ctx, s); file != nil {
                                 source = file
                         } else {
                                 source = s
@@ -2479,7 +2479,7 @@ ForSources:
                 } else if false && (opts.findFiles || opts.fullFiles) {
                         if file, ok = toFile(src); ok {
                                 source = file
-                        } else if file = proj.FindFile(ctx, src.Strval(ctx)); file != nil {
+                        } else if file = proj.matchFile(ctx, src.Strval(ctx)); file != nil {
                                 if (opts.fullname || opts.fullFiles) && !filepath.IsAbs(file.name) {
                                         if !file.change("", "", file.fullname()) {
                                                 warn(ctx, "changing fullname failed: %v", file).debug(1)
@@ -3263,7 +3263,7 @@ func asFile(ctx Context, a Value, projects ...*Project) (f *File) {
         case *Bareword, *Barecomp, *Path:
                 if len(projects) == 0 { projects = closureProjects(ctx) }
                 for _, proj := range projects {
-                        if f = proj.FindFile(ctx, t.Strval(ctx)); f != nil { break }
+                        if f = proj.matchFile(ctx, t.Strval(ctx)); f != nil { break }
                 }
         }
         return
@@ -3308,7 +3308,7 @@ func asOptFullname2(ctx Context, val Value, projects ...*Project) (file *File, s
                 case *String, *Compound: return
                 }
                 for _, proj := range projects {
-                        if file = proj.FindFile(ctx, s); file != nil {
+                        if file = proj.matchFile(ctx, s); file != nil {
                                 s = file.fullname()
                                 ok = filepath.IsAbs(s)
                                 break
@@ -4081,7 +4081,7 @@ func builtinStat(ctx Context, w facet, args... Value) (res Value) {
                 } else {
                         file = stat(ctx, s, "", proj.absPath)
                 }
-                if file == nil { file = proj.FindFile(ctx, s) }
+                if file == nil { file = proj.matchFile(ctx, s) }
                 if file != nil { check(file) }
         }
 
@@ -4135,7 +4135,7 @@ func builtinFile(ctx Context, w facet, args... Value) (res Value) {
                         erro(ctx, `%v: %T "%v" is empty`, proj, a, a)
                         errostack(ctx, 3, "(%T): %v", ctx, proj).debug(6)
                         continue
-                } else if file = proj.FindFile(ctx, s); file != nil {
+                } else if file = proj.matchFile(ctx, s); file != nil {
                         list = append(list, file)
                         if opts.report { info(ctx, "%v is no such file", a).debug(1) }
                         continue

@@ -1941,7 +1941,7 @@ func (p *parser) parseIncludeSpec(ctx Context, doc *CommentGroup, g *genericClau
 	if p.skipSpaces(); p.tok == token.COLON {
 		switch x.(type) {
 		case *File, *String, *Compound: // escape from file searching
-		default: if file := loader.project.FindFile(ctx, x.Strval(ctx)); file != nil {
+		default: if file := loader.project.matchFile(ctx, x.Strval(ctx)); file != nil {
 			x = file
 		} else if val := x.expand(ctx, plain); !isNil(val) && val != x {
 			x = val
