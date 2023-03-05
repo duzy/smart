@@ -494,8 +494,21 @@ ForPatterns:
 }
 
 func (p *Project) matchFile(ctx Context, iname interface{}, baseFiles bool) (file *File) {
+  var a, b, c []matchedFileMap
+  for _, m := range ctx.universe().unmapfile(ctx, p, iname) {
+    if m.project == p {
+      a = append(a, m)
+    } else if p.hasBase(m.project) {
+      b = append(b, m)
+    } else {
+      c = append(c, m)
+    }
+  }
+
   var first *File
-  var maps = ctx.universe().unmapfile(ctx, p, iname)
+  var maps = append(a, b...)
+  if len(maps) == 0 { maps = c }
+
   for _, m := range maps {
     var proj = m.project
     if false && proj != p { continue }
