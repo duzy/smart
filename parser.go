@@ -1990,7 +1990,7 @@ func (p *parser) importFileMaps1(ctx Context, opts useOpts, projects ...*Project
 		for _, fm := range proj._filemaps(ctx, false, false) {
 			if fm.public {
 				if !opts.public {
-					fm = &FileMap{ fm.project, fm.patts, fm.paths, opts.public }
+					fm = &filemap{ fm.project, fm.patts, fm.paths, opts.public }
 				}
 				filemaps = uniqueAppendFilemap(ctx, filemaps, fm)
 			}

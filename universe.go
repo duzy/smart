@@ -41,6 +41,127 @@ func (sl *searchlist) Set(value string) error {
     return nil
 }
 
+const remainBarecomps = true
+type fileMapCache struct {
+    v map[Value][]FileMap // incomplete patterns, expand lazily
+    m map[string][]FileMap // patterns use empty key
+    s map[string]*fileMapCache
+    r map[rune]*fileMapCache
+}
+
+func (cache *fileMapCache) hit(ctx Context, seg Value) (res *fileMapCache, key interface{}) {
+    var c = cache
+
+    if remainBarecomps { /* noop */ } else
+    if comp, y := seg.(*Barecomp); y {
+        var pat Value
+        for i, elem := range comp.Elems {
+            if false { prompt(ctx, "%v: %d. %T %v", seg, i, elem, elem).debug(1) }
+            if elem.patterned(ctx) { pat = elem ; break }
+            if s := elem.Strval(ctx); s != "." {
+                if t, k := c.hit(ctx, elem); t == nil { break } else {
+                    c, key = t, k
+                }
+            }
+        }
+        if pat == nil { return } else {
+            seg, key = pat, "" // NOTE: patterns use empty keys
+        }
+    }
+
+    if v := seg.expand(ctx, plain); v.expandible(ctx, plain) {
+        if false { warnstack(of(ctx, seg), 3, "incomplete file pattern: %T %v -> %v", seg, seg, v).debug(16) }
+        res, key = c, seg
+        return
+    } else { seg = v }
+
+    if _, y := seg.(*None); y {
+        return c, ""
+    } else if seg.patterned(ctx) {
+        PatSeg: switch pat := seg.(type) {
+        case *GlobPattern:
+            res = c
+            for i, c := range pat.Components {
+                if false { prompt(ctx, "%T %v, %d. %T %v\n", seg, seg, i, c, c) }
+                if _, y := c.(*GlobMeta); y {
+                    return // stop caching here!
+                } else if s := c.Strval(ctx); s == "" {
+                    erro(ctx, "empty glob component: %T %v, %d. %T %v", seg, seg, i, c, c).debug(1)
+                    return
+                } else {
+                    for _, r := range s {
+                        var t = &fileMapCache{}
+                        if res.r == nil { res.r = make(map[rune]*fileMapCache) }
+                        res.r[r] = t
+                        res = t
+                    }
+                }
+            }
+            return
+        case *Barecomp:
+            for i, elem := range pat.Elems {
+                if false { prompt(ctx, "%v: %d. %T %v", seg, i, elem, elem).debug(1) }
+                if elem.patterned(ctx) { seg = elem ; goto PatSeg }
+                if s := elem.Strval(ctx); s != "." {
+                    if t, k := c.hit(ctx, elem); t != nil { c, key = t, k } else {
+                        erro(of(ctx, elem), "%T %v\n", elem, elem).debug(1) ; break
+                    }
+                }
+            }
+            errostack(of(ctx, pat), 3, "%T %v, %s\n", pat, pat, pat.Strval(ctx)).debug(16)
+            return
+        }
+        errostack(of(ctx, seg), 3, "%T %v, %s\n", seg, seg, seg.Strval(ctx)).debug(16)
+    } else if s := seg.Strval(ctx); s == "" {
+        errostack(of(ctx, seg), 3, "empty file pattern: %T %v", seg, seg).debug(16)
+        return
+    } else {
+        if c.s == nil { c.s = make(map[string]*fileMapCache) }
+        if res, y = c.s[s]; !y || res == nil {
+            res = &fileMapCache{}
+            c.s[s] = res
+        }
+        if res != nil { key = s }
+    }
+
+    if false && res != nil {
+        prompt(ctx, "%T %v (%d, %d, %d)\n", seg, seg,
+            len(res.m), len(res.r), len(res.s))
+    }
+    return
+}
+
+func (cache *fileMapCache) get(ctx Context, s string) (res *fileMapCache, key string) {
+    var c = cache
+
+    if remainBarecomps { /* noop */ } else
+    if a := strings.Split(s, "."); len(a) > 0 {
+        for _, k := range a { if t, y := c.s[k]; y && t != nil { c, s = t, k } }
+    }
+
+    var searchSlot = func() {
+        if t, y := c.s[s]; y && t != nil {
+            res, key = t, s
+        } else if c.r != nil {
+            res = c
+            for _, r := range s {
+                if t, y := res.r[r]; y && t != nil {
+                    res = t
+                } else { break }
+            }
+        }
+    }
+
+    if searchSlot(); res != nil { /* okay */ } else
+    if a := strings.Split(s, "."); len(a) > 0 {
+        for _, k := range a { if t, y := c.s[k]; y && t != nil { c, s = t, k } }
+        if searchSlot(); res != nil { /* okay */ }
+    }
+
+    // warn(ctx, "%T %v, %s\n", seg, seg, seg.Strval(ctx)).debug(1)
+    return
+}
+
 type universeContext struct {
     diagContext
 
@@ -54,6 +175,7 @@ type universeContext struct {
 
     statmutex sync.Mutex
     filecache map[string]*filebase // File.fullname() -> File
+    filemaps fileMapCache
 }
 func (ctx *universeContext) arguments() []Value { return nil }
 func (ctx *universeContext) argumented() *argumentedContext { return nil }
@@ -191,6 +313,111 @@ func (ctx *universeContext) init() {
     // TODO: determines absPath, relPath, tmpPath, spec
     ctx.globe.os = ctx.globe.project(ctx, nil, absPath, relPath, tmpPath, spec, runtime.GOOS)
     //ctx.globe.os.scope.define(g.os, "name", &None{})
+}
+
+func (uc *universeContext) mapfile(ctx Context, p *Project, opts filesOpts, patts, paths []Value) (m *filemap) {
+    m = &filemap{ p, patts, paths, opts.public }
+    for _, patt := range patts {
+        var key interface{}
+        var cache = &uc.filemaps
+        if pat, y := patt.(*Path); y {
+            for _, seg := range pat.Elems {
+                if t, k := cache.hit(ctx, seg); t != nil { cache, key = t, k } else { break }
+            }
+        } else if t, k := cache.hit(ctx, patt); t != nil { cache, key = t, k }
+        if cache != nil {
+            switch k := key.(type) {
+            case string:
+                if cache.m == nil { cache.m = make(map[string][]FileMap) }
+                cache.m[k] = append(cache.m[k], FileMap{m, []Value{patt}})
+            case Value:
+                if cache.v == nil { cache.v = make(map[Value][]FileMap) }
+                cache.v[k] = append(cache.v[k], FileMap{m, []Value{patt}})
+            }
+            if false {
+                var t = uc.unmapfile(ctx, p, patt)
+                prompt(ctx, "%v: %T %v, %s, %v\n", p, patt, patt, key, t).debug(1)
+            }
+        } else {
+            warn(ctx, "no filemap cached: %T %v", patt, patt).debug(1)
+        }
+    }
+    if false {
+        var c = &uc.filemaps
+        prompt(ctx, "%v: %d, %d, %d, %d\n", p, len(c.v), len(c.m), len(c.r), len(c.s))
+    }
+    return
+}
+
+type matchedFileMap struct {
+    FileMap
+    pattern Value
+    name string
+}
+func (uc *universeContext) unmapfile(ctx Context, p *Project, name interface{}) (maps []matchedFileMap) {
+    var key string
+    var cache = &uc.filemaps
+    if s, y := name.(string); y {
+        if strings.Contains(s, PathSep) { name = strings.Split(s, PathSep) } else {
+            if t, k := cache.get(ctx, s); t != nil { cache, key = t, k }
+            goto afterHitCache
+        }
+    }
+    if a, y := name.([]string); y {
+        for i, s := range a {
+            if i > 0 && s == "" {
+                erro(ctx, "empty seg: %d, %T %v", i, name, name).debug(32)
+                return
+            } else if t, k := cache.get(ctx, s); t != nil {
+                cache, key = t, k
+            } else { break }
+        }
+    } else if v, y := name.(Value); !y {
+        errostack(ctx, 3, "unsupported: %T %v", name, name).debug(16)
+        return
+    } else if pat, y := v.(*Path); y {
+        for i, seg := range pat.Elems {
+            if s := seg.Strval(ctx); i > 0 && s == "" {
+                erro(ctx, "empty seg: %d. %T %v ; %T %v", i, seg, seg, name, name).debug(32)
+                return
+            } else if t, k := cache.get(ctx, s); t != nil {
+                cache, key = t, k
+            } else { break }
+        }
+    } else if s := v.Strval(ctx); s == "" {
+        errostack(of(ctx, v), 3, "empty: %T %v", name, name).debug(16)
+        return
+    } else if t, k := cache.get(ctx, s); t != nil {
+        cache, key = t, k
+    }
+afterHitCache: // NOTE: key should be "" if patterned
+    if cache != nil {
+        if a, y := cache.m[key]; y {
+            for _, m := range a {
+                if matched, pattern, name := m.Match(ctx, name); matched {
+                    maps = append(maps, matchedFileMap{m, pattern, name})
+                }
+            }
+        }
+        if true { /* skip */ } else
+        if s, y := name.(string); y && strings.HasSuffix(s, ".sm") {
+            prompt(ctx, "%v: %T %v -> unmapfile -> %s, %v\n", p, name, name, key, len(maps))
+            for i, m := range maps {
+                prompt(ctx, "%v: %T %v -> unmapfile.%d %v\n", p, name, name, i, m.patts)
+            }
+        }
+        if false {
+            prompt(ctx, "%v: %v\n", p, cache.m)
+            prompt(ctx, "%v: %v\n", p, cache.r)
+            prompt(ctx, "%v: %v\n", p, cache.s)
+            prompt(ctx, "%v: %v\n", p, maps)
+            prompt(ctx, "%v: %v, %s\n", p, name, key).debug(1)
+        }
+    } else {
+        if v, y := name.(Value); y { ctx = of(ctx, v) }
+        warnstack(ctx, 3, "no filemap cached: %T %v", name, name).debug(16)
+    }
+    return
 }
 
 func (dc *universeContext) AddSearchPaths(paths... string) (err error) {

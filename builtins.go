@@ -2453,7 +2453,7 @@ func builtinPatsubst(ctx Context, w facet, args... Value) (res Value) {
         var (
                 proj = ctx.Project()
                 closured = closureProjects(ctx)
-                filemaps []*FileMap
+                filemaps []*filemap
                 list []Value
         )
         if !opts.noFileMap {
@@ -2537,22 +2537,22 @@ ForSources:
 
                         if t := file; t != nil {
                                 var (
-                                        pre string
                                         match *FileMap
                                 )
                                 for _, m := range filemaps {
-                                        if ok, _, s := m.Match(ctx, name); ok {
-                                                match, pre = m, s
+                                        var t = &FileMap{ filemap: m }
+                                        if ok, _, _ := t.Match(ctx, name); ok {
+                                                match = t
                                                 break
                                         }
                                 }
 
                                 var file *File // dest file
                                 if match != nil {
-                                        if file = match.stat(ctx, t.dir, pre, name); file != nil {
-                                                assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (t.dir=%s, pre=%s)", file.name, name, t.dir, pre))
-                                        } else if file = match.stat(ctx, proj.absPath, pre, name); file != nil {
-                                                assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (proj.absPath=%s, pre=%s)", file.name, name, proj.absPath, pre))
+                                        if file = match.stat(ctx, t.dir, name); file != nil {
+                                                assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (t.dir=%s)", file.name, name, t.dir))
+                                        } else if file = match.stat(ctx, proj.absPath, name); file != nil {
+                                                assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (proj.absPath=%s)", file.name, name, proj.absPath))
                                         }
                                 }
                                 if file == nil {
@@ -2604,184 +2604,6 @@ ForSources:
                 warn(ctx, "val: %v", sources)
                 warn(ctx, "res: %v", list)
                 warnstack(ctx, 3, "").debug(opts.debug)
-        }
-
-        res = MakeListOrScalar(ctx.Position(), list)
-        return
-}
-func builtinPatsubst_buggy(ctx Context, w facet, args... Value) (res Value) {
-        var (
-                opts builtinPatsubstOpts
-                list []Value
-                arg0 []Value
-        )
-        if len(args) < 3 {
-                erro(ctx, "not enough arguments").debug(1)
-                return
-        }
-
-        const infos = false
-
-        arg0 = parseOpts(ctx, &opts, plain, args[0])
-
-        // TODO: support flags -name and -full for name-only and full-name-only matching
-        var srcPats, dstPats, sources []Value
-        if len(arg0) > 0 {
-                srcPats = arg0
-                dstPats = mergex(ctx, plain, args[1])
-                sources = mergex(ctx, plain, args[2:]...)
-                if infos {
-                        info(ctx, "src: %v", srcPats)
-                        info(ctx, "dst: %v", dstPats)
-                        info(ctx, "%v", sources).debug(1)
-                }
-        } else {
-                srcPats = mergex(ctx, plain, args[1])
-                dstPats = mergex(ctx, plain, args[2])
-                sources = mergex(ctx, plain, args[3:]...)
-                if infos {
-                        info(ctx, "src: %v", srcPats)
-                        info(ctx, "dst: %v", dstPats)
-                        info(ctx, "%v", sources).debug(1)
-                }
-        }
-
-        var proj = ctx.Project()
-        var closured = closureProjects(ctx)
-
-        var filemaps []*FileMap
-        if !opts.noFileMap { filemaps = proj._filemaps(ctx, opts.baseFiles, opts.usedFiles) }
-
-ForSources:
-        for _, src := range sources {
-                var source interface{} = src
-                if opts.findFiles || opts.fullFiles {
-                        if file, ok := toFile(src); ok {
-                                source = file
-                        } else if file = proj.FindFile(ctx, src.Strval(ctx)); file != nil {
-                                if (opts.fullname || opts.fullFiles) && !filepath.IsAbs(file.name) {
-                                        if !file.change("", "", file.fullname()) {
-                                                warn(ctx, "changing fullname failed: %v", file).debug(1)
-                                        }
-                                }
-                                source = file
-                        }
-                } else if opts.fullname {
-                        var ( s string; ok bool )
-                        if _, s, ok = asOptFullname(ctx, src, closured...); s == "" {
-                                erro(of(ctx,src), "fullname '%v' is empty", src)
-                                erro(ctx, "called from here", src).debug(1)
-                                return
-                        } else if !ok {
-                                erro(of(ctx,src), "fullname '%v' failed", src)
-                                erro(ctx, "called from here", src).debug(1)
-                                return
-                        } else {
-                                source = s
-                        }
-                }
-
-                var (
-                        matched bool
-                        srcPat Value
-                        str string
-                        stems []string
-                )
-        ForSrcPats:
-                for _, srcPat = range srcPats {
-                        if matched, str, stems = srcPat.match(ctx, source); matched {
-                                break ForSrcPats
-                        } else if infos {
-                                info(ctx, "source=%v (%T) srcPat=%v (%T) str=%s stems=%v",
-                                        source, source, srcPat, srcPat, str, stems).debug(true,1)
-                        }
-                }
-                if !matched {
-                        // Just return the src if no matching.
-                        if !(isNil(src) || isNone(src)) { list = append(list, src) }
-                        continue ForSources
-                }
-
-                // Compose the matched results with stem value.
-        ForDstPats:
-                for _, dst := range dstPats {
-                        var nameVal, /*rest*/_ = dst.stencil(ctx, stems)
-                        if isNil(nameVal) {
-                                erro(ctx, "nil stencil: %T %v (stems=%v)", dst, dst, stems).debug(1)
-                                nameVal = dst
-                        }
-
-                        var name string
-                        if name = nameVal.Strval(ctx); name == "" /*|| len(rest) > 0*/ {
-                                continue ForDstPats
-                        } else if opts.cleanPath {
-                                name = filepath.Clean(name)
-                        }
-
-                        // Deal with source value types
-                        // TODO: consider opts.files
-                        var pos = dst.Position()
-                        switch t := src.(type) {
-                        case *File:
-                                var (
-                                        pre string
-                                        match *FileMap
-                                )
-                                for _, m := range filemaps {
-                                        if ok, _, s := m.Match(ctx, name); ok {
-                                                match, pre = m, s
-                                                break
-                                        }
-                                }
-
-                                var file *File
-                                if match != nil {
-                                        if file = match.stat(ctx, t.dir, pre, name); file != nil {
-                                                assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (t.dir=%s, pre=%s)", file.name, name, t.dir, pre))
-                                        } else if file = match.stat(ctx, proj.absPath, pre, name); file != nil {
-                                                assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (proj.absPath=%s, pre=%s)", file.name, name, proj.absPath, pre))
-                                        } /* else if match.Paths != nil {
-                                                var ( path = match.Paths[0] ; sub string )
-                                                if sub, err = path.Strval(); err != nil { erro(ctx, "%v", err); return }
-                                                if filepath.IsAbs(sub) {
-                                                        file = stat(name, "", sub, nil)
-                                                } else {
-                                                        file = stat(name, sub, t.dir, nil)
-                                                }
-                                        } */
-                                }
-                                if file == nil {
-                                        file = stat(ctx, name, t.sub, t.dir, nil/* okay missing */)
-                                }
-
-                                file.position = srcPat.Position()
-                                list = append(list, file)
-                                continue ForDstPats
-
-                        case *String, *Compound:
-                                list = append(list, MakeString(pos, name))
-                                continue ForDstPats
-                        case *Path:
-                                list = append(list, MakePathStr(pos, name))
-                                continue ForDstPats
-                        case *Bareword, *Barecomp:
-                                if strings.Contains(name, PathSep) {
-                                        list = append(list, MakePathStr(pos, name))
-                                } else {
-                                        list = append(list, MakeBareword(pos, name))
-                                }
-                                continue ForDstPats
-                        default:
-                                if strings.Contains(name, PathSep) {
-                                        list = append(list, MakePathStr(pos, name))
-                                } else if true {
-                                        list = append(list, MakeBareword(pos, name))
-                                } else {
-                                        list = append(list, MakeString(pos, name))
-                                }
-                                continue ForDstPats
-                        }
-                }
         }
 
         res = MakeListOrScalar(ctx.Position(), list)
