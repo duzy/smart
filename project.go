@@ -507,7 +507,7 @@ func (p *Project) matchFile(ctx Context, iname interface{}, baseFiles bool) (fil
 
   var first *File
   var maps = append(a, b...)
-  if len(maps) == 0 { maps = c }
+  if false && len(maps) == 0 { maps = c }
 
   for _, m := range maps {
     var proj = m.project
