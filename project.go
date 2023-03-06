@@ -265,20 +265,17 @@ type Project struct {
   tmpPath string
 	spec    string
 	name    string
+
   scope   *Scope
+
   bases []*Project
   use     *uselist
 
-  // List order is significant, duplication is acceptable.
   filemaps []*filemap
 
-  // Rule Registry (orderred)
-  entries map[string]Entry
   defaultEntry Entry
-
+  entries map[string]Entry
   patterns []*PatternEntry
-
-  filescopes []*Scope
 
   // TODO: printEntering() ...
   // TODO: printLeaving() ...
