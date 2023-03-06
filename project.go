@@ -300,10 +300,6 @@ func (p *Project) NewScope(pos Position, comment string) *Scope {
   return NewScope(pos, p.scope, p, comment)
 }
 
-func (p *Project) mapfile(ctx Context, opts filesOpts, patts, paths []Value) {
-  p.filemaps = append(p.filemaps, ctx.universe().mapfile(ctx, p, opts, patts, paths))
-}
-
 func (p *Project) getFileMaps(ctx Context, baseFiles, useeFiles bool) (filemaps []*filemap) {
   var appendFilemaps = func(a ...*filemap) { filemaps = append(filemaps, a...) }
 
@@ -550,6 +546,18 @@ func (p *Project) configuration(ctx Context) (file *File) {
     erro(ctx, "%v: no file configuration.sm", p).debug(1)
   }
   return
+}
+
+type mapFilesOpts struct {
+	// TODO: files options
+}
+func (opts *mapFilesOpts) mapFiles(ctx Context, patts, paths []Value) {
+  if p := ctx.Project(); p != nil {
+    var m = ctx.universe().cacheFileMap(ctx, p, patts, paths)
+    p.filemaps = append(p.filemaps, m)
+  } else {
+    erro(ctx, "nil project").debug(1)
+  }
 }
 
 func matchFile(c Context, s string) *File { return c.Project().file(c, s) }

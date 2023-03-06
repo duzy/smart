@@ -1952,9 +1952,6 @@ func (p *parser) parseIncludeSpec(ctx Context, doc *CommentGroup, g *genericClau
 	if !g.skip { loader.includeFile(ctx, opts, x) }
 }
 
-type filesOpts struct {
-	// TODO: files options
-}
 func (p *parser) parseFilesSpec(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
 	defer p.setbits(p.setbit(parsingFilesSpec))
 	if len(g.spec) != 1 {
@@ -1982,7 +1979,7 @@ func (p *parser) parseFilesSpec(ctx Context, doc *CommentGroup, g *genericClause
 
 	var (
 		val = g.spec[0]
-		opts filesOpts
+		opts mapFilesOpts
 		pats []Value
 	)
 	parseOpts(ctx, &opts, 0, g.vals...)
@@ -2014,12 +2011,12 @@ func (p *parser) parseFilesSpec(ctx Context, doc *CommentGroup, g *genericClause
 			}
 		}
 		if len(files) > 0 {
-			ctx.Project().mapfile(ctx, opts, values(files), nil)
+			opts.mapFiles(ctx, values(files), nil)
 			pats = newPats
 		}
 		if len(pats) > 0 {
 			var paths = []Value{ MakeString(val.Position(), ctx.Project().absPath) }
-			ctx.Project().mapfile(ctx, opts, pats, paths)
+			opts.mapFiles(ctx, pats, paths)
 		}
 	} else {
 		var patsNew []Value
@@ -2048,7 +2045,7 @@ func (p *parser) parseFilesSpec(ctx Context, doc *CommentGroup, g *genericClause
 			}
 		}}
 
-		ctx.Project().mapfile(ctx, opts, patsNew, paths)
+		opts.mapFiles(ctx, patsNew, paths)
 	}
 }
 

@@ -315,7 +315,7 @@ func (ctx *universeContext) init() {
     //ctx.globe.os.scope.define(g.os, "name", &None{})
 }
 
-func (uc *universeContext) mapfile(ctx Context, p *Project, opts filesOpts, patts, paths []Value) (m *filemap) {
+func (uc *universeContext) cacheFileMap(ctx Context, p *Project, patts, paths []Value) (m *filemap) {
     m = &filemap{ p, patts, paths }
     for _, patt := range patts {
         var key interface{}
