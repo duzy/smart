@@ -2046,7 +2046,13 @@ func (p *parser) parseFilesSpec(ctx Context, doc *CommentGroup, g *genericClause
 		if len(pats) == 1 { if a, ok := pats[0].(*Argumented); ok { if f, ok := a.value.(*Flag); ok {
 			var name = f.name.Strval(ctx) // -import(paths...)
 			switch name {
-			case "import": p.importFileMaps(ctx, opts.public, a.args...); return
+			case "import":
+				if false {
+					p.importFileMaps(ctx, opts.public, a.args...);
+				} else {
+					erro(of(ctx,f.name), "-import files is obsoleted: %v", a.args).debug(1)
+				}
+				return
 			default:
 				erro(of(ctx,f.name), "invalid files flag: %v").debug(1)
 				return
@@ -2088,12 +2094,19 @@ func (p *parser) parseFilesSpec(ctx Context, doc *CommentGroup, g *genericClause
 		if len(patsNew) == 1 { if f, ok := patsNew[0].(*Flag); ok {
 			var name = f.name.Strval(ctx) // -import => (paths...)
 			switch name {
-			case "import": p.importFileMaps(ctx, opts.public, paths...); return
+			case "import":
+				if false {
+					p.importFileMaps(ctx, opts.public, paths...);
+				} else {
+					erro(of(ctx,f.name), "-import files is obsoleted: %v", paths).debug(1)
+				}
+				return
 			default:
 				erro(of(ctx,f.name), "invalid files flag: %v").debug(1)
 				return
 			}
 		}}
+
 		ctx.Project().mapfile(ctx, opts, patsNew, paths)
 	}
 }
