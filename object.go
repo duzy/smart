@@ -249,14 +249,14 @@ func (p *ScopeName) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (p *ScopeName) rescope(_ Context, scope *Scope) {
-        // if p.scope != scope {
-        //         if p.scope != nil {
-        //                 delete(p.scope.elems, p.name)
-        //         }
-        //         if p.scope = scope; p.scope != nil {
-        //                 p.scope.elems[p.name] = p
-        //         }
-        // }
+        if p.Scope != scope {
+                if p.Scope != nil {
+                        delete(p.Scope.elems, p.name)
+                }
+                if p.Scope = scope; p.Scope != nil {
+                        p.Scope.elems[p.name] = p
+                }
+        }
 }
 
 type Origin int

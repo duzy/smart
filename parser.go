@@ -67,7 +67,6 @@ const (
 )
 
 const (
-	selfproj = "self"
 	userproj = "user"
 	usecomment = ":user:"
 )
@@ -545,7 +544,6 @@ func (p *parser) parseSelect(lhs Value) (res Value) {
 	)
 	p._next() // skip '->' or '=>'
 
-	var okay bool
 	switch t := lhs.(type) {
 	case *selection:
 		if v := t.value(at(ctx, t.Position()), ident); isNil(v) {
@@ -556,13 +554,8 @@ func (p *parser) parseSelect(lhs Value) (res Value) {
 		}
 	case *Bareword:
         switch t.string {
-        case "use", "usee": lhs = proj.use
-        case "self": lhs = proj.self
-        case "goals", "os", "mode":
-			if lhs, okay = loader.colonResolve(t.string); !okay {
-				erro(ctx, `"%s" not defined`, t.string).debug(1)
-				return
-			}
+        case "use", "usee", "goals", "os", "mode":
+			erro(ctx, "$:%s: is obsoleted, use $(.$s) instead", t.string, t.string).debug(1)
         default:
             if name, o := loader.resolveObject(lhs); false {
 				erro(at(ctx,lhs.Position()), "resolve '%v' failed", lhs)
@@ -1290,16 +1283,10 @@ func (p *parser) parseClosureDelegate() (result Value) {
 				erro(at(ctx,lPos), "resolved Executer '%v' of '%T' is not Object", name, resolved).debug(1)
 			}
 		case token.LCOLON:
-			switch str = name.Strval(ctx); str {
-			case "use", "usee": resolved = proj.use // TODO: move usee and self into ctx
-			case "self": resolved = proj.self
-			//TODO: case "ctd" : resolved = proj.ctd
-			//TODO: case "cwd" : resolved = proj.cwd
-			default: if o, found := ctx.colonResolve(str); found { resolved = o } else {
-				erro(at(ctx,lPos), "unknown special property", str).debug(1)
-				return
-			}}
-			obj, okay = resolved, true
+			// "use", "usee": resolved = proj.use
+			// "self": proj.self
+			// *: ctx.colonResolve(str)
+			erro(ctx, "$:xxx: is obsoleted, use $(xxx) instead").debug(1)
 			return
 		}
 		return
@@ -2661,19 +2648,19 @@ func (p *parser) parseRuleEntry(special specialRule, options, targets []Value) (
 		}
 	}
 
-	switch special {
-	case specialRuleUse:
-		if name, alt := ctx.Scope().ProjectName(ctx, selfproj, ctx.Project()); alt != nil {
-			erro(ctx, "name `%s` already taken, not automatic (%T)", selfproj, alt)
-		} else if name == nil {
-			erro(ctx, "cannot define `%s` automatic", selfproj)
-		}
-		if name, alt := ctx.Scope().ProjectName(ctx, userproj, nil); alt != nil {
-			erro(ctx, "name `%s` already taken, not automatic (%T)", userproj, alt)
-		} else if name == nil {
-			erro(ctx, "cannot define `%s` automatic", userproj)
-		}
-	}
+	// switch special {
+	// case specialRuleUse:
+	// 	if name, alt := ctx.Scope().ProjectName(ctx, selfproj, ctx.Project()); alt != nil {
+	// 		erro(ctx, "name `%s` already taken, not automatic (%T)", selfproj, alt)
+	// 	} else if name == nil {
+	// 		erro(ctx, "cannot define `%s` automatic", selfproj)
+	// 	}
+	// 	if name, alt := ctx.Scope().ProjectName(ctx, userproj, nil); alt != nil {
+	// 		erro(ctx, "name `%s` already taken, not automatic (%T)", userproj, alt)
+	// 	} else if name == nil {
+	// 		erro(ctx, "cannot define `%s` automatic", userproj)
+	// 	}
+	// }
 
 	// NOTE: expand targets to speed up for later usage, it might spend lots of time in
 	// project.entry while matching for entry looked up if not expanded right now.

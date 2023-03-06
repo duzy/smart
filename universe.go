@@ -14,7 +14,7 @@ import (
     // "runtime/debug"
     "runtime/pprof"
     "runtime"
-    "strconv"
+    // "strconv"
     "strings"
     "sync"
     "time"
@@ -172,6 +172,7 @@ type universeContext struct {
     globe   *Globe
 
     paths   searchlist
+    fset    *token.FileSet
 
     statmutex sync.Mutex
     filecache map[string]*filebase // File.fullname() -> File
@@ -230,15 +231,7 @@ func (ctx *universeContext) String() (s string) {
     return
 }
 func (ctx *universeContext) configuration() bool { return false }
-func (ctx *universeContext) colonResolve(name string) (obj Object, found bool) {
-    switch g := ctx.globe; name {
-    case "os"   : obj, found = g.os.self, true
-    case "goals": obj, found = g.goals,   true
-    case "mode" : obj, found = g.mode,    true
-    }
-    return
-}
-func (ctx *universeContext) closureResolveAuto(name string) (obj Object, found bool) { return ctx.colonResolve(name) }
+func (ctx *universeContext) closureResolveAuto(name string) (obj Object, found bool) { return }
 func (ctx *universeContext) autoArgs(_ []*def, _ []Value) ([]string, error) { return nil, nil }
 func (ctx *universeContext) autoSet(name string, val Value) (def *def, res Value) {
     if false {
@@ -272,6 +265,7 @@ func (ctx *universeContext) init() {
         ctx.workdir = s
     }
     ctx.Context = ctx // self context for diagnostic
+    ctx.fset = token.NewFileSet()
     ctx.filecache = make(map[string]*filebase)
 
     var (
@@ -301,18 +295,21 @@ func (ctx *universeContext) init() {
 
     ctx.globe = &Globe{
         scope: NewScope(ctx.Position(), ctx.scope, nil, `globe "smart"`),
-        fset: token.NewFileSet(), // the global fileset
         loaded: make(map[string]*Project),
         args: make(map[Value][]Value),
         flagEntries: make(map[string][]Entry),
         //_timestamps: make(map[string]time.Time),
         //_timestampx: new(sync.Mutex),
     }
+    _, _ = ctx.scope.ScopeName(ctx, ".GLOBE", ctx.globe.scope)
 
-    var absPath, relPath, tmpPath, spec string
-    // TODO: determines absPath, relPath, tmpPath, spec
-    ctx.globe.os = ctx.globe.project(ctx, nil, absPath, relPath, tmpPath, spec, runtime.GOOS)
-    //ctx.globe.os.scope.define(g.os, "name", &None{})
+    ctx.globe.os,    _ = ctx.globe.scope.define(ctx, DefVoid, ".os",    MakeString(pos, runtime.GOOS))
+    ctx.globe.goals, _ = ctx.globe.scope.define(ctx, DefVoid, ".goals", MakeNone(pos))
+    ctx.globe.mode,  _ = ctx.globe.scope.define(ctx, DefVoid, ".mode",  MakeNil(pos))
+}
+
+func (uc *universeContext) file(filename string, src []byte) *token.File {
+    return uc.fset.AddFile(filename, -1, len(src))
 }
 
 func (uc *universeContext) cacheFileMap(ctx Context, p *Project, patts, paths []Value) (m *filemap) {
@@ -630,7 +627,7 @@ func (dc *universeContext) run() (result []Value, travestates []*travestate) {
         }
         for _, goal := range vals {
             switch t := goal.(type) {
-            case *None: // just ignore
+            case *Nil, *None: // just ignore
             case *Bareword:
                 if entries := proj.resolveEntries(ctx, t.string, false, true); entries == nil {
                     erro(ctx, "no such entry `%s`", t.string).debug(1)
@@ -682,7 +679,7 @@ func (dc *universeContext) run() (result []Value, travestates []*travestate) {
                     }
                 }
             default:
-                erro(ctx, "%v: unknown target: %v (%s)", proj, goal, typeof(goal)).debug(1)
+                errostack(ctx, 3, "%v: unknown target: %v (%s)", proj, goal, typeof(goal)).debug(16)
                 return false
             }
         }
@@ -712,7 +709,7 @@ func (dc *universeContext) loadTopWork() (err error) {
     var (
         ctx Context = dc
         base = baseWorkDir
-        pos = positionForDir(base) // FIXME: find a useful position
+        // pos = positionForDir(base) // FIXME: find a useful position
         args []Value
     )
     if s := filepath.Join(base, ".smart", "modules"); /* s != "" */true {
@@ -734,14 +731,6 @@ func (dc *universeContext) loadTopWork() (err error) {
 
     dc.globe.top = &loader{
         closureContext: closureContext{ctx, []*Scope{dc.globe.scope}},
-    }
-    dc.globe.goals = &def{
-        knownobject: knownobject{objbase{scope:dc.globe.scope}, "goals"},
-        origin: DefDefault, value: MakeNone(pos),
-    }
-    dc.globe.mode = &def{
-        knownobject: knownobject{objbase{scope:dc.globe.scope}, "mode"},
-        origin: DefDefault, value: MakeNone(pos),
     }
 
     if text := strings.Join(os.Args[1:], " "); text == "" {
@@ -854,11 +843,9 @@ func (dc *universeContext) loadTopWork() (err error) {
 type Globe struct {
     scope  *Scope
 
-    fset    *token.FileSet
     loads []*loadinfo
     top     *loader
 
-    os     *Project
     main   *Project
     loaded map[string]*Project // loaded projects
 
@@ -868,8 +855,10 @@ type Globe struct {
     flagEntries map[string][]Entry
     flags []*Flag
     pairs []*Pair
-    goals   *def
-    mode    *def
+
+    os    *def
+    goals *def
+    mode  *def
 }
 
 // Scope returns the globe scope.
@@ -887,10 +876,14 @@ func (g *Globe) AddFlagEntry(name string, entry Entry) {
     return
 }
 
-func (g *Globe) file(filename string, src []byte) *token.File {
-    return g.fset.AddFile(filename, -1, len(src))
-}
-
+// func (ctx *universeContext) colonResolve(name string) (obj Object, found bool) {
+//     switch g := ctx.globe; name {
+//     case "os"   : obj, found = g.os.self, true
+//     case "goals": obj, found = g.goals,   true
+//     case "mode" : obj, found = g.mode,    true
+//     }
+//     return
+// }
 // project returns a new Project for the given project path and name;
 // the name must not be the blank identifier.
 // The project is not complete and contains no explicit imports.
@@ -902,14 +895,15 @@ func (g *Globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, sp
         absPath: absPath,
         relPath: relPath,
         tmpPath: tmpPath,
-        use:  new(uselist),
-        self: new(ProjectName),
+        use:  new(uselist), // TODO: use ScopeName instead?
         spec: spec,
         name: name,
     }
     m.scope = NewScope(m.position, outer, m, fmt.Sprintf("project %q", name))
-    m.self.Project = m
-    m.self.scope = m.scope
+    m.scope.mutex.Lock()
+    m.scope.elems[".self"] = &ProjectName{ m, m.scope }
+    m.scope.elems[".usee"] = m.use
+    m.scope.mutex.Unlock()
     m.use.name = "usee"
     m.use.scope = m.scope
     m.use.owner = m
@@ -920,14 +914,6 @@ func (g *Globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, sp
                 return
             }
             outer = outer.outer
-        }
-        if false {
-            var def, _ = g.scope.define(ctx, DefAuto, "_", /*none*/nil)
-            if enable_assertions { assert(def != nil, "'$_' is nil") }
-            for i := 0; i <= maxNumVarVal; i += 1 {
-                var def, _ = g.scope.define(ctx, DefAuto, strconv.Itoa(i), nil)
-                if enable_assertions { assert(def != nil, "'$%d' is nil", i) }
-            }
         }
         g.main = m
     }

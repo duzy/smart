@@ -121,8 +121,6 @@ type Context interface {
   closureScopes() []*Scope
   closureResolveAuto(string) (Object, bool)
 
-  colonResolve(string) (Object, bool)
-
   inner() Context
   // at(Context) Context
   spawn(Context) Context

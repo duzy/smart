@@ -254,9 +254,7 @@ type Project struct {
   position Position
   keyword  token.Token // project, package, module
 
-  self *ProjectName // $:self:
   configure *Project // .configure
-  configs []Entry // configure entries
   configured bool
 
   changedWD string
@@ -276,6 +274,7 @@ type Project struct {
   defaultEntry Entry
   entries map[string]Entry
   patterns []*PatternEntry
+  configs []Entry // configure entries
 
   // TODO: printEntering() ...
   // TODO: printLeaving() ...

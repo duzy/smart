@@ -1836,7 +1836,7 @@ func (l *loader) parse(ctx Context, filename string, src interface{}, mode Mode,
 	if l.mode&ParseComments != 0 {
 		//scanMode = scanner.ScanComments
 	}
-    var file = universe.globe.file(filename, text)
+    var file = universe.file(filename, text)
 	l.p.scanner.Init(file, text, scanMode, func(p token.Position, s string) {
         errostack(at(ctx,Position(p)), 3, "%s", s).debug(128)
     })
