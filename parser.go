@@ -1952,55 +1952,8 @@ func (p *parser) parseIncludeSpec(ctx Context, doc *CommentGroup, g *genericClau
 	if !g.skip { loader.includeFile(ctx, opts, x) }
 }
 
-func (p *parser) importFileMaps(ctx Context, public bool, paths ...Value) {
-	if options.noImportFiles { return }
-
-	var (
-		opts = useOpts{ noVars:true, reuse:true, public:public }
-		projects []*Project
-		projMutx sync.Mutex
-		wg sync.WaitGroup
-	)
-
-	var loader = ctx.loader()
-	for _, val := range paths {
-		if ctx := at(ctx, val.Position()); false { // FIXME: parellel loading failed
-			wg.Add(1); go func() {
-				defer checkFailure(ctx, true)
-				defer wg.Done()
-				var loaded = loader.loadUseSpecName(ctx, opts, val, nil)
-				projMutx.Lock()
-				projects = append(projects, loaded)
-				projMutx.Unlock()
-			} ()
-		} else {
-			var loaded = loader.loadUseSpecName(ctx, opts, val, nil)
-			projects = append(projects, loaded)
-		}
-	}
-	wg.Wait()
-
-	p.importFileMaps1(ctx, opts, projects...)
-}
-
-func (p *parser) importFileMaps1(ctx Context, opts useOpts, projects ...*Project) {
-	if !opts.public && opts.filesPub { opts.public = true }
-	var filemaps = ctx.Project()._filemap_
-	for _, proj := range projects {
-		for _, fm := range proj._filemaps(ctx, false, false) {
-			if fm.public {
-				if !opts.public {
-					fm = &filemap{ fm.project, fm.patts, fm.paths, opts.public }
-				}
-				filemaps = uniqueAppendFilemap(ctx, filemaps, fm)
-			}
-		}
-	}
-	ctx.Project()._filemap_ = filemaps
-}
-
 type filesOpts struct {
-	public bool `p,pub,public`
+	// TODO: files options
 }
 func (p *parser) parseFilesSpec(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
 	defer p.setbits(p.setbit(parsingFilesSpec))
@@ -2044,16 +1997,10 @@ func (p *parser) parseFilesSpec(ctx Context, doc *CommentGroup, g *genericClause
 
 	if path == nil {
 		if len(pats) == 1 { if a, ok := pats[0].(*Argumented); ok { if f, ok := a.value.(*Flag); ok {
-			var name = f.name.Strval(ctx) // -import(paths...)
+			var name = f.name.Strval(ctx)
 			switch name {
-			case "import":
-				if false {
-					p.importFileMaps(ctx, opts.public, a.args...);
-				} else {
-					erro(of(ctx,f.name), "-import files is obsoleted: %v", a.args).debug(1)
-				}
-				return
 			default:
+				// TODO: parse files options
 				erro(of(ctx,f.name), "invalid files flag: %v").debug(1)
 				return
 			}
@@ -2092,16 +2039,10 @@ func (p *parser) parseFilesSpec(ctx Context, doc *CommentGroup, g *genericClause
 		}
 
 		if len(patsNew) == 1 { if f, ok := patsNew[0].(*Flag); ok {
-			var name = f.name.Strval(ctx) // -import => (paths...)
+			var name = f.name.Strval(ctx)
 			switch name {
-			case "import":
-				if false {
-					p.importFileMaps(ctx, opts.public, paths...);
-				} else {
-					erro(of(ctx,f.name), "-import files is obsoleted: %v", paths).debug(1)
-				}
-				return
 			default:
+				// TODO: parse files options
 				erro(of(ctx,f.name), "invalid files flag: %v").debug(1)
 				return
 			}

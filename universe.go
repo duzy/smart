@@ -316,7 +316,7 @@ func (ctx *universeContext) init() {
 }
 
 func (uc *universeContext) mapfile(ctx Context, p *Project, opts filesOpts, patts, paths []Value) (m *filemap) {
-    m = &filemap{ p, patts, paths, opts.public }
+    m = &filemap{ p, patts, paths }
     for _, patt := range patts {
         var key interface{}
         var cache = &uc.filemaps

@@ -178,7 +178,7 @@ type useOpts struct {
     noVars   bool `nv,novars;nv,no-vars`
 	files    bool `f,files` // NOTE: see also '-import(xxxx)'
 	filesPub bool `fp,files-pub;fp,files-public;pf,public-files`
-    public   bool `p,pub;pub,public` // NOTE: work with -files flag
+    // public   bool `p,pub;pub,public` // NOTE: work with -files flag
 	reuse    bool `r,reuse;ru,reusing`
     vars   []Value `var,vars`
 }
@@ -552,13 +552,6 @@ func (l *loader) loadUseSpecName(ctx Context, opts useOpts, specVal Value, arged
     if err = l.addUsing(ctx, loaded, params, opts); err != nil {
         erro(ctx, "using '%v' failed: %v", loaded, err).debug(1)
         return
-    }
-    if opts.files || opts.filesPub {
-        if false {
-            l.p.importFileMaps(ctx, opts.public || opts.filesPub, specVal)
-        } else {
-            l.p.importFileMaps1(ctx, opts, loaded)
-        }
     }
     return
 }
@@ -1304,14 +1297,12 @@ func (l *loader) loadDotConfigure(ctx Context, ident *Barecomp, identStr string,
                 if err := l.addUsing(ctx, loaded, nil, opts); err != nil {
                     erro(ctx, "using '%v' failed: %v", loaded, err).debug(1)
                 }
-                //l.importFileMaps(ctx, public, specVal)
             } else if true {
                 for _, usee := range loaded.usees(true, false, false, false) {
                     if err := l.addUsing(ctx, usee, nil, opts); err != nil {
                         erro(ctx, "using '%v' failed: %v", usee, err).debug(1)
                         break
                     }
-                    l.p.importFileMaps1(ctx, opts, usee)
                 }
             }
         }
@@ -1451,8 +1442,6 @@ func (l *loader) loadAutoAfter(ctx Context, tag string) {
 func (l *loader) loadProjectConfiguration(ctx Context, linfo *loadinfo, ident *Barecomp, identStr string, declared bool) (result bool) {
     if false { defer un(tracef(t_traverse, "loadProjectConfiguration(%v)", ident)) }
 
-    // ctx = at(ctx, ident.Position())
-
     // Get configuration file name for the project and include it in flat mode.
     if file := l.project.configuration(ctx); file == nil {
         erro(ctx, "%v: nil configuration file", ident).debug(1)
@@ -1534,7 +1523,6 @@ func (l *loader) loadProjectConfiguration(ctx Context, linfo *loadinfo, ident *B
                         erro(ctx, "using '%v' failed: %v", usee, err).debug(1)
                         break
                     }
-                    l.p.importFileMaps1(ctx, opts, usee)
                 }
             }
         }

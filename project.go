@@ -23,7 +23,6 @@ type filemap struct {
   project *Project
   patts []Value
   paths []Value
-  public bool
 }
 
 type FileMap struct {
