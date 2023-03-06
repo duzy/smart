@@ -449,12 +449,15 @@ type modifierClosureOpts struct {
     target bool `@,target`
 }
 func modifierClosure(ctx Context, args... Value) (result Value, traves travestates) {
-    var opts modifierClosureOpts
+
     // Closure the caller program, the context will be restored when execution is finished.
+    var closureCtx Context
     if t := ctx.programContext(); t != nil && false {
         t.Context = closureWith(t.Context)
+        closureCtx = t.Context
     } else if pc := ctx.programContext(); pc != nil {
         pc.Context = closureWith(pc.Context)
+        closureCtx = pc.Context
     } else {
         erro(ctx, "needs closure context: %v", ctx).debug(1)
         return
@@ -462,10 +465,17 @@ func modifierClosure(ctx Context, args... Value) (result Value, traves travestat
 
     assert(ctx.closure() != nil, "context not closured: %v", ctx)
 
+    var opts modifierClosureOpts
     args = parseOpts(ctx, &opts, plain, args...)
     if opts.verbose { info(ctx, "%v: %v", ctx.Project(), ctx).debug(1) }
     if opts.dump { infostack(ctx, -1, "%v: %v", ctx.Project(), ctx).debug(1) }
-    if opts.target { warn(ctx, "TODO: %v: set @=&@; %v", ctx.Project(), ctx).debug(1) }
+    if opts.target && closureCtx != ctx {
+        if t := autoGet(closureCtx, "@"); t != nil { // aka (set @=&@)
+            ctx.autoSet("@", t)
+        } else {
+            warn(ctx, "%v: &@ is nil", closureCtx.Project()).debug(1)
+        }
+    }
 
     var dir string // closure work directory
     if proj := ctx.Project(); proj == nil {
