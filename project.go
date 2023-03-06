@@ -270,7 +270,7 @@ type Project struct {
   use     *uselist
 
   // List order is significant, duplication is acceptable.
-  _filemap_ []*filemap
+  filemaps []*filemap
 
   // Rule Registry (orderred)
   entries map[string]Entry
@@ -301,54 +301,21 @@ func (p *Project) NewScope(pos Position, comment string) *Scope {
 }
 
 func (p *Project) mapfile(ctx Context, opts filesOpts, patts, paths []Value) {
-  // NOTE: List order is significant, duplications are acceptable.
-  p._filemap_ = append(p._filemap_, ctx.universe().mapfile(ctx, p, opts, patts, paths))
+  p.filemaps = append(p.filemaps, ctx.universe().mapfile(ctx, p, opts, patts, paths))
 }
 
-func uniqueAppendFilemap(ctx Context, filemaps []*filemap, a *filemap) (result []*filemap) {
-  if false {
-    var numDuplicated int
-    for _, m := range filemaps {
-      if a == m || (&a.patts == &m.patts && &a.paths == &m.paths) {
-        result = filemaps
-        return
-      } else if len(a.patts) == len(m.patts) && len(a.paths) == len(m.paths) {
-        var same = true // initially assumes all paths are identical
-        for i, ap := range a.paths {
-          if ap != m.paths[i] { same = false; break }
-        }
-        if same {
-          result = filemaps
-          return
-        } else {
-          warn(of(ctx,a.patts[0]), "files might be duplicated: %v (paths=%v),", a, a.paths)
-          warn(of(ctx,m.patts[0]), "                     with: %v (paths=%v)" , m, m.paths)
-          warn(of(ctx,a.paths[0]), "          differred paths: %v", a.paths[0])
-          warn(of(ctx,m.paths[0]), "                      and: %v", m.paths[0])
-          numDuplicated += 1
-        }
-      }
-    }
-    if numDuplicated > 0 { erro(of(ctx,a.patts[0]), "duplicated files: %v", a.patts) }
-  }
-  result = append(filemaps, a)
-  return
-}
+func (p *Project) getFileMaps(ctx Context, baseFiles, useeFiles bool) (filemaps []*filemap) {
+  var appendFilemaps = func(a ...*filemap) { filemaps = append(filemaps, a...) }
 
-func (p *Project) _filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []*filemap) {
-  var appendUnique = func(a ...*filemap) {
-    for _, m := range a { filemaps = uniqueAppendFilemap(ctx, filemaps, m) }
-  }
-
-  appendUnique(p._filemap_...)
+  appendFilemaps(p.filemaps...)
   if baseFiles { for _, base := range p.bases {
-    appendUnique(base._filemaps(ctx, true, usedFiles)...)
+    appendFilemaps(base.getFileMaps(ctx, true, useeFiles)...)
   }}
   if p.configure != nil && ctx.configuration() {
-    appendUnique(p.configure._filemaps(ctx, true, usedFiles)...)
+    appendFilemaps(p.configure.getFileMaps(ctx, true, useeFiles)...)
   }
 
-  if usedFiles && false/* FIXME: performance */ {
+  if useeFiles && false/* FIXME: performance */ {
     // takes a big longer time to map usee filemaps, but acceptable
     var (
       appendUselist func(*Project)
@@ -357,12 +324,12 @@ func (p *Project) _filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []
     appendUselist = func(p *Project) {
       var fms []*filemap
       if true {
-        fms = p._filemap_
+        fms = p.filemaps
       } else {
         // FIXME: this is the expensive way, really slow!
-        fms = p._filemaps(ctx, baseFiles, usedFiles)
+        fms = p.getFileMaps(ctx, baseFiles, useeFiles)
       }
-      appendUnique(fms...)
+      appendFilemaps(fms...)
       appendUsedFiles(p)
     }
     appendUsedFiles = func(p *Project) {
@@ -376,7 +343,7 @@ func (p *Project) _filemaps(ctx Context, baseFiles, usedFiles bool) (filemaps []
 }
 
 func (p *Project) wildcard(ctx Context, opts wildcardOpts, patterns ...Value) (files []*File, err error) {
-  var filemaps = p._filemaps(ctx, opts.baseFiles, opts.usedFiles)
+  var filemaps = p.getFileMaps(ctx, opts.baseFiles, opts.useeFiles)
 ForPatterns:
   for _, inPat := range patterns {
     var (

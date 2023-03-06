@@ -2425,7 +2425,7 @@ type builtinPatsubstOpts struct {
         fullFiles bool `ff,fullfile,fullfiles`
         cleanPath bool `c,clean,cleanpath`
         baseFiles bool `b,base,bases;bf,base-files,search-bases`
-        usedFiles bool `u,used,using;uf,used-files,search-usees`
+        useeFiles bool `u,used,using;uf,used-files,search-usees`
         noFileMap bool `nm,nomap,no-map,nofiles,no-files,no-filemap`
 }
 func builtinPatsubst(ctx Context, w facet, args... Value) (res Value) {
@@ -2458,7 +2458,7 @@ func builtinPatsubst(ctx Context, w facet, args... Value) (res Value) {
                 list []Value
         )
         if !opts.noFileMap {
-                filemaps = proj._filemaps(ctx, opts.baseFiles, opts.usedFiles)
+                filemaps = proj.getFileMaps(ctx, opts.baseFiles, opts.useeFiles)
         }
 
 ForSources:
@@ -4312,7 +4312,7 @@ type wildcardOpts struct {
         ignoreMissing bool `gm,ignoremissing,ignore-missing`
         errorMissing bool `em,errormissing,e,err,error-missing,no-missing`
         baseFiles bool `b,base,bases;bf,base-files`
-        usedFiles bool `u,used;u,using;uf,used-files`
+        useeFiles bool `u,used;u,using;uf,used-files`
         names bool `bare,n,name,names`
         strs bool `s,str,strs,string,strings`
         exclude []Value `x,ex,excl,exclude,except,no,not`
