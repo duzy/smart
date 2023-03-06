@@ -80,7 +80,7 @@ func (cache *fileMapCache) hit(ctx Context, seg Value) (res *fileMapCache, key i
     } else if seg.patterned(ctx) {
         PatSeg: switch pat := seg.(type) {
         case *GlobPattern:
-            res = c
+            res, key = c, "" // NOTE: using empty string key
             for i, c := range pat.Components {
                 if false { prompt(ctx, "%T %v, %d. %T %v\n", seg, seg, i, c, c) }
                 if _, y := c.(*GlobMeta); y {
@@ -326,6 +326,10 @@ func (uc *universeContext) mapfile(ctx Context, p *Project, opts filesOpts, patt
             }
         } else if t, k := cache.hit(ctx, patt); t != nil { cache, key = t, k }
         if cache != nil {
+            if true { /* ... */ } else
+            if s := patt.Strval(ctx); strings.HasPrefix(s, ".configure/") {
+                warn(of(ctx, patt), "%T %v -> %T '%v'", patt, patt, key, key).debug(1)
+            }
             switch k := key.(type) {
             case string:
                 if cache.m == nil { cache.m = make(map[string][]FileMap) }
@@ -333,6 +337,8 @@ func (uc *universeContext) mapfile(ctx Context, p *Project, opts filesOpts, patt
             case Value:
                 if cache.v == nil { cache.v = make(map[Value][]FileMap) }
                 cache.v[k] = append(cache.v[k], FileMap{m, []Value{patt}})
+            default:
+                errostack(of(ctx, patt), 5, "uncached: %v (key: %T %v)", patt, key, key).debug(16)
             }
             if false {
                 var t = uc.unmapfile(ctx, p, patt)
@@ -355,20 +361,39 @@ type matchedFileMap struct {
     name string
 }
 func (uc *universeContext) unmapfile(ctx Context, p *Project, name interface{}) (maps []matchedFileMap) {
-    var key string
+    var key, str string
+    var caches []*fileMapCache
     var cache = &uc.filemaps
+
+    if true { /* ... */ } else
+    if s := fmt.Sprintf("%v", name); strings.HasPrefix(s, ".configure/library/") && strings.HasSuffix(s, ".out") {
+        var t = name
+        defer func () {
+            for i, m := range maps {
+                warn(ctx, "%v: %T %v -> %T %v -> %T '%v' -> %d. %v", p, t, t, name, name, key, key, i, m.patts)
+            }
+            warn(ctx, "%v: %T %v -> %T %v -> %T '%v'", p, t, t, name, name, key, key).debug(6)
+        } ()
+    }
+
     if s, y := name.(string); y {
+        str = s
         if strings.Contains(s, PathSep) { name = strings.Split(s, PathSep) } else {
-            if t, k := cache.get(ctx, s); t != nil { cache, key = t, k }
+            if t, k := cache.get(ctx, s); t != nil {
+                caches = append(caches, cache)
+                cache, key = t, k
+            }
             goto afterHitCache
         }
     }
     if a, y := name.([]string); y {
+        if str == "" { str = filepath.Join(a...) }
         for i, s := range a {
             if i > 0 && s == "" {
                 erro(ctx, "empty seg: %d, %T %v", i, name, name).debug(32)
                 return
             } else if t, k := cache.get(ctx, s); t != nil {
+                caches = append(caches, cache)
                 cache, key = t, k
             } else { break }
         }
@@ -376,29 +401,49 @@ func (uc *universeContext) unmapfile(ctx Context, p *Project, name interface{}) 
         errostack(ctx, 3, "unsupported: %T %v", name, name).debug(16)
         return
     } else if pat, y := v.(*Path); y {
+        str = v.Strval(ctx)
         for i, seg := range pat.Elems {
             if s := seg.Strval(ctx); i > 0 && s == "" {
                 erro(ctx, "empty seg: %d. %T %v ; %T %v", i, seg, seg, name, name).debug(32)
                 return
             } else if t, k := cache.get(ctx, s); t != nil {
+                caches = append(caches, cache)
                 cache, key = t, k
             } else { break }
         }
-    } else if s := v.Strval(ctx); s == "" {
+    } else if str = v.Strval(ctx); str == "" {
         errostack(of(ctx, v), 3, "empty: %T %v", name, name).debug(16)
         return
-    } else if t, k := cache.get(ctx, s); t != nil {
+    } else if t, k := cache.get(ctx, str); t != nil {
+        caches = append(caches, cache)
         cache, key = t, k
     }
+
 afterHitCache: // NOTE: key should be "" if patterned
     if cache != nil {
-        if a, y := cache.m[key]; y {
-            for _, m := range a {
-                if matched, pattern, name := m.Match(ctx, name); matched {
-                    maps = append(maps, matchedFileMap{m, pattern, name})
+        var ( a []FileMap ; y bool )
+        for {
+            unkey: a, y = cache.m[key] // NOTE: empty key "" indicates pattern
+            if !y && key != "" { key = "" ; goto unkey }
+            if  y {
+                for _, m := range a {
+                    if matched, pattern, name := m.Match(ctx, name); matched {
+                        if false { prompt(ctx, "%v: %v %v -> %v\n", str, name, key, m.patts) }
+                        maps = append(maps, matchedFileMap{m, pattern, name})
+                    }
                 }
+                if len(maps) > 0 { break }
+            }
+            if n := len(caches); n == 0 || cache == &uc.filemaps {
+                break
+            } else {
+                if false { m, _ := caches[n-1].m[""] ; prompt(ctx, "%v: %v %v ; %v\n", str, name, key, m) }
+                if key != "" { key = "" }
+                cache  = caches[ n-1]
+                caches = caches[:n-1]
             }
         }
+
         if true { /* skip */ } else
         if s, y := name.(string); y && strings.HasSuffix(s, ".sm") {
             prompt(ctx, "%v: %T %v -> unmapfile -> %s, %v\n", p, name, name, key, len(maps))
@@ -790,11 +835,11 @@ func (dc *universeContext) loadTopWork() (err error) {
             var name string
             if p := dc.globe.top.Project(); p != nil { name = p.name }
             fmt.Fprintf(stderr, "└·%s … (%s)\n", name, d)
-        } else if d > time.Duration(options.slow)*time.Millisecond {
+        } else if d > time.Duration(options.slow)*time.Millisecond*10 {
             if m := dc.globe.main; m != nil {
-                prompt(ctx, "%v:warning: long loading: %s !!\n", m.position, d).debug(6)
+                warn(at(ctx, m.position), "slow loading (%v)!!\n", d).debug(6)
             } else {
-                prompt(ctx, "%s:1:warning: long loading: %s !!\n", base, d).debug(6)
+                prompt(ctx, "%s:1:warning: slow loading (%v)!!\n", base, d).debug(6)
             }
         }
     } (time.Now())

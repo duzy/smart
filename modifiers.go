@@ -1366,7 +1366,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
     var findDepFile = func(name string) (file *File) {
         if filepath.IsAbs(name) {
             file = stat(ctx, name, "", "", nil)
-        } else if file = proj.matchFile(ctx, name); file != nil && file.exists() {
+        } else if file = proj.file(ctx, name); file != nil && file.exists() {
             // good!
         } else {
             // fail!
@@ -1563,7 +1563,7 @@ func traverseMissingDep(ctx Context, dep string) (res bool, traves travestates) 
         erro(ctx, "%s: no current project for dep", dep)
         errostack(ctx, 5, "%s: %v", dep, ctx).debug(10)
         return
-    } else if file := proj.matchFile(ctx, dep); file == nil {
+    } else if file := proj.file(ctx, dep); file == nil {
         if false {
             // FIXME: traverse won't work with 'nil' target value
             traves = traverse(ctx, nil, dep)
@@ -2233,7 +2233,7 @@ func modifierCopyFile(ctx Context, args... Value) (result Value, traves travesta
         }
     default:
         filename = target.Strval(ctx)
-        if file := project.matchFile(ctx, filename); file != nil {
+        if file := project.file(ctx, filename); file != nil {
             target, filename = file, file.fullname()
             if file.info != nil {
                 filetime = file.info.ModTime()
@@ -2247,7 +2247,7 @@ func modifierCopyFile(ctx Context, args... Value) (result Value, traves travesta
         }
     default:
         srcname = source.Strval(ctx)
-        if file := project.matchFile(ctx, srcname); file != nil {
+        if file := project.file(ctx, srcname); file != nil {
             source, srcname = file, file.fullname()
             if file.info != nil { srctime = file.info.ModTime() }
         }
@@ -2485,7 +2485,7 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
                 s string
             )
             for _, proj := range projs {
-                if file = proj.matchFile(ctx, filename); file != nil {
+                if file = proj.file(ctx, filename); file != nil {
                     s = file.fullname()
                     break
                 }
@@ -2521,11 +2521,14 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
         if p := filepath.Dir(filename); p != "." && p != "/" {
             if fi, _ := os.Stat(p); fi != nil && !fi.IsDir() {
                 if e := os.Remove(p); e != nil {
-                    erro(ctx, "%v (%T %v)", e, target, target).debug(1)
+                    errostack(ctx, 5, "%v (%T %v)", e, target, target).debug(16)
                 }
             }
             if e := os.MkdirAll(p, os.FileMode(0755)); e != nil {
-                erro(ctx, "%v (%T %v)", e, target, target).debug(1)
+                for _, proj := range closureProjects(ctx) {
+                    erro(ctx, "%v: %v %v", filename, proj, proj.file(ctx, filename))
+                }
+                errostack(ctx, 5, "%v: %v (%T %v)", filename, e, target, target).debug(16)
                 return
             }
         }

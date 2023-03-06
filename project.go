@@ -493,21 +493,30 @@ ForPatterns:
   return
 }
 
-func (p *Project) matchFile(ctx Context, iname interface{}) (file *File) {
-  var a, b, c []matchedFileMap
+func (p *Project) file(ctx Context, iname interface{}) (file *File) {
+  var conf = p.configure
+  var a, b, c, d []matchedFileMap
   for _, m := range ctx.universe().unmapfile(ctx, p, iname) {
+    if true { /* noop */ } else
+    if s := fmt.Sprintf("%s", iname); strings.HasPrefix(s, ".configure/") && strings.HasSuffix(s, ".out") {
+      warn(ctx, "%v: %v: %v: %v", p, m.project, conf, m.patts).debug(1)
+    }
+
     if m.project == p {
       a = append(a, m)
     } else if p.hasBase(m.project) {
       b = append(b, m)
-    } else {
+    } else  if conf != nil && (m.project == conf || conf.hasBase(m.project)) {
       c = append(c, m)
+    } else {
+      d = append(d, m)
     }
   }
 
   var first *File
   var maps = append(a, b...)
-  if false && len(maps) == 0 { maps = c }
+  if true  && len(maps) == 0 { maps = c }
+  if false && len(maps) == 0 { maps = d }
 
   for _, m := range maps {
     var proj = m.project
@@ -556,7 +565,7 @@ func (p *Project) matchFile(ctx Context, iname interface{}) (file *File) {
 
 func (p *Project) matchTempFile(ctx Context, name string) (file *File) {
   var pos = ctx.Position()
-  if file = p.matchFile(ctx, name); file != nil {
+  if file = p.file(ctx, name); file != nil {
     // good
   } else if ctd := p.scope.FindDef("CTD"); ctd == nil {
     erro(at(ctx,pos), "%v: CTD is not defined for temp file: %v", p, name).debug(1)
@@ -577,7 +586,7 @@ func (p *Project) configuration(ctx Context) (file *File) {
   return
 }
 
-func matchFile(c Context, s string) *File { return c.Project().matchFile(c, s) }
+func matchFile(c Context, s string) *File { return c.Project().file(c, s) }
 func matchTempFile(c Context, s string) *File { return c.Project().matchTempFile(c, s) }
 func resolveObject(c Context, s string) Object { return c.Project().resolveObject(c, s) }
 func resolveEntries(c Context, s string, a, b bool) *ResolveEntries { return c.Project().resolveEntries(c, s, a, b) }
@@ -671,7 +680,7 @@ func (p *Project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
     for _, t := range res {
       if file, _ := toFile(t.target); file != nil {
         file.position = t.position
-      } else if file = p.matchFile(ctx, s); file != nil {
+      } else if file = p.file(ctx, s); file != nil {
         file.position = t.position
         t.target = file
       }
@@ -748,7 +757,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
     switch target.(type) {
     case *File, *Path, *Barefile, *PercPattern, *GlobPattern, *RegexpPattern:
     default:
-      if file := p.matchFile(ctx, name); file != nil {
+      if file := p.file(ctx, name); file != nil {
         file.position = target.Position()
         target = file
       }

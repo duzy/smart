@@ -554,7 +554,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
         case *File: // alreadyUpdated = a.info != nil && a.updated
         case *String, *Compound: // NOTE: escape 'String' and "Compound" values from file searching
         default:
-            if file := prog.project.matchFile(ctx, a.Strval(ctx)); file != nil {
+            if file := prog.project.file(ctx, a.Strval(ctx)); file != nil {
                 // alreadyUpdated = file.info != nil && file.updated
                 target = file
             }
