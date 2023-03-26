@@ -96,7 +96,7 @@ func (p *use) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (p *use) patterned(ctx Context) bool { return false }
-func (p *use) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
+func (p *use) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return }
 func (p *use) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
 func (p *use) True(ctx Context) bool { return p.project != nil }
 func (p *use) updated(ctx Context, v ...bool) (res bool) {
@@ -121,6 +121,10 @@ func (p *use) String() string {
 func (p *use) Strval(ctx Context) (s string) {
         s = fmt.Sprintf("use %s %v", p.project.name, p.params)
         return
+}
+func (p *use) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
 }
 
 type uselist struct {
@@ -210,7 +214,7 @@ func (p *uselist) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (p *uselist) patterned(ctx Context) bool { return false }
-func (p *uselist) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
+func (p *uselist) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return }
 func (p *uselist) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
 func (p *uselist) refs(ctx Context, v Value) bool {
         for _, a := range p.list {
@@ -301,4 +305,9 @@ func (p *uselist) Call(ctx Context, a... Value) (result Value) {
                 result = MakeListOrScalar(p.Position(), targets)
         }
         return
+}
+
+func (p *uselist) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
 }

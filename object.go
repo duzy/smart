@@ -94,6 +94,10 @@ func (p *knownobject) cmp(ctx Context, v Value) (res cmpres) {
         }
         return
 }
+func (p *knownobject) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
 
 type unresolved struct { // named callable/executable objects
         Value
@@ -162,7 +166,7 @@ func (_ *ProjectName) refs(_ Context, _ Value) (res bool) { return }
 func (_ *ProjectName) patterned(_ Context) bool { return false }
 func (_ *ProjectName) expandible(_ Context, _ facet) bool { return false }
 func (p *ProjectName) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
-func (p *ProjectName) match(ctx Context, i interface{}) (bool, string, []string) { return matchStrval(ctx, p, i) }
+func (p *ProjectName) match(ctx Context, i interface{}) (bool, interface{}, []string) { return matchStrval(ctx, p, i) }
 func (_ *ProjectName) Integer(_ Context) (int64, error) { return 0, nil }
 func (_ *ProjectName) Float(_ Context) (float64, error) { return .0, nil }
 func (p *ProjectName) Position() Position { return p.position }
@@ -201,6 +205,10 @@ func (p *ProjectName) rescope(_ Context, scope *Scope) {
                 }
         }
 }
+func (p *ProjectName) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
 
 type ScopeName struct {
         *Scope
@@ -215,7 +223,7 @@ func (_ *ScopeName) defs(_ Context, _ ...string) (res []*def) { return }
 func (_ *ScopeName) refs(_ Context, _ Value) (res bool) { return }
 func (_ *ScopeName) patterned(_ Context) bool { return false }
 func (_ *ScopeName) expandible(_ Context, _ facet) bool { return false }
-func (p *ScopeName) match(ctx Context, i interface{}) (bool, string, []string) { return matchStrval(ctx, p, i) }
+func (p *ScopeName) match(ctx Context, i interface{}) (bool, interface{}, []string) { return matchStrval(ctx, p, i) }
 func (p *ScopeName) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
 func (_ *ScopeName) stat(ctx Context) (si *statinfo) { return }
 func (_ *ScopeName) traverse(ctx Context) (traves travestates) { return }
@@ -257,6 +265,10 @@ func (p *ScopeName) rescope(_ Context, scope *Scope) {
                         p.Scope.elems[p.name] = p
                 }
         }
+}
+func (p *ScopeName) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
 }
 
 type Origin int
@@ -945,6 +957,11 @@ func (d *def) stat(ctx Context) (si *statinfo) {
         return
 }
 
+func (p *def) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+
 type undetermined struct {
         tok token.Token
         identifier Value
@@ -1004,9 +1021,13 @@ func (p *undetermined) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (p *undetermined) patterned(ctx Context) bool { return false }
-func (p *undetermined) match(ctx Context, i interface{}) (full bool, s string, stems []string) { return }
+func (p *undetermined) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return }
 func (p *undetermined) stencil(ctx Context, stems []string) (val Value, rest []string) {
         return p, stems
+}
+func (p *undetermined) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
 }
 
 // A Builtin represents a built-in function.
@@ -1018,7 +1039,7 @@ type Builtin struct {
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
 func (p *Builtin) True(_ Context) bool { return p.s.f != nil }
 func (p *Builtin) Call(ctx Context, a... Value) (res Value) {
-        if p.s.f != nil { res = p.s.f(at(ctx, p.position), plain, a...) }
+        if p.s.f != nil { res = p.s.f(builtin{at(ctx, p.position), plain}, a...) }
         return
 }
 func (p *Builtin) expand(_ Context, _ facet) Value { return p }
@@ -1032,6 +1053,10 @@ func (p *Builtin) cmp(ctx Context, v Value) (res cmpres) {
                 res = p.cmp(ctx, l.Elems[0])
         }
         return
+}
+func (p *Builtin) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
 }
 
 type RuleEntryClass int
@@ -1365,7 +1390,7 @@ func (entry *RuleEntry) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (entry *RuleEntry) patterned(ctx Context) bool { return entry.target.patterned(ctx) }
-func (entry *RuleEntry) match(ctx Context, i interface{}) (full bool, s string, stems []string) {
+func (entry *RuleEntry) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) {
     full, s, stems = entry.target.match(ctx, i)
     return
 }
@@ -1402,6 +1427,11 @@ func (entry *RuleEntry) option(ctx Context) (res bool, infos []Value) {
                 }
         }
         return
+}
+
+func (entry *RuleEntry) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
 }
 
 type PatternEntry struct { RuleEntry }

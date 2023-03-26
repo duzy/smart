@@ -107,7 +107,7 @@ type Context interface {
   aquireLock() (unlock func())
   wait()
 
-  universe() *universeContext
+  universe() *universe
 
   loader() *loader // only in load stage
   parser() *parser // only in parse stage
@@ -153,7 +153,7 @@ type Context interface {
   argumentedSet([]Value) []Value
   arguments() []Value
 
-  configuration() bool
+  isConfiguration() bool
 
   diagnostic() *diagContext
   diag(diagType, string, ...interface{}) *diagPoint
@@ -180,7 +180,7 @@ func getTargetValueString(ctx Context) (val Value, str string) {
   if val = getTargetValue(ctx); isNil(val) {
     if false { erro(ctx, "target '%v' is nil", val) }
   } else {
-    str = fullnameOrStrval(ctx, val)
+    str, _ = as{val}.fullnameOrStrval(ctx)
   }
   return
 }
@@ -421,7 +421,7 @@ func at(ctx Context, pos Position) Context {
   if ctx == nil { panic("nil inner context") } else
   if p := ctx.Position(); p.IsValid() && pos.IsValid() && !p.Same(&pos) {
     var ( wrap bool = true ; num int )
-    for c, i, y := ctx, 0, true; c != &universe; c, i = c.inner(), i+1 {
+    for c, i, y := ctx, 0, true; c != ctx.universe(); c, i = c.inner(), i+1 {
       if _, y = c.(*positionContext); y && i > 9999 {
         if wrap { wrap, num = false, i }
         if true {
@@ -611,7 +611,7 @@ func checkFailure(ctx Context, dontCheckErrors ...bool) (panics, errs int) {
 }
 
 func CommandLine() {
-  var context = &universe
+  var context = &uni
   defer checkFailure(context)
 
   if options.traceLaunch { defer un(trace(t_launch, "CommandLine")) }
@@ -627,7 +627,7 @@ func CommandLine() {
   modulesPaths = append(modulesPaths, filepath.Join(context.prefix, "user", "lib", "smart", "modules"))
 
   // make sure that .smart dirs have higher priority.
-  universe.paths = append(modulesPaths, universe.paths...)
+  uni.paths = append(modulesPaths, uni.paths...)
   for _, s := range modulesPaths {
     searchFile := filepath.Join(s, ".search")
     if fi, _ := os.Stat(searchFile); fi == nil { continue }
@@ -649,7 +649,7 @@ func CommandLine() {
         line = filepath.Clean(filepath.Join(s, line))
       }
       if fi, err = os.Stat(line); err == nil && fi.IsDir() {
-        universe.paths = append(universe.paths, line)
+        uni.paths = append(uni.paths, line)
       }
     }
     if err != nil { fmt.Fprintf(stderr, "%v: %v", file, err); return }

@@ -586,6 +586,10 @@ func (p *ExecResult) cmp(ctx Context, v Value) (res cmpres) {
   }
   return
 }
+func (p *ExecResult) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
 func (p *ExecResult) True(ctx Context) (res bool) {
   res = p.Status == 0 && p.Stderr.Buf != nil && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */
   return
@@ -812,34 +816,34 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   var (
     programCtx = ctx.programContext()
     program = programCtx.program()
-    target = getTargetValue(ctx)
     targetName string
+    target as
   )
-  if program == nil {
+  if target.Value = getTargetValue(ctx); program == nil {
     erro(ctx, "needs program context to exec: %v", ctx).debug(16)
     return
   } else if opts.stamp && target.patterned(ctx) {
     errostack(ctx, 5, "target is pattern: %v", target).debug(64)
     return
-  } else if _, ok := target.(*Flag); ok {
+  } else if _, ok := target.Value.(*Flag); ok {
     // no stamp required for Flags
-  } else if _, ok = toFile(target); !ok {
+  } else if _, ok = toFile(target.Value); !ok {
     // no stamp required for non-file targets
-  } else if targetName = fullnameOrStrval(ctx, target); ctx.configuration() {
+  } else if targetName, _ = target.fullnameOrStrval(ctx); ctx.isConfiguration() {
     // does nothing
   } else if opts.wait {
     // good to work without (stamp) or (wait) with the -wait flag
   } else if ms := program.getModifiers(ctx, "stamp"); len(ms) > 0 {
-    switch target.(type) {
-    case *Barefile, *File, *Path:
-      warn(at(ctx,ms[0].position), "use (shell -stamp) instead of stamp modifier (%T %v)", target, target).debug(1)
+    switch t := target.Value; t.(type) {
+    case *barefile, *File, *Path:
+      warn(at(ctx,ms[0].position), "use (shell -stamp) instead of stamp modifier (%T %v)", t, t).debug(1)
     default:
-      warn(at(ctx,ms[0].position), "no need to use (shell -stamp) here", target, target).debug(1)
+      warn(at(ctx,ms[0].position), "no need to use (shell -stamp) here", t, t).debug(1)
     }
   } else if ms := program.getModifiers(ctx, "wait"); len(ms) > 0 {
     // should be good to work
-  } else if !(opts.stamp || opts.noStamp || opts.silentErrs) {
-    warn(ctx, "add -stamp to (shell); target=%v (%T)", target, target).debug(1)
+  } else if t := target.Value; !(opts.stamp || opts.noStamp || opts.silentErrs) {
+    warn(ctx, "add -stamp to (shell); target=%v (%T)", t, t).debug(1)
   }
 
   if (opts.retStdout && opts.retStatus) || (opts.retStderr && opts.retStatus) {
@@ -985,7 +989,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
           warn(ctx, "%T %v", val, val)
         } else if val.Strval(ctx) == "llvm-driver-objcopy.cpp" {
           warn(ctx, "%T %v", val, val)
-          if c, ok := val.(*Barecomp); ok {
+          if c, ok := val.(*barecomp); ok {
             for _, val := range c.Elems {
               warn(ctx, "%T %v", val, val)
             }
@@ -1091,7 +1095,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     exeres.x = nil
 
     // Stamp the target file.
-    if !opts.stamp || ctx.configuration() {
+    if !opts.stamp || ctx.isConfiguration() {
       // no stamp for target files
     } else if err != nil {
       var files, e = target.delete(ctx)
@@ -1126,7 +1130,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
 
     if err == nil {
       // Good!
-    } else if ctx.configuration() {
+    } else if ctx.isConfiguration() {
       err = nil
     } else {
       erro(ctx, "shell: %v", err).debug(1)

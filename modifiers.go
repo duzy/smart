@@ -83,6 +83,10 @@ func (m *modifier) String() (s string) {
     s += ")"
     return
 }
+func (p *modifier) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
 
 type modifiergroup struct {
     valbase
@@ -139,6 +143,11 @@ func (g *modifiergroup) String() (s string) {
         s += m.String()
     }
     s += "]"
+    return
+}
+
+func (p *modifiergroup) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
 
@@ -407,7 +416,7 @@ ForArgs:
             def *def
         )
         switch a := arg.(type) {
-        case *Bareword: name = a.string
+        case *bareword: name = a.string
         case *Pair: // NOTE: Pair.Value is not expanded yet! We need to expand it again.
             name = a.Key.Strval(ctx)
             if value = a.Value.expand(ctx, plain); isNil(value) {
@@ -446,7 +455,7 @@ func modifierSetDirtyPats(ctx Context, args... Value) (result Value, traves trav
 type modifierClosureOpts struct {
     generalOpts
     dump   bool `d,dump`
-    target bool `@,target`
+    target bool `@,target` // TODO: -@=value
 }
 func modifierClosure(ctx Context, args... Value) (result Value, traves travestates) {
 
@@ -697,7 +706,7 @@ type grepCacheFiles struct {
 }
 type greptouch struct {
     files []Value
-    target Value
+    target as
     targetInfo os.FileInfo
     targetDir string // see splitTargetFileName
     targetFullName string // see splitTargetFileName
@@ -746,11 +755,11 @@ func (g *greptouch) work(ctx Context, gc *grepctx) (err error) {
 func (g *grepctx) isTargetFile(ctx Context, file *File) (res bool) {
     if file == nil {
         // ...
-    } else if g.target == file {
+    } else if g.target.Value == file {
         res = true
-    } else if fullnameOrStrval(ctx, file) == g.targetFullName {
+    } else if s, _ := g.target.fullnameOrStrval(ctx); s == g.targetFullName {
         res = true
-    } else if f, y := toFile(g.target); y && f.name == file.name {
+    } else if f, y := toFile(g.target.Value); y && f.name == file.name {
         res = true
     }
     return
@@ -803,34 +812,34 @@ func saveGrepCache(ctx Context) {
     }
 }
 
-func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name string) (file *File) {
+func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name string) (res *File) {
     var isAbs, isRel bool
     if isAbs = filepath.IsAbs(name); isAbs {
-        file = stat(ctx, name, "", "", nil)
+        res = stat(ctx, name, "", "", nil)
     } else if isRel = isRelPath(name); isRel { // relative to targetDir
-        file = stat(ctx, name, "", gc.targetDir, nil)
-    } else if file = matchFile(ctx, name); file != nil && file.exists() {
+        res = stat(ctx, name, "", gc.targetDir, nil)
+    } else if res = file(ctx, name); res != nil && res.exists() {
         return // found existed file
     }
 
     // System files are not treated as missing nor collected
     // for further updating, just discard them immediately.
-    if !sys && file != nil && file.filemap != nil && len(file.filemap.paths) == 1 {
+    if !sys && res != nil && res.filemap != nil && len(res.filemap.paths) == 1 {
         // system files defined by `files ((foo.xxx) ⇒ -)`
-        if f, ok := file.filemap.paths[0].(*Flag); ok {
+        if f, ok := res.filemap.paths[0].(*Flag); ok {
             sys = isNone(f.name) || isNil(f.name)
         }
     }
     if!sys && gc.debug>0 {
         erro(ctx, "%v: %v → %v (exists=%v, sys=%v, from %v)\n",
-            ctx.entry(), gc.target, name, file.exists(), sys, ctx.Project()).
+            ctx.entry(), gc.target, name, res.exists(), sys, ctx.Project()).
             debug(gc.debug)
     }
-    if sys || file.exists() { return }
+    if sys || res.exists() { return }
 
     // relative to target directory
     var alt = stat(ctx, name, "", gc.targetDir)
-    if alt != nil { file = alt; return }
+    if alt != nil { res = alt; return }
 
     // Check for bare non-system sub-paths:
     //   foo/bar/name.xxx
@@ -839,24 +848,24 @@ func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name str
 
     // Search 'name.xxx' and check dir for
     // 'foo/bar' suffix. We use it if found.
-    alt = matchFile(ctx, filepath.Base(name))
+    alt = file(ctx, filepath.Base(name))
     if alt != nil && strings.HasSuffix(alt.dir, PathSep+s) {
         dir := strings.TrimSuffix(alt.dir, PathSep+s)
         ok1 := alt.change(dir, s, alt.name) // <dir>, foo/bar, name.xxx
         ok2 := alt.change(dir, "", name) // <dir>, "", foo/bar/name.xxx
-        file = alt
+        res  = alt
         if enable_assertions {
             assert(ok1, "unchanged: %s %s %s", dir, s, alt.name)
             assert(ok2, "unchanged: %s %s", dir, alt.name)
         }
-    } else if file == nil {
+    } else if res == nil {
         for _, inc := range gc.incs {
-            if file = stat(ctx, name, "", inc.Strval(ctx)); file != nil {
-                if false { info(ctx, "%v in %v", file, inc).debug(1) }
+            if res = stat(ctx, name, "", inc.Strval(ctx)); res != nil {
+                if false { info(ctx, "%v in %v", res, inc).debug(1) }
                 return
             }
         }
-        if file == nil { file = stat(ctx, name, "", "", nil) }
+        if res == nil { res = stat(ctx, name, "", "", nil) }
         warn(at(ctx,gp), "'%s' not found in %v", name, ctx.Project())
         warn(ctx, "grepped '%s' has no target dir in %v", name, ctx.Project())
         warn(at(ctx,ctx.Project().position), "from project %v (for %v)", ctx.Project(), name).debug(8)
@@ -925,7 +934,7 @@ func tempFile(ctx Context, prefix, hashee0 string, hasheeN... interface{}) (file
         // .deps/??/??/????????????????????????????????????????????????????????????
         // .grep/??/??/????????????????????????????????????????????????????????????
         // .cache/??/??/????????????????????????????????????????????????????????????
-        file = project.matchTempFile(ctx, filepath.Join(prefix, // e.g. ".deps", ".grep"
+        file = project.tempFile(ctx, filepath.Join(prefix, // e.g. ".deps", ".grep"
             fmt.Sprintf("%x", nameSum[ :1]),
             fmt.Sprintf("%x", nameSum[1:2]),
             fmt.Sprintf("%x", nameSum[2: ]),
@@ -968,7 +977,7 @@ func getSavedDepsFileName(ctx Context, targetFullName string, strs []string) (fi
     if file, err = tempFile(ctx, ".deps", targetFullName, hashees...); err != nil {
         erro(ctx, "get .deps temp file failed: %v", err).debug(1)
     } else {
-        filename = fullnameOrStrval(ctx, file)
+        filename, _ = as{file}.fullnameOrStrval(ctx)
     }
     return
 }
@@ -978,7 +987,7 @@ func getSavedGrepFileName(ctx Context, targetFullName string) (filename string, 
     if file, err = tempFile(ctx, ".grep", targetFullName); err != nil {
         erro(ctx, "get .grep temp file failed: %v", err).debug(1)
     } else {
-        filename = fullnameOrStrval(ctx, file)
+        filename, _ = as{file}.fullnameOrStrval(ctx)
     }
     return
 }
@@ -994,7 +1003,7 @@ func loadSavedGrepFile(ctx Context, gc *grepctx) (okay bool, err error) {
     var file, ok = toFile(gc.target)
     if !ok {
         file = stat(ctx, gc.targetFullName, "", "")
-        if file != nil { gc.target = file }
+        if file != nil { gc.target.Value = file }
     }
     if file != nil && file.info != nil {
         // Check previously saved grep file into.
@@ -1091,7 +1100,7 @@ ForScan:
 
 func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() to replace grepctx
     var targetName string
-    switch v := gc.target.(type) {
+    switch v := gc.target.Value.(type) {
     case *File:
         targetName = v.name
         gc.targetInfo = v.info
@@ -1152,7 +1161,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
         gc.files = restore
         if gc.debug>0 { erro(ctx, "grepped: %s → %v (grepped=%v) (saved=%s)\n",
             gc.target, touch.files, len(t.grepped), gc.savedGrepFile).debug(gc.debug) }
-        for _, gc.target = range touch.files {
+        for _, gc.target.Value = range touch.files {
             if t.grepped = append(t.grepped, gc.target); !gc.recursive {
                 continue
             } else if err = grep(ctx, gc); err != nil {
@@ -1323,7 +1332,7 @@ ForTarget:
             return
         }
 
-        gc.target, t.grepped = target, nil
+        gc.target.Value, t.grepped = target, nil
         if err := grep(ctx, &gc); err != nil {
             erro(ctx, "grep files from %v failed: %v", target, err).debug(1)
             return
@@ -1368,7 +1377,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
     const parallel = true
     var (
         proj = ctx.Project()
-        targetFullName = fullnameOrStrval(ctx, targetVal)
+        targetFullName, _ = as{targetVal}.fullnameOrStrval(ctx)
         filesMux sync.Mutex
         firstWord string
         err error
@@ -1721,7 +1730,7 @@ CorrectCC:
     if !_MM { ca = append(ca, "-M")  } // both user and system headers
     if !_MG && opts.addMissing { ca = append(ca, "-MG") } // add missing headers
     for _, a := range args {
-        var s = strings.TrimSpace(fullnameOrStrval(ctx, a))
+        var s, y = as{a}.fullnameOrStrval(ctx) ; if y { s = strings.TrimSpace(s) }
         if strings.Contains(s, "-v -fPIC -fvisibility-inlines-hidden") {
             var v = a.expand(ctx, plain)
             warn(ctx, "%T %v", a, a)
@@ -1882,7 +1891,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, traves travestates
             if f = stat(at(ctx, opts.file.Position()), s, "", ""); f != nil {
                 res = f.exists()
             }
-        } else if f = matchFile(ctx, s); f != nil {
+        } else if f = file(ctx, s); f != nil {
             res = f.exists()
         }
         if res { res = !f.info.Mode().IsDir() } // .IsRegular()
@@ -1906,7 +1915,7 @@ func modifierCheck(ctx Context, args... Value) (result Value, traves travestates
             if f = stat(at(ctx, opts.dir.Position()), s, "", ""); f != nil {
                 res = f.exists()
             }
-        } else if f = matchFile(ctx, s); f != nil {
+        } else if f = file(ctx, s); f != nil {
             res = f.exists()
         }
         if res { res = f.info.Mode().IsDir() }
@@ -2008,19 +2017,19 @@ ForPairs:
                 break ForPairs
             }
         case "file", "dir": // file=xxx and dir=xxx, same as -file=xxx and -dir=xxx
-            var ( file *File; res bool )
-            if file, res = toFile(p.Value); res {
+            var ( f *File; res bool )
+            if f, res = toFile(p.Value); res {
                 // ok
             } else if str = p.Value.Strval(ctx); filepath.IsAbs(str) {
-                if file = stat(at(ctx, p.Value.Position()), str, "", ""); file != nil {
+                if f = stat(at(ctx, p.Value.Position()), str, "", ""); f != nil {
                     // ok
                 }
-            } else if file = matchFile(ctx, str); file != nil {
+            } else if f = file(ctx, str); f != nil {
                 // ok
             }
             switch key {
-            case "file": res = file.info != nil && !file.info.Mode().IsDir()//.IsRegular()
-            case "dir":  res = file.info != nil &&  file.info.Mode().IsDir()
+            case "file": res = f.info != nil && !f.info.Mode().IsDir()//.IsRegular()
+            case "dir":  res = f.info != nil &&  f.info.Mode().IsDir()
             default: unreachable()
             }
             if makeResult != nil {
@@ -2087,9 +2096,9 @@ func copyRegular(ctx Context, src, dst string, opts *copyopts) (err error) {
     if true {
         def1 = opts.program.scope.Lookup("1").(*def)
         def2 = opts.program.scope.Lookup("2").(*def)
-    } else if gs := ctx.Globe().scope; gs != nil {
-        def1 = gs.Lookup("1").(*def)
-        def2 = gs.Lookup("2").(*def)
+    } else if g := ctx.Globe(); g != nil {
+        def1 = g.Lookup("1").(*def)
+        def2 = g.Lookup("2").(*def)
     }
     defer func(v1, v2 Value) { def1.value, def2.value = v1, v2
         // if err == nil {
@@ -2343,7 +2352,7 @@ func modifierWriteFile(ctx Context, args... Value) (result Value, traves travest
         }
     } ()
 
-    filename = fullnameOrStrval(ctx, target)
+    filename, _ = as{target}.fullnameOrStrval(ctx)
 
     if h := autoGet(ctx, "-"); h == nil {
         erro(ctx, "buffer value is nil").debug(1)
@@ -2378,30 +2387,29 @@ func modifierReadFile(ctx Context, aa... Value) (result Value, traves travestate
         args []Value
         filename string
         file *File
-        target Value
+        target as
     )
     args = parseOpts(ctx, &opts, plain, aa...)
     if n := len(args); n > 1 {
         erro(ctx, "too many files: %v", args).debug(1)
         return
     } else if n == 1 {
-        target = args[0]
+        target.Value = args[0]
     } else {
-        target = autoGet(ctx, "@")
+        target.Value = autoGet(ctx, "@")
     }
 
-    if isTrivial(target) {
-        errostack(ctx, 3, "target for reading is invalid (%T) (%v -> %v)",
-            target, aa, args).debug(10)
+    if target.trivial() {
+        errostack(ctx, 3, "target for reading is invalid (%T) (%v -> %v)", target.Value, aa, args).debug(10)
         return
-    } else if file, filename, _ = fullname(ctx, target); file == nil {
+    } else if file, filename, _ = target.fullname(ctx); file == nil {
         if val := autoGet(ctx, ">"); val != nil {
-            s := traves.add(ctx, traveFail, target)
+            s := traves.add(ctx, traveFail, target.Value)
             s.error = traveTargetNotDefinedFile
             s.depend = val
         } else if true {
             prompt(ctx, "%v: not defined as file\n", target.Strval(ctx))
-            erro(ctx, "(%T) %v", target, target)
+            erro(ctx, "(%T) %v", target.Value, target.Value)
             errostack(ctx, 8, "").debug(64)
         }
         return
@@ -2477,48 +2485,38 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
     var (
         opts = modifierUpdateFileOpts{ mode: os.FileMode(0640) }
         filename string
-        target Value
+        target as
     )
     args = parseOpts(ctx, &opts, plain, args...)
-
     if len(args) > 1 { opts.mode = permVal(ctx, args[1], 0600) }
-    if len(args) > 0 { target = args[0] }
-    if isTrivial(target) { target = autoGet(ctx, "@") }
-    if isTrivial(target) {
+    if len(args) > 0 { target.Value = args[0] }
+    if target.trivial() { target.Value = autoGet(ctx, "@") }
+    if t := target.Value; target.trivial() {
         errostack(ctx, 5, "no file target to update").debug(16)
     } else if opts.fullname {
-        // Get target filename
-        if filename = fullnameOrStrval(ctx, target); !filepath.IsAbs(filename) {
+        if filename, _ = target.fullnameOrStrval(ctx); !filepath.IsAbs(filename) {
             var (
-                projs = closureProjects(ctx)
                 file *File
                 s string
             )
-            for _, proj := range projs {
-                if file = proj.file(ctx, filename); file != nil {
-                    s = file.fullname()
-                    break
-                }
-            }
-            if filepath.IsAbs(s) {
-                filename = s // good!
+            if t := closureFiles(ctx, filename, true); len(t) > 0 { file, s = t[0], t[0].fullname() }
+            if s != "" && filepath.IsAbs(s) {
+                filename = s
             } else if file != nil {
-                prompt(ctx, "%v: %T %v; projects=%v\n",
-                    file.fullname(), target, target, projs)
+                prompt(ctx, "%v: %T %v\n", file.fullname(), t, t)
                 errostack(ctx, 5, "fullname is incorrect").debug(16)
             } else {
-                prompt(ctx, "%v: %T; file=%v projects=%v\n",
-                    target, target, file, projs)
+                prompt(ctx, "%v: %T %v\n", filename, t, t)
                 warnstack(ctx, 5, "").debug(16)
             }
         }
     } else {
-        switch p := target.(type) {
+        switch p := t.(type) {
         case *File: filename = p.fullname()
         case *Path: filename = p.Strval(ctx)
         default:    filename = target.Strval(ctx)
-            if file := matchFile(ctx, filename); file != nil {
-                target, filename = file, file.fullname()
+            if file := file(ctx, filename); file != nil {
+                target.Value, filename = file, file.fullname()
             }
         }
     }
@@ -2535,10 +2533,11 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
                 }
             }
             if e := os.MkdirAll(p, os.FileMode(0755)); e != nil {
-                for _, proj := range closureProjects(ctx) {
-                    erro(ctx, "%v: %v %v", filename, proj, proj.file(ctx, filename))
+                if proj := ctx.Project(); proj != nil {
+                    info(ctx, "%v: %v %v", filename, proj, ctx.universe().unmap(ctx, filename))
+                    info(ctx, "%v: %v %v", filename, proj, proj.file(ctx, filename))
+                    errostack(ctx, 5, "%v: %v (%T %v)", filename, e, target, target).debug(16)
                 }
-                errostack(ctx, 5, "%v: %v (%T %v)", filename, e, target, target).debug(16)
                 return
             }
         }
@@ -2848,11 +2847,11 @@ type predictOpts struct {
 }
 func predict(ctx Context, args... Value) (result bool, message string, err error) {
     var (
-        target Value = autoGet(ctx, "@")
+        target = as{autoGet(ctx, "@")}
         targetStr string
         num int64
     )
-    if isTrivial(target) {
+    if target.trivial() {
         errostack(ctx, 5, "target is trivial, %v", ctx).debug(10)
         return
     }
@@ -2906,7 +2905,7 @@ ForArgs:
         }
 
         if opts.verbose && !opts.verbose0 {
-            targetStr = fullnameOrStrval(ctx, target)
+            targetStr, _ = target.fullnameOrStrval(ctx)
             prompt(ctx, "checking %v …", filepath.Base(targetStr))
             opts.verbose0 = true
         }
@@ -3056,8 +3055,8 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
     var (
         programCtx = ctx.programContext()
         opts predictionOutdatedOpts
-        target Value
         targetFullname string
+        target as
         reason string
         outdated bool
         err error
@@ -3065,16 +3064,16 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
 
     args = parseOpts(ctx, &opts, plain, args...)
 
-    if target, _, _, err = wait(ctx); err != nil {
+    if target.Value, _, _, err = wait(ctx); err != nil {
         erro(ctx, "waiting traversal failed: %v", err).debug(1)
         return
     } else if ts := target.stat(ctx); ts == nil || ts.exists() != existenceConfirmed {
-        outdated, reason = true, "target not exists"
+        outdated, reason = true, fmt.Sprintf("target not exists: %s %v", typeof(target), target)
     } else if isDirty(ctx, target, args...) && isDirtyAfter(ctx, target, ts.mod()) {
         outdated, reason = true, "updated prerequisites"
     }
 
-    if targetFullname = fullnameOrStrval(ctx, target); outdated {
+    if targetFullname, _ = target.fullnameOrStrval(ctx); outdated {
         assert(reason != "", "needs outdated reason")
     } else if outdated, err = isRecipesChanged(ctx, target); err != nil {
         erro(ctx, "recipes changed: %v", err).debug(1)
@@ -3088,10 +3087,10 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
         return
     } else if depends := autoGet(ctx, "^"); depends != nil {
         for _, depend := range merge(depends) {
-            var file2 string
-            if isTrivial(depend) {
+            var ( a = as{depend} ; file2 string )
+            if a.trivial() {
                 // does nothing
-            } else if file2 = fullnameOrStrval(ctx, depend); file2 != "" {
+            } else if file2, _ = a.fullnameOrStrval(ctx); file2 != "" {
                 // see: same, err = crc64CompareFileChecksum(ctx, targetFullname, file2)
                 // TODO.1: load saved checksum for depend, set outdated if no such
                 // TODO.2: calculate checksum for depend and compare with the loaded
@@ -3111,11 +3110,9 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
             n = len(t.targets) + len(t.grepped)
         )
         if db := opts.debug>0; db && !opts.verbose {
-            warn(ctx, "%s (%T) (%s) …… %s (%d files in %s, debug=%d)",
-                ts, target, targetFullname, m, n, s, opts.debug).debug(opts.debug * 2)
+            warn(ctx, "%s (%T) (%s) …… %s (%d files in %s, debug=%d)", ts, target, targetFullname, m, n, s, opts.debug).debug(opts.debug * 2)
         } else {
-            prompt(ctx, "%s …… %s (%d files in %s)\n",
-                ts, m, n, s).debug(db, 6)
+            prompt(ctx, "%s …… %s (%d files in %s)\n", ts, m, n, s).debug(db, 6)
         }
     }
 
@@ -3486,8 +3483,10 @@ func onceSHA256(ctx Context, target Value, opts *modifierOnceOpts, args... Value
         fmt.Fprintf(h, "%v%v", ctx.Position(), program.position)
     }
 
-    for _, a := range args {
-        fmt.Fprintf(h, "%s", fullnameOrStrval(ctx, a))
+    var a as
+    for _, a.Value = range args {
+        s, _ := a.fullnameOrStrval(ctx)
+        fmt.Fprintf(h, "%s", s)
     }
 
     var sum HashBytes

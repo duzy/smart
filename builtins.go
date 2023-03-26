@@ -53,126 +53,130 @@ func convPosition(filename, line, column string) (pos Position) {
         return
 }
 
+type builtin struct {
+        Context
+        w facet
+}
 type BuiltinFunc struct {
-        f func(ctx Context, w facet, args... Value) (Value)
+        f func(builtin, ...Value) (Value)
         command bool
         n int // first n args to apply m
         m, o facet
 }
 
 var builtins = map[string]BuiltinFunc {
-        `typeof`:       BuiltinFunc{builtinTypeof, false, 0, expandZero, expandZero},
-        `origin`:       BuiltinFunc{builtinOrigin, false, 0, expandZero, expandZero},
-        `defined`:      BuiltinFunc{builtinDefined, false, 0, expandZero, expandZero},
+        `typeof`:       BuiltinFunc{builtin.typeof, false, 0, expandZero, expandZero},
+        `origin`:       BuiltinFunc{builtin.origin, false, 0, expandZero, expandZero},
+        `defined`:      BuiltinFunc{builtin.defined, false, 0, expandZero, expandZero},
 
-        `position`:     BuiltinFunc{builtinPosition, false, 0, expandZero, expandZero},
-        `date`:         BuiltinFunc{builtinDate, false, 0, expandZero, expandZero},
+        `position`:     BuiltinFunc{builtin._position, false, 0, expandZero, expandZero},
+        `date`:         BuiltinFunc{builtin.Date, false, 0, expandZero, expandZero},
 
-        `debug`:        BuiltinFunc{builtinDebug, false, 0, expandZero, expandZero},
-        `error`:        BuiltinFunc{builtinError, false, 0, expandZero, expandZero},
-        //`warning`:      BuiltinFunc{builtinWarning, false, 0, expandZero, expandZero},
+        `debug`:        BuiltinFunc{builtin.Debug, false, 0, expandZero, expandZero},
+        `error`:        BuiltinFunc{builtin.Error, false, 0, expandZero, expandZero},
+        //`warning`:      BuiltinFunc{builtin.Warning, false, 0, expandZero, expandZero},
 
-        //`assert`: BuiltinFunc{builtinAssert, false, 0, expandZero, expandZero},
+        //`assert`: BuiltinFunc{builtin.Assert, false, 0, expandZero, expandZero},
 
         // $(defor) (aka. defined-or)
-        `defor`:        BuiltinFunc{builtinDefOr, false, 0, expandZero, expandZero}, // $(defor $(x),$(y),$(z))  <=>  $(if $(defined $(x)),$(x),...)
-        `or`:           BuiltinFunc{builtinOr, false, 0, expandZero, expandZero},
-        `and`:          BuiltinFunc{builtinAnd, false, 0, expandZero, expandZero},
-        //`xor`:          BuiltinFunc{builtinXor, false, 0, expandZero, expandZero},
-        `not`:          BuiltinFunc{builtinNot, false, 0, expandZero, expandZero},
+        `defor`:        BuiltinFunc{builtin.DefOr, false, 0, expandZero, expandZero}, // $(defor $(x),$(y),$(z))  <=>  $(if $(defined $(x)),$(x),...)
+        `or`:           BuiltinFunc{builtin.Or, false, 0, expandZero, expandZero},
+        `and`:          BuiltinFunc{builtin.And, false, 0, expandZero, expandZero},
+        //`xor`:          BuiltinFunc{builtin.Xor, false, 0, expandZero, expandZero},
+        `not`:          BuiltinFunc{builtin.Not, false, 0, expandZero, expandZero},
 
-        `not-equal`:    BuiltinFunc{builtinNotEqual, false, 0, expandZero, expandZero},
-        `equal`:        BuiltinFunc{builtinEqual, false, 0, expandZero, expandZero},
-        `equals`:       BuiltinFunc{builtinEqual, false, 0, expandZero, expandZero},
-        `match`:        BuiltinFunc{builtinMatch, false, 0, expandZero, expandZero},
+        `not-equal`:    BuiltinFunc{builtin.NotEqual, false, 0, expandZero, expandZero},
+        `equal`:        BuiltinFunc{builtin.Equal, false, 0, expandZero, expandZero},
+        `equals`:       BuiltinFunc{builtin.Equal, false, 0, expandZero, expandZero},
+        `match`:        BuiltinFunc{builtin.Match, false, 0, expandZero, expandZero},
 
-        `greater`:      BuiltinFunc{builtinGreater, false, 0, expandZero, expandZero},
-        `less`:         BuiltinFunc{builtinLess, false, 0, expandZero, expandZero},
+        `greater`:      BuiltinFunc{builtin.Greater, false, 0, expandZero, expandZero},
+        `less`:         BuiltinFunc{builtin.Less, false, 0, expandZero, expandZero},
 
-        `case`:         BuiltinFunc{builtinCase, false, 0, expandZero, expandZero},
-        `if`:           BuiltinFunc{builtinIf, false, 0, expandZero, expandZero},
-        `ifeq`:         BuiltinFunc{builtinIfEq, false, 0, expandZero, expandZero},
-        `ifne`:         BuiltinFunc{builtinIfNE, false, 0, expandZero, expandZero},
+        `case`:         BuiltinFunc{builtin.Case, false, 0, expandZero, expandZero},
+        `if`:           BuiltinFunc{builtin.If, false, 0, expandZero, expandZero},
+        `ifeq`:         BuiltinFunc{builtin.IfEq, false, 0, expandZero, expandZero},
+        `ifne`:         BuiltinFunc{builtin.IfNE, false, 0, expandZero, expandZero},
 
-        `foreach`:      BuiltinFunc{builtinForEach, false, 1, expandPlaceholders, expandUnPlaceholders},
-        `count`:        BuiltinFunc{builtinCount, false, 0, expandZero, expandZero},
+        `foreach`:      BuiltinFunc{builtin.ForEach, false, 1, expandPlaceholders, expandUnPlaceholders},
+        `count`:        BuiltinFunc{builtin.Count, false, 0, expandZero, expandZero},
 
-        `env`:          BuiltinFunc{builtinEnv, false, 0, expandZero, expandZero},
-        `closure`:      BuiltinFunc{builtinClosure, false, 0, expandZero, expandZero},
-        `defs`:         BuiltinFunc{builtinDefList, false, 0, expandZero, expandZero},
+        `env`:          BuiltinFunc{builtin.Env, false, 0, expandZero, expandZero},
+        `closure`:      BuiltinFunc{builtin.Closure, false, 0, expandZero, expandZero},
+        `defs`:         BuiltinFunc{builtin.DefList, false, 0, expandZero, expandZero},
         `call`:         BuiltinFunc{nil, false, 0, expandZero, expandZero},
         `auto`:         BuiltinFunc{nil, false, 0, expandZero, expandZero},
         `var`:          BuiltinFunc{nil, false, 0, expandZero, expandZero},
-        `value`:        BuiltinFunc{builtinValue, false, 0, expandZero, expandZero},
-        `list`:         BuiltinFunc{builtinList, false, 0, expandZero, expandZero},
-        `sure-value`:   BuiltinFunc{builtinSureValue, false, 0, expandZero, expandZero},
+        `value`:        BuiltinFunc{builtin.Value, false, 0, expandZero, expandZero},
+        `list`:         BuiltinFunc{builtin.List, false, 0, expandZero, expandZero},
+        `sure-value`:   BuiltinFunc{builtin.SureValue, false, 0, expandZero, expandZero},
 
-        `shell`:        BuiltinFunc{builtinShell, false, 0, expandZero, expandZero},
-        `which`:        BuiltinFunc{builtinWhich, false, 0, expandZero, expandZero},
+        `shell`:        BuiltinFunc{builtin.Shell, false, 0, expandZero, expandZero},
+        `which`:        BuiltinFunc{builtin.Which, false, 0, expandZero, expandZero},
 
-        `serve-http`:   BuiltinFunc{builtinServeHttp, false, 0, expandZero, expandZero},
-        `serve-https`:  BuiltinFunc{builtinServeHttps, false, 0, expandZero, expandZero},
+        `serve-http`:   BuiltinFunc{builtin.ServeHttp, false, 0, expandZero, expandZero},
+        `serve-https`:  BuiltinFunc{builtin.ServeHttps, false, 0, expandZero, expandZero},
 
-        `plus`:     BuiltinFunc{builtinPlus, false, 0, expandZero, expandZero},
-        `minus`:    BuiltinFunc{builtinMinus, false, 0, expandZero, expandZero},
-        `multiply`: BuiltinFunc{builtinMultiply, false, 0, expandZero, expandZero},
-        `mul`:      BuiltinFunc{builtinMultiply, false, 0, expandZero, expandZero},
-        `divide`:   BuiltinFunc{builtinDivide, false, 0, expandZero, expandZero},
-        `div`:      BuiltinFunc{builtinDivide, false, 0, expandZero, expandZero},
+        `plus`:     BuiltinFunc{builtin.Plus, false, 0, expandZero, expandZero},
+        `minus`:    BuiltinFunc{builtin.Minus, false, 0, expandZero, expandZero},
+        `multiply`: BuiltinFunc{builtin.Multiply, false, 0, expandZero, expandZero},
+        `mul`:      BuiltinFunc{builtin.Multiply, false, 0, expandZero, expandZero},
+        `divide`:   BuiltinFunc{builtin.Divide, false, 0, expandZero, expandZero},
+        `div`:      BuiltinFunc{builtin.Divide, false, 0, expandZero, expandZero},
 
-        `quote`:                BuiltinFunc{builtinQuote, false, 0, expandZero, expandZero},
-        `quote-join`:           BuiltinFunc{builtinQuoteJoin, false, 0, expandZero, expandZero},
-        `split-string`:         BuiltinFunc{builtinSplitString, false, 0, expandZero, expandZero},
-        `split-quote`:          BuiltinFunc{builtinSplitQuote, false, 0, expandZero, expandZero},
-        `split-quote-join`:     BuiltinFunc{builtinSplitQuoteJoin, false, 0, expandZero, expandZero},
-        `split-join-quote`:     BuiltinFunc{builtinSplitJoinQuote, false, 0, expandZero, expandZero},
-        `unique`:               BuiltinFunc{builtinUnique, false, 0, expandZero, expandZero},
-        `join`:                 BuiltinFunc{builtinJoin, false, 0, expandZero, expandZero}, // concat
-        `field`:                BuiltinFunc{builtinField, false, 0, expandZero, expandZero},
-        `fields`:               BuiltinFunc{builtinFields, false, 0, expandZero, expandZero},
+        `quote`:                BuiltinFunc{builtin.Quote, false, 0, expandZero, expandZero},
+        `quote-join`:           BuiltinFunc{builtin.QuoteJoin, false, 0, expandZero, expandZero},
+        `split-string`:         BuiltinFunc{builtin.SplitString, false, 0, expandZero, expandZero},
+        `split-quote`:          BuiltinFunc{builtin.SplitQuote, false, 0, expandZero, expandZero},
+        `split-quote-join`:     BuiltinFunc{builtin.SplitQuoteJoin, false, 0, expandZero, expandZero},
+        `split-join-quote`:     BuiltinFunc{builtin.SplitJoinQuote, false, 0, expandZero, expandZero},
+        `unique`:               BuiltinFunc{builtin.Unique, false, 0, expandZero, expandZero},
+        `join`:                 BuiltinFunc{builtin.Join, false, 0, expandZero, expandZero}, // concat
+        `field`:                BuiltinFunc{builtin.Field, false, 0, expandZero, expandZero},
+        `fields`:               BuiltinFunc{builtin.Fields, false, 0, expandZero, expandZero},
 
-        //`usee`:       BuiltinFunc{builtinUsee, false, 0, expandZero, expandZero},
-        `uses`:         BuiltinFunc{builtinUses, false, 0, expandZero, expandZero},
+        //`usee`:       BuiltinFunc{builtin.Usee, false, 0, expandZero, expandZero},
+        `uses`:         BuiltinFunc{builtin.Uses, false, 0, expandZero, expandZero},
 
-        `path`:         BuiltinFunc{builtinPath, false, 0, expandZero, expandZero},
-        `bare`:         BuiltinFunc{builtinBare, false, 0, expandZero, expandZero}, // different from builtinBareword, for files, etc.
-        `bareword`:     BuiltinFunc{builtinBareword, false, 0, expandZero, expandZero},
-        `string`:       BuiltinFunc{builtinString, false, 0, expandZero, expandZero},
-        `strval`:       BuiltinFunc{builtinStrval, false, 0, expandZero, expandZero},
-        `strip`:        BuiltinFunc{builtinStrip, false, 0, expandZero, expandZero},
-        `trim`:         BuiltinFunc{builtinTrim, false, 0, expandZero, expandZero},
-        `trim-space`:   BuiltinFunc{builtinTrimSpace, false, 0, expandZero, expandZero},
-        `trim-left`:    BuiltinFunc{builtinTrimLeft, false, 0, expandZero, expandZero},
-        `trim-right`:   BuiltinFunc{builtinTrimRight, false, 0, expandZero, expandZero},
-        `trim-prefix`:  BuiltinFunc{builtinTrimPrefix, false, 0, expandZero, expandZero},
-        `trim-suffix`:  BuiltinFunc{builtinTrimSuffix, false, 0, expandZero, expandZero},
-        `trim-ext`:     BuiltinFunc{builtinTrimExt, false, 0, expandZero, expandZero},
+        `path`:         BuiltinFunc{builtin.Path, false, 0, expandZero, expandZero},
+        `bare`:         BuiltinFunc{builtin.bare, false, 0, expandZero, expandZero}, // different from builtinBareword, for files, etc.
+        `bareword`:     BuiltinFunc{builtin.bareword, false, 0, expandZero, expandZero},
+        `string`:       BuiltinFunc{builtin._string, false, 0, expandZero, expandZero},
+        `strval`:       BuiltinFunc{builtin.strval, false, 0, expandZero, expandZero},
+        `strip`:        BuiltinFunc{builtin.Strip, false, 0, expandZero, expandZero},
+        `trim`:         BuiltinFunc{builtin.Trim, false, 0, expandZero, expandZero},
+        `trim-space`:   BuiltinFunc{builtin.TrimSpace, false, 0, expandZero, expandZero},
+        `trim-left`:    BuiltinFunc{builtin.TrimLeft, false, 0, expandZero, expandZero},
+        `trim-right`:   BuiltinFunc{builtin.TrimRight, false, 0, expandZero, expandZero},
+        `trim-prefix`:  BuiltinFunc{builtin.TrimPrefix, false, 0, expandZero, expandZero},
+        `trim-suffix`:  BuiltinFunc{builtin.TrimSuffix, false, 0, expandZero, expandZero},
+        `trim-ext`:     BuiltinFunc{builtin.TrimExt, false, 0, expandZero, expandZero},
 
-        `ext`:          BuiltinFunc{builtinExt, false, 0, expandZero, expandZero},
+        `ext`:          BuiltinFunc{builtin.Ext, false, 0, expandZero, expandZero},
 
-        `addprefix`:    BuiltinFunc{builtinAddPrefix, false, 0, expandZero, expandZero},
-        `addsuffix`:    BuiltinFunc{builtinAddSuffix, false, 0, expandZero, expandZero},
+        `addprefix`:    BuiltinFunc{builtin.AddPrefix, false, 0, expandZero, expandZero},
+        `addsuffix`:    BuiltinFunc{builtin.AddSuffix, false, 0, expandZero, expandZero},
 
-        `printf`:       BuiltinFunc{builtinPrintf, false, 0, expandZero, expandZero},
+        `printf`:       BuiltinFunc{builtin.Printf, false, 0, expandZero, expandZero},
 
-        `uppercase`:    BuiltinFunc{builtinUpperCase, false, 0, expandZero, expandZero},
-        `lowercase`:    BuiltinFunc{builtinLowerCase, false, 0, expandZero, expandZero},
-        `title`:        BuiltinFunc{builtinTitle, false, 0, expandZero, expandZero},
+        `uppercase`:    BuiltinFunc{builtin.UpperCase, false, 0, expandZero, expandZero},
+        `lowercase`:    BuiltinFunc{builtin.LowerCase, false, 0, expandZero, expandZero},
+        `title`:        BuiltinFunc{builtin.Title, false, 0, expandZero, expandZero},
 
-        `indent`:       BuiltinFunc{builtinIndent, false, 0, expandZero, expandZero},
+        `indent`:       BuiltinFunc{builtin.Indent, false, 0, expandZero, expandZero},
 
-        `substring`:    BuiltinFunc{builtinSubstring, false, 0, expandZero, expandZero},
+        `substring`:    BuiltinFunc{builtin.Substring, false, 0, expandZero, expandZero},
 
         // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
-        `subst`:        BuiltinFunc{builtinSubst, false, 0, expandZero, expandZero},
-        `patsubst`:     BuiltinFunc{builtinPatsubst, false, 0, expandZero, expandZero},
+        `subst`:        BuiltinFunc{builtin.Subst, false, 0, expandZero, expandZero},
+        `patsubst`:     BuiltinFunc{builtin.Patsubst, false, 0, expandZero, expandZero},
 
-        `contains`:     BuiltinFunc{builtinContains, false, 0, expandZero, expandZero},
-        `filter`:       BuiltinFunc{builtinFilter, false, 0, expandZero, expandZero},
-        `filter-out`:   BuiltinFunc{builtinFilterOut, false, 0, expandZero, expandZero},
+        `contains`:     BuiltinFunc{builtin.Contains, false, 0, expandZero, expandZero},
+        `filter`:       BuiltinFunc{builtin.Filter, false, 0, expandZero, expandZero},
+        `filter-out`:   BuiltinFunc{builtin.FilterOut, false, 0, expandZero, expandZero},
 
-        `encode-base64`:BuiltinFunc{builtinEncodeBase64, false, 0, expandZero, expandZero},
-        `decode-base64`:BuiltinFunc{builtinDecodeBase64, false, 0, expandZero, expandZero},
+        `encode-base64`:BuiltinFunc{builtin.EncodeBase64, false, 0, expandZero, expandZero},
+        `decode-base64`:BuiltinFunc{builtin.DecodeBase64, false, 0, expandZero, expandZero},
 
         /* TODO:
         `encode-base32`
@@ -187,105 +191,105 @@ var builtins = map[string]BuiltinFunc {
         `decode-csv` */
 
         // Fullname of a file or identical to the input
-        `fullname`:   BuiltinFunc{builtinFullName, false, 0, expandZero, expandZero},
+        `fullname`:   BuiltinFunc{builtin.fullname, false, 0, expandZero, expandZero},
 
-        `base`:       BuiltinFunc{builtinBase, false, 0, expandZero, expandZero},
-        `base2`:      BuiltinFunc{builtinBase2, false, 0, expandZero, expandZero},
-        `base3`:      BuiltinFunc{builtinBase3, false, 0, expandZero, expandZero},
-        `base4`:      BuiltinFunc{builtinBase4, false, 0, expandZero, expandZero},
-        `base5`:      BuiltinFunc{builtinBase5, false, 0, expandZero, expandZero},
-        `base6`:      BuiltinFunc{builtinBase6, false, 0, expandZero, expandZero},
-        `base7`:      BuiltinFunc{builtinBase7, false, 0, expandZero, expandZero},
-        `base8`:      BuiltinFunc{builtinBase8, false, 0, expandZero, expandZero},
-        `base9`:      BuiltinFunc{builtinBase9, false, 0, expandZero, expandZero},
+        `base`:       BuiltinFunc{builtin.base, false, 0, expandZero, expandZero},
+        `base2`:      BuiltinFunc{builtin.base2, false, 0, expandZero, expandZero},
+        `base3`:      BuiltinFunc{builtin.base3, false, 0, expandZero, expandZero},
+        `base4`:      BuiltinFunc{builtin.base4, false, 0, expandZero, expandZero},
+        `base5`:      BuiltinFunc{builtin.base5, false, 0, expandZero, expandZero},
+        `base6`:      BuiltinFunc{builtin.base6, false, 0, expandZero, expandZero},
+        `base7`:      BuiltinFunc{builtin.base7, false, 0, expandZero, expandZero},
+        `base8`:      BuiltinFunc{builtin.base8, false, 0, expandZero, expandZero},
+        `base9`:      BuiltinFunc{builtin.base9, false, 0, expandZero, expandZero},
 
-        `dir`:        BuiltinFunc{builtinDir, false, 0, expandZero, expandZero},
-        `dir2`:       BuiltinFunc{builtinDir2, false, 0, expandZero, expandZero},
-        `dir3`:       BuiltinFunc{builtinDir3, false, 0, expandZero, expandZero},
-        `dir4`:       BuiltinFunc{builtinDir4, false, 0, expandZero, expandZero},
-        `dir5`:       BuiltinFunc{builtinDir5, false, 0, expandZero, expandZero},
-        `dir6`:       BuiltinFunc{builtinDir6, false, 0, expandZero, expandZero},
-        `dir7`:       BuiltinFunc{builtinDir7, false, 0, expandZero, expandZero},
-        `dir8`:       BuiltinFunc{builtinDir8, false, 0, expandZero, expandZero},
-        `dir9`:       BuiltinFunc{builtinDir9, false, 0, expandZero, expandZero},
-        `dirs`:       BuiltinFunc{builtinDirs, false, 0, expandZero, expandZero}, // do `dir` n times
+        `dir`:        BuiltinFunc{builtin.dir, false, 0, expandZero, expandZero},
+        `dir2`:       BuiltinFunc{builtin.dir2, false, 0, expandZero, expandZero},
+        `dir3`:       BuiltinFunc{builtin.dir3, false, 0, expandZero, expandZero},
+        `dir4`:       BuiltinFunc{builtin.dir4, false, 0, expandZero, expandZero},
+        `dir5`:       BuiltinFunc{builtin.dir5, false, 0, expandZero, expandZero},
+        `dir6`:       BuiltinFunc{builtin.dir6, false, 0, expandZero, expandZero},
+        `dir7`:       BuiltinFunc{builtin.dir7, false, 0, expandZero, expandZero},
+        `dir8`:       BuiltinFunc{builtin.dir8, false, 0, expandZero, expandZero},
+        `dir9`:       BuiltinFunc{builtin.dir9, false, 0, expandZero, expandZero},
+        `dirs`:       BuiltinFunc{builtin.dirs, false, 0, expandZero, expandZero}, // do `dir` n times
 
-        `undir`:      BuiltinFunc{builtinUndir, false, 0, expandZero, expandZero},
-        `undir2`:     BuiltinFunc{builtinUndir2, false, 0, expandZero, expandZero},
-        `undir3`:     BuiltinFunc{builtinUndir3, false, 0, expandZero, expandZero},
-        `undir4`:     BuiltinFunc{builtinUndir4, false, 0, expandZero, expandZero},
-        `undir5`:     BuiltinFunc{builtinUndir5, false, 0, expandZero, expandZero},
-        `undir6`:     BuiltinFunc{builtinUndir6, false, 0, expandZero, expandZero},
-        `undir7`:     BuiltinFunc{builtinUndir7, false, 0, expandZero, expandZero},
-        `undir8`:     BuiltinFunc{builtinUndir8, false, 0, expandZero, expandZero},
-        `undir9`:     BuiltinFunc{builtinUndir9, false, 0, expandZero, expandZero},
-        `undirs`:     BuiltinFunc{builtinUndirs, false, 0, expandZero, expandZero}, // do `undir` n times
+        `undir`:      BuiltinFunc{builtin.undir, false, 0, expandZero, expandZero},
+        `undir2`:     BuiltinFunc{builtin.undir2, false, 0, expandZero, expandZero},
+        `undir3`:     BuiltinFunc{builtin.undir3, false, 0, expandZero, expandZero},
+        `undir4`:     BuiltinFunc{builtin.undir4, false, 0, expandZero, expandZero},
+        `undir5`:     BuiltinFunc{builtin.undir5, false, 0, expandZero, expandZero},
+        `undir6`:     BuiltinFunc{builtin.undir6, false, 0, expandZero, expandZero},
+        `undir7`:     BuiltinFunc{builtin.undir7, false, 0, expandZero, expandZero},
+        `undir8`:     BuiltinFunc{builtin.undir8, false, 0, expandZero, expandZero},
+        `undir9`:     BuiltinFunc{builtin.undir9, false, 0, expandZero, expandZero},
+        `undirs`:     BuiltinFunc{builtin.undirs, false, 0, expandZero, expandZero}, // do `undir` n times
 
-        `dir-chop`:   BuiltinFunc{builtinDirChop, false, 0, expandZero, expandZero},
+        `dir-chop`:   BuiltinFunc{builtin.dirChop, false, 0, expandZero, expandZero},
 
-        `relative-dir`: BuiltinFunc{builtinRelativeDir, false, 0, expandZero, expandZero},
+        `relative-dir`: BuiltinFunc{builtin.RelativeDir, false, 0, expandZero, expandZero},
 
         // TODO: move these into builtin package `os'
-        // `mkdir`:      BuiltinFunc{builtinMkdir, false, 0, expandZero, expandZero},     // os/file.go
-        // `mkdir-all`:  BuiltinFunc{builtinMkdirAll, false, 0, expandZero, expandZero},  // os/path.go
-        // `chdir`:      BuiltinFunc{builtinChdir, false, 0, expandZero, expandZero},     // os/file.go
-        // `rename`:     BuiltinFunc{builtinRename, false, 0, expandZero, expandZero},    // os/file.go
-        // `remove`:     BuiltinFunc{builtinRemove, false, 0, expandZero, expandZero},    // os/file_*.go
-        // `remove-all`: BuiltinFunc{builtinRemoveAll, false, 0, expandZero, expandZero}, // os/path.go
-        // `truncate`:   BuiltinFunc{builtinTruncate, false, 0, expandZero, expandZero},  // os/file_*.go
-        // `link`:       BuiltinFunc{builtinLink, false, 0, expandZero, expandZero},      // os/file_*.go
-        // `symlink`:    BuiltinFunc{builtinSymlink, false, 0, expandZero, expandZero},   // os/file_*.go
+        // `mkdir`:      BuiltinFunc{builtin.Mkdir, false, 0, expandZero, expandZero},     // os/file.go
+        // `mkdir-all`:  BuiltinFunc{builtin.MkdirAll, false, 0, expandZero, expandZero},  // os/path.go
+        // `chdir`:      BuiltinFunc{builtin.Chdir, false, 0, expandZero, expandZero},     // os/file.go
+        // `rename`:     BuiltinFunc{builtin.Rename, false, 0, expandZero, expandZero},    // os/file.go
+        // `remove`:     BuiltinFunc{builtin.Remove, false, 0, expandZero, expandZero},    // os/file_*.go
+        // `remove-all`: BuiltinFunc{builtin.RemoveAll, false, 0, expandZero, expandZero}, // os/path.go
+        // `truncate`:   BuiltinFunc{builtin.Truncate, false, 0, expandZero, expandZero},  // os/file_*.go
+        // `link`:       BuiltinFunc{builtin.Link, false, 0, expandZero, expandZero},      // os/file_*.go
+        // `symlink`:    BuiltinFunc{builtin.Symlink, false, 0, expandZero, expandZero},   // os/file_*.go
 
-        `file`:       BuiltinFunc{builtinFile, false, 0, expandZero, expandZero},
-        `stat`:       BuiltinFunc{builtinStat, false, 0, expandZero, expandZero},// stat (deprecates file-exists)
-        `glob`:       BuiltinFunc{builtinGlob, false, 0, expandZero, expandZero},
-        `wildcard`:   BuiltinFunc{builtinWildcard, false, 0, expandZero, expandZero},
+        `file`:       BuiltinFunc{builtin.File, false, 0, expandZero, expandZero},
+        `stat`:       BuiltinFunc{builtin.Stat, false, 0, expandZero, expandZero},// stat (deprecates file-exists)
+        `glob`:       BuiltinFunc{builtin.Glob, false, 0, expandZero, expandZero},
+        `wildcard`:   BuiltinFunc{builtin.Wildcard, false, 0, expandZero, expandZero},
 
         // TODO: move these into builtin package 'io/ioutil'
-        `read-dir`:   BuiltinFunc{builtinReadDir, false, 0, expandZero, expandZero},   // io/ioutil/ioutil.go
-        `read-file`:  BuiltinFunc{builtinReadFile, false, 0, expandZero, expandZero},  // io/ioutil/ioutil.go
-        // `write-file`: BuiltinFunc{builtinWriteFile, false, 0, expandZero, expandZero}, // io/ioutil/ioutil.go
-        // `touch-file`: BuiltinFunc{builtinTouchFile, false, 0, expandZero, expandZero},
+        `read-dir`:   BuiltinFunc{builtin.ReadDir, false, 0, expandZero, expandZero},   // io/ioutil/ioutil.go
+        `read-file`:  BuiltinFunc{builtin.ReadFile, false, 0, expandZero, expandZero},  // io/ioutil/ioutil.go
+        // `write-file`: BuiltinFunc{builtin.WriteFile, false, 0, expandZero, expandZero}, // io/ioutil/ioutil.go
+        // `touch-file`: BuiltinFunc{builtin.TouchFile, false, 0, expandZero, expandZero},
 
-        `grep`:       BuiltinFunc{builtinGrep, false, 1, expandDigits, expandUnDigits},
+        `grep`:       BuiltinFunc{builtin.grep, false, 1, expandDigits, expandUnDigits},
 
-        `untraversed`: BuiltinFunc{builtinUntraversed, false, 1, expandZero, expandZero},
+        `untraversed`: BuiltinFunc{builtin.Untraversed, false, 1, expandZero, expandZero},
 
-        // `return`:     BuiltinFunc{builtinReturn, false, 0, expandZero, expandZero},
+        // `return`:     BuiltinFunc{builtin.Return, false, 0, expandZero, expandZero},
 }
 
 var commands = map[string]BuiltinFunc {
-        `print`:        BuiltinFunc{builtinPrint, true, 0, expandZero, expandZero},
-        `printl`:       BuiltinFunc{builtinPrintl, true, 0, expandZero, expandZero},
-        `println`:      BuiltinFunc{builtinPrintln, true, 0, expandZero, expandZero},
-        //`printf`:       BuiltinFunc{builtinPrintf, true, 0, expandZero, expandZero},
+        `print`:        BuiltinFunc{builtin.Print, true, 0, expandZero, expandZero},
+        `printl`:       BuiltinFunc{builtin.Printl, true, 0, expandZero, expandZero},
+        `println`:      BuiltinFunc{builtin.Println, true, 0, expandZero, expandZero},
+        //`printf`:       BuiltinFunc{builtin.Printf, true, 0, expandZero, expandZero},
 
-        `assert`:       BuiltinFunc{builtinAssert, true, 0, expandZero, expandZero},
+        `assert`:       BuiltinFunc{builtin.Assert, true, 0, expandZero, expandZero},
 
-        //`error`:        BuiltinFunc{builtinError, true, 0, expandZero, expandZero},
-        `warning`:      BuiltinFunc{builtinWarning, true, 0, expandZero, expandZero},
+        //`error`:        BuiltinFunc{builtin.Error, true, 0, expandZero, expandZero},
+        `warning`:      BuiltinFunc{builtin.Warning, true, 0, expandZero, expandZero},
 
-        `push-context`: BuiltinFunc{builtinPushContext, true, 0, expandZero, expandZero},
-        `pop-context`:  BuiltinFunc{builtinPopContext, true, 0, expandZero, expandZero},
+        `push-context`: BuiltinFunc{builtin.PushContext, true, 0, expandZero, expandZero},
+        `pop-context`:  BuiltinFunc{builtin.PopContext, true, 0, expandZero, expandZero},
 
-        `append`:       BuiltinFunc{builtinAppend, true, 0, expandZero, expandZero},
+        `append`:       BuiltinFunc{builtin.Append, true, 0, expandZero, expandZero},
 
-        //`read-dir`:     BuiltinFunc{builtinReadDir, true, 0, expandZero, expandZero},   // io/ioutil/ioutil.go
-        //`read-file`:    BuiltinFunc{builtinReadFile, true, 0, expandZero, expandZero},  // io/ioutil/ioutil.go
-        `write-file`:   BuiltinFunc{builtinWriteFile, true, 0, expandZero, expandZero}, // io/ioutil/ioutil.go
-        `touch-file`:   BuiltinFunc{builtinTouchFile, true, 0, expandZero, expandZero},
+        //`read-dir`:     BuiltinFunc{builtin.ReadDir, true, 0, expandZero, expandZero},   // io/ioutil/ioutil.go
+        //`read-file`:    BuiltinFunc{builtin.ReadFile, true, 0, expandZero, expandZero},  // io/ioutil/ioutil.go
+        `write-file`:   BuiltinFunc{builtin.WriteFile, true, 0, expandZero, expandZero}, // io/ioutil/ioutil.go
+        `touch-file`:   BuiltinFunc{builtin.TouchFile, true, 0, expandZero, expandZero},
 
-        `mkdir`:        BuiltinFunc{builtinMkdir, true, 0, expandZero, expandZero},     // os/file.go
-        `mkdir-all`:    BuiltinFunc{builtinMkdirAll, true, 0, expandZero, expandZero},  // os/path.go
-        `chdir`:        BuiltinFunc{builtinChdir, true, 0, expandZero, expandZero},     // os/file.go
-        `rename`:       BuiltinFunc{builtinRename, true, 0, expandZero, expandZero},    // os/file.go
-        `remove`:       BuiltinFunc{builtinRemove, true, 0, expandZero, expandZero},    // os/file_*.go
-        `remove-all`:   BuiltinFunc{builtinRemoveAll, true, 0, expandZero, expandZero}, // os/path.go
-        `truncate`:     BuiltinFunc{builtinTruncate, true, 0, expandZero, expandZero},  // os/file_*.go
-        `link`:         BuiltinFunc{builtinLink, true, 0, expandZero, expandZero},      // os/file_*.go
-        `symlink`:      BuiltinFunc{builtinSymlink, true, 0, expandZero, expandZero},   // os/file_*.go
+        `mkdir`:        BuiltinFunc{builtin.Mkdir, true, 0, expandZero, expandZero},     // os/file.go
+        `mkdir-all`:    BuiltinFunc{builtin.MkdirAll, true, 0, expandZero, expandZero},  // os/path.go
+        `chdir`:        BuiltinFunc{builtin.Chdir, true, 0, expandZero, expandZero},     // os/file.go
+        `rename`:       BuiltinFunc{builtin.Rename, true, 0, expandZero, expandZero},    // os/file.go
+        `remove`:       BuiltinFunc{builtin.Remove, true, 0, expandZero, expandZero},    // os/file_*.go
+        `remove-all`:   BuiltinFunc{builtin.RemoveAll, true, 0, expandZero, expandZero}, // os/path.go
+        `truncate`:     BuiltinFunc{builtin.Truncate, true, 0, expandZero, expandZero},  // os/file_*.go
+        `link`:         BuiltinFunc{builtin.Link, true, 0, expandZero, expandZero},      // os/file_*.go
+        `symlink`:      BuiltinFunc{builtin.Symlink, true, 0, expandZero, expandZero},   // os/file_*.go
 
-        `return`:       BuiltinFunc{builtinReturn, true, 0, expandZero, expandZero},
+        `return`:       BuiltinFunc{builtin.Return, true, 0, expandZero, expandZero},
 }
 
 func RegisterBuiltins(m map[string]BuiltinFunc) (err error) {
@@ -340,6 +344,94 @@ func trimRightSpaces(s string) string {
         return strings.TrimRightFunc(s, unicode.IsSpace)
 }
 
+func set(ctx Context, val reflect.Value, v Value) {
+        switch val.Kind() {
+        case reflect.Bool:
+                if t := v == nil || v.True(ctx); true { val.SetBool(t) }
+        case reflect.Float32, reflect.Float64:
+                if t, e := v.Float(ctx); e == nil { val.SetFloat(t) } else {
+                        erro(ctx, "%v: %v", v, e).debug(10)
+                }
+        case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+                if t, e := v.Integer(ctx); e == nil { val.SetInt(t) } else {
+                        erro(ctx, "%v: %v", v, e).debug(10)
+                }
+        case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+                if t, e := v.Integer(ctx); e == nil { val.SetUint(uint64(t)) } else {
+                        erro(ctx, "%v: %v", v, t).debug(10)
+                }
+        case reflect.String:
+                val.SetString(v.Strval(ctx))
+        case reflect.Slice:
+                if p := reflect.New(val.Type().Elem()); p.Kind() == reflect.Ptr {
+                        var t = p.Elem()
+                        set(ctx, t, v)
+                        val.Set(reflect.Append(val, t))
+                }
+        case reflect.Interface: switch val.Type().String() {
+        case "smart.Value": val.Set(reflect.ValueOf(v))
+        default: erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
+        }
+        case reflect.Ptr: switch val.Type().Elem().String() {
+        case "smart.optFullname":
+                var x Value
+                if x = v.expand(ctx, plain|expandFullName); /*isNone*/isTrivial(x) {
+                        erro(of(ctx, v), "expecting file value: %T %v", v, v).debug(1)
+                        return
+                }
+
+                var f, s, ok = as{x}.fullnameOpt(ctx)
+                if ok && s != "" {
+                        val.Set(reflect.ValueOf(&optFullname{ s, x }))
+                } else if t := file(ctx, s); t != nil {
+                        erro(of(ctx,v), "FIXME: %v: %v → %T %v → %v (%s, %v)", ctx.Project(), v, x, x, t, t.fullname(), f)
+                        errostack(ctx, 5, "").debug(32)
+                } else {
+                        var f2, s2, o2 = as{x}.fullname(ctx)
+                        erro(of(ctx,v), "%v: not a file: %v → %T %v → %s → %v (%v, %v, %v)", ctx.Project(), v, x, x, s, f, f2, s2, o2)
+                        errostack(ctx, 5, "").debug(32)
+                }
+                if false {
+                        vi := val.Interface().(*optFullname)
+                        warn(of(ctx,v), "%v %v %v", ctx.Project(), v, vi.string).debug(true,1)
+                }
+        case "smart.File":
+                var x Value
+                if x = v.expand(ctx, plain); isNone(x) {
+                        erro(of(ctx,v), "expecting file value: %T %v", v, v).debug(1)
+                        return
+                }
+
+                if file, y := toFile(x); y {
+                        val.Set(reflect.ValueOf(file))
+                } else if proj := ctx.Project(); proj == nil {
+                        erro(of(ctx,x), "no current project to find file '%v'", x).debug(1)
+                } else if file = proj.file(ctx, x.Strval(ctx)); file != nil {
+                        val.Set(reflect.ValueOf(file))
+                } else {
+                        erro(of(ctx,v), "'%v' is not a file", x).debug(1)
+                }
+        case "regexp.Regexp":
+                if rx, e := regexp.Compile(v.Strval(ctx)); e != nil {
+                        erro(of(ctx,v), "compile regexp '%v' failed: %v", v, e).debug(1)
+                } else {
+                        val.Set(reflect.ValueOf(rx))
+                }
+        default:
+                erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Elem().Kind(), val.Type().Elem()).debug(1)
+        }
+        default: switch val.Type().String() {
+        case "fs.FileMode": // aka. reflect.Uint32
+                if t, e := v.Integer(ctx); e == nil { val.SetUint(uint64(t)) } else {
+                        erro(ctx, "%v: %v", v, t).debug(1)
+                }
+        case "regex.Regex": // aka. reflect.Ptr
+                erro(of(ctx,v), "TODO: regexp: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
+        default:
+                erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
+        }}
+}
+
 type optFullname struct {
         string
         value Value
@@ -349,8 +441,6 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
         var (
                 val = reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
                 opts []string // opt names
-                s string
-                ok bool
         )
         if tag == "" { return args }
         if t := string(tag)[:]; t != "" {
@@ -366,92 +456,9 @@ func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... V
                 }
         }
 
-        var set func(reflect.Value, Value)
-        set = func(val reflect.Value, v Value) {
-                switch val.Kind() {
-                case reflect.Bool:
-                        if t := v == nil || v.True(ctx); true { val.SetBool(t) }
-                case reflect.Float32, reflect.Float64:
-                        if t, e := v.Float(ctx); e == nil { val.SetFloat(t) } else {
-                                erro(ctx, "%v: %v", v, e).debug(10)
-                        }
-                case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-                        if t, e := v.Integer(ctx); e == nil { val.SetInt(t) } else {
-                                erro(ctx, "%v: %v", v, e).debug(10)
-                        }
-                case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-                        if t, e := v.Integer(ctx); e == nil { val.SetUint(uint64(t)) } else {
-                                erro(ctx, "%v: %v", v, t).debug(10)
-                        }
-                 case reflect.String:
-                        val.SetString(v.Strval(ctx))
-                case reflect.Slice:
-                        if tp := reflect.New(val.Type().Elem()); tp.Kind() == reflect.Ptr {
-                                var tv = tp.Elem()
-                                set(tv, v)
-                                val.Set(reflect.Append(val, tv))
-                        }
-                case reflect.Interface: switch val.Type().String() {
-                case "smart.Value": val.Set(reflect.ValueOf(v))
-                default: erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
-                }
-                case reflect.Ptr: switch val.Type().Elem().String() {
-                case "smart.optFullname":
-                        var x Value
-                        if x = v.expand(ctx, plain|expandFullName); isNone(x) {
-                                erro(of(ctx,v), "expecting file value: %T %v", v, v).debug(1)
-                                return
-                        }
+        // var set func(reflect.Value, Value)
+        // set = func(val reflect.Value, v Value)
 
-                        if _, s, ok = asOptFullname(ctx, x/*, projects...*/); ok && s != "" {
-                                val.Set(reflect.ValueOf(&optFullname{ s, x }))
-                        } else {
-                                var tv = autoGet(ctx,"@")
-                                var f = matchFile(ctx, s)
-                                erro(of(ctx,v), "not a file: %v -> %v -> %s (@=%T %v %v)", v, x, s, tv, tv, f)
-                                errostack(ctx, 5, "%v", ctx).debug(16)
-                        }
-
-                        if false {
-                                vi := val.Interface().(*optFullname)
-                                warn(of(ctx,v), "%v %v %v", /*current()*/ctx.Project(), v, vi.string).debug(true,1)
-                        }
-                case "smart.File":
-                        var x Value
-                        if x = v.expand(ctx, plain); isNone(x) {
-                                erro(of(ctx,v), "expecting file value: %T %v", v, v).debug(1)
-                                return
-                        }
-
-                        if file, y := toFile(x); y {
-                                val.Set(reflect.ValueOf(file))
-                        } else if proj := /*current()*/ctx.Project(); proj == nil {
-                                erro(of(ctx,x), "no current project to find file '%v'", s).debug(1)
-                        } else if file = proj.file(ctx, x.Strval(ctx)); file != nil {
-                                val.Set(reflect.ValueOf(file))
-                        } else {
-                                erro(of(ctx,v), "'%s' is not a file", s).debug(1)
-                        }
-                case "regexp.Regexp":
-                        if rx, e := regexp.Compile(v.Strval(ctx)); e != nil {
-                                erro(of(ctx,v), "compile regexp '%v' failed: %v", v, e).debug(1)
-                        } else {
-                                val.Set(reflect.ValueOf(rx))
-                        }
-                default:
-                        erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Elem().Kind(), val.Type().Elem()).debug(1)
-                }
-                default: switch val.Type().String() {
-                case "fs.FileMode": // aka. reflect.Uint32
-                        if t, e := v.Integer(ctx); e == nil { val.SetUint(uint64(t)) } else {
-                                erro(ctx, "%v: %v", v, t).debug(1)
-                        }
-                case "regex.Regex": // aka. reflect.Ptr
-                        erro(of(ctx,v), "TODO: regexp: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
-                default:
-                        erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
-                }}
-        }
 ForArgs:
         for _, arg := range args {
                 var (
@@ -476,14 +483,11 @@ ForArgs:
                 }
                 for i := 0; i < len(opts); i += 1 {
                         if _, match := flag.opt(ctx, opts[i]); match {
-                                set(val, value)
+                                set(ctx, val, value)
                                 continue ForArgs
                         }
                 }
                 rest = append(rest, arg)
-        }
-        if false && len(args) > 0 {
-                info(ctx, "%v: %v %v %v", opts, field.Kind(), field, rest)
         }
         return
 }
@@ -603,7 +607,7 @@ type builtinTypeofOpts struct {
         generalOpts
         expand bool `x,e,ex,exp,expand`
 }
-func builtinTypeof(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) typeof(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 opts builtinTypeofOpts
@@ -623,7 +627,7 @@ func builtinTypeof(ctx Context, w facet, args... Value) (res Value) {
 type builtinOriginOpts struct {
         generalOpts
 }
-func builtinOrigin(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) origin(args... Value) (res Value) {
         var (
                 scope = ctx.Scope()
                 opts builtinOriginOpts
@@ -645,7 +649,7 @@ func builtinOrigin(ctx Context, w facet, args... Value) (res Value) {
 type builtinDefinedOpts struct {
         generalOpts
 }
-func builtinDefined(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) defined(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 opts builtinDefinedOpts
@@ -661,7 +665,7 @@ func builtinDefined(ctx Context, w facet, args... Value) (res Value) {
 type builtinPushContextOpts struct {
         generalOpts
 }
-func builtinPushContext(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) PushContext(args... Value) (res Value) {
         var (
                 scope = ctx.Scope()
                 dc = ctx.universe()
@@ -687,7 +691,7 @@ type builtinPopContextOpts struct {
         generalOpts
         rules []Value `r,rule,rules`
 }
-func builtinPopContext(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) PopContext(args... Value) (res Value) {
         var opts builtinPopContextOpts
         for _, arg := range parseHeadArgsMerge(ctx, &opts, plain, args...) {
                 warn(ctx, "unused argument: %T %v", arg, arg).debug(1)
@@ -731,7 +735,7 @@ type builtinPositionOpts struct {
         addLine int `a,add;al,add-line`
         addColumn int `ac,add-column`
 }
-func builtinPosition(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) _position(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 opts builtinPositionOpts
@@ -760,7 +764,7 @@ func builtinPosition(ctx Context, w facet, args... Value) (res Value) {
 type builtinDateOpts struct {
         time bool `t,tm,time,n,now`
 }
-func builtinDate(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Date(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 opts = builtinDateOpts{ }
@@ -791,7 +795,7 @@ type builtinDebugOpts struct {
         s int `s,stack`
         n int `n,num`
 }
-func builtinDebug(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Debug(args... Value) (res Value) {
         var opts builtinDebugOpts
         args = parseOpts(ctx, &opts, plain, args...)
 
@@ -804,7 +808,7 @@ func builtinDebug(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinError(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Error(args... Value) (res Value) {
         var s bytes.Buffer
         for i, a := range args {
                 if i > 0 { fmt.Fprintf(&s, " ") }
@@ -818,7 +822,7 @@ func builtinError(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinWarning(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Warning(args... Value) (res Value) {
         var s bytes.Buffer
         for i, a := range args {
                 if i > 0 { fmt.Fprintf(&s, " ") }
@@ -831,8 +835,8 @@ func builtinWarning(ctx Context, w facet, args... Value) (res Value) {
 type builtinAssertOpts struct {
         generalOpts
 }
-func builtinAssert(ctx Context, w facet, args... Value) (res Value) {
-        return assertion(ctx, generalOpts{}, w, args...)
+func (ctx builtin) Assert(args... Value) (res Value) {
+        return assertion(ctx, generalOpts{}, ctx.w, args...)
 }
 func assertion(ctx Context, g generalOpts, w facet, args... Value) (res Value) {
         var opts = builtinAssertOpts{ g }
@@ -856,7 +860,7 @@ func assertion(ctx Context, g generalOpts, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinSureValue(ctx Context, w facet, args... Value) Value {
+func (ctx builtin) SureValue(args... Value) Value {
         for _, a := range args { if !a.True(ctx) {
                 erro(of(ctx,a), "assertion failed: %v", a).debug(1)
         }}
@@ -864,7 +868,7 @@ func builtinSureValue(ctx Context, w facet, args... Value) Value {
 }
 
 // $(defor $(x),$(y),$(z)) is identical to $(if $(defined $(x)),$(x),...)
-func builtinDefOr(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) DefOr(args... Value) (res Value) {
         for _, a := range mergex(ctx, plain, args...) {
                 var _, unresolved = a.(unresolved)
                 if unresolved { continue } else {
@@ -875,7 +879,7 @@ func builtinDefOr(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinOr(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Or(args... Value) (res Value) {
         for _, a := range args {
                 if v := a.True(ctx); v {
                         res = a
@@ -885,7 +889,7 @@ func builtinOr(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinAnd(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) And(args... Value) (res Value) {
         for _, a := range args {
                 if v := a.True(ctx); v {
                         res = a
@@ -901,7 +905,7 @@ func builtinAnd(ctx Context, w facet, args... Value) (res Value) {
 type builtinNotOpts struct {
         generalOpts
 }
-func builtinNot(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Not(args... Value) (res Value) {
         var (
                 opts builtinNotOpts
                 t bool
@@ -925,7 +929,7 @@ func builtinNot(ctx Context, w facet, args... Value) (res Value) {
 type builtinNotEqualOpts struct {
         generalOpts
 }
-func builtinNotEqual(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) NotEqual(args... Value) (res Value) {
         var opts builtinNotEqualOpts
         args = parseOpts(ctx, &opts, plain, args...)
         if n := len(args); n != 2 {
@@ -939,7 +943,7 @@ func builtinNotEqual(ctx Context, w facet, args... Value) (res Value) {
 type builtinEqualOpts struct {
         generalOpts
 }
-func builtinEqual(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Equal(args... Value) (res Value) {
         var opts builtinEqualOpts
         if len(args) > 0 {
                 var a = parseOpts(ctx, &opts, /* NOTE: don't expand */0, args[0])
@@ -981,7 +985,7 @@ func builtinEqual(ctx Context, w facet, args... Value) (res Value) {
 type builtinGreaterOpts struct {
         generalOpts
 }
-func builtinGreater(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Greater(args... Value) (res Value) {
         var opts builtinGreaterOpts
         args = parseOpts(ctx, &opts, plain, args...)
         if n := len(args); n != 2 {
@@ -995,7 +999,7 @@ func builtinGreater(ctx Context, w facet, args... Value) (res Value) {
 type builtinLessOpts struct {
         generalOpts
 }
-func builtinLess(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Less(args... Value) (res Value) {
         var opts builtinLessOpts
         args = parseOpts(ctx, &opts, plain, args...)
         if n := len(args); n != 2 {
@@ -1013,7 +1017,7 @@ type builtinMatchOpts struct {
 }
 // $(match val1 val2 val3, a b c d...)
 // $(match -rx=r1 -rx=r2 -rx=r3, a b c d...)
-func builtinMatch(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Match(args... Value) (res Value) {
         var (
                 patList, valList []Value
                 opts builtinMatchOpts
@@ -1064,7 +1068,7 @@ func builtinMatch(ctx Context, w facet, args... Value) (res Value) {
 // 2: $(case val (a 'xxx') (b 'yyy') (c 'zzz') ('if none or nil'))
 // 3: $(case val (a 'xxx') (b 'yyy') (c 'zzz') (- 'if none or nil'))
 // 4: $(case val (a 'xxx') (b 'yyy') (c -) (- -))
-func builtinCase(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Case(args... Value) (res Value) {
         var val Value
         if args = merge(args...); len(args) == 0 { return } else
         if _, ok := args[0].(*Group); !ok {
@@ -1118,7 +1122,7 @@ func builtinCase(ctx Context, w facet, args... Value) (res Value) {
 }
 
 // $(if cond, true-value, else-value, ...)
-func builtinIf(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) If(args... Value) (res Value) {
         if n := len(args); n > 1 {
                 if false { if v := args[0]; v.String() == "&(.test.$_)" {
                         conds := mergex(ctx, plain, v)
@@ -1138,7 +1142,7 @@ func builtinIf(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinIfEq(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) IfEq(args... Value) (res Value) {
         if n := len(args); n > 2 {
                 var (
                         a = args[0].expand(ctx, plain)
@@ -1159,7 +1163,7 @@ func builtinIfEq(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinIfNE(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) IfNE(args... Value) (res Value) {
         if n := len(args); n > 2 {
                 var (
                         a = args[0].expand(ctx, plain)
@@ -1180,7 +1184,7 @@ func builtinIfNE(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinFor(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) For(args... Value) (res Value) {
         if n := len(args); n < 2 {
                 erro(ctx, "not enough arguments, try: $(for <list>,<template>)")
                 return
@@ -1192,7 +1196,7 @@ func builtinFor(ctx Context, w facet, args... Value) (res Value) {
                 values = mergex(ctx, plain, args[0])
         )
 
-        var scope = ctx.Globe().scope
+        var scope = ctx.Globe()
         for i := 1; i <= maxNumVarVal; i += 1 {
                 def := scope.Lookup(strconv.Itoa(i)).(*def)
                 defs = append(defs, def)
@@ -1230,7 +1234,7 @@ type builtinForEachOpts struct {
         debug int
         empty bool
 }
-func builtinForEach(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) ForEach(args... Value) (res Value) {
         if n := len(args); n < 2 {
                 errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v", n, args).debug(32)
                 return
@@ -1252,7 +1256,7 @@ func builtinForEach(ctx Context, w facet, args... Value) (res Value) {
                 cc = autoContext{ Context:ctx, defs:make(autoDefMap) }
         )
 
-        ctx = &cc
+        ctx.Context = &cc
 
         for _, val := range values {
                 if !opts.empty {
@@ -1307,7 +1311,7 @@ type builtinCountOpts struct {
         generalOpts
         vals []Value `v,val,value`
 }
-func builtinCount(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Count(args... Value) (res Value) {
         var (
                 opts builtinCountOpts
                 num int64
@@ -1328,7 +1332,7 @@ func builtinCount(ctx Context, w facet, args... Value) (res Value) {
 type builtinEnvOpts struct {
         generalOpts
 }
-func builtinEnv(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Env(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 vals []Value
@@ -1385,7 +1389,7 @@ type builtinValueOpts struct {
         unexp bool `ux,unexpand,unexpanded`
         undef bool `u,un,undef`
 }
-func builtinValue(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Value(args... Value) (res Value) {
         var (
                 opts builtinValueOpts
                 vals []Value
@@ -1500,7 +1504,7 @@ func builtinCall(ctx Context, p *delegate, w facet, args ...Value) (res Value) {
 type builtinClosureOpts struct {
         required bool `required,require-def,require-defs`
 }
-func builtinClosure(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Closure(args... Value) (res Value) {
         var (
                 opts builtinClosureOpts
                 vals, names []Value
@@ -1544,7 +1548,7 @@ type builtinDefListOpts struct {
         n int `n,num,g`
         rn int `rn`
 }
-func builtinDefList(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) DefList(args... Value) (res Value) {
         var (
                 opts builtinDefListOpts
                 strs []string
@@ -1581,12 +1585,12 @@ func builtinDefList(ctx Context, w facet, args... Value) (res Value) {
         return MakeListOrScalar(ctx.Position(), vals)
 }
 
-func builtinList(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) List(args... Value) (res Value) {
         res = MakeListOrScalar(ctx.Position(), args)
         return
 }
 
-func builtinShell(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Shell(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 vals []Value
@@ -1615,7 +1619,7 @@ func builtinShell(ctx Context, w facet, args... Value) (res Value) {
 
 type builtinWhichOpts struct {
 }
-func builtinWhich(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Which(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 opts builtinWhichOpts
@@ -1636,7 +1640,7 @@ type builtinServeHttpOpts struct {
         host string `h,host`
         port int `p,port`
 }
-func builtinServeHttp(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) ServeHttp(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 opts = builtinServeHttpOpts{ port:80 }
@@ -1670,17 +1674,17 @@ func builtinServeHttp(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinServeHttps(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) ServeHttps(args... Value) (res Value) {
         erro(ctx, "'serve-https' is unimplemented yet").debug(1)
         return
 }
 
-func builtinPrint(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Print(args... Value) (res Value) {
         var (
                 x = len(args)
                 sb bytes.Buffer
         )
-        for i, a := range mergex(ctx, w, args...) {
+        for i, a := range mergex(ctx, ctx.w, args...) {
                 if a == nil { continue } else
                 if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
                 fmt.Fprintf(&sb, "%s", EscapedString(ctx, a))
@@ -1689,12 +1693,12 @@ func builtinPrint(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinPrintl(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Printl(args... Value) (res Value) {
         var (
                 x = len(args)
                 sb bytes.Buffer
         )
-        for i, a := range mergex(ctx, w, args...) {
+        for i, a := range mergex(ctx, ctx.w, args...) {
                 if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
                 var s = EscapedString(ctx, a)
                 fmt.Fprintf(&sb, "%s", s)
@@ -1706,12 +1710,12 @@ func builtinPrintl(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinPrintln(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Println(args... Value) (res Value) {
         var (
                 x = len(args)
                 sb bytes.Buffer
         )
-        for i, a := range mergex(ctx, w, args...) {
+        for i, a := range mergex(ctx, ctx.w, args...) {
                 if a == nil { continue } else
                 if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
                 fmt.Fprintf(&sb, "%s", EscapedString(ctx, a))
@@ -1727,8 +1731,8 @@ type builtinAppendOpts struct {
         closure bool `c,closure`
         // string bool `s,str,string`
 }
-func builtinAppend(ctx Context, w facet, args... Value) (result Value) {
-        return __append(ctx, generalOpts{}, w, args...)
+func (ctx builtin) Append(args... Value) (result Value) {
+        return __append(ctx, generalOpts{}, ctx.w, args...)
 }
 func __append(ctx Context, g generalOpts, w facet, args... Value) (result Value) {
         if len(args) < 2 {
@@ -1777,7 +1781,7 @@ type builtinMathOpts struct {
         generalOpts
         int bool `i,int,integer`
 }
-func builtinPlus(ctx Context, w facet, args... Value) (result Value) {
+func (ctx builtin) Plus(args... Value) (result Value) {
         var opts builtinMathOpts
         args = parseOpts(ctx, &opts, plain, args...)
         if opts.int {
@@ -1802,7 +1806,7 @@ func builtinPlus(ctx Context, w facet, args... Value) (result Value) {
                 return MakeFloat(ctx.Position(), num)
         }
 }
-func builtinMinus(ctx Context, w facet, args... Value) (result Value) {
+func (ctx builtin) Minus(args... Value) (result Value) {
         var opts builtinMathOpts
         args = parseOpts(ctx, &opts, plain, args...)
         if opts.int {
@@ -1827,7 +1831,7 @@ func builtinMinus(ctx Context, w facet, args... Value) (result Value) {
                 return MakeFloat(ctx.Position(), num)
         }
 }
-func builtinMultiply(ctx Context, w facet, args... Value) (result Value) {
+func (ctx builtin) Multiply(args... Value) (result Value) {
         var opts builtinMathOpts
         args = parseOpts(ctx, &opts, plain, args...)
         if opts.int {
@@ -1852,7 +1856,7 @@ func builtinMultiply(ctx Context, w facet, args... Value) (result Value) {
                 return MakeFloat(ctx.Position(), num)
         }
 }
-func builtinDivide(ctx Context, w facet, args... Value) (result Value) {
+func (ctx builtin) Divide(args... Value) (result Value) {
         var opts builtinMathOpts
         args = parseOpts(ctx, &opts, plain, args...)
         if opts.int {
@@ -1885,7 +1889,7 @@ type builtinUniqueOpts struct {
         unexpand bool `un,ue,unexpand,ne,noexpand,no-expand`
         plain bool `pl,pla,plain,pv,plainvalue,plain-value`
 }
-func builtinUnique(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Unique(args... Value) (res Value) {
         var opts builtinUniqueOpts
         if len(args) > 0 {
                 args = append(parseOpts(ctx, &opts, 0, merge(args[0])...),
@@ -1926,7 +1930,7 @@ ForArgs:
         return
 }
 
-func builtinJoin(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Join(args... Value) (res Value) {
         if l := len(args); l > 0 {
                 var (
                         fields []string
@@ -1947,7 +1951,7 @@ func builtinJoin(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinQuote(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Quote(args... Value) (res Value) {
         args = mergex(ctx, plain, args...)
         if l := len(args); l > 0 {
                 var fields []string
@@ -1961,7 +1965,7 @@ func builtinQuote(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinQuoteJoin(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) QuoteJoin(args... Value) (res Value) {
         var sep string
         args = mergex(ctx, plain, args...)
 
@@ -1982,7 +1986,7 @@ func builtinQuoteJoin(ctx Context, w facet, args... Value) (res Value) {
 }
 
 // $(split-string .,1.2.3)
-func builtinSplitString(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) SplitString(args... Value) (res Value) {
         args = mergex(ctx, plain, args...)
         if l := len(args); l > 0 {
                 var (
@@ -2029,16 +2033,16 @@ ValueType:
         return
 }
 
-// TODO: deprecate this and add -quote to builtinSplitString
-func builtinSplitQuote(ctx Context, w facet, args... Value) (res Value) {
-        if res = builtinSplitString(ctx, w, args...); !isNil(res) {
+// TODO: deprecate this and add -quote to builtin.SplitString
+func (ctx builtin) SplitQuote(args... Value) (res Value) {
+        if res = ctx.SplitString(args...); !isNil(res) {
                 quotestrings(res)
         }
         return
 }
 
-// TODO: deprecate this and add -quote to builtinSplitString
-func builtinSplitQuoteJoin(ctx Context, w facet, args... Value) (res Value) {
+// TODO: deprecate this and add -quote to builtin.SplitString
+func (ctx builtin) SplitQuoteJoin(args... Value) (res Value) {
         var sep string
         if l := len(args); l > 1 {
                 sep = args[l-1].Strval(ctx)
@@ -2046,7 +2050,7 @@ func builtinSplitQuoteJoin(ctx Context, w facet, args... Value) (res Value) {
         }
 
         var err error
-        if res = builtinSplitQuote(ctx, w, args...); !isNil(res) {
+        if res = ctx.SplitQuote(args...); !isNil(res) {
                 if res, err = joinstrings(ctx, res, sep); err != nil {
                         erro(ctx, "%v", err).debug(1)
                 }
@@ -2056,7 +2060,7 @@ func builtinSplitQuoteJoin(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinSplitJoinQuote(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) SplitJoinQuote(args... Value) (res Value) {
         var sep string
         if l := len(args); l > 1 {
                 sep = args[l-1].Strval(ctx)
@@ -2067,7 +2071,7 @@ func builtinSplitJoinQuote(ctx Context, w facet, args... Value) (res Value) {
                 v Value
                 err error
         )
-        if v = builtinSplitString(ctx, w, args...); !isNil(v) {
+        if v = ctx.SplitString(args...); !isNil(v) {
                 if v, err = joinstrings(ctx, v, sep); err == nil {
                         res = MakeString(ctx.Position(), strconv.Quote(v.Strval(ctx)))
                 }
@@ -2076,7 +2080,7 @@ func builtinSplitJoinQuote(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinField(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Field(args... Value) (res Value) {
         var pos = ctx.Position()
         if l := len(args); l >= 2 {
                 var (
@@ -2104,12 +2108,12 @@ func builtinField(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinFields(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Fields(args... Value) (res Value) {
         // TODO: ...
         return
 }
 
-func builtinUsee(ctx Context, w facet, args... Value) (result Value) {
+func (ctx builtin) Usee(args... Value) (result Value) {
         var (
                 proj = ctx.Project() //current()
                 list []Value
@@ -2138,7 +2142,7 @@ func builtinUsee(ctx Context, w facet, args... Value) (result Value) {
 type builtinUsesOpts struct {
        generalOpts
 }
-func builtinUses(ctx Context, w facet, args... Value) (result Value) {
+func (ctx builtin) Uses(args... Value) (result Value) {
         var proj = ctx.Project() //current()
         if proj == nil {
                 erro(ctx, "unknown current context").debug(1)
@@ -2164,7 +2168,7 @@ ForArgs:
         return
 }
 
-func builtinPath(ctx Context, w facet, args... Value) (result Value) {
+func (ctx builtin) Path(args... Value) (result Value) {
         var (
                 pos = ctx.Position()
                 list []Value
@@ -2180,7 +2184,7 @@ type builtinBareOpts struct {
         generalOpts
         name   bool `n,name,file-name,non-full`
 }
-func builtinBare(ctx Context, w facet, args... Value) (result Value) {
+func (ctx builtin) bare(args... Value) (result Value) {
         var opts builtinBareOpts
         var vals []Value
         for _, a := range parseHeadArgsMerge(ctx, &opts, plain, args...) {
@@ -2204,12 +2208,12 @@ func builtinBare(ctx Context, w facet, args... Value) (result Value) {
         return
 }
 
-func builtinBareword(ctx Context, w facet, args... Value) (result Value) {
+func (ctx builtin) bareword(args... Value) (result Value) {
         var vals []Value
         for _, a := range mergex(ctx, plain, args...) {
                 var val Value
                 switch a.(type) {
-                case *Bareword: val = a
+                case *bareword: val = a
                 default: val = MakeBareword(a.Position(), a.Strval(ctx));
                 }
                 vals = append(vals, val)
@@ -2282,12 +2286,12 @@ func builtinStr(ctx Context, strval bool, w facet, args... Value) (result Value)
         return
 }
 
-func builtinStrval(ctx Context, w facet, args... Value) (result Value) {
-        return builtinStr(ctx, true, w, args...)
+func (ctx builtin) strval(args... Value) (result Value) {
+        return builtinStr(ctx, true, ctx.w, args...)
 }
 
-func builtinString(ctx Context, w facet, args... Value) (result Value) {
-        return builtinStr(ctx, false, w, args...)
+func (ctx builtin) _string(args... Value) (result Value) {
+        return builtinStr(ctx, false, ctx.w, args...)
 }
 
 type builtinFilterOpts struct {
@@ -2296,10 +2300,21 @@ type builtinFilterOpts struct {
 func filterValues(ctx Context, pats []Value, opts builtinFilterOpts, neg bool, values... Value) (result []Value, err error) {
         var filter = func(v Value) Value {
                 for _, pat := range pats {
-                        if full, s, stems := pat.match(ctx, v); full {
+                        if full, res, stems := pat.match(ctx, v); full {
                                 if neg { v = nil } else if opts.stem {
-                                        if len(stems) > 0 { s = stems[0] }
+                                        var vals []Value
+                                        for _, s := range stems {
+                                                vals = append(vals, MakeString(v.Position(), s))
+                                        }
+                                        v = MakeListOrScalar(v.Position(), vals)
+                                } else if s, y := res.(string); y {
                                         v = MakeString(v.Position(), s)
+                                } else if a, y := res.([]string); y {
+                                        var vals []Value
+                                        for _, s := range a {
+                                                vals = append(vals, MakeString(v.Position(), s))
+                                        }
+                                        v = MakeListOrScalar(v.Position(), vals)
                                 }
                                 return v
                         }
@@ -2345,19 +2360,19 @@ func filterValues1(ctx Context, neg bool, args... Value) (res Value) {
         return
 }
 
-func builtinFilter(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Filter(args... Value) (res Value) {
         // $(filter pattern…,text)
         res = filterValues1(ctx, false, args...)
         return
 }
 
-func builtinFilterOut(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) FilterOut(args... Value) (res Value) {
         // $(filter-out pattern…,text)
         res = filterValues1(ctx, true, args...)
         return
 }
 
-func builtinSubstring(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Substring(args... Value) (res Value) {
         var pos = ctx.Position()
         args = mergex(ctx, plain, args...)
 
@@ -2399,7 +2414,7 @@ func builtinSubstring(ctx Context, w facet, args... Value) (res Value) {
 }
 
 // $(subst from,to,text)
-func builtinSubst(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Subst(args... Value) (res Value) {
         var ( pos = ctx.Position(); list []Value )
         if nargs := len(args); nargs > 2 {
                 var (
@@ -2428,7 +2443,7 @@ type builtinPatsubstOpts struct {
         useeFiles bool `u,used,using;uf,used-files,search-usees`
         noFileMap bool `nm,nomap,no-map,nofiles,no-files,no-filemap`
 }
-func builtinPatsubst(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Patsubst(args... Value) (res Value) {
         var (
                 opts builtinPatsubstOpts
                 srcPats, dstPats, sources []Value
@@ -2454,7 +2469,7 @@ func builtinPatsubst(ctx Context, w facet, args... Value) (res Value) {
         var (
                 proj = ctx.Project()
                 closured = closureProjects(ctx)
-                filemaps []*filemap
+                filemaps []FileMap
                 list []Value
         )
         if !opts.noFileMap {
@@ -2489,8 +2504,8 @@ ForSources:
                                 source = file
                         }
                 } else if opts.fullname {
-                        var ( s string; ok bool )
-                        if _, s, ok = asOptFullname(ctx, src, closured...); s == "" {
+                        var _, s, ok = as{src}.fullnameOpt(ctx, closured...)
+                        if s == "" {
                                 erro(of(ctx,src), "fullname '%v' is empty", src)
                                 erro(ctx, "called from here", src).debug(1)
                                 return
@@ -2537,19 +2552,16 @@ ForSources:
                         }
 
                         if t := file; t != nil {
-                                var (
-                                        match *FileMap
-                                )
+                                var match FileMap
                                 for _, m := range filemaps {
-                                        var t = &FileMap{ filemap: m }
-                                        if ok, _, _ := t.Match(ctx, name); ok {
-                                                match = t
+                                        if ok, _, _ := m.Match(ctx, name); ok {
+                                                match = m
                                                 break
                                         }
                                 }
 
                                 var file *File // dest file
-                                if match != nil {
+                                if match.filemap != nil {
                                         if file = match.stat(ctx, t.dir, name); file != nil {
                                                 assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (t.dir=%s)", file.name, name, t.dir))
                                         } else if file = match.stat(ctx, proj.absPath, name); file != nil {
@@ -2579,7 +2591,7 @@ ForSources:
                         case *Path:
                                 list = append(list, MakePathStr(pos, name))
                                 continue ForDstPats
-                        case *Bareword, *Barecomp:
+                        case *bareword, *barecomp:
                                 if strings.Contains(name, PathSep) {
                                         list = append(list, MakePathStr(pos, name))
                                 } else {
@@ -2611,15 +2623,15 @@ ForSources:
         return
 }
 
-func builtinStrip(ctx Context, w facet, args... Value) (res Value) {
-        return builtinTrimSpace(ctx, w, args...)
+func (ctx builtin) Strip(args... Value) (res Value) {
+        return ctx.TrimSpace(args...)
 }
 
-func builtinTrimSpace(ctx Context, w facet, args... Value) (res Value) {
-        return builtinTrim(ctx, w, append([]Value{MakeNone(ctx.Position())}, args...)...)
+func (ctx builtin) TrimSpace(args... Value) (res Value) {
+        return ctx.Trim(append([]Value{MakeNone(ctx.Position())}, args...)...)
 }
 
-func builtinTitle(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Title(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 list []Value
@@ -2634,7 +2646,7 @@ func builtinTitle(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinUpperCase(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) UpperCase(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 list []Value
@@ -2649,7 +2661,7 @@ func builtinUpperCase(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinLowerCase(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) LowerCase(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 list []Value
@@ -2663,7 +2675,7 @@ func builtinLowerCase(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinTrim(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Trim(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 cutset string
@@ -2685,7 +2697,7 @@ func builtinTrim(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinTrimLeft(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) TrimLeft(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 cutset string
@@ -2707,7 +2719,7 @@ func builtinTrimLeft(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinTrimRight(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) TrimRight(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 cutset string
@@ -2735,7 +2747,7 @@ type builtinTrimPrefixOpts struct {
 // $(trim-prefix foo%, fooxxx foo123)
 // $(trim-prefix %/foo, xxx/foo/a/b/c)
 // $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
-func builtinTrimPrefix(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) TrimPrefix(args... Value) (res Value) {
         var (
                 opts builtinTrimPrefixOpts
                 prefixs, values, list []Value
@@ -2768,7 +2780,8 @@ func builtinTrimPrefix(ctx Context, w facet, args... Value) (res Value) {
                         if p = prefix.Strval(ctx); p == "" { continue }
 
                         // FIXME: matched cutset is empty: %-xxx- and *-xxx-
-                        var full, cutset, stems = prefix.match(ctx, value)
+                        var full, r, stems = prefix.match(ctx, value)
+                        var cutset = joinMatchRes(ctx, r)
                         if opts.verbose /*|| (strings.Contains(s, "/.smart/modules/") && prefix.String() == "%%/.smart/modules/")*/ {
                                 warn(ctx, "full=%v cutset=%v stems=%v", full, cutset, stems)
                                 warn(ctx, "prefix = %T %v", prefix, prefix)
@@ -2800,7 +2813,7 @@ func builtinTrimPrefix(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinTrimSuffix(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) TrimSuffix(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 cutset, s string
@@ -2826,7 +2839,7 @@ type builtinTrimExtOpts struct {
         all bool `a,all`
         ext []string `e,ext`
 }
-func builtinTrimExt(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) TrimExt(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 opts builtinTrimExtOpts
@@ -2856,7 +2869,7 @@ func builtinTrimExt(ctx Context, w facet, args... Value) (res Value) {
 type builtinExtOpts struct {
         generalOpts
 }
-func builtinExt(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Ext(args... Value) (res Value) {
         var (
                 opts builtinExtOpts
                 list []Value
@@ -2871,7 +2884,7 @@ func builtinExt(ctx Context, w facet, args... Value) (res Value) {
 type builtinAddPrefixOpts struct {
         generalOpts
 }
-func builtinAddPrefix(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) AddPrefix(args... Value) (res Value) {
         if len(args) < 1 {
                 erro(ctx, "not enough args, try $(addprefix 'prefix', ...)").debug(1)
                 return
@@ -2917,7 +2930,7 @@ type builtinAddSuffixOpts struct {
         generalOpts
         final bool `final`
 }
-func builtinAddSuffix(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) AddSuffix(args... Value) (res Value) {
         if len(args) < 1 {
                 erro(ctx, "not enough args, try $(addsuffix 'suffix', ...)").debug(1)
                 return
@@ -2965,7 +2978,7 @@ func builtinAddSuffix(ctx Context, w facet, args... Value) (res Value) {
 type builtinPrintfOpts struct {
         generalOpts
 }
-func builtinPrintf(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Printf(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 opts builtinPrintfOpts
@@ -3035,7 +3048,7 @@ func builtinPrintf(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinIndent(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Indent(args... Value) (res Value) {
         var (
                 l []Value
                 s string // indent
@@ -3059,7 +3072,7 @@ func builtinIndent(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinFindstring(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Findstring(args... Value) (res Value) {
         // TODO: $(findstring find,text)
         return
 }
@@ -3073,7 +3086,7 @@ type builtinContainsOpts struct {
         match bool `m,mat,match,p,pat,pattern`
         string bool `s,str,string`
 }
-func builtinContains(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Contains(args... Value) (res Value) {
         var (
                 opts builtinContainsOpts
                 vals []Value
@@ -3085,9 +3098,9 @@ func builtinContains(ctx Context, w facet, args... Value) (res Value) {
         }
 
         // const w = plain|expandPairVal
-        vals, list = parseHeadArgsRequired(ctx, &opts, w|expandPairVal, args...)
+        vals, list = parseHeadArgsRequired(ctx, &opts, ctx.w|expandPairVal, args...)
         if len(vals) == 0 || len(list) == 0 { return }
-        list = mergex(ctx, w, list...)
+        list = mergex(ctx, ctx.w, list...)
 
         var (
                 y int
@@ -3192,37 +3205,37 @@ func builtinContains_buggy(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinSort(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Sort(args... Value) (res Value) {
         // TODO: $(sort list)
         return
 }
 
-func builtinWord(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Word(args... Value) (res Value) {
         // TODO: $(word n,text)
         return
 }
 
-func builtinWordList(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) WordList(args... Value) (res Value) {
         // TODO: $(wordlist s,e,text)
         return
 }
 
-func builtinWords(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Words(args... Value) (res Value) {
         // TODO: $(words n,text)
         return
 }
 
-func builtinFirstWord(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) FirstWord(args... Value) (res Value) {
         // TODO: $(firstword names...)
         return
 }
 
-func builtinLastWord(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) LastWord(args... Value) (res Value) {
         // TODO: $(lastword names...)
         return
 }
 
-func builtinEncodeBase64(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) EncodeBase64(args... Value) (res Value) {
         if len(args) > 0 {
                 pos := ctx.Position()
                 buf := new(bytes.Buffer)
@@ -3234,7 +3247,7 @@ func builtinEncodeBase64(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinDecodeBase64(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) DecodeBase64(args... Value) (res Value) {
         if len(args) > 0 {
                 var list []Value
                 for _, a := range args {
@@ -3251,84 +3264,14 @@ func builtinDecodeBase64(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func asFile(ctx Context, a Value, projects ...*Project) (f *File) {
-        switch t := a.(type) {
-        case *File     : f = t
-        case *Barefile : f = t.File
-        case *def      : if !isTrivial(t.value) { return asFile(ctx, t.value   ) }
-        case *List     : if len(t.Elems) == 1   { return asFile(ctx, t.Elems[0]) }
-        case *RuleEntry:                          return asFile(ctx, t.target  )
-        case *String, *Compound:
-                // NOTE: escape 'string' and "compound" values from file parsing
-                // NOTE: for optimization
-        case *Bareword, *Barecomp, *Path:
-                if len(projects) == 0 { projects = closureProjects(ctx) }
-                for _, proj := range projects {
-                        if f = proj.file(ctx, t.Strval(ctx)); f != nil { break }
-                }
-        }
-        return
-}
-
-func fullname(ctx Context, a Value, projects ...*Project) (f *File, s string, ok bool) {
-        if f = asFile(ctx, a, projects...); f == nil {
-                // no fullname
-        } else if s = f.fullname(); filepath.IsAbs(s) {
-                ok = true
-        } else {
-                // s = ""
-        }
-        return
-}
-
-func fullnameOrStrval(ctx Context, a Value, projects ...*Project) (s string) {
-        var ok bool
-        if _, s, ok = fullname(ctx, a, projects...); !ok {
-                s = a.Strval(ctx)
-        }
-        return
-}
-
-// see optFullname and parseOpt
-func asOptFullname(ctx Context, val Value, projects ...*Project) (file *File, s string, ok bool) {
-        if file, s, ok = fullname(ctx, val, projects...); ok {
-                return
-        } else if s = val.Strval(ctx); s == "" {
-                // ...
-        } else if filepath.IsAbs(s) {
-                file = stat(ctx, s, "", "")
-                ok = true
-        }
-        return
-}
-
-func asOptFullname2(ctx Context, val Value, projects ...*Project) (file *File, s string, ok bool) {
-        file, s, ok = asOptFullname(ctx, val, projects...)
-        if !ok && file == nil && s != "" && !filepath.IsAbs(s) {
-                switch val.(type) {
-                case *String, *Compound: return
-                }
-                for _, proj := range projects {
-                        if file = proj.file(ctx, s); file != nil {
-                                s = file.fullname()
-                                ok = filepath.IsAbs(s)
-                                break
-                        }
-                }
-        }
-        return
-}
-
 type builtinFullNameOpts struct {
         generalOpts
 }
-func builtinFullName(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) fullname(args... Value) (res Value) {
         var (
                 closured = closureProjects(ctx)
                 opts builtinFullNameOpts
                 l []Value
-                s string
-                ok bool
         )
         for _, a := range parseOpts(ctx, &opts, plain, args...) {
                 if opts.debug > 0 {
@@ -3338,7 +3281,9 @@ func builtinFullName(ctx Context, w facet, args... Value) (res Value) {
                                 warn(ctx, "%T %v", a, a).debug(opts.debug,1)
                         }
                 }
-                if _, s, ok = asOptFullname2(ctx, a, closured...); ok || s != "" {
+
+                var _, s, ok = as{a}.fullnameOpt2(ctx, closured...)
+                if ok || s != "" {
                         l = append(l, MakeString(a.Position(), s))
                 } else {
                         l = append(l, a)
@@ -3358,9 +3303,15 @@ func basex(ctx Context, n int, args... Value) (res Value) {
                 l []Value
         )
         for _, a := range parseOpts(ctx, &opts, plain, args...) {
-                s := fullnameOrStrval(ctx, a)
+                var s string
+                if opts.fullname {
+                        s, _ = as{a}.fullnameOrStrval(ctx)
+                } else {
+                        s = a.Strval(ctx)
+                }
+
                 d := filepath.Dir(s)
-                s = filepath.Base(s)
+                s  = filepath.Base(s)
                 for i := n-1; 0 < i; i -= 1 {
                         s = filepath.Join(filepath.Base(d), s)
                         d = filepath.Dir(d)
@@ -3370,15 +3321,15 @@ func basex(ctx Context, n int, args... Value) (res Value) {
         res = MakeListOrScalar(pos, l)
         return
 }
-func builtinBase (ctx Context, w facet, args... Value) Value { return basex(ctx, 1, args...) }
-func builtinBase2(ctx Context, w facet, args... Value) Value { return basex(ctx, 2, args...) }
-func builtinBase3(ctx Context, w facet, args... Value) Value { return basex(ctx, 3, args...) }
-func builtinBase4(ctx Context, w facet, args... Value) Value { return basex(ctx, 4, args...) }
-func builtinBase5(ctx Context, w facet, args... Value) Value { return basex(ctx, 5, args...) }
-func builtinBase6(ctx Context, w facet, args... Value) Value { return basex(ctx, 6, args...) }
-func builtinBase7(ctx Context, w facet, args... Value) Value { return basex(ctx, 7, args...) }
-func builtinBase8(ctx Context, w facet, args... Value) Value { return basex(ctx, 8, args...) }
-func builtinBase9(ctx Context, w facet, args... Value) Value { return basex(ctx, 9, args...) }
+func (ctx builtin) base(args... Value) Value { return basex(ctx, 1, args...) }
+func (ctx builtin) base2(args... Value) Value { return basex(ctx, 2, args...) }
+func (ctx builtin) base3(args... Value) Value { return basex(ctx, 3, args...) }
+func (ctx builtin) base4(args... Value) Value { return basex(ctx, 4, args...) }
+func (ctx builtin) base5(args... Value) Value { return basex(ctx, 5, args...) }
+func (ctx builtin) base6(args... Value) Value { return basex(ctx, 6, args...) }
+func (ctx builtin) base7(args... Value) Value { return basex(ctx, 7, args...) }
+func (ctx builtin) base8(args... Value) Value { return basex(ctx, 8, args...) }
+func (ctx builtin) base9(args... Value) Value { return basex(ctx, 9, args...) }
 
 type builtinDirOpts struct {
         generalOpts
@@ -3392,7 +3343,7 @@ func dirx(ctx Context, n int, args... Value) (res Value) {
         )
         for _, a := range parseOpts(ctx, &opts, plain, args...) {
                 if opts.fullname {
-                        s = fullnameOrStrval(ctx, a)
+                        s, _ = as{a}.fullnameOrStrval(ctx)
                 } else {
                         s = a.Strval(ctx)
                 }
@@ -3413,7 +3364,7 @@ func undirx(ctx Context, n int, args... Value) (res Value) {
         )
         for _, a := range parseOpts(ctx, &opts, plain, args...) {
                 if opts.fullname {
-                        s = fullnameOrStrval(ctx, a)
+                        s, _ = as{a}.fullnameOrStrval(ctx)
                 } else {
                         s = a.Strval(ctx)
                 }
@@ -3431,16 +3382,16 @@ func undirx(ctx Context, n int, args... Value) (res Value) {
         return
 }
 
-func builtinDir (ctx Context, w facet, args... Value) (res Value) { return dirx(ctx, 1, args...) }
-func builtinDir2(ctx Context, w facet, args... Value) (res Value) { return dirx(ctx, 2, args...) }
-func builtinDir3(ctx Context, w facet, args... Value) (res Value) { return dirx(ctx, 3, args...) }
-func builtinDir4(ctx Context, w facet, args... Value) (res Value) { return dirx(ctx, 4, args...) }
-func builtinDir5(ctx Context, w facet, args... Value) (res Value) { return dirx(ctx, 5, args...) }
-func builtinDir6(ctx Context, w facet, args... Value) (res Value) { return dirx(ctx, 6, args...) }
-func builtinDir7(ctx Context, w facet, args... Value) (res Value) { return dirx(ctx, 7, args...) }
-func builtinDir8(ctx Context, w facet, args... Value) (res Value) { return dirx(ctx, 8, args...) }
-func builtinDir9(ctx Context, w facet, args... Value) (res Value) { return dirx(ctx, 9, args...) }
-func builtinDirs(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) dir(args... Value) (res Value) { return dirx(ctx, 1, args...) }
+func (ctx builtin) dir2(args... Value) (res Value) { return dirx(ctx, 2, args...) }
+func (ctx builtin) dir3(args... Value) (res Value) { return dirx(ctx, 3, args...) }
+func (ctx builtin) dir4(args... Value) (res Value) { return dirx(ctx, 4, args...) }
+func (ctx builtin) dir5(args... Value) (res Value) { return dirx(ctx, 5, args...) }
+func (ctx builtin) dir6(args... Value) (res Value) { return dirx(ctx, 6, args...) }
+func (ctx builtin) dir7(args... Value) (res Value) { return dirx(ctx, 7, args...) }
+func (ctx builtin) dir8(args... Value) (res Value) { return dirx(ctx, 8, args...) }
+func (ctx builtin) dir9(args... Value) (res Value) { return dirx(ctx, 9, args...) }
+func (ctx builtin) dirs(args... Value) (res Value) {
         var n int
         if x := len(args); x > 0 {
                 if v, ok := Scalar(args[0]).(*Int); ok {
@@ -3456,16 +3407,16 @@ func builtinDirs(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinUndir (ctx Context, w facet, args... Value) (res Value) { return undirx(ctx, 1, args...) }
-func builtinUndir2(ctx Context, w facet, args... Value) (res Value) { return undirx(ctx, 2, args...) }
-func builtinUndir3(ctx Context, w facet, args... Value) (res Value) { return undirx(ctx, 3, args...) }
-func builtinUndir4(ctx Context, w facet, args... Value) (res Value) { return undirx(ctx, 4, args...) }
-func builtinUndir5(ctx Context, w facet, args... Value) (res Value) { return undirx(ctx, 5, args...) }
-func builtinUndir6(ctx Context, w facet, args... Value) (res Value) { return undirx(ctx, 6, args...) }
-func builtinUndir7(ctx Context, w facet, args... Value) (res Value) { return undirx(ctx, 7, args...) }
-func builtinUndir8(ctx Context, w facet, args... Value) (res Value) { return undirx(ctx, 8, args...) }
-func builtinUndir9(ctx Context, w facet, args... Value) (res Value) { return undirx(ctx, 9, args...) }
-func builtinUndirs(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) undir(args... Value) (res Value) { return undirx(ctx, 1, args...) }
+func (ctx builtin) undir2(args... Value) (res Value) { return undirx(ctx, 2, args...) }
+func (ctx builtin) undir3(args... Value) (res Value) { return undirx(ctx, 3, args...) }
+func (ctx builtin) undir4(args... Value) (res Value) { return undirx(ctx, 4, args...) }
+func (ctx builtin) undir5(args... Value) (res Value) { return undirx(ctx, 5, args...) }
+func (ctx builtin) undir6(args... Value) (res Value) { return undirx(ctx, 6, args...) }
+func (ctx builtin) undir7(args... Value) (res Value) { return undirx(ctx, 7, args...) }
+func (ctx builtin) undir8(args... Value) (res Value) { return undirx(ctx, 8, args...) }
+func (ctx builtin) undir9(args... Value) (res Value) { return undirx(ctx, 9, args...) }
+func (ctx builtin) undirs(args... Value) (res Value) {
         var n = 0
         if x := len(args); x > 0 {
                 if v, ok := Scalar(args[0]).(*Int); ok {
@@ -3480,7 +3431,7 @@ func builtinUndirs(ctx Context, w facet, args... Value) (res Value) {
         return undirx(ctx, n, args...)
 }
 
-func builtinDirChop(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) dirChop(args... Value) (res Value) {
         var (
                 l []Value
                 n = 0
@@ -3515,7 +3466,7 @@ func builtinDirChop(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinRelativeDir(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) RelativeDir(args... Value) (res Value) {
         var (
                 err error
                 l []Value
@@ -3535,7 +3486,7 @@ func builtinRelativeDir(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinMkdir(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Mkdir(args... Value) (res Value) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -3577,7 +3528,7 @@ func builtinMkdir(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinMkdirAll(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) MkdirAll(args... Value) (res Value) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -3618,7 +3569,7 @@ func builtinMkdirAll(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinChdir(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Chdir(args... Value) (res Value) {
         if len(args) == 1 {
                 var str = args[0].Strval(ctx)
                 if err := lockCD(str, 0); err != nil {
@@ -3633,7 +3584,7 @@ func builtinChdir(ctx Context, w facet, args... Value) (res Value) {
 type builtinRenameOpts struct {
         generalOpts
 }
-func builtinRename(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Rename(args... Value) (res Value) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -3684,7 +3635,7 @@ type builtinRemoveOpts struct {
         warnNotFile bool `warn-not-file`
         all bool `a,all;r,recursive`
 }
-func builtinRemove(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Remove(args... Value) (res Value) {
         var (
                 closured = closureProjects(ctx)
                 opts builtinRemoveOpts
@@ -3692,8 +3643,9 @@ func builtinRemove(ctx Context, w facet, args... Value) (res Value) {
                 str string
                 ok bool
         )
-        for _, a := range parseOpts(ctx, &opts, plain, args...) {
+        for _, v := range parseOpts(ctx, &opts, plain, args...) {
                 var (
+                        a = as{v}
                         ctx = at(ctx, a.Position())
                         file *File
                         err error
@@ -3716,7 +3668,7 @@ func builtinRemove(ctx Context, w facet, args... Value) (res Value) {
                                 }
                         }
                         continue
-                } else if file, str, ok = asOptFullname2(ctx, a, closured...); !ok || str == "" {
+                } else if file, str, ok = a.fullnameOpt2(ctx, closured...); !ok || str == "" {
                         if file != nil { ok = true } else
                         if opts.all { if opts.warnNotFile {
                                 warn(ctx, "not a file: %v (%T)", a, a)
@@ -3760,7 +3712,7 @@ func builtinRemove(ctx Context, w facet, args... Value) (res Value) {
 type builtinRemoveAllOpts struct {
         generalOpts
 }
-func builtinRemoveAll(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) RemoveAll(args... Value) (res Value) {
         var (
                 closured = closureProjects(ctx)
                 opts builtinRemoveAllOpts
@@ -3768,7 +3720,8 @@ func builtinRemoveAll(ctx Context, w facet, args... Value) (res Value) {
                 str string
                 ok bool
         )
-        for _, a := range parseOpts(ctx, &opts, plain, args...) {
+        for _, v := range parseOpts(ctx, &opts, plain, args...) {
+                var a = as{v}
                 var ctx = at(ctx, a.Position())
                 if a.patterned(ctx) {
                         var err error
@@ -3783,7 +3736,7 @@ func builtinRemoveAll(ctx Context, w facet, args... Value) (res Value) {
                                         return
                                 }
                         }
-                } else if _, str, ok = asOptFullname2(ctx, a, closured...); !ok || str == "" {
+                } else if _, str, ok = a.fullnameOpt2(ctx, closured...); !ok || str == "" {
                         erro(ctx, "%v is not a file", a).debug(1)
                         break
                 } else {
@@ -3798,7 +3751,7 @@ func builtinRemoveAll(ctx Context, w facet, args... Value) (res Value) {
         return
 }
 
-func builtinTruncate(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Truncate(args... Value) (res Value) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -3855,7 +3808,7 @@ func builtinTruncate(ctx Context, w facet, args... Value) (res Value) {
 type builtinLinkOpts struct {
         // TODO: ...
 }
-func builtinLink(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Link(args... Value) (res Value) {
         var opts builtinLinkOpts
         args = parseOpts(ctx, &opts, plain, args...)
         for i, nargs := 0, len(args); i < nargs; i += 1 {
@@ -3912,7 +3865,7 @@ type builtinSymlinkOpts struct {
         update   bool `u,update`
         relative bool `r,rel,relative;l`
 }
-func builtinSymlink(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Symlink(args... Value) (res Value) {
         var opts builtinSymlinkOpts
         args = parseOpts(ctx, &opts, plain, args...)
 ForArgs:
@@ -4037,7 +3990,7 @@ type builtinStatOpts struct {
         file bool `fi,file`
         symbol bool `s,sym,symlink,symbol;l,link`
 }
-func builtinStat(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Stat(args... Value) (res Value) {
         var (
                 proj = ctx.Project()
                 opts builtinStatOpts
@@ -4104,7 +4057,7 @@ type builtinFileOpts struct {
         caller bool `c,cc,caller,callercontext,caller-context`
         report bool `r,report,reportmissing;rm,report-missing;e,error`
 }
-func builtinFile(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) File(args... Value) (res Value) {
         var (
                 opts builtinFileOpts
                 proj *Project
@@ -4156,7 +4109,7 @@ func builtinFile(ctx Context, w facet, args... Value) (res Value) {
                         if opts.verbose { info(ctx, "%v", a).debug(1) }
                 } else {
                         erro(ctx, `%v: "%v" is not a file (%T)`, proj, a, a)
-                        errostack(ctx, 3, "(%T): %v", ctx, proj).debug(16)
+                        errostack(ctx, 5, "(%T): %v", ctx, proj).debug(16)
                 }
         }
 
@@ -4170,7 +4123,7 @@ type builtinGlobOpts struct {
         file bool `fi,file`
         symbol bool `s,sym,symlink,symbol,symbolic`
 }
-func builtinGlob(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Glob(args... Value) (res Value) {
         var (
                 opts builtinGlobOpts
                 proj *Project
@@ -4319,7 +4272,7 @@ type wildcardOpts struct {
         filetype string `ft,filetype,file-type` // dir, file, etc.
         dir string `di,dir,directory`
 }
-func builtinWildcard(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) Wildcard(args... Value) (res Value) {
         var (
                 opts wildcardOpts
                 files []*File
@@ -4366,7 +4319,7 @@ func builtinWildcard(ctx Context, w facet, args... Value) (res Value) {
 type builtinReadDirOpts struct {
         generalOpts
 }
-func builtinReadDir(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) ReadDir(args... Value) (res Value) {
         var l []Value
         for _, a := range args {
                 if fis, err := ioutil.ReadDir(a.Strval(ctx)); err == nil {
@@ -4391,23 +4344,22 @@ type builtinReadFileOpts struct {
         trimLeft  bool `tl,trim-left`
         trimRight bool `tr,trim-right`
 }
-func builtinReadFile(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) ReadFile(args... Value) (res Value) {
         var (
                 closured = closureProjects(ctx)
                 pos = ctx.Position()
                 opts builtinReadFileOpts
                 l []Value
         )
-        for _, a := range parseOpts(ctx, &opts, plain, args...) {
+        for _, v := range parseOpts(ctx, &opts, plain, args...) {
                 var (
+                        a = as{v}
                         apos = a.Position()
-                        str string
-                        err error
                         s []byte
-                        ok bool
+                        err error
                 )
                 if !apos.IsValid() { apos = pos }
-                if _, str, ok = asOptFullname2(ctx, a, closured...); !ok || str == "" {
+                if _, str, ok := a.fullnameOpt2(ctx, closured...); !ok || str == "" {
                         erro(at(ctx,apos), "%v is not a file", a).debug(1)
                         break
                 } else if s, err = ioutil.ReadFile(str); err != nil {
@@ -4430,7 +4382,7 @@ type builtinWriteFileOpts struct {
         generalOpts
         path bool `p,path`
 }
-func builtinWriteFile(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) WriteFile(args... Value) (res Value) {
         // $(write-file filename,content)
         // $(write-file -p filename,content)
         var opts builtinWriteFileOpts
@@ -4495,14 +4447,12 @@ ForArgs:
 }
 
 func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Time) (err error) {
-        var _, filename, _ = fullname(ctx, file)
-        if  filename == "" {
-                erro(of(ctx,file), "touch: file fullname of '%v' is empty", file, err).debug(1)
+        var a, filename, c = as{file}.fullname(ctx)
+        if filename == "" {
+                erro(of(ctx,file), "touch: no full file name: %v (%T, %v, %v)", file, file, a, c).debug(1)
                 return
-        }
-
-        if dir := filepath.Dir(filename); optPath && dir != "." && dir != PathSep {
-                if err = os.MkdirAll(dir, os.FileMode(optMode|0733)); err != nil {
+        } else if d := filepath.Dir(filename); optPath && d != "." && d != PathSep {
+                if err = os.MkdirAll(d, os.FileMode(optMode|0733)); err != nil {
                         erro(of(ctx,file), "touch: %v", err).debug(1)
                         return
                 }
@@ -4510,8 +4460,8 @@ func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Tim
 
         var (
                 mode = os.FileMode(optMode)
-                m os.FileMode
                 at, mt time.Time
+                m os.FileMode
         )
         if len(ts) > 0 { at = ts[0] } else { at = time.Now() }
         if len(ts) > 1 { mt = ts[1] } else { mt = time.Now() }
@@ -4546,7 +4496,7 @@ type builtinTouchFileOpts struct {
         mode os.FileMode `m,mode;fm,filemode;fm,file-mode`
         path bool `p,path`
 }
-func builtinTouchFile(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) TouchFile(args... Value) (res Value) {
         // $(touch-file filename)
         // $(touch-file -p filename)
         var opts = builtinTouchFileOpts{ mode: os.FileMode(0600) }
@@ -4566,7 +4516,7 @@ type builtinGrepOpts struct {
         generalOpts
         //val Value `c,cap,capture,v,val,value,r,res,result`
 }
-func builtinGrep(ctx Context, w facet, args... Value) (res Value) {
+func (ctx builtin) grep(args... Value) (res Value) {
         var (
                 opts builtinGrepOpts
                 vals, list []Value
@@ -4631,7 +4581,7 @@ func builtinGrep(ctx Context, w facet, args... Value) (res Value) {
                         return
                 }
                 if file, err = os.Open(filename); err != nil {
-                        errostack(of(ctx,a), 5, "%v", err).debug(128)
+                        errostack(of(ctx,a), 5, "%T %v: %v", a, a, err).debug(128)
                         return
                 }
                 defer file.Close()
@@ -4841,12 +4791,12 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
         return
 }
 
-func builtinUntraversed(ctx Context, w facet, args... Value) Value {
+func (ctx builtin) Untraversed(args... Value) Value {
         var pos = ctx.Position()
         var vals = mergex(ctx, plain, args...)
         return untraversed{MakeListOrScalar(pos, vals)}
 }
 
-func builtinReturn(ctx Context, w facet, args... Value) Value {
+func (ctx builtin) Return(args... Value) Value {
         return &returner{valbase{ctx.Position()}, args }
 }

@@ -63,10 +63,10 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value, err error) {
                 case xml_enc.ProcInst:
                         // TODO: ...
                 case xml_enc.StartElement:
-                        nn := MakeGroup(pos, &Bareword{valbase{pos},elem.Name.Local})
+                        nn := MakeGroup(pos, &bareword{valbase{pos},elem.Name.Local})
                         for _, a := range elem.Attr {
                                 var k, v Value
-                                k = &Bareword{valbase{pos},a.Name.Local}
+                                k = &bareword{valbase{pos},a.Name.Local}
                                 v = &String{valbase{pos},a.Value}
                                 if s := a.Name.Space; s != "" {
                                         k = MakeGroup(pos, &String{valbase{pos},s}, k)

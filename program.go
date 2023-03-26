@@ -437,7 +437,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
                 str, ent, tar = entryStr(ctx, entry)
                 errs = ctx.totalErrors()
             )
-            if !ctx.configuration() && cc != nil {
+            if !ctx.isConfiguration() && cc != nil {
                 s := traves.add(ctx, traveFail, targets)
                 if errs == 1 {
                     s.error = fmt.Errorf("execution yields an error for %v", str)
@@ -500,8 +500,9 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
         } else if c := cc.programContext(); c != nil {
             if /*options.traceTraversalNestIndent*/true { pc.traceLevel = c.traceLevel }
 
-            var tt Value = autoGet(c, "@")
-            prompt(ctx, "%v: max recursion call (%d)\n", fullnameOrStrval(ctx, tt), depth)
+            var tt = as{autoGet(c, "@")}
+            var s, _ = tt.fullnameOrStrval(ctx)
+            prompt(ctx, "%v: max recursion call (%d)\n", s, depth)
             warn(of(ctx,tt), "max recursion call (%d)\n", depth).debug(1)
 
             const collapse = false
@@ -780,7 +781,6 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
             if tt := t.of(traveFail); tt.has() {
                 if isPatternStemmedForTarget {
                     // TODO: convert traveFail into traveNext for stemmed entries ?
-                    const dbgInfoStates = false
                     for _, s := range tt {
                         var dbgFail2Next bool
                         var dependMine = depends.contains(s.depend)

@@ -148,7 +148,7 @@ func (ce *configureExecutor) close() {
     if ce.file != nil   { if err := ce.file.Close();   err != nil {} }
 }
 
-func (ctx *universeContext) configure() {
+func (ctx *universe) configure() {
     var (
         project *Project
         err error
@@ -349,7 +349,7 @@ type configureContext struct {
 }
 func (cc *configureContext) String() string { return fmt.Sprintf("configure{%s}", cc.Context) }
 func (cc *configureContext) inner() Context { return cc.Context }
-func (cc *configureContext) configuration() bool { return true }
+func (cc *configureContext) isConfiguration() bool { return true }
 
 type commonConfigureOpts struct {
     silent bool `s,silent`
@@ -769,26 +769,27 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         closured = closureProjects(ctx)
         filename string
         file *File
+        target as
     )
 
     args = parseOpts(ctx, opts, plain, args...)
 
-    if target := autoGet(ctx,"@"); isTrivial(target) {
+    if target.Value = autoGet(ctx, "@"); isTrivial(target.Value) {
         erro(ctx, "'@' is not defined").debug(1)
         return
-    } else if file, filename, _ = fullname(ctx, target, closured...); file == nil {
+    } else if file, filename, _ = target.fullname(ctx, closured...); file == nil {
         if depend := autoGet(ctx,">"); !isTrivial(depend) {
-            s := traves.add(ctx, traveFail, target)
+            s := traves.add(ctx, traveFail, target.Value)
             s.error = traveTargetNotDefinedFile
             s.depend = depend
         } else if true {
             prompt(ctx, "%v: not defined as file\n", target.Strval(ctx))
-            erro(ctx, "(%T) %v", target, target)
+            erro(ctx, "(%T) %v", target.Value, target.Value)
             errostack(ctx, 8, "").debug(64)
         }
         return
     } else if filename == "" {
-        errostack(ctx, 3, "%v: empty fullname: `%v`", target, file).debug(1)
+        errostack(ctx, 3, "%v: empty fullname: `%v`", target.Value, file).debug(1)
         return
     }
 
