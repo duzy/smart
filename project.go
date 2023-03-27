@@ -494,27 +494,58 @@ func files(ctx Context, iname interface{}, projects ...*Project) (maps []matched
   return
 }
 
-func (p *Project) selectFile(ctx Context, maps []matchedFileMap) (file *File) {
-  var first *File
+// func (p *Project) selectFile(ctx Context, maps []matchedFileMap) (file *File) {
+//   var first *File
+//   for _, m := range maps {
+//     var proj = m.project
+//     if false && proj != p { continue }
+//     if f, y := toFile(m.pattern); y { file = f; break }
+//     if proj.changedWD != "" { file = m.stat(ctx, proj.changedWD, m.name) }
+//     if file == nil          { file = m.stat(ctx, proj.absPath,   m.name) }
+//     if file != nil { if file.filemap == nil { file.filemap = &m.FileMap }
+//       if file.exists() { break } else {
+//         if first == nil { first = file }
+//         file = nil // reset for the next match
+//       }
+//     }
+//   }
+//   if first != file && !file.exists() { file = first }
+//   return
+// }
+// func (p *Project) file(ctx Context, iname interface{}) (file *File) {
+//   return p.selectFile(ctx, files(ctx, iname, p))
+// }
+
+func (p *Project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File) {
   for _, m := range maps {
+    var f, y = toFile(m.pattern)
+    if y { files = append(files, f) ; continue }
+
     var proj = m.project
-    if false && proj != p { continue }
-    if f, y := toFile(m.pattern); y { file = f; break }
-    if proj.changedWD != "" { file = m.stat(ctx, proj.changedWD, m.name) }
-    if file == nil          { file = m.stat(ctx, proj.absPath,   m.name) }
-    if file != nil { if file.filemap == nil { file.filemap = &m.FileMap }
-      if file.exists() { break } else {
-        if first == nil { first = file }
-        file = nil // reset for the next match
-      }
+    if proj.changedWD != "" { f = m.stat(ctx, proj.changedWD, m.name) }
+    if f == nil { f = m.stat(ctx, proj.absPath,   m.name) }
+    if f != nil {
+      if f.filemap == nil { f.filemap = &m.FileMap }
+      files = append(files, f)
     }
   }
-  if first != file && !file.exists() { file = first }
+  return
+}
+
+func (p *Project) selectFile(ctx Context, maps []matchedFileMap) (file *File) {
+  for _, f := range p.selectFiles(ctx, maps) { if f.exists() { return f } }
   return
 }
 
 func (p *Project) file(ctx Context, iname interface{}) (file *File) {
-  return p.selectFile(ctx, files(ctx, iname, p))
+  if file = p.selectFile(ctx, files(ctx, iname, p)); file == nil && false {
+    var s, d string // TODO: s = iname
+    if s != "" {
+      if !filepath.IsAbs(s) { d = p.absPath }
+      file = stat(ctx, s, "", d)
+    }
+  }
+  return
 }
 
 func (p *Project) tempFile(ctx Context, name string) (file *File) {
@@ -538,12 +569,10 @@ func (p *Project) configuration(ctx Context) (file *File) {
   return
 }
 
-type _FileMapCacher struct {
-	// TODO: files options
-}
-func (opts *_FileMapCacher) cache(ctx Context, patts, paths []Value) {
+type cacher struct { /* TODO: files options */ }
+func (opts *cacher) cache(ctx Context, patts, paths []Value) {
   if p := ctx.Project(); p != nil {
-    var m = ctx.universe().cacheFileMap(ctx, p, patts, paths)
+    var m = ctx.universe().cache(ctx, p, patts, paths)
     p.filemaps = append(p.filemaps, m...)
   } else {
     erro(ctx, "nil project").debug(1)

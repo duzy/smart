@@ -2494,20 +2494,19 @@ func modifierUpdateFile(ctx Context, args... Value) (result Value, traves traves
     if t := target.Value; target.trivial() {
         errostack(ctx, 5, "no file target to update").debug(16)
     } else if opts.fullname {
-        if filename, _ = target.fullnameOrStrval(ctx); !filepath.IsAbs(filename) {
-            var (
-                file *File
-                s string
-            )
-            if t := closureFiles(ctx, filename, true); len(t) > 0 { file, s = t[0], t[0].fullname() }
-            if s != "" && filepath.IsAbs(s) {
-                filename = s
-            } else if file != nil {
-                prompt(ctx, "%v: %T %v\n", file.fullname(), t, t)
-                errostack(ctx, 5, "fullname is incorrect").debug(16)
+        var ( f *File ; y bool )
+        if f, filename, y = target.fullnameOpt(ctx); !y || !filepath.IsAbs(filename) {
+            var s string
+            if t := closureFiles(ctx, filename, true); len(t) > 0 { f, s = t[0], t[0].fullname() }
+            if s != "" && filepath.IsAbs(s) { filename = s } else if f != nil {
+                errostack(ctx, 5, "%v: incorrect fullname (%T, %s)\n", t, t, f.fullname()).debug(16)
+            } else if true {
+                var m = ctx.universe().unmap(ctx, filename)
+                errostack(ctx, 5, "%v: not a file (%T, %s, %v, %v)\n", t, t, filename, m, files(ctx, filename)).debug(16)
+            } else if true {
+                errostack(ctx, 5, "%v: not a file (%T, %s)\n", t, t, filename).debug(16)
             } else {
-                prompt(ctx, "%v: %T %v\n", filename, t, t)
-                warnstack(ctx, 5, "").debug(16)
+                warnstack(ctx, 5, "%v: not a file (%T, %s)\n", t, t, filename).debug(16)
             }
         }
     } else {

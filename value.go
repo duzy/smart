@@ -476,11 +476,11 @@ func closureSet(ctx Context, name string, val Value) (prev Value, okay bool) {
     return
 }
 
-func closureFiles(ctx Context, name string, one bool) (files []*File) {
+func closureFiles(ctx Context, name string, one bool) (res []*File) {
+    var a = files(ctx, name)
     for _, proj := range closureProjects(ctx) {
-        if file := proj.file(ctx, name); file != nil {
-            files = append(files, file)
-            if one { break }
+        if f := proj.selectFile(ctx, a); f != nil {
+            if res = append(res, f); one { break }
         }
     }
     return
@@ -1571,6 +1571,7 @@ func (a as) fullname(ctx Context, projects ...*Project) (f *File, s string, ok b
         return
 }
 
+// deprecated
 func (a as) fullnameOrStrval(ctx Context, projects ...*Project) (s string, f bool) {
         if _, s, f = a.fullname(ctx, projects...); !f { s = a.Strval(ctx) }
         return
@@ -1607,9 +1608,30 @@ func (a as) fullnameOpt2(ctx Context, projects ...*Project) (file *File, s strin
 
 func (a as) trivial() bool { return isTrivial(a.Value) }
 
+type hitched struct { v interface{} } // Value, string, []string
+func (h hitched) match(ctx Context, i interface{}) (full bool, res interface{}, stems []string) {
+    if v, y := h.v.(Value); y { full, res, stems = v.match(ctx, i) } else
+    if s, y := h.v.(string); y {
+        if o, y := i.(string); y {
+            if strings.HasPrefix(o, s) { res, full = s, (len(s) == len(o)) }
+        }
+    } else if s, y := h.v.([]string); y {
+        if o, y := i.([]string); y {
+            var ( n int ; f bool ; a []string )
+            for ; n < len(s) && n < len(o); n++ {
+                if strings.HasPrefix(o[n], s[n]) {
+                    a, f = append(a, s[n]), (len(o[n]) == len(s[n]))
+                }
+            }
+            res, full = a, (n == len(s) && n == len(o) && f)
+        }
+    }
+    return
+}
+
 type hitch struct {
     *_FileMapCache
-    value Value // aka full pattern
+    value hitched // aka full pattern
 }
 
 func joinMatchRes(ctx Context, res interface{}) (str string) {
@@ -3600,6 +3622,18 @@ func barefilize(ctx Context, targets ...Value) []Value {
     }
     return targets
 }
+func exp_barefilize(ctx Context, targets ...Value) (res []Value) {
+    var ( project = ctx.Project() ; maps []matchedFileMap )
+    for _, target := range targets {
+        if !target.patterned(ctx) {
+            maps = append(maps, files(ctx, target, project)...)
+        }
+    }
+    for _, file := range project.selectFiles(ctx, maps) {
+        res = append(res, file)
+    }
+    return
+}
 
 var ErrBadPattern = errors.New("syntax error in pattern")
 
@@ -4067,7 +4101,7 @@ func (p *Path) elemStr(ctx Context, o Object, k elemkind) (s string) {
     }
     return
 }
-func (p *Path) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *Path) obsolete_hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
     var elems, u, _ = expandPathElems(ctx, plain, p.Elems...)
     if false && u > 0 { warn(ctx, "%08b: unexpended: %v: %v", bits, p, elems).debug(1) }
     for i, elem := range elems {
@@ -4093,12 +4127,11 @@ func (p *Path) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
     }
     return
 }
-func (p *Path) exp_hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *Path) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
     var elems, u, _ = expandPathElems(ctx, plain, p.Elems...)
     if false && u > 0 { warn(ctx, "%08b: unexpended: %v: %v", bits, p, elems).debug(1) }
 
-    var stopPat, stopVal Value
-    var ss []string
+    var ( stopPat, stopVal Value ; ss []string )
     for i, elem := range elems {
         if elem.patterned(ctx) {
             if false { warn(ctx, "%08b: %v: %v[%d]: %T %v", bits, p, elems, i, elem, elem).debug(1) }
@@ -4125,13 +4158,13 @@ func (p *Path) exp_hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) 
 
     if stopPat != nil {
         res = stopPat.hit(ctx, cache, bits|cachePath)
-        if true && strings.HasPrefix(p.String(), ".configure/library/") && strings.HasSuffix(p.String(), ".log") {
-            warn(ctx, "%08b: %v: %v: %T %v ; %p", bits, p, elems, stopPat, stopPat, res).debug(1)
+        if false {
+            warn(ctx, "%08b: %v: %v: %v: %T %v ; %p", bits, p, elems, ss, stopPat, stopPat, res).debug(1)
         }
     } else if stopVal != nil {
         res = stopVal.hit(ctx, cache, bits|cachePath)
-        if true && strings.HasPrefix(p.String(), ".configure/library/") && strings.HasSuffix(p.String(), ".log") {
-            warn(ctx, "%08b: %v: %v: %T %v ; %p", bits, p, elems, stopVal, stopVal, res).debug(1)
+        if false {
+            warn(ctx, "%08b: %v: %v: %v: %T %v ; %p", bits, p, elems, ss, stopPat, stopPat, res).debug(1)
         }
     } else {
         res = cache._FileMapCache

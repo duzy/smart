@@ -44,7 +44,8 @@ type _FileMapCache struct {
 
 type _FilePatMapCache struct {
     _FileMapCache
-    key, value Value
+    key Value
+    value hitched
 }
 
 func (cache hitch) strx(ctx Context, s string, bits int) (res *_FileMapCache) {
@@ -56,38 +57,40 @@ func (cache hitch) strs(ctx Context, ss []string, bits int) (res *_FileMapCache)
 }
 
 func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*_FileMapCache) (res *_FileMapCache) {
+    var j = i + 1
+    const useAllFetched = false
     defer func(c *_FileMapCache) {
-        if true && ss[0] == "llvm" && (false ||
+        if false && (ss[0] == ".configure") && (false ||
+           // strings.HasSuffix(ss[i], "llvm-config.h") ||
+           // strings.HasSuffix(ss[i], ".h") ||
            // strings.HasSuffix(ss[i], ".a") ||
            // strings.HasSuffix(ss[i], ".c") ||
-           strings.HasSuffix(ss[i], "llvm-config.h") ||
            false) {
             if res != nil {
                 if false { warn(ctx, "%v[%d]: %s → %v\n", ss, i, ss[i], res.maps) }
                 for k, m := range res.maps {
                     warn(ctx, "%v[%d]: %s → %d %v %v\n", ss, i, ss[i], k, m.pattern, m.paths)
                 }
-                warn(ctx, "%08b: %v[%d]: %s; %v", bits, ss, i, ss[i], res.maps).debug(64)
+                warnstack(ctx, 3, "%08b: %v[%d]: %s; %p %p %v", bits, ss, i, ss[i], c, res, res.maps).debug(64)
             } else {
-                warn(ctx, "%08b: %v[%d]: %s\n", bits, ss, i, ss[i]).debug(64)
+                warnstack(ctx, 3, "%08b: %v[%d]: %s; %p %p, %v\n", bits, ss, i, ss[i], c, res, c.strs["curl"]).debug(64)
             }
         }
-        if res != nil && res.maps == nil && (bits&cacheStore == 0) && (i+1 == len(ss)) {
-            warn(ctx, "%08b: %v[%d]: empty cache\n", bits, ss, i).debug(12)
+        if res != nil && res.maps == nil && (bits&cacheStore == 0) && (j == len(ss)) {
+            if !useAllFetched { warnstack(ctx, 3, "%08b: %v[%d]: empty cache (%p, %v)\n", bits, ss, i, c, res).debug(12) }
             res = nil // it doesn't make sense to fetch a 'empty' cache
         }
     } (cache._FileMapCache)
 
-    var j = i + 1
     var aa = strings.Split(ss[i], ".")
     a = append(a, cache._FileMapCache)
 
     if c := cache.comp(ctx, aa, ss, i, bits); c != nil {
         if j == len(ss) {
-            return c
+            if useAllFetched || bits&cacheStore != 0 || c.maps != nil { return c }
         } else if c != cache._FileMapCache {
             return hitch{c,cache.value}.str(ctx, ss, j, bits, a...)
-        } else if true {
+        } else if useAllFetched {
             errostack(ctx, 3, "%08b: %v[%d]: %s %s\n", bits, ss, i, ss[i], ss[j]).debug(16)
             return
         }
@@ -95,7 +98,7 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*_FileMapCach
 
     if m := cache.match(ctx, ss, i, bits); m != nil {
         if c := &m._FileMapCache; j == len(ss) {
-            return c
+            if useAllFetched || bits&cacheStore != 0 || c.maps != nil { return c }
         } else if c != cache._FileMapCache {
             return hitch{c,cache.value}.str(ctx, ss, j, bits, a...)
         } else if true {
@@ -109,7 +112,7 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*_FileMapCach
         if m := c.match(ctx, ss, i, bits); m != nil {
             if false { warn(ctx, "%v[%d]: %p: %v\n", ss, i, m, m.value).debug(1) }
             if c := &m._FileMapCache; j == len(ss) {
-                return c
+                if useAllFetched || bits&cacheStore != 0 || c.maps != nil { return c }
             } else if c != cache._FileMapCache {
                 return hitch{c,cache.value}.str(ctx, ss, j, bits, a...)
             } else if true {
@@ -124,7 +127,7 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*_FileMapCach
     } else if cache.expand(ctx, s) {
         if c := cache.comp(ctx, aa, ss, i, bits); c != nil {
             if j == len(ss) {
-                return c
+                if useAllFetched || bits&cacheStore != 0 || c.maps != nil { return c }
             } else if c != cache._FileMapCache {
                 return hitch{c,cache.value}.str(ctx, ss, j, bits, a...)
             } else if true {
@@ -142,11 +145,11 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*_FileMapCach
 
     if bits&cacheStore == 0 {
         for k := len(a)-2; 0 <= k; k-- {
-            if res = a[k].peel(ctx, cache.value, ss, i, bits); res != nil {
+            if c := a[k].peel(ctx, cache.value, ss, i, bits); c != nil {
                 if false && strings.HasSuffix(ss[len(ss)-1], ".log") {
-                    info(ctx, "%08b: %v[%d]: %v, %v\n", bits, ss, i, cache.value, res.maps).debug(16)
+                    info(ctx, "%08b: %v[%d]: %v, %v\n", bits, ss, i, cache.value, c.maps).debug(16)
                 }
-                return
+                if useAllFetched || bits&cacheStore != 0 || c.maps != nil { return c }
             }
         }
     }
@@ -177,7 +180,7 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*_FileMapCach
     return
 }
 
-func (cache *_FileMapCache) peel(ctx Context, value Value, ss []string, i, bits int) (res *_FileMapCache) {
+func (cache *_FileMapCache) peel(ctx Context, value hitched, ss []string, i, bits int) (res *_FileMapCache) {
 outermost:
     for ; i < len(ss); i++ {
         if c := cache.chars[char(0)]; c != nil {
@@ -231,17 +234,11 @@ func (cache hitch) expand(ctx Context, s string) (res bool) {
 
 // NOTE: _FileMapCache.comp is identical to barecomp.hit
 func (cache *_FileMapCache) comp(ctx Context, a, ss []string, i, bits int) (res *_FileMapCache) {
-    var N = len(a)-1
-    if N < 0 {
-        errostack(ctx, 3, "%08b: empty: %v[%d]", bits, ss, i).debug(64)
-        return
-    }
-
-    var chars = (bits&(cacheGlob|cacheRegex)) != 0
+    var ( chars = (bits&(cacheGlob|cacheRegex)) != 0 ; N = len(a)-1 )
     for j, k := range a {
         var chars = chars && j == N
         if c := cache.char_str(k, bits, chars); c != nil {
-            if cache = c; j == N && (bits&cacheStore != 0 || c.maps != nil) { res = c }
+            if cache = c; j == N { res = c }
         } else if (bits&cacheStore) != 0 {
             errostack(ctx, 3, "%08b: nil: %v[%d]: %v[%d]: %s", bits, ss, i, a, j, k).debug(64)
             break
@@ -347,7 +344,7 @@ func (cache hitch) pat(ctx Context, key Value, bits int) (res *_FileMapCache) {
                 if m.project == p || p.hasBase(m.project) {
                     return &t._FileMapCache
                 } else if false {
-                    warn(of(ctx, t.value), "duplications[%d]: %v (%v, %v, %d)", i, t.value, t.key, m.project, j)
+                    warn(of(ctx, t.key), "duplications[%d]: %v (%v, %v, %d)", i, t.value, t.key, m.project, j)
                 }
             }
         }
@@ -494,12 +491,10 @@ func (uc *universe) file(filename string, src []byte) *token.File {
     return uc.fset.AddFile(filename, -1, len(src))
 }
 
-func (uc *universe) cacheFileMap(ctx Context, p *Project, patts, paths []Value) (res []FileMap) {
+func (uc *universe) cache(ctx Context, p *Project, patts, paths []Value) (res []FileMap) {
     var base = &filemap{ p, patts, paths }
     for _, patt := range patts {
-        if isTrivial(patt) {
-            warnstack(of(ctx, patt), 3, "invalid file pattern: %s", typeof(patt)).debug(10)
-        } else if c := patt.hit(of(ctx, patt), hitch{&uc.filemaps, patt}, cacheStore); c != nil {
+        if c := patt.hit(of(ctx, patt), hitch{&uc.filemaps, hitched{patt}}, cacheStore); c != nil {
             var m = FileMap{ base, patt }
             c.maps, res = append(c.maps, m), append(res, m)
         } else {
@@ -518,14 +513,23 @@ type matchedFileMap struct {
 }
 func (uc *universe) unmap(ctx Context, name interface{}) (maps []matchedFileMap) {
     var cache *_FileMapCache
-    var c = hitch{&uc.filemaps, nil}
+    var db bool
+    if false { if s, y := name.(string); y && s == "curl/curlver.h" {
+        defer func() { info(ctx, "%T %v %p", name, name, cache).debug(16) } ()
+        db = true
+    } }
+
+    var h = hitch{&uc.filemaps, hitched{name}}
     if v, y := name.(Value); y {
-        c.value = v
-        cache = v.hit(ctx, c, cacheZero)
+        cache = v.hit(ctx, h, cacheZero)
+        if db { warn(ctx, "%p", cache).debug(1) }
     } else if s, y := name.(string); y {
-        cache = c.strx(ctx, s, cacheZero) // checks PathSep
+        cache = h.strx(ctx, s, cacheZero) // checks PathSep
+        if db { warn(ctx, "%v %p %p, %v", strings.Split(s, PathSep), h._FileMapCache, cache,
+            h._FileMapCache.strs["curl"]).debug(1) }
     } else if a, y := name.([]string); y {
-        cache = c.strs(ctx, a, cacheZero)
+        cache = h.strs(ctx, a, cacheZero)
+        if db { warn(ctx, "%p", cache).debug(1) }
     } else {
         if uncachedGetError { errostack(ctx, 3, "uncached: %T %v", name, name).debug(16) }
         return
@@ -817,7 +821,7 @@ func (dc *universe) loadTopWork() (err error) {
 
     if text := strings.Join(os.Args[1:], " "); text == "" {
         // Relax!
-    } else if args = dc.globe.top.loadText("@", text); len(args) == 0 {
+    } else if args = dc.globe.top.text("@", text); len(args) == 0 {
         // ohh...
     } else {
         args = parseOpts(ctx, &options, 0, args...)
@@ -916,7 +920,7 @@ func (dc *universe) loadTopWork() (err error) {
     } (time.Now())
     if options.verboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
 
-    if !dc.globe.top.loadPath(base, nil) { return }
+    if !dc.globe.top.path(base, nil) { return }
     if dc.globe.main == nil { fmt.Fprintf(stderr, "nothing loaded\n") }
     return
 }

@@ -4053,9 +4053,10 @@ func (ctx builtin) Stat(args... Value) (res Value) {
 
 type builtinFileOpts struct {
         generalOpts
-        ignore bool `i,ig,ignore,ignore-missing`
         caller bool `c,cc,caller,callercontext,caller-context`
-        report bool `r,report,reportmissing;rm,report-missing;e,error`
+        exists bool `e,ex,exist,exists,me,mustexist,must-exist,must,required`
+        ignore bool `i,ig,ignore,ignore-missing`
+        report bool `r,report,reportmissing;rm,report-missing;er,err,error`
 }
 func (ctx builtin) File(args... Value) (res Value) {
         var (
@@ -4078,8 +4079,12 @@ func (ctx builtin) File(args... Value) (res Value) {
         }
 
         for _, a := range args {
-                var ctx = at(ctx, a.Position())
-                if file, y := toFile(a); y {
+                var (
+                        ctx = at(ctx, a.Position())
+                        file, y = toFile(a)
+                        am []matchedFileMap
+                )
+                if y {
                         if list = append(list, file); !file.exists() { file.stat(ctx) }
                         if !file.exists() && opts.report {
                                 info(ctx, "%v is no such file", a).debug(1)
@@ -4089,10 +4094,14 @@ func (ctx builtin) File(args... Value) (res Value) {
                         erro(ctx, `%v: %T "%v" is empty`, proj, a, a)
                         errostack(ctx, 3, "(%T): %v", ctx, proj).debug(6)
                         continue
-                } else if file = proj.file(ctx, s); file != nil {
+                } else if am = files(ctx, /* a */s, proj); am == nil {
+                        continue // does nothing!
+                } else if true {
+                        // does nothing
+                } else if file = proj.selectFile(ctx, am); file != nil {
                         list = append(list, file)
                         if opts.report { info(ctx, "%v is no such file", a).debug(1) }
-                        continue
+                        continue // done here! TODO: stat absolute and local files in proj.file
                 } else if filepath.IsAbs(s) {
                         if file = stat(ctx, s, "", ""); file != nil {
                                 list = append(list, file)
@@ -4105,11 +4114,23 @@ func (ctx builtin) File(args... Value) (res Value) {
                         continue
                 }
 
-                if opts.ignore {
-                        if opts.verbose { info(ctx, "%v", a).debug(1) }
-                } else {
-                        erro(ctx, `%v: "%v" is not a file (%T)`, proj, a, a)
-                        errostack(ctx, 5, "(%T): %v", ctx, proj).debug(16)
+                var en int
+                for _, file = range proj.selectFiles(ctx, am) {
+                        if file.exists() || !opts.exists {
+                                list = append(list, file)
+                        } else if opts.exists {
+                                en += 1
+                        } else if opts.ignore {
+                                if opts.verbose { info(ctx, "%s(%v) → %v", typeof(a), a, file).debug(1) }
+                        }
+                }
+                if en > 0 {
+                        for i, m := range am {
+                                info(of(ctx,m.pattern), "found %d. %s → %s(%s) → %v", i, m.name, typeof(m.pattern), m.pattern, m.paths)
+                        }
+                        erro(ctx, `%v: %s(%v) is not a file (%v)`, proj, typeof(a), a, list)
+                        errostack(ctx, 5, "").debug(16)
+                        break
                 }
         }
 

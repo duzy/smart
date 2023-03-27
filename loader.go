@@ -336,7 +336,7 @@ func (l *loader) Position() (res Position) {
     return
 }
 
-func (l *loader) loadUseSpecName(ctx Context, opts useOpts, specVal Value, arged []Value, params ...Value) (loaded *Project) {
+func (l *loader) use(ctx Context, opts useOpts, specVal Value, arged []Value, params ...Value) (loaded *Project) {
     var (
         linfo = uni.globe.loads[len(uni.globe.loads)-1]
         absPath, specName string
@@ -473,7 +473,7 @@ func (l *loader) loadUseSpecName(ctx Context, opts useOpts, specVal Value, arged
         var okay bool
         defer l.setArgs(l.setArgs(arged))
         if isDir {
-            okay = l.loadDir(ctx, specName, absPath, nil)
+            okay = l.dir(ctx, specName, absPath, nil)
         } else {
             okay = l.load(ctx, specName, absPath, nil)
         }
@@ -965,7 +965,7 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
     var absDir, baseName = filepath.Split(fullname)
     defer func(mode Mode) { l.mode = mode } (l.mode) // Must restore parse mode!
     defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
-    if _, _, err = l.parse(ctx, fullname, nil, parseMode|Flat, &opts); err != nil {
+    if _, _, err = l.source(ctx, fullname, nil, parseMode|Flat, &opts); err != nil {
         if pe, ok := err.(*fs.PathError); ok && opts.ifExists {
             prompt(ctx, "%v: %v\n", fullname, pe.Err)
             warn(ctx, "include %v", spec)
@@ -1158,7 +1158,7 @@ func (l *loader) loadBases(ctx Context, linfo *loadinfo, implicitBase string, pa
         )
         defer l.setArgs(l.setArgs(args))
         if l.implicit = implicit; isDir {
-            okay = l.loadDir(ctx, specName, absPath, nil)
+            okay = l.dir(ctx, specName, absPath, nil)
         } else {
             okay = l.load(ctx, specName, absPath, nil)
         }
@@ -1221,11 +1221,11 @@ func (l *loader) loadDotContainer(ctx Context, ident *barecomp, identStr string,
         erro(ctx, "%s: file not exists: %s", ident, file.fullname()).debug(1)
         return
     } else if file.info.IsDir() {
-        if !l.loadDir(ctx, dotContainer, file.fullname(), nil) {
+        if !l.dir(ctx, dotContainer, file.fullname(), nil) {
             erro(ctx, "%s: load '%v' failed (%s)", ident, dotContainer, file.fullname()).debug(1)
             return
         }
-    } else if !l.loadFile(ctx, file.fullname(), nil) {
+    } else if !l.file(ctx, file.fullname(), nil) {
         erro(ctx, "%s: load '%v' failed (%s)", ident, dotContainer, file.fullname()).debug(1)
         return
     }
@@ -1257,11 +1257,11 @@ func (l *loader) loadDotConfigure(ctx Context, ident *barecomp, identStr string,
         erro(ctx, "%s: file not exists: %s", ident, file.fullname()).debug(1)
         return
     } else if file.info.IsDir() {
-        if !l.loadDir(ctx, dotConfigure, file.fullname(), nil) {
+        if !l.dir(ctx, dotConfigure, file.fullname(), nil) {
             erro(ctx, "%s: load %v failed  (%s)", ident, dotConfigure, file.fullname()).debug(1)
             return
         }
-    } else if !l.loadFile(ctx, file.fullname(), nil) {
+    } else if !l.file(ctx, file.fullname(), nil) {
         erro(ctx, "%s: load %v failed  (%s)", ident, dotConfigure, file.fullname()).debug(1)
         return
     }
@@ -1468,9 +1468,9 @@ func (l *loader) configuration(ctx Context, linfo *loadinfo, ident *barecomp, id
 
         var load = func(absPath string, isDir bool) bool {
             if isDir {
-                return l.loadDir(ctx, s, absPath, nil)
+                return l.dir(ctx, s, absPath, nil)
             } else {
-                return l.loadFile(ctx, absPath, nil)
+                return l.file(ctx, absPath, nil)
             }
         }
 
@@ -1776,7 +1776,7 @@ func readSource(filename string, source... interface{}) ([]byte, error) {
     return ioutil.ReadFile(filename)
 }
 
-func (l *loader) parse(ctx Context, filename string, src interface{}, mode Mode, opts *includeOpts) (f *parsedFile, res []Value, err error) {
+func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode, opts *includeOpts) (f *parsedFile, res []Value, err error) {
     if options.traceLaunch { defer un(trace(t_launch, "loader.ParseFile")) }
     if options.verbose {
         if ctx.Position().Filename == filename {
@@ -1916,19 +1916,7 @@ ListLoop:
     return
 }
 
-// parseDir calls ParseFile for all files with names ending in ".go" in the
-// directory specified by path and returns a map of package name -> package
-// AST with all the packages found.
-//
-// If filter != nil, only the files with os.FileInfo entries passing through
-// the filter (and ending in ".go") are considered. The mode bits are passed
-// to ParseFile unchanged. Position information is recorded in fset.
-//
-// If the directory couldn't be read, a nil map and the respective error are
-// returned. If a parse error occurred, a non-nil but incomplete map and the
-// first error encountered are returned.
-//
-func (l *loader) parseDir(pos Position, path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*Project) {
+func (l *loader) sources(pos Position, path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*Project) {
     defer func(t time.Time) {
         var d = time.Now().Sub(t)
         if options.verboseParse /*&& d > 50*time.Millisecond*/ {
@@ -2024,7 +2012,7 @@ ListLoop:
             pos.Filename, pos.Line = filename, 1
 
             var d *diagPoint
-            var src, _, err = l.parse(ctx, filename, nil, mode|parsingDir, nil)
+            var src, _, err = l.source(ctx, filename, nil, mode|parsingDir, nil)
             if n := ctx.checkErrors(true); n > 0 {
                 if s, n := filepath.Base(filename), n; err == nil {
                     d = erro(ctx, "%d diagnostic errors parsing file '%s'", n, s)
@@ -2104,7 +2092,7 @@ func (l *loader) load(ctx Context, specName, absPath string, source interface{})
     var absDir, baseName = filepath.Split(absPath)
     defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
 
-    var doc, _, err = l.parse(ctx, absPath, source, parseMode, nil)
+    var doc, _, err = l.source(ctx, absPath, source, parseMode, nil)
     if n := l.checkErrors(true); n > 0 {
         warn(ctx, "load '%s' got %d errors", specName, n).debug(1)
         if options.failOnErrors { fail(l.Position(), "fail by %d errors", l.totalErrors()) }
@@ -2119,8 +2107,8 @@ func (l *loader) load(ctx Context, specName, absPath string, source interface{})
     return
 }
 
-func (l *loader) loadDir(ctx Context, specName, absDir string, filter func(os.FileInfo) bool) (loadedOkay bool) {
-    if options.traceLaunch { defer un(trace(t_launch, "loader.loadDir")) }
+func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileInfo) bool) (loadedOkay bool) {
+    if options.traceLaunch { defer un(trace(t_launch, "loader.dir")) }
     defer func(t time.Time) {
         var d = time.Now().Sub(t)
         if options.verboseLoads /*&& d > 50*time.Millisecond*/ {
@@ -2170,7 +2158,7 @@ func (l *loader) loadDir(ctx Context, specName, absDir string, filter func(os.Fi
 
     defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, ""))
 
-    var mods = l.parseDir(pos, absDir, filter, parseMode)
+    var mods = l.sources(pos, absDir, filter, parseMode)
     if n := l.checkErrors(true); n > 0 {
         erro(ctx, "%d diagnostic errors parsing module '%s'", n, specName).debug(12)
         if options.failOnErrors { fail(l.Position(), "fail by %d errors", l.totalErrors()) }
@@ -2196,8 +2184,8 @@ func (l *loader) loadDir(ctx Context, specName, absDir string, filter func(os.Fi
     return
 }
 
-func (l *loader) loadFile(ctx Context, filename string, source interface{}) bool {
-    if options.traceLaunch { defer un(trace(t_launch, "loader.loadFile")) }
+func (l *loader) file(ctx Context, filename string, source interface{}) bool {
+    if options.traceLaunch { defer un(trace(t_launch, "loader.file")) }
     var spec string
     switch dir, base := filepath.Split(filename); base {
     case dotBase, dotConfigure: spec = base
@@ -2209,16 +2197,16 @@ func (l *loader) loadFile(ctx Context, filename string, source interface{}) bool
     return l.load(at(ctx, position), spec, filename, source)
 }
 
-func (l *loader) loadPath(path string, filter func(os.FileInfo) bool) bool {
-    if options.traceLaunch { defer un(trace(t_launch, "loader.loadPath")) }
+func (l *loader) path(path string, filter func(os.FileInfo) bool) bool {
+    if options.traceLaunch { defer un(trace(t_launch, "loader.path")) }
     var position Position
     var s, _ = filepath.Rel(l.WorkDir(), path)
     position.Filename = s
-    return l.loadDir(at(l, position), s, path, filter)
+    return l.dir(at(l, position), s, path, filter)
 }
 
-func (l *loader) loadText(filename string, text string) (res []Value) {
-    if options.traceLaunch { defer un(trace(t_launch, "loader.loadText")) }
+func (l *loader) text(filename string, text string) (res []Value) {
+    if options.traceLaunch { defer un(trace(t_launch, "loader.text")) }
 
     defer func(saved *parser) { l.p = saved } (l.p)
 
@@ -2235,7 +2223,7 @@ func (l *loader) loadText(filename string, text string) (res []Value) {
     position.Filename = filename
 
     var ctx Context = at(l, position)
-    if _, res, err = l.parse(ctx, filename, text, parsingText, &opts); err != nil {
+    if _, res, err = l.source(ctx, filename, text, parsingText, &opts); err != nil {
         prompt(ctx, "%v: %v\n", filename, err)
         erro(ctx, "load text failed: %v", err)
         errostack(ctx, 5, "").debug(32)

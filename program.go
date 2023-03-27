@@ -805,7 +805,9 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                             erro(at(ctx,s.pos), "%v", s).debug(1)
                             erro(of(ctx,target), "1. %T %v %s", target, target, target.Strval(ctx))
                             erro(of(ctx,depend), "2. %T %v %s", depend, depend, depend.Strval(ctx))
-                            erro(of(ctx,s.depend), "3. %T %v mine=%v", s.depend, s.depend, dependMine)
+                            if s.depend == nil { erro(ctx, "3. mine=%v", dependMine) } else {
+                                erro(of(ctx,s.depend), "3. %T %v mine=%v", s.depend, s.depend, dependMine)
+                            }
                             erro(of(ctx,prerequisite), "4. %T %v", prerequisite, prerequisite)
                             errostack(ctx, 5, "#>").debug(10)
                         }

@@ -1882,7 +1882,7 @@ func (p *parser) use(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int
 	var loader = ctx.loader()
 	for _, specVal := range specVals {
 		if ctx := at(ctx, specVal.Position()); true {
-			loader.loadUseSpecName(ctx, opts, specVal, arged, args...)
+			loader.use(ctx, opts, specVal, arged, args...)
 		} else {
 			var dc = diagContext{ Context: ctx } // redefine ctx
 			wg.Add(1); go func() {
@@ -1891,7 +1891,7 @@ func (p *parser) use(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int
 					if len(dc.points) > 0 { dc.inner().diagnostic().nest(dc.points) }
 					wg.Done()
 				} ()
-				loader.loadUseSpecName(ctx, opts, specVal, arged, args...)
+				loader.use(ctx, opts, specVal, arged, args...)
 			} ()
 		}
 	}
@@ -1966,7 +1966,7 @@ func (p *parser) files(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ i
 
 	var (
 		val = g.spec[0]
-		opts _FileMapCacher
+		opts cacher
 		pats []Value
 	)
 	parseOpts(ctx, &opts, 0, g.vals...)
@@ -2185,7 +2185,7 @@ ParamsParseLoop: // Parse the directive parameters
 	return
 }
 
-func (p *parser) clauseSpec(ctx Context, keyword token.Token, pos token.Pos, f parseSpecFunc) {
+func (p *parser) spec(ctx Context, keyword token.Token, pos token.Pos, f parseSpecFunc) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Clause("+keyword.String()+")")) }
 
 	var opts = genericClauseOpts{ keyword: keyword }
@@ -3102,18 +3102,18 @@ func (p *parser) clause() {
 		erro(ctx, "`%v` unexpected here", p.tok).debug(10)
 		return
 	case token.INCLUDE:
-		p.clauseSpec(ctx, p.tok, p.expect(p.tok), p.include)
+		p.spec(ctx, p.tok, p.expect(p.tok), p.include)
 		return
 	case token.FILES:
-		p.clauseSpec(ctx, p.tok, p.expect(p.tok), p.files)
+		p.spec(ctx, p.tok, p.expect(p.tok), p.files)
 		return
 	case token.ASSERT:
-		p.clauseSpec(ctx, p.tok, p.expect(p.tok), p.assert)
+		p.spec(ctx, p.tok, p.expect(p.tok), p.assert)
 		return
 	case token.APPEND:
-		p.clauseSpec(ctx, p.tok, p.expect(p.tok), p.append)
+		p.spec(ctx, p.tok, p.expect(p.tok), p.append)
 	case token.EVAL:
-		p.clauseSpec(ctx, p.tok, p.expect(p.tok), p.eval)
+		p.spec(ctx, p.tok, p.expect(p.tok), p.eval)
 		return
 	case token.COLON:
 		p.specialRule()
@@ -3435,13 +3435,13 @@ func (p *parser) file(ctx Context) *parsedFile {
 				switch p.tok {
 				case token.LINEND: p.next(true) // skip empty lines
 				case token.USE:
-					p.clauseSpec(ctx, p.tok, p.expect(p.tok), p.use)
+					p.spec(ctx, p.tok, p.expect(p.tok), p.use)
 				case token.ASSERT:
-					p.clauseSpec(ctx, p.tok, p.expect(p.tok), p.assert)
+					p.spec(ctx, p.tok, p.expect(p.tok), p.assert)
 				case token.APPEND:
-					p.clauseSpec(ctx, p.tok, p.expect(p.tok), p.append)
+					p.spec(ctx, p.tok, p.expect(p.tok), p.append)
 				case token.EVAL:
-					p.clauseSpec(ctx, p.tok, p.expect(p.tok), p.eval)
+					p.spec(ctx, p.tok, p.expect(p.tok), p.eval)
 				case token.TEMPLATE:
 					p.template(ctx)
 				default:
