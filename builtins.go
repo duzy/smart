@@ -4096,22 +4096,6 @@ func (ctx builtin) File(args... Value) (res Value) {
                         continue
                 } else if am = files(ctx, /* a */s, proj); am == nil {
                         continue // does nothing!
-                } else if true {
-                        // does nothing
-                } else if file = proj.selectFile(ctx, am); file != nil {
-                        list = append(list, file)
-                        if opts.report { info(ctx, "%v is no such file", a).debug(1) }
-                        continue // done here! TODO: stat absolute and local files in proj.file
-                } else if filepath.IsAbs(s) {
-                        if file = stat(ctx, s, "", ""); file != nil {
-                                list = append(list, file)
-                                if opts.report { info(ctx, "%v is no such file", a).debug(1) }
-                                continue
-                        }
-                } else if file = stat(ctx, s, "", proj.absPath); file != nil {
-                        list = append(list, file)
-                        if opts.report { info(ctx, "%v is no such file", a).debug(1) }
-                        continue
                 }
 
                 var en int
