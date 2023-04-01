@@ -1356,8 +1356,8 @@ func (entry *RuleEntry) traverse(ctx Context) (traves travestates) {
         }
 
         var (
-                entryPos = entry.Position()
                 result []Value
+                entryPos = entry.Position()
         )
 ForPrograms:
         for _, prog := range entry.programs {

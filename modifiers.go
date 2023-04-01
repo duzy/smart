@@ -121,7 +121,7 @@ func (g *modifiergroup) traverse(ctx Context) (traves travestates) {
             return
         } else if t = traves.not(traveCase, traveDone, traveNext); t.has() {
             if true || (options.verbose || options.verboseBreaks) {
-                var _, ent, _ = entryStr(ctx, ctx.entry())
+                var _, ent, _ = entryIndicator(ctx, ctx.entry())
                 warn(ctx, "%v: %s failed\n", ent, m.name)
                 for _, s := range t { warn(at(ctx,s.pos), "%v: %v", m.name, s) }
                 warnstack(ctx, 5, "").debug(16)

@@ -191,7 +191,7 @@ func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err 
 
     if value, err = i.Evaluate(ctx, params...); err != nil {
         var (
-            _, ent, _ = entryStr(ctx, ctx.entry())
+            _, ent, _ = entryIndicator(ctx, ctx.entry())
             nam = intername(i)
         )
         prompt(ctx, "%v: interpret '%s' recipes failed\n", ent, nam)
@@ -202,7 +202,7 @@ func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err 
         // disgard nil value
     } else if def, prev := ctx.autoSet("-", value); def == nil {
         var (
-            _, ent, _ = entryStr(ctx, ctx.entry())
+            _, ent, _ = entryIndicator(ctx, ctx.entry())
             nam = intername(i)
         )
         prompt(ctx, "%v: %s\n", ent, nam)
@@ -213,7 +213,7 @@ func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err 
 
     if _, _, err = updateRecipesHash(ctx, target); err != nil {
         var (
-            _, ent, _ = entryStr(ctx, ctx.entry())
+            _, ent, _ = entryIndicator(ctx, ctx.entry())
             nam = intername(i)
         )
         prompt(ctx, "%v: %s\n", ent, nam)
@@ -262,7 +262,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
             // Evaluate for configure modifier
             if i, ok := dialects["eval"]; ok && i != nil {
                 if err := prog.interpret(ctx, i, args); err != nil {
-                    var _, ent, _ = entryStr(ctx, ctx.entry())
+                    var _, ent, _ = entryIndicator(ctx, ctx.entry())
                     prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
                     erro(ctx, "interpret failed: %v", err)
                     errostack(ctx, 3, "%v", ctx).debug(1)
@@ -273,7 +273,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
         if value, traves = f(at(ctx, m.position), args...); traves.has() {
             if t := traves.not(traveCase, traveNext, traveDone); false && t.has() {
                 if options.verbose || options.verboseBreaks {
-                    var _, ent, _ = entryStr(ctx, ctx.entry())
+                    var _, ent, _ = entryIndicator(ctx, ctx.entry())
                     prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
                     for _, s := range t { warn(at(ctx,s.pos), "%v: %s: %v", proj, name, s) }
                     warnstack(ctx, 5, "").debug(16)
@@ -283,7 +283,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
         } else if h := autoGet(ctx,"-"); h == nil || isNil(value) || value == h {
             // does nothing
         } else if ctx.autoSet("-", value); false {
-            var _, ent, _ = entryStr(ctx, ctx.entry())
+            var _, ent, _ = entryIndicator(ctx, ctx.entry())
             prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
             erro(ctx, "setting buffer value failed: %v", value)
             errostack(ctx, 3, "(%T):", ctx).debug(1)
@@ -291,14 +291,14 @@ func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
         }
     } else if i, _ := dialects[name]; i != nil {
         if err := prog.interpret(ctx, i, args); err != nil {
-            var _, ent, _ = entryStr(ctx, ctx.entry())
+            var _, ent, _ = entryIndicator(ctx, ctx.entry())
             prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
             erro(ctx, "%s: %v", name, err)
             errostack(ctx, 3, "(%T):", ctx).debug(1)
             fail(m.Position(), "%s failed for project %s", name, proj)
         }
     } else {
-        var _, ent, _ = entryStr(ctx, ctx.entry())
+        var _, ent, _ = entryIndicator(ctx, ctx.entry())
         prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
         erro(ctx, "unknown modifier '%s'", name)
         errostack(ctx, 3, "%v", ctx).debug(1)
@@ -434,7 +434,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
         }
         if ctx.checkErrors(true) > 0 {
             var (
-                str, ent, tar = entryStr(ctx, entry)
+                str, ent, tar = entryIndicator(ctx, entry)
                 errs = ctx.totalErrors()
             )
             if !ctx.isConfiguration() && cc != nil {

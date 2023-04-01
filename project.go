@@ -473,8 +473,11 @@ ForPatterns:
 }
 
 func files(ctx Context, iname interface{}, projects ...*Project) (maps []matchedFileMap) {
+  if len(projects) == 0 { projects = append(projects, ctx.Project()) }
+
   var a, b, c, d []matchedFileMap // four sections
-  outer: for _, m := range ctx.universe().unmap(ctx, iname) {
+outer:
+  for _, m := range ctx.universe().unmap(ctx, iname) {
     for _, p := range projects {
       if m.project == p {
         a = append(a, m) ; continue outer
@@ -494,29 +497,7 @@ func files(ctx Context, iname interface{}, projects ...*Project) (maps []matched
   return
 }
 
-// func (p *Project) selectFile(ctx Context, maps []matchedFileMap) (file *File) {
-//   var first *File
-//   for _, m := range maps {
-//     var proj = m.project
-//     if false && proj != p { continue }
-//     if f, y := toFile(m.pattern); y { file = f; break }
-//     if proj.changedWD != "" { file = m.stat(ctx, proj.changedWD, m.name) }
-//     if file == nil          { file = m.stat(ctx, proj.absPath,   m.name) }
-//     if file != nil { if file.filemap == nil { file.filemap = &m.FileMap }
-//       if file.exists() { break } else {
-//         if first == nil { first = file }
-//         file = nil // reset for the next match
-//       }
-//     }
-//   }
-//   if first != file && !file.exists() { file = first }
-//   return
-// }
-// func (p *Project) file(ctx Context, iname interface{}) (file *File) {
-//   return p.selectFile(ctx, files(ctx, iname, p))
-// }
-
-func (p *Project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File) {
+func (p *Project) buggy_selectFiles(ctx Context, maps []matchedFileMap) (files []*File) {
   for _, m := range maps {
     var f, y = toFile(m.pattern)
     if y { files = append(files, f) ; continue }
@@ -532,8 +513,24 @@ func (p *Project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File
   return
 }
 
+func (p *Project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File) {
+  for _, m := range maps {
+    var f *File
+    var proj = m.project
+    if proj.changedWD != "" { f = m.stat(ctx, proj.changedWD, m.name) }
+    if f == nil { f = m.stat(ctx, proj.absPath,   m.name) }
+    if f != nil {
+      if f.filemap == nil { f.filemap = &m.FileMap }
+      files = append(files, f)
+    }
+  }
+  return
+}
+
 func (p *Project) selectFile(ctx Context, maps []matchedFileMap) (file *File) {
-  for _, f := range p.selectFiles(ctx, maps) { if f.exists() { return f } }
+  var a = p.selectFiles(ctx, maps)
+  for _, f := range a { if f.exists() { return f } }
+  if len(a) > 0 { file = a[0] /* pick the first one if no exists */ }
   return
 }
 

@@ -32,6 +32,7 @@ const (
 	composingPERC
 	composingREXP
 	composingURL
+	composingDepend0
 	composingModifier
 
 	parsingCompound
@@ -644,6 +645,12 @@ func (p *parser) dependList(ctx Context, normal bool) (list []Value) {
 			erro(p, "unexpected colon").debug(1)
 			p.next(true) // just ignore this colon
 		} else if p.skipSpaces(); !p.isEndOfLine() {
+			if len(list) == 0 {
+				p.bits |= composingDepend0
+			} else {
+				p.bits &= ^composingDepend0
+			}
+
 			var val = p.expr(ctx, false)
 			if normal {
 				if g, y := val.(*Group); y && len(g.Elems) == 1 {
@@ -1608,6 +1615,15 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 	return MakeNil(p.Position())
 }
 
+func (p *parser) isParametersGroup(x Value) (res bool) {
+	if p.bits&composingDepend0 != 0 {
+		if g, y := x.(*Group); y && len(g.Elems) == 1 {
+			_, res = g.Elems[0].(*Group)
+		}
+	}
+	return
+}
+
 func (p *parser) composedExpr(ctx Context, lhs bool) (x Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Composed")) }
 
@@ -1619,10 +1635,14 @@ func (p *parser) composedExpr(ctx Context, lhs bool) (x Value) {
 		}
 
 	case token.LBRACK: // xxx[(foo ...)]
+		if p.isParametersGroup(x) { break }
 		if p.bits&composingModifier == 0 {
 			// FIXME: compose lhs x
-			m := p.modifiers(ctx)
-			erro(of(ctx,m), "composing modifiers is ignored (unimplemented yet)")
+			if m := p.modifiers(ctx); false {
+				erro(of(ctx,m), "composing modifiers is ignored (unimplemented yet)")
+			} else {
+				errostack(of(ctx,m), 3, "composing modifiers is ignored (%T %v)", x, x).debug(12)
+			}
 		}
 	case token.STAR, token.QUE/*, token.LBRACK*/: // foo*bar foo?bar foo[a-z]bar
 		if p.bits&composingNoGlob == 0 {
@@ -1677,7 +1697,8 @@ func (p *parser) expr(ctx Context, lhs bool) (x Value) {
 	if x = p.composedExpr(ctx, lhs); isNil(x) {
 		erro(ctx, "%v: invalid expression (tok=%v, lit=%v)", ctx.Project(), tok, lit).debug(6)
 		return
-	} else if lhs && p.tok.IsAssign() { return }
+	} else if lhs && p.tok.IsAssign() { return
+	} else if p.isParametersGroup(x)  { return }
 
 SwitchCompose:
 	switch p.tok {
@@ -2136,7 +2157,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ in
 	if op, y := resolved.(*Builtin); !y {
 		erro(ctx, "resolved '%v' is not a command (%s)", prop0, typeof(resolved)).debug(1)
 		return
-	} else if !op.s.command {
+	} else if op.s.b&builtinCommand == 0 {
 		erro(ctx, "resolved builtin '%v' is not a command", prop0).debug(1)
 		return
 	} else if op.s.f != nil {
@@ -2314,7 +2335,7 @@ SwitchDialect:
 				erro(of(ctx,x), "builtin command no more supported, use $(%s ...) instead", t.string)
 			} else if b, ok := sym.(*Builtin); !ok {
 				erro(of(ctx,x), "'%s' is not a command (%s)", t.string, typeof(sym))
-			} else if !b.s.command {
+			} else if b.s.b&builtinCommand == 0 {
 				erro(of(ctx,x), "'%s' is not a command, use $(%s ...) instead", t.string, t.string)
 			} else {
 				x = sym
@@ -3398,7 +3419,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 					)
 					if keyword == token.PACKAGE || opts.final {
 						// No bases for PACKAGE or final project
-					} else if !loader.loadBases(ctx, linfo, "", merge(t...)...) {
+					} else if !loader.bases(ctx, linfo, "", merge(t...)...) {
 						erro(of(ctx,param), "loading base '%v' failed", t).debug(1)
 						return nil
 					}
@@ -3407,7 +3428,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 			}
 			p.expect(token.RPAREN)
 			if false { defer func() { warn(ctx, "%v", ident).debug(32) } () }
-		} else if !loader.loadBases(ctx, linfo, implicitBase) { // for special bases, e.g. .base
+		} else if !loader.bases(ctx, linfo, implicitBase) { // for special bases, e.g. .base
 			erro(at(ctx,basePos), "loading bases failed").debug(1)
 			return nil
 		}

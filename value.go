@@ -580,7 +580,7 @@ func (pc *programContext) traversed(target Value) (targets []Value) {
     return
 }
 
-func entryStr(ctx Context, entry Entry) (str, ent, tar string) {
+func entryIndicator(ctx Context, entry Value) (str, ent, tar string) {
     if !isNil(entry) { ent = entry.Strval(ctx) }
     if val := autoGet(ctx, "@"); val == nil || isTrivial(val) {
         str = ent // ...
@@ -589,11 +589,6 @@ func entryStr(ctx Context, entry Entry) (str, ent, tar string) {
     } else {
         str = ent
     }
-    return
-}
-
-func entryStr1(ctx Context, entry Entry) (s string) {
-    s, _, _ = entryStr(ctx, entry)
     return
 }
 
@@ -623,7 +618,7 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
         proj = entry.OwnerProject()
     }
 
-    var str, _, _ = entryStr(ctx, entry)
+    var str, _, _ = entryIndicator(ctx, entry)
     if s == "<#" && len(a) > 0 { for _, t := range a {
         if v, ok := t.(Value); ok {
             if str == "" {
@@ -667,7 +662,7 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
             if n == 1 && pc.caller() != nil { suf = " ..." }
             if entry := pc.entry(); entry == nil {
                 point = ctx.diag(dt, "%v%s", proj, suf)
-            } else if str, _, _ := entryStr(pc, entry); str != "" {
+            } else if str, _, _ := entryIndicator(pc, entry); str != "" {
                 point = ctx.diag(dt, "%v: (project=%v)%s", str, proj, suf)
             } else {
                 point = ctx.diag(dt, "%v: %v%s", proj, entry, suf)
@@ -730,20 +725,40 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
     }
 
     // NOTE: Don't delete, keep it for future debugging.
-    if false {/* noop  */} else
-    // if true && strings.Contains(targetValue.String(), "llvm-tools-driver") {
-    // if true && strings.Contains(prereqStrval, "llvm/Config/") {
-    if false && (strings.HasPrefix(prereqStrval, "llvm/Config/") && strings.HasSuffix(prereqStrval, ".h")) {
-        prompt(ctx, "%v : %v\n", targetValue, prereqValue)
+    if true {if (strings.HasPrefix(prereqStrval, "llvm/") && strings.HasSuffix(prereqStrval, "/llvm-config.h")) {
+        var s, _, _ = entryIndicator(ctx, targetValue)
+        prompt(ctx, "%v : %v\n", s, prereqValue)
         warn(ctx, "@: %T %v : %v", targetValue, targetValue, ctx.program().depends)
-        warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, file(ctx, prereqStrval))
-        warn(ctx, "&: %v", projects)
-        warnstack(ctx, 5, "").debug(10)
-        defer func() {
-            warn(ctx, "%v : %v, %v, %v (%T)", targetValue,
-                prereqValue, prereqFile, prereqObj, prereqObj).debug(10)
-        } ()
-    }
+        if f := file(ctx, prereqStrval); f == nil || true {
+            var p = ctx.Project()
+            var a = ctx.universe().unmap(ctx, prereqStrval)
+            var b = files(ctx, prereqStrval, p)
+            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, a)
+            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, b)
+            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, p.selectFiles(ctx, a))
+            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, p.selectFiles(ctx, b))
+            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, p.selectFile(ctx, a))
+            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, p.selectFile(ctx, b))
+            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, f)
+            for i, m := range a { warn(at(ctx, f.position), "%v: %d. %v: %v %v", p, i, m.project, m.name, m.pattern) }
+            for i, m := range b { warn(at(ctx, f.position), "%v: %d. %v: %v %v", p, i, m.project, m.name, m.pattern) }
+            if f != nil {
+                warn(at(ctx, f.position), "%v: %v", p, f.filestub)
+                warn(at(ctx, f.position), "%v: %v", p, f.fullname())
+            }
+            if f, y := prereqValue.(*File); y {
+                warn(at(ctx, f.position), "%v: %v", p, f.filestub)
+                warn(at(ctx, f.position), "%v: %v", p, f.fullname())
+            }
+            warnstack(ctx, 5, "%v", p).debug(10)
+        } else {
+            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, f.filestub)
+            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, f.fullname())
+            warnstack(ctx, 5, "").debug(10)
+        }
+        defer func() { warn(ctx, "%v : %v, %v, %v",
+            targetValue, prereqValue, prereqFile, prereqObj).debug(10) } ()
+    }}
 
     if len(projects) == 0 { projects = ctx.projects(ctx) }
     if len(projects) == 0 {

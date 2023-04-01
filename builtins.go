@@ -53,130 +53,133 @@ func convPosition(filename, line, column string) (pos Position) {
         return
 }
 
+const (
+        builtinCallable int = 0
+        builtinCommand      = 1<<(iota-1)
+)
 type builtin struct {
         Context
         w facet
 }
 type BuiltinFunc struct {
         f func(builtin, ...Value) (Value)
-        command bool
-        n int // first n args to apply m
+        b, n int // first n args to apply m
         m, o facet
 }
 
 var builtins = map[string]BuiltinFunc {
-        `typeof`:       BuiltinFunc{builtin.typeof, false, 0, expandZero, expandZero},
-        `origin`:       BuiltinFunc{builtin.origin, false, 0, expandZero, expandZero},
-        `defined`:      BuiltinFunc{builtin.defined, false, 0, expandZero, expandZero},
+        `typeof`:       BuiltinFunc{builtin.typeof, builtinCallable, 0, expandZero, expandZero},
+        `origin`:       BuiltinFunc{builtin.origin, builtinCallable, 0, expandZero, expandZero},
+        `defined`:      BuiltinFunc{builtin.defined, builtinCallable, 0, expandZero, expandZero},
 
-        `position`:     BuiltinFunc{builtin._position, false, 0, expandZero, expandZero},
-        `date`:         BuiltinFunc{builtin.Date, false, 0, expandZero, expandZero},
+        `position`:     BuiltinFunc{builtin._position, builtinCallable, 0, expandZero, expandZero},
+        `date`:         BuiltinFunc{builtin.Date, builtinCallable, 0, expandZero, expandZero},
 
-        `debug`:        BuiltinFunc{builtin.Debug, false, 0, expandZero, expandZero},
-        `error`:        BuiltinFunc{builtin.Error, false, 0, expandZero, expandZero},
-        //`warning`:      BuiltinFunc{builtin.Warning, false, 0, expandZero, expandZero},
-
-        //`assert`: BuiltinFunc{builtin.Assert, false, 0, expandZero, expandZero},
+        `assert`:       BuiltinFunc{builtin.Assert, builtinCallable, 0, expandZero, expandZero},
+        `debug`:        BuiltinFunc{builtin.Debug, builtinCallable, 0, expandZero, expandZero},
+        `error`:        BuiltinFunc{builtin.Error, builtinCallable, 0, expandZero, expandZero},
+        `warning`:      BuiltinFunc{builtin.Warning, builtinCallable, 0, expandZero, expandZero},
 
         // $(defor) (aka. defined-or)
-        `defor`:        BuiltinFunc{builtin.DefOr, false, 0, expandZero, expandZero}, // $(defor $(x),$(y),$(z))  <=>  $(if $(defined $(x)),$(x),...)
-        `or`:           BuiltinFunc{builtin.Or, false, 0, expandZero, expandZero},
-        `and`:          BuiltinFunc{builtin.And, false, 0, expandZero, expandZero},
-        //`xor`:          BuiltinFunc{builtin.Xor, false, 0, expandZero, expandZero},
-        `not`:          BuiltinFunc{builtin.Not, false, 0, expandZero, expandZero},
+        `defor`:        BuiltinFunc{builtin.DefOr, builtinCallable, 0, expandZero, expandZero}, // $(defor $(x),$(y),$(z))  <=>  $(if $(defined $(x)),$(x),...)
+        `or`:           BuiltinFunc{builtin.Or, builtinCallable, 0, expandZero, expandZero},
+        `and`:          BuiltinFunc{builtin.And, builtinCallable, 0, expandZero, expandZero},
+        `not`:          BuiltinFunc{builtin.Not, builtinCallable, 0, expandZero, expandZero},
+        //`xor`:          BuiltinFunc{builtin.Xor, builtinCallable, 0, expandZero, expandZero},
 
-        `not-equal`:    BuiltinFunc{builtin.NotEqual, false, 0, expandZero, expandZero},
-        `equal`:        BuiltinFunc{builtin.Equal, false, 0, expandZero, expandZero},
-        `equals`:       BuiltinFunc{builtin.Equal, false, 0, expandZero, expandZero},
-        `match`:        BuiltinFunc{builtin.Match, false, 0, expandZero, expandZero},
+        `equal`:        BuiltinFunc{builtin.Equal, builtinCallable, 0, expandZero, expandZero},
+        `equals`:       BuiltinFunc{builtin.Equal, builtinCallable, 0, expandZero, expandZero},
+        `not-equal`:    BuiltinFunc{builtin.NotEqual, builtinCallable, 0, expandZero, expandZero},
+        `match`:        BuiltinFunc{builtin.Match, builtinCallable, 0, expandZero, expandZero},
 
-        `greater`:      BuiltinFunc{builtin.Greater, false, 0, expandZero, expandZero},
-        `less`:         BuiltinFunc{builtin.Less, false, 0, expandZero, expandZero},
+        `greater`:      BuiltinFunc{builtin.Greater, builtinCallable, 0, expandZero, expandZero},
+        `less`:         BuiltinFunc{builtin.Less, builtinCallable, 0, expandZero, expandZero},
 
-        `case`:         BuiltinFunc{builtin.Case, false, 0, expandZero, expandZero},
-        `if`:           BuiltinFunc{builtin.If, false, 0, expandZero, expandZero},
-        `ifeq`:         BuiltinFunc{builtin.IfEq, false, 0, expandZero, expandZero},
-        `ifne`:         BuiltinFunc{builtin.IfNE, false, 0, expandZero, expandZero},
+        `case`:         BuiltinFunc{builtin.Case, builtinCallable, 0, expandZero, expandZero},
+        `if`:           BuiltinFunc{builtin.If, builtinCallable, 0, expandZero, expandZero},
+        `ifeq`:         BuiltinFunc{builtin.IfEq, builtinCallable, 0, expandZero, expandZero},
+        `ifne`:         BuiltinFunc{builtin.IfNE, builtinCallable, 0, expandZero, expandZero},
 
-        `foreach`:      BuiltinFunc{builtin.ForEach, false, 1, expandPlaceholders, expandUnPlaceholders},
-        `count`:        BuiltinFunc{builtin.Count, false, 0, expandZero, expandZero},
+        `foreach`:      BuiltinFunc{builtin.ForEach, builtinCallable, 1, expandPlaceholders, expandUnPlaceholders},
+        `count`:        BuiltinFunc{builtin.Count, builtinCallable, 0, expandZero, expandZero},
 
-        `env`:          BuiltinFunc{builtin.Env, false, 0, expandZero, expandZero},
-        `closure`:      BuiltinFunc{builtin.Closure, false, 0, expandZero, expandZero},
-        `defs`:         BuiltinFunc{builtin.DefList, false, 0, expandZero, expandZero},
-        `call`:         BuiltinFunc{nil, false, 0, expandZero, expandZero},
-        `auto`:         BuiltinFunc{nil, false, 0, expandZero, expandZero},
-        `var`:          BuiltinFunc{nil, false, 0, expandZero, expandZero},
-        `value`:        BuiltinFunc{builtin.Value, false, 0, expandZero, expandZero},
-        `list`:         BuiltinFunc{builtin.List, false, 0, expandZero, expandZero},
-        `sure-value`:   BuiltinFunc{builtin.SureValue, false, 0, expandZero, expandZero},
+        `call`:         BuiltinFunc{nil, builtinCallable, 0, expandZero, expandZero},
+        `auto`:         BuiltinFunc{nil, builtinCallable, 0, expandZero, expandZero},
+        `var`:          BuiltinFunc{nil, builtinCallable, 0, expandZero, expandZero},
 
-        `shell`:        BuiltinFunc{builtin.Shell, false, 0, expandZero, expandZero},
-        `which`:        BuiltinFunc{builtin.Which, false, 0, expandZero, expandZero},
+        `closure`:      BuiltinFunc{builtin.Closure, builtinCallable, 0, expandZero, expandZero},
+        `env`:          BuiltinFunc{builtin.Env, builtinCallable, 0, expandZero, expandZero},
+        `defs`:         BuiltinFunc{builtin.DefList, builtinCallable, 0, expandZero, expandZero},
+        `sure-value`:   BuiltinFunc{builtin.SureValue, builtinCallable, 0, expandZero, expandZero},
+        `value`:        BuiltinFunc{builtin.Value, builtinCallable, 0, expandZero, expandZero},
+        `list`:         BuiltinFunc{builtin.List, builtinCallable, 0, expandZero, expandZero},
 
-        `serve-http`:   BuiltinFunc{builtin.ServeHttp, false, 0, expandZero, expandZero},
-        `serve-https`:  BuiltinFunc{builtin.ServeHttps, false, 0, expandZero, expandZero},
+        `shell`:        BuiltinFunc{builtin.Shell, builtinCallable, 0, expandZero, expandZero},
+        `which`:        BuiltinFunc{builtin.Which, builtinCallable, 0, expandZero, expandZero},
 
-        `plus`:     BuiltinFunc{builtin.Plus, false, 0, expandZero, expandZero},
-        `minus`:    BuiltinFunc{builtin.Minus, false, 0, expandZero, expandZero},
-        `multiply`: BuiltinFunc{builtin.Multiply, false, 0, expandZero, expandZero},
-        `mul`:      BuiltinFunc{builtin.Multiply, false, 0, expandZero, expandZero},
-        `divide`:   BuiltinFunc{builtin.Divide, false, 0, expandZero, expandZero},
-        `div`:      BuiltinFunc{builtin.Divide, false, 0, expandZero, expandZero},
+        `plus`:     BuiltinFunc{builtin.Plus, builtinCallable, 0, expandZero, expandZero},
+        `minus`:    BuiltinFunc{builtin.Minus, builtinCallable, 0, expandZero, expandZero},
+        `multiply`: BuiltinFunc{builtin.Multiply, builtinCallable, 0, expandZero, expandZero},
+        `mul`:      BuiltinFunc{builtin.Multiply, builtinCallable, 0, expandZero, expandZero},
+        `divide`:   BuiltinFunc{builtin.Divide, builtinCallable, 0, expandZero, expandZero},
+        `div`:      BuiltinFunc{builtin.Divide, builtinCallable, 0, expandZero, expandZero},
 
-        `quote`:                BuiltinFunc{builtin.Quote, false, 0, expandZero, expandZero},
-        `quote-join`:           BuiltinFunc{builtin.QuoteJoin, false, 0, expandZero, expandZero},
-        `split-string`:         BuiltinFunc{builtin.SplitString, false, 0, expandZero, expandZero},
-        `split-quote`:          BuiltinFunc{builtin.SplitQuote, false, 0, expandZero, expandZero},
-        `split-quote-join`:     BuiltinFunc{builtin.SplitQuoteJoin, false, 0, expandZero, expandZero},
-        `split-join-quote`:     BuiltinFunc{builtin.SplitJoinQuote, false, 0, expandZero, expandZero},
-        `unique`:               BuiltinFunc{builtin.Unique, false, 0, expandZero, expandZero},
-        `join`:                 BuiltinFunc{builtin.Join, false, 0, expandZero, expandZero}, // concat
-        `field`:                BuiltinFunc{builtin.Field, false, 0, expandZero, expandZero},
-        `fields`:               BuiltinFunc{builtin.Fields, false, 0, expandZero, expandZero},
+        `quote`:                BuiltinFunc{builtin.Quote, builtinCallable, 0, expandZero, expandZero},
+        `quote-join`:           BuiltinFunc{builtin.QuoteJoin, builtinCallable, 0, expandZero, expandZero},
+        `split-string`:         BuiltinFunc{builtin.SplitString, builtinCallable, 0, expandZero, expandZero},
+        `split-quote`:          BuiltinFunc{builtin.SplitQuote, builtinCallable, 0, expandZero, expandZero},
+        `split-quote-join`:     BuiltinFunc{builtin.SplitQuoteJoin, builtinCallable, 0, expandZero, expandZero},
+        `split-join-quote`:     BuiltinFunc{builtin.SplitJoinQuote, builtinCallable, 0, expandZero, expandZero},
+        `unique`:               BuiltinFunc{builtin.Unique, builtinCallable, 0, expandZero, expandZero},
+        `join`:                 BuiltinFunc{builtin.Join, builtinCallable, 0, expandZero, expandZero}, // concat
+        `field`:                BuiltinFunc{builtin.Field, builtinCallable, 0, expandZero, expandZero},
+        `fields`:               BuiltinFunc{builtin.Fields, builtinCallable, 0, expandZero, expandZero},
 
-        //`usee`:       BuiltinFunc{builtin.Usee, false, 0, expandZero, expandZero},
-        `uses`:         BuiltinFunc{builtin.Uses, false, 0, expandZero, expandZero},
+        //`usee`:       BuiltinFunc{builtin.Usee, builtinCallable, 0, expandZero, expandZero},
+        `uses`:         BuiltinFunc{builtin.Uses, builtinCallable, 0, expandZero, expandZero},
 
-        `path`:         BuiltinFunc{builtin.Path, false, 0, expandZero, expandZero},
-        `bare`:         BuiltinFunc{builtin.bare, false, 0, expandZero, expandZero}, // different from builtinBareword, for files, etc.
-        `bareword`:     BuiltinFunc{builtin.bareword, false, 0, expandZero, expandZero},
-        `string`:       BuiltinFunc{builtin._string, false, 0, expandZero, expandZero},
-        `strval`:       BuiltinFunc{builtin.strval, false, 0, expandZero, expandZero},
-        `strip`:        BuiltinFunc{builtin.Strip, false, 0, expandZero, expandZero},
-        `trim`:         BuiltinFunc{builtin.Trim, false, 0, expandZero, expandZero},
-        `trim-space`:   BuiltinFunc{builtin.TrimSpace, false, 0, expandZero, expandZero},
-        `trim-left`:    BuiltinFunc{builtin.TrimLeft, false, 0, expandZero, expandZero},
-        `trim-right`:   BuiltinFunc{builtin.TrimRight, false, 0, expandZero, expandZero},
-        `trim-prefix`:  BuiltinFunc{builtin.TrimPrefix, false, 0, expandZero, expandZero},
-        `trim-suffix`:  BuiltinFunc{builtin.TrimSuffix, false, 0, expandZero, expandZero},
-        `trim-ext`:     BuiltinFunc{builtin.TrimExt, false, 0, expandZero, expandZero},
+        `path`:         BuiltinFunc{builtin.Path, builtinCallable, 0, expandZero, expandZero},
+        `bare`:         BuiltinFunc{builtin.bare, builtinCallable, 0, expandZero, expandZero}, // different from builtinBareword, for files, etc.
+        `bareword`:     BuiltinFunc{builtin.bareword, builtinCallable, 0, expandZero, expandZero},
+        `string`:       BuiltinFunc{builtin._string, builtinCallable, 0, expandZero, expandZero},
+        `strval`:       BuiltinFunc{builtin.strval, builtinCallable, 0, expandZero, expandZero},
+        `strip`:        BuiltinFunc{builtin.Strip, builtinCallable, 0, expandZero, expandZero},
+        `trim`:         BuiltinFunc{builtin.Trim, builtinCallable, 0, expandZero, expandZero},
+        `trim-space`:   BuiltinFunc{builtin.TrimSpace, builtinCallable, 0, expandZero, expandZero},
+        `trim-left`:    BuiltinFunc{builtin.TrimLeft, builtinCallable, 0, expandZero, expandZero},
+        `trim-right`:   BuiltinFunc{builtin.TrimRight, builtinCallable, 0, expandZero, expandZero},
+        `trim-prefix`:  BuiltinFunc{builtin.TrimPrefix, builtinCallable, 0, expandZero, expandZero},
+        `trim-suffix`:  BuiltinFunc{builtin.TrimSuffix, builtinCallable, 0, expandZero, expandZero},
+        `trim-ext`:     BuiltinFunc{builtin.TrimExt, builtinCallable, 0, expandZero, expandZero},
 
-        `ext`:          BuiltinFunc{builtin.Ext, false, 0, expandZero, expandZero},
+        `ext`:          BuiltinFunc{builtin.Ext, builtinCallable, 0, expandZero, expandZero},
 
-        `addprefix`:    BuiltinFunc{builtin.AddPrefix, false, 0, expandZero, expandZero},
-        `addsuffix`:    BuiltinFunc{builtin.AddSuffix, false, 0, expandZero, expandZero},
+        `addprefix`:    BuiltinFunc{builtin.AddPrefix, builtinCallable, 0, expandZero, expandZero},
+        `addsuffix`:    BuiltinFunc{builtin.AddSuffix, builtinCallable, 0, expandZero, expandZero},
 
-        `printf`:       BuiltinFunc{builtin.Printf, false, 0, expandZero, expandZero},
+        `print`:        BuiltinFunc{builtin.Print, builtinCallable, 0, expandZero, expandZero},
+        `printf`:       BuiltinFunc{builtin.Printf, builtinCallable, 0, expandZero, expandZero},
+        `printl`:       BuiltinFunc{builtin.Printl, builtinCallable, 0, expandZero, expandZero},
+        `println`:      BuiltinFunc{builtin.Println, builtinCallable, 0, expandZero, expandZero},
 
-        `uppercase`:    BuiltinFunc{builtin.UpperCase, false, 0, expandZero, expandZero},
-        `lowercase`:    BuiltinFunc{builtin.LowerCase, false, 0, expandZero, expandZero},
-        `title`:        BuiltinFunc{builtin.Title, false, 0, expandZero, expandZero},
+        `uppercase`:    BuiltinFunc{builtin.UpperCase, builtinCallable, 0, expandZero, expandZero},
+        `lowercase`:    BuiltinFunc{builtin.LowerCase, builtinCallable, 0, expandZero, expandZero},
+        `title`:        BuiltinFunc{builtin.Title, builtinCallable, 0, expandZero, expandZero},
 
-        `indent`:       BuiltinFunc{builtin.Indent, false, 0, expandZero, expandZero},
+        `indent`:       BuiltinFunc{builtin.Indent, builtinCallable, 0, expandZero, expandZero},
 
-        `substring`:    BuiltinFunc{builtin.Substring, false, 0, expandZero, expandZero},
+        `substring`:    BuiltinFunc{builtin.Substring, builtinCallable, 0, expandZero, expandZero},
 
         // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
-        `subst`:        BuiltinFunc{builtin.Subst, false, 0, expandZero, expandZero},
-        `patsubst`:     BuiltinFunc{builtin.Patsubst, false, 0, expandZero, expandZero},
+        `subst`:        BuiltinFunc{builtin.Subst, builtinCallable, 0, expandZero, expandZero},
+        `patsubst`:     BuiltinFunc{builtin.Patsubst, builtinCallable, 0, expandZero, expandZero},
 
-        `contains`:     BuiltinFunc{builtin.Contains, false, 0, expandZero, expandZero},
-        `filter`:       BuiltinFunc{builtin.Filter, false, 0, expandZero, expandZero},
-        `filter-out`:   BuiltinFunc{builtin.FilterOut, false, 0, expandZero, expandZero},
+        `contains`:     BuiltinFunc{builtin.Contains, builtinCallable, 0, expandZero, expandZero},
+        `filter`:       BuiltinFunc{builtin.Filter, builtinCallable, 0, expandZero, expandZero},
+        `filter-out`:   BuiltinFunc{builtin.FilterOut, builtinCallable, 0, expandZero, expandZero},
 
-        `encode-base64`:BuiltinFunc{builtin.EncodeBase64, false, 0, expandZero, expandZero},
-        `decode-base64`:BuiltinFunc{builtin.DecodeBase64, false, 0, expandZero, expandZero},
+        `encode-base64`:BuiltinFunc{builtin.EncodeBase64, builtinCallable, 0, expandZero, expandZero},
+        `decode-base64`:BuiltinFunc{builtin.DecodeBase64, builtinCallable, 0, expandZero, expandZero},
 
         /* TODO:
         `encode-base32`
@@ -191,105 +194,91 @@ var builtins = map[string]BuiltinFunc {
         `decode-csv` */
 
         // Fullname of a file or identical to the input
-        `fullname`:   BuiltinFunc{builtin.fullname, false, 0, expandZero, expandZero},
+        `fullname`:   BuiltinFunc{builtin.fullname, builtinCallable, 0, expandZero, expandZero},
 
-        `base`:       BuiltinFunc{builtin.base, false, 0, expandZero, expandZero},
-        `base2`:      BuiltinFunc{builtin.base2, false, 0, expandZero, expandZero},
-        `base3`:      BuiltinFunc{builtin.base3, false, 0, expandZero, expandZero},
-        `base4`:      BuiltinFunc{builtin.base4, false, 0, expandZero, expandZero},
-        `base5`:      BuiltinFunc{builtin.base5, false, 0, expandZero, expandZero},
-        `base6`:      BuiltinFunc{builtin.base6, false, 0, expandZero, expandZero},
-        `base7`:      BuiltinFunc{builtin.base7, false, 0, expandZero, expandZero},
-        `base8`:      BuiltinFunc{builtin.base8, false, 0, expandZero, expandZero},
-        `base9`:      BuiltinFunc{builtin.base9, false, 0, expandZero, expandZero},
+        `base`:       BuiltinFunc{builtin.base, builtinCallable, 0, expandZero, expandZero},
+        `base2`:      BuiltinFunc{builtin.base2, builtinCallable, 0, expandZero, expandZero},
+        `base3`:      BuiltinFunc{builtin.base3, builtinCallable, 0, expandZero, expandZero},
+        `base4`:      BuiltinFunc{builtin.base4, builtinCallable, 0, expandZero, expandZero},
+        `base5`:      BuiltinFunc{builtin.base5, builtinCallable, 0, expandZero, expandZero},
+        `base6`:      BuiltinFunc{builtin.base6, builtinCallable, 0, expandZero, expandZero},
+        `base7`:      BuiltinFunc{builtin.base7, builtinCallable, 0, expandZero, expandZero},
+        `base8`:      BuiltinFunc{builtin.base8, builtinCallable, 0, expandZero, expandZero},
+        `base9`:      BuiltinFunc{builtin.base9, builtinCallable, 0, expandZero, expandZero},
 
-        `dir`:        BuiltinFunc{builtin.dir, false, 0, expandZero, expandZero},
-        `dir2`:       BuiltinFunc{builtin.dir2, false, 0, expandZero, expandZero},
-        `dir3`:       BuiltinFunc{builtin.dir3, false, 0, expandZero, expandZero},
-        `dir4`:       BuiltinFunc{builtin.dir4, false, 0, expandZero, expandZero},
-        `dir5`:       BuiltinFunc{builtin.dir5, false, 0, expandZero, expandZero},
-        `dir6`:       BuiltinFunc{builtin.dir6, false, 0, expandZero, expandZero},
-        `dir7`:       BuiltinFunc{builtin.dir7, false, 0, expandZero, expandZero},
-        `dir8`:       BuiltinFunc{builtin.dir8, false, 0, expandZero, expandZero},
-        `dir9`:       BuiltinFunc{builtin.dir9, false, 0, expandZero, expandZero},
-        `dirs`:       BuiltinFunc{builtin.dirs, false, 0, expandZero, expandZero}, // do `dir` n times
+        `dir-chop`:   BuiltinFunc{builtin.dirChop, builtinCallable, 0, expandZero, expandZero},
+        `dir`:        BuiltinFunc{builtin.dir, builtinCallable, 0, expandZero, expandZero},
+        `dir2`:       BuiltinFunc{builtin.dir2, builtinCallable, 0, expandZero, expandZero},
+        `dir3`:       BuiltinFunc{builtin.dir3, builtinCallable, 0, expandZero, expandZero},
+        `dir4`:       BuiltinFunc{builtin.dir4, builtinCallable, 0, expandZero, expandZero},
+        `dir5`:       BuiltinFunc{builtin.dir5, builtinCallable, 0, expandZero, expandZero},
+        `dir6`:       BuiltinFunc{builtin.dir6, builtinCallable, 0, expandZero, expandZero},
+        `dir7`:       BuiltinFunc{builtin.dir7, builtinCallable, 0, expandZero, expandZero},
+        `dir8`:       BuiltinFunc{builtin.dir8, builtinCallable, 0, expandZero, expandZero},
+        `dir9`:       BuiltinFunc{builtin.dir9, builtinCallable, 0, expandZero, expandZero},
+        `dirs`:       BuiltinFunc{builtin.dirs, builtinCallable, 0, expandZero, expandZero}, // do `dir` n times
 
-        `undir`:      BuiltinFunc{builtin.undir, false, 0, expandZero, expandZero},
-        `undir2`:     BuiltinFunc{builtin.undir2, false, 0, expandZero, expandZero},
-        `undir3`:     BuiltinFunc{builtin.undir3, false, 0, expandZero, expandZero},
-        `undir4`:     BuiltinFunc{builtin.undir4, false, 0, expandZero, expandZero},
-        `undir5`:     BuiltinFunc{builtin.undir5, false, 0, expandZero, expandZero},
-        `undir6`:     BuiltinFunc{builtin.undir6, false, 0, expandZero, expandZero},
-        `undir7`:     BuiltinFunc{builtin.undir7, false, 0, expandZero, expandZero},
-        `undir8`:     BuiltinFunc{builtin.undir8, false, 0, expandZero, expandZero},
-        `undir9`:     BuiltinFunc{builtin.undir9, false, 0, expandZero, expandZero},
-        `undirs`:     BuiltinFunc{builtin.undirs, false, 0, expandZero, expandZero}, // do `undir` n times
+        `undir`:      BuiltinFunc{builtin.undir, builtinCallable, 0, expandZero, expandZero},
+        `undir2`:     BuiltinFunc{builtin.undir2, builtinCallable, 0, expandZero, expandZero},
+        `undir3`:     BuiltinFunc{builtin.undir3, builtinCallable, 0, expandZero, expandZero},
+        `undir4`:     BuiltinFunc{builtin.undir4, builtinCallable, 0, expandZero, expandZero},
+        `undir5`:     BuiltinFunc{builtin.undir5, builtinCallable, 0, expandZero, expandZero},
+        `undir6`:     BuiltinFunc{builtin.undir6, builtinCallable, 0, expandZero, expandZero},
+        `undir7`:     BuiltinFunc{builtin.undir7, builtinCallable, 0, expandZero, expandZero},
+        `undir8`:     BuiltinFunc{builtin.undir8, builtinCallable, 0, expandZero, expandZero},
+        `undir9`:     BuiltinFunc{builtin.undir9, builtinCallable, 0, expandZero, expandZero},
+        `undirs`:     BuiltinFunc{builtin.undirs, builtinCallable, 0, expandZero, expandZero}, // do `undir` n times
 
-        `dir-chop`:   BuiltinFunc{builtin.dirChop, false, 0, expandZero, expandZero},
+        `relative-dir`: BuiltinFunc{builtin.RelativeDir, builtinCallable, 0, expandZero, expandZero},
 
-        `relative-dir`: BuiltinFunc{builtin.RelativeDir, false, 0, expandZero, expandZero},
-
-        // TODO: move these into builtin package `os'
-        // `mkdir`:      BuiltinFunc{builtin.Mkdir, false, 0, expandZero, expandZero},     // os/file.go
-        // `mkdir-all`:  BuiltinFunc{builtin.MkdirAll, false, 0, expandZero, expandZero},  // os/path.go
-        // `chdir`:      BuiltinFunc{builtin.Chdir, false, 0, expandZero, expandZero},     // os/file.go
-        // `rename`:     BuiltinFunc{builtin.Rename, false, 0, expandZero, expandZero},    // os/file.go
-        // `remove`:     BuiltinFunc{builtin.Remove, false, 0, expandZero, expandZero},    // os/file_*.go
-        // `remove-all`: BuiltinFunc{builtin.RemoveAll, false, 0, expandZero, expandZero}, // os/path.go
-        // `truncate`:   BuiltinFunc{builtin.Truncate, false, 0, expandZero, expandZero},  // os/file_*.go
-        // `link`:       BuiltinFunc{builtin.Link, false, 0, expandZero, expandZero},      // os/file_*.go
-        // `symlink`:    BuiltinFunc{builtin.Symlink, false, 0, expandZero, expandZero},   // os/file_*.go
-
-        `file`:       BuiltinFunc{builtin.File, false, 0, expandZero, expandZero},
-        `stat`:       BuiltinFunc{builtin.Stat, false, 0, expandZero, expandZero},// stat (deprecates file-exists)
-        `glob`:       BuiltinFunc{builtin.Glob, false, 0, expandZero, expandZero},
-        `wildcard`:   BuiltinFunc{builtin.Wildcard, false, 0, expandZero, expandZero},
+        `file`:       BuiltinFunc{builtin.File, builtinCallable, 0, expandZero, expandZero},
+        `stat`:       BuiltinFunc{builtin.Stat, builtinCallable, 0, expandZero, expandZero},// stat (deprecates file-exists)
+        `glob`:       BuiltinFunc{builtin.Glob, builtinCallable, 0, expandZero, expandZero},
+        `wildcard`:   BuiltinFunc{builtin.Wildcard, builtinCallable, 0, expandZero, expandZero},
 
         // TODO: move these into builtin package 'io/ioutil'
-        `read-dir`:   BuiltinFunc{builtin.ReadDir, false, 0, expandZero, expandZero},   // io/ioutil/ioutil.go
-        `read-file`:  BuiltinFunc{builtin.ReadFile, false, 0, expandZero, expandZero},  // io/ioutil/ioutil.go
-        // `write-file`: BuiltinFunc{builtin.WriteFile, false, 0, expandZero, expandZero}, // io/ioutil/ioutil.go
-        // `touch-file`: BuiltinFunc{builtin.TouchFile, false, 0, expandZero, expandZero},
+        `read-dir`:   BuiltinFunc{builtin.ReadDir, builtinCallable, 0, expandZero, expandZero},   // io/ioutil/ioutil.go
+        `read-file`:  BuiltinFunc{builtin.ReadFile, builtinCallable, 0, expandZero, expandZero},  // io/ioutil/ioutil.go
 
-        `grep`:       BuiltinFunc{builtin.grep, false, 1, expandDigits, expandUnDigits},
+        `grep`:       BuiltinFunc{builtin.grep, builtinCallable, 1, expandDigits, expandUnDigits},
 
-        `untraversed`: BuiltinFunc{builtin.Untraversed, false, 1, expandZero, expandZero},
-
-        // `return`:     BuiltinFunc{builtin.Return, false, 0, expandZero, expandZero},
+        `untraversed`: BuiltinFunc{builtin.Untraversed, builtinCallable, 1, expandZero, expandZero},
 }
 
 var commands = map[string]BuiltinFunc {
-        `print`:        BuiltinFunc{builtin.Print, true, 0, expandZero, expandZero},
-        `printl`:       BuiltinFunc{builtin.Printl, true, 0, expandZero, expandZero},
-        `println`:      BuiltinFunc{builtin.Println, true, 0, expandZero, expandZero},
-        //`printf`:       BuiltinFunc{builtin.Printf, true, 0, expandZero, expandZero},
+        `print`:        BuiltinFunc{nil, builtinCommand, 0, expandZero, expandZero},
+        `printf`:       BuiltinFunc{nil, builtinCommand, 0, expandZero, expandZero},
+        `printl`:       BuiltinFunc{nil, builtinCommand, 0, expandZero, expandZero},
+        `println`:      BuiltinFunc{nil, builtinCommand, 0, expandZero, expandZero},
 
-        `assert`:       BuiltinFunc{builtin.Assert, true, 0, expandZero, expandZero},
+        `assert`:       BuiltinFunc{nil, builtinCommand, 0, expandZero, expandZero},
+        `debug`:        BuiltinFunc{nil, builtinCommand, 0, expandZero, expandZero},
+        `error`:        BuiltinFunc{nil, builtinCommand, 0, expandZero, expandZero},
+        `warning`:      BuiltinFunc{nil, builtinCommand, 0, expandZero, expandZero},
 
-        //`error`:        BuiltinFunc{builtin.Error, true, 0, expandZero, expandZero},
-        `warning`:      BuiltinFunc{builtin.Warning, true, 0, expandZero, expandZero},
+        `push-context`: BuiltinFunc{builtin.PushContext, builtinCommand, 0, expandZero, expandZero},
+        `pop-context`:  BuiltinFunc{builtin.PopContext, builtinCommand, 0, expandZero, expandZero},
 
-        `push-context`: BuiltinFunc{builtin.PushContext, true, 0, expandZero, expandZero},
-        `pop-context`:  BuiltinFunc{builtin.PopContext, true, 0, expandZero, expandZero},
+        `append`:       BuiltinFunc{builtin.Append, builtinCommand, 0, expandZero, expandZero},
+        // `pop`:          BuiltinFunc{builtin.Pop, builtinCommand, 0, expandZero, expandZero},
 
-        `append`:       BuiltinFunc{builtin.Append, true, 0, expandZero, expandZero},
+        // TODO: move these into builtin package `os'
+        `write-file`:   BuiltinFunc{builtin.WriteFile, builtinCommand, 0, expandZero, expandZero}, // io/ioutil/ioutil.go
+        `touch-file`:   BuiltinFunc{builtin.TouchFile, builtinCommand, 0, expandZero, expandZero},
+        `mkdir`:        BuiltinFunc{builtin.Mkdir, builtinCommand, 0, expandZero, expandZero},     // os/file.go
+        `mkdir-all`:    BuiltinFunc{builtin.MkdirAll, builtinCommand, 0, expandZero, expandZero},  // os/path.go
+        `chdir`:        BuiltinFunc{builtin.Chdir, builtinCommand, 0, expandZero, expandZero},     // os/file.go
+        `rename`:       BuiltinFunc{builtin.Rename, builtinCommand, 0, expandZero, expandZero},    // os/file.go
+        `remove`:       BuiltinFunc{builtin.Remove, builtinCommand, 0, expandZero, expandZero},    // os/file_*.go
+        `remove-all`:   BuiltinFunc{builtin.RemoveAll, builtinCommand, 0, expandZero, expandZero}, // os/path.go
+        `truncate`:     BuiltinFunc{builtin.Truncate, builtinCommand, 0, expandZero, expandZero},  // os/file_*.go
+        `link`:         BuiltinFunc{builtin.Link, builtinCommand, 0, expandZero, expandZero},      // os/file_*.go
+        `symlink`:      BuiltinFunc{builtin.Symlink, builtinCommand, 0, expandZero, expandZero},   // os/file_*.go
 
-        //`read-dir`:     BuiltinFunc{builtin.ReadDir, true, 0, expandZero, expandZero},   // io/ioutil/ioutil.go
-        //`read-file`:    BuiltinFunc{builtin.ReadFile, true, 0, expandZero, expandZero},  // io/ioutil/ioutil.go
-        `write-file`:   BuiltinFunc{builtin.WriteFile, true, 0, expandZero, expandZero}, // io/ioutil/ioutil.go
-        `touch-file`:   BuiltinFunc{builtin.TouchFile, true, 0, expandZero, expandZero},
+        `serve-http`:   BuiltinFunc{builtin.ServeHttp, builtinCommand, 0, expandZero, expandZero},
+        `serve-https`:  BuiltinFunc{builtin.ServeHttps, builtinCommand, 0, expandZero, expandZero},
 
-        `mkdir`:        BuiltinFunc{builtin.Mkdir, true, 0, expandZero, expandZero},     // os/file.go
-        `mkdir-all`:    BuiltinFunc{builtin.MkdirAll, true, 0, expandZero, expandZero},  // os/path.go
-        `chdir`:        BuiltinFunc{builtin.Chdir, true, 0, expandZero, expandZero},     // os/file.go
-        `rename`:       BuiltinFunc{builtin.Rename, true, 0, expandZero, expandZero},    // os/file.go
-        `remove`:       BuiltinFunc{builtin.Remove, true, 0, expandZero, expandZero},    // os/file_*.go
-        `remove-all`:   BuiltinFunc{builtin.RemoveAll, true, 0, expandZero, expandZero}, // os/path.go
-        `truncate`:     BuiltinFunc{builtin.Truncate, true, 0, expandZero, expandZero},  // os/file_*.go
-        `link`:         BuiltinFunc{builtin.Link, true, 0, expandZero, expandZero},      // os/file_*.go
-        `symlink`:      BuiltinFunc{builtin.Symlink, true, 0, expandZero, expandZero},   // os/file_*.go
-
-        `return`:       BuiltinFunc{builtin.Return, true, 0, expandZero, expandZero},
+        `return`:       BuiltinFunc{builtin.Return, builtinCommand, 0, expandZero, expandZero},
 }
 
 func RegisterBuiltins(m map[string]BuiltinFunc) (err error) {

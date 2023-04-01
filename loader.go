@@ -1020,12 +1020,11 @@ func (l *loader) setArgs(args []Value) (oldArgs []Value) {
 }
 
 // project example (base(var=value))
-func (l *loader) loadBases(ctx Context, linfo *loadinfo, implicitBase string, params ...Value) (result bool) {
-    if options.traceLaunch { defer un(trace(t_launch, "loader.loadBases")) }
+func (l *loader) bases(ctx Context, linfo *loadinfo, implicitBase string, params ...Value) (result bool) {
+    if options.traceLaunch { defer un(trace(t_launch, "loader.bases")) }
 
     // For &(foobar) set from loadArgs
-    //defer setclosure(setclosure(cloctx.unshift(l.scope)))
-    ctx = closureWith(ctx, l.scopes...) // at(closureWith(l, l.scopes...), position)
+    ctx = closureWith(ctx, l.scopes...)
 
     var (
         implicitIndex int

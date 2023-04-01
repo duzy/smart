@@ -1271,7 +1271,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       }
 
       var diffLogPos = !logPos.SameLine(&pos)
-      var str, _, _ = entryStr(ctx, ctx.entry())
+      var str, _, _ = entryIndicator(ctx, ctx.entry())
       if (!opts.retStatus && exeres.Status != 0) || en > 0 {
         if opts.dropFailed {
           if e := os.RemoveAll(targetName); e != nil {
