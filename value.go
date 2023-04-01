@@ -729,7 +729,7 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
         var s, _, _ = entryIndicator(ctx, targetValue)
         prompt(ctx, "%v : %v\n", s, prereqValue)
         warn(ctx, "@: %T %v : %v", targetValue, targetValue, ctx.program().depends)
-        if f := file(ctx, prereqStrval); f == nil || true {
+        if f := file(ctx, prereqStrval); f == nil || false {
             var p = ctx.Project()
             var a = ctx.universe().unmap(ctx, prereqStrval)
             var b = files(ctx, prereqStrval, p)
@@ -752,8 +752,13 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
             }
             warnstack(ctx, 5, "%v", p).debug(10)
         } else {
-            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, f.filestub)
-            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, f.fullname())
+            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, f)
+            warn(at(ctx, f.position), "%v", f.filestub)
+            warn(at(ctx, f.position), "%v", f.fullname())
+            if f, y := prereqValue.(*File); y {
+                warn(at(ctx, f.position), "%v", f.filestub)
+                warn(at(ctx, f.position), "%v", f.fullname())
+            }
             warnstack(ctx, 5, "").debug(10)
         }
         defer func() { warn(ctx, "%v : %v, %v, %v",

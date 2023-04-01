@@ -497,30 +497,22 @@ outer:
   return
 }
 
-func (p *Project) buggy_selectFiles(ctx Context, maps []matchedFileMap) (files []*File) {
-  for _, m := range maps {
-    var f, y = toFile(m.pattern)
-    if y { files = append(files, f) ; continue }
-
-    var proj = m.project
-    if proj.changedWD != "" { f = m.stat(ctx, proj.changedWD, m.name) }
-    if f == nil { f = m.stat(ctx, proj.absPath,   m.name) }
-    if f != nil {
-      if f.filemap == nil { f.filemap = &m.FileMap }
-      files = append(files, f)
-    }
-  }
-  return
-}
-
 func (p *Project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File) {
   for _, m := range maps {
-    var f *File
-    var proj = m.project
-    if proj.changedWD != "" { f = m.stat(ctx, proj.changedWD, m.name) }
-    if f == nil { f = m.stat(ctx, proj.absPath,   m.name) }
+    var f *File //, _ = toFile(m.pattern)
+    if filepath.IsAbs(m.name) {
+      f = m.stat(ctx, "", m.name)
+    } else {
+      if m.project.changedWD != "" { f = m.stat(ctx, m.project.changedWD, m.name) }
+      if f == nil { f = m.stat(ctx, m.project.absPath, m.name) }
+      if f == nil {
+        if p.changedWD != "" { f = m.stat(ctx, p.changedWD, m.name) }
+        if f == nil { f = m.stat(ctx, p.absPath, m.name) }
+      }
+    }
+
     if f != nil {
-      if f.filemap == nil { f.filemap = &m.FileMap }
+      f.filemap = &m.FileMap
       files = append(files, f)
     }
   }
