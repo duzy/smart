@@ -663,7 +663,7 @@ func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (poi
             if entry := pc.entry(); entry == nil {
                 point = ctx.diag(dt, "%v%s", proj, suf)
             } else if str, _, _ := entryIndicator(pc, entry); str != "" {
-                point = ctx.diag(dt, "%v: (project=%v)%s", str, proj, suf)
+                point = ctx.diag(dt, "%v: %v%s", proj, str, suf)
             } else {
                 point = ctx.diag(dt, "%v: %v%s", proj, entry, suf)
             }
@@ -725,9 +725,12 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
     }
 
     // NOTE: Don't delete, keep it for future debugging.
-    if true {if (strings.HasPrefix(prereqStrval, "llvm/") && strings.HasSuffix(prereqStrval, "/llvm-config.h")) {
+    if false {if (strings.HasPrefix(prereqStrval, "llvm/") && (
+        strings.HasSuffix(prereqStrval, "/llvm-config.h") ||
+        strings.HasSuffix(prereqStrval, "/Support/SuffixTree.o") ||
+        false)) {
         var s, _, _ = entryIndicator(ctx, targetValue)
-        prompt(ctx, "%v : %v\n", s, prereqValue)
+        prompt(ctx, "%v : %T %v\n", s, prereqValue, prereqStrval)
         warn(ctx, "@: %T %v : %v", targetValue, targetValue, ctx.program().depends)
         if f := file(ctx, prereqStrval); f == nil || false {
             var p = ctx.Project()
@@ -759,10 +762,10 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
                 warn(at(ctx, f.position), "%v", f.filestub)
                 warn(at(ctx, f.position), "%v", f.fullname())
             }
-            warnstack(ctx, 5, "").debug(10)
+            warnstack(ctx, 16, "").debug(10)
         }
         defer func() { warn(ctx, "%v : %v, %v, %v",
-            targetValue, prereqValue, prereqFile, prereqObj).debug(10) } ()
+            targetValue, prereqValue, prereqFile, prereqObj).debug(32) } ()
     }}
 
     if len(projects) == 0 { projects = ctx.projects(ctx) }
@@ -818,7 +821,7 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
                 targetValue, prereqValue, ctx.stems()).debug(8)
             return
         }
-        if prereqFile, ok = toFile(prereqValue); ok { /* noop */ } else
+        // if prereqFile, ok = toFile(prereqValue); ok { /* noop */ } else
         if prereqObj, ok = prereqValue.(Object); ok {
             info(ctx, "%T %v %s", prereqObj, prereqObj, prereqStrval).debug(1)
         }
@@ -836,6 +839,11 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
                 break
             }
         }
+        if prereqFile == nil {
+            if prereqFile = file(ctx, prereqStrval); prereqFile != nil {
+                prereqValue = prereqFile
+            }
+        }
     }
 
     if prereqFile != nil { /* noop */ } else
@@ -844,6 +852,19 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
           prereqValue = prereqFile
        }
     }
+
+    // NOTE: Don't delete, keep this segment to save time for future debugging.
+    // NOTE: Open this segment will draw very clear traverse path of a prerequisite.
+    if false { if strings.HasSuffix(prereqStrval, ".o") {
+        var s string
+        if f := prereqFile; f != nil { s = "(" + f.dir + "," + f.sub + ")" }
+        prompt(ctx, "%v : %v ; pattern=%v , file=%v%s\n", targetValue, prereqValue, prereqPattern, prereqFile, s)
+        warn(ctx, "@: %T %v", targetValue, targetValue)
+        warn(ctx, ">: %T %v", prereqValue, prereqValue)
+        warn(ctx, ">: %v in %v", prereqFile, projects)
+        warnstack(ctx, 3, "").debug(10)
+        defer func() { warn(ctx, "%v", s).debug(32) } ()
+    }}
 
     // Recursion detection -- simply return to break it if looped.
     if traverseDetectLoops { if eq(ctx, targetValue, prereqValue) {
@@ -884,36 +905,7 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
         }
     }}
 
-    // NOTE: Don't delete, keep this segment to save time for future debugging.
-    // NOTE: Open this segment will draw very clear traverse path of a prerequisite.
-    if false && strings.HasSuffix(prereqStrval, ".o") {
-        var s string
-        if f := prereqFile; f != nil { s = "(" + f.dir + "," + f.sub + ")" }
-        prompt(ctx, "%v : %v ; pattern=%v , file=%v%s\n", //, ctx.stemmed()
-            targetValue, prereqValue, prereqPattern, prereqFile, s)
-        warn(ctx, "@: %T %v", targetValue, targetValue)
-        warn(ctx, ">: %T %v", prereqValue, prereqValue)
-        warn(ctx, ">: %v in %v", prereqFile, projects)
-        warnstack(ctx, 3, "").debug(10)
-    }
-
-    // var dbg = true && (
-    //     strings.Contains(prereqStrval, "llvm") ||
-    //     // strings.Contains(prereqStrval, "table-gen") ||
-    //     // strings.Contains(prereqStrval, "llvm-tools-objcopy") ||
-    //     // strings.Contains(prereqStrval, "llvm-tools-bitcode-strip") ||
-    //     // strings.Contains(targetValue.Strval(ctx), "llvm-tools-objcopy") ||
-    //     // strings.Contains(targetValue.Strval(ctx), "llvm-tools-bitcode-strip") ||
-    //     // strings.Contains(targetValue.Strval(ctx), "llvm-driver-ar") ||
-    //     // strings.Contains(targetValue.Strval(ctx), "strstream.cpp.sm") ||
-    //     (false &&
-    //         strings.Contains(prereqStrval, "touch") &&
-    //         strings.Contains(targetValue.Strval(ctx), "stamp") &&
-    //         true))
-
     const promptTraveEntries = false
-    // const promptTraveEntries = true
-    // var promptTraveEntries = strings.Contains(prereq, "polly/Config/config.h")
 
     // %.h <-> 'llvm/PassSupport.h' <-> [file@llvm/PassSupport.h>/Volumes/workspace/external/llvm-project/llvm/include/llvm/PassSupport.h file@llvm/PassSupport.h>/Volumes/workspace/external/llvm-project/llvm/include/llvm/PassSupport.h done@llvm/PassSupport.h file@llvm/PassSupport.h>/Volumes/workspace/external/llvm-project/llvm/include/llvm/PassSupport.h done@llvm/PassSupport.h]
     var nonFilePrereqTravedFile = func (s *travestate) (res bool, resFile *File) {
@@ -1281,23 +1273,30 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
 
     if t := traves.of(traveRule); t.has() && t[0].depend != nil {
         if s, ok := t[0].depend.(*stemmed); ok {
-            if false {
+            if false { if strings.HasPrefix(prereqStrval, "llvm/Config/llvm-config.h") {
                 for i, concrete := range concreteList {
                     warn(at(ctx,concrete.Position()), "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs()))
                 }
                 for i, stemmed  := range stemmedList {
-                    warn(at(ctx,stemmed.position), "stemmed: %d. %v", i, stemmed)
+                    if f, y := stemmed.target.(*File); y {
+                        warn(at(ctx,stemmed.position), "stemmed: %d. %v; %s", i, stemmed, f.fullname())
+                    } else {
+                        warn(at(ctx,stemmed.position), "stemmed: %d. %v; %T", i, stemmed, stemmed.target)
+                    }
                 }
-                warn(ctx, "%v %s", s.Name(ctx), prereqStrval).debug(1)
-            }
-            if true { // NOTE: add traveNext or not seems the same (not better)
-                s := traves.add(ctx, traveNext, targetValue)
-                s.dependPat = prereqPattern
-                s.depend = prereqValue
-            }
+                if prereqFile != nil {
+                    warn(ctx, "%v %v %v", s.Name(ctx), prereqStrval, prereqFile.fullname()).debug(8)
+                } else {
+                    warn(ctx, "%v %v %v", s.Name(ctx), prereqStrval, prereqFile).debug(8)
+                }
+            }}
+
+            // NOTE: add traveNext or not seems the same (not better)
+            s := traves.add(ctx, traveNext, targetValue)
+            s.dependPat = prereqPattern
+            s.depend = prereqValue
             return
-        }
-        if t[0].depend.(Entry).Name(ctx) == prereqStrval {
+        } else if t[0].depend.(Entry).Name(ctx) == prereqStrval {
             return // done
         }
     }
@@ -4846,7 +4845,8 @@ func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
 
 func toFile(v Value) (f *File, y bool) {
     if f, y = v.(*File); !y {
-        if t, ok := v.(fullfile); ok { f, y = t.File, ok }
+        var t fullfile
+        if t, y = v.(fullfile); y { f = t.File }
     }
     return
 }
@@ -5005,12 +5005,12 @@ func (p *File) stat(ctx Context) (si *statinfo) {
     return
 }
 func (p *File) isSysFile() (res bool) {
-    if p.filemap != nil && len(p.filemap.paths) == 1 {
+    if p.filemap != nil && len(p.filemap.locs) == 1 {
         // system files defined by:
         //     files (
         //       (foo.xxx) ⇒ -
         //     )
-        if f, ok := p.filemap.paths[0].(*Flag); ok {
+        if f, ok := p.filemap.locs[0].(*Flag); ok {
             res = isNone(f.name) || isNil(f.name)
         }
     }
@@ -7311,7 +7311,7 @@ func (p *GlobPattern) cmp(ctx Context, v Value) (res cmpres) {
                     return
                 }
             }
-            res = cmpEqual
+            return cmpEqual
         }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])

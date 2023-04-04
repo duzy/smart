@@ -8,9 +8,7 @@ package smart
 
 // evaluer evaluates smart statements
 type evaluer struct { accumulation bool }
-type evaluerOpts struct {
-    generalOpts
-}
+type evaluerOpts struct { generalOpts }
 func (p *evaluer) Evaluate(ctx Context, args ...Value) (result Value, err error) {
     var program = ctx.program()
     if program == nil {
@@ -26,6 +24,7 @@ ForRecipes:
     for _, recipe := range program.recipes {
         var w = plain | expandPathStr | expandPairVal
         if opts.fullname { w |= expandFullName }
+        if !p.accumulation { list = nil }
 
         var (
             ctx = at(ctx, recipe.Position())

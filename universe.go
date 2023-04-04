@@ -61,7 +61,7 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*_FileMapCach
     const useAllFetched = false
     defer func(c *_FileMapCache) {
         if false { if (ss[0] == "llvm") && (false ||
-            ss[i] == "llvm-config.h" ||
+            // ss[i] == "llvm-config.h" ||
             // strings.HasSuffix(ss[i], ".inc") ||
             // strings.HasSuffix(ss[i], ".h") ||
             // strings.HasSuffix(ss[i], ".a") ||
@@ -70,7 +70,7 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*_FileMapCach
             if res != nil {
                 if false { warn(ctx, "%v[%d]: %s → %v\n", ss, i, ss[i], res.maps) }
                 for k, m := range res.maps {
-                    warn(ctx, "%08b: %v[%d]: %s → %d %v %v %v\n", bits, ss, i, ss[i], k, m.project, m.pattern, m.paths)
+                    warn(ctx, "%08b: %v[%d]: %s → %d %v %v %v\n", bits, ss, i, ss[i], k, m.project, m.pattern, m.locs)
                 }
                 warnstack(ctx, 3, "%08b: %v[%d]: %s; %p %p %v", bits, ss, i, ss[i], c, res, res.maps).debug(64)
             } else {
@@ -441,9 +441,7 @@ func init() {
     if s, e := os.Getwd(); e != nil {
         erro(ctx, "%v", e).debug(6)
         return
-    } else {
-        ctx.workdir = s
-    }
+    } else { ctx.workdir = s }
     ctx.Context = ctx // self context for diagnostic
     ctx.fset = token.NewFileSet()
     ctx.filecache = make(map[string]*filebase)
@@ -549,7 +547,7 @@ func (uc *universe) unmap(ctx Context, name interface{}) (maps []matchedFileMap)
         if matched { maps = append(maps, matchedFileMap{m, pattern, s}) }
     }
     if len(maps) == 0 && len(cache.maps) > 0 {
-        for i, m := range cache.maps { warn(ctx, "%v: %d. %v %v", name, i, m.pattern, m.paths) }
+        for i, m := range cache.maps { warn(ctx, "%v: %d. %v %v", name, i, m.pattern, m.locs) }
         warn(ctx, "%v (%T)", name, name).debug(1)
     }
     return

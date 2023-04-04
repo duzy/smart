@@ -2424,7 +2424,6 @@ func (ctx builtin) Subst(args... Value) (res Value) {
 // TODO: supports: $(var:suffix=replacement)
 type builtinPatsubstOpts struct {
         generalOpts
-        files     bool `fi,file,fs,files`
         findFiles bool `find,find-file`
         fullFiles bool `ff,fullfile,fullfiles`
         cleanPath bool `c,clean,cleanpath`
@@ -2481,121 +2480,104 @@ ForSources:
                         } else {
                                 source = s
                         }
-                } else if false && (opts.findFiles || opts.fullFiles) {
-                        if file, ok = toFile(src); ok {
-                                source = file
-                        } else if file = proj.file(ctx, src.Strval(ctx)); file != nil {
-                                if (opts.fullname || opts.fullFiles) && !filepath.IsAbs(file.name) {
-                                        if !file.change("", "", file.fullname()) {
-                                                warn(ctx, "changing fullname failed: %v", file).debug(1)
-                                        }
-                                }
-                                source = file
-                        }
-                } else if opts.fullname {
-                        var _, s, ok = as{src}.fullnameOpt(ctx, closured...)
-                        if s == "" {
-                                erro(of(ctx,src), "fullname '%v' is empty", src)
-                                erro(ctx, "called from here", src).debug(1)
-                                return
-                        } else if !ok {
-                                erro(of(ctx,src), "fullname '%v' failed", src)
-                                erro(ctx, "called from here", src).debug(1)
-                                return
-                        } else {
-                                source = s
-                        }
+                } else if !opts.fullname {
+                        source = src
+                } else if _, s, y := (as{src}.fullnameOpt(ctx, closured...)); !y {
+                        erro(of(ctx,src), "fullname '%v' failed", src)
+                        erro(ctx, "called from here", src).debug(1)
+                        return
+                } else if s == "" {
+                        erro(of(ctx,src), "fullname '%v' is empty", src)
+                        erro(ctx, "called from here", src).debug(1)
+                        return
+                } else {
+                        source = s
                 }
 
                 var full = opts.fullFiles
                 if !full { _, full = src.(fullfile) }
 
-                var (
-                        srcPat Value
-                        stems []string
-                )
+                var ( srcPat Value ; stems []string )
                 for _, srcPat = range srcPats {
-                        if ok, _, stems = srcPat.match(ctx, source); ok { goto ForDstPats }
+                        if ok, _, stems = srcPat.match(ctx, source); ok {
+                                goto stencilTargetPats
+                        }
                 }
                 if !isTrivial(src) { list = append(list, src) }
                 continue ForSources // just append src to the list
 
                 // Compose the matched results with stem value.
-        ForDstPats:
-                for _, dst := range dstPats {
-                        var nameVal, rest = dst.stencil(ctx, stems)
+                stencilTargetPats: for _, dst := range dstPats {
+                        var nameStr string
+                        var nameVal, ramnant = dst.stencil(ctx, stems)
                         if isNil(nameVal) {
-                                erro(ctx, "nil stencil: %T %v (stems=%v, rest=%v)",
-                                        dst, dst, stems, rest).debug(1)
+                                erro(ctx, "nil stencil: %T %v (stems=%v, ramnant=%v)", dst, dst, stems, ramnant).debug(1)
                                 return
                         } else if opts.debug>0 {
                                 warnstack(ctx, opts.debug, "patsubst: %v: %v -> %v -> %v %v -> %v %v",
-                                        srcPat, src, source, stems, dst, nameVal, rest).debug(opts.debug)
+                                        srcPat, src, source, stems, dst, nameVal, ramnant).debug(opts.debug)
                         }
 
-                        var name string
-                        if name = nameVal.Strval(ctx); name == "" {
-                                continue ForDstPats
+                        if nameStr = nameVal.Strval(ctx); nameStr == "" {
+                                continue stencilTargetPats
                         } else if opts.cleanPath {
-                                name = filepath.Clean(name)
+                                nameStr = filepath.Clean(nameStr)
                         }
 
                         if t := file; t != nil {
                                 var match FileMap
                                 for _, m := range filemaps {
-                                        if ok, _, _ := m.Match(ctx, name); ok {
+                                        if ok, _, _ := m.Match(ctx, nameStr); ok {
                                                 match = m
                                                 break
                                         }
                                 }
 
-                                var file *File // dest file
+                                var f *File
                                 if match.filemap != nil {
-                                        if file = match.stat(ctx, t.dir, name); file != nil {
-                                                assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (t.dir=%s)", file.name, name, t.dir))
-                                        } else if file = match.stat(ctx, proj.absPath, name); file != nil {
-                                                assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s (proj.absPath=%s)", file.name, name, proj.absPath))
+                                        if f = match.stat(ctx, t.dir, nameStr); f != nil {
+                                                assert(f.name == nameStr, fmt.Sprintf("invalid file name: %s != %s (t.dir=%s)", f.name, nameStr, t.dir))
+                                        } else if f = match.stat(ctx, proj.absPath, nameStr); f != nil {
+                                                assert(f.name == nameStr, fmt.Sprintf("invalid file name: %s != %s (proj.absPath=%s)", f.name, nameStr, proj.absPath))
                                         }
                                 }
-                                if file == nil {
-                                        file = stat(ctx, name, t.sub, t.dir, nil/* okay missing */)
+                                if f == nil {
+                                        f = stat(ctx, nameStr, t.sub, t.dir, nil/* okay missing */)
                                 }
 
-                                if file.position = srcPat.Position(); full {
-                                        list = append(list, fullfile{file})
+                                if f.position = srcPat.Position(); full {
+                                        list = append(list, fullfile{f})
                                 } else {
-                                        list = append(list, file)
+                                        list = append(list, f)
                                 }
-                                continue ForDstPats
+                                continue stencilTargetPats
                         }
 
                         // Deal with source value types
-                        // TODO: consider opts.files
-                        var pos = dst.Position()
-                        switch src.(type) {
+                        switch pos := dst.Position(); src.(type) {
                         case *File, fullfile:
                         case *String, *Compound:
-                                list = append(list, MakeString(pos, name))
-                                continue ForDstPats
+                                list = append(list, MakeString(pos, nameStr))
+                                continue stencilTargetPats
                         case *Path:
-                                list = append(list, MakePathStr(pos, name))
-                                continue ForDstPats
+                                list = append(list, MakePathStr(pos, nameStr))
+                                continue stencilTargetPats
                         case *bareword, *barecomp:
-                                if strings.Contains(name, PathSep) {
-                                        list = append(list, MakePathStr(pos, name))
+                                if strings.Contains(nameStr, PathSep) {
+                                        list = append(list, MakePathStr(pos, nameStr))
                                 } else {
-                                        list = append(list, MakeBareword(pos, name))
+                                        list = append(list, MakeBareword(pos, nameStr))
                                 }
-                                continue ForDstPats
+                                continue stencilTargetPats
                         default:
-                                if strings.Contains(name, PathSep) {
-                                        list = append(list, MakePathStr(pos, name))
+                                if strings.Contains(nameStr, PathSep) {
+                                        list = append(list, MakePathStr(pos, nameStr))
                                 } else if true {
-                                        list = append(list, MakeBareword(pos, name))
+                                        list = append(list, MakeBareword(pos, nameStr))
                                 } else {
-                                        list = append(list, MakeString(pos, name))
+                                        list = append(list, MakeString(pos, nameStr))
                                 }
-                                continue ForDstPats
+                                continue stencilTargetPats
                         }
                 }
         }
@@ -3270,9 +3252,7 @@ func (ctx builtin) fullname(args... Value) (res Value) {
                                 warn(ctx, "%T %v", a, a).debug(opts.debug,1)
                         }
                 }
-
-                var _, s, ok = as{a}.fullnameOpt2(ctx, closured...)
-                if ok || s != "" {
+                if _, s, y := (as{a}.fullnameOpt2(ctx, closured...)); y || s != "" {
                         l = append(l, MakeString(a.Position(), s))
                 } else {
                         l = append(l, a)
@@ -4099,7 +4079,7 @@ func (ctx builtin) File(args... Value) (res Value) {
                 }
                 if en > 0 {
                         for i, m := range am {
-                                info(of(ctx,m.pattern), "found %d. %s → %s(%s) → %v", i, m.name, typeof(m.pattern), m.pattern, m.paths)
+                                info(of(ctx,m.pattern), "found %d. %s → %s(%s) → %v", i, m.name, typeof(m.pattern), m.pattern, m.locs)
                         }
                         erro(ctx, `%v: %s(%v) is not a file (%v)`, proj, typeof(a), a, list)
                         errostack(ctx, 5, "").debug(16)

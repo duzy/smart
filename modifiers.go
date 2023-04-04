@@ -824,13 +824,13 @@ func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name str
 
     // System files are not treated as missing nor collected
     // for further updating, just discard them immediately.
-    if !sys && res != nil && res.filemap != nil && len(res.filemap.paths) == 1 {
+    if !sys && res != nil && res.filemap != nil && len(res.filemap.locs) == 1 {
         // system files defined by `files ((foo.xxx) ⇒ -)`
-        if f, ok := res.filemap.paths[0].(*Flag); ok {
+        if f, ok := res.filemap.locs[0].(*Flag); ok {
             sys = isNone(f.name) || isNil(f.name)
         }
     }
-    if!sys && gc.debug>0 {
+    if !sys && gc.debug>0 {
         erro(ctx, "%v: %v → %v (exists=%v, sys=%v, from %v)\n",
             ctx.entry(), gc.target, name, res.exists(), sys, ctx.Project()).
             debug(gc.debug)

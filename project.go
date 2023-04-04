@@ -22,7 +22,7 @@ const PathSep = string(filepath.Separator)
 type filemap struct {
   project *Project
   patts []Value
-  paths []Value
+  locs []Value
 }
 
 type FileMap struct {
@@ -98,7 +98,7 @@ func (filemap *FileMap) match(ctx Context, pat Value, val interface{}) (matched 
     //         (foo.c) => $(srcdir)/sub/dir
     //         (sub/dir/foo.c) => $(srcdir)
     //     )
-    for _, p := range filemap.paths { // FIXME: performance, operate on p.(*Path) instead
+    for _, p := range filemap.locs { // FIXME: performance, operate on p.(*Path) instead
       if _, ok := p.(*Path); !ok { continue } // NOTE: only work with paths to improve performance
       var ps = p.Strval(ctx)
       for i := strings.LastIndex(ps, PathSep); -1 <= i; {
@@ -124,20 +124,35 @@ func (filemap *FileMap) match(ctx Context, pat Value, val interface{}) (matched 
 }
 
 func (p *FileMap) stat(ctx Context, base, name string) (file *File) {
-  if base = filepath.Clean(base); len(p.paths) == 0 {
-    file = stat(ctx, name, "", base, nil) // simply stat file name if no paths
-    return
-  }
-
   var patts = p.patts
-  if len(patts) == 0 { patts = p.patts }
   if len(patts) == 0 {
     errostack(ctx, 5, "no map patterns: %v", p).debug(16)
     return
   }
 
+  if base = filepath.Clean(base); len(p.locs) == 0 {
+    if false { file = stat(ctx, name, "", base, nil) } else {
+      for i, pat := range p.patts {
+        if f, y := pat.(*File); y {
+          if f.name == name { return f }
+          if false { info(ctx, "pattern %d. %v %s (exists=%v)", i, pat, f.fullname(), f.exists()).debug(1) }
+        }
+      }
+
+      for i, pat := range p.patts {
+        if f, y := pat.(*File); y {
+          info(ctx, "pattern %d. %v %s (exists=%v)", i, f, f.fullname(), f.exists())
+        } else {
+          info(ctx, "pattern %d. %v (%T)", i, pat, pat)
+        }
+      }
+      errostack(ctx, 5, "%s %s -> %v", base, name, p.patts).debug(32)
+    }
+    return
+  }
+
   var pos = patts[0].Position()
-  for _, path := range p.paths {
+  for _, path := range p.locs {
     if isNil(path) {
       erro(at(ctx,pos), "nil path: base=%s)", base)
       erro(at(ctx,pos), "nil path: name=%s",  name)
@@ -384,7 +399,7 @@ ForPatterns:
           names []string
           str string
         )
-        if file, y := toFile(pattern); y && len(m.paths) == 0 {
+        if file, y := toFile(pattern); y && len(m.locs) == 0 {
           files = append(files, file)
           if n := opts.debug; n>0 /* && p.name == "lib.unwind" */ { warn(ctx, "%v -> %v (exists=%v)",
             pattern, file, file.exists()).debug(n) }
@@ -414,7 +429,7 @@ ForPatterns:
         var patterned = pattern.patterned(ctx)
 
         // Check against paths for non-abs/rel patterns.
-        for _, path := range m.paths {
+        for _, path := range m.locs {
           var sub = path.Strval(ctx)
           var subfile = filepath.Join(sub, str)
           if names, err = filepath.Glob(subfile); err != nil {
@@ -452,7 +467,7 @@ ForPatterns:
             files = append(files, file)
             if n := opts.debug; n>0 /* && p.name == "lib.unwind" */ { warn(ctx, "%v -> %v %v+%v",
               pattern, sub, prefix, file).debug(n) }
-          } else if patterned && !path.expandible(ctx, expandClosure) && len(m.paths) == 1 {
+          } else if patterned && !path.expandible(ctx, expandClosure) && len(m.locs) == 1 {
             if false {
               // Just report that the pattern matches no files in the
               // file system (if only one path specified).
