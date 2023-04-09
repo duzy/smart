@@ -22,6 +22,8 @@ import (
 )
 
 type parsingBits uint64
+type specialRule int
+
 const (
 	composing parsingBits = 1<<iota
 	composingSELECT_PROP
@@ -60,7 +62,6 @@ const (
 	composingNoRexp   = composingGLOB | composingPERC | composingREXP
 )
 
-type specialRule int
 const (
 	specialRuleNor specialRule = iota // normal rules
 	specialRuleUse // `use` rules
@@ -652,6 +653,11 @@ func (p *parser) dependList(ctx Context, normal bool) (list []Value) {
 			}
 
 			var val = p.expr(ctx, false)
+			if ctx.checkErrors(true) > 0 {
+				erro(ctx, "depend: %T %v", val, val).debug(1)
+				return
+			}
+
 			if normal {
 				if g, y := val.(*Group); y && len(g.Elems) == 1 {
 					if g, y = g.Elems[0].(*Group); y {
@@ -660,6 +666,7 @@ func (p *parser) dependList(ctx Context, normal bool) (list []Value) {
 					}
 				}
 			}
+
 			list = append(list, val)
 			if p.tok == token.SPACE { p.next(true) } //p.skipSpaces()
 		}
@@ -1601,14 +1608,13 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 		}
 	}
 
-	prompt(p, "%v: bad unary '%v' (lit=%s,lhs=%v)\n", p.scanner.File().Name(), p.tok, p.lit, lhs)
 	if p.lineComment == nil {
-		erro(p, "bad unary expression '%v'", p.tok).debug(32)
+		erro(p, "bad unary expression '%v' (lit=%s, left=%v)", p.tok, p.lit, lhs).debug(32)
 	} else {
 		for _, comment := range p.lineComment.List {
 			erro(at(p,comment.Pos), "# %s", comment.Text)
 		}
-		erro(p, "bad unary expression '%v'", p.tok).debug(32)
+		erro(p, "bad unary expression '%v' (lit=%s, left=%v)", p.tok, p.lit, lhs).debug(32)
 	}
 
 	p._next() // go to the next token
@@ -2497,14 +2503,17 @@ func (p *parser) modifiers(ctx Context) *modifiergroup {
 
 ForModifiersExpr:
 	for p.tok != token.RBRACK && p.tok != token.EOF {
-		p.skipSpaces()
+		if p.skipSpaces(); p.tok == token.RBRACK { goto rBrack }
 
 		var (
 			x = p.expr(ctx, false)
 			group *Group
 			name string
 		)
-		if g, ok := x.(*Group); !ok {
+		if ctx.checkErrors(true) > 0 {
+			erro(at(ctx,x.Position()), "modifier: %T %v", x, x).debug(1)
+			return nil
+		} else if g, ok := x.(*Group); !ok {
 			var xv = x.expand(ctx, expandDelegate/*TODO: expandInline or expandAuto*/)
 			warn(at(ctx,x.Position()), "modifier: %T %v   →   %T %v", x, x, xv, xv).debug(1)
 			continue ForModifiersExpr
@@ -2573,7 +2582,7 @@ ForModifiersExpr:
 		}
 	}
 	p.skipSpaces()
-	/*rpos := */p.expect(token.RBRACK)
+	rBrack: p.expect(token.RBRACK)
 	if len(elems) == 0 && !hasParameters {
 		erro(at(ctx,posLp), "empty modifier group").debug(1)
 	}
@@ -2607,7 +2616,7 @@ var automatics = []string{
 	"-" , "~" ,
 }
 
-func (p *parser) rule(special specialRule, options, targets []Value) (result Value) {
+func (p *parser) rule(special specialRule, optvals, targets []Value) (result Value) {
 	var ctx = p.posit()
 	if ctx.Project().keyword == token.PACKAGE {
 		erro(ctx, "rules forbidden: %v", targets).debug(1)
@@ -2712,9 +2721,7 @@ func (p *parser) rule(special specialRule, options, targets []Value) (result Val
 				erro(of(ctx,t), "configure target '%v' already taken: %T %v", name, a, a)
 			}
 		}
-		if d != nil && !d.position.IsValid() {
-			d.position = t.Position()
-		}
+		if d != nil && !d.position.IsValid() { d.position = t.Position() }
 	} else {
 		for _, d := range p.params { params = append(params, d.name) }
 	}
@@ -2728,7 +2735,7 @@ func (p *parser) rule(special specialRule, options, targets []Value) (result Val
 		depends:  barefilize(ctx, depends...),
 		ordered:  barefilize(ctx, ordered...),
 		recipes:  recipes,
-		options:  options,
+		options:  optvals,
 		special:  special,
 	}
 
@@ -3117,7 +3124,17 @@ func (p *parser) clause() {
 		defer un(tracef(t_traverse, "clause(%v, %v)", p.tok, p.pos))
 	}
 
+	var x Value
 	var ctx = p.posit()
+	defer func() {
+		if options.debugParsing("clause") {
+			warnstack(ctx, 3, "%s %v; %v %v", typeof(x), x, p.tok, p.lit).debug(6)
+		}
+		if ctx.checkErrors(true) > 0 {
+			errostack(ctx, 5, "clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(4)
+		}
+	} ()
+
 	switch p.tok {
 	case token.USE:
 		erro(ctx, "`%v` unexpected here", p.tok).debug(10)
@@ -3142,13 +3159,18 @@ func (p *parser) clause() {
 	case token.TEMPLATE:
 		p.template(ctx)
 		return
+	default:
+		x = p.expr(ctx, true)
+		p.skipSpaces()
 	}
 
 	if t_traverse.enabled { defer un(trace(t_traverse, "Clause(?)")) }
 
-	var x = p.expr(ctx, true); p.skipSpaces()
-
 	if p.tok.IsAssign() {
+		if options.debugParsing("define") {
+			warnstack(ctx, 3, "%s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
+			ctx.checkErrors(true)
+		}
 		p.define(ctx, p.tok, x)
 		return
 	}
@@ -3157,7 +3179,12 @@ func (p *parser) clause() {
 	if !p.tok.IsRuleDelim() {
 		list = append(list, p.leftHandSide(ctx)...)
 	}
+
 	if p.tok.IsRuleDelim() {
+		if options.debugParsing("rule") {
+			warnstack(ctx, 3, "%s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
+			ctx.checkErrors(true)
+		}
 		p.rule(specialRuleNor, nil, list)
 		return
 	}
@@ -3165,12 +3192,13 @@ func (p *parser) clause() {
 	if p.tok != token.EOF { return }
 
 	var isIncludingConf = p.isIncludingConf
-	// var loader = ctx.loader()
-	// for pp := loader.parser; !isIncludingConf && pp != nil && pp != p; {
-	// 	isIncludingConf = pp.isIncludingConf
-	// 	pp = loader.parser
-	// }
-	if isIncludingConf {
+	if false {
+		var loader = ctx.loader()
+		for pp := loader.p; !isIncludingConf && pp != nil && pp != p; {
+			isIncludingConf = pp.isIncludingConf
+			pp = loader.p
+		}
+	} else if isIncludingConf {
 		warn(ctx, "bad clause: %v (kit=%s) after %v", p.tok, p.lit, list).debug(10)
 	} else {
 		erro(ctx, "bad clause: %v (lit=%s) after %v", p.tok, p.lit, list).debug(10)
@@ -3195,22 +3223,19 @@ func (p *parser) file(ctx Context) *parsedFile {
 	// Likely not a Go source file at all.
 	if ctx.countErrors() > 0 { return nil }
 
-	const infoLoadAutoAfter = false
-
 	var (
-		isMainFile bool
 		abs, rel, tmp string
-		ident *barecomp //bareword
+		ident *barecomp
 		identStr string
 		implicitBase string // aka. foo.bar.Baz implicitly load base 'foo/bar'
 		keyword  = p.tok
 		filename = p.scanner.File().Name()
+		isMainFile = isEntryFileName(filename)
 		position = ctx.Position()
 		loader = ctx.loader()
 	)
 	assert(loader != nil, "nil loader")
 	assert(loader == loader, "bad loader")
-	// if (p.mode&Flat == 0)
 	defer loader.closeScope(loader.openScope(fmt.Sprintf("file %s", filename)))
 
 	/*if filename == confinitFilename {
@@ -3382,7 +3407,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 			// NOTE: do.smart is always the first loaded, so the loadee will be pointed to it
 			if linfo.loadee == nil { linfo.loadee = ctx.Project() }
 			defer func(proj *Project) {
-				if false && loaderProj != nil && filepath.Base(filename) == "do.smart" {
+				if false && loaderProj != nil && filepath.Base(filename) == entryFileName {
 					var ctx = at(ctx, ident.Position())
 					assert(loader.project == proj, "diverged project: %v != %v", loader.project, proj)
 					//applyUseeVars(ctx, loaderProj, p.project)  // aka. ABC += $(use.ABC)
@@ -3394,7 +3419,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 				loader.closeCurrent(ident, identStr)
 			} (loader.project)
 
-			isMainFile = !declared;
+			isMainFile = isMainFile && !declared;
 		}
 
 		var basePos Position
@@ -3446,10 +3471,14 @@ func (p *parser) file(ctx Context) *parsedFile {
 		}
 	}
 
-	var autoAfter = (loader.mode&Flat == 0) && isMainFile &&
-		filepath.Base(filename) == "do.smart"
+	if !ddd && options.debugFiles != nil {
+		for _, s := range options.debugFiles {
+			if ddd = strings.Contains(filename, s); ddd { break }
+		}
+	}
 
-	if autoAfter { loader.loadAutoAfter(p.posit(), "declare") }
+	var auto = (loader.mode&Flat == 0) && isMainFile //&& isEntryFileName(filename)
+	if auto { loader.autoAfter(p.posit(), "declare") }
 	if loader.mode&ModuleClauseOnly == 0 {
 		if loader.mode&Flat == 0 {
 			ForInit: for p.tok != token.EOF {
@@ -3482,7 +3511,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 				}
 			}
 		}
-		if false && autoAfter { loader.loadAutoAfter(p.posit(), "amid") }
+		if false && auto { loader.autoAfter(p.posit(), "amid") }
 		if loader.mode&ImportsOnly == 0 { // rest of module body
 			for /* p.totalErrors() == 0 && */ p.tok != token.EOF {
 				if p.tok == token.LINEND || (p.tok == token.COMMENT && p.lineComment != nil) {
@@ -3493,7 +3522,8 @@ func (p *parser) file(ctx Context) *parsedFile {
 			}
 		}
 	}
-	if autoAfter { loader.loadAutoAfter(ctx, "appendix") }
+	if auto { loader.autoAfter(ctx, "appendix") }
+	if ddd && options.debugFiles != nil { ddd = false }
 
 	return &parsedFile{
 		// TODO: doc: doc,

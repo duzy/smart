@@ -6,7 +6,8 @@
 package token
 
 import (
-	got "go/token"
+	golang "go/token"
+	// "fmt"
 )
 
 /*
@@ -17,7 +18,7 @@ import (
 	Column   int     -- column number, starting at 1 (byte count)
 */
 type Position struct {
-	got.Position
+	golang.Position
 }
 
 func (p *Position) IsValid() bool {
@@ -32,24 +33,28 @@ func (p *Position) Same(o *Position) bool {
 			p.Column == o.Column && p.Offset == o.Offset)
 }
 
-const NoPos Pos = Pos(got.NoPos)
+const NoPos Pos = Pos(golang.NoPos)
 
-type Pos got.Pos
+type Pos golang.Pos
 
 func (p Pos) IsValid() bool {
-	return got.Pos(p).IsValid()
+	return golang.Pos(p).IsValid()
 }
 
 type File struct {
-	*got.File
+	*golang.File
+}
+
+func (f *File) String() string {
+	return f.Name() //fmt.Sprintf("{%s}", f.Name())
 }
 
 func (f *File) Offset(p Pos) int {
-	return f.File.Offset(got.Pos(p))
+	return f.File.Offset(golang.Pos(p))
 }
 
 func (f *File) Line(p Pos) int {
-	return f.File.Line(got.Pos(p))
+	return f.File.Line(golang.Pos(p))
 }
 
 func (f *File) Pos(offset int) Pos {
@@ -57,20 +62,20 @@ func (f *File) Pos(offset int) Pos {
 }
 
 func (f *File) PositionFor(p Pos, adjusted bool) (pos Position) {
-	return Position{ f.File.PositionFor(got.Pos(p), adjusted) }
+	return Position{ f.File.PositionFor(golang.Pos(p), adjusted) }
 }
 
 func (f *File) Position(p Pos) (pos Position) {
-	return Position{ f.File.Position(got.Pos(p)) }
+	return Position{ f.File.Position(golang.Pos(p)) }
 }
 
 type FileSet struct {
-	*got.FileSet
+	*golang.FileSet
 }
 
 // NewFileSet creates a new file set.
 func NewFileSet() *FileSet {
-	return &FileSet{ got.NewFileSet() }
+	return &FileSet{ golang.NewFileSet() }
 }
 
 func (s *FileSet) AddFile(filename string, base, size int) *File {
@@ -78,7 +83,7 @@ func (s *FileSet) AddFile(filename string, base, size int) *File {
 }
 
 func (s *FileSet) Iterate(f func(*File) bool) {
-	s.FileSet.Iterate(func(file *got.File) bool {
+	s.FileSet.Iterate(func(file *golang.File) bool {
 		return f(&File{ file })
 	})
 }

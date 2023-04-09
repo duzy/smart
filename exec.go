@@ -586,7 +586,7 @@ func (p *ExecResult) cmp(ctx Context, v Value) (res cmpres) {
   }
   return
 }
-func (p *ExecResult) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *ExecResult) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }

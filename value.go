@@ -714,6 +714,7 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
         prereqFile *File
         prereqObj Object
     )
+
     if targetValue == nil {
         prompt(of(ctx,prereqValue), "%s: target is nil\n", prereqStrval)
         errostack(ctx, 3, "").debug(6)
@@ -722,6 +723,11 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
         prompt(of(ctx,prereqValue), "%s: target is trivial (%T)\n", prereqStrval, targetValue)
         errostack(ctx, 3, "").debug(6)
         return
+    }
+
+    if false {
+        var s, _, _ = entryIndicator(ctx, targetValue)
+        info(of(ctx, prereqValue), "%v : %T %v\n", s, prereqValue, prereqStrval).debug(1)
     }
 
     // NOTE: Don't delete, keep it for future debugging.
@@ -764,6 +770,7 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
             }
             warnstack(ctx, 16, "").debug(10)
         }
+
         defer func() { warn(ctx, "%v : %v, %v, %v",
             targetValue, prereqValue, prereqFile, prereqObj).debug(32) } ()
     }}
@@ -1649,7 +1656,7 @@ func (h hitched) match(ctx Context, i interface{}) (full bool, res interface{}, 
 }
 
 type hitch struct {
-    *_FileMapCache
+    *filemapCache
     value hitched // aka full pattern
 }
 
@@ -1709,7 +1716,7 @@ type Value interface {
     // foo->bar      -> ...
     expand(Context, facet) Value // result is nil or identical to this value if no expansions
 
-    hit(ctx Context, cache hitch, bits int) (res *_FileMapCache)
+    hit(ctx Context, cache hitch, bits int) (res *filemapCache)
 
     stat(Context) (*statinfo)
 
@@ -1806,7 +1813,7 @@ func (p undef) Strval(Context) (s string) { return }
 func (p undef) Integer(Context) (i int64, e error) { return }
 func (p undef) Float(Context) (f float64, e error) { return }
 func (p undef) True(Context) (res bool) { return }
-func (p undef) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p undef) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b): %T %v", bits, p.Value, p.Value).debug(32)
     return
 }
@@ -1821,7 +1828,7 @@ func (p *returner) expand(ctx Context, w facet) (res Value) {
     if u > 0 { res = unexpanded{res} }
     return
 }
-func (p *returner) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *returner) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b): %v", bits, p.Values).debug(32)
     return
 }
@@ -1967,7 +1974,7 @@ func (p *Argumented) traverse(ctx Context) (traves travestates) {
     return p.value.traverse(&argumentedContext{ ctx, args })
 }
 
-func (p *Argumented) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *Argumented) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -1988,8 +1995,8 @@ func (p *None) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *None) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
-    return cache._FileMapCache
+func (p *None) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    return cache.filemapCache
 }
 
 type Nil struct { valbase }
@@ -2004,8 +2011,8 @@ func (p *Nil) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *Nil) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
-    return cache._FileMapCache
+func (p *Nil) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    return cache.filemapCache
 }
 
 // aka. isNil(v) || isNone(v) || isUndef(v) || isEmpty(v)
@@ -2209,7 +2216,7 @@ func (p *Any) traverse(ctx Context) (traves travestates) {
     if v, ok := p.value.(Value); ok { traves = v.traverse(ctx) }
     return
 }
-func (p *Any) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *Any) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b): %T", bits, p.value).debug(32)
     return
 }
@@ -2257,7 +2264,7 @@ func (p *negative) traverse(ctx Context) (traves travestates) {
     if p.x != nil { traves = p.x.traverse(ctx) }
     return
 }
-func (p *negative) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *negative) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -2318,7 +2325,7 @@ func (p *boolean) stencil(ctx Context, stems []string) (val Value, rest []string
     val, rest = p, stems
     return
 }
-func (p *boolean) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *boolean) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -2377,7 +2384,7 @@ func (p *answer) stencil(ctx Context, stems []string) (val Value, rest []string)
     val, rest = p, stems
     return
 }
-func (p *answer) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *answer) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -2432,7 +2439,7 @@ func (p *option) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *option) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *option) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -2466,7 +2473,7 @@ func (p *integer) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *integer) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *integer) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -2528,7 +2535,7 @@ func (p *Float) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *Float) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *Float) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -2562,7 +2569,7 @@ func (p *DateTime) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *DateTime) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *DateTime) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -2776,7 +2783,7 @@ func (p *URL) Validate() (res *url.URL) {
     panic(fmt.Sprintf("validate %s", p))
     return
 }
-func (p *URL) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *URL) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -2809,7 +2816,7 @@ func (p *Raw) match(ctx Context, i interface{}) (full bool, s interface{}, stems
 func (p *Raw) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
 }
-func (p *Raw) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *Raw) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -2867,7 +2874,7 @@ func (p *String) elemStr(_ Context, o Object, k elemkind) (s string) {
     if k&elemNoQuote == 0 { s = `'`+p.string+`'` } else { s = p.string }
     return
 }
-func (p *String) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *String) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     if false { warn(at(ctx, p.position), "%08b: cache unsupported: %s", bits, p).debug(32) }
     if false {
         return cache.strx(at(ctx, p.position), p.string, bits)
@@ -2927,8 +2934,8 @@ func (p *punctuation) match(ctx Context, i interface{}) (full bool, res interfac
 }
 func (p *punctuation) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *punctuation) traverse(ctx Context) (traves travestates) { return }
-func (p *punctuation) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
-    return cache._FileMapCache
+func (p *punctuation) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    return cache.filemapCache
 }
 
 type bareword struct { valbase; string }
@@ -2990,7 +2997,7 @@ func (p *bareword) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *bareword) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *bareword) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     if false {
         return cache.strx(at(ctx, p.position), p.string, bits)
     } else {
@@ -3060,7 +3067,7 @@ func (p *qualiword) stencil(ctx Context, stems []string) (val Value, rest []stri
 func (p *qualiword) traverse(ctx Context) (traves travestates) {
     return traverse(at(ctx, p.position), p, p.Strval(ctx))
 }
-func (p *qualiword) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *qualiword) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -3273,19 +3280,19 @@ func (p *barecomp) expand(ctx Context, w facet) (res Value) {
 func (p *barecomp) traverse(ctx Context) (traves travestates) {
     return traverse(at(ctx, p.Position()), p, p.Strval(ctx))
 }
-// func (p *barecomp) obsolete_hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+// func (p *barecomp) obsolete_hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 //     return cache.comp(ctx, []string{ p.Strval(ctx) }, 0, bits)
 // }
-func (p *barecomp) obsolete_hit2(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *barecomp) obsolete_hit2(ctx Context, cache hitch, bits int) (res *filemapCache) {
     var elems, u, _ = plain.expand(ctx, p.Elems...)
     if u > 0 { return cache.val(ctx, p, bits) }
 
     var part string
     var chars = (bits&(cacheGlob|cacheRegex)) != 0
-    var hit = func(i int, pat Value) (res *_FileMapCache) {
+    var hit = func(i int, pat Value) (res *filemapCache) {
         if len(part) > 0 {
             if c := cache.char_str(part, bits|cacheBare, chars && pat != nil); c != nil {
-                cache._FileMapCache = c
+                cache.filemapCache = c
             } else if (bits&cacheStore) != 0 {
                 errostack(ctx, 3, "%08b: %v[%d]: uncached", bits, part, elems, i).debug(16)
             }
@@ -3298,7 +3305,7 @@ func (p *barecomp) obsolete_hit2(ctx Context, cache hitch, bits int) (res *_File
         return
     }
 
-    var cache0 = cache._FileMapCache
+    var cache0 = cache.filemapCache
     for i, elem := range elems {
         if p.String() == ".configure" { info(ctx, "%08b: %v[%d] %T %v ; %s", bits, elems, i, elem, elem, part).debug(6) }
         if v, y := elem.(*punctuation); y {
@@ -3318,14 +3325,14 @@ func (p *barecomp) obsolete_hit2(ctx Context, cache hitch, bits int) (res *_File
         }
     }
 
-    if hit(-1, nil); cache._FileMapCache != cache0 {
-        res = cache._FileMapCache
+    if hit(-1, nil); cache.filemapCache != cache0 {
+        res = cache.filemapCache
     } else if (bits&cacheStore) != 0 {
         errostack(ctx, 3, "%08b: %v -> %v: uncached", bits, p, elems).debug(64)
     }
     return
 }
-func (p *barecomp) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *barecomp) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     var elems, u, _ = plain.expand(ctx, p.Elems...)
     if u > 0 { return cache.val(ctx, p, bits) }
 
@@ -3352,7 +3359,7 @@ func (p *barecomp) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) 
     if len(a) == 0 || part != "" { a = append(a, part) }
     if c := cache.comp(ctx, a, nil, -1, bits); c !=  nil {
         if pat == nil { res = c } else {
-            cache._FileMapCache = c
+            cache.filemapCache = c
             if c = pat.hit(ctx, cache, bits); c != nil { res = c } else {
             }
         }
@@ -3612,7 +3619,7 @@ func (p *barefile) stencil(ctx Context, stems []string) (val Value, rest []strin
     }
     return
 }
-func (p *barefile) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *barefile) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b): %v", bits, p).debug(32)
     return
 }
@@ -3953,8 +3960,8 @@ func (p *GlobMeta) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *GlobMeta) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
-    if (bits&cacheStore) != 0 { res = cache._FileMapCache }
+func (p *GlobMeta) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    if (bits&cacheStore) != 0 { res = cache.filemapCache }
     return
 }
 
@@ -3989,8 +3996,8 @@ func (p *GlobRange) expand(ctx Context, w facet) (res Value) {
 func (p *GlobRange) elemStr(ctx Context, o Object, k elemkind) (s string) {
     return fmt.Sprintf("[%s]", elementString(ctx, o, p.Chars, k))
 }
-func (p *GlobRange) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
-    if (bits&cacheStore) != 0 { res = cache._FileMapCache }
+func (p *GlobRange) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    if (bits&cacheStore) != 0 { res = cache.filemapCache }
     return
 }
 
@@ -4120,23 +4127,23 @@ func (p *Path) elemStr(ctx Context, o Object, k elemkind) (s string) {
     }
     return
 }
-func (p *Path) obsolete_hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *Path) obsolete_hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     var elems, u, _ = expandPathElems(ctx, plain, p.Elems...)
     if false && u > 0 { warn(ctx, "%08b: unexpended: %v: %v", bits, p, elems).debug(1) }
     for i, elem := range elems {
         var c = elem.hit(ctx, cache, bits|cachePath)
         if false && strings.HasPrefix(p.String(), "$//.test") {
-            warn(ctx, "%08b: %v: %v[%d]: %T %v ; %p.%p", bits, p, elems, i, elem, elem, cache._FileMapCache, c).debug(1)
+            warn(ctx, "%08b: %v: %v[%d]: %T %v ; %p.%p", bits, p, elems, i, elem, elem, cache.filemapCache, c).debug(1)
         }
         if false && strings.HasPrefix(p.String(), ".configure/*/*") {
-            warn(ctx, "%08b: %v: %v[%d]: %T %v ; %p.%p", bits, p, elems, i, elem, elem, cache._FileMapCache, c).debug(1)
+            warn(ctx, "%08b: %v: %v[%d]: %T %v ; %p.%p", bits, p, elems, i, elem, elem, cache.filemapCache, c).debug(1)
         }
         if false && strings.HasPrefix(p.String(), ".configure/library/") && strings.HasSuffix(p.String(), ".log") {
-            warn(ctx, "%08b: %v: %v[%d]: %T %v ; %p.%p", bits, p, elems, i, elem, elem, cache._FileMapCache, c).debug(1)
+            warn(ctx, "%08b: %v: %v[%d]: %T %v ; %p.%p", bits, p, elems, i, elem, elem, cache.filemapCache, c).debug(1)
         }
         if c != nil {
-            if cache._FileMapCache == c { break } else { cache._FileMapCache = c }
-            if i+1 == len(elems) { res =  cache._FileMapCache }
+            if cache.filemapCache == c { break } else { cache.filemapCache = c }
+            if i+1 == len(elems) { res =  cache.filemapCache }
         } else if (bits&cacheStore) != 0 {
             errostack(of(ctx, elem), 3, "%08b: %v[%d]: %T %v", bits, p, i, elem, elem).debug(16)
             return
@@ -4146,7 +4153,7 @@ func (p *Path) obsolete_hit(ctx Context, cache hitch, bits int) (res *_FileMapCa
     }
     return
 }
-func (p *Path) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *Path) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     var elems, u, _ = expandPathElems(ctx, plain, p.Elems...)
     if false && u > 0 { warn(ctx, "%08b: unexpended: %v: %v", bits, p, elems).debug(1) }
 
@@ -4169,7 +4176,7 @@ func (p *Path) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
     if len(ss) == 0 {
         if false { warn(ctx, "%08b: %v: %v: %v %v", bits, p, elems, stopPat, stopVal).debug(1) }
     } else if c := cache.strs(at(ctx, p.position), ss, bits|cachePath); c != nil {
-        cache._FileMapCache = c
+        cache.filemapCache = c
     } else {
         if (bits&cacheStore) != 0 { erro(ctx, "%08b: %v: %v: %v", bits, p, elems, ss).debug(1) }
         return
@@ -4186,7 +4193,7 @@ func (p *Path) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
             warn(ctx, "%08b: %v: %v: %v: %T %v ; %p", bits, p, elems, ss, stopPat, stopPat, res).debug(1)
         }
     } else {
-        res = cache._FileMapCache
+        res = cache.filemapCache
     }
     return
 }
@@ -4593,7 +4600,7 @@ func (p *PathPun) match(ctx Context, i interface{}) (full bool, result interface
 func (p *PathPun) stencil(ctx Context, stems []string) (result Value, rest []string) {
     return p, stems
 }
-func (p *PathPun) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *PathPun) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     if false { return cache.str(ctx, []string{p.Strval(ctx)}, 0, bits, nil) }
 
     var s = p.Strval(ctx)
@@ -4605,7 +4612,7 @@ func (p *PathPun) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
                     warn(ctx, "%v(%s): %p: %v\n", p, s, c, c.pats)
                     warn(ctx, "%v(%s): %p: %v\n", p, s, m, m.value).debug(6)
                 }
-                res = &m._FileMapCache
+                res = &m.filemapCache
             }
         }
     }
@@ -5069,7 +5076,7 @@ func (p *File) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *File) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *File) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return cache.strx(at(ctx, p.position), p.name, bits|cacheFile)
 }
 
@@ -5283,7 +5290,7 @@ func (p *Flag) traverse(ctx Context) (traves travestates) {
     ctx = at(ctx, p.position)
     return traverse(ctx, p, p.Strval(ctx))
 }
-func (p *Flag) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *Flag) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -5368,7 +5375,7 @@ func (p *Compound) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *Compound) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *Compound) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b): %v", bits, p).debug(32)
     return
 }
@@ -5601,7 +5608,7 @@ func (p *List) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return
 }
 
-func (p *List) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *List) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -5673,7 +5680,7 @@ func (p *Group) match(ctx Context, i interface{}) (full bool, s interface{}, ste
 func (p *Group) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
 }
-func (p *Group) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *Group) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -5788,7 +5795,7 @@ func (p *Pair) cmp(ctx Context, v Value) (res cmpres) {
 func (p *Pair) elemStr(ctx Context, o Object, k elemkind) string {
     return elementString(ctx, o, p.Key, k)+`=`+elementString(ctx, o, p.Value, k)
 }
-func (p *Pair) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *Pair) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -6224,10 +6231,8 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
             warn(ctx, "reveal: args=%v, unexpanded=%v, transformed=%v", args, u, n)
             warn(ctx, "reveal: -> %T %v (same=%v)", res, res, same)
             if !same {
-                ; dd = true
                 var t = res.expand(ctx, w)
                 warn(ctx, "reveal: -> %T %v", t, t)
-                ; dd = false
             } else if y {
                 warn(ctx, "reveal: unexpanded: %T %v", t.Value, t.Value)
             }
@@ -6431,7 +6436,7 @@ func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *delegate) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *delegate) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     var v = p.expand(ctx, plain)
     if v == p || v.expandible(ctx, plain) {
         if false { warnstack(at(ctx, p.position), 3, "incomplete file pattern: %v -> %v", p, v).debug(16) }
@@ -6568,7 +6573,6 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
         // s == "&(.test.v2)" ||
         // s == "&(objects)" ||
         // s == "&(cflags $<)" ||
-        (dd && s == "&(-std.$_)") ||
         (false && s == "") {
         defer func() { if r := res.String(); p != res && ( true ||
             // strings.Contains(r, "libunwind.o") ||
@@ -6769,7 +6773,7 @@ func (p *closure) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *closure) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *closure) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     var v = p.expand(ctx, plain)
     if v == p || v.expandible(ctx, plain) {
         if false { warnstack(at(ctx, p.position), 3, "incomplete file pattern: %v -> %v", p, v).debug(16) }
@@ -6959,7 +6963,7 @@ func (p *selection) elemStr(ctx Context, o Object, k elemkind) (s string) {
     s += p.t.String() + elementString(ctx, o, p.s, k)
     return
 }
-func (p *selection) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *selection) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -7194,7 +7198,7 @@ func (p *PercPattern) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *PercPattern) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *PercPattern) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -7320,26 +7324,26 @@ func (p *GlobPattern) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *GlobPattern) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *GlobPattern) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     var elems, u, _ = plain.expand(ctx, p.Components...)
     if false && u > 0 { warn(ctx, "%08b: unexpended: %v: %v", bits, p, elems).debug(1) }
 
-    var cache0 = cache._FileMapCache
+    var cache0 = cache.filemapCache
     for i, elem := range elems {
         if c := elem.hit(ctx, cache, bits|cacheGlob); c != nil {
-            if cache._FileMapCache == c { break } else { cache._FileMapCache = c }
+            if cache.filemapCache == c { break } else { cache.filemapCache = c }
         } else {
             if (bits&cacheStore) != 0 {
                 errostack(of(ctx, elem), 3, "%08b: %v[%d]: %T %v", bits, p, i, elem, elem).debug(16)
             } else if false && elem.patterned(ctx) {
-                res = cache._FileMapCache
+                res = cache.filemapCache
             }
             break
         }
     }
-    if cache._FileMapCache == cache0 { // for globs without bare prefix
+    if cache.filemapCache == cache0 { // for globs without bare prefix
         if c := cache.char0(bits); c != nil {
-            cache._FileMapCache = c
+            cache.filemapCache = c
         } else if (bits&cacheStore) != 0 {
             errostack(ctx, 3, "%08b: nil cache: %v", bits, p).debug(64)
             return
@@ -7350,7 +7354,7 @@ func (p *GlobPattern) hit(ctx Context, cache hitch, bits int) (res *_FileMapCach
 
     if (bits&cacheStore) != 0 && res == nil {
         errostack(of(ctx, p), 3, "%08b: %v: %v (%p %p)",
-            bits, p, cache.value, cache0, cache._FileMapCache).debug(16)
+            bits, p, cache.value, cache0, cache.filemapCache).debug(16)
     }
     return
 }
@@ -7380,7 +7384,7 @@ func (p *RegexpPattern) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *RegexpPattern) traverse(ctx Context) (traves travestates) { return traverse(ctx, p, "") }
 func (p *RegexpPattern) expand(_ Context, _ facet) Value { return p }
-func (p *RegexpPattern) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *RegexpPattern) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }

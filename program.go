@@ -446,14 +446,11 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
                 }
             }
             if tar != "" && tar != ent {
-                prompt(ctx, "%s: %s: execution with %d errors, project %s\n",
-                    ent, tar, errs, prog.project).debug(1)
+                erro(ctx, "%s: %s: execution yields %d errors", ent, tar, errs)
             } else {
-                prompt(ctx, "%s: execution with %d errors, project %s\n",
-                    ent, errs, prog.project).debug(1)
+                erro(ctx, "%s: execution yields %d errors", ent, errs)
             }
-            warn(ctx, `%v: %d errors in execution "%s"`, prog.project, errs, str)
-            warnstack(ctx, 8, "").debug(32)
+            errostack(ctx, 8, "").debug(32)
             if options.failOnErrors { fail(prog.position, "fail by %d errors", errs) }
         }
     } ()

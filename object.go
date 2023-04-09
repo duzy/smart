@@ -94,7 +94,7 @@ func (p *knownobject) cmp(ctx Context, v Value) (res cmpres) {
         }
         return
 }
-func (p *knownobject) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *knownobject) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -205,7 +205,7 @@ func (p *ProjectName) rescope(_ Context, scope *Scope) {
                 }
         }
 }
-func (p *ProjectName) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *ProjectName) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -266,7 +266,7 @@ func (p *ScopeName) rescope(_ Context, scope *Scope) {
                 }
         }
 }
-func (p *ScopeName) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *ScopeName) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -957,7 +957,7 @@ func (d *def) stat(ctx Context) (si *statinfo) {
         return
 }
 
-func (p *def) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *def) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -1025,7 +1025,7 @@ func (p *undetermined) match(ctx Context, i interface{}) (full bool, s interface
 func (p *undetermined) stencil(ctx Context, stems []string) (val Value, rest []string) {
         return p, stems
 }
-func (p *undetermined) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *undetermined) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -1054,7 +1054,7 @@ func (p *Builtin) cmp(ctx Context, v Value) (res cmpres) {
         }
         return
 }
-func (p *Builtin) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *Builtin) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -1429,7 +1429,7 @@ func (entry *RuleEntry) option(ctx Context) (res bool, infos []Value) {
         return
 }
 
-func (entry *RuleEntry) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (entry *RuleEntry) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }

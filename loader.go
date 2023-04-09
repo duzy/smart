@@ -22,7 +22,17 @@ import (
     "io/fs"
 )
 
-const optSortErrors = false
+const (
+    dotBase = ".base"
+    dotContainer = ".container"
+    dotConfigure = ".configure"
+
+    entryFileName = "do.smart"
+
+    optSortErrors = false
+)
+
+func isEntryFileName(s string) bool { return filepath.Base(s) == entryFileName }
 
 type ResolveBits int
 const (
@@ -73,12 +83,6 @@ const (
 
     parsingText
     parsingDir
-)
-
-const (
-    dotBase = ".base"
-    dotContainer = ".container"
-    dotConfigure = ".configure"
 )
 
 var parseMode = DeclarationErrors //|Trace
@@ -1420,7 +1424,7 @@ func isConfigureProject(proj *Project) bool {
         proj.name == "configure.base"
 }
 
-func (l *loader) loadAutoAfter(ctx Context, tag string) {
+func (l *loader) autoAfter(ctx Context, tag string) {
     if proj := l.project; isConfigureProject(proj) {
         if false && tag == "declare" { info(ctx, "%v: %v", proj, tag).debug(4) }// skip...
     } else if obj := proj.resolveObject(ctx, ".auto.after."+tag); obj == nil {
@@ -1432,7 +1436,10 @@ func (l *loader) loadAutoAfter(ctx Context, tag string) {
     } else if val := Scalar(d.value.expand(ctx, plain)); isTrivial(val) {
         if false && tag == "declare" { info(ctx, "%v: %v", proj, tag).debug(4) }// skip...
     } else {
-        l.include(ctx, includeOpts{}, val)
+        const ( o = true ; t = false )
+        if t && ddd { prompt(ctx, "%s: loader.autoAfter - %s\n", l.Position(), tag) }
+        if o { l.include(ctx, includeOpts{}, val) }
+        if t && ddd { prompt(ctx, "%s: loader.autoAfter - %s.\n", l.Position(), tag) }
     }
 }
 
@@ -1833,6 +1840,7 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
 	if l.mode&ParseComments != 0 {
 		//scanMode = scanner.ScanComments
 	}
+
     var file = uni.file(filename, text)
 	l.p.scanner.Init(file, text, scanMode, func(p token.Position, s string) {
         errostack(at(ctx,Position(p)), 3, "%s", s).debug(128)
@@ -1916,14 +1924,24 @@ ListLoop:
 }
 
 func (l *loader) sources(pos Position, path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*Project) {
+    var ctx = at(l, pos)
     defer func(t time.Time) {
-        var d = time.Now().Sub(t)
-        if options.verboseParse /*&& d > 50*time.Millisecond*/ {
-            fmt.Fprintf(stderr, "parse(%15s) %s ⇒ %s\n", d, l.project, path)
+        if options.verboseParse {
+            if d := time.Now().Sub(t); /*&& d > 50*time.Millisecond*/true {
+                fmt.Fprintf(stderr, "parse(%15s) %s ⇒ %s\n", d, l.project, path)
+            }
+        }
+
+        if n := l.checkErrors(true); n > 0 {
+            errostack(ctx, 3, "%d errors parsing: %s", n, path).debug(12)
+            if options.failOnErrors {
+                fail(l.Position(), "fail by %d errors", l.totalErrors())
+            } else {
+                mods = nil
+            }
         }
     } (time.Now())
 
-    var ctx = at(l, pos)
     var fd, err = os.Open(path)
     if err != nil {
         erro(ctx, "open(%s): %v", path, err).debug(1)
@@ -1941,8 +1959,8 @@ func (l *loader) sources(pos Position, path string, filter func(os.FileInfo) boo
     }
     for i, a := range list {
         if i > 0 {
-            if first, s := list[0], a.Name(); s == "do.smart" ||
-                (s == "build.smart" && first.Name() != "do.smart") {
+            if first, s := list[0], a.Name(); s == entryFileName ||
+                (s == "build.smart" && first.Name() != entryFileName) {
                 list[0] = a
                 list[i] = first
             }
@@ -1994,16 +2012,15 @@ ListLoop:
                 }
             }
         }
-        /*if (name == "configure.smart" || name == "configure.sm") && (linked != "" || mo.IsDir()) {
-            //hasConfDir = true // TODO: remove ConfigDir feature
-            if err := l.ParseConfigDir(filepath.Dir(filename), linked); err != nil {
-                if first == nil {
-                    first = err
-                }
-                return
-            }
-            continue ListLoop
-        }*/
+
+        // if (name == "configure.smart" || name == "configure.sm") && (linked != "" || mo.IsDir()) {
+        //     //hasConfDir = true // TODO: remove ConfigDir feature
+        //     if err := l.ParseConfigDir(filepath.Dir(filename), linked); err != nil {
+        //         return
+        //     }
+        //     continue ListLoop
+        // }
+
         if linked != "" { }
 
         if mo.IsRegular() && (filter == nil || filter(d)) {
@@ -2157,9 +2174,9 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
 
     defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, ""))
 
-    var mods = l.sources(pos, absDir, filter, parseMode)
-    if n := l.checkErrors(true); n > 0 {
-        erro(ctx, "%d diagnostic errors parsing module '%s'", n, specName).debug(12)
+    var mods map[string]*Project
+    if mods = l.sources(pos, absDir, filter, parseMode); mods == nil {
+        errostack(ctx, 3, "failed parsing module: %s", specName).debug(12)
         if options.failOnErrors { fail(l.Position(), "fail by %d errors", l.totalErrors()) }
         return
     }
@@ -2183,8 +2200,9 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
     return
 }
 
-func (l *loader) file(ctx Context, filename string, source interface{}) bool {
+func (l *loader) file(ctx Context, filename string, source interface{}) (res bool) {
     if options.traceLaunch { defer un(trace(t_launch, "loader.file")) }
+
     var spec string
     switch dir, base := filepath.Split(filename); base {
     case dotBase, dotConfigure: spec = base
@@ -2193,7 +2211,11 @@ func (l *loader) file(ctx Context, filename string, source interface{}) bool {
 
     var position Position
     position.Filename = filename
-    return l.load(at(ctx, position), spec, filename, source)
+
+    prompt(ctx, "%s: - loader.file: %s (%T)\n", position, spec, source)
+    res = l.load(at(ctx, position), spec, filename, source)
+    prompt(ctx, "%s: - loader.file.\n", position)
+    return
 }
 
 func (l *loader) path(path string, filter func(os.FileInfo) bool) bool {

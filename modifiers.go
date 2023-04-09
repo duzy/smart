@@ -83,7 +83,7 @@ func (m *modifier) String() (s string) {
     s += ")"
     return
 }
-func (p *modifier) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *modifier) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -146,7 +146,7 @@ func (g *modifiergroup) String() (s string) {
     return
 }
 
-func (p *modifiergroup) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *modifiergroup) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }

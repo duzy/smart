@@ -34,32 +34,32 @@ func (sl *searchlist) Set(value string) error {
 type char rune
 func (c char) String() string { return string(rune(c)) }
 
-type _FileMapCache struct {
+type filemapCache struct {
     maps []FileMap
-    chars map[char  ]*_FileMapCache // chars; char(0) goes for patterns without bare prefixs
-    vals  map[Value ]*_FileMapCache
-    strs  map[string]*_FileMapCache
-    pats  map[string][]*_FilePatMapCache
+    chars map[char  ]*filemapCache // chars; char(0) goes for patterns without bare prefixs
+    vals  map[Value ]*filemapCache
+    strs  map[string]*filemapCache
+    pats  map[string][]*filemapCachePat
 }
 
-type _FilePatMapCache struct {
-    _FileMapCache
+type filemapCachePat struct {
+    filemapCache
     key Value
     value hitched
 }
 
-func (cache hitch) strx(ctx Context, s string, bits int) (res *_FileMapCache) {
+func (cache hitch) strx(ctx Context, s string, bits int) (res *filemapCache) {
     return cache.str(ctx, strings.Split(s, PathSep), 0, bits)
 }
 
-func (cache hitch) strs(ctx Context, ss []string, bits int) (res *_FileMapCache) {
+func (cache hitch) strs(ctx Context, ss []string, bits int) (res *filemapCache) {
     return cache.str(ctx, ss, 0, bits)
 }
 
-func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*_FileMapCache) (res *_FileMapCache) {
+func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*filemapCache) (res *filemapCache) {
     var j = i + 1
     const useAllFetched = false
-    defer func(c *_FileMapCache) {
+    defer func(c *filemapCache) {
         if false { if (ss[0] == "llvm") && (false ||
             // ss[i] == "llvm-config.h" ||
             // strings.HasSuffix(ss[i], ".inc") ||
@@ -81,15 +81,15 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*_FileMapCach
             if !useAllFetched { warnstack(ctx, 3, "%08b: %v[%d]: empty cache (%p, %v)\n", bits, ss, i, c, res).debug(12) }
             res = nil // it doesn't make sense to fetch a 'empty' cache
         }
-    } (cache._FileMapCache)
+    } (cache.filemapCache)
 
     var aa = strings.Split(ss[i], ".")
-    a = append(a, cache._FileMapCache)
+    a = append(a, cache.filemapCache)
 
     if c := cache.comp(ctx, aa, ss, i, bits); c != nil {
         if j == len(ss) {
             if useAllFetched || bits&cacheStore != 0 || c.maps != nil { return c }
-        } else if c != cache._FileMapCache {
+        } else if c != cache.filemapCache {
             return hitch{c, cache.value}.str(ctx, ss, j, bits, a...)
         } else if useAllFetched {
             errostack(ctx, 3, "%08b: %v[%d]: %s %s\n", bits, ss, i, ss[i], ss[j]).debug(16)
@@ -98,9 +98,9 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*_FileMapCach
     }
 
     if m := cache.match(ctx, ss, i, bits); m != nil {
-        if c := &m._FileMapCache; j == len(ss) {
+        if c := &m.filemapCache; j == len(ss) {
             if useAllFetched || bits&cacheStore != 0 || c.maps != nil { return c }
-        } else if c != cache._FileMapCache {
+        } else if c != cache.filemapCache {
             return hitch{c, cache.value}.str(ctx, ss, j, bits, a...)
         } else if true {
             errostack(ctx, 3, "%08b: %v[%d]: %s %s\n", bits, ss, i, ss[i], ss[j]).debug(16)
@@ -112,9 +112,9 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*_FileMapCach
         if false { warn(ctx, "%v[%d]: c.pats %p %v\n", ss, i, c, c.pats).debug(1) }
         if m := c.match(ctx, ss, i, bits); m != nil {
             if false { warn(ctx, "%v[%d]: %p: %v\n", ss, i, m, m.value).debug(1) }
-            if c := &m._FileMapCache; j == len(ss) {
+            if c := &m.filemapCache; j == len(ss) {
                 if useAllFetched || bits&cacheStore != 0 || c.maps != nil { return c }
-            } else if c != cache._FileMapCache {
+            } else if c != cache.filemapCache {
                 return hitch{c, cache.value}.str(ctx, ss, j, bits, a...)
             } else if true {
                 errostack(ctx, 3, "%08b: %v[%d]: %s %s\n", bits, ss, i, ss[i], ss[j]).debug(16)
@@ -129,7 +129,7 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*_FileMapCach
         if c := cache.comp(ctx, aa, ss, i, bits); c != nil {
             if j == len(ss) {
                 if useAllFetched || bits&cacheStore != 0 || c.maps != nil { return c }
-            } else if c != cache._FileMapCache {
+            } else if c != cache.filemapCache {
                 return hitch{c, cache.value}.str(ctx, ss, j, bits, a...)
             } else if true {
                 errostack(ctx, 3, "%08b: %v[%d]: %s %s\n", bits, ss, i, ss[i], ss[j]).debug(16)
@@ -181,7 +181,7 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*_FileMapCach
     return
 }
 
-func (cache *_FileMapCache) peel(ctx Context, value hitched, ss []string, i, bits int) (res *_FileMapCache) {
+func (cache *filemapCache) peel(ctx Context, value hitched, ss []string, i, bits int) (res *filemapCache) {
 outermost:
     for ; i < len(ss); i++ {
         if c := cache.chars[char(0)]; c != nil {
@@ -194,7 +194,7 @@ outermost:
                                 info(ctx, "%v[%d]: %v %v %v → %v %v\n", ss, i, p.value, p.key, p.maps, s, m).debug(1)
                             }
                         }
-                        if cache = &p._FileMapCache; len(p.maps) > 0 { return cache } else {
+                        if cache = &p.filemapCache; len(p.maps) > 0 { return cache } else {
                             i--; continue
                         }
                     }
@@ -233,8 +233,8 @@ func (cache hitch) expand(ctx Context, s string) (res bool) {
     return num > 0
 }
 
-// NOTE: _FileMapCache.comp is identical to barecomp.hit
-func (cache *_FileMapCache) comp(ctx Context, a, ss []string, i, bits int) (res *_FileMapCache) {
+// NOTE: filemapCache.comp is identical to barecomp.hit
+func (cache *filemapCache) comp(ctx Context, a, ss []string, i, bits int) (res *filemapCache) {
     var ( chars = (bits&(cacheGlob|cacheRegex)) != 0 ; N = len(a)-1 )
     for j, k := range a {
         var chars = chars && j == N
@@ -252,7 +252,7 @@ func (cache *_FileMapCache) comp(ctx Context, a, ss []string, i, bits int) (res 
     return
 }
 
-func (cache *_FileMapCache) match(ctx Context, ss []string, i, bits int) (res *_FilePatMapCache) {
+func (cache *filemapCache) match(ctx Context, ss []string, i, bits int) (res *filemapCachePat) {
     if cache.pats != nil {
         for _, m := range cache.pats {
             for _, p := range m {
@@ -266,7 +266,7 @@ func (cache *_FileMapCache) match(ctx Context, ss []string, i, bits int) (res *_
     return
 }
 
-func (cache *_FileMapCache) char_str(s string, bits int, chars bool) (res *_FileMapCache) {
+func (cache *filemapCache) char_str(s string, bits int, chars bool) (res *filemapCache) {
     if chars {
         if s == "" {
             res = cache.char0(bits)
@@ -281,13 +281,13 @@ func (cache *_FileMapCache) char_str(s string, bits int, chars bool) (res *_File
         }
     } else if (bits&cacheStore) != 0 {
         if cache.strs == nil {
-            cache.strs = make(map[string]*_FileMapCache)
+            cache.strs = make(map[string]*filemapCache)
         } else {
             res, _ = cache.strs[s]
         }
 
         if res == nil {
-            res = &_FileMapCache{}
+            res = &filemapCache{}
             cache.strs[s] = res
         }
     } else if cache.strs != nil {
@@ -296,12 +296,12 @@ func (cache *_FileMapCache) char_str(s string, bits int, chars bool) (res *_File
     return
 }
 
-func (cache *_FileMapCache) char0(bits int) (res *_FileMapCache) { return cache.char(char(0), bits) }
-func (cache *_FileMapCache) char(c char, bits int) (res *_FileMapCache) {
+func (cache *filemapCache) char0(bits int) (res *filemapCache) { return cache.char(char(0), bits) }
+func (cache *filemapCache) char(c char, bits int) (res *filemapCache) {
     if (bits&cacheStore) != 0 {
-        if cache.chars == nil { cache.chars = make(map[char]*_FileMapCache) }
+        if cache.chars == nil { cache.chars = make(map[char]*filemapCache) }
         if res, _ = cache.chars[c]; res == nil {
-            res = &_FileMapCache{}
+            res = &filemapCache{}
             cache.chars[c] = res
         }
     } else if cache.chars != nil {
@@ -310,32 +310,34 @@ func (cache *_FileMapCache) char(c char, bits int) (res *_FileMapCache) {
     return
 }
 
-func (cache *_FileMapCache) val(ctx Context, key Value, bits int) (res *_FileMapCache) {
+func (cache *filemapCache) val(ctx Context, key Value, bits int) (res *filemapCache) {
     if (bits&cacheStore) != 0 {
-        if cache.vals == nil { cache.vals = make(map[Value]*_FileMapCache) }
+        if cache.vals == nil { cache.vals = make(map[Value]*filemapCache) }
         if res, _ = cache.vals[key]; res == nil {
-            res = &_FileMapCache{}
+            res = &filemapCache{}
             cache.vals[key] = res
         }
-    } else if false && cache.vals != nil {
+    } else if cache.vals != nil {
         res, _ = cache.vals[key]
-    } else {
-        erro(ctx, "unexpend value: %T %v", key, key).debug(1)
+    }
+
+    if res == nil && options.errorUncache {
+        errostack(ctx, 10, "%08b: %s(%v) → %s", bits, typeof(key), key, key.Strval(ctx)).debug(32)
     }
     return
 }
 
-func (cache hitch) pat(ctx Context, key Value, bits int) (res *_FileMapCache) {
-    var a []*_FilePatMapCache
+func (cache hitch) pat(ctx Context, key Value, bits int) (res *filemapCache) {
+    var a []*filemapCachePat
     if s := key.Strval(ctx); (bits&cacheStore) != 0 {
         if cache.pats != nil { a, _ = cache.pats[s] } else {
-            cache.pats = make(map[string][]*_FilePatMapCache)
+            cache.pats = make(map[string][]*filemapCachePat)
         }
 
-        t := &_FilePatMapCache{_FileMapCache{}, key, cache.value}
+        t := &filemapCachePat{filemapCache{}, key, cache.value}
         a = append(a, t)
         cache.pats[s] = a
-        return &t._FileMapCache
+        return &t.filemapCache
     } else if cache.pats != nil {
         a, _ = cache.pats[s]
 
@@ -343,7 +345,7 @@ func (cache hitch) pat(ctx Context, key Value, bits int) (res *_FileMapCache) {
         for i, t := range a {
             for j, m := range t.maps {
                 if m.project == p || p.hasBase(m.project) {
-                    return &t._FileMapCache
+                    return &t.filemapCache
                 } else if false {
                     warn(of(ctx, t.key), "duplications[%d]: %v (%v, %v, %d)", i, t.value, t.key, m.project, j)
                 }
@@ -367,7 +369,7 @@ type universe struct {
 
     statmutex sync.Mutex
     filecache map[string]*filebase // File.fullname() -> File
-    filemaps _FileMapCache
+    filemaps filemapCache
 }
 func (ctx *universe) arguments() []Value { return nil }
 func (ctx *universe) argumented() *argumentedContext { return nil }
@@ -517,7 +519,7 @@ type matchedFileMap struct {
 }
 
 func (uc *universe) unmap(ctx Context, name interface{}) (maps []matchedFileMap) {
-    var cache *_FileMapCache
+    var cache *filemapCache
     var db bool
     if false { if s, y := name.(string); y && s == "curl/curlver.h" {
         defer func() { info(ctx, "%T %v %p", name, name, cache).debug(16) } ()
@@ -530,8 +532,8 @@ func (uc *universe) unmap(ctx Context, name interface{}) (maps []matchedFileMap)
         if db { warn(ctx, "%p", cache).debug(1) }
     } else if s, y := name.(string); y {
         cache = h.strx(ctx, s, cacheZero) // checks PathSep
-        if db { warn(ctx, "%v %p %p, %v", strings.Split(s, PathSep), h._FileMapCache, cache,
-            h._FileMapCache.strs["curl"]).debug(1) }
+        if db { warn(ctx, "%v %p %p, %v", strings.Split(s, PathSep), h.filemapCache, cache,
+            h.filemapCache.strs["curl"]).debug(1) }
     } else if a, y := name.([]string); y {
         cache = h.strs(ctx, a, cacheZero)
         if db { warn(ctx, "%p", cache).debug(1) }
@@ -634,6 +636,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
     if options.verbose { info(ctx, "goal: %v", main).debug(1) }
 
     removeTempDirs(ctx)
+    if false && ddd { info(ctx, "%v", main).debug(1) ; ctx.checkErrors(true) }
 
     if options.cpuProf != "" || options.autoProfs {
         var prof = options.cpuProf
@@ -686,12 +689,20 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
 
     var done bool
     for _, flag := range dc.globe.flags {
+        if options.verboseExecFlags { info(of(ctx, flag), "%v", flag) }
+
         var s = flag.name.Strval(ctx)
         var args, _ = dc.globe.args[flag]
         var entries, _ = dc.globe.flagEntries[s]
         for _, entry := range entries {
+            var ctx = at(ctx, entry.Position())
+            if options.verboseExecFlags {
+                info(ctx, "%v", entry)
+                ctx.checkErrors(true)
+            }
+
             var ( res []Value; traves []*travestate )
-            if res, traves = entry.Execute(at(ctx, entry.Position()), args...); len(traves) > 0 {
+            if res, traves = entry.Execute(ctx, args...); len(traves) > 0 {
                 for _, brk := range traves {
                     if brk.what == traveFail {
                         erro(at(ctx,brk.pos), "execute '%v': %v", entry, brk).debug(1)
@@ -800,13 +811,13 @@ func (dc *universe) loadTopWork() (err error) {
     var (
         ctx Context = dc
         base = baseWorkDir
-        // pos = positionForDir(base) // FIXME: find a useful position
         args []Value
     )
+    if false && ddd { defer func() { info(dc, "%v", base).debug(10) } () }
     if s := filepath.Join(base, ".smart", "modules"); /* s != "" */true {
         if _, e := os.Stat(s); e == nil { dc.AddSearchPaths(s) }
     }
-    if f := filepath.Join(base, "do.smart"); f != "" {
+    if f := filepath.Join(base, entryFileName); f != "" {
         if _, e := os.Stat(f); e != nil {
             f = filepath.Join(base, "build.smart")
             if _, e := os.Stat(f); e != nil { f = "" }
@@ -924,6 +935,11 @@ func (dc *universe) loadTopWork() (err error) {
         }
     } (time.Now())
     if options.verboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
+
+    if false && ddd {
+        info(dc, "%v", base).debug(128) ; dc.checkErrors(true)
+        defer func() { info(dc, "%v", base).debug(6) ; dc.checkErrors(true) } ()
+    }
 
     if !dc.globe.top.path(base, nil) { return }
     if dc.globe.main == nil { fmt.Fprintf(stderr, "nothing loaded\n") }

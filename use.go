@@ -122,7 +122,7 @@ func (p *use) Strval(ctx Context) (s string) {
         s = fmt.Sprintf("use %s %v", p.project.name, p.params)
         return
 }
-func (p *use) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *use) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -307,7 +307,7 @@ func (p *uselist) Call(ctx Context, a... Value) (result Value) {
         return
 }
 
-func (p *uselist) hit(ctx Context, cache hitch, bits int) (res *_FileMapCache) {
+func (p *uselist) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }

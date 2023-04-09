@@ -21,25 +21,27 @@ import (
 
 const productVerTag = "dev" // dev, alpha, beta, release
 
-var dd bool
+var ddd bool // debug dumps for special conditions
 
 type commandLineOpts struct {
   help            bool `h,help`
 
   debug           bool `d,db,debug`
-  debugErrors     bool `de,dberro,debug-errors` // optionDebugErrors
-  debugWarns      bool `dw,dbwarn,debug-warns`  // optionDebugWarns
-  debugInfos      bool `di,dbinfo,debug-infos`  // optionDebugInfos
-  debugPrompt     bool `dp,dbprom,debug-prompt` // optionDebugInfos
+  debugErrors     bool `de,dberro,debug-errors`
+  debugWarns      bool `dw,dbwarn,debug-warns`
+  debugInfos      bool `di,dbinfo,debug-infos`
+  debugPrompt     bool `dp,dbprom,debug-prompt`
+  debugSyn []string `ds,dbsyntax,debug-syntax`
+  debugFiles  []string `df,dbfile,debug-file`
 
   autoProfs       bool `ap,autoprof,auto-profiles,auto-profile`
   cpuProf         string `cpuprof,cpu-profile`
   memProf         string `memprof,memory-profile`
 
-  printConfig     bool `opts,print-options,printoptions`    // optionPrintConfiguration
-  printFlags      bool `flags,print-flags,printflags`       // optionPrintFlags
+  printConfig     bool `opts,print-options,printoptions`
+  printFlags      bool `flags,print-flags,printflags`
 
-  buildPlugins    bool `bp,bup,build-plugins,buildplugins`  // optionAlwaysBuildPlugins
+  buildPlugins    bool `bp,bup,build-plugins,buildplugins`
 
   verbose         bool `v,verb,verbose`
   verboseBreaks   bool `vb,vbrk,verbose-breaks`
@@ -48,6 +50,7 @@ type commandLineOpts struct {
   verboseLoads    bool `vl,vloa,verbose-loading`
   verboseParse    bool `vp,vpar,verbose-parsing`
   verboseUsing    bool `vu,vuse,verbose-using`
+  verboseExecFlags bool `vxf,verbose-exec-flag`
 
   allowClosureFilemap bool `cf,closure-filemap,closure-files`
 
@@ -77,6 +80,7 @@ type commandLineOpts struct {
 
   fastMode        bool `f,fm,fast,fast-mode`
   failOnErrors    bool `fe,foe,fail-on-errors`
+  errorUncache    bool `eu,error-uncache,error-no-cache`
 
   traceLaunch     bool `tl,trace-launch`
   traceParsing    bool `tp,trace-parse`
@@ -86,23 +90,26 @@ type commandLineOpts struct {
   traceConfig     bool `tc,trace-config`
 }
 
+func (o *commandLineOpts) debugParsing(syntax string) (res bool) {
+  if ddd {
+    for _, s := range o.debugSyn {
+      if res = s == syntax; res { break }
+    }
+  }
+  return
+}
+
 const fullContextStringer bool = false
 
 type Context interface {
-  // Globe returns the universe globe.
+  Position() Position
+  String() string // for debug
+
   Globe() *Globe
 
-  // WorkDir returns the specific work directory for this context
-  WorkDir() string // vs os.Getwd, aka. context.workdir
+  WorkDir() string
 
-  // Pos returns the diagnostic position where this context is taking place.
-  Position() Position
-
-  // Scope returns the closure scope
   Scope() *Scope
-
-  // String() returns a string representation of the context
-  String() string
 
   aquireLock() (unlock func())
   wait()
@@ -122,7 +129,6 @@ type Context interface {
   closureResolveAuto(string) (Object, bool)
 
   inner() Context
-  // at(Context) Context
   spawn(Context) Context
 
   positionContext() *positionContext
@@ -132,9 +138,6 @@ type Context interface {
 
   Project() *Project
   projects(Context, ...*Project) []*Project
-  // resolveObject(s string) (obj Object)
-  // resolveEntries(s string, matchingFullSuffix, alwaysResolveBases bool) (entries *ResolveEntries)
-  // resolvePatterns(v Value, s string) (res []*stemmed)
 
   programContext() *programContext
   program() *Program
@@ -568,10 +571,10 @@ func joinTmpPath(ctx Context, base, rel string) string {
 }
 
 func positionForDir(dir string) (pos Position) {
-  if strings.HasSuffix(dir, "do.smart") || strings.HasSuffix(dir, "build.smart") {
+  if strings.HasSuffix(dir, entryFileName) || strings.HasSuffix(dir, "build.smart") {
     pos.Filename = dir
-  } else if _, e := os.Stat(filepath.Join(dir, "do.smart")); e == nil {
-    pos.Filename = filepath.Join(dir, "do.smart")
+  } else if _, e := os.Stat(filepath.Join(dir, entryFileName)); e == nil {
+    pos.Filename = filepath.Join(dir, entryFileName)
   } else if _, e := os.Stat(filepath.Join(dir, "build.smart")); e == nil {
     pos.Filename = filepath.Join(dir, "build.smart")
   } else {
@@ -592,8 +595,8 @@ func checkFailure(ctx Context, dontCheckErrors ...bool) (panics, errs int) {
   }
   if panics > 0 {
     var pos = ctx.Position()
-    if !strings.HasSuffix(pos.Filename, "do.smart") {
-      var s = filepath.Join(pos.Filename, "do.smart")
+    if !strings.HasSuffix(pos.Filename, entryFileName) {
+      var s = filepath.Join(pos.Filename, entryFileName)
       if _, e := os.Stat(s); e == nil { pos.Filename = s }
     } else if !strings.HasSuffix(pos.Filename, "build.smart") {
       var s = filepath.Join(pos.Filename, "build.smart")
@@ -657,7 +660,7 @@ func CommandLine() {
 
   if context.countErrors() > 0 { return }
 
-  //loadGrepCache()
+  if false { loadGrepCache(context) }
 
   if err := context.loadTopWork(); err != nil {
     erro(context, "loading work failed: %v", err)
