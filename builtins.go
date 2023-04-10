@@ -1250,9 +1250,14 @@ func (ctx builtin) ForEach(args... Value) (res Value) {
         for _, val := range values {
                 if !opts.empty {
                         switch t := val.(type) {
-                        case *Nil, *None, *delegate, *closure:
+                        case *Nil, *delegate, *closure:
                                 if opts.debug>0 { warn(ctx, "empty: %T %v", val, val).debug(1) }
                                 continue
+                        case *None:
+                                if !t.True(ctx) {
+                                        if opts.debug>0 { warn(ctx, "empty: %T %v", val, val).debug(1) }
+                                        continue
+                                }
                         case *String:
                                 if t.string == "" {
                                         if opts.debug>0 { warn(ctx, "empty: %T %v", val, val).debug(1) }
