@@ -165,6 +165,7 @@ const (
 
 	constant_beg
 	UNDEF   // `undef`
+	NONE    // `none`
 	BARE    // `bare`  // TODO
 	REGEX   // `regex` // TODO
 	FILE    // `file`  // TODO
@@ -316,6 +317,7 @@ var tokens = [...]string{
 	TEMPLATE:   "template",
 
 	UNDEF:  "undef",
+	NONE:   "none",
 	BARE:   "bare",
 	REGEX:  "regex",
 	FILE:   "file",

@@ -1862,9 +1862,11 @@ func modifierCheck(ctx Context, args... Value) (result Value, traves travestates
     args = parseOpts(ctx, &opts, plain, args...)
 
     if opts.good    { optBreak   = traveDone }
-    if opts.answer  { makeResult = MakeAnswer }
-    if opts.boolean { makeResult = MakeBoolean }
-    if opts.silent && makeResult == nil { makeResult = MakeBoolean }
+    if opts.answer  { makeResult = func(p Position,v bool) Value { return MakeAnswer(p, v) } }
+    if opts.boolean { makeResult = func(p Position,v bool) Value { return MakeBoolean(p, v) } }
+    if opts.silent && makeResult == nil {
+        makeResult = func(p Position,v bool) Value { return MakeBoolean(p, v) }
+    }
 
     for _, arg := range args {
         switch a := arg.(type) {

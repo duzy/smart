@@ -1385,7 +1385,7 @@ func (ctx builtin) Value(args... Value) (res Value) {
                 closure bool
         )
         if args = parseOpts(ctx, &opts, plain, args...); opts.undef {
-                vals = append(vals, &undef{&None{valbase{ctx.Position()}}})
+                vals = append(vals, &undef{&None{valbase{ctx.Position()}, nil}})
         }
         closure = opts.closure
         for _, a := range args {
