@@ -874,9 +874,52 @@ func (p *parser) percExpr(lhs bool, x Value) Value {
 func (p *parser) regexp(ctx Context) (x Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Regexp")) }
 	defer p.setbits(p.setbit(composingREXP)) // avoid nesting percent expressions
-	erro(p, "todo: regexp").debug(10) ; p.checkErrors(true)
-	fail(p.Position(), "regexp: %v %v", p.tok, p.lit)
-	return
+
+	var rx string
+	ForRX: for p.expect(token.LBRACE); p.tok != token.EOF; p.scan() {
+		if false { info(p, "regexp: %v '%v': %s\n", p.tok, p.lit, rx) }
+
+		var esc bool
+		if esc = p.tok == token.ESCAPE; esc {
+			if rx += "\\" + p.lit; p.lit == "Q" {
+				for p.scan(); p.tok != token.EOF; p.scan() {
+					if p.tok == token.ESCAPE {
+						if rx += "\\" + p.lit; p.lit == "E" {
+							break
+						}
+					} else if p.lit != "" {
+						rx += p.lit
+					} else if s := p.tok.String(); s != "" {
+						rx += s
+					} else {
+						erro(p, "regexp: %v '%v' ; %s\n", p.tok, p.lit, rx).debug(1)
+					}
+				}
+			}
+			continue
+		}
+
+		switch p.tok {
+		case token.RBRACE: p.scan() ; break ForRX
+		case token.LBRACE:
+			rx += "{"
+			for p.expect(token.LBRACE); p.tok != token.EOF; p.scan() {
+				if p.tok == token.RBRACE { break } else
+				if p.lit != "" { rx += p.lit } else
+				if s := p.tok.String(); s != "" { rx += s } else {
+					erro(p, "regexp: %v '%v' ; %s\n", p.tok, p.lit, rx).debug(1)
+				}
+			}
+			rx += "}"
+		default:
+			if p.lit != "" { rx += p.lit } else
+			if s := p.tok.String(); s != "" { rx += s } else {
+				erro(p, "regexp: %v '%v' ; %s\n", p.tok, p.lit, rx).debug(1)
+			}
+		}
+	}
+	warn(p, "todo: regexp: %s; %v %v", rx, p.tok, p.lit).debug(1)
+	return &RegexpPattern{valbase{p.Position()}} // TODO: correct regexp pattern value
 }
 
 func (p *parser) keyValueExpr(x Value) *Pair {
@@ -1701,8 +1744,8 @@ func (p *parser) expr(ctx Context, lhs bool) (x Value) {
 	if false && t_traverse.enabled { defer un(trace(t_traverse, "Expression")) }
 
 	var tok, lit = p.tok, p.lit
-	if x = p.composed(ctx, lhs); isNil(x) {
-		erro(ctx, "%v: invalid expression (tok=%v, lit=%v)", ctx.Project(), tok, lit).debug(6)
+	if x = p.composed(ctx, lhs); x == nil {
+		erro(p, "invalid (tok=%v,%v; next=%v,%v)", tok, lit, p.tok, p.lit).debug(6)
 		return
 	} else if lhs && p.tok.IsAssign() { return
 	} else if p.isParametersGroup(x)  { return }

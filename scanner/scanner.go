@@ -1096,6 +1096,12 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 		}
 	case ';':
 		tok = token.SEMICOLON
+	case '^':
+		tok = token.CARET
+	case '<':
+		tok = token.LANGLE
+	case '>':
+		tok = token.RANGLE
 	case '[':
 		tok = token.LBRACK
 	case ']':

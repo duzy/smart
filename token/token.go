@@ -44,9 +44,11 @@ const (
 	LINEND   // significant line break (LF or CRLF)
 
 	operator_beg
-	LPAREN    // (
-	LBRACK    // [
+	CARET     // ^
+	LANGLE    // <
 	LBRACE    // {    left curly
+	LBRACK    // [
+	LPAREN    // (
 	LCOLON    // :
 	COMMA     // ,
 	DOT       // .    period
@@ -60,6 +62,7 @@ const (
 	RPAREN    // )
 	RBRACK    // ]
 	RBRACE    // }    right curly
+	RANGLE    // >
 	RCOLON    // :
 	SEMICOLON // ;
 
@@ -210,9 +213,11 @@ var tokens = [...]string{
 	RECIPE:   "RECIPE",
 	LINEND:   "\\n", //"LINEND",
 
-	LPAREN: "(",
-	LBRACK: "[",
+	CARET: "^",
+	LANGLE: "<",
 	LBRACE: "{",
+	LBRACK: "[",
+	LPAREN: "(",
 	LCOLON: ":", // the left colon like in $:foo:
 	COMMA:  ",",
 	DOT:    ".",
@@ -225,6 +230,7 @@ var tokens = [...]string{
 	RPAREN:    ")",
 	RBRACK:    "]",
 	RBRACE:    "}",
+	RANGLE:    ">",
 	RCOLON:    ":", // the right-paired colon like in $:foo:
 	SEMICOLON: ";",
 
