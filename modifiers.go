@@ -475,30 +475,34 @@ func modifierClosure(ctx Context, args... Value) (result Value, traves travestat
 
     assert(ctx.closure() != nil, "context not closured: %v", ctx)
 
+    var set = func(name string, val Value) {
+        var ( t Value ; noop bool )
+        if v, y := val.(*boolean); y {
+            if !v.bool { noop = true }
+        } else if isTrivial(val) {
+            errostack(ctx, 3, "trivial target: %T %v", val, val).debug(1)
+        } else if true {
+            t = val.expand(ctx, plain)
+        } else {
+            t = val
+        }
+
+        if l, y := t.(*List); y && len(l.Elems) == 1 { t = l.Elems[0] }
+        if !noop && isTrivial(t) { t = autoGet(closureCtx, name)  }
+
+        if t != nil {
+            if false { v := val; warn(ctx, "%T %v -> %T %v", v, v, t, t).debug(1) }
+            ctx.autoSet(name, t) // aka (set @=&@)
+        } else if !noop {
+            errostack(ctx, 3, "%v: %s is nil", closureCtx.Project(), name).debug(1)
+        }
+    }
+
     var opts modifierClosureOpts
     args = parseOpts(ctx, &opts, plain, args...)
     if opts.verbose { info(ctx, "%v: %v", ctx.Project(), ctx).debug(1) }
     if opts.dump { infostack(ctx, -1, "%v: %v", ctx.Project(), ctx).debug(1) }
-    if opts.target != nil && closureCtx != ctx {
-        var ( t Value ; noop bool )
-        if v, y := opts.target.(*boolean); y {
-            if !v.bool { noop = true } else { t = autoGet(closureCtx, "@") }
-        } else if isTrivial(opts.target) {
-            errostack(ctx, 3, "trivial target: %T %v", opts.target, opts.target).debug(1)
-        } else if true {
-            t = opts.target.expand(ctx, plain)
-        } else {
-            t = opts.target
-        }
-
-        if t != nil {
-            if l, y := t.(*List); y && len(l.Elems) == 1 { t = l.Elems[0] }
-            if false { v := opts.target; warn(ctx, "%T %v -> %T %v", v, v, t, t).debug(1) }
-            ctx.autoSet("@", t) // aka (set @=&@)
-        } else if !noop {
-            errostack(ctx, 3, "%v: @ is nil", closureCtx.Project()).debug(1)
-        }
-    }
+    if closureCtx != ctx { if opts.target != nil { set("@", opts.target) } }
 
     var dir string // closure work directory
     if proj := ctx.Project(); proj == nil {
