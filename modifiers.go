@@ -455,10 +455,11 @@ func modifierSetDirtyPats(ctx Context, args... Value) (result Value, traves trav
 type modifierClosureOpts struct {
     generalOpts
     dump   bool `d,dump`
-    target bool `@,target` // TODO: -@=value
+    target Value `@,target`
+    // depFirst bool `<,dep-first` // TODO: -<=value
+    // depLast  bool `>,dep-last` // TODO: ->=value
 }
 func modifierClosure(ctx Context, args... Value) (result Value, traves travestates) {
-
     // Closure the caller program, the context will be restored when execution is finished.
     var closureCtx Context
     if t := ctx.programContext(); t != nil && false {
@@ -478,11 +479,24 @@ func modifierClosure(ctx Context, args... Value) (result Value, traves travestat
     args = parseOpts(ctx, &opts, plain, args...)
     if opts.verbose { info(ctx, "%v: %v", ctx.Project(), ctx).debug(1) }
     if opts.dump { infostack(ctx, -1, "%v: %v", ctx.Project(), ctx).debug(1) }
-    if opts.target && closureCtx != ctx {
-        if t := autoGet(closureCtx, "@"); t != nil { // aka (set @=&@)
-            ctx.autoSet("@", t)
+    if opts.target != nil && closureCtx != ctx {
+        var ( t Value ; noop bool )
+        if v, y := opts.target.(*boolean); y {
+            if !v.bool { noop = true } else { t = autoGet(closureCtx, "@") }
+        } else if isTrivial(opts.target) {
+            errostack(ctx, 3, "trivial target: %T %v", opts.target, opts.target).debug(1)
+        } else if true {
+            t = opts.target.expand(ctx, plain)
         } else {
-            warn(ctx, "%v: &@ is nil", closureCtx.Project()).debug(1)
+            t = opts.target
+        }
+
+        if t != nil {
+            if l, y := t.(*List); y && len(l.Elems) == 1 { t = l.Elems[0] }
+            if false { v := opts.target; warn(ctx, "%T %v -> %T %v", v, v, t, t).debug(1) }
+            ctx.autoSet("@", t) // aka (set @=&@)
+        } else if !noop {
+            errostack(ctx, 3, "%v: @ is nil", closureCtx.Project()).debug(1)
         }
     }
 
