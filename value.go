@@ -734,11 +734,13 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
     }
 
     // NOTE: Don't delete, keep it for future debugging.
-    if true {if (strings.HasPrefix(prereqStrval, "exception") && (
+    if true { if ((
+        strings.HasPrefix(prereqStrval, "exception") ||
+            false) && (
         // strings.HasSuffix(prereqStrval, "/llvm-config.h") ||
         // strings.HasSuffix(prereqStrval, "/Support/SuffixTree.o") ||
         strings.HasSuffix(prereqStrval, "exception") ||
-        false)) {
+            false)) {
         var s, _, _ = entryIndicator(ctx, targetValue)
         prompt(ctx, "%v : %T %v\n", s, prereqValue, prereqStrval)
         warn(ctx, "@: %T %v : %v", targetValue, targetValue, ctx.program().depends)

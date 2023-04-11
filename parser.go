@@ -26,16 +26,17 @@ type specialRule int
 
 const (
 	composing parsingBits = 1<<iota
-	composingSELECT_PROP
+	composingCall
 	composingDOT
 	composingDOTDOT
-	composingPATH
+	composingDepend0
 	composingGLOB
+	composingModifier
+	composingPATH
 	composingPERC
 	composingREXP
+	composingSELECT_PROP
 	composingURL
-	composingDepend0
-	composingModifier
 
 	parsingCompound
 	parsingDefineClause
@@ -717,12 +718,14 @@ func (p *parser) right(ctx Context) []Value {
 func (p *parser) group(lhs bool) *Group {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Group")) }
 
+	defer p.setbits(p.clearbit(composingCall))
+
 	var ctx = p.posit()
 	p.next(true)
 
 	var elems, converted = p.list(ctx, false), false
-	for /*p.tok == token.COMMA*/p.tok != token.RPAREN && p.tok != token.EOF {
-		//p.next(true) // skip token.COMMA
+	for p.tok != token.RPAREN && p.tok != token.EOF {
+		// if p.tok == token.COMMA { p.next(true) }
 		switch p.tok {
 		case token.BAR, token.COMMA, token.SEMICOLON:
 			elems = append(elems, p.punctuation())
@@ -1205,6 +1208,7 @@ func (p *parser) closuredelegate() (result Value) {
 	// TODO:FIXME: push p.bits before entering a $(...) or &(...)
 	// defer func(a parsingBits) { p.bits = a } (p.bits)
 	// p.bits = p.bits & (parsingCompound | parsingFilesSpec | parsingRecipe)
+	defer p.setbits(p.setbit(composingCall))
 
 	var (
 		ctx = p.posit()
@@ -1600,6 +1604,13 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 	case token.LPAREN:
 		return p.group(lhs)
 
+	case token.COMMA:
+		if p.bits&composingCall == 0 {
+			var tok, pos = p.tok, p.pos
+			p._next()
+			return &punctuation{valbase{p.loc(pos)}, tok}
+		}
+
 	case token.TILDE, token.DOT, token.DOTDOT: // ~ . ..
 		var str = p.tok.String()
 		tok, pos, end := p.tok, p.pos, p.pos+token.Pos(len(str))
@@ -1801,9 +1812,9 @@ SwitchCompose:
 		switch x.(type) {
 		case *Flag: // okay: -Ifoo/bar, -Lfoo/bar
 		case *Path: // okay: combine two paths
-		case *String, *Compound, *delegate, *closure:
+		case *String, *Compound, *delegate, *closure, *punctuation:
 		default:
-			warn(of(ctx,y), "barecomp a path: %v (%T), %v (%T) (next=%v)", x, x, y, y, p.tok).debug(1)
+			warn(of(ctx,y), "barecomp path: %T %v, %v (next=%v)", x, x, y, p.tok).debug(1)
 		}
 	}
 
