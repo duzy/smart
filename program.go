@@ -693,7 +693,6 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
         pc    = ctx.programContext()
         stemd = ctx.stemmed()
         stems = ctx.stems()
-        entry = ctx.entry()
         // patEnt, isPatEnt = entry.(*PatternEntry)
         depends valueList
     )
@@ -734,37 +733,11 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
             }
 
             var t = prerequisite.traverse(ctx)
-            if false { if prog.project.name == "llvm.ADT" {
-                warn(of(ctx,prerequisite), "%v: %v: %v", prog.project, entry, prerequisite).debug(1)
-                for i, a := range t { info(of(ctx,prerequisite), "%v. %v %v", i, a.what, a) }
-                infostack(of(ctx,prerequisite), 12, "%v: %v: %v %v", prog.project, ent, prerequisite, autoGet(ctx, ">")).debug(10)
-                defer func(pre, v Value) {
-                    infostack(of(ctx,pre), 12, "%v → %v → %v", pre, v, prerequisite).debug(20)
-                } (prerequisite, autoGet(ctx, "^"))
-            }}
-            if false { if a := autoGet(ctx, "@"); strings.Contains(a.String(), "dlfcn_simple.") {
-                var s = a.Strval(ctx)
-                if f, y := a.(*File); y { s = f.fullname() }
-                warn(of(ctx,prerequisite), "%v: %v: %s, %v %T ; %v", entry, a, s, prerequisite, prerequisite, stemd).debug(1)
-                for i, a := range t { info(of(ctx,prerequisite), "%v. %v %v", i, a.what, a) }
-                infostack(of(ctx,prerequisite), 12, "%v: %v: %v %v", prog.project, ent, prerequisite, autoGet(ctx, ">")).debug(10)
-                defer func(pre, l, r, v Value) {
-                    infostack(of(ctx,pre), 12, "%v → %v %v %v → %v", pre, l, r, v, prerequisite).debug(20)
-                } (prerequisite, autoGet(ctx, "<"), autoGet(ctx, ">"), autoGet(ctx, "^"))
-            }}
-            if false { if a := autoGet(ctx, "@"); a.String() == "llvm-tools-driver" {
-                warn(of(ctx,prerequisite), "%v: %v: %v %T", entry, a, prerequisite, prerequisite).debug(1)
-                for i, a := range t { info(of(ctx,prerequisite), "%v. %v %v", i, a.what, a) }
-                info(of(ctx,prerequisite), "%v: %v %v", a, prerequisite, autoGet(ctx, ">")).debug(1)
-                defer func(s Value) { info(of(ctx,prerequisite), "%v → %v", prerequisite, s).debug(10) } (autoGet(ctx, "^"))
-            }}
-
-            if prog.debug_traverse > 0 {
-                if true { prog.debug_traverse -= 1 }
-                for i, a := range t { info(of(ctx,prerequisite), "%v. %v %v", i, a.what, a) }
+            if prog.debug_traverse > 0 { if true { prog.debug_traverse -= 1 }
+                for i, a := range t { info(of(ctx,prerequisite), "%v: %d. %v %v", ent, i, a.what, a) }
                 infostack(of(ctx,prerequisite), 12, "%v: %v: %v %v", prog.project, ent, prerequisite, autoGet(ctx, ">")).debug(10)
             }
-            if !t.has() { continue } else {
+            if !t.has() { continue } else if true {
                 traves = append(traves, t.not(traveNext)...)
             }
 
@@ -833,11 +806,16 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
             if tt := t.of(traveNext); tt.has() {
                 var deps []Value
                 for _, s := range tt {
+                    if s.dependPat != nil && eq(ctx, s.depend, depend) {
+                        if false { info(of(ctx,prerequisite), "%v: %T %v ; %v %v",
+                            target, prerequisite, prerequisite, s.dependPat, s.depend).debug(1) }
+                        return // end this pattern entry to let trying next one
+                    }
+
                     if eq(ctx, target, s.target) { deps = append(deps, s.depend) } else
                     if eq(ctx, target, s.depend) {
                         info(of(ctx,prerequisite), "%v %v ; %v", target, depend, prerequisite)
-                        info(of(ctx,prerequisite), "%v %v ; %d", s.target, s.depend,  len(tt)).
-                            debug(1)
+                        info(of(ctx,prerequisite), "%v %v ; %d", s.target, s.depend,  len(tt)).debug(1)
                         continue ForPrerequisites
                     }
                 }
@@ -847,10 +825,6 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                     if deps[0] == nil           { return } // %.h : %.h.cmake configure-file($>,$@)
                     if eq(ctx, depend, deps[0]) { return } // %.o : %.cpp
                 } else {
-                    if false {
-                        for i, dep := range deps { info(of(ctx,prerequisite), "%d. %v %v", i, target, dep) }
-                        info(of(ctx,prerequisite), "%v %v", target, prerequisite).debug(1)
-                    }
                     continue ForPrerequisites
                 }
             }

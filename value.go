@@ -865,8 +865,8 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
     }
 
     // NOTE: Don't delete, keep it for future debugging.
-    if true { if ((
-        strings.HasPrefix(prereqStrval, "/Volumes/workspace/external/llvm-project/") ||
+    if false { if ((
+        strings.HasPrefix(prereqStrval, "/") ||
             false) && (
         strings.HasSuffix(prereqStrval, "/include/exception") ||
             false)) {
