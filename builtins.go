@@ -1416,7 +1416,7 @@ func (ctx builtin) Value(args... Value) (res Value) {
                 if val != nil {
                         if opts.unexp { val = unexpanded{val} }
                 } else if closure {
-                        val = MakeClosure(ctx.Position(), token.LPAREN, unresolved{a, ctx.Project()})
+                        val = MakeClosure(ctx.Position(), token.LPAREN, unresolved{a, ctx.Project()}, nil)
                 } else if false {
                         val = MakeNone(a.Position())
                 } else {

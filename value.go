@@ -5731,6 +5731,7 @@ type delegate struct {
     valbase
     l token.Token
     x Value
+    o []Value // []*Flag
     a []Value
     //TODO: patsubst Value, aka lhs%=rhs% like in $(var:lhs%=rhs%)
 }
@@ -6130,7 +6131,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         if ux, y = ur.Value.(unexpanded); !y { ux, y = name.(unexpanded) }
         if y {
             if res = p; ux.Value != ur.Value || n>0 {
-                res = &delegate{p.valbase, p.l, unresolved{ux.Value,ur.project}, args}
+                res = &delegate{p.valbase, p.l, unresolved{ux.Value,ur.project}, nil, args}
             }
             return res, true // not ready to reveal (call/execute)
         }
@@ -6165,7 +6166,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
 
         if x == nil {
             if res = p; name != ur.Value || n>0 {
-                res = &delegate{p.valbase, p.l, unresolved{name,ur.project}, args}
+                res = &delegate{p.valbase, p.l, unresolved{name,ur.project}, nil, args}
             }
             return res, true // not ready to reveal (call/execute)
         }
@@ -6234,7 +6235,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
     if bin != nil && bin.name == "auto" {
         return builtinAuto(at(ctx, p.position), p, w, args...), final
     } else if unexpand {
-        if p.x != x || n > 0 { res = &delegate{p.valbase, p.l, x, args} }
+        if p.x != x || n > 0 { res = &delegate{p.valbase, p.l, x, nil, args} }
         if w&expandClose != 0 { return res, true }
         return unexpanded{res}, true
     } else if bin != nil {
@@ -6544,7 +6545,7 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
         } else if ux, y = name.(unexpanded); y {
             if t := ur.Value != ux.Value; n > 0 || t {
                 if t { ur = unresolved{ux.Value, ur.project}}
-                res = &closure{delegate{p.valbase, p.l, ur, args}}
+                res = &closure{delegate{p.valbase, p.l, ur, nil, args}}
             }
             return unexpanded{res}, true // not ready to disclose (call/execute)
         } else if ur.Value != name {
@@ -6592,7 +6593,7 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
 
     var changed = p.x != x || n > 0
     if w&expandClosure == 0 || (ur.Value != nil) {
-        if changed { res = &closure{delegate{p.valbase, p.l, x, args}} }
+        if changed { res = &closure{delegate{p.valbase, p.l, x, nil, args}} }
         if w&expandClose != 0 { return res, true }
         return unexpanded{res}, true
     } else if changed {
@@ -6604,7 +6605,7 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
                 return
             }
         }
-        res = &delegate{p.valbase, p.l, x, args}
+        res = &delegate{p.valbase, p.l, x, nil, args}
         return
     } else {
         res = &p.delegate
@@ -7559,12 +7560,12 @@ func MakePercPattern(pos Position, prefix, suffix Value) *PercPattern {
 func MakeGlobPattern(pos Position, components... Value) Value {
     return &GlobPattern{valbase:valbase{pos},Components:components}
 }
-func MakeDelegate(pos Position, tok token.Token, obj Value, args... Value) Value {
-    return &delegate{valbase{pos}, tok, obj, args}
+func MakeDelegate(pos Position, tok token.Token, obj Value, opts []Value, args... Value) Value {
+    return &delegate{valbase{pos}, tok, obj, opts, args}
 }
-func MakeClosure(pos Position, tok token.Token, obj Value, args... Value) Value {
+func MakeClosure(pos Position, tok token.Token, obj Value, opts []Value, args... Value) Value {
     if isNil(obj) { panic(failure{pos,"making closure on <nil> object"}) }
-    return &closure{delegate{valbase{pos}, tok, obj, args}}
+    return &closure{delegate{valbase{pos}, tok, obj, opts, args}}
 }
 func MakeListOrScalar(pos Position, elems []Value) (res Value) {
     if x := len(elems); x > 1 {

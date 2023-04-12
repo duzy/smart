@@ -1359,6 +1359,7 @@ func (p *parser) closuredelegate() (result Value) {
 		name Value
 		nameStr string
 		tokLp token.Token
+		opts []Value
 		obj Value
 		okay bool
 	)
@@ -1379,11 +1380,23 @@ func (p *parser) closuredelegate() (result Value) {
 
 		if name = p.expr(ctx, false); isNil(name) {
 			erro(at(ctx,posName), "%v: parsed name is nil", proj).debug(1)
-		} else if !allowClosureName && name.expandible(ctx, expandClosure|expandDelegate) {
+		} else if a, y := name.(*Argumented); y {
+			name, opts = a.value, merge(a.args...)
+			for _, v := range opts {
+				if p, y := v.(*Pair);  y { v = p.Key }
+				if _, y := v.(*Flag); !y {
+					erro(of(ctx,v), "%v: not a Flag: %T %v", proj, v, v).debug(1)
+				}
+			}
+		}
+
+		if isNil(name) {/* error */} else
+		if !allowClosureName && name.expandible(ctx, expandClosure|expandDelegate) {
 			erro(at(ctx,posName), "%v: name '%v' (%T) is closured", proj, name, name).debug(1)
 		} else if nameStr, obj, okay = resolveObject(posLp, tokLp, name); !okay {
 			erro(at(ctx,posName), "%v: name '%v' is unidentified", proj, name).debug(1)
 		}
+
 		if false { if name.String() == "name?" {
 			warnstack(ctx, 3, "%v %v ; %T %v", name, name, obj, obj).debug(1)
 		}}
@@ -1399,6 +1412,10 @@ func (p *parser) closuredelegate() (result Value) {
 		if  (tokLp == token.LPAREN && p.tok != token.RPAREN) ||
 			(tokLp == token.LBRACE && p.tok != token.RBRACE) ||
 			(tokLp == token.LCOLON && p.tok != token.RCOLON) {
+			if true && tokLp == token.LPAREN && opts != nil {
+				warn(ctx, "%v: %v", name, opts).debug(1)
+			}
+
 			var autos []*def
 			var savedAutos = p.autos
 			var savedAutop = p.autop
@@ -1516,12 +1533,20 @@ func (p *parser) closuredelegate() (result Value) {
 		}
 	}
 
+	if true {
+		// NOTE: Options (flags) in args are deprecated by $(wildcard(-foo) ...)
+		for _, v := range merge(rest...) {
+			if p, y := v.(*Pair); y { v = p.Key }
+			if _, y := v.(*Flag); y { warn(ctx, "%v", v).debug(1) }
+		}
+	}
+
 	if position := ctx.Position(); tok.IsDelegate() {
 		if isNil(obj) { erro(at(ctx,name.Position()), "resolved '%v' is nil (%T %v, tok=%v)", name, resolved, resolved, tok).debug(1) }
-		return MakeDelegate(position, tokLp, obj, rest...);
+		return MakeDelegate(position, tokLp, obj, opts, rest...);
 	} else {
 		if isNil(obj) { erro(at(ctx,name.Position()), "resolved '%v' is nil (%T %v), shall be 'unresolved' (tok=%v)", name, resolved, resolved, tok).debug(1) }
-		return MakeClosure(position, tokLp, obj, rest...);
+		return MakeClosure(position, tokLp, obj, opts, rest...);
 	}
 }
 
@@ -1577,9 +1602,9 @@ func (p *parser) specialClosureDelegate(ctx Context, lhs bool) Value {
 		erro(ctx, "resolved '%v' is <nil>: %v (%T)", s, resolved, resolved).debug(1)
 		return MakeNil(position)
 	} else if tok.IsDelegate() {
-		return MakeDelegate(position, tok, obj);
+		return MakeDelegate(position, tok, obj, nil);
 	} else {
-		return MakeClosure(position, tok, obj);
+		return MakeClosure(position, tok, obj, nil);
 	}
 }
 
