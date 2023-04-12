@@ -4339,10 +4339,10 @@ func (ctx builtin) ReadFile(args... Value) (res Value) {
                 )
                 if !apos.IsValid() { apos = pos }
                 if _, str, ok := a.fullnameOpt2(ctx, closured...); !ok || str == "" {
-                        erro(at(ctx,apos), "%v is not a file", a).debug(1)
+                        errostack(at(ctx,apos), 5, "%v is not a file", a).debug(1)
                         break
                 } else if s, err = ioutil.ReadFile(str); err != nil {
-                        erro(at(ctx,apos), "read file failed: %v", err).debug(1)
+                        errostack(at(ctx,apos), 5, "read file failed: %v", err).debug(1)
                         break
                 } else {
                         if opts.trim      { s = bytes.TrimFunc     (s, unicode.IsSpace) } else
