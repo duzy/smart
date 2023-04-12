@@ -31,8 +31,6 @@ const (
     enable_assertions  = true
     enable_grep_bench  = true
     positionalValueCtx = true
-    traverseObjectsDepre = true
-    traverseObjectsFirst = true
     traverseDetectLoops = true // turn on/off traverse loop detection
     traverseLoopBreakState = traveUnkn // eg traveNext or traveDone
     traverseArgumentedExpand = true
@@ -891,7 +889,7 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
                 warn(at(ctx, f.position), "%v: %v", p, f.filestub)
                 warn(at(ctx, f.position), "%v: %v %v", p, f.fullname(), f.exists())
             }
-            warnstack(ctx, 5, "%v", p).debug(6)
+            warnstack(ctx, 5, "%v", p).debug(10)
         } else {
             warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, f)
             warn(at(ctx, f.position), "%v", f.filestub)
@@ -900,7 +898,7 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
                 warn(at(ctx, f.position), "%v", f.filestub)
                 warn(at(ctx, f.position), "%v", f.fullname())
             }
-            warnstack(ctx, 16, "").debug(6)
+            warnstack(ctx, 5, "").debug(10)
         }
         defer func() {
             for i, concrete := range concreteList {
@@ -959,45 +957,6 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
             }
         }
     } ()
-
-    var traverseObjects = func() {
-    ForProjectsObjects:
-        for _, project := range projects {
-            var obj = project.resolveObject(ctx, prereqStrval)
-            switch obj.(type) {
-            case *ProjectName:
-                if traverseObjectsFirst {
-                    if prereqFile != nil { return }
-                    switch prereqValue.(type) {
-                    case *String, *Compound: return
-                    }
-                }
-            case *Builtin, *def, *ScopeName, unresolved: continue ForProjectsObjects
-            default: if isTrivial(obj) { continue ForProjectsObjects }
-            }
-
-            if traverseObjectsDepre {
-                errostack(of(ctx, prereqValue), 5, "derpecated bare object, use $(%v) instead", obj).debug(1)
-            } else {
-                var t = obj.traverse(ctx)
-
-                traversed += 1
-                traves = append(traves, t...)
-                prereqObj = obj
-
-                s := traves.add(ctx, traveObj, targetValue)
-                s.depend = obj
-                okay = true
-
-                if t.has(traveFail) {
-                    prompt(ctx, "%v → %T %v\n", prereqStrval, obj, obj)
-                    for _, s := range t { warn(at(ctx,s.pos), "%v: (%T) %v", obj, obj, s) }
-                    warnstack(ctx, 5, "").debug(8)
-                }
-            }
-        }
-    }
-    if traverseObjectsFirst { if traverseObjects(); okay { return } }
 
     type traveResT int
     const (
@@ -1148,7 +1107,8 @@ ForProjectsConcretes:
         } else {
             continue ForProjectsConcretes
         }
-        ForEntries: for _, entry := range entries.all {
+    ForEntries:
+        for _, entry := range entries.all {
             if !isNil(entry) && targetValue == entry { continue ForEntries }
             if w, k := targetValue.(*bareword); k && w.string == prereqStrval {
                 continue ForEntries // target resolve to itself, does nothing
@@ -1169,7 +1129,8 @@ ForProjectsPatterns:
         } else {
             continue ForProjectsPatterns
         }
-        ForPatterns: for _, entry := range patterns {
+    ForPatterns:
+        for _, entry := range patterns {
             switch traverseEntry(project, entry, true) {
             case traveResBreak : break ForPatterns
             case traveResReturn: return
@@ -1200,46 +1161,21 @@ ForProjectsPatterns:
         trave.depend = prereqFile
         prereqFile, okay = f, true
         return
-    } else if !okay && traversed == 0 { ForProjectsFiles: for _, project := range projects {
-        if prereqFile = project.file(ctx, prereqStrval); prereqFile != nil {
-            if prereqFile.position = ctx.Position(); prereqFile.isSysFile() {
-                continue ForProjectsFiles
-            }
-            if okay = prereqFile.exists(); okay {
-                trave := traves.add(ctx, traveFile, targetValue)
-                trave.dependPat = prereqPattern
-                trave.depend = prereqFile
-                return
-            }
-            if okay = prereqFile.searchInMatchedPaths(ctx, project); okay {
-                trave := traves.add(ctx, traveFile, targetValue)
-                trave.dependPat = prereqPattern
-                trave.depend = prereqFile
-                return
-            }
-        }
-    }}
-
-    if okay {
-        return
-    } else if prereqFile != nil && prereqFile.exists() && !traves.has(traveFail) {
-        okay = true ; return
-    } else if traverseObjectsFirst || (traversed>0 /* && strings.Contains(prereqFile.name, PathSep) */) {
-        // does nothing
-    } else if traverseObjects(); okay {
-        return
     }
 
-    // Stat directly for files not in included in "files (...)".
-    if !okay && prereqFile != nil && prereqFile.exists() && !traves.has() {
-        return // done
-    } else if true && !okay && prereqFile == nil && prereqObj == nil && !traves.has() {
-        if f := stat(ctx, prereqStrval, "", ""); f != nil && f.exists() {
-            if false { warn(ctx, "%v (%T) is a file (%s)", prereqValue, prereqValue, f.fullname()).debug(6) }
+    if okay { return }
+    if prereqFile != nil && prereqFile.exists() {
+        if okay = !traves.has(traveFail); okay { return }
+        if !traves.has() { return }
+    }
+    if prereqFile == nil && prereqObj == nil && !traves.has() {
+        if prereqFile = stat(ctx, prereqStrval, "", ""); prereqFile != nil {
+            prereqValue = prereqFile
+
+            if false { warn(ctx, "%v (%T) is a file (%s)", prereqValue, prereqValue, prereqFile.fullname()).debug(6) }
             trave := traves.add(ctx, traveFile, targetValue)
             trave.dependPat = prereqPattern
-            trave.depend = f
-            prereqFile = f
+            trave.depend = prereqFile
             return
         }
     }
