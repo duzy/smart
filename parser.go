@@ -2294,7 +2294,8 @@ func (p *parser) spec(ctx Context, keyword token.Token, pos token.Pos, f parseSp
 			}
 			if p.tok == token.COMMA || p.tok == token.LINEND { p.next(true) }
 		}
-		if p.expect(token.RPAREN); p.tok != token.EOF { p.expectLinend() }
+		p.expect(token.RPAREN)
+		if p.spaces(); p.tok != token.EOF { p.expectLinend() }
 		return
 	}
 
@@ -2303,7 +2304,7 @@ func (p *parser) spec(ctx Context, keyword token.Token, pos token.Pos, f parseSp
 		if p.tok == token.COMMA { p.next(true) }
 	}
 	if p.tok != token.EOF && (p.stop == 0 || p.pos < p.stop) {
-		if p.lineComment == nil { p.expectLinend() }
+		if p.spaces(); p.lineComment == nil { p.expectLinend() }
 	}
 }
 
@@ -2457,7 +2458,7 @@ SwitchDialect:
 			p.setbits(bits)
 		}
 	}
-	if p.tok != token.EOF { p.expectLinend() }
+	if p.spaces(); p.tok != token.EOF { p.expectLinend() }
     if len(elems) == 0 {
         return MakeNone(position)
     } else if isList {
