@@ -1217,11 +1217,11 @@ func (ctx builtin) For(args... Value) (res Value) {
 }
 
 type builtinForEachOpts struct {
-        // NOTE: disable all $(foreach) options to avoid messing with flag values.
-        // generalOpts
-        // empty bool `empty,allow-empty`
-        debug int
-        empty bool
+        // TODO: generalOpts
+        // TODO: Support passing opts like $(foreach(-empty) a, b, ...)
+        // NOTE: Disable all $(foreach) options to avoid messing with flag values.
+        debug int // `....`
+        empty bool // `empty,allow-empty`
 }
 func (ctx builtin) ForEach(args... Value) (res Value) {
         if n := len(args); n < 2 {
