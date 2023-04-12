@@ -1139,7 +1139,15 @@ ForProjectsPatterns:
     }
     if okay && traversed > 0 { return }
 
-    if prereqFile != nil && prereqStrval == prereqFile.name {
+    if prereqFile == nil {
+        if f, y := toFile(prereqValue); y && f.exists() {
+            trave := traves.add(ctx, traveFile, targetValue)
+            trave.dependPat = prereqPattern
+            trave.depend = prereqFile
+            prereqFile, okay = f, true
+            return
+        }
+    } else if prereqFile.name == prereqStrval {
         if okay = prereqFile.exists(); okay {
             trave := traves.add(ctx, traveFile, targetValue)
             trave.dependPat = prereqPattern
@@ -1155,12 +1163,6 @@ ForProjectsPatterns:
                 return
             }
         }
-    } else if f, y := toFile(prereqValue); y && prereqFile == nil && f.exists() {
-        trave := traves.add(ctx, traveFile, targetValue)
-        trave.dependPat = prereqPattern
-        trave.depend = prereqFile
-        prereqFile, okay = f, true
-        return
     }
 
     if okay { return }
