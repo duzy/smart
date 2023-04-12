@@ -889,7 +889,7 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
                 warn(at(ctx, f.position), "%v: %v", p, f.filestub)
                 warn(at(ctx, f.position), "%v: %v %v", p, f.fullname(), f.exists())
             }
-            warnstack(ctx, 5, "%v", p).debug(10)
+            warnstack(ctx, 5, "%v: %v", p, ctx.entry()).debug(10)
         } else {
             warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, f)
             warn(at(ctx, f.position), "%v", f.filestub)
@@ -898,15 +898,12 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
                 warn(at(ctx, f.position), "%v", f.filestub)
                 warn(at(ctx, f.position), "%v", f.fullname())
             }
-            warnstack(ctx, 5, "").debug(10)
+            warnstack(ctx, 5, "%v", ctx.entry()).debug(10)
         }
         defer func() {
-            for i, concrete := range concreteList {
-                warn(at(ctx,concrete.Position()), "%v : concrete: %d. %v (%d programs)", targetValue, i, concrete, len(concrete.Programs()))
-            }
-            for i, stemmed  := range stemmedList {
-                warn(at(ctx,stemmed.position), "%v : stemmed: %d. %v", targetValue, i, stemmed)
-            }
+            for i, concrete := range concreteList { warn(at(ctx,concrete.Position()), "%v : concrete: %d. %v (%d programs)", targetValue, i, concrete, len(concrete.Programs())) }
+            for i, stemmed  := range stemmedList { warn(at(ctx,stemmed.position), "%v : stemmed: %d. %v", targetValue, i, stemmed) }
+            for i, s := range traves { warn(at(ctx,s.pos), "%v : travestate: %v: %d. %v", i, targetValue, i, s) }
             warn(ctx, "%v : %v (%T)", targetValue, prereqPattern, prereqPattern)
             warn(ctx, "%v : %v (%T)", targetValue, prereqValue, prereqValue)
             warn(ctx, "%v : %v", targetValue, prereqFile)
@@ -919,7 +916,6 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
         t = ctx.programContext()
         traversed int
         okay bool
-        err error
     )
     defer func() {
         var (
@@ -964,9 +960,9 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
         traveResBreak
         traveResReturn
     )
-    var traverseEntry = func (project *Project, entry Entry, pattern bool) (result traveResT) {
+    var traverseEntry = func(project *Project, entry Entry, pattern bool) (result traveResT) {
         traversed += 1
-        traves = nil
+        // traves = nil
 
         var t = entry.traverse(ctx)
         {
@@ -981,12 +977,14 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
         if tt := t.of(traveFail); tt.has() {
             if !pattern || verb {
                 var stems = ctx.stems()
-                prompt(ctx, "%s: traverse entry failed (project=%v, target=%v, stems=%v)\n", entry, project, targetValue, stems)
-                warn(of(ctx,entry), "%v (%T) (by %v, in %v)", entry, entry.Target(), targetValue, entry.OwnerProject())
-                for _, s := range traves { warn(at(ctx,s.pos), "%v: %v: %v", targetValue, entry, s) }
+                prompt(ctx, "%v: traverse entry failed (%v)\n", entry, project)
+                warn(of(ctx,entry), "%v: %v: %v (stems=%v)", entry, targetValue, prereqValue, stems)
+                for i, s := range traves {
+                    warn(at(ctx,s.pos), "%v: %v: %d. %v", targetValue, entry, i, s)
+                }
                 if n, m := 5, 16; len(stems) == 0 {
                     errostack(ctx, n, "#>", prereqValue).debug(m)
-                } else {
+                } else if true {
                     warnstack(ctx, n, "#>", prereqValue).debug(m)
                 }
             }
@@ -1029,14 +1027,12 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
             for _, s := range tt {
                 if g := s.target; g == nil {
                     prompt(ctx, "%v: %v\n", targetValue.Strval(ctx), t)
-                    erro(ctx, "%v: %v %v %v\n", targetValue.Strval(ctx),
-                        prereqPattern, prereqValue, pattern)
+                    erro(ctx, "%v: %v %v %v\n", targetValue.Strval(ctx), prereqPattern, prereqValue, pattern)
                     errostack(ctx, 5, "").debug(1)
                 } else if true && eq(ctx, targetValue, g) {
                     if dbgNext || false {
                         prompt(ctx, "%v: %v\n", targetValue.Strval(ctx), t)
-                        prompt(ctx, "%v: %v %v (%v,%v)\n", targetValue.Strval(ctx),
-                            prereqPattern, prereqValue, pattern, stemmedThisTarget)
+                        prompt(ctx, "%v: %v %v (%v,%v)\n", targetValue.Strval(ctx), prereqPattern, prereqValue, pattern, stemmedThisTarget)
                         info(ctx, "%T %v ; %v", prereqValue, prereqValue, ctx.stemmed())
                         infostack(of(ctx,prereqValue), 5, "").debug(1)
                     }
@@ -1047,8 +1043,7 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
                 } else if true && eq(ctx, prereqValue, g) {
                     if dbgNext {
                         prompt(ctx, "%v: %v\n", targetValue.Strval(ctx), t)
-                        prompt(ctx, "%v: %v %v (%v,%v)\n", targetValue.Strval(ctx),
-                            prereqPattern, prereqValue, pattern, stemmedThisTarget)
+                        prompt(ctx, "%v: %v %v (%v,%v)\n", targetValue.Strval(ctx), prereqPattern, prereqValue, pattern, stemmedThisTarget)
                         info(ctx, "%T %v %v", prereqValue, prereqValue, ctx.stemmed())
                         infostack(of(ctx,prereqValue), 5, "").debug(1)
                     }
@@ -1181,41 +1176,29 @@ ForProjectsPatterns:
             return
         }
     }
-
-    if err != nil {
-        prompt(ctx, "%s: traverse failed, project %s\n", prereqStrval, proj)
-        errostack(ctx, 6, "%v: %v", proj, ctx).debug(16)
-        return
-    } else if okay {
-        return // done
-    } else if traves.has(traveDone) {
-        return // done
-    } else if ctx.isConfiguration() {
-        return // done
-    }
-
+    if traves.has(traveDone) { return }
     if t := traves.of(traveRule); t.has() && t[0].depend != nil {
         if _, y := t[0].depend.(*stemmed); y {
             s := traves.add(ctx, traveNext, targetValue)
             s.dependPat = prereqPattern
             s.depend = prereqValue
             return
-        } else if t[0].depend.(Entry).Name(ctx) == prereqStrval {
-            return // done
         }
+        if t[0].depend.(Entry).Name(ctx) == prereqStrval { return }
     }
     if t := traves.of(traveObj); t.has() && t[0].depend != nil {
-        if t[0].depend.(Object).Name(ctx) == prereqStrval {
-            return // done
-        }
+        if t[0].depend.(Object).Name(ctx) == prereqStrval { return }
     }
 
     if prereqPattern != nil {
         s := traves.add(ctx, traveNext, targetValue)
         s.dependPat = prereqPattern
         s.depend = prereqValue
-        return
-    } else if len(ctx.stems()) == 0 || ctx.mustExists() {
+        return // let trying next pattern or anything
+    }
+
+    if ctx.isConfiguration() { return } else
+    if len(ctx.stems()) == 0 || ctx.mustExists() {
         if s := traves.add(ctx, traveFail, targetValue); prereqFile != nil {
             s.error = fileNotFoundError{proj, prereqFile}
             ctx = at(ctx, prereqFile.position)
@@ -1252,7 +1235,7 @@ ForProjectsPatterns:
         errostack(of(ctx, prereqValue), 6, "").debug(512)
         return
     } else {
-        return
+        return // no operation
     }
 }
 
