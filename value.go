@@ -5866,8 +5866,16 @@ func (p *delegate) string(ctx Context, o Object, k elemkind) (s string) { // sou
 
     var name string
     switch x := p.x.(type) {
-    case Object    : name = x.Name(ctx)
     case *selection: name = x.String() // x.Strval(ctx)
+    case Object: name = x.Name(ctx)
+        if p.o != nil {
+            name += "("
+            for i, v := range p.o {
+                if i > 0 { name += " " }
+                name += elementString(ctx, o, v, k)
+            }
+            name += ")"
+        }
     }
 
     switch p.l {
@@ -5964,7 +5972,7 @@ func (p *delegate) expand(ctx Context, w facet) (res Value) {
         errostack(at(ctx,p.position), 5, "%v", p).debug(64)
         return
     } else if w == 0 {
-        erro(ctx, "%v: zero expand", p).debug(64)
+        erro(ctx, "%v: zero expand (w=%024b)", p, w).debug(64)
         return
     }
 
@@ -6120,7 +6128,11 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         }}} ()
     }}
 
-    if ur, y := p.x.(unresolved); y {
+    var ( px = p.x ; opts []Value )
+    if a, y := px.(*Argumented); y { px, opts = a.value, a.args }
+    if opts == nil { opts = p.o }
+
+    if ur, y := px.(unresolved); y {
         // Expand name first, for example of $(.test$1) containing '$1':
         //     .test.y := $(.test$1)
         //     .test.x := $(.test.y .$1)
@@ -6131,7 +6143,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         if ux, y = ur.Value.(unexpanded); !y { ux, y = name.(unexpanded) }
         if y {
             if res = p; ux.Value != ur.Value || n>0 {
-                res = &delegate{p.valbase, p.l, unresolved{ux.Value,ur.project}, nil, args}
+                res = &delegate{p.valbase, p.l, unresolved{ux.Value,ur.project}, opts, args}
             }
             return res, true // not ready to reveal (call/execute)
         }
@@ -6166,16 +6178,16 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
 
         if x == nil {
             if res = p; name != ur.Value || n>0 {
-                res = &delegate{p.valbase, p.l, unresolved{name,ur.project}, nil, args}
+                res = &delegate{p.valbase, p.l, unresolved{name,ur.project}, opts, args}
             }
             return res, true // not ready to reveal (call/execute)
         }
-    } else if t, y := p.x.(Object); y && t != nil {
+    } else if t, y := px.(Object); y && t != nil {
         x = t
-    } else if t, y := p.x.(*uselist); y {
+    } else if t, y := px.(*uselist); y {
         x = t
-    } else if t, y := p.x.(*selection); !y || t == nil {
-        erro(ctx, "delegate unsupported object: %T %v", p.x, p.x)
+    } else if t, y := px.(*selection); !y || t == nil {
+        erro(ctx, "delegate unsupported object: %T %v", t, t)
         errostack(ctx, 3, "%v", ctx).debug(16)
         return
     } else if t.o == nil {
@@ -6231,19 +6243,20 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         }
     }
 
+
     var bin, _ = x.(*Builtin)
     if bin != nil && bin.name == "auto" {
-        return builtinAuto(at(ctx, p.position), p, w, args...), final
+        return builtin{at(ctx, p.position), opts, w}._auto(p, args...), final
     } else if unexpand {
-        if p.x != x || n > 0 { res = &delegate{p.valbase, p.l, x, nil, args} }
+        if px != x || n > 0 { res = &delegate{p.valbase, p.l, x, opts, args} }
         if w&expandClose != 0 { return res, true }
         return unexpanded{res}, true
     } else if bin != nil {
         if ctx = at(ctx, p.position); bin.name == "call" {
-            res, final = builtinCall(ctx, p, w, args...), true
+            res, final = builtin{at(ctx, p.position), opts, w}.call(p, args...), true
         } else if bin.s.f == nil {
             // ...
-        } else if res = bin.s.f(builtin{ctx, w}, args...); false && db > 0 {
+        } else if res = bin.s.f(builtin{ctx, opts, w}, args...); false && db > 0 {
             for i, a := range p.a  { info(ctx, "p.a[%d]: %T %v",  i, a, a) }
             for i, a := range args { info(ctx, "args[%d]: %T %v", i, a, a) }
             infostack(ctx, 5, "%v %v -> %T %v ; %v %v ; %v %v", x, args, res, res,
@@ -6255,10 +6268,9 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
     switch t := x.(type) {
     case *def:
         res, final = p.call(ctx, w, t, args...)
-        // if _, y := res.(unexpanded); y { res = unexpanded{ p } }
         return
     case Caller:
-        res = t.Call(ctx, args...)
+        res = t.Call(ctx, opts, args...)
         return
     case Executer:
         if vals, traves := t.Execute(ctx, args...); traves.has(traveFail) {
@@ -6271,7 +6283,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         return
     }
 
-    erro(ctx, "unknown delegation: %T %v -> %T %v", p.x, p.x, x, x).debug(32)
+    errostack(ctx, 3, "unknown call: %T %v -> %T %v", px, px, x, x).debug(32)
     return
 }
 func (p *delegate) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) {
@@ -6498,7 +6510,14 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
 
     res = p // set default result to self
 
-    if ur, y = p.x.(unresolved); y {
+    var (
+        px = p.x
+        opts []Value
+    )
+    if a, y := px.(*Argumented); y { px, opts = a.value, a.args }
+    if opts == nil { opts = p.o }
+
+    if ur, y = px.(unresolved); y {
         // Expand name first, for example of $(.test$1) containing '$1':
         //     .test.y := &(.test$1)
         //     .test.x := $(.test.y .$1)
@@ -6545,7 +6564,7 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
         } else if ux, y = name.(unexpanded); y {
             if t := ur.Value != ux.Value; n > 0 || t {
                 if t { ur = unresolved{ux.Value, ur.project}}
-                res = &closure{delegate{p.valbase, p.l, ur, nil, args}}
+                res = &closure{delegate{p.valbase, p.l, ur, opts, args}}
             }
             return unexpanded{res}, true // not ready to disclose (call/execute)
         } else if ur.Value != name {
@@ -6553,30 +6572,30 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
         }
 
         if x, str = ur, name.Strval(ctx); str == "" {
-            erro(of(ctx,p.x), "empty closure name: %T %v -> %T %v ; %v", p.x, p.x, name, name, ur).debug(16)
+            erro(of(ctx,px), "empty closure name: %T %v -> %T %v ; %v", px, px, name, name, ur).debug(16)
             return
         }
-    } else if t, y := p.x.(Object); y && t != nil {
+    } else if t, y := px.(Object); y && t != nil {
         if x, str = t, t.Name(ctx); str == "" {
-            erro(of(ctx,p.x), "empty closure name: %T %v -> %T %v", p.x, p.x, x, x).debug(16)
+            erro(of(ctx,px), "empty closure name: %T %v -> %T %v", px, px, x, x).debug(16)
             return
         }
-    } else if t, y := p.x.(*selection); y && t != nil && !isNil(t.o) {
+    } else if t, y := px.(*selection); y && t != nil && !isNil(t.o) {
         if t, y := t.o.(*ProjectName); y && t != nil && t.Project != nil {
             ctx = closureWith(ctx, t.Project.scope)
         }
         if v := t.value(ctx, w); isNil(v) {
-            erro(of(ctx,p.x), "selected nil value: %T %v", p.x, p.x).debug(1)
+            erro(of(ctx,px), "selected nil value: %T %v", px, px).debug(1)
             return
         } else if t, y := v.(Object); !y {
-            erro(of(ctx,p.x), "selected non object: %T %v", v, v).debug(16)
+            erro(of(ctx,px), "selected non object: %T %v", v, v).debug(16)
             return
         } else if x, str = t, t.Name(ctx); str == "" {
-            erro(of(ctx,p.x), "empty closure name: %T %v -> %T %v ; %v", p.x, p.x, x, x, ur).debug(16)
+            erro(of(ctx,px), "empty closure name: %T %v -> %T %v ; %v", px, px, x, x, ur).debug(16)
             return
         }
     } else {
-        erro(of(ctx,p.x), "undefined closure object: %T %v", p.x, p.x).debug(16)
+        erro(of(ctx,px), "undefined closure object: %T %v", px, px).debug(16)
         return
     }
 
@@ -6591,21 +6610,21 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
         if t := closureResolveObject(ctx, str); t != nil { x = t }
     }
 
-    var changed = p.x != x || n > 0
+    var changed = px != x || n > 0
     if w&expandClosure == 0 || (ur.Value != nil) {
-        if changed { res = &closure{delegate{p.valbase, p.l, x, nil, args}} }
+        if changed { res = &closure{delegate{p.valbase, p.l, x, opts, args}} }
         if w&expandClose != 0 { return res, true }
         return unexpanded{res}, true
     } else if changed {
-        if t1, t2 := reflect.TypeOf(p.x), reflect.TypeOf(x); t1 != t2 {
+        if t1, t2 := reflect.TypeOf(px), reflect.TypeOf(x); t1 != t2 {
             if unres := reflect.TypeOf(unresolved{}); t1 != unres {
                 erro(at(ctx,p.position), "closure object type differs: %v (!= %v)", t2, t1)
-                erro(at(ctx,p.x.Position()), "%v '%s' is found here", t1, str)
+                erro(at(ctx,px.Position()), "%v '%s' is found here", t1, str)
                 erro(at(ctx,ctx.Position()), "%v", ctx).debug(16)
                 return
             }
         }
-        res = &delegate{p.valbase, p.l, x, nil, args}
+        res = &delegate{p.valbase, p.l, x, opts, args}
         return
     } else {
         res = &p.delegate
@@ -7276,7 +7295,7 @@ type Valuer interface {
 }
 
 type Caller interface {
-    Call(ctx Context, args... Value) (result Value)
+    Call(ctx Context, o []Value, args... Value) (result Value)
 }
 
 type Executer interface {

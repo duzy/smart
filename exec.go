@@ -886,7 +886,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       var ctx = closureWith(ctx, container.Scope())
       if obj := container.resolveObject(ctx, name); obj != nil {
         if d, _ := obj.(*def); d != nil {
-          if v := d.Call(ctx); v != nil {
+          if v := d.Call(ctx, nil); v != nil {
             if str = v.Strval(ctx); str == "-" {
               /*if v, err = def.DiscloseValue(container); err == nil && v != nil {
                   if str, err = v.Strval(ctx); str == "" { str = "-" }

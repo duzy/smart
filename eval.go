@@ -50,7 +50,7 @@ ForRecipes:
             break ForRecipes
 
         case Caller:
-            v = tv.Call(ctx, vals[1:]...)
+            v = tv.Call(ctx, nil, vals[1:]...)
 
         case Executer:
             var a, traves = tv.Execute(ctx, vals[1:]...)

@@ -335,7 +335,7 @@ func (prog *Program) workDir(ctx Context) (workDir string) {
             }
         }
         if d, y := o.(*def); y {
-            if v := d.Call(ctx); !isTrivial(v) {
+            if v := d.Call(ctx, nil); !isTrivial(v) {
                 workDir = v.Strval(ctx)
             } else {
                 errostack(ctx, 3, "trivial %v: %v", d.origin, d).debug(32)

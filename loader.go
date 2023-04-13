@@ -193,13 +193,8 @@ type useVarOpts struct {
 }
 func (opts *useVarOpts) apply(ctx Context, def *def, vals []Value) {
     if opts.unique {
-        if def.append(ctx, vals...); len(opts.args) > 0 {
-            var position = ctx.Position()
-            var args = MakeList(position, opts.args...)
-            def.value = builtin{ctx, plain}.Unique(args, def.value)
-        } else {
-            def.value = builtin{ctx, plain}.Unique(def.value)
-        }
+        def.append(ctx, vals...)
+        def.value = builtin{ctx, opts.args, plain}.unique(def.value)
     }
 }
 func parseUseNameOpts(ctx Context, nameVal Value) (name string, opts useVarOpts) {
@@ -650,7 +645,7 @@ func (l *loader) addUsing(ctx Context, usee *Project, params []Value, opts useOp
 
     // Add to the project using list, so that the use path is correct.
     if l.project.use.append(ctx, usee, params, opts); !opts.noVars {
-        applyUseeVars(ctx, l.project, usee)  // aka. ABC += $(use.ABC)
+        applyUseeVars(ctx, l.project, usee) // aka.     ABC += $(use.ABC)
         applyUserVars(ctx, l.project, usee) // aka. use.ABC += $(use.ABC)
         if 0 < len(opts.vars) {
             for _, v := range opts.vars {
@@ -1286,11 +1281,11 @@ func (l *loader) loadDotConfigure(ctx Context, ident *barecomp, identStr string,
             var ctx = at(l, position)
             var opts = useOpts{}
             if false {
-                applyUseeVars(ctx, l.project, loaded)  // aka.       ABC += $(use.ABC)
+                applyUseeVars(ctx, l.project, loaded) // aka.     ABC += $(use.ABC)
                 applyUserVars(ctx, l.project, loaded) // aka. use.ABC += $(use.ABC)
             } else if false {
                 for _, usee := range loaded.usees(true, false, false, false) {
-                    applyUseeVars(ctx, l.project, usee)  // aka.       ABC += $(use.ABC)
+                    applyUseeVars(ctx, l.project, usee) // aka.     ABC += $(use.ABC)
                     applyUserVars(ctx, l.project, usee) // aka. use.ABC += $(use.ABC)
                     //warn(l, "%v %v %v", l.project, loaded, usee).debug(1)
                 }
@@ -1508,11 +1503,11 @@ func (l *loader) configuration(ctx Context, linfo *loadinfo, ident *barecomp, id
 
             var opts = useOpts{}
             if false {
-                applyUseeVars(ctx, l.project, loaded)  // aka.       ABC += $(use.ABC)
+                applyUseeVars(ctx, l.project, loaded) // aka.     ABC += $(use.ABC)
                 applyUserVars(ctx, l.project, loaded) // aka. use.ABC += $(use.ABC)
             } else if false {
                 for _, usee := range loaded.usees(true, false, false, false) {
-                    applyUseeVars(ctx, l.project, usee)  // aka.       ABC += $(use.ABC)
+                    applyUseeVars(ctx, l.project, usee) // aka.     ABC += $(use.ABC)
                     applyUserVars(ctx, l.project, usee) // aka. use.ABC += $(use.ABC)
                     //warn(l, "%v %v %v", l.project, loaded, usee).debug(1)
                 }

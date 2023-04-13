@@ -288,7 +288,7 @@ func (p *uselist) Get(ctx Context, name string) (result Value, err error) {
         return
 }
 
-func (p *uselist) Call(ctx Context, a... Value) (result Value) {
+func (p *uselist) Call(ctx Context, _ []Value, a... Value) (result Value) {
         if p.list == nil { return }
         var targets []Value
         for _, usee := range p.list {

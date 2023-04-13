@@ -1226,6 +1226,7 @@ func (p *parser) closuredelegate() (result Value) {
 
 	const allowClosureName = true
 	resolveObject := func(lPos Position, lTok token.Token, name Value) (str string, obj Value, okay bool) {
+		if a, y := name.(*Argumented); y { name = a.value }
 		if sel, y := name.(*selection); y {
 			if sel == nil {
 				erro(at(ctx,name.Position()), "nil selection: %v", name).debug(1)
@@ -1369,6 +1370,7 @@ func (p *parser) closuredelegate() (result Value) {
 		tokLp = p.tok ; p._next() // skips LPAREN, LBRACE, LCOLON
 
 		var posName = p.Position()
+
 		switch p.tok {
 		case token.SPACE:
 			erro(at(ctx,posName), "unexpected spaces").debug(1)
@@ -1381,13 +1383,14 @@ func (p *parser) closuredelegate() (result Value) {
 		if name = p.expr(ctx, false); isNil(name) {
 			erro(at(ctx,posName), "%v: parsed name is nil", proj).debug(1)
 		} else if a, y := name.(*Argumented); y {
-			name, opts = a.value, merge(a.args...)
-			for _, v := range opts {
+			var args = merge(a.args...)
+			for _, v := range args {
 				if p, y := v.(*Pair);  y { v = p.Key }
 				if _, y := v.(*Flag); !y {
 					erro(of(ctx,v), "%v: not a Flag: %T %v", proj, v, v).debug(1)
 				}
 			}
+			if true { name, opts = a.value, args }
 		}
 
 		if isNil(name) {/* error */} else
@@ -1412,10 +1415,6 @@ func (p *parser) closuredelegate() (result Value) {
 		if  (tokLp == token.LPAREN && p.tok != token.RPAREN) ||
 			(tokLp == token.LBRACE && p.tok != token.RBRACE) ||
 			(tokLp == token.LCOLON && p.tok != token.RCOLON) {
-			if true && tokLp == token.LPAREN && opts != nil {
-				warn(ctx, "%v: %v", name, opts).debug(1)
-			}
-
 			var autos []*def
 			var savedAutos = p.autos
 			var savedAutop = p.autop
@@ -1533,11 +1532,11 @@ func (p *parser) closuredelegate() (result Value) {
 		}
 	}
 
-	if true {
+	if true && opts == nil && len(rest) > 0 {
 		// NOTE: Options (flags) in args are deprecated by $(wildcard(-foo) ...)
-		for _, v := range merge(rest...) {
+		for _, v := range merge(rest[0]) {
 			if p, y := v.(*Pair); y { v = p.Key }
-			if _, y := v.(*Flag); y { warn(ctx, "%v", v).debug(1) }
+			if _, y := v.(*Flag); y { warn(of(ctx,v), "%v", v).debug(1) }
 		}
 	}
 
@@ -2202,15 +2201,16 @@ func (p *parser) evalConfiguration(ctx Context, g *genericClauseOpts, props []Va
 }
 
 func (p *parser) assert(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
-	if !g.skip { assertion(p.posit(), g.generalOpts, plain, g.spec...) }
+	if !g.skip { builtin{p.posit(), g.all, plain}.assert(g.spec...) }
 }
 
 func (p *parser) append(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
-	if !g.skip { __append(p.posit(), g.generalOpts, plain, g.spec...) }
+	if !g.skip { builtin{p.posit(), g.all, plain}.append(g.spec...) }
 }
 
 func (p *parser) eval(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
 	var (
+		opts []Value
 		prop0, resolved, res Value
 		name string
 	)
@@ -2219,6 +2219,8 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ in
 	if prop0 = g.spec[0]; isTrivial(prop0) {
 		erro(ctx, "illegal").debug(1)
 		return
+	} else if a, y := prop0.(*Argumented); y {
+		prop0, opts = a.value, a.args
 	}
 
 	ctx = at(ctx, prop0.Position())
@@ -2260,11 +2262,10 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ in
 				ctx.checkErrors(true)
 			}
 		}
-		res = op.s.f(builtin{ctx, plain}, g.spec[1:]...)
+		res = op.s.f(builtin{ctx, opts, plain}, g.spec[1:]...)
 	}
 
 	if ctx.checkErrors(true); isTrivial(res) { return }
-
 	/* TODO: if c, y := res.(code); y { ... } */
 }
 

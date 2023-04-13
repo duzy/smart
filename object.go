@@ -124,7 +124,7 @@ func (p unresolved) defs(_ Context, _ ...string) (res []*def) { return }
 func (p unresolved) expandible(_ Context, _ facet) bool { return false }
 func (p unresolved) patterned(_ Context) bool { return false }
 func (p unresolved) Get(_ Context, name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
-func (p unresolved) Call(ctx Context, a ...Value) (result Value) { result = p; return }
+func (p unresolved) Call(ctx Context, o []Value, a ...Value) (result Value) { result = p; return }
 func (p unresolved) Execute(ctx Context, a ...Value) (result []Value, err error) { return []Value{p}, nil }
 func (p unresolved) OwnerProject() *Project { return p.project }
 func (p unresolved) DeclScope() *Scope { return p.project.scope }
@@ -176,7 +176,7 @@ func (p *ProjectName) True(_ Context) bool { return p.Project != nil }
 func (p *ProjectName) DeclScope() *Scope { return p.scope }
 func (p *ProjectName) OwnerProject() *Project { return p.scope.project }
 func (p *ProjectName) Get(ctx Context, name string) (Value, error) { return p.resolveObject(ctx, name), nil }
-func (p *ProjectName) Call(_ Context, _ ...Value) (value Value) { return p }
+func (p *ProjectName) Call(_ Context, _ []Value, _ ...Value) (value Value) { return p }
 func (p *ProjectName) expand(_ Context, _ facet) (res Value) { return p }
 func (p *ProjectName) traverse(ctx Context) (traves travestates) {
         if t := p.Project.defaultEntry; t != nil { traves = t.traverse(ctx) }
@@ -236,7 +236,7 @@ func (p *ScopeName) Name(_ Context) string { return p.name }
 func (p *ScopeName) True(_ Context) bool { return p.Scope != nil }
 func (p *ScopeName) OwnerProject() *Project { return p.Scope.project }
 func (p *ScopeName) DeclScope() *Scope { return p.Scope.outer }
-func (p *ScopeName) Call(_ Context, _ ...Value) (value Value) { return p }
+func (p *ScopeName) Call(_ Context, _ []Value, _ ...Value) (value Value) { return p }
 func (p *ScopeName) expand(_ Context, _ facet) (res Value) { return p }
 func (p *ScopeName) Get(ctx Context, name string) (value Value, err error) {
         if s := p.Resolve(name); s != nil {
@@ -909,7 +909,7 @@ func (d *def) execute(ctx Context, a... Value) (res Value) {
         return
 }
 
-func (d *def) Call(ctx Context, a... Value) (res Value) {
+func (d *def) Call(ctx Context, _ []Value, a... Value) (res Value) {
         // NOTE: expandDelegate is still required for DefExpand1 as some autos
         //       ($_, $1, $2, etc) may still not expanded.
         return d.call(ctx, expandAuto|expandClosure|expandDelegate|expandPairVal, a...)
@@ -1038,8 +1038,8 @@ type Builtin struct {
 }
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
 func (p *Builtin) True(_ Context) bool { return p.s.f != nil }
-func (p *Builtin) Call(ctx Context, a... Value) (res Value) {
-        if p.s.f != nil { res = p.s.f(builtin{at(ctx, p.position), plain}, a...) }
+func (p *Builtin) Call(ctx Context, o []Value, a ...Value) (res Value) {
+        if p.s.f != nil { res = p.s.f(builtin{at(ctx,p.position), o, plain}, a...) }
         return
 }
 func (p *Builtin) expand(_ Context, _ facet) Value { return p }
