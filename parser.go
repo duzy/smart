@@ -2202,16 +2202,14 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ in
 	)
 
 	if g.skip { return } else if g.spec == nil {
-		var op struct {
-			ddd bool `ddd` // example: eval -ddd
-		}
-		if a := parseOpts(ctx, &op, plain, g.all...); a != nil {
-			for _, v := range a { erro(ctx, "unsupport flag: %T %v", v, v).debug(1) }
-			return
-		}
-		if op.ddd {
-			warn(ctx, "ddd: %v", op.ddd).debug(1)
-			ddd = true
+		for _, op := range g.all {
+			var val Value
+			if v, y := op.(*Pair); y { op, val = v.Key, v.Value }
+			if v, y := op.(*Flag); y {
+				warn(of(ctx,op), "todo: %v (%v)", v.name, val).debug(1)
+			} else {
+				erro(of(ctx,op), "unsupport flag: %T %v (%v)", v, v, val).debug(1)
+			}
 		}
 		return
 	} else if prop0 = g.spec[0]; isTrivial(prop0) {
