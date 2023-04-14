@@ -2201,13 +2201,24 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ in
 		name string
 	)
 
-	if g.skip { return } else
-	if prop0 = g.spec[0]; isTrivial(prop0) {
+	if g.skip { return } else if g.spec == nil {
+		var op struct {
+			ddd bool `ddd` // example: eval -ddd
+		}
+		if a := parseOpts(ctx, &op, plain, g.all...); a != nil {
+			for _, v := range a { erro(ctx, "unsupport flag: %T %v", v, v).debug(1) }
+			return
+		}
+		if op.ddd {
+			warn(ctx, "ddd: %v", op.ddd).debug(1)
+			ddd = true
+		}
+		return
+	} else if prop0 = g.spec[0]; isTrivial(prop0) {
 		erro(ctx, "illegal").debug(1)
 		return
-	} else if a, y := prop0.(*Argumented); y {
-		prop0, opts = a.value, a.args
 	}
+	if a, y := prop0.(*Argumented); y { prop0, opts = a.value, a.args }
 
 	ctx = at(ctx, prop0.Position())
 
@@ -2281,7 +2292,7 @@ ParamsParseLoop: // Parse the directive parameters
 }
 
 func (p *parser) spec(ctx Context, keyword token.Token, pos token.Pos, f parseSpecFunc) {
-	if t_traverse.enabled { defer un(trace(t_traverse, "Clause("+keyword.String()+")")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "spec("+keyword.String()+")")) }
 
 	var opts = genericClauseOpts{ keyword: keyword }
 	for p.spaces(); p.tok == token.MINUS; p.spaces() {
@@ -2296,7 +2307,12 @@ func (p *parser) spec(ctx Context, keyword token.Token, pos token.Pos, f parseSp
 		}
 	}
 
-	if p.spaces(); p.tok == token.LPAREN {
+	if p.spaces(); p.tok == token.LINEND {
+		if keyword == token.EVAL { f(ctx, nil, &opts, 0) } else {
+			erro(ctx, "%v: nil specs", keyword).debug(1)
+		}
+		return
+	} else if p.spaces(); p.tok == token.LPAREN {
 		p.next(true)
 		for iota := 0; p.tok != token.RPAREN && p.tok != token.EOF && (p.stop == 0 || p.pos < p.stop); iota++ {
 			// TODO: collect documentation comments
@@ -3218,18 +3234,18 @@ func (p *parser) clause() {
 			erro(ctx, "`%v` unexpected here", p.tok).debug(10)
 			return
 		case token.INCLUDE:
-			p.spec(ctx, p.tok, p.expect(p.tok), p.include)
+			p.spec(ctx, tok, p.expect(tok), p.include)
 			return
 		case token.FILES:
-			p.spec(ctx, p.tok, p.expect(p.tok), p.files)
+			p.spec(ctx, tok, p.expect(tok), p.files)
 			return
 		case token.ASSERT:
-			p.spec(ctx, p.tok, p.expect(p.tok), p.assert)
+			p.spec(ctx, tok, p.expect(tok), p.assert)
 			return
 		case token.APPEND:
-			p.spec(ctx, p.tok, p.expect(p.tok), p.append)
+			p.spec(ctx, tok, p.expect(tok), p.append)
 		case token.EVAL:
-			p.spec(ctx, p.tok, p.expect(p.tok), p.eval)
+			p.spec(ctx, tok, p.expect(tok), p.eval)
 			return
 		case token.COLON:
 			p.specialRule()
@@ -3565,16 +3581,16 @@ func (p *parser) file(ctx Context) *parsedFile {
 	if loader.mode&ModuleClauseOnly == 0 {
 		if loader.mode&Flat == 0 {
 			ForInit: for p.tok != token.EOF {
-				switch p.tok {
+				switch tok := p.tok; tok {
 				case token.LINEND: p.next(true) // skip empty lines
 				case token.USE:
-					p.spec(ctx, p.tok, p.expect(p.tok), p.use)
+					p.spec(ctx, tok, p.expect(tok), p.use)
 				case token.ASSERT:
-					p.spec(ctx, p.tok, p.expect(p.tok), p.assert)
+					p.spec(ctx, tok, p.expect(tok), p.assert)
 				case token.APPEND:
-					p.spec(ctx, p.tok, p.expect(p.tok), p.append)
+					p.spec(ctx, tok, p.expect(tok), p.append)
 				case token.EVAL:
-					p.spec(ctx, p.tok, p.expect(p.tok), p.eval)
+					p.spec(ctx, tok, p.expect(tok), p.eval)
 				case token.TEMPLATE:
 					p.template(ctx)
 				default:
