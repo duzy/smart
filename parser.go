@@ -157,6 +157,8 @@ type parser struct {
 	// auto *autoctx // TODO
 	dialect string // recipe dialect of current rule
 	configure bool // is parsing configure program?
+
+	ddd bool // helps debug parsing via `eval -ddd=true{}`
 }
 
 func (p *parser) parser() *parser { return p }
@@ -291,6 +293,12 @@ func (p *parser) _next() {
 		}
 	}
 	// if p.tok != token.LINEND && p.lineComment != nil { p.tok = token.LINEND }
+
+	if p.ddd {
+		var t = warn(p, "%v %v %v", p.tok, p.lit, p.scanner.GetState())
+		if p.tok == token.LINEND { t.debug(16) }
+		p.checkErrors(true)
+	}
 }
 
 func (p *parser) next(ws bool) { if p._next(); ws { p.spaces() } }
@@ -2196,17 +2204,20 @@ func (p *parser) append(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ 
 
 func (p *parser) eval(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
 	var (
-		opts []Value
 		prop0, resolved, res Value
 		name string
 	)
 
 	if g.skip { return } else if g.spec == nil {
-		for _, op := range g.all {
+		var opts struct {
+			// TODO: options
+		}
+		for _, op := range parseOpts(ctx, &opts, plain, g.all...) {
 			var val Value
 			if v, y := op.(*Pair); y { op, val = v.Key, v.Value }
 			if v, y := op.(*Flag); y {
-				warn(of(ctx,op), "todo: %v (%v)", v.name, val).debug(1)
+				if false { warn(of(ctx,op), "todo: %v (%v)", v.name, val).debug(1) }
+				p.ddd = val != nil && v.True(ctx)
 			} else {
 				erro(of(ctx,op), "unsupport flag: %T %v (%v)", v, v, val).debug(1)
 			}
@@ -2216,6 +2227,8 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ in
 		erro(ctx, "illegal").debug(1)
 		return
 	}
+
+	var opts []Value
 	if a, y := prop0.(*Argumented); y { prop0, opts = a.value, a.args }
 
 	ctx = at(ctx, prop0.Position())
