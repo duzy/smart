@@ -175,7 +175,7 @@ var builtins = map[string]BuiltinFunc {
         `subst`:        BuiltinFunc{builtin.Subst, builtinCallable, 0, expandZero, expandZero},
         `patsubst`:     BuiltinFunc{builtin.Patsubst, builtinCallable, 0, expandZero, expandZero},
 
-        `contains`:     BuiltinFunc{builtin.Contains, builtinCallable, 0, expandZero, expandZero},
+        `contains`:     BuiltinFunc{builtin.contains, builtinCallable, 0, expandZero, expandZero},
         `filter`:       BuiltinFunc{builtin.Filter, builtinCallable, 0, expandZero, expandZero},
         `filter-out`:   BuiltinFunc{builtin.FilterOut, builtinCallable, 0, expandZero, expandZero},
 
@@ -232,9 +232,9 @@ var builtins = map[string]BuiltinFunc {
 
         `relative-dir`: BuiltinFunc{builtin.RelativeDir, builtinCallable, 0, expandZero, expandZero},
 
-        `file`:       BuiltinFunc{builtin.File, builtinCallable, 0, expandZero, expandZero},
-        `stat`:       BuiltinFunc{builtin.Stat, builtinCallable, 0, expandZero, expandZero},// stat (deprecates file-exists)
-        `glob`:       BuiltinFunc{builtin.Glob, builtinCallable, 0, expandZero, expandZero},
+        `file`:       BuiltinFunc{builtin.file, builtinCallable, 0, expandZero, expandZero},
+        `stat`:       BuiltinFunc{builtin.stat, builtinCallable, 0, expandZero, expandZero},// stat (deprecates file-exists)
+        `glob`:       BuiltinFunc{builtin.glob, builtinCallable, 0, expandZero, expandZero},
         `wildcard`:   BuiltinFunc{builtin.wildcard, builtinCallable, 0, expandZero, expandZero},
 
         // TODO: move these into builtin package 'io/ioutil'
@@ -270,11 +270,11 @@ var commands = map[string]BuiltinFunc {
         `mkdir-all`:    BuiltinFunc{builtin.MkdirAll, builtinCommand, 0, expandZero, expandZero},  // os/path.go
         `chdir`:        BuiltinFunc{builtin.Chdir, builtinCommand, 0, expandZero, expandZero},     // os/file.go
         `rename`:       BuiltinFunc{builtin.Rename, builtinCommand, 0, expandZero, expandZero},    // os/file.go
-        `remove`:       BuiltinFunc{builtin.Remove, builtinCommand, 0, expandZero, expandZero},    // os/file_*.go
-        `remove-all`:   BuiltinFunc{builtin.RemoveAll, builtinCommand, 0, expandZero, expandZero}, // os/path.go
+        `remove`:       BuiltinFunc{builtin.remove, builtinCommand, 0, expandZero, expandZero},    // os/file_*.go
+        `remove-all`:   BuiltinFunc{builtin.removeall, builtinCommand, 0, expandZero, expandZero}, // os/path.go
         `truncate`:     BuiltinFunc{builtin.Truncate, builtinCommand, 0, expandZero, expandZero},  // os/file_*.go
-        `link`:         BuiltinFunc{builtin.Link, builtinCommand, 0, expandZero, expandZero},      // os/file_*.go
-        `symlink`:      BuiltinFunc{builtin.Symlink, builtinCommand, 0, expandZero, expandZero},   // os/file_*.go
+        `link`:         BuiltinFunc{builtin.link, builtinCommand, 0, expandZero, expandZero},      // os/file_*.go
+        `symlink`:      BuiltinFunc{builtin.symlink, builtinCommand, 0, expandZero, expandZero},   // os/file_*.go
 
         `serve-http`:   BuiltinFunc{builtin.ServeHttp, builtinCommand, 0, expandZero, expandZero},
         `serve-https`:  BuiltinFunc{builtin.ServeHttps, builtinCommand, 0, expandZero, expandZero},
@@ -546,7 +546,7 @@ func parseOpts(ctx Context, iOpts interface{}, w facet, args... Value) (rest []V
         return
 }
 
-func parseHeadArgs(ctx Context, iOpts interface{}, w facet, args... Value) (head, rest []Value) {
+func _parseHeadArgs(ctx Context, iOpts interface{}, w facet, args... Value) (head, rest []Value) {
         if len(args) == 0 {
                 // zero args
         } else if head = parseOpts(ctx, iOpts, w, args[0]); len(head) > 0 {
@@ -559,14 +559,14 @@ func parseHeadArgs(ctx Context, iOpts interface{}, w facet, args... Value) (head
         return
 }
 
-func parseHeadArgsMerge(ctx Context, iOpts interface{}, w facet, args... Value) (res []Value) {
-        var head, rest = parseHeadArgs(ctx, iOpts, w, args...)
+func _parseHeadArgsMerge(ctx Context, iOpts interface{}, w facet, args... Value) (res []Value) {
+        var head, rest = _parseHeadArgs(ctx, iOpts, w, args...)
         res = append(head, rest...)
         return
 }
 
-func parseHeadArgsRequired(ctx Context, iOpts interface{}, w facet, args... Value) (head, rest []Value) {
-        head, rest = parseHeadArgs(ctx, iOpts, w, args...)
+func _parseHeadArgsRequired(ctx Context, iOpts interface{}, w facet, args... Value) (head, rest []Value) {
+        head, rest = _parseHeadArgs(ctx, iOpts, w, args...)
         if len(head) == 0 || len(rest) == 0 {
                 erro(ctx, "insufficient number of arguments").debug(6)
         }
@@ -3045,7 +3045,7 @@ type builtinContainsOpts struct {
         match bool `m,mat,match,p,pat,pattern`
         string bool `s,str,string`
 }
-func (ctx builtin) Contains(args... Value) (res Value) {
+func (ctx builtin) contains(args... Value) (res Value) {
         var (
                 opts builtinContainsOpts
                 vals []Value
@@ -3056,10 +3056,15 @@ func (ctx builtin) Contains(args... Value) (res Value) {
                 return
         }
 
-        // const w = plain|expandPairVal
-        vals, list = parseHeadArgsRequired(ctx, &opts, ctx.w|expandPairVal, args...)
-        if len(vals) == 0 || len(list) == 0 { return }
-        list = mergex(ctx, ctx.w, list...)
+        ctx.parseOpts(&opts, plain)
+
+        var w = ctx.w|expandPairVal
+        vals = mergex(ctx, w, args[0])
+        list = mergex(ctx, w, args[1:]...)
+        if len(vals) == 0 || len(list) == 0 {
+                erro(ctx, "insufficient number of arguments").debug(6)
+                return
+        }
 
         var (
                 y int
@@ -3520,9 +3525,9 @@ type builtinRemoveOpts struct {
         skip string `save,skip`
         ignoreMissing bool `gm,ignoremissing,ignore-missing`
         warnNotFile bool `warn-not-file`
-        all bool `a,all;r,recursive`
+        all bool `a,all,r,recursive`
 }
-func (ctx builtin) Remove(args... Value) (res Value) {
+func (ctx builtin) remove(args... Value) (res Value) {
         var (
                 closured = closureProjects(ctx)
                 opts builtinRemoveOpts
@@ -3599,7 +3604,7 @@ func (ctx builtin) Remove(args... Value) (res Value) {
 type builtinRemoveAllOpts struct {
         generalOpts
 }
-func (ctx builtin) RemoveAll(args... Value) (res Value) {
+func (ctx builtin) removeall(args... Value) (res Value) {
         var (
                 closured = closureProjects(ctx)
                 opts builtinRemoveAllOpts
@@ -3695,7 +3700,7 @@ func (ctx builtin) Truncate(args... Value) (res Value) {
 type builtinLinkOpts struct {
         // TODO: ...
 }
-func (ctx builtin) Link(args... Value) (res Value) {
+func (ctx builtin) link(args... Value) (res Value) {
         var opts builtinLinkOpts
         args = ctx.parseOpts(&opts, plain, args...)
         for i, nargs := 0, len(args); i < nargs; i += 1 {
@@ -3752,7 +3757,7 @@ type builtinSymlinkOpts struct {
         update   bool `u,update`
         relative bool `r,rel,relative;l`
 }
-func (ctx builtin) Symlink(args... Value) (res Value) {
+func (ctx builtin) symlink(args... Value) (res Value) {
         var opts builtinSymlinkOpts
         args = ctx.parseOpts(&opts, plain, args...)
 ForArgs:
@@ -3877,7 +3882,7 @@ type builtinStatOpts struct {
         file bool `fi,file`
         symbol bool `s,sym,symlink,symbol;l,link`
 }
-func (ctx builtin) Stat(args... Value) (res Value) {
+func (ctx builtin) stat(args... Value) (res Value) {
         var (
                 proj = ctx.Project()
                 opts builtinStatOpts
@@ -3945,7 +3950,7 @@ type builtinFileOpts struct {
         ignore bool `i,ig,ignore,ignore-missing`
         report bool `r,report,reportmissing;rm,report-missing;er,err,error`
 }
-func (ctx builtin) File(args... Value) (res Value) {
+func (ctx builtin) file(args... Value) (res Value) {
         var (
                 opts builtinFileOpts
                 proj *Project
@@ -4015,7 +4020,7 @@ type builtinGlobOpts struct {
         file bool `fi,file`
         symbol bool `s,sym,symlink,symbol,symbolic`
 }
-func (ctx builtin) Glob(args... Value) (res Value) {
+func (ctx builtin) glob(args... Value) (res Value) {
         var (
                 opts builtinGlobOpts
                 proj *Project

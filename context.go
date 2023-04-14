@@ -31,8 +31,9 @@ type commandLineOpts struct {
   debugWarns      bool `dw,dbwarn,debug-warns`
   debugInfos      bool `di,dbinfo,debug-infos`
   debugPrompt     bool `dp,dbprom,debug-prompt`
-  debugSyn []string `ds,dbsyntax,debug-syntax`
+  debugFileEntry  bool `debug-file-entry`
   debugFiles  []string `df,dbfile,debug-file`
+  debugSyn    []string `ds,dbsyntax,debug-syntax`
 
   autoProfs       bool `ap,autoprof,auto-profiles,auto-profile`
   cpuProf         string `cpuprof,cpu-profile`

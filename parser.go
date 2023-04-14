@@ -101,8 +101,8 @@ type parsedRuleData struct {
 }
 
 type template struct {
-	state scanner.ScanState
-	end *scanner.ScanState
+	state scanner.State
+	end *scanner.State
 	pos, endPos token.Pos   // token position
 	tok token.Token // one token look-ahead
 	lit string      // token literal
@@ -672,7 +672,7 @@ func (p *parser) dependList(ctx Context, normal bool) (list []Value) {
 }
 
 // If lhs is set, result list elements which are identifiers are not resolved.
-func (p *parser) list(ctx Context, lhs bool) (list []Value) {
+func (p *parser) values(ctx Context, lhs bool) (list []Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "List")) }
 	for p.spaces(); !p.isEndOfList(lhs); p.spaces() {
 		var pos = p.pos
@@ -691,8 +691,8 @@ func (p *parser) list(ctx Context, lhs bool) (list []Value) {
 	return
 }
 
-func (p *parser) listExpr(ctx Context, lhs bool) *List {
-	return MakeList(p.Position(), p.list(ctx, lhs)...)
+func (p *parser) list(ctx Context, lhs bool) *List {
+	return MakeList(p.Position(), p.values(ctx, lhs)...)
 }
 
 func (p *parser) setRHS(v bool) (old bool) {
@@ -704,12 +704,12 @@ func (p *parser) left(ctx Context) []Value {
 	// Line comment of previous lines will break the parsing loop,
 	// so we clear the previous line comment
 	p.lineComment = nil
-	return p.list(ctx, true)
+	return p.values(ctx, true)
 }
 
 func (p *parser) right(ctx Context) []Value {
 	defer p.setRHS(p.setRHS(true))
-	return p.list(ctx, false)
+	return p.values(ctx, false)
 }
 
 // ----------------------------------------------------------------------------
@@ -723,7 +723,7 @@ func (p *parser) group(lhs bool) *Group {
 	var ctx = p.posit()
 	p.next(true)
 
-	var elems, converted = p.list(ctx, false), false
+	var elems, converted = p.values(ctx, false), false
 	for p.tok != token.RPAREN && p.tok != token.EOF {
 		// if p.tok == token.COMMA { p.next(true) }
 		switch p.tok {
@@ -732,7 +732,7 @@ func (p *parser) group(lhs bool) *Group {
 			p.spaces()
 		}
 		var next *List
-		next = p.listExpr(ctx, false)
+		next = p.list(ctx, false)
 		if !converted {
 			elems = []Value{ MakeList(p.Position(), elems...), next }
 			converted = true
@@ -750,7 +750,7 @@ func (p *parser) argumentedExpr(x Value) *Argumented {
 	var ctx = p.posit()
 	p.next(true) // skip token.LPAREN
 
-	var a = []Value{ p.listExpr(ctx, false) }
+	var a = []Value{ p.list(ctx, false) }
 	for p.tok != token.RPAREN && p.tok != token.LINEND && p.tok != token.EOF {
 		switch p.tok {
 		case token.COMMA: p.next(true) // skip token.COMMA
@@ -762,7 +762,7 @@ func (p *parser) argumentedExpr(x Value) *Argumented {
 				erro(ctx, "unexpected punctuation: %v", p.tok).debug(1)
 			}
 		}
-		a = append(a, p.listExpr(p.posit(), false))
+		a = append(a, p.list(p.posit(), false))
 	}
 	p.expect(token.RPAREN)
 	return MakeArgumented(x, a...)
@@ -973,7 +973,7 @@ func (p *parser) punctuation() *punctuation {
 	return &punctuation{valbase{pos}, tok}
 }
 
-func (p *parser) basicLit(lhs bool) (v Value) {
+func (p *parser) literal(lhs bool) (v Value) {
 	var ctx, tok, lit = p.posit(), p.tok, p.lit
 	p._next()
 
@@ -999,7 +999,7 @@ func (p *parser) basicLit(lhs bool) (v Value) {
 	return
 }
 
-func (p *parser) compoundLit(lhs bool) *Compound {
+func (p *parser) compound(lhs bool) *Compound {
 	var (
 		ctx = p.posit()
 		lpos = p.pos
@@ -1009,20 +1009,12 @@ func (p *parser) compoundLit(lhs bool) *Compound {
 
 	defer p.setbits(p.setbit(parsingCompound))
 
-ForCompound:
-	for p.tok != token.EOF && p.tok != token.COMPOSED {
-		var x Value
-		switch p.tok {
-		default:           x = p.expr(ctx, false)
-		case token.RAW:    x = p.basicLit(false)
-		case token.LINEND:
-			erro(ctx, "unexpected end of line for compound string")
-			break ForCompound
+	for p.tok != token.EOF && p.tok != token.COMPOSED && p.tok != token.LINEND {
+		if p.tok == token.RAW {
+			elems = append(elems, p.literal(false))
+		} else {
+			elems = append(elems, p.expr(ctx, false))
 		}
-		if false && strings.Contains(x.String(), "\\\"") {
-			warn(ctx, "%T %v", x, x).debug(1)
-		}
-		elems = append(elems, x)
 	}
 	p.expect(token.COMPOSED)
 	return MakeCompound(p.loc(lpos), elems...)
@@ -1050,7 +1042,7 @@ func (p *parser) dot(lhs bool, x Value) (res *barecomp) {
 
 	var ctx = p.posit()
 	for /*comp.End() == p.pos && */!p.isEndOfDotConcat(lhs) {
-		comp.Combine(ctx, p.composed(ctx, false))
+		comp.Combine(ctx, p.composite(ctx, false))
 		if p.tok == token.DOT /*&& comp.End() == p.pos*/ {
 			// var dot = MakeBareword(p.Position(), ".") // TODO: parse to Qualiword instead
 			var dot Value = &punctuation{valbase{p.Position()}, p.tok}
@@ -1112,7 +1104,7 @@ BuildPath:
 			break BuildPath
 		}
 
-		var x = p.composed(ctx, false)
+		var x = p.composite(ctx, false)
 		path.Elems = append(path.Elems, x)
 		if p.tok == token.SPACE || p.isEndOfLine() {
 			break BuildPath
@@ -1158,12 +1150,12 @@ func (p *parser) url(ctx Context, lhs bool, scheme Value) (res Value) {
 	}
 
 	if !p.isEndOfURL(lhs) {
-		userOrHost := p.composed(ctx, false)
+		userOrHost := p.composite(ctx, false)
 		if p.tok == token.COLON {
 			url.Username, colon2 = userOrHost, p.pos
 			p._next() // ':'
 			if p.tok != token.AT && p.tok != token.PCON && !p.isEndOfURL(lhs) {
-				url.Password = p.composed(ctx, false)
+				url.Password = p.composite(ctx, false)
 			}
 		} else {
 			url.Host = userOrHost
@@ -1173,12 +1165,12 @@ func (p *parser) url(ctx Context, lhs bool, scheme Value) (res Value) {
 		}
 	}
 	if url.Host == nil && colon2 == token.NoPos && a == token.NoPos && !p.isEndOfURL(lhs) {
-		url.Host = p.composed(ctx, false)
+		url.Host = p.composite(ctx, false)
 		if p.tok == token.COLON {
 			//colon3 = p.pos
 			p._next() // ':'
 			if p.tok != token.SPACE && p.tok != token.LINEND {
-				url.Port = p.composed(ctx, false)
+				url.Port = p.composite(ctx, false)
 			}
 		}
 	}
@@ -1186,17 +1178,17 @@ func (p *parser) url(ctx Context, lhs bool, scheme Value) (res Value) {
 		url.Path = p.path(lhs, makePathPun(ctx, p.tok))
 	}
 	// scanning '#' as token.HASH instead of token.COMMENT
-	defer p.scanner.SetBits(p.scanner.AddBits(scanner.NoComments))
+	defer p.scanner.SetBits(p.scanner.CommentsOff())
 	if p.tok == token.QUE {
 		p._next() // '?'
 		if p.tok != token.HASH && !p.isEndOfURL(lhs) {
-			url.Query = p.composed(ctx, false)
+			url.Query = p.composite(ctx, false)
 		}
 	}
 	if p.tok == token.HASH {
 		p._next() // '#'
 		if !p.isEndOfURL(lhs) {
-			url.Fragment = p.composed(ctx, false)
+			url.Fragment = p.composite(ctx, false)
 		}
 	}
 	return url
@@ -1205,9 +1197,6 @@ func (p *parser) url(ctx Context, lhs bool, scheme Value) (res Value) {
 func (p *parser) closuredelegate() (result Value) {
 	if t_traverse.enabled {	defer un(trace(t_traverse, "ClosureDelegate")) }
 
-	// TODO:FIXME: push p.bits before entering a $(...) or &(...)
-	// defer func(a parsingBits) { p.bits = a } (p.bits)
-	// p.bits = p.bits & (parsingCompound | parsingFilesSpec | parsingRecipe)
 	defer p.setbits(p.setbit(composingCall))
 
 	var (
@@ -1261,16 +1250,14 @@ func (p *parser) closuredelegate() (result Value) {
 
 		if val := name.expand(ctx, ident); val != name {
 			if u, y := val.(unexpanded); y {
-				obj, okay = unresolved{u.Value, proj}, true
-				return
+				return str, unresolved{u.Value, proj}, true
 			} else { name = val }
 		}
 
 		switch lTok {
 		case token.LPAREN:
 			if allowClosureName && name.expandible(ctx, expandDelegate|expandClosure) {
-				obj, okay = unresolved{name, proj}, true // recursive delegation or closure
-				return
+				return str, unresolved{name, proj}, true // recursive delegation or closure
 			} else if str, resolved = loader.resolveObject(name); false {
 				erro(at(ctx,name.Position()), "resolve '%v' (%s) failed", name, str).debug(1)
 				return
@@ -1425,7 +1412,7 @@ func (p *parser) closuredelegate() (result Value) {
 					erro(at(ctx,posLp), "%v: auto: incorrect left paren", proj).debug(1)
 				}
 				p.spaces() // skip the imediate spaces
-				var al = p.listExpr(ctx, false)
+				var al = p.list(ctx, false)
 				if rest = append(rest, al); p.tok == token.COMMA { p.next(true) }
 				for _, val := range merge(al) {
 					var pos = val.Position()
@@ -1461,31 +1448,31 @@ func (p *parser) closuredelegate() (result Value) {
 
 			if autos != nil { p.autos = append(autos, p.autos...) }
 			if savedBits := p.bits; nameStr == "case" {
-				rest = append(rest, p.listExpr(ctx, false))
+				rest = append(rest, p.list(ctx, false))
 				p.bits |= parsingUndefValue
 				for ; p.tok == token.COMMA; {
 					p.next(true) // consumes COMMA
-					rest = append(rest, p.listExpr(ctx, false))
+					rest = append(rest, p.list(ctx, false))
 				}
 				p.bits = savedBits
 			} else if nameStr == "and" {
 				p.bits |= parsingUndefValue
-				for rest = append(rest, p.listExpr(ctx, false)); p.tok == token.COMMA; {
+				for rest = append(rest, p.list(ctx, false)); p.tok == token.COMMA; {
 					p.next(true) // consumes COMMA
-					rest = append(rest, p.listExpr(ctx, false))
+					rest = append(rest, p.list(ctx, false))
 				}
 				p.bits = savedBits
 			} else if nameStr == "or" {
 				p.bits |= parsingUndefValue
-				for rest = append(rest, p.listExpr(ctx, false)); p.tok == token.COMMA; {
+				for rest = append(rest, p.list(ctx, false)); p.tok == token.COMMA; {
 					p.next(true) // consumes COMMA
-					rest = append(rest, p.listExpr(ctx, false))
+					rest = append(rest, p.list(ctx, false))
 				}
 				p.bits = savedBits
 			} else {
-				for rest = append(rest, p.listExpr(ctx, false)); p.tok == token.COMMA; {
+				for rest = append(rest, p.list(ctx, false)); p.tok == token.COMMA; {
 					p.next(true) // consumes COMMA
-					rest = append(rest, p.listExpr(ctx, false))
+					rest = append(rest, p.list(ctx, false))
 				}
 			}
 			p.autos = savedAutos
@@ -1518,7 +1505,7 @@ func (p *parser) closuredelegate() (result Value) {
 			}
 		} else {
 			// &(...), &{...}, &'...', &"..."
-			erro(ctx, "expects `%v`, `%v` or quotes", token.LPAREN, token.LBRACE).debug(1)
+			erro(ctx, "expects `%v`, `%v` or quotes, not %v %v", token.LPAREN, token.LBRACE, p.tok, p.lit).debug(1)
 			return MakeNil(position)
 		}
 	}
@@ -1617,10 +1604,10 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 	case token.BIN, token.OCT, token.INT, token.HEX, token.FLOAT,
 		token.DATETIME, token.DATE, token.TIME, token.URI,
 		/*token.RAW,*/ token.STRING, token.ESCAPE:
-		return p.basicLit(lhs)
+		return p.literal(lhs)
 
 	case token.COMPOUND:
-		return p.compoundLit(lhs)
+		return p.compound(lhs)
 
 	case token.DELEGATE, token.CLOSURE: // delegate, closure
 		return p.closuredelegate()
@@ -1687,14 +1674,13 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 		}
 	}
 
-	if p.lineComment == nil {
-		erro(p, "bad unary expression '%v' (lit=%s, left=%v)", p.tok, p.lit, lhs).debug(32)
-	} else {
+	var s = p.scanner.GetState()
+	if p.lineComment != nil {
 		for _, comment := range p.lineComment.List {
 			erro(at(p,comment.Pos), "# %s", comment.Text)
 		}
-		erro(p, "bad unary expression '%v' (lit=%s, left=%v)", p.tok, p.lit, lhs).debug(32)
 	}
+	erro(p, "bad unary expression '%v' (lit=%s, left=%v, scan=%v)", p.tok, p.lit, lhs, s).debug(32)
 
 	p._next() // go to the next token
 	return MakeNil(p.Position())
@@ -1709,7 +1695,7 @@ func (p *parser) isParametersGroup(x Value) (res bool) {
 	return
 }
 
-func (p *parser) composed(ctx Context, lhs bool) (x Value) {
+func (p *parser) composite(ctx Context, lhs bool) (x Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Composed")) }
 
 	switch x = p.unary(ctx, lhs); p.tok { // check composible expressions
@@ -1779,7 +1765,7 @@ func (p *parser) expr(ctx Context, lhs bool) (x Value) {
 	if false && t_traverse.enabled { defer un(trace(t_traverse, "Expression")) }
 
 	var tok, lit = p.tok, p.lit
-	if x = p.composed(ctx, lhs); x == nil {
+	if x = p.composite(ctx, lhs); x == nil {
 		erro(p, "invalid (tok=%v,%v; next=%v,%v)", tok, lit, p.tok, p.lit).debug(6)
 		return
 	} else if lhs && p.tok.IsAssign() { return
@@ -1831,7 +1817,7 @@ SwitchCompose:
 		return
 	}
 
-	var y = p.composed(ctx, lhs)
+	var y = p.composite(ctx, lhs)
 	if _, ok := y.(*Path); ok {
 		switch x.(type) {
 		case *Flag: // okay: -Ifoo/bar, -Lfoo/bar
@@ -2266,6 +2252,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ in
 	}
 
 	if ctx.checkErrors(true); isTrivial(res) { return }
+
 	/* TODO: if c, y := res.(code); y { ... } */
 }
 
@@ -2388,9 +2375,9 @@ func (p *parser) recipe(ctx Context) Value {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Recipe")) }
 
 	var (
-		loader = ctx.loader()
 		// TODO: comment *CommentGroup
 		// TODO: doc = p.leadComment
+		loader = ctx.loader()
 		position = p.Position()
 		elems []Value
 		isList bool
@@ -2408,8 +2395,11 @@ SwitchDialect:
 			var (
 				isValue = p.dialect == "value"
 				x = p.expr(ctx, /*!isValue*/false) // parse first expr of recipe
+				n = isNil(x)
+				a *Argumented
 			)
-			if isNil(x) {
+			if !n { if a, _ = x.(*Argumented); a != nil { x = a.value } }
+			if  n {
 				erro(ctx, "parsed value is nil")
 			} else if isValue {
 				// no resolving commands
@@ -2432,8 +2422,11 @@ SwitchDialect:
 			if !isValue && p.tok.IsAssign() {
 				elems = append(elems, p.define(ctx, p.tok, x))
 				break SwitchDialect
+			} else if a != nil {
+				elems = append(elems, a)
+			} else {
+				elems = append(elems, x)
 			}
-			elems = append(elems, x)
 
 			var cmdargs []Value
 			for p.tok != token.EOF && p.tok != token.SEMICOLON && p.tok != token.LINEND && p.lineComment == nil {
@@ -2474,14 +2467,14 @@ SwitchDialect:
 			var x Value
 			switch p.tok {
 			default:           x = p.expr(ctx, false)
-			case token.RAW:    x = p.basicLit(false)
+			case token.RAW:    x = p.literal(false)
 				/*
 			case token.LINEND:
 				erro(ctx, "unexpected end of line for compound string")
 				break ForCompound*/
 			}
-			elems = append(elems, x)
 			p.setbits(bits)
+			elems = append(elems, x)
 		}
 	}
 	if p.spaces(); p.tok != token.EOF { p.expectLinend() }
@@ -2783,13 +2776,13 @@ func (p *parser) rule(special specialRule, optvals, targets []Value) (result Val
 		recipes = append(recipes, p.recipe(ctx))
 	} else /*if p.tok == token.LINEND || p.lineComment != nil*/ {
 		// Parse recipes in the program scope.
-		p.scanner.TurnRecipesOn() // Turn on recipes before LINEND
-		if p.expectLinend() /* take the new line */ {
+		var bits = p.scanner.RecipesOn() // Turn on recipes before LINEND.
+		if p.expectLinend() { // Take the new line.
 			for p.tok != token.EOF && p.isRecipeStart() {
 				recipes = append(recipes, p.recipe(ctx))
 			}
 		}
-		p.scanner.TurnRecipesOff()
+		p.scanner.SetBits(bits)
 	}
 
 	var params []string
@@ -2957,14 +2950,15 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, 
 
 func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 	var count int64
-	defer func(t time.Time, pos token.Pos, tok token.Token, lit string, state scanner.ScanState) {
+	defer func(t time.Time, pos token.Pos, tok token.Token, lit string, state scanner.State) {
+		if ddd {/* dont check time in ddd mode */} else
         if d := time.Now().Sub(t); d > time.Duration(options.slow)*time.Millisecond {
 			var c = time.Duration(count)
             warnstack(ctx, 3, "slow: %v, %d * %v, prof-%d", d, count, d/c, pprofCounter).debug(1)
         }
 		p.pos, p.tok, p.lit	 = pos, tok, lit
 		p.scanner.SetState(state)
-	} (time.Now(), p.pos, p.tok, p.lit, p.scanner.State())
+	} (time.Now(), p.pos, p.tok, p.lit, p.scanner.GetState())
 
 	// TODO: parseOpts(params) -> add option to turn off asFile in Context
 
@@ -3057,14 +3051,14 @@ func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 }
 func (p *parser) callTemplate(ctx Context, t *template, name Value, args []Value) {
 	var count int64
-	defer func(t time.Time, pos token.Pos, tok token.Token, lit string, state scanner.ScanState) {
+	defer func(t time.Time, pos token.Pos, tok token.Token, lit string, state scanner.State) {
         if d := time.Now().Sub(t); d > 1999*time.Millisecond {
 			var c = time.Duration(count)
             infostack(ctx, 3, "%v: slow: %v, %v, %d*%v", name, d, count, d/c).debug(1)
         }
 		p.pos, p.tok, p.lit	 = pos, tok, lit
 		p.scanner.SetState(state)
-	} (time.Now(), p.pos, p.tok, p.lit, p.scanner.State())
+	} (time.Now(), p.pos, p.tok, p.lit, p.scanner.GetState())
 
 	p.scanner.SetState(t.state)
 	p.pos, p.tok, p.lit = t.pos, t.tok, t.lit
@@ -3131,13 +3125,13 @@ func (p *parser) template(ctx Context) {
 		return //true
 	}}
 
-	var params = p.list(ctx, false)
+	var params = p.values(ctx, false)
 	// DONT: p.expect(token.LINEND)
 
 	// TODO: parse template options - parseOpts
 	params = mergex(ctx, plain, params...)
 
-	var tmpl = &template{ state:p.scanner.State(), pos:p.pos, tok:p.tok, lit:p.lit }
+	var tmpl = &template{ state:p.scanner.GetState(), pos:p.pos, tok:p.tok, lit:p.lit }
 	if verb == "def" {
 		if len(params) != 1 {
 			erro(at(ctx,starting), "too many def params: %v", params)
@@ -3177,7 +3171,7 @@ func (p *parser) template(ctx Context) {
 			nested -= 1
 		} else {
 			p.next(true) // consumes the 'expand'
-			params := p.list(ctx, false)
+			params := p.values(ctx, false)
 			p.expect(token.LINEND)
 			p.stop = pos
 			p.templateExpand(ctx, tmpl, params)
@@ -3188,7 +3182,7 @@ func (p *parser) template(ctx Context) {
 		} else {
 			p.next(true) // consumes the 'end'
 			p.expect(token.LINEND)
-			state := p.scanner.State()
+			state := p.scanner.GetState()
 			tmpl.end, tmpl.endPos = &state, pos
 			return //true
 		}} else if false {
@@ -3210,47 +3204,50 @@ func (p *parser) clause() {
 	var ctx = p.posit()
 	defer func() {
 		if options.debugParsing("clause") {
-			warnstack(ctx, 3, "%s %v; %v %v", typeof(x), x, p.tok, p.lit).debug(6)
+			warn(ctx, "parser.clause: %s %v; %v %v", typeof(x), x, p.tok, p.lit).debug(6)
 		}
 		if ctx.checkErrors(true) > 0 {
 			errostack(ctx, 5, "clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(4)
 		}
 	} ()
 
-	switch p.tok {
-	case token.USE:
-		erro(ctx, "`%v` unexpected here", p.tok).debug(10)
-		return
-	case token.INCLUDE:
-		p.spec(ctx, p.tok, p.expect(p.tok), p.include)
-		return
-	case token.FILES:
-		p.spec(ctx, p.tok, p.expect(p.tok), p.files)
-		return
-	case token.ASSERT:
-		p.spec(ctx, p.tok, p.expect(p.tok), p.assert)
-		return
-	case token.APPEND:
-		p.spec(ctx, p.tok, p.expect(p.tok), p.append)
-	case token.EVAL:
-		p.spec(ctx, p.tok, p.expect(p.tok), p.eval)
-		return
-	case token.COLON:
-		p.specialRule()
-		return
-	case token.TEMPLATE:
-		p.template(ctx)
-		return
-	default:
-		x = p.expr(ctx, true)
-		p.spaces()
+	var tok = p.tok // TODO: allow assigns like: `eval := xxx`
+	if /* TODO: p.spaces(); !p.tok.IsAssign() && !p.tok.IsRuleDelim() */true {
+		switch tok {
+		case token.USE:
+			erro(ctx, "`%v` unexpected here", p.tok).debug(10)
+			return
+		case token.INCLUDE:
+			p.spec(ctx, p.tok, p.expect(p.tok), p.include)
+			return
+		case token.FILES:
+			p.spec(ctx, p.tok, p.expect(p.tok), p.files)
+			return
+		case token.ASSERT:
+			p.spec(ctx, p.tok, p.expect(p.tok), p.assert)
+			return
+		case token.APPEND:
+			p.spec(ctx, p.tok, p.expect(p.tok), p.append)
+		case token.EVAL:
+			p.spec(ctx, p.tok, p.expect(p.tok), p.eval)
+			return
+		case token.COLON:
+			p.specialRule()
+			return
+		case token.TEMPLATE:
+			p.template(ctx)
+			return
+		default:
+			x = p.expr(ctx, true)
+			p.spaces()
+		}
 	}
 
 	if t_traverse.enabled { defer un(trace(t_traverse, "Clause(?)")) }
 
 	if p.tok.IsAssign() {
 		if options.debugParsing("define") {
-			warnstack(ctx, 3, "%s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
+			warn(p, "parser.clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
 			ctx.checkErrors(true)
 		}
 		p.define(ctx, p.tok, x)
@@ -3264,7 +3261,7 @@ func (p *parser) clause() {
 
 	if p.tok.IsRuleDelim() {
 		if options.debugParsing("rule") {
-			warnstack(ctx, 3, "%s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
+			warn(p, "parser.clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
 			ctx.checkErrors(true)
 		}
 		p.rule(specialRuleNor, nil, list)
@@ -3319,6 +3316,10 @@ func (p *parser) file(ctx Context) *parsedFile {
 	assert(loader != nil, "nil loader")
 	assert(loader == loader, "bad loader")
 	defer loader.closeScope(loader.openScope(fmt.Sprintf("file %s", filename)))
+
+	if options.debugFileEntry {
+		warn(p, "parser.file: %v %v", p.tok, p.scanner.GetState()).debug(1)
+	}
 
 	/*if filename == confinitFilename {
         abs, rel = context.workdir, "."

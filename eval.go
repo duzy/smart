@@ -29,19 +29,27 @@ ForRecipes:
         var (
             ctx = at(ctx, recipe.Position())
             vals = mergex(ctx, w, recipe)
+            n = len(vals)
         )
-        if n := len(vals); n < 1 {
+        if n < 1 {
             list = append(list, recipe)
-            continue
-        } else if false && n == 1 && isTrivial(vals[0]) {
-            list = append(list, vals[0])
             continue
         }
 
-        ctx = at(ctx, vals[0].Position())
+        var (
+            name = vals[0]
+            ov []Value
+        )
+        if a, y := name.(*Argumented); y { name, ov = a.value, a.args }
+        if false && n == 1 && isTrivial(name) {
+            list = append(list, name)
+            continue
+        }
+
+        ctx = at(ctx, name.Position())
 
         var v Value
-        switch tv := vals[0].(type) {
+        switch tv := name.(type) {
         case *undetermined:
             // Noop, just return v to the caller.
 
@@ -50,7 +58,7 @@ ForRecipes:
             break ForRecipes
 
         case Caller:
-            v = tv.Call(ctx, nil, vals[1:]...)
+            v = tv.Call(ctx, ov, vals[1:]...)
 
         case Executer:
             var a, traves = tv.Execute(ctx, vals[1:]...)
