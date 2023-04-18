@@ -261,10 +261,11 @@ func (p *parser) consumeCommentGroup(n int) (comments *CommentGroup, endline int
 // Lead and line comments may be considered documentation that is
 // stored in the AST.
 //
-func (p *parser) _next() {
+func (p *parser) step() {
 	p.leadComment = nil
 	p.lineComment = nil
-	prev := p.pos
+
+	var prev = p.pos
 	if p.scan(); p.tok == token.COMMENT {
 		var comment *CommentGroup
 		var endline int
@@ -292,29 +293,33 @@ func (p *parser) _next() {
 			p.leadComment = comment
 		}
 	}
+
 	// if p.tok != token.LINEND && p.lineComment != nil { p.tok = token.LINEND }
 
 	if p.ddd {
 		var t = warn(p, "%v %v %v", p.tok, p.lit, p.scanner.GetState())
-		if p.tok == token.LINEND { t.debug(16) }
+		if p.tok == token.COMPOUND { t.debug(12) }
+		if p.tok == token.LINEND { t.debug(24) }
 		p.checkErrors(true)
+	} else if false {
+		p.scanner.Debug = false
 	}
 }
 
-func (p *parser) next(ws bool) { if p._next(); ws { p.spaces() } }
+func (p *parser) next(ws bool) { if p.step(); ws { p.spaces() } }
 
 func (p *parser) spaces() {
 	for p.lineComment == nil && p.tok != token.EOF {
 		if p.tok == token.SPACE || (p.tok == token.RECIPE && p.bits&parsingRecipeBuiltin != 0) {
-			p._next()
+			p.step()
 		} else if p.tok == token.ESCAPE && p.lit == "\n" {
-			if p._next(); p.tok == token.LINEND || p.lineComment != nil { break }
+			if p.step(); p.tok == token.LINEND || p.lineComment != nil { break }
 			if p.bits&parsingRecipeBuiltin != 0 {
 				TokFor: for p.tok != token.EOF {
 					switch p.tok {
 					case token.RECIPE: // TODO: using p.isRecipeStart()
 						p.scanner.LeaveCompoundLineContext()
-						p._next()
+						p.step()
 					default: break TokFor
 					}
 				}
@@ -346,26 +351,23 @@ func (p *parser) expected(pos token.Pos, msg string, a... interface{}) {
 			}
 		}
 	}
-	erro(at(p,p.loc(pos)), msg).debug(24)
+	erro(at(p,p.loc(pos)), msg).debug(32)
 }
 
 func (p *parser) expect(tok token.Token) token.Pos {
 	var pos = p.pos
-	if p.tok != tok {
-		p.expected(pos, "'"+tok.String()+"'")
-	}
-	p._next() // make progress
+	if p.tok != tok { p.expected(pos, "'"+tok.String()+"'") }
+	p.step() // move forward
 	return pos
 }
 
-func (p *parser) expectLinend() (ok bool) {
+func (p *parser) linend() (ok bool) {
 	if p.lineComment != nil {
-		// The line comment is treated as LINEND, simply ignore it.
 		p.lineComment, ok = nil, true
 	} else if p.tok == token.EOF {
 		ok = true
 	} else if p.tok == token.LINEND {
-		p._next(); ok = true
+		p.step(); ok = true
 	} else {
 		p.expected(p.pos, "'\\n'")
 	}
@@ -407,15 +409,15 @@ func (p *parser) isRecipeStart() (res bool) {
 // ----------------------------------------------------------------------------
 // Barewords & Identifiers
 
-func (p *parser) bareExpr(lhs bool) (x Value) {
+func (p *parser) bare(lhs bool) (x Value) {
 	var pos, tok, lit = p.Position(), p.tok, p.lit
-	switch p._next(); tok {
+	switch p.step(); tok {
 	case token.BAREWORD: // okay
 	case token.UNDEF:
 		if p.tok == token.LBRACE { // undef{}, undef{ ... }
 			if p.next(true); p.tok == token.RBRACE {
 				x = &undef{&None{valbase{p.Position()}, nil}}
-				p._next()
+				p.step()
 			} else if v := p.expr(p, false); v != nil {
 				x = &undef{v}
 				p.expect(token.RBRACE)
@@ -442,7 +444,7 @@ func (p *parser) bareExpr(lhs bool) (x Value) {
 	case token.Bin, token.Oct, token.Int, token.Hex, token.Float:
 		if p.tok == token.LBRACE { // answer{...}, bool{...}
 			if p.next(true); p.tok == token.RBRACE {
-				switch p._next(); tok {
+				switch p.step(); tok {
 				case token.Bin:   x = MakeBin(pos, 0)
 				case token.Oct:   x = MakeOct(pos, 0)
 				case token.Int:   x = MakeInt(pos, 0)
@@ -453,7 +455,7 @@ func (p *parser) bareExpr(lhs bool) (x Value) {
 				// TODO: true{ expr }, yes{ expr }, ...
 				erro(at(p,pos), "%s expects: %v, not %v %v", tok, token.RBRACE, p.tok, p.lit).debug(1)
 			} else if p.spaces(); p.tok == token.RBRACE {
-				if p._next(); tok == token.Float {
+				if p.step(); tok == token.Float {
 					var n, _ = v.Float(p)
 					return MakeFloat(pos, n)
 				}
@@ -474,7 +476,7 @@ func (p *parser) bareExpr(lhs bool) (x Value) {
 				case token.BOOL: x = &boolean{valbase{pos},false}
 				case token.NONE: x = &None{valbase{pos},nil}
 				}
-				p._next()
+				p.step()
 				return
 			}
 
@@ -506,11 +508,9 @@ func (p *parser) bareExpr(lhs bool) (x Value) {
 	case token.TRUE, token.YES, token.FALSE, token.NO:
 		if p.tok == token.LBRACE { // true{}, false{}, yes{}, no{}
 			if p.next(true); p.tok == token.RBRACE {
-				switch p._next(); tok {
-				case token.TRUE:  x = MakeBoolean(pos,  true)
-				case token.FALSE: x = MakeBoolean(pos,  false)
-				case token.YES:   x = MakeAnswer( pos,  true)
-				case token.NO:    x = MakeAnswer( pos,  false)
+				switch p.step(); tok {
+				case token.TRUE, token.FALSE: x = MakeBoolean(pos, tok == token.TRUE)
+				case token.YES , token.NO   : x = MakeAnswer( pos, tok == token.YES)
 				}
 			} else {
 				// TODO: true{ expr }, yes{ expr }, ...
@@ -549,7 +549,7 @@ func (p *parser) selectExpr(lhs Value) (res Value) {
 		loader = ctx.loader()
 		proj = loader.Project()
 	)
-	p._next() // skip '->' or '=>'
+	p.step() // skip '->' or '=>'
 
 	switch t := lhs.(type) {
 	case *selection:
@@ -643,7 +643,7 @@ func (p *parser) isEndOfDotConcat(lhs bool) bool {
 	return p.isEndOfLine() || p.isEndOfList(lhs)
 }
 
-func (p *parser) dependList(ctx Context, normal bool) (list []Value) {
+func (p *parser) depends(ctx Context, normal bool) (list []Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Depends")) }
 	for p.tok != token.SEMICOLON && p.tok != token.BAR && !p.isEndOfLine() {
 		if p.tok == token.COLON { // FIXME: this check is not working!
@@ -778,7 +778,7 @@ func (p *parser) argumentedExpr(x Value) *Argumented {
 
 func (p *parser) globMeta() (x *GlobMeta) {
 	pos, tok := p.Position(), p.tok
-	p._next()
+	p.step()
 	return MakeGlobMeta(pos, tok)
 }
 
@@ -838,17 +838,16 @@ func (p *parser) percExpr(lhs bool, x Value) Value {
 		pos = p.pos
 		y Value
 	)
-	if p._next(); pos+1 == p.pos { // joint, e.g. '%.o', but skip '% .o'
+	if p.step(); pos+1 == p.pos { // joint, e.g. '%.o', but skip '% .o'
 		switch p.tok {
 		case token.COLON, token.COLON2,
 			token.LPAREN, token.RPAREN,
 			token.LBRACK, token.RBRACK,
-			token.LBRACE, token.RCOLON,
 			token.PCON,   token.SEMICOLON,
 			token.COMMA,  token.SPACE,
 			token.LINEND:
 		case token.PERC: // %%
-			p._next() // consume the second %
+			p.step() // consume the second %
 			position := p.Position()
 			perc2 := MakePercPattern(position, nil, nil)
 			if pos+2 == p.pos {
@@ -861,7 +860,7 @@ func (p *parser) percExpr(lhs bool, x Value) Value {
 				case token.COLON,    token.COLON2,
 					token.LPAREN,    token.RPAREN,
 					token.LBRACK,    token.RBRACK,
-					token.LBRACE,    token.RCOLON,
+					token.LBRACE,
 					token.SEMICOLON, token.COMMA,
 					token.SPACE,     token.LINEND:
 				default:
@@ -933,11 +932,11 @@ func (p *parser) regexp(ctx Context) (x Value) {
 	return &RegexpPattern{valbase{p.Position()}} // TODO: correct regexp pattern value
 }
 
-func (p *parser) keyValueExpr(x Value) *Pair {
+func (p *parser) pair(x Value) *Pair {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Pair")) }
 
 	var ctx = p.posit()
-	p._next()
+	p.step()
 
 	var y Value
 	if p.isEndOfList(false) {
@@ -952,7 +951,7 @@ func (p *parser) flagExpr(lhs bool) *Flag {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Flag")) }
 
 	var ctx = p.posit()
-	p._next() // skip dash '-'
+	p.step() // skip dash '-'
 
 	var x Value
 	// Flag expressions, excluding "-)" "-]" "-}" "-\n", "-=", "-:", etc.
@@ -977,13 +976,13 @@ func (p *parser) negExpr(ctx Context, lhs bool) *negative {
 func (p *parser) punctuation() *punctuation {
 	if t_traverse.enabled { defer un(trace(t_traverse, "punctuation")) }
 	var pos, tok = p.Position(), p.tok
-	p._next()
+	p.step()
 	return &punctuation{valbase{pos}, tok}
 }
 
 func (p *parser) literal(lhs bool) (v Value) {
 	var ctx, tok, lit = p.posit(), p.tok, p.lit
-	p._next()
+	p.step()
 
 	// ESCAPE is handled in value.EscapeChar
 	defer checkFailure(ctx) // panics from parse{int,float,hex,...}
@@ -1013,7 +1012,7 @@ func (p *parser) compound(lhs bool) *Compound {
 		lpos = p.pos
 		elems []Value
 	)
-	p._next()
+	p.step()
 
 	defer p.setbits(p.setbit(parsingCompound))
 
@@ -1055,7 +1054,7 @@ func (p *parser) dot(lhs bool, x Value) (res *barecomp) {
 			// var dot = MakeBareword(p.Position(), ".") // TODO: parse to Qualiword instead
 			var dot Value = &punctuation{valbase{p.Position()}, p.tok}
 			comp.Elems = append(comp.Elems, dot)
-			p._next() // '.'
+			p.step() // '.'
 		}
 	}
 
@@ -1094,7 +1093,7 @@ func (p *parser) path(lhs bool, start Value) *Path {
 	)
 	if start == nil {
 		erro(ctx, "bad closure/delegate name").debug(1)
-		p._next()
+		p.step()
 		return MakePath(position) // empty path
 	} else if path, ok = start.(*Path); !ok {
 		path = MakePath(position, start)
@@ -1103,10 +1102,10 @@ func (p *parser) path(lhs bool, start Value) *Path {
 BuildPath:
 	for p.tok == token.PCON {
 		var pos = p.Position() // skips repeated '/' sequence
-		for p._next(); p.tok == token.PCON; p._next() { pos = p.Position() }
+		for p.step(); p.tok == token.PCON; p.step() { pos = p.Position() }
 		switch p.tok {
 		case token.RPAREN, token.LPAREN, token.RBRACE, token.LBRACE,
-			 token.RCOLON, token.COMMA, token.SPACE, token.LINEND:
+			 token.COMMA, token.SPACE, token.LINEND:
 			// Encountered the tailing '/', append 'zero' segment.
 			path.Elems = append(path.Elems, MakePathPun(pos, 0))
 			break BuildPath
@@ -1143,7 +1142,7 @@ func (p *parser) url(ctx Context, lhs bool, scheme Value) (res Value) {
 	)
 
 	if p.tok == token.PCON {
-		p._next() // the first '/'
+		p.step() // the first '/'
 		if p.tok == token.PCON {
 			p.expect(token.PCON) // the second '/'
 		} else {
@@ -1161,7 +1160,7 @@ func (p *parser) url(ctx Context, lhs bool, scheme Value) (res Value) {
 		userOrHost := p.composite(ctx, false)
 		if p.tok == token.COLON {
 			url.Username, colon2 = userOrHost, p.pos
-			p._next() // ':'
+			p.step() // ':'
 			if p.tok != token.AT && p.tok != token.PCON && !p.isEndOfURL(lhs) {
 				url.Password = p.composite(ctx, false)
 			}
@@ -1169,14 +1168,14 @@ func (p *parser) url(ctx Context, lhs bool, scheme Value) (res Value) {
 			url.Host = userOrHost
 		}
 		if p.tok == token.AT {
-			p._next() // '@'
+			p.step() // '@'
 		}
 	}
 	if url.Host == nil && colon2 == token.NoPos && a == token.NoPos && !p.isEndOfURL(lhs) {
 		url.Host = p.composite(ctx, false)
 		if p.tok == token.COLON {
 			//colon3 = p.pos
-			p._next() // ':'
+			p.step() // ':'
 			if p.tok != token.SPACE && p.tok != token.LINEND {
 				url.Port = p.composite(ctx, false)
 			}
@@ -1188,13 +1187,13 @@ func (p *parser) url(ctx Context, lhs bool, scheme Value) (res Value) {
 	// scanning '#' as token.HASH instead of token.COMMENT
 	defer p.scanner.SetBits(p.scanner.CommentsOff())
 	if p.tok == token.QUE {
-		p._next() // '?'
+		p.step() // '?'
 		if p.tok != token.HASH && !p.isEndOfURL(lhs) {
 			url.Query = p.composite(ctx, false)
 		}
 	}
 	if p.tok == token.HASH {
-		p._next() // '#'
+		p.step() // '#'
 		if !p.isEndOfURL(lhs) {
 			url.Fragment = p.composite(ctx, false)
 		}
@@ -1250,8 +1249,6 @@ func (p *parser) closuredelegate() (result Value) {
 				if _, ok := obj.(Executer); !ok {
 					erro(of(ctx,name), "selected object '%v' is not executer: %T %v", name, obj, obj).debug(1)
 				}
-			case token.LCOLON:
-				erro(of(ctx,name), "selected object '%v' does not supported: %T %v", name, obj, obj).debug(1)
 			}
 			return
 		}
@@ -1310,7 +1307,7 @@ func (p *parser) closuredelegate() (result Value) {
 				}
 
 				erro(of(ctx,name), "%v: %T %v -> '%s', is nil", proj, name, name, str)
-				errostack(of(ctx,name), 128, "%v: %v", proj, ctx).debug(128)
+				errostack(of(ctx,name), 32, "%v: %v", proj, ctx).debug(128)
 				if ctx.checkErrors(true)>0 { /* fail(ctx.Position(), "undefined %v", name) */ }
 			} else if obj, okay = resolved.(*selection); okay {
 				return
@@ -1341,12 +1338,6 @@ func (p *parser) closuredelegate() (result Value) {
 			} else if obj, okay = exe.(Object); !okay || isNil(obj) {
 				erro(at(ctx,lPos), "resolved Executer '%v' of '%T' is not Object", name, resolved).debug(1)
 			}
-		case token.LCOLON:
-			// "use", "usee": resolved = proj.use
-			// "self": proj.self
-			// *: ctx.colonResolve(str)
-			erro(ctx, "$:xxx: is obsoleted, use $(xxx) instead").debug(1)
-			return
 		}
 		return
 	}
@@ -1359,10 +1350,10 @@ func (p *parser) closuredelegate() (result Value) {
 		obj Value
 		okay bool
 	)
-	switch p._next(); p.tok {
-	case token.LPAREN, token.LBRACE, token.LCOLON: // $(...), ${...}, $:...:
+	switch p.step(); p.tok {
+	case token.LPAREN, token.LBRACE: // $(...), ${...}
 		var posLp = p.Position()
-		tokLp = p.tok ; p._next() // skips LPAREN, LBRACE, LCOLON
+		tokLp = p.tok ; p.step() // skips LPAREN, LBRACE
 
 		var posName = p.Position()
 
@@ -1371,7 +1362,7 @@ func (p *parser) closuredelegate() (result Value) {
 			erro(at(ctx,posName), "unexpected spaces").debug(1)
 			return MakeNil(posName)
 		case token.COLON:
-			p._next();  posName = p.Position()
+			p.step();  posName = p.Position()
 			warn(at(ctx,posName), "colon").debug(1)
 		}
 
@@ -1408,8 +1399,7 @@ func (p *parser) closuredelegate() (result Value) {
 		}}
 
 		if  (tokLp == token.LPAREN && p.tok != token.RPAREN) ||
-			(tokLp == token.LBRACE && p.tok != token.RBRACE) ||
-			(tokLp == token.LCOLON && p.tok != token.RCOLON) {
+			(tokLp == token.LBRACE && p.tok != token.RBRACE) {
 			var autos []*def
 			var savedAutos = p.autos
 			var savedAutop = p.autop
@@ -1490,8 +1480,6 @@ func (p *parser) closuredelegate() (result Value) {
 		switch tokLp {
 		case token.LPAREN: p.expect(token.RPAREN)
 		case token.LBRACE: p.expect(token.RBRACE)
-		case token.LCOLON: p.expect(token.RCOLON)
-			if p.tok == token.ASSIGN { erro(p, "unexpected assignment").debug(1) }
 		}
 
 	default:
@@ -1531,7 +1519,7 @@ func (p *parser) closuredelegate() (result Value) {
 		// NOTE: Options (flags) in args are deprecated by $(wildcard(-foo) ...)
 		for _, v := range merge(rest[0]) {
 			if p, y := v.(*Pair); y { v = p.Key }
-			if _, y := v.(*Flag); y { warn(of(ctx,v), "%v", v).debug(1) }
+			if _, y := v.(*Flag); y { warn(of(ctx,v), "%v", v).debug(1) } else { break }
 		}
 	}
 
@@ -1551,7 +1539,7 @@ func (p *parser) specialClosureDelegate(ctx Context, lhs bool) Value {
 	var resolved Value
 	var pos, tok, s = p.pos, p.tok, p.lit
 	var position = p.loc(pos)
-	p._next()
+	p.step()
 
 
 	var loader = ctx.loader()
@@ -1607,7 +1595,7 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 
 	switch p.tok {
 	case token.BAREWORD, token.AT:
-		return p.bareExpr(lhs)
+		return p.bare(lhs)
 
 	case token.BIN, token.OCT, token.INT, token.HEX, token.FLOAT,
 		token.DATETIME, token.DATE, token.TIME, token.URI,
@@ -1626,7 +1614,7 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 	case token.COMMA:
 		if p.bits&composingCall == 0 {
 			var tok, pos = p.tok, p.pos
-			p._next()
+			p.step()
 			return &punctuation{valbase{p.loc(pos)}, tok}
 		}
 
@@ -1634,7 +1622,7 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 		var str = p.tok.String()
 		tok, pos, end := p.tok, p.pos, p.pos+token.Pos(len(str))
 		position := p.loc(pos)
-		if p._next(); end != p.pos { // FIXME: ~user
+		if p.step(); end != p.pos { // FIXME: ~user
 			// '~', '.' or '..' used as bareword
 			return &punctuation{valbase{position}, tok}
 		} else if p.tok == token.PCON { // check /
@@ -1678,7 +1666,7 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 		if p.tok.IsClosure() || p.tok.IsDelegate() {
 			return p.specialClosureDelegate(ctx, lhs)
 		} else if p.tok.IsKeyword() { // keywords here are barewords
-			return p.bareExpr(lhs)
+			return p.bare(lhs)
 		}
 	}
 
@@ -1690,7 +1678,7 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 	}
 	erro(p, "bad unary expression '%v' (lit=%s, left=%v, scan=%v)", p.tok, p.lit, lhs, s).debug(32)
 
-	p._next() // go to the next token
+	p.step() // go to the next token
 	return MakeNil(p.Position())
 }
 
@@ -1782,9 +1770,7 @@ func (p *parser) expr(ctx Context, lhs bool) (x Value) {
 SwitchCompose:
 	switch p.tok {
 	case token.ASSIGN: // Example: '*.o = obj'
-		if !lhs && p.bits&composingNoPair == 0 {
-			x = p.keyValueExpr(x)
-		}
+		if !lhs && p.bits&composingNoPair == 0 { x = p.pair(x) }
 		return
 
 	case token.SELECT_PROP, token.SELECT_PROG1, token.SELECT_PROG2:
@@ -1819,7 +1805,7 @@ SwitchCompose:
 		if _, ok := x.(*Group); ok { return } // in case of: [(var)|...]
 
 	case token.COMPOSED, token.COMMA, token.COLON, token.SEMICOLON,
-		token.RPAREN, token.RBRACK, token.RBRACE, token.RCOLON,
+		token.RPAREN, token.RBRACK, token.RBRACE,
 		token.RAW, token.SPACE, token.LINEND, token.EOF:
 		// Compose nothing at this point!
 		return
@@ -2215,9 +2201,9 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ in
 		for _, op := range parseOpts(ctx, &opts, plain, g.all...) {
 			var val Value
 			if v, y := op.(*Pair); y { op, val = v.Key, v.Value }
-			if v, y := op.(*Flag); y {
+			if v, y := op.(*Flag); y && v.name.Strval(ctx) == "ddd" {
 				if false { warn(of(ctx,op), "todo: %v (%v)", v.name, val).debug(1) }
-				p.ddd = val != nil && v.True(ctx)
+				p.ddd = val != nil && val.True(ctx)
 			} else {
 				erro(of(ctx,op), "unsupport flag: %T %v (%v)", v, v, val).debug(1)
 			}
@@ -2287,7 +2273,7 @@ func (p *parser) directiveSpec(ctx Context) (props []Value) {
 ParamsParseLoop: // Parse the directive parameters
 	for p.tok != token.EOF {
 		switch p.spaces(); p.tok {
-		case token.COMMA, token.LINEND, token.RPAREN, token.RBRACE, token.RCOLON,
+		case token.COMMA, token.LINEND, token.RPAREN, token.RBRACE,
 			token.SELECT_PROG1, token.COLON: break ParamsParseLoop
 		}
 
@@ -2335,7 +2321,7 @@ func (p *parser) spec(ctx Context, keyword token.Token, pos token.Pos, f parseSp
 			if p.tok == token.COMMA || p.tok == token.LINEND { p.next(true) }
 		}
 		p.expect(token.RPAREN)
-		if p.spaces(); p.tok != token.EOF { p.expectLinend() }
+		if p.spaces(); p.tok != token.EOF { p.linend() }
 		return
 	}
 
@@ -2344,7 +2330,7 @@ func (p *parser) spec(ctx Context, keyword token.Token, pos token.Pos, f parseSp
 		if p.tok == token.COMMA { p.next(true) }
 	}
 	if p.tok != token.EOF && (p.stop == 0 || p.pos < p.stop) {
-		if p.spaces(); p.lineComment == nil { p.expectLinend() }
+		if p.spaces(); p.lineComment == nil { p.linend() }
 	}
 }
 
@@ -2490,8 +2476,8 @@ SwitchDialect:
 		p.next(true) // skip RECIPE or SEMICOLON and parse in line-string mode
 		position = p.Position()
 		for !p.isEndOfLine() {
-			var bits = p.setbit(parsingRecipeText)
 			var x Value
+			var bits = p.setbit(parsingRecipeText)
 			switch p.tok {
 			default:           x = p.expr(ctx, false)
 			case token.RAW:    x = p.literal(false)
@@ -2504,7 +2490,7 @@ SwitchDialect:
 			elems = append(elems, x)
 		}
 	}
-	if p.spaces(); p.tok != token.EOF { p.expectLinend() }
+	if p.spaces(); p.tok != token.EOF { p.linend() }
     if len(elems) == 0 {
         return MakeNone(position)
     } else if isList {
@@ -2514,7 +2500,7 @@ SwitchDialect:
     }
 }
 
-func (p *parser) modifyVar(ctx Context, args []Value) (err error) {
+func (p *parser) movar(ctx Context, args []Value) (err error) {
 	var loader = ctx.loader()
 	// Parsing (var a=xxx,b=yyy) definitions
 	for _, elem := range args[1:] {
@@ -2629,7 +2615,7 @@ ForModifiersExpr:
 		switch n := group.Elems[0].(type) {
 		case *bareword:
 			if name = n.string; name == "var" {
-				p.modifyVar(ctx, group.Elems)
+				p.movar(ctx, group.Elems)
 				continue ForModifiersExpr
 			} else if name == "configure" {
 				p.defineConfigureTargets(ctx)
@@ -2790,11 +2776,11 @@ func (p *parser) rule(special specialRule, optvals, targets []Value) (result Val
 	p.targets = targets // save targets for later refering
 
 	if p.tok != token.SEMICOLON && p.tok != token.BAR && !p.isEndOfLine() {
-		depends = p.dependList(ctx, true)
+		depends = p.depends(ctx, true)
 	}
 	if p.tok == token.BAR { // '|' starts the ordered prerequisites
 		if p.next(true); p.tok != token.SEMICOLON && !p.isEndOfLine() {
-			ordered = p.dependList(ctx, false)
+			ordered = p.depends(ctx, false)
 		}
 	}
 
@@ -2803,13 +2789,13 @@ func (p *parser) rule(special specialRule, optvals, targets []Value) (result Val
 		recipes = append(recipes, p.recipe(ctx))
 	} else /*if p.tok == token.LINEND || p.lineComment != nil*/ {
 		// Parse recipes in the program scope.
-		var bits = p.scanner.RecipesOn() // Turn on recipes before LINEND.
-		if p.expectLinend() { // Take the new line.
+		p.scanner.Recipes(true) // Turn on recipes before LINEND.
+		if p.linend() { // Take the new line.
 			for p.tok != token.EOF && p.isRecipeStart() {
 				recipes = append(recipes, p.recipe(ctx))
 			}
 		}
-		p.scanner.SetBits(bits)
+		p.scanner.Recipes(false)
 	}
 
 	var params []string
@@ -3123,6 +3109,8 @@ func (p *parser) templateCall(ctx Context, name Value, args []Value) {
 	erro(of(ctx,name), "undefined template: %v", name).debug(1)
 }
 func (p *parser) template(ctx Context) {
+	defer ctx.checkErrors(true)
+
 	var (
 		starting = p.Position()
 		arged *Argumented
@@ -3152,11 +3140,8 @@ func (p *parser) template(ctx Context) {
 		return //true
 	}}
 
-	var params = p.values(ctx, false)
-	// DONT: p.expect(token.LINEND)
-
+	var params = mergex(ctx, plain, p.values(ctx, false)...)
 	// TODO: parse template options - parseOpts
-	params = mergex(ctx, plain, params...)
 
 	var tmpl = &template{ state:p.scanner.GetState(), pos:p.pos, tok:p.tok, lit:p.lit }
 	if verb == "def" {
@@ -3176,45 +3161,40 @@ func (p *parser) template(ctx Context) {
 
 	var nested int
 	for p.tok != token.EOF {
-		var newline = p.tok == token.LINEND || p.lineComment != nil
-		if p.lineComment == nil { p._next() } //else { newline = true }
-		if !newline || p.tok != token.TEMPLATE {
-			// info(ctx, "unexpected %v: %v (verb=%s, nested=%v, newline=%v)",
-			// 	p.tok, p.lit, verb, nested, newline).debug(1)
-			continue
+		if p.tok == token.LINEND || p.lineComment != nil {
+			if p.spaces(); p.tok == token.EOF { return }
 		}
+		if p.tok != token.TEMPLATE { p.step(); continue }
+		if false { info(p, "%v: %v", p.tok, p.scanner.GetState()).debug(1) }
 
 		var pos, stop = p.pos, p.stop
-		if p.next(true); p.tok != token.BAREWORD {
-			erro(ctx, "unexpected %v: %v (nested=%v)",
-				p.tok, p.lit, nested).debug(1)
+		if p.next(true); p.tok != token.BAREWORD && p.tok != token.FOREACH {
+			erro(p, "%v: %v (nested=%v)", p.tok, p.lit, nested).debug(1)
 			return
 		}
 
 		if p.lit == "def" || p.lit == "for" || p.lit == "foreach" {
 			nested += 1
-		} else if p.lit == "expand" && (verb == "for" ||
-			verb == "foreach") { if nested > 0 {
-			nested -= 1
-		} else {
-			p.next(true) // consumes the 'expand'
-			params := p.values(ctx, false)
-			p.expect(token.LINEND)
-			p.stop = pos
-			p.templateExpand(ctx, tmpl, params)
-			p.stop = stop
-			return //true
-		}} else if p.lit == "end" && (verb == "def") { if nested > 0 {
-			nested -= 1
-		} else {
-			p.next(true) // consumes the 'end'
-			p.expect(token.LINEND)
-			state := p.scanner.GetState()
-			tmpl.end, tmpl.endPos = &state, pos
-			return //true
-		}} else if false {
-			erro(ctx, "unexpected template: %v (verb=%s, nested=%v)",
-				p.tok, verb, nested).debug(1)
+		} else if p.lit == "expand" && (verb == "for" || verb == "foreach") {
+			if nested > 0 { nested -= 1 } else {
+				p.next(true) // consumes the 'expand'
+				params := p.values(ctx, false)
+				p.expect(token.LINEND)
+				p.stop = pos
+				p.templateExpand(ctx, tmpl, params)
+				p.stop = stop
+				return //true
+			}
+		} else if p.lit == "end" && (verb == "def") {
+			if nested > 0 { nested -= 1 } else {
+				p.next(true) // consumes the 'end'
+				p.expect(token.LINEND)
+				state := p.scanner.GetState()
+				tmpl.end, tmpl.endPos = &state, pos
+				return //true
+			}
+		} else if false {
+			erro(p, "unexpected template: %v (verb=%s, nested=%v)", p.tok, verb, nested).debug(1)
 			return
 		} else {
 			continue
@@ -3235,6 +3215,7 @@ func (p *parser) clause() {
 		}
 		if ctx.checkErrors(true) > 0 {
 			errostack(ctx, 5, "clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(4)
+			fail(p.Position(), "parser.clause")
 		}
 	} ()
 
@@ -3263,6 +3244,14 @@ func (p *parser) clause() {
 			return
 		case token.TEMPLATE:
 			p.template(ctx)
+			return
+		case token.FOREACH:
+			warn(ctx, "%v %v", p.tok, p.lit).debug(1)
+			p.next(true)
+			return
+		case token.DONE:
+			warn(ctx, "%v %v", p.tok, p.lit).debug(1)
+			p.next(true)
 			return
 		default:
 			x = p.expr(ctx, true)
@@ -3468,14 +3457,14 @@ func (p *parser) file(ctx Context) *parsedFile {
 			ident = MakeBarecomp(p.Position())
 		ForProjectName:
 			for p.tok != token.EOF && p.tok != token.SPACE {
-				if w := p.bareExpr(false); w == nil {
+				if w := p.bare(false); w == nil {
 					erro(at(ctx,ident.Position()), "expecting a bareword").debug(1)
 				} else if word, ok := w.(*bareword); !ok {
 					erro(at(ctx,ident.Position()), "expecting a bareword: %v (%T)", w, w).debug(1)
 				} else if ident.Combine(ctx, word); p.tok == token.DOT {
 					ident.Combine(ctx, &punctuation{valbase{p.Position()}, p.tok}) // TODO: parse to Qualiword
 					implicitBaseSegs = append(implicitBaseSegs, word.string)
-					p._next() // '.'
+					p.step() // '.'
 				} else { break ForProjectName }
 			}
 			if p.spaces(); len(ident.Elems) == 0 {
@@ -3568,7 +3557,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 			return nil
 		}
 
-		if p.spaces(); p.tok != token.EOF { p.expectLinend() }
+		if p.spaces(); p.tok != token.EOF { p.linend() }
 		if keyword != token.PACKAGE {
 			loader.configuration(ctx, linfo, ident, identStr, declared)
 			if !opts.noDock { loader.loadProjectContainer(ctx, ident, identStr) }
@@ -3604,6 +3593,12 @@ func (p *parser) file(ctx Context) *parsedFile {
 					p.spec(ctx, tok, p.expect(tok), p.eval)
 				case token.TEMPLATE:
 					p.template(ctx)
+				case token.FOREACH:
+					warn(ctx, "%v %v", p.tok, p.lit).debug(1)
+					p.next(true)
+				case token.DONE:
+					warn(ctx, "%v %v", p.tok, p.lit).debug(1)
+					p.next(true)
 				default:
 					if p.tok.IsKeyword() { break ForInit }
 					var x = p.expr(ctx, true); p.spaces()

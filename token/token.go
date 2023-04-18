@@ -21,8 +21,7 @@ const (
 	HASH     // # (same char as COMMENT, but different meaning)
 
 	literal_beg
-	// Identifiers and basic type literals
-	// (these tokens stand for classes of literals)
+	// Identifiers and basic type literals (these tokens stand for classes of literals)
 	BAREWORD // abc
 	BIN      // 0b010101, 0B0111001
 	OCT      // 0600, 0567
@@ -49,7 +48,6 @@ const (
 	LBRACE    // {    left curly
 	LBRACK    // [
 	LPAREN    // (
-	LCOLON    // :
 	COMMA     // ,
 	DOT       // .    period
 	DOTDOT    // ..
@@ -63,7 +61,7 @@ const (
 	RBRACK    // ]
 	RBRACE    // }    right curly
 	RANGLE    // >
-	RCOLON    // :
+
 	SEMICOLON // ;
 
 	EXC       // !    exclamation
@@ -105,6 +103,7 @@ const (
 	CLOSURE_9    // &9
 	CLOSURE__    // &_
 	closure_end
+
 	delegate_beg
 	DELEGATE      // $
 	DELEGATE_r    // $/
@@ -165,6 +164,8 @@ const (
 	INSTANCE   // instance
 	FILES      // files
 	TEMPLATE   // template
+	FOREACH    // foreach
+	DONE       // done
 
 	constant_beg
 	UNDEF   // `undef`
@@ -218,7 +219,6 @@ var tokens = [...]string{
 	LBRACE: "{",
 	LBRACK: "[",
 	LPAREN: "(",
-	LCOLON: ":", // the left colon like in $:foo:
 	COMMA:  ",",
 	DOT:    ".",
 	DOTDOT: "..",
@@ -231,7 +231,7 @@ var tokens = [...]string{
 	RBRACK:    "]",
 	RBRACE:    "}",
 	RANGLE:    ">",
-	RCOLON:    ":", // the right-paired colon like in $:foo:
+
 	SEMICOLON: ";",
 
 	EXC:       "!",
@@ -321,6 +321,8 @@ var tokens = [...]string{
 	INSTANCE:   "instance",
 	FILES:      "files",
 	TEMPLATE:   "template",
+	FOREACH:    "foreach",
+	DONE:       "done",
 
 	UNDEF:  "undef",
 	NONE:   "none",
@@ -379,6 +381,7 @@ func (tok Token) IsSelectProg() bool { return SELECT_PROG1 == tok || tok == SELE
 func (tok Token) IsSelectProp() bool { return SELECT_PROP == tok }
 func (tok Token) IsListDelim() bool {
 	return tok.IsRuleDelim() ||
-		tok == RPAREN || tok == RBRACK || tok == RBRACE || tok == RCOLON ||
-		tok == SEMICOLON || tok == COMMA || tok == LINEND || tok == EOF
+		tok == RPAREN || tok == RBRACK || tok == RBRACE ||
+		tok == SEMICOLON || tok == COMMA || tok == LINEND ||
+		tok == EOF
 }

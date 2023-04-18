@@ -102,7 +102,7 @@ var builtins = map[string]BuiltinFunc {
         `ifne`:         BuiltinFunc{builtin.IfNE, builtinCallable, 0, expandZero, expandZero},
 
         `foreach`:      BuiltinFunc{builtin.foreach, builtinCallable, 1, expandPlaceholders, expandUnPlaceholders},
-        `count`:        BuiltinFunc{builtin.Count, builtinCallable, 0, expandZero, expandZero},
+        `count`:        BuiltinFunc{builtin.count, builtinCallable, 0, expandZero, expandZero},
 
         `call`:         BuiltinFunc{nil, builtinCallable, 0, expandZero, expandZero},
         `auto`:         BuiltinFunc{nil, builtinCallable, 0, expandZero, expandZero},
@@ -173,7 +173,7 @@ var builtins = map[string]BuiltinFunc {
 
         // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
         `subst`:        BuiltinFunc{builtin.Subst, builtinCallable, 0, expandZero, expandZero},
-        `patsubst`:     BuiltinFunc{builtin.Patsubst, builtinCallable, 0, expandZero, expandZero},
+        `patsubst`:     BuiltinFunc{builtin.patsubst, builtinCallable, 0, expandZero, expandZero},
 
         `contains`:     BuiltinFunc{builtin.contains, builtinCallable, 0, expandZero, expandZero},
         `filter`:       BuiltinFunc{builtin.Filter, builtinCallable, 0, expandZero, expandZero},
@@ -238,8 +238,8 @@ var builtins = map[string]BuiltinFunc {
         `wildcard`:   BuiltinFunc{builtin.wildcard, builtinCallable, 0, expandZero, expandZero},
 
         // TODO: move these into builtin package 'io/ioutil'
-        `read-dir`:   BuiltinFunc{builtin.ReadDir, builtinCallable, 0, expandZero, expandZero},   // io/ioutil/ioutil.go
-        `read-file`:  BuiltinFunc{builtin.ReadFile, builtinCallable, 0, expandZero, expandZero},  // io/ioutil/ioutil.go
+        `read-dir`:   BuiltinFunc{builtin.readdir, builtinCallable, 0, expandZero, expandZero},   // io/ioutil/ioutil.go
+        `read-file`:  BuiltinFunc{builtin.readfile, builtinCallable, 0, expandZero, expandZero},  // io/ioutil/ioutil.go
 
         `grep`:       BuiltinFunc{builtin.grep, builtinCallable, 1, expandDigits, expandUnDigits},
 
@@ -1312,7 +1312,7 @@ type builtinCountOpts struct {
         generalOpts
         vals []Value `v,val,value`
 }
-func (ctx builtin) Count(args... Value) (res Value) {
+func (ctx builtin) count(args... Value) (res Value) {
         var (
                 opts builtinCountOpts
                 num int64
@@ -2419,7 +2419,7 @@ type builtinPatsubstOpts struct {
         useeFiles bool `u,used,using;uf,used-files,search-usees`
         noFileMap bool `nm,nomap,no-map,nofiles,no-files,no-filemap`
 }
-func (ctx builtin) Patsubst(args... Value) (res Value) {
+func (ctx builtin) patsubst(args... Value) (res Value) {
         var (
                 opts builtinPatsubstOpts
                 srcPats, dstPats, sources []Value
@@ -4216,7 +4216,7 @@ func (ctx builtin) wildcard(args... Value) (res Value) {
 type builtinReadDirOpts struct {
         generalOpts
 }
-func (ctx builtin) ReadDir(args... Value) (res Value) {
+func (ctx builtin) readdir(args... Value) (res Value) {
         var l []Value
         for _, a := range args {
                 if fis, err := ioutil.ReadDir(a.Strval(ctx)); err == nil {
@@ -4241,7 +4241,7 @@ type builtinReadFileOpts struct {
         trimLeft  bool `tl,trim-left`
         trimRight bool `tr,trim-right`
 }
-func (ctx builtin) ReadFile(args... Value) (res Value) {
+func (ctx builtin) readfile(args... Value) (res Value) {
         var (
                 closured = closureProjects(ctx)
                 pos = ctx.Position()

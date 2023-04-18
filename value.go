@@ -114,6 +114,8 @@ type Comment struct {
     Text  string // comment text (excluding '\n')
 }
 
+func (c *Comment) String() string { return "{"+c.Text+"}" }
+
 // A CommentGroup represents a sequence of comments
 // with no other tokens and no empty lines between.
 type CommentGroup struct {
@@ -5799,7 +5801,7 @@ func (p *delegate) Float(ctx Context) (f float64, e error) {
 }
 func (p *delegate) isValidToken() (res bool) {
     switch p.l {
-    case token.LCOLON, token.LPAREN, token.LBRACE, token.STRING, token.COMPOUND, token.ILLEGAL:
+    case token.LPAREN, token.LBRACE, token.STRING, token.COMPOUND, token.ILLEGAL:
         res = true
     default:
         // for $. $/ $1 ... &. &/ &1 ... etc.
@@ -5879,7 +5881,6 @@ func (p *delegate) string(ctx Context, o Object, k elemkind) (s string) { // sou
     }
 
     switch p.l {
-    case token.LCOLON: s = fmt.Sprintf(":%s%s:", name, s)
     case token.LPAREN: s = fmt.Sprintf("(%s%s)", name, s)
     case token.LBRACE:
         if k&elemNoBrace == 0 {
