@@ -518,6 +518,10 @@ type matchedFileMap struct {
     name string
 }
 
+func (m matchedFileMap) String() string {
+    return fmt.Sprintf("{%v, %v, %v}", m.name, m.pattern, m.project)
+}
+
 func (uc *universe) unmap(ctx Context, name interface{}) (maps []matchedFileMap) {
     var cache *filemapCache
     var db bool

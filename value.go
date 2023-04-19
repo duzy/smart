@@ -1437,6 +1437,19 @@ const (
 type as struct { Value }
 
 func (a as) file(ctx Context, projects ...*Project) (f *File) {
+    defer func() { if f == nil {
+        var s = a.Strval(ctx)
+        if v, t := a.Value, file(ctx, s); t != nil {
+            var ( p = ctx.Project() ; ctx = of(ctx, v) )
+            for i, m := range files(ctx, t, projects...) {
+                erro(ctx, "FIXME: %v: %d. %v", p, i, m)
+            }
+            erro(ctx, "FIXME: %v: %v (%T, %v)", p, v, v, projects)
+            erro(ctx, "FIXME: %v: %v (%s)", p, t, t.fullname())
+            errostack(ctx, 5, "").debug(32)
+        }
+    } } ()
+
     switch t := a.Value.(type) {
     case *File     : f = t
     case *barefile : f = t.File
@@ -1449,7 +1462,7 @@ func (a as) file(ctx Context, projects ...*Project) (f *File) {
     case *bareword, *barecomp, *Path:
         if len(projects) == 0 { projects = closureProjects(ctx) }
         var m = files(ctx, t, projects...)
-        if m == nil { files(ctx, t.Strval(ctx), projects...) } // FIXME: peel value t does not work perfectly
+        if m == nil { m = files(ctx, t.Strval(ctx), projects...) } // FIXME: peel value t does not work perfectly
         if m != nil {
             for _, p := range projects {
                 if f = p.selectFile(ctx, m); f != nil { break }
@@ -1460,32 +1473,41 @@ func (a as) file(ctx Context, projects ...*Project) (f *File) {
 }
 
 func (a as) fullname(ctx Context, projects ...*Project) (f *File, s string, ok bool) {
-        if f = a.file(ctx, projects...); f == nil {
-                // no fullname
-        } else if s = f.fullname(); filepath.IsAbs(s) {
-                ok = true
-        } else {
-                // s = ""
-        }
-        return
+    if f = a.file(ctx, projects...); f == nil {
+        // no fullname
+    } else if s = f.fullname(); filepath.IsAbs(s) {
+        ok = true
+    } else {
+        // s = ""
+    }
+    return
 }
 
 // deprecated
 func (a as) fullnameOrStrval(ctx Context, projects ...*Project) (s string, f bool) {
-        if _, s, f = a.fullname(ctx, projects...); !f { s = a.Strval(ctx) }
-        return
+    if _, s, f = a.fullname(ctx, projects...); !f { s = a.Strval(ctx) }
+    return
 }
 
 // see optFullname and parseOpt
-func (a as) fullnameOpt(ctx Context, projects ...*Project) (file *File, s string, ok bool) {
-        if file, s, ok = a.fullname(ctx, projects...); ok {
-                return
-        } else if s = a.Strval(ctx); s == "" {
-                // ...
-        } else if filepath.IsAbs(s) {
-                file, ok = stat(ctx, s, "", ""), true
+func (a as) fullnameOpt(ctx Context, projects ...*Project) (f *File, s string, ok bool) {
+    defer func() { if !ok && s != "" {
+        if v, t := a.Value, file(ctx, s); t != nil {
+            var ( p = ctx.Project() ; ctx = of(ctx, v) )
+            erro(ctx, "FIXME: %v: %v (%T, %v)", p, v, v, f)
+            erro(ctx, "FIXME: %v: %v (%s)", p, t, t.fullname())
+            errostack(ctx, 5, "").debug(32)
         }
+    } } ()
+
+    if f, s, ok = a.fullname(ctx, projects...); ok {
         return
+    } else if s = a.Strval(ctx); s == "" {
+        // ...
+    } else if filepath.IsAbs(s) {
+        f, ok = stat(ctx, s, "", ""), true
+    }
+    return
 }
 
 func (a as) fullnameOpt2(ctx Context, projects ...*Project) (file *File, s string, ok bool) {

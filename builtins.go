@@ -207,7 +207,7 @@ var builtins = map[string]BuiltinFunc {
         `base8`:      BuiltinFunc{builtin.base8, builtinCallable, 0, expandZero, expandZero},
         `base9`:      BuiltinFunc{builtin.base9, builtinCallable, 0, expandZero, expandZero},
 
-        `dir-chop`:   BuiltinFunc{builtin.dirChop, builtinCallable, 0, expandZero, expandZero},
+        `dir-chop`:   BuiltinFunc{builtin.dirchop, builtinCallable, 0, expandZero, expandZero},
         `dir`:        BuiltinFunc{builtin.dir, builtinCallable, 0, expandZero, expandZero},
         `dir2`:       BuiltinFunc{builtin.dir2, builtinCallable, 0, expandZero, expandZero},
         `dir3`:       BuiltinFunc{builtin.dir3, builtinCallable, 0, expandZero, expandZero},
@@ -230,7 +230,7 @@ var builtins = map[string]BuiltinFunc {
         `undir9`:     BuiltinFunc{builtin.undir9, builtinCallable, 0, expandZero, expandZero},
         `undirs`:     BuiltinFunc{builtin.undirs, builtinCallable, 0, expandZero, expandZero}, // do `undir` n times
 
-        `relative-dir`: BuiltinFunc{builtin.RelativeDir, builtinCallable, 0, expandZero, expandZero},
+        `relative-dir`: BuiltinFunc{builtin.relativedir, builtinCallable, 0, expandZero, expandZero},
 
         `file`:       BuiltinFunc{builtin.file, builtinCallable, 0, expandZero, expandZero},
         `stat`:       BuiltinFunc{builtin.stat, builtinCallable, 0, expandZero, expandZero},// stat (deprecates file-exists)
@@ -264,15 +264,15 @@ var commands = map[string]BuiltinFunc {
         // `pop`:          BuiltinFunc{builtin.Pop, builtinCommand, 0, expandZero, expandZero},
 
         // TODO: move these into builtin package `os'
-        `write-file`:   BuiltinFunc{builtin.WriteFile, builtinCommand, 0, expandZero, expandZero}, // io/ioutil/ioutil.go
-        `touch-file`:   BuiltinFunc{builtin.TouchFile, builtinCommand, 0, expandZero, expandZero},
-        `mkdir`:        BuiltinFunc{builtin.Mkdir, builtinCommand, 0, expandZero, expandZero},     // os/file.go
-        `mkdir-all`:    BuiltinFunc{builtin.MkdirAll, builtinCommand, 0, expandZero, expandZero},  // os/path.go
-        `chdir`:        BuiltinFunc{builtin.Chdir, builtinCommand, 0, expandZero, expandZero},     // os/file.go
-        `rename`:       BuiltinFunc{builtin.Rename, builtinCommand, 0, expandZero, expandZero},    // os/file.go
+        `write-file`:   BuiltinFunc{builtin.writefile, builtinCommand, 0, expandZero, expandZero}, // io/ioutil/ioutil.go
+        `touch-file`:   BuiltinFunc{builtin.touchfile, builtinCommand, 0, expandZero, expandZero},
+        `mkdir`:        BuiltinFunc{builtin.mkdir, builtinCommand, 0, expandZero, expandZero},     // os/file.go
+        `mkdir-all`:    BuiltinFunc{builtin.mkdirall, builtinCommand, 0, expandZero, expandZero},  // os/path.go
+        `chdir`:        BuiltinFunc{builtin.chdir, builtinCommand, 0, expandZero, expandZero},     // os/file.go
+        `rename`:       BuiltinFunc{builtin.rename, builtinCommand, 0, expandZero, expandZero},    // os/file.go
         `remove`:       BuiltinFunc{builtin.remove, builtinCommand, 0, expandZero, expandZero},    // os/file_*.go
         `remove-all`:   BuiltinFunc{builtin.removeall, builtinCommand, 0, expandZero, expandZero}, // os/path.go
-        `truncate`:     BuiltinFunc{builtin.Truncate, builtinCommand, 0, expandZero, expandZero},  // os/file_*.go
+        `truncate`:     BuiltinFunc{builtin.truncate, builtinCommand, 0, expandZero, expandZero},  // os/file_*.go
         `link`:         BuiltinFunc{builtin.link, builtinCommand, 0, expandZero, expandZero},      // os/file_*.go
         `symlink`:      BuiltinFunc{builtin.symlink, builtinCommand, 0, expandZero, expandZero},   // os/file_*.go
 
@@ -852,7 +852,7 @@ func (ctx builtin) assert(args... Value) (res Value) {
                         }
                 }
         }
-        if ctx.checkErrors(true) > 0 {}
+        if ctx.checkErrors(true) > 0 { fail(ctx.Position(), "assert failed") }
         return
 }
 
@@ -3323,7 +3323,7 @@ func (ctx builtin) undirs(args... Value) (res Value) {
         return ctx.undirx(n, args...)
 }
 
-func (ctx builtin) dirChop(args... Value) (res Value) {
+func (ctx builtin) dirchop(args... Value) (res Value) {
         var (
                 l []Value
                 n = 0
@@ -3358,7 +3358,7 @@ func (ctx builtin) dirChop(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) RelativeDir(args... Value) (res Value) {
+func (ctx builtin) relativedir(args... Value) (res Value) {
         var (
                 err error
                 l []Value
@@ -3378,7 +3378,7 @@ func (ctx builtin) RelativeDir(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) Mkdir(args... Value) (res Value) {
+func (ctx builtin) mkdir(args... Value) (res Value) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -3420,7 +3420,7 @@ func (ctx builtin) Mkdir(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) MkdirAll(args... Value) (res Value) {
+func (ctx builtin) mkdirall(args... Value) (res Value) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -3461,7 +3461,7 @@ func (ctx builtin) MkdirAll(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) Chdir(args... Value) (res Value) {
+func (ctx builtin) chdir(args... Value) (res Value) {
         if len(args) == 1 {
                 var str = args[0].Strval(ctx)
                 if err := lockCD(str, 0); err != nil {
@@ -3476,7 +3476,7 @@ func (ctx builtin) Chdir(args... Value) (res Value) {
 type builtinRenameOpts struct {
         generalOpts
 }
-func (ctx builtin) Rename(args... Value) (res Value) {
+func (ctx builtin) rename(args... Value) (res Value) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -3643,7 +3643,7 @@ func (ctx builtin) removeall(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) Truncate(args... Value) (res Value) {
+func (ctx builtin) truncate(args... Value) (res Value) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -4279,7 +4279,7 @@ type builtinWriteFileOpts struct {
         generalOpts
         path bool `p,path`
 }
-func (ctx builtin) WriteFile(args... Value) (res Value) {
+func (ctx builtin) writefile(args... Value) (res Value) {
         // $(write-file filename,content)
         // $(write-file -p filename,content)
         var opts builtinWriteFileOpts
@@ -4393,7 +4393,7 @@ type builtinTouchFileOpts struct {
         mode os.FileMode `m,mode;fm,filemode;fm,file-mode`
         path bool `p,path`
 }
-func (ctx builtin) TouchFile(args... Value) (res Value) {
+func (ctx builtin) touchfile(args... Value) (res Value) {
         // $(touch-file filename)
         // $(touch-file -p filename)
         var opts = builtinTouchFileOpts{ mode: os.FileMode(0600) }

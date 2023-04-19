@@ -542,7 +542,7 @@ func (p *Project) selectFile(ctx Context, maps []matchedFileMap) (file *File) {
 }
 
 func (p *Project) file(ctx Context, iname interface{}) (file *File) {
-  if file = p.selectFile(ctx, files(ctx, iname, p)); file == nil && false {
+  if file = p.selectFile(ctx, files(ctx, iname, p)); false && file == nil {
     var s, d string // TODO: s = iname
     if s != "" {
       if !filepath.IsAbs(s) { d = p.absPath }
