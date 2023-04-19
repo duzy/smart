@@ -3042,7 +3042,7 @@ func (ctx builtin) Findstring(args... Value) (res Value) {
 // $(contains a b -or=(c1 c2 c3), v1 v2 …)     -- xx
 type builtinContainsOpts struct {
         generalOpts
-        match bool `m,mat,match,p,pat,pattern`
+        match  bool `m,mat,match,p,pat,pattern`
         string bool `s,str,string`
 }
 func (ctx builtin) contains(args... Value) (res Value) {
@@ -3071,7 +3071,8 @@ func (ctx builtin) contains(args... Value) (res Value) {
                 s string
         )
         // NOTE: returns true if list contains all vals in it's presented order.
-        ForVals: for _, val := range vals {
+ForVals:
+        for i, val := range vals {
                 if opts.string { s = val.Strval(ctx) }
                 for _, elem := range list {
                         if opts.string {
@@ -3085,12 +3086,12 @@ func (ctx builtin) contains(args... Value) (res Value) {
                         } else if elem.cmp(ctx, val) == cmpEqual {
                                 y += 1; continue ForVals
                         }
-                        if false && opts.debug>0 && !opts.string && !isNil(elem) &&
+                        if true && opts.debug>0 && !opts.string && !isNil(elem) &&
                                 val.Strval(ctx) == elem.Strval(ctx) {
                                 warn(of(ctx,val), "wrong: %T %v <-> %T %v", val, val, elem, elem)
                         }
                 }
-                if opts.debug>0 { warn(of(ctx,val), "found 0: %T %v", val, val) }
+                if opts.debug>0 { warn(of(ctx,val), "%d. %T %v", i, val, val) }
         }
 
         var b = (y == len(vals))

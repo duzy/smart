@@ -21,46 +21,47 @@ import (
 	"os"
 )
 
-type parsingBits uint64
+type parseBits uint64
 type specialRule int
 
 const (
-	composing parsingBits = 1<<iota
-	composingCall
-	composingDOT
-	composingDOTDOT
-	composingDepend0
-	composingGLOB
-	composingModifier
-	composingPATH
-	composingPERC
-	composingREXP
-	composingSELECT_PROP
-	composingURL
+	parseGroup parseBits = 1<<iota // 0000000000000000000001
+	parseArged        // 0000000000000000000010
+	parseCall         // 0000000000000000000100
+	parseDOT          // 0000000000000000001000
+	parseDOTDOT       // 0000000000000000010000
+	parseDepend0      // 0000000000000000100000
+	parseGLOB         // 0000000000000001000000
+	parseModifier     // 0000000000000010000000
+	parsePATH         // 0000000000000100000000
+	parsePERC         // 0000000000001000000000
+	parseREXP         // 0000000000010000000000
+	parseSELECT_PROP  // 0000000000100000000000
+	parseURL          // 0000000001000000000000
 
-	parsingCompound
-	parsingDefineClause
+	parseCompound      // 0000000010000000000000
+	parseDefineClause  // 0000000100000000000000
 
-	parsingFilesSpec // files ( ... )
-	parsingTemplateBlock
-	parsingUndefValue
+	parseFilesSpec     // 0000001000000000000000  files ( ... )
+	parseTemplateBlock // 0000010000000000000000
+	parseUndefValue    // 0000100000000000000000
 
-	parsingSpecialRule // e.g. :use ...:
-	//parsingColonName // e.g. $:use:
+	parseSpecialRule   // 0001000000000000000000  e.g. :use ...:
+	// parseColonName  // 0010000000000000000000  e.g. $:use:
 
-	parsingRecipeBuiltin // recipe builtin command
-	parsingRecipeText
-	parsingRecipe = parsingRecipeBuiltin | parsingRecipeText
+	parseRecipeBuiltin // 0010000000000000000000  recipe builtin command
+	parseRecipeText    // 0100000000000000000000
+	parseRecipe = parseRecipeBuiltin | parseRecipeText
 
-	// The composingNo* bits control the composing priority!
-	composingNoArg    = composingSELECT_PROP | composingDOT | composingDOTDOT | composingPATH | composingPERC
-	composingNoPair   = composingSELECT_PROP | composingDOT | composingPATH | composingPERC
-	composingNoURL    = composingSELECT_PROP | composingDOT | composingPATH | composingURL | composingGLOB | composingPERC | composingREXP /*| parsingColonName*/ | parsingSpecialRule
-	composingNoPath   = composingSELECT_PROP | composingDOT | composingPATH | composingURL | composingGLOB | composingPERC | composingREXP
-	composingNoSelect = composingSELECT_PROP | composingDOT
-	composingNoGlob   = composingGLOB | composingPERC | composingREXP
-	composingNoPerc   = composingGLOB | composingPERC | composingREXP
-	composingNoRexp   = composingGLOB | composingPERC | composingREXP
+	// The parseNo* bits control the parsing priority!
+	parseNoArg    = parseSELECT_PROP | parseDOT | parseDOTDOT | parsePATH | parsePERC
+	parseNoPair   = parseSELECT_PROP | parseDOT | parsePATH | parsePERC
+	parseNoURL    = parseSELECT_PROP | parseDOT | parsePATH | parseURL | parseGLOB | parsePERC | parseREXP /*| parseColonName*/ | parseSpecialRule
+	parseNoPath   = parseSELECT_PROP | parseDOT | parsePATH | parseURL | parseGLOB | parsePERC | parseREXP
+	parseNoSelect = parseSELECT_PROP | parseDOT
+	parseNoGlob   = parseGLOB | parsePERC | parseREXP
+	parseNoPerc   = parseGLOB | parsePERC | parseREXP
+	parseNoRexp   = parseGLOB | parsePERC | parseREXP
 )
 
 const (
@@ -143,7 +144,7 @@ type parser struct {
 	exprLev int  // < 0: in control clause, >= 0: in expression
 	inRhs   bool // if set, the parser is parsing a rhs expression
 
-	bits parsingBits
+	bits parseBits
     isIncludingConf bool // including configuration
 
 	// Ordinary identifier scopes
@@ -164,13 +165,13 @@ type parser struct {
 func (p *parser) parser() *parser { return p }
 func (p *parser) inner() Context { return p.Context }
 
-func (p *parser) setbits(bits parsingBits) { p.bits = bits }
-func (p *parser) setbit(bit parsingBits) (bits parsingBits) {
+func (p *parser) setbits(bits parseBits) { p.bits = bits }
+func (p *parser) setbit(bit parseBits) (bits parseBits) {
 	bits = p.bits
 	p.bits |= bit
 	return
 }
-func (p *parser) clearbit(bit parsingBits) (bits parsingBits) {
+func (p *parser) clearbit(bit parseBits) (bits parseBits) {
 	bits = p.bits
 	p.bits &= ^bit
 	return
@@ -310,11 +311,11 @@ func (p *parser) next(ws bool) { if p.step(); ws { p.spaces() } }
 
 func (p *parser) spaces() {
 	for p.lineComment == nil && p.tok != token.EOF {
-		if p.tok == token.SPACE || (p.tok == token.RECIPE && p.bits&parsingRecipeBuiltin != 0) {
+		if p.tok == token.SPACE || (p.tok == token.RECIPE && p.bits&parseRecipeBuiltin != 0) {
 			p.step()
 		} else if p.tok == token.ESCAPE && p.lit == "\n" {
 			if p.step(); p.tok == token.LINEND || p.lineComment != nil { break }
-			if p.bits&parsingRecipeBuiltin != 0 {
+			if p.bits&parseRecipeBuiltin != 0 {
 				TokFor: for p.tok != token.EOF {
 					switch p.tok {
 					case token.RECIPE: // TODO: using p.isRecipeStart()
@@ -535,7 +536,7 @@ func (p *parser) bare(lhs bool) (x Value) {
 }
 
 func (p *parser) selector(ctx Context) (res Value) {
-	defer p.setbits(p.setbit(composingSELECT_PROP))
+	defer p.setbits(p.setbit(parseSELECT_PROP))
 	res = p.expr(ctx, false)
 	return
 }
@@ -623,7 +624,7 @@ func (p *parser) isEndOfList(lhs bool) bool {
 	if p.lineComment != nil || p.tok.IsListDelim() || (lhs && p.tok.IsAssign()) {
 		return true
 	}
-	if (p.bits&parsingRecipe != 0) && p.tok == token.RECIPE { // TODO: using p.isRecipeStart()
+	if (p.bits&parseRecipe != 0) && p.tok == token.RECIPE { // TODO: using p.isRecipeStart()
 		return true
 	}
 	return false
@@ -652,9 +653,9 @@ func (p *parser) depends(ctx Context, normal bool) (list []Value) {
 			p.next(true) // just ignore this colon
 		} else if p.spaces(); !p.isEndOfLine() {
 			if len(list) == 0 {
-				p.bits |= composingDepend0
+				p.bits |= parseDepend0
 			} else {
-				p.bits &= ^composingDepend0
+				p.bits &= ^parseDepend0
 			}
 
 			var val = p.expr(ctx, false)
@@ -726,13 +727,15 @@ func (p *parser) right(ctx Context) []Value {
 func (p *parser) group(lhs bool) *Group {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Group")) }
 
-	defer p.setbits(p.clearbit(composingCall))
+	defer p.setbits(p.setbit(parseGroup))
+	p.clearbit(parseCall)
 
 	var ctx = p.posit()
 	p.next(true)
 
 	var elems, converted = p.values(ctx, false), false
 	for p.tok != token.RPAREN && p.tok != token.EOF {
+		// if p.tok == token.COMMA { warn(ctx, "%020b: %v %v", p.bits, p.tok, p.lit).debug(1) }
 		// if p.tok == token.COMMA { p.next(true) }
 		switch p.tok {
 		case token.BAR, token.COMMA, token.SEMICOLON:
@@ -754,6 +757,9 @@ func (p *parser) group(lhs bool) *Group {
 
 func (p *parser) argumentedExpr(x Value) *Argumented {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Argumented")) }
+
+	defer p.setbits(p.setbit(parseGroup))
+	p.clearbit(parseCall)
 
 	var ctx = p.posit()
 	p.next(true) // skip token.LPAREN
@@ -804,7 +810,7 @@ func (p *parser) globExpr(x Value) Value {
 	if !isNil(x) { components = []Value{ x } }
 
 	// avoid nesting glob expressions
-	defer p.setbits(p.setbit(composingGLOB))
+	defer p.setbits(p.setbit(parseGLOB))
 ForGlobTok:
 	for {
 		if p.lineComment != nil { break ForGlobTok }
@@ -832,7 +838,7 @@ func (p *parser) percExpr(lhs bool, x Value) Value {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Perc")) }
 
 	// avoid nesting percent expressions
-	defer p.setbits(p.setbit(composingPERC))
+	defer p.setbits(p.setbit(parsePERC))
 
 	var (
 		pos = p.pos
@@ -883,7 +889,7 @@ func (p *parser) percExpr(lhs bool, x Value) Value {
 
 func (p *parser) regexp(ctx Context) (x Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Regexp")) }
-	defer p.setbits(p.setbit(composingREXP)) // avoid nesting percent expressions
+	defer p.setbits(p.setbit(parseREXP)) // avoid nesting percent expressions
 
 	var rx string
 	ForRX: for p.expect(token.LBRACE); p.tok != token.EOF; p.scan() {
@@ -1014,7 +1020,7 @@ func (p *parser) compound(lhs bool) *Compound {
 	)
 	p.step()
 
-	defer p.setbits(p.setbit(parsingCompound))
+	defer p.setbits(p.setbit(parseCompound))
 
 	for p.tok != token.EOF && p.tok != token.COMPOSED && p.tok != token.LINEND {
 		if p.tok == token.RAW {
@@ -1038,7 +1044,7 @@ func (p *parser) compound(lhs bool) *Compound {
 func (p *parser) dot(lhs bool, x Value) (res *barecomp) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Dot")) }
 
-	defer p.setbits(p.setbit(composingDOT))
+	defer p.setbits(p.setbit(parseDOT))
 
 	var comp *barecomp
 	if x == nil { panic(fmt.Sprintf("nil dot (tok=%v)", p.tok)) }
@@ -1083,7 +1089,7 @@ func makePathPun(ctx Context, tok token.Token) *PathPun {
 func (p *parser) path(lhs bool, start Value) *Path {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Path")) }
 
-	defer p.setbits(p.setbit(composingPATH))
+	defer p.setbits(p.setbit(parsePATH))
 
 	var (
 		position = start.Position() //p.Position()
@@ -1131,7 +1137,7 @@ func isKnownURLScheme(s string) (result bool) {
 func (p *parser) url(ctx Context, lhs bool, scheme Value) (res Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "URL")) }
 
-	defer p.setbits(p.setbit(composingURL))
+	defer p.setbits(p.setbit(parseURL))
 
 	var (
 		url = &URL{ Scheme:scheme }
@@ -1204,7 +1210,7 @@ func (p *parser) url(ctx Context, lhs bool, scheme Value) (res Value) {
 func (p *parser) closuredelegate() (result Value) {
 	if t_traverse.enabled {	defer un(trace(t_traverse, "ClosureDelegate")) }
 
-	defer p.setbits(p.setbit(composingCall))
+	defer p.setbits(p.setbit(parseCall))
 
 	var (
 		ctx = p.posit()
@@ -1301,7 +1307,7 @@ func (p *parser) closuredelegate() (result Value) {
 					refdef(ctx, name, defany) {
 					obj, okay = unresolved{name, proj}, true // recursive delegation or closure
 					return
-				} else if p.bits&parsingUndefValue != 0 {
+				} else if p.bits&parseUndefValue != 0 {
 					obj, okay = unresolved{undef{name}, proj}, true
 					return
 				}
@@ -1447,21 +1453,21 @@ func (p *parser) closuredelegate() (result Value) {
 			if autos != nil { p.autos = append(autos, p.autos...) }
 			if savedBits := p.bits; nameStr == "case" {
 				rest = append(rest, p.list(ctx, false))
-				p.bits |= parsingUndefValue
+				p.bits |= parseUndefValue
 				for ; p.tok == token.COMMA; {
 					p.next(true) // consumes COMMA
 					rest = append(rest, p.list(ctx, false))
 				}
 				p.bits = savedBits
 			} else if nameStr == "and" {
-				p.bits |= parsingUndefValue
+				p.bits |= parseUndefValue
 				for rest = append(rest, p.list(ctx, false)); p.tok == token.COMMA; {
 					p.next(true) // consumes COMMA
 					rest = append(rest, p.list(ctx, false))
 				}
 				p.bits = savedBits
 			} else if nameStr == "or" {
-				p.bits |= parsingUndefValue
+				p.bits |= parseUndefValue
 				for rest = append(rest, p.list(ctx, false)); p.tok == token.COMMA; {
 					p.next(true) // consumes COMMA
 					rest = append(rest, p.list(ctx, false))
@@ -1543,7 +1549,7 @@ func (p *parser) specialClosureDelegate(ctx Context, lhs bool) Value {
 
 
 	var loader = ctx.loader()
-	if c := s[0]; /*p.bits&parsingDefineClause != 0*/true &&
+	if c := s[0]; /*p.bits&parseDefineClause != 0*/true &&
 		len(s) == 1 && (('0' <= c && c <= '9') /*|| c == '_'*/) {
 		var scope = loader.Scope()
 		for _, a := range p.autos {
@@ -1563,7 +1569,7 @@ func (p *parser) specialClosureDelegate(ctx Context, lhs bool) Value {
 		for _, a := range p.autos {
 			if a.name == s { obj = a ; goto DashNxt }
 		}
-		if obj == nil && p.bits&parsingTemplateBlock != 0 {
+		if obj == nil && p.bits&parseTemplateBlock != 0 {
 			if _, resolved = loader.resolveObject(w); resolved != nil {
 				obj, _ = resolved.(Object)
 			}
@@ -1612,7 +1618,7 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 		return p.group(lhs)
 
 	case token.COMMA:
-		if p.bits&composingCall == 0 {
+		if p.bits&parseCall == 0 {
 			var tok, pos = p.tok, p.pos
 			p.step()
 			return &punctuation{valbase{p.loc(pos)}, tok}
@@ -1629,7 +1635,7 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 			return p.path(lhs, makePathPun(at(ctx, position), tok))
 		} else if tok == token.DOT || tok == token.DOTDOT { // TODO: parse to Qualiword instead
 			x = &punctuation{valbase{position}, tok}
-			if p.bits&composingDOT == 0 { x = p.dot(lhs, x) }
+			if p.bits&parseDOT == 0 { x = p.dot(lhs, x) }
 			return
 		} else if tok == token.TILDE { // TODO: ~user
 			return makePathPun(at(ctx, position), tok)
@@ -1683,7 +1689,7 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 }
 
 func (p *parser) isParametersGroup(x Value) (res bool) {
-	if p.bits&composingDepend0 != 0 {
+	if p.bits&parseDepend0 != 0 {
 		if g, y := x.(*Group); y && len(g.Elems) == 1 {
 			_, res = g.Elems[0].(*Group)
 		}
@@ -1696,14 +1702,13 @@ func (p *parser) composite(ctx Context, lhs bool) (x Value) {
 
 	switch x = p.unary(ctx, lhs); p.tok { // check composible expressions
 	case token.SELECT_PROP, token.SELECT_PROG1, token.SELECT_PROG2: // foo->bar  foo=>bar  foo~>bar
-		if p.bits&composingNoSelect == 0 {
+		if p.bits&parseNoSelect == 0 {
 			// accepts 'foo=>bar', but 'foo => bar' is different
 			x = p.selectExpr(x); break
 		}
-
 	case token.LBRACK: // xxx[(foo ...)]
 		if p.isParametersGroup(x) { break }
-		if p.bits&composingModifier == 0 {
+		if p.bits&parseModifier == 0 {
 			// FIXME: compose lhs x
 			if m := p.modifiers(ctx); false {
 				erro(of(ctx,m), "composing modifiers is ignored (unimplemented yet)")
@@ -1712,21 +1717,21 @@ func (p *parser) composite(ctx Context, lhs bool) (x Value) {
 			}
 		}
 	case token.STAR, token.QUE/*, token.LBRACK*/: // foo*bar foo?bar foo[a-z]bar
-		if p.bits&composingNoGlob == 0 {
+		if p.bits&parseNoGlob == 0 {
 			x = p.globExpr(x)
 		}
 	case token.PERC: // foo%bar
 		// FIXME: %/foo/bar -> Path(% foo bar)
-		if p.bits&composingNoPerc == 0 {
+		if p.bits&parseNoPerc == 0 {
 			x = p.percExpr(lhs, x)
 		}
 	case token.DOT: // foo.bar.baz.o
 		// FIXME: push bits when parsing $(...)
-		if p.bits&composingDOT == 0 { // TODO: parse to Qualiword
+		if p.bits&parseDOT == 0 { // TODO: parse to Qualiword
 			x = p.dot(lhs, x)
 		}
 	case token.PCON: // ie. subdir/in/somewhere
-		if p.bits&composingNoPath == 0 {
+		if p.bits&parseNoPath == 0 {
 			// Path expressions, except '-I/path/to/include'
 			switch x.(type) {
 			case *Flag: // By pass expressions like -I/foo/bar.
@@ -1734,7 +1739,7 @@ func (p *parser) composite(ctx Context, lhs bool) (x Value) {
 			}
 		}
 	case token.COLON:
-		if (p.bits&parsingRecipe != 0 || !lhs) && p.bits&composingNoURL == 0 {
+		if (p.bits&parseRecipe != 0 || !lhs) && p.bits&parseNoURL == 0 {
 			if isKnownURLScheme(x.Strval(at(ctx, p.Position()))) {
 				x = p.url(ctx, lhs, x)
 			}
@@ -1770,18 +1775,18 @@ func (p *parser) expr(ctx Context, lhs bool) (x Value) {
 SwitchCompose:
 	switch p.tok {
 	case token.ASSIGN: // Example: '*.o = obj'
-		if !lhs && p.bits&composingNoPair == 0 { x = p.pair(x) }
+		if !lhs && p.bits&parseNoPair == 0 { x = p.pair(x) }
 		return
 
 	case token.SELECT_PROP, token.SELECT_PROG1, token.SELECT_PROG2:
-		if p.bits&composingNoSelect == 0 {
+		if p.bits&parseNoSelect == 0 {
 			x = p.selectExpr(x)
 			goto SwitchCompose // For example: foobar⇒run(-gen)
 		}
 		return
 
 	case token.LPAREN:
-		if p.bits&composingNoArg == 0 {
+		if p.bits&parseNoArg == 0 {
 			if false {
 				if _, ok := x.(*Argumented); ok { erro(ctx, "nested argumentation") }
 			}
@@ -1792,7 +1797,7 @@ SwitchCompose:
 		return
 
 	case token.PCON:
-		if p.bits&composingNoPath == 0 {
+		if p.bits&parseNoPath == 0 {
 			// Path expressions, except '-I/path/to/include'
 			switch x.(type) {
 			case *Flag: // By pass expressions like -I/foo/bar.
@@ -1804,11 +1809,18 @@ SwitchCompose:
 	case token.BAR:
 		if _, ok := x.(*Group); ok { return } // in case of: [(var)|...]
 
-	case token.COMPOSED, token.COMMA, token.COLON, token.SEMICOLON,
-		token.RPAREN, token.RBRACK, token.RBRACE,
-		token.RAW, token.SPACE, token.LINEND, token.EOF:
-		// Compose nothing at this point!
-		return
+	case token.COMMA:
+		if p.bits&(parseArged|parseCall|parseGroup) != 0 { return }
+		if p.bits&parseDefineClause == 0 {
+			warn(p, "%016b: %T %v ; %v %v", p.bits, x, x, p.tok, p.lit).debug(1)
+			return
+		}
+
+	case
+		token.COMPOSED, token.COLON, token.SEMICOLON, token.RAW,
+		token.RPAREN, token.RBRACK, token.RBRACE, token.SPACE,
+		token.LINEND, token.EOF:
+		return // No composition!
 	}
 
 	var y = p.composite(ctx, lhs)
@@ -1817,8 +1829,9 @@ SwitchCompose:
 		case *Flag: // okay: -Ifoo/bar, -Lfoo/bar
 		case *Path: // okay: combine two paths
 		case *String, *Compound, *delegate, *closure, *punctuation:
+		case *barecomp:
 		default:
-			warn(of(ctx,y), "barecomp path: %T %v, %v (next=%v)", x, x, y, p.tok).debug(1)
+			warn(of(ctx,y), "barecomp path: %T %v ; %v (next=%v)", x, x, y, p.tok).debug(1)
 		}
 	}
 
@@ -2026,7 +2039,7 @@ func (p *parser) include(ctx Context, doc *CommentGroup, g *genericClauseOpts, _
 }
 
 func (p *parser) files(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
-	defer p.setbits(p.setbit(parsingFilesSpec))
+	defer p.setbits(p.setbit(parseFilesSpec))
 	if len(g.spec) != 1 {
 		erro(ctx, "too many files properties: %v", g.spec).debug(1)
 		return
@@ -2357,7 +2370,7 @@ func (p *parser) define(ctx Context, tok token.Token, ident Value) (def *def) {
 		elems []Value
 		value Value
 	)
-	p.bits |= parsingDefineClause
+	p.bits |= parseDefineClause
 	elems = p.right(ctx)
 	p.autos = savedAutos
 	p.bits = savedBits
@@ -2403,7 +2416,7 @@ SwitchDialect:
 		p.next(true) // skip RECIPE or SEMICOLON and parse in list mode
 		position = p.Position()
 		if isList = true; !p.isEndOfLine() {
-			defer p.setbit(p.setbit(parsingRecipeBuiltin))
+			defer p.setbit(p.setbit(parseRecipeBuiltin))
 
 			var (
 				isValue = p.dialect == "value"
@@ -2477,7 +2490,7 @@ SwitchDialect:
 		position = p.Position()
 		for !p.isEndOfLine() {
 			var x Value
-			var bits = p.setbit(parsingRecipeText)
+			var bits = p.setbit(parseRecipeText)
 			switch p.tok {
 			default:           x = p.expr(ctx, false)
 			case token.RAW:    x = p.literal(false)
@@ -2586,8 +2599,8 @@ func (p *parser) modifiers(ctx Context) *modifiergroup {
 		elems []*modifier
 	)
 
-	defer func(a parsingBits) { p.bits = a }(p.bits)
-	p.bits |= composingModifier
+	defer func(a parseBits) { p.bits = a }(p.bits)
+	p.bits |= parseModifier
 
 ForModifiersExpr:
 	for p.tok != token.RBRACK && p.tok != token.EOF {
@@ -2871,7 +2884,7 @@ func (p *parser) specialRule() Value {
 		} else {
 			var options []Value
 			var pos = p.expect(token.BAREWORD) // USE
-			var bits = p.setbit(parsingSpecialRule)
+			var bits = p.setbit(parseSpecialRule)
 			var ctx = p.posit()
 			// Options are *Flag or *Pair of a Flag.
 			for p.tok == token.MINUS {
@@ -2950,7 +2963,7 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, 
 	// ctx = &cc
 
 	var savedBits = p.bits
-	p.bits |= parsingTemplateBlock
+	p.bits |= parseTemplateBlock
 	for p.tok != token.EOF && p.pos < p.stop {
 		if p.tok == token.LINEND || (p.tok == token.COMMENT && p.lineComment != nil) {
 			p.next(true)
@@ -3524,6 +3537,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 		var basePos Position
 		if implicitBase != "" { basePos = pos } else { basePos = p.Position() }
 		if p.tok == token.LPAREN {
+			var bits = p.setbit(parseGroup)
 			for p.tok != token.EOF {
 				for p.next(true); !p.isEndOfList(false); {
 					p.spaces()
@@ -3534,7 +3548,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 					//if p.tok == token.LINEND { break }
 					if p.tok == token.EOF {
 						erro(at(ctx,basePos), "unexpected end of file while parsing bases").debug(1)
-						return nil
+						p.setbits(bits) ; return nil
 					}
 
 					var (
@@ -3545,11 +3559,12 @@ func (p *parser) file(ctx Context) *parsedFile {
 						// No bases for PACKAGE or final project
 					} else if !loader.bases(ctx, linfo, "", merge(t...)...) {
 						erro(of(ctx,param), "loading base '%v' failed", t).debug(1)
-						return nil
+						p.setbits(bits) ; return nil
 					}
 				}
 				if p.tok != token.COMMA { break }
 			}
+			p.setbits(bits)
 			p.expect(token.RPAREN)
 			if false { defer func() { warn(ctx, "%v", ident).debug(32) } () }
 		} else if !loader.bases(ctx, linfo, implicitBase) { // for special bases, e.g. .base
