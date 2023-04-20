@@ -193,11 +193,11 @@ var (
         `configure-file`:  modifier.ConfigureFile,
         `configure`:       modifier.Configure,
 
-        `wait`:         modifier.Wait,
-        `stamp`:        modifier.Stamp,
+        `wait`:         modifier.wait,
+        `stamp`:        modifier.stamp,
 
         `check`:        modifier.Check,
-        `assert`:       modifier.Assert,
+        `assert`:       modifier.assert,
         `case`:         modifier.Case,
         `cond`:         modifier.Cond,
         `if`:           modifier.Cond,
@@ -2713,7 +2713,7 @@ type modifierWaitOpts struct {
     noTarget bool `nt,no-target`
     asType string "a,as"
 }
-func (ctx modifier) Wait(args... Value) (result Value, traves travestates) {
+func (ctx modifier) wait(args... Value) (result Value, traves travestates) {
     var (
         opts modifierWaitOpts
         execRes *ExecResult
@@ -2801,7 +2801,7 @@ type modifierStampOpts struct {
     next   bool "n,nxt,next"  // traveNext if failed to stamp
     error  bool "e,err,error" // traveErro if failed to stamp
 }
-func (ctx modifier) Stamp(args... Value) (result Value, traves travestates) {
+func (ctx modifier) stamp(args... Value) (result Value, traves travestates) {
     var opts modifierStampOpts
     args = parseOpts(ctx, &opts, plain, args...)
 
@@ -2860,9 +2860,40 @@ func (ctx modifier) Stamp(args... Value) (result Value, traves travestates) {
     return
 }
 
+func (ctx modifier) assert(args... Value) (result Value, traves travestates) {
+    var fails int
+    var target = autoGet(ctx, "@")
+    for _, a := range args {
+        var ctx = of(ctx, a)
+
+        var f *Flag
+        if p, y := a.(*Pair); y {
+            f, y = p.Key.(*Flag)
+        } else {
+            f, y = a.(*Flag)
+        }
+        if f != nil { switch f.name.Strval(ctx) {
+        case "a", "and", "m", "msg", "message":
+            warn(ctx, "obsoleted flag: %T %a", a, a).debug(1)
+        }}
+
+        if a.True(ctx) { continue }
+
+        erro(ctx, "assert failed: %v", a)
+
+        traves.add(ctx, traveFail, target).
+            error = fmt.Errorf("assert failed: %v", a)
+
+        fails += 1
+    }
+    if fails > 0 { errostack(ctx, 8, "").debug(6) }
+    if ctx.checkErrors(true) > 0 { fail(ctx.Position(), "assertion") }
+    return
+}
+
 type predictOpts struct {
-    and      bool "a,and"
     message  string "m,message;m,msg"
+    and      bool "a,and"
     verbose  bool "v,verbose"
     verbose0 bool
 }
@@ -2965,33 +2996,6 @@ ForArgs:
                 break
             }
         }}
-    }
-    return
-}
-
-// (assert condition,'error message...')
-func (ctx modifier) Assert(args... Value) (result Value, traves travestates) {
-    var (
-        res bool
-        msg string
-        err error
-    )
-    if res, msg, err = ctx.predict(args...); err != nil {
-        erro(ctx, "prediction %v failed: %v", args, err).debug(6)
-    } else if !res {
-        var target Value = autoGet(ctx, "@")
-        if msg == "" {
-            for _, a := range args { erro(of(ctx,a), "assertion failed: %v", a) }
-            errostack(ctx, 8, "(%T):", ctx).debug(6)
-        } else {
-            var vals = mergex(ctx, plain, args...)
-            erro(ctx, "assertion failed: %v (target = %s)", msg, target)
-            erro(ctx, "assertion args: %v", args)
-            erro(ctx, "assertion args: %v (mergexd)", vals)
-            erro(ctx, "assertion context: %v", ctx).debug(6)
-        }
-        s := traves.add(ctx, traveFail, target)
-        s.error = fmt.Errorf("assertion failure: %v", args)
     }
     return
 }
