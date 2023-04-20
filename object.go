@@ -7,7 +7,6 @@
 package smart
 
 import (
-        "extbit.io/smart/token"
         "os/exec"
         "strings"
         "strconv"
@@ -962,7 +961,7 @@ func (p *def) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 }
 
 type undetermined struct {
-        tok token.Token
+        tok Token
         identifier Value
         value Value
 }

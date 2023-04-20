@@ -9,7 +9,6 @@
 package smart
 
 import (
-    "extbit.io/smart/token"
     "path/filepath"
     "runtime/pprof"
     "runtime"
@@ -365,7 +364,7 @@ type universe struct {
     globe   *Globe
 
     paths   searchlist
-    fset    *token.FileSet
+    fset    *FileSet
 
     statmutex sync.Mutex
     filecache map[string]*filebase // File.fullname() -> File
@@ -445,7 +444,7 @@ func init() {
         return
     } else { ctx.workdir = s }
     ctx.Context = ctx // self context for diagnostic
-    ctx.fset = token.NewFileSet()
+    ctx.fset = NewFileSet()
     ctx.filecache = make(map[string]*filebase)
 
     var (
@@ -493,7 +492,7 @@ func init() {
     ctx.globe.mode,  _ = ctx.globe.define(ctx, DefVoid, ".mode",  MakeNil(pos))
 }
 
-func (uc *universe) file(filename string, src []byte) *token.File {
+func (uc *universe) file(filename string, src []byte) *TokFile {
     return uc.fset.AddFile(filename, -1, len(src))
 }
 

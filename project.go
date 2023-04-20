@@ -7,7 +7,6 @@
 package smart
 
 import (
-  "extbit.io/smart/token"
   "path/filepath"
   "strings"
   "plugin"
@@ -289,7 +288,7 @@ var cd = &struct{
 
 type Project struct {
   position Position
-  keyword  token.Token // project, package, module
+  keyword  Token // project, package, module
 
   configure *Project // .configure
   configured bool

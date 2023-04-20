@@ -3,10 +3,11 @@
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
-package token
+package smart
 
 import (
 	golang "go/token"
+	"strconv"
 	// "fmt"
 )
 
@@ -33,6 +34,20 @@ func (p *Position) Same(o *Position) bool {
 			p.Column == o.Column && p.Offset == o.Offset)
 }
 
+func makePosition(filename string, line, column int) (pos Position) {
+        pos.Filename = filename
+        pos.Line     = line
+        pos.Column   = column
+        return
+}
+
+func convPosition(filename, line, column string) (pos Position) {
+        pos.Filename  = filename
+        pos.Line, _   = strconv.Atoi(line)
+        pos.Column, _ = strconv.Atoi(column)
+        return
+}
+
 const NoPos Pos = Pos(golang.NoPos)
 
 type Pos golang.Pos
@@ -41,31 +56,31 @@ func (p Pos) IsValid() bool {
 	return golang.Pos(p).IsValid()
 }
 
-type File struct {
+type TokFile struct {
 	*golang.File
 }
 
-func (f *File) String() string {
+func (f *TokFile) String() string {
 	return f.Name() //fmt.Sprintf("{%s}", f.Name())
 }
 
-func (f *File) Offset(p Pos) int {
+func (f *TokFile) Offset(p Pos) int {
 	return f.File.Offset(golang.Pos(p))
 }
 
-func (f *File) Line(p Pos) int {
+func (f *TokFile) Line(p Pos) int {
 	return f.File.Line(golang.Pos(p))
 }
 
-func (f *File) Pos(offset int) Pos {
+func (f *TokFile) Pos(offset int) Pos {
 	return Pos(f.File.Pos(offset))
 }
 
-func (f *File) PositionFor(p Pos, adjusted bool) (pos Position) {
+func (f *TokFile) PositionFor(p Pos, adjusted bool) (pos Position) {
 	return Position{ f.File.PositionFor(golang.Pos(p), adjusted) }
 }
 
-func (f *File) Position(p Pos) (pos Position) {
+func (f *TokFile) Position(p Pos) (pos Position) {
 	return Position{ f.File.Position(golang.Pos(p)) }
 }
 
@@ -78,12 +93,12 @@ func NewFileSet() *FileSet {
 	return &FileSet{ golang.NewFileSet() }
 }
 
-func (s *FileSet) AddFile(filename string, base, size int) *File {
-	return &File{ s.FileSet.AddFile(filename, base, size) }
+func (s *FileSet) AddFile(filename string, base, size int) *TokFile {
+	return &TokFile{ s.FileSet.AddFile(filename, base, size) }
 }
 
-func (s *FileSet) Iterate(f func(*File) bool) {
+func (s *FileSet) Iterate(f func(*TokFile) bool) {
 	s.FileSet.Iterate(func(file *golang.File) bool {
-		return f(&File{ file })
+		return f(&TokFile{ file })
 	})
 }

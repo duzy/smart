@@ -7,7 +7,6 @@
 package smart
 
 import (
-    "extbit.io/smart/token"
     "path/filepath"
     "io/ioutil"
     "strings"
@@ -40,14 +39,14 @@ type libraryinfo struct {
 
 var configuration = &struct{
     paths searchlist
-    fset *token.FileSet
+    fset *FileSet
     libraries map[string]*libraryinfo
     packages map[string]*packageinfo
     done map[*def]bool
     entries []Entry // order list
     clean []string
 }{
-    fset: token.NewFileSet(),
+    fset: NewFileSet(),
     libraries: make(map[string]*libraryinfo),
     packages: make(map[string]*packageinfo),
     done: make(map[*def]bool),

@@ -6,7 +6,6 @@
 package smart
 
 import (
-    "extbit.io/smart/token"
     "bytes"
     "io/ioutil"
     "io"
@@ -703,7 +702,7 @@ func iterateArgumentedIdentifiers(ctx Context, identifier Value, f func(ident Va
     }
 }
 
-func (l *loader) define(ctx Context, tok token.Token, identifier, value Value) (defs []*def) {
+func (l *loader) define(ctx Context, tok Token, identifier, value Value) (defs []*def) {
     iterateArgumentedIdentifiers(ctx, identifier, func(ident Value, stems []Value) {
         var def = l.define1(ctx, tok, ident, value)
         defs = append(defs, def)
@@ -711,7 +710,7 @@ func (l *loader) define(ctx Context, tok token.Token, identifier, value Value) (
     return
 }
 
-func (l *loader) define1(ctx Context, tok token.Token, identifier, value Value) (res *def) {
+func (l *loader) define1(ctx Context, tok Token, identifier, value Value) (res *def) {
     var alt Object
     switch t := identifier.(type) {
     case *selection:
@@ -746,7 +745,7 @@ func (l *loader) define1(ctx Context, tok token.Token, identifier, value Value) 
             if res == nil {
                 erro(ctx, "`%s` is undefined, via %v (%)", name, t, t).debug(1)
                 return
-            } else if tok == token.ADD_ASSIGN && prev == nil {
+            } else if tok == ADD_ASSIGN && prev == nil {
                 if false {
                     erro(ctx, "`%s` must be defined first to append", name).debug(1)
                     return
@@ -754,7 +753,7 @@ func (l *loader) define1(ctx Context, tok token.Token, identifier, value Value) 
                 // if prev != nil { if d, y := prev.(*def); y { res.origin = d.origin } }
                 // if res.origin == DefVoid { res.origin = DefDefault }
             }
-        } else if tok == token.ASSIGN || tok == token.EXC_ASSIGN {
+        } else if tok == ASSIGN || tok == EXC_ASSIGN {
             if ad, okay := alt.(*def); !okay {
                 erro(ctx, "`%v` already defined (%T) (%v,%v)", identifier, alt, alt.OwnerProject(), l.project).debug(1)
                 return
@@ -778,7 +777,7 @@ func (l *loader) define1(ctx Context, tok token.Token, identifier, value Value) 
             erro(ctx, "prev def '%s' is nil", name).debug(1)
         } else if derived == res || (res.value != nil && res.value.refs(ctx, derived)) {
             // same def
-        } else if tok == token.ADD_ASSIGN && alt == nil {
+        } else if tok == ADD_ASSIGN && alt == nil {
             // NOTE: We must set the origin from Void to derived origin! If not, the
             //       Def.Call method will fail to initiate a real 'call' with arguments
             //       set correctly, (see (*def).Call for details).
@@ -1091,7 +1090,7 @@ func (l *loader) bases(ctx Context, linfo *loadinfo, implicitBase string, params
                 identifier = MakeBarecomp(position, MakeBareword(position, "project"), p.Key)
             }
 
-            var defs = l.define(at(ctx, position), token.ASSIGN, identifier, p.Value)
+            var defs = l.define(at(ctx, position), ASSIGN, identifier, p.Value)
             if len(defs) == 0 {/* TODO: check defs... */}
             continue ParamsLoop
         }
@@ -1305,7 +1304,7 @@ func (l *loader) loadDotConfigure(ctx Context, ident *barecomp, identStr string,
     return
 }
 
-func (l *loader) declare(ctx Context, keyword token.Token, ident *barecomp, identStr string, declOpts *projectDeclOpts) (result bool) {
+func (l *loader) declare(ctx Context, keyword Token, ident *barecomp, identStr string, declOpts *projectDeclOpts) (result bool) {
     if identStr == "@" {
         var (
             linfo = uni.globe.loads[0]
@@ -1675,19 +1674,19 @@ func (l *loader) def(position Position, name string) (def *def, alt Object) {
     return
 }
 
-func (l *loader) assign(ctx Context, tok token.Token, def *def, alt Object, value Value) {
+func (l *loader) assign(ctx Context, tok Token, def *def, alt Object, value Value) {
     switch tok {
-    case token.ASSIGN:     //   =
+    case ASSIGN:     //   =
         def.set(ctx, DefDefault, value)
-    case token.SCO_ASSIGN: //  :=
+    case SCO_ASSIGN: //  :=
         def.set(ctx, DefExpand1, value)
-    case token.DCO_ASSIGN: // ::=
+    case DCO_ASSIGN: // ::=
         def.set(ctx, DefExpand2, value)
-    case token.EXC_ASSIGN: //  !=
+    case EXC_ASSIGN: //  !=
         def.set(ctx, DefExecute, value)
-    case token.QUE_ASSIGN: //  ?=
+    case QUE_ASSIGN: //  ?=
         if isNil(alt) { def.set(ctx, DefDefault, value) }
-    case token.ADD_ASSIGN: //  +=
+    case ADD_ASSIGN: //  +=
         if isTrivial(value) {
             // NOOP
         } else if def.value != nil && def.value.refs(ctx, value) {
@@ -1696,7 +1695,7 @@ func (l *loader) assign(ctx Context, tok token.Token, def *def, alt Object, valu
         } else {
             def.append(ctx, value)
         }
-    case token.SHI_ASSIGN: //  =+
+    case SHI_ASSIGN: //  =+
         if isTrivial(value) {
             // NOOP
         } else if def.value != nil && def.value.refs(ctx, value) {
@@ -1708,7 +1707,7 @@ func (l *loader) assign(ctx Context, tok token.Token, def *def, alt Object, valu
             def.append(ctx, merge(tail)...)
             warn(ctx, "%v; %v; %v", value, tail, def).debug(1)
         }
-    case token.SUB_ASSIGN: // -=
+    case SUB_ASSIGN: // -=
         if isTrivial(def.value) {
             // NOOP
         } else {
@@ -1725,7 +1724,7 @@ func (l *loader) assign(ctx Context, tok token.Token, def *def, alt Object, valu
             }
             def.value = MakeList(def.position, vals...)
         }
-    case token.SAD_ASSIGN, token.SSH_ASSIGN: // -+=, -=+
+    case SAD_ASSIGN, SSH_ASSIGN: // -+=, -=+
         var (
             vals []Value
             newVals = merge(value)
@@ -1741,7 +1740,7 @@ func (l *loader) assign(ctx Context, tok token.Token, def *def, alt Object, valu
                 vals = append(vals, val)
             }
         }
-        if token.SAD_ASSIGN == tok {
+        if SAD_ASSIGN == tok {
             vals = append(vals, newVals...) // -+=
         } else {
             vals = append(newVals, vals...) // -=+
@@ -1837,12 +1836,12 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
 
     var file = uni.file(filename, text)
     l.p.scanner.Init(file, text, scanMode,
-        func(p token.Position, s string) {
+        func(p Position, s string) {
             var pos = Position(p)
             errostack(at(ctx,pos), 3, "%s, scan=%v", s, l.p.scanner.GetState()).debug(128)
             fail(pos, "syntax error")
         },
-        func(p token.Position, s string) {
+        func(p Position, s string) {
             // warnstack(at(ctx,Position(p)), 3, "%s, scan=%v", s, l.p.scanner.GetState()).debug(1)
             warn(at(ctx,Position(p)), "%s, scan=%v", s, l.p.scanner.GetState()).debug(6)
         })

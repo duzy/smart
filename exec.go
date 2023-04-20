@@ -9,7 +9,6 @@ package smart
 import (
   "bufio"
   "bytes"
-  "extbit.io/smart/scanner"
   "fmt"
   "io"
   "io/fs"
@@ -1146,8 +1145,8 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       if caller == nil {
         if st += " …… "; err == nil {
           st += "ok"
-        } else if _, ok := err.(*scanner.Error); ok {
-          st += "scan error" // fmt.Fprintf(stderr, "%v\n", err)
+        // } else if _, ok := err.(*scanner.Error); ok {
+        //   st += "scan error" // fmt.Fprintf(stderr, "%v\n", err)
         } else {
           st += err.Error()
         }

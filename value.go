@@ -7,7 +7,6 @@
 package smart
 
 import (
-    "extbit.io/smart/token"
     "crypto/sha256"
     "path/filepath"
     "runtime/debug" // debug.PrintStack()
@@ -2791,7 +2790,7 @@ func isTrueString(s string) (t bool) {
     return
 }
 
-type punctuation struct { valbase; tok token.Token }
+type punctuation struct { valbase; tok Token }
 func (p *punctuation) String() string { return p.tok.String() }
 func (p *punctuation) Strval(ctx Context) string { return p.tok.String() }
 func (p *punctuation) True(ctx Context) bool { return false }
@@ -3207,7 +3206,7 @@ func (p *barecomp) obsolete_hit2(ctx Context, cache hitch, bits int) (res *filem
     for i, elem := range elems {
         if p.String() == ".configure" { info(ctx, "%08b: %v[%d] %T %v ; %s", bits, elems, i, elem, elem, part).debug(6) }
         if v, y := elem.(*punctuation); y {
-            if v.tok == token.DOT { hit(i, nil) } else {
+            if v.tok == DOT { hit(i, nil) } else {
                 errostack(ctx, 3, "%08b: %v[%d]: unsupported punctuation: %v", bits, elems, i, v.tok).debug(64)
             }
         } else if elem.patterned(ctx) {
@@ -3240,7 +3239,7 @@ func (p *barecomp) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
             info(ctx, "%08b: %v: %v[%d], %T %v ; %v %s", bits, cache.value, elems, i, elem, elem, a, part).debug(6)
         }
         if v, y := elem.(*punctuation); y {
-            if v.tok == token.DOT { a = append(a, part) ; part = "" } else {
+            if v.tok == DOT { a = append(a, part) ; part = "" } else {
                 errostack(ctx, 3, "%08b: %v[%d]: unsupported punctuation: %v", bits, elems, i, v.tok).debug(64)
             }
         } else if elem.patterned(ctx) {
@@ -3844,7 +3843,7 @@ func globMatchFile(ctx Context, patVal Value, filename string, tailMatch bool) (
     return
 }
 
-type GlobMeta struct { valbase ; token.Token }
+type GlobMeta struct { valbase ; Token }
 func (p *GlobMeta) String() string { return p.Token.String() }
 func (p *GlobMeta) Strval(ctx Context) string { return p.Token.String() }
 func (p *GlobMeta) expand(_ Context, _ facet) Value { return p }
@@ -5753,7 +5752,7 @@ func (u untraversed) expand(ctx Context, w facet) Value {
 // Delegate wraps '$(foo a,b,c)' into Valuer
 type delegate struct {
     valbase
-    l token.Token
+    l Token
     x Value
     o []Value // []*Flag
     a []Value
@@ -5823,7 +5822,7 @@ func (p *delegate) Float(ctx Context) (f float64, e error) {
 }
 func (p *delegate) isValidToken() (res bool) {
     switch p.l {
-    case token.LPAREN, token.LBRACE, token.STRING, token.COMPOUND, token.ILLEGAL:
+    case LPAREN, LBRACE, STRING, COMPOUND, ILLEGAL:
         res = true
     default:
         // for $. $/ $1 ... &. &/ &1 ... etc.
@@ -5903,16 +5902,16 @@ func (p *delegate) string(ctx Context, o Object, k elemkind) (s string) { // sou
     }
 
     switch p.l {
-    case token.LPAREN: s = fmt.Sprintf("(%s%s)", name, s)
-    case token.LBRACE:
+    case LPAREN: s = fmt.Sprintf("(%s%s)", name, s)
+    case LBRACE:
         if k&elemNoBrace == 0 {
             s = fmt.Sprintf("{%s%s}", name, s)
         } else {
             s = fmt.Sprintf("(%s%s)", name, s)
         }
-    case token.STRING, token.COMPOUND:
+    case STRING, COMPOUND:
         s = fmt.Sprintf("%s%s", name, s)
-    case token.ILLEGAL: // $@, &@, $<, &<, etc.
+    case ILLEGAL: // $@, &@, $<, &<, etc.
         if len(name) == 1 && len(s) == 0 {
             s = fmt.Sprintf("%s", name)
         } else {
@@ -6623,13 +6622,13 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
     }
 
     switch p.l {
-    case token.STRING, token.COMPOUND:
+    case STRING, COMPOUND:
         // &'xxx' and &"xxx" are fetching entry in the closure context
         res = closureResolveEntry(ctx, str)
         return
-    case token.LBRACE:
+    case LBRACE:
         if t := closureResolveEntry(ctx, str); t != nil { x = t }
-    default: // token.LPAREN, token.ILLEGAL
+    default: // LPAREN, ILLEGAL
         if t := closureResolveObject(ctx, str); t != nil { x = t }
     }
 
@@ -6706,7 +6705,7 @@ func (p *closure) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 
 type selection struct {
     valbase
-    t token.Token
+    t Token
     o Value // Object or selection
     s Value
 }
@@ -7521,7 +7520,7 @@ func EscapeChar(s string) string {
 
 func MakeNil(pos Position) *Nil { return &Nil{valbase{pos}} }
 func MakeNone(pos Position) *None { return &None{valbase{pos}, nil} }
-func MakeSelection(pos Position, tok token.Token, lhs, rhs Value) *selection { return &selection{valbase{pos}, tok, lhs, rhs} }
+func MakeSelection(pos Position, tok Token, lhs, rhs Value) *selection { return &selection{valbase{pos}, tok, lhs, rhs} }
 func MakeAnswer(pos Position, v bool) (res *answer) {
     if v {
         res = &answer{valbase{pos},true}
@@ -7579,7 +7578,7 @@ func MakeList(pos Position, elems... Value) *List {
     return &List{pos,elements{elems}}
 }
 func MakeGroup(pos Position, elems... Value) (v *Group) { return &Group{valbase{pos},elements{elems}} }
-func MakeGlobMeta(pos Position, tok token.Token) *GlobMeta { return &GlobMeta{valbase{pos},tok} }
+func MakeGlobMeta(pos Position, tok Token) *GlobMeta { return &GlobMeta{valbase{pos},tok} }
 func MakeGlobRange(pos Position, v Value) *GlobRange { return &GlobRange{valbase{pos},v} }
 func MakePath(pos Position, segments... Value) (v *Path) { return &Path{valbase{pos},elements{segments}/*, nil*/} }
 func MakePathPun(pos Position, ch rune) *PathPun { return &PathPun{valbase{pos},ch} }
@@ -7602,10 +7601,10 @@ func MakePercPattern(pos Position, prefix, suffix Value) *PercPattern {
 func MakeGlobPattern(pos Position, components... Value) Value {
     return &GlobPattern{valbase:valbase{pos},Components:components}
 }
-func MakeDelegate(pos Position, tok token.Token, obj Value, opts []Value, args... Value) Value {
+func MakeDelegate(pos Position, tok Token, obj Value, opts []Value, args... Value) Value {
     return &delegate{valbase{pos}, tok, obj, opts, args}
 }
-func MakeClosure(pos Position, tok token.Token, obj Value, opts []Value, args... Value) Value {
+func MakeClosure(pos Position, tok Token, obj Value, opts []Value, args... Value) Value {
     if isNil(obj) { panic(failure{pos,"making closure on <nil> object"}) }
     return &closure{delegate{valbase{pos}, tok, obj, opts, args}}
 }

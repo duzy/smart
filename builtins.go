@@ -7,7 +7,6 @@
 package smart
 
 import (
-        "extbit.io/smart/token"
         "encoding/base64"
         "path/filepath"
         // "hash/crc64"
@@ -29,29 +28,6 @@ import (
         "os"
         "io"
 )
-
-type Position token.Position
-
-func (pos *Position) Same(other *Position) bool {
-        return (*token.Position)(pos).Same((*token.Position)(other))
-}
-
-func (pos *Position) SameLine(other *Position) bool {
-        return (*token.Position)(pos).SameLine((*token.Position)(other))
-}
-
-func makePosition(filename string, line, column int) (pos Position) {
-        pos.Filename = filename
-        pos.Line     = line
-        pos.Column   = column
-        return
-}
-func convPosition(filename, line, column string) (pos Position) {
-        pos.Filename  = filename
-        pos.Line, _   = strconv.Atoi(line)
-        pos.Column, _ = strconv.Atoi(column)
-        return
-}
 
 const (
         builtinCallable int = 0
@@ -1424,7 +1400,7 @@ func (ctx builtin) Value(args... Value) (res Value) {
                 if val != nil {
                         if opts.unexp { val = unexpanded{val} }
                 } else if closure {
-                        val = MakeClosure(ctx.Position(), token.LPAREN, unresolved{a, ctx.Project()}, nil)
+                        val = MakeClosure(ctx.Position(), LPAREN, unresolved{a, ctx.Project()}, nil)
                 } else if false {
                         val = MakeNone(a.Position())
                 } else {

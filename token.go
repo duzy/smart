@@ -3,7 +3,7 @@
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
-package token
+package smart
 
 import (
 	"strconv"
@@ -23,11 +23,11 @@ const (
 	literal_beg
 	// Identifiers and basic type literals (these tokens stand for classes of literals)
 	BAREWORD // abc
-	BIN      // 0b010101, 0B0111001
-	OCT      // 0600, 0567
-	INT      // 12345
-	HEX      // 0x1234567890ABCDEF
-	FLOAT    // 123.45
+	BINARY   // 0b010101, 0B0111001
+	OCTAL    // 0600, 0567
+	INTEGER  // 12345
+	HEXADECIMAL // 0x1234567890ABCDEF
+	FLOATING    // 123.45
 	DATETIME // 1979-05-27T07:32:00.999999-07:00 (internet date/time format - RFC3339)
 	DATE     // 1979-05-27 (internet date format - RFC3339)
 	TIME     // 07:32:00.999999 (internet time format - RFC3339)
@@ -173,11 +173,11 @@ const (
 	BARE    // `bare`  // TODO
 	REGEX   // `regex` // TODO
 	FILE    // `file`  // TODO
-	Bin     // `bin`
-	Oct     // `oct`
-	Int     // `int`
-	Hex     // `hex`
-	Float   // `float`
+	BIN     // `bin`
+	OCT     // `oct`
+	INT     // `int`
+	HEX     // `hex`
+	FLOAT   // `float`
 	ANSWER  // `answer`
 	BOOL    // `bool`
 	TRUE    // boolean `true`
@@ -196,11 +196,11 @@ var tokens = [...]string{
 	HASH:    "HASH",
 
 	BAREWORD: "BAREWORD",
-	BIN:      "BIN",
-	OCT:      "OCT",
-	INT:      "INT",
-	HEX:      "HEX",
-	FLOAT:    "FLOAT",
+	BINARY:   "BINARY",
+	OCTAL:    "OCTAL",
+	INTEGER:  "INTEGER",
+	HEXADECIMAL: "HEXADECIMAL",
+	FLOATING:    "FLOATING",
 	DATETIME: "DATETIME",
 	DATE:     "DATE",
 	TIME:     "TIME",
@@ -329,11 +329,11 @@ var tokens = [...]string{
 	BARE:   "bare",
 	REGEX:  "regex",
 	FILE:   "file",
-	Bin:    "bin",
-	Oct:    "oct",
-	Int:    "int",
-	Hex:    "hex",
-	Float:  "float",
+	BIN:    "bin",
+	OCT:    "oct",
+	INT:    "int",
+	HEX:    "hex",
+	FLOAT:  "float",
 	ANSWER: "answer",
 	BOOL:   "bool",
 	TRUE:   "true",
