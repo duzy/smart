@@ -2864,6 +2864,8 @@ func (ctx modifier) assert(args... Value) (result Value, traves travestates) {
     var fails int
     var target = autoGet(ctx, "@")
     for _, a := range args {
+        if _, y := a.(*punctuation); y { continue }
+
         var ctx = of(ctx, a)
 
         var f *Flag
