@@ -34,6 +34,15 @@ const (
         JsonObject = "object"
 )
 
+/*
+   TODO: implement the new json format:
+
+   json{books(number=3
+       book(id=1 title('book one'))
+       book(id=2 title('book two'))
+       book(id=3 title('   abc   '))
+   )}
+ */
 func DecodeJSON(ctx Context, source string) (result Value, err error) {
         //fmt.Fprintf(stderr, "json: %v\n", source)
         var (

@@ -23,6 +23,15 @@ func (p *YAML) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 
+/*
+   TODO: implement the yaml format:
+
+   yaml{books(number=3
+       book(id=1 title('book one'))
+       book(id=2 title('book two'))
+       book(id=3 title('   abc   '))
+   )}
+ */
 func DecodeYAML(ctx Context, source string, ws bool) (result Value, err error) {
         err = fmt.Errorf("DecodeYAML not implemented yet")
         return 

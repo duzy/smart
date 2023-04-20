@@ -49,7 +49,17 @@ Converted into:
                 book id=3
                 (title '  abc  ')
         )
-) */
+)
+
+   TODO: implement the new xml format:
+
+   xml{books(number=3
+       book(id=1 title('book one'))
+       book(id=2 title('book two'))
+       book(id=3 title('   abc   '))
+   )}
+
+*/
 func DecodeXML(ctx Context, source string, ws bool) (result Value, err error) {
         var (
                 pos = ctx.Position()
