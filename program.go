@@ -311,10 +311,19 @@ const maxCallRecursion  = 32 //64
 type normalTraverseContext struct { Context }
 type orderTraverseContext struct { Context }
 func (t normalTraverseContext) traversed(target Value) (targets []Value) {
-    if targets = t.Context.traversed(target); len(targets) > 0 {
+    if  targets = t.Context.traversed(target); false {
+        targets = mergex(t, plain, targets...)
+    }
+    if len(targets) > 0 {
         t.autoSet("^", MakeList(t.Position(), targets...))
         t.autoSet("<", targets[0])
         t.autoSet(">", targets[len(targets)-1])
+        if false {
+            var ( v = targets[0] ; s = v.Strval(t) )
+            if strings.HasPrefix(s, ".configure/library/") {
+                warn(of(t, target), "%T %v", v, v).debug(1)
+            }
+        }
     }
     return
 }

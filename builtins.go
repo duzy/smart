@@ -944,6 +944,9 @@ func (ctx builtin) Equal(args... Value) (res Value) {
                 }
                 if u, y := b.(unexpanded); y {
                         warn(of(ctx,a), "equal: b: %T %v (unexpanded)", u.Value, b)
+                } else if l, y := b.(*List); y {
+                        var v = l.Elems[0]
+                        warn(of(ctx,b), "equal: b: %T %v ; %T %v", b, b, v, v)
                 } else {
                         warn(of(ctx,b), "equal: b: %T %v", b, b)
                 }

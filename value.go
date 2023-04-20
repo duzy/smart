@@ -4966,10 +4966,15 @@ func (p *File) cmp(ctx Context, v Value) (res cmpres) {
             s += fmt.Sprintf("\n      b: %s: %s %s", a.name, a.dir, a.sub)
             fmt.Fprintf(stderr, "%s: warning: files may differ: %s != %s :%s\n", p.position, p.name, a.name, s)
         }
-    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+    } else if l, y := v.(*List); y && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     } else if u, o := v.(unexpanded); o && u.Value != nil {
         res = p.cmp(ctx, u.Value)
+    } else {
+        switch v.(type) {
+        case *barecomp, *bareword:
+            if s := v.Strval(ctx); s == p.name { res = cmpEqual }
+        }
     }
     return
 }
