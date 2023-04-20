@@ -7,7 +7,6 @@
 package smart
 
 import (
-    "extbit.io/smart/scanner"
     "extbit.io/smart/token"
     "path/filepath"
     "io/ioutil"
@@ -334,10 +333,10 @@ func configurePackage(ctx Context, fields map[string]Value, args ...Value) (resu
 func scanExitStatus(err error) (n, status int) {
     switch e := err.(type) {
     case *exitstatus: n, status = 1, e.code
-    case *scanner.Error:
-        for _, t := range e.Errs {
-            if n, status = scanExitStatus(t); n == 1 { return }
-        }
+    // case *scanner.Error:
+    //     for _, t := range e.Errs {
+    //         if n, status = scanExitStatus(t); n == 1 { return }
+    //     }
     default:
         n, _ = fmt.Sscanf(err.Error(), fmtExitStatus, &status)
     }

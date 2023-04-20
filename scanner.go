@@ -3,7 +3,7 @@
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
-package scanner
+package smart
 
 import (
 	"extbit.io/smart/token"
@@ -30,7 +30,7 @@ const (
 	isMaximumBit     // 1000000000000000
 )
 
-type State struct {
+type ScanState struct {
 	ch         rune  // current character
 	offset     int   // character offset
 	readOffset int   // reading offset (position after current character)
@@ -39,7 +39,7 @@ type State struct {
 	bits    scanbits // scan bits
 }
 
-func (s State) String() string {
+func (s ScanState) String() string {
 	var t string
 	switch s.ch {
 	case '\n': t = "\\n"
@@ -50,11 +50,11 @@ func (s State) String() string {
 		s.lineOffset, s.offset, s.readOffset, s.bitss, s.bits)
 }
 
-func (s *State) push(bits scanbits) {
+func (s *ScanState) push(bits scanbits) {
 	s.bitss = append(s.bitss, s.bits) // &^ isLineFeed
 	s.bits = bits
 }
-func (s *State) pop(bits scanbits) {
+func (s *ScanState) pop(bits scanbits) {
 	if bits == 0 || (s.bits&bits != 0) {
 		if n := len(s.bitss); 0 < n {
 			s.bits = s.bitss[n-1] //&^ isLineFeed
@@ -65,40 +65,40 @@ func (s *State) pop(bits scanbits) {
 	}
 }
 
-func (s *State) SetBits(bits scanbits) (prev scanbits) {
+func (s *ScanState) SetBits(bits scanbits) (prev scanbits) {
 	prev = s.bits
 	s.bits = bits
 	return
 }
 
-func (s *State) AddBits(bits scanbits) (prev scanbits) {
+func (s *ScanState) AddBits(bits scanbits) (prev scanbits) {
 	prev = s.bits
 	s.bits |= bits
 	return
 }
 
-func (s *State) RemBits(bits scanbits) (prev scanbits) {
+func (s *ScanState) RemBits(bits scanbits) (prev scanbits) {
 	prev = s.bits
 	s.bits &^= bits
 	return
 }
 
-func (s *State) CommentsOff() scanbits { return s.AddBits(isHashValid) }
-func (s *State) LeaveCompoundLineContext() { s.pop(isCompoundLine) }
-func (s *State) Recipes(v bool) {
+func (s *ScanState) CommentsOff() scanbits { return s.AddBits(isHashValid) }
+func (s *ScanState) LeaveCompoundLineContext() { s.pop(isCompoundLine) }
+func (s *ScanState) Recipes(v bool) {
 	var bits = s.bits
 	if v { bits |= isRecipes } else { bits &^= isRecipes }
 	s.bits = bits
 }
 
-func (s *State) canRecipe() (res bool) {
+func (s *ScanState) canRecipe() (res bool) {
 	if t := s.bits; (s.lineOffset == s.offset-1) && t.canRecipe() {
 		res = !t.is(isCallParen|isCallBrace|isCallColonL|isCallColonR|isGroup)
 	}
 	return
 }
 
-func (s *State) bit(bits scanbits) (res bool) {
+func (s *ScanState) bit(bits scanbits) (res bool) {
 	if res = s.bits&bits != 0; !res {
 		for i := len(s.bitss)-1; 0 <= i; i -= 1 {
 			if res = s.bitss[i]&bits != 0; res { break }
@@ -121,10 +121,10 @@ type Scanner struct {
 	src  []byte       // source
 	err  ErrorHandler // error reporting; or nil
 	war  ErrorHandler // warning handler; or nil
-	mode Mode         // scanning mode
+	mode ScanMode         // scanning mode
 
 	// scanning state
-	State
+	ScanState
 
 	// public state - ok to modify
 	ErrorCount int // number of errors encountered
@@ -201,7 +201,7 @@ type ErrorHandler func(pos token.Position, msg string)
 // A mode value is a set of flags (or 0).
 // They control scanner behavior.
 //
-type Mode uint
+type ScanMode uint
 type scanbits uint
 func (bits scanbits) is(t scanbits)     bool { return bits&t != 0 }
 func (bits scanbits) isCall()           bool { return bits&isCall != 0 }
@@ -257,7 +257,7 @@ func IsIdentifier(ch rune) bool {
 // Note that Init may call err if there is an error in the first character
 // of the file.
 //
-func (s *Scanner) Init(file *token.File, src []byte, mode Mode, err, war ErrorHandler) {
+func (s *Scanner) Init(file *token.File, src []byte, mode ScanMode, err, war ErrorHandler) {
 	// Explicitly initialize all fields since a scanner may be reused.
 	if file.Size() != len(src) {
 		panic(fmt.Sprintf("file size (%d) does not match src len (%d)", file.Size(), len(src)))
@@ -281,8 +281,8 @@ func (s *Scanner) Init(file *token.File, src []byte, mode Mode, err, war ErrorHa
 	// The BOM at file beginning will be discarded.
 	if s.next(); s.ch == bom { s.next() }
 }
-func (s *Scanner) SetState(state State) { s.State = state }
-func (s *Scanner) GetState() (State) { return s.State }
+func (s *Scanner) SetState(state ScanState) { s.ScanState = state }
+func (s *Scanner) GetState() (ScanState) { return s.ScanState }
 
 func (s *Scanner) error(offs int, msg string) {
 	if s.err != nil { s.err(s.file.Position(s.file.Pos(offs)), msg) }

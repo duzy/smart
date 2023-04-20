@@ -7,7 +7,6 @@ package smart
 
 import (
     "extbit.io/smart/token"
-	"extbit.io/smart/scanner"
     "bytes"
     "io/ioutil"
     "io"
@@ -1831,7 +1830,7 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
         l.p.isIncludingConf = opts.isConfiguration
     }
 
-	var scanMode scanner.Mode
+	var scanMode ScanMode
 	if l.mode&ParseComments != 0 {
 		//scanMode = scanner.ScanComments
 	}

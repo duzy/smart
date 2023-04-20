@@ -8,7 +8,6 @@ package smart
 
 import (
 	"extbit.io/smart/token"
-	"extbit.io/smart/scanner"
 	"path/filepath"
 	"runtime/pprof"
 	"runtime"
@@ -102,8 +101,8 @@ type parsedRuleData struct {
 }
 
 type template struct {
-	state scanner.State
-	end *scanner.State
+	state ScanState
+	end *ScanState
 	pos, endPos token.Pos   // token position
 	tok token.Token // one token look-ahead
 	lit string      // token literal
@@ -119,7 +118,7 @@ type autoctx struct {
 type parser struct {
 	Context
 
-	scanner scanner.Scanner
+	scanner Scanner
 
 	// Comments
 	comments  []*CommentGroup
@@ -2976,7 +2975,7 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, 
 
 func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 	var count int64
-	defer func(t time.Time, pos token.Pos, tok token.Token, lit string, state scanner.State) {
+	defer func(t time.Time, pos token.Pos, tok token.Token, lit string, state ScanState) {
 		if ddd {/* dont check time in ddd mode */} else
         if d := time.Now().Sub(t); d > time.Duration(options.slow)*time.Millisecond {
 			var c = time.Duration(count)
@@ -3077,7 +3076,7 @@ func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 }
 func (p *parser) callTemplate(ctx Context, t *template, name Value, args []Value) {
 	var count int64
-	defer func(t time.Time, pos token.Pos, tok token.Token, lit string, state scanner.State) {
+	defer func(t time.Time, pos token.Pos, tok token.Token, lit string, state ScanState) {
         if d := time.Now().Sub(t); d > 1999*time.Millisecond {
 			var c = time.Duration(count)
             infostack(ctx, 3, "%v: slow: %v, %v, %d*%v", name, d, count, d/c).debug(1)

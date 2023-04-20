@@ -7,7 +7,6 @@
 package smart
 
 import (
-        "extbit.io/smart/scanner"
         "extbit.io/smart/token"
         "os/exec"
         "strings"
@@ -797,7 +796,7 @@ func (d *def) append(ctx Context, va... Value) {
 
 func isDigits(s string) bool {
     return strings.IndexFunc(s, func(c rune) bool {
-        return !scanner.IsDigit(c) }) < 0
+        return !IsDigit(c) }) < 0
 }
 
 func (d *def) call1(ctx Context, w facet, a... Value) (res Value) {

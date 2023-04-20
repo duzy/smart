@@ -193,7 +193,7 @@ var (
         `configure-file`:  modifier.ConfigureFile,
         `configure`:       modifier.Configure,
 
-        `wait`:         modifier.wait,
+        `wait`:         modifier._wait,
         `stamp`:        modifier.stamp,
 
         `check`:        modifier.Check,
@@ -2713,7 +2713,7 @@ type modifierWaitOpts struct {
     noTarget bool `nt,no-target`
     asType string "a,as"
 }
-func (ctx modifier) wait(args... Value) (result Value, traves travestates) {
+func (ctx modifier) _wait(args... Value) (result Value, traves travestates) {
     var (
         opts modifierWaitOpts
         execRes *ExecResult
