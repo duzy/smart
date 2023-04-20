@@ -41,19 +41,20 @@ type generalOpts struct {
     verbose  bool `v,verb,verbose`
     timing   bool `t,time,timing`
 }
-type modifier struct {
+
+type modifiercall struct {
     valbase
     name Value
     args []Value
 }
-func (m *modifier) refs(ctx Context, v Value) bool {
+func (m *modifiercall) refs(ctx Context, v Value) bool {
     if m.name.refs(ctx, v) { return true }
     for _, a := range m.args {
         if a.refs(ctx, v) { return true }
     }
     return false
 }
-func (m *modifier) expandible(ctx Context, w facet) (res bool) {
+func (m *modifiercall) expandible(ctx Context, w facet) (res bool) {
     if res = m.name.expandible(ctx, w); !res {
         for _, a := range m.args {
             if res = a.expandible(ctx, w); res { break }
@@ -61,12 +62,12 @@ func (m *modifier) expandible(ctx Context, w facet) (res bool) {
     }
     return
 }
-func (m *modifier) expand(ctx Context, _ facet) (Value) { return m }
-func (_ *modifier) cmp(ctx Context, v Value) (res cmpres) {
-    if _, ok := v.(*modifier); ok { res = cmpEqual }
+func (m *modifiercall) expand(ctx Context, _ facet) (Value) { return m }
+func (_ *modifiercall) cmp(ctx Context, v Value) (res cmpres) {
+    if _, ok := v.(*modifiercall); ok { res = cmpEqual }
     return
 }
-func (m *modifier) traverse(ctx Context) (traves travestates) {
+func (m *modifiercall) traverse(ctx Context) (traves travestates) {
     ctx = at(ctx, m.position)
     traves = ctx.program().modify(ctx, m)
     if n := ctx.checkErrors(true); n > 0 { // if n := ctx.countErrors(); n > 0 {
@@ -75,7 +76,7 @@ func (m *modifier) traverse(ctx Context) (traves travestates) {
     }
     return
 }
-func (m *modifier) String() (s string) {
+func (m *modifiercall) String() (s string) {
     s = "(" + m.name.String()
     for _, a := range m.args {
         s += " " + a.String()
@@ -83,14 +84,14 @@ func (m *modifier) String() (s string) {
     s += ")"
     return
 }
-func (p *modifier) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+func (p *modifiercall) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
 
 type modifiergroup struct {
     valbase
-    modifiers []*modifier
+    modifiers []*modifiercall
 }
 func (g *modifiergroup) refs(ctx Context, v Value) (res bool) {
     for _, m := range g.modifiers {
@@ -152,69 +153,70 @@ func (p *modifiergroup) hit(ctx Context, cache hitch, bits int) (res *filemapCac
 }
 
 type (
-    ModifierFunc   func(Context, ...Value) (Value, travestates)
-    PredictionFunc func(Context, ...Value) (Value)
+    modifier struct { Context }
+    ModifierFunc   func(modifier, ...Value) (Value, travestates)
+    PredictionFunc func(modifier, ...Value) (Value)
 )
 
 var (
     init_modifiers = map[string]ModifierFunc{
-        `print`:        modifierPrint,
-        `debug`:        modifierDebug,
+        `print`:        modifier.Print,
+        `debug`:        modifier.Debug,
 
-        `select`:       modifierSelect,
+        `select`:       modifier.Select,
 
-        `env`:          modifierEnv,  // interpreter environments
-        `set`:          modifierSet,
+        `env`:          modifier.Env, // interpreter environments
+        `set`:          modifier.Set,
 
-        `by`:           modifierSetDirtyPats,
-        `dirty-by`:     modifierSetDirtyPats,
-        `dirty-opts`:   modifierSetDirtyPats,
+        `by`:           modifier.SetDirtyPats,
+        `dirty-by`:     modifier.SetDirtyPats,
+        `dirty-opts`:   modifier.SetDirtyPats,
 
-        `closure`:      modifierClosure,
-        `for`:          modifierFor,
+        `closure`:      modifier.Closure,
+        `for`:          modifier.For,
 
-        `cd`:           modifierCD,
-        `mkdir`:        modifierMkdir,
-        `path`:         modifierPath,
+        `cd`:           modifier.CD,
+        `mkdir`:        modifier.Mkdir,
+        `path`:         modifier.Path,
 
-        `sudo`:         modifierSudo,
+        `sudo`:         modifier.Sudo,
 
-        `touch`:        modifierTouch,
-        `grep`:         modifierGrep,
-        `deps`:         modifierDeps,
+        `touch`:        modifier.Touch,
+        `grep`:         modifier.Grep,
+        `deps`:         modifier.Deps,
 
-        `copy-file`:       modifierCopyFile,
-        `write-file`:      modifierWriteFile,
-        `read-file`:       modifierReadFile,
-        `update-file`:     modifierUpdateFile,
-        `configure-input`: modifierConfigureInput,
-        `configure-file`:  modifierConfigureFile,
-        `configure`:       modifierConfigure,
+        `copy-file`:       modifier.CopyFile,
+        `write-file`:      modifier.WriteFile,
+        `read-file`:       modifier.ReadFile,
+        `update-file`:     modifier.UpdateFile,
+        `configure-input`: modifier.ConfigureInput,
+        `configure-file`:  modifier.ConfigureFile,
+        `configure`:       modifier.Configure,
 
-        `wait`:         modifierWait,
-        `stamp`:        modifierStamp,
+        `wait`:         modifier.Wait,
+        `stamp`:        modifier.Stamp,
 
-        `check`:        modifierCheck,
-        `assert`:       modifierAssert,
-        `case`:         modifierCase,
-        `cond`:         modifierCond,
-        `if`:           modifierCond,
-        `where`:        modifierCond,
+        `check`:        modifier.Check,
+        `assert`:       modifier.Assert,
+        `case`:         modifier.Case,
+        `cond`:         modifier.Cond,
+        `if`:           modifier.Cond,
+        `where`:        modifier.Cond,
 
-        `once`:         modifierOnce,
+        `once`:         modifier.Once,
 
-        `fork`:         modifierFork,
+        `fork`:         modifier.Fork,
 
-        `git-ahead`:    modifierGitAhead,
-        `git-modified`: modifierGitModified,
+        `git-ahead`:    modifier.GitAhead,
+        `git-modified`: modifier.GitModified,
     }
 
     init_predictors = map[string]PredictionFunc{
-        `dirty`:            predictionOutdated,
-        `outdated`:         predictionOutdated,
-        `no-loop`:          predictionNoLoop,
-        `target-1st-visit`: predictionTarget1stVisit,
-        `target-max-visit`: predictionTargetMaxVisit,
+        `dirty`:            modifier.predictOutdated,
+        `outdated`:         modifier.predictOutdated,
+        `no-loop`:          modifier.predictNoLoop,
+        `target-1st-visit`: modifier.predictTarget1stVisit,
+        `target-max-visit`: modifier.predictTargetMaxVisit,
     }
 
     modifiers = make(map[string]ModifierFunc)
@@ -271,7 +273,7 @@ type modifierPrintOpts struct {
     stderr bool `e,stderr`
     reset  bool `r,reset`
 }
-func modifierPrint(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Print(args... Value) (result Value, traves travestates) {
     var (
         pos = ctx.Position()
         opts = modifierPrintOpts{ stderr: true }
@@ -298,7 +300,7 @@ type modifierDebugOpts struct {
     s int `s,stack,sn,stack-number`
     n int `c,count,n,num,cn,call-number`
 }
-func modifierDebug(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Debug(args... Value) (result Value, traves travestates) {
     var opts modifierDebugOpts
     args = parseOpts(ctx, &opts, plain, args...)
     if opts.cond != nil && !opts.cond.True(ctx) { return }
@@ -351,7 +353,7 @@ func modifierDebug(ctx Context, args... Value) (result Value, traves travestates
 }
 
 // select element by index from group result: (select 0)
-func modifierSelect(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Select(args... Value) (result Value, traves travestates) {
     args = mergex(ctx, plain, args...)
     if h := autoGet(ctx, "-"); h == nil {
         erro(ctx, "no pipe value $-").debug(1)
@@ -365,7 +367,7 @@ func modifierSelect(ctx Context, args... Value) (result Value, traves travestate
     return
 }
 
-func modifierEnv(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Env(args... Value) (result Value, traves travestates) {
     args = mergex(ctx, plain, args...)
 
     var program = ctx.program()
@@ -400,7 +402,7 @@ func modifierEnv(ctx Context, args... Value) (result Value, traves travestates) 
 type modifierSetOpts struct {
     generalOpts
 }
-func modifierSet(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Set(args... Value) (result Value, traves travestates) {
     var (
         program = ctx.program()
         opts modifierSetOpts
@@ -445,7 +447,7 @@ type modifierSetDirtyPatsOpts struct {
     generalOpts
     pats []Value
 }
-func modifierSetDirtyPats(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) SetDirtyPats(args... Value) (result Value, traves travestates) {
     var opts = ctx.dirtyOpts()
     opts.pats = parseOpts(ctx, opts, plain, args...)
     return
@@ -459,7 +461,7 @@ type modifierClosureOpts struct {
     // depFirst bool `<,dep-first` // TODO: -<=value
     // depLast  bool `>,dep-last` // TODO: ->=value
 }
-func modifierClosure(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Closure(args... Value) (result Value, traves travestates) {
     // Closure the caller program, the context will be restored when execution is finished.
     var closureCtx Context
     if t := ctx.programContext(); t != nil && false {
@@ -526,7 +528,7 @@ func modifierClosure(ctx Context, args... Value) (result Value, traves travestat
 type modifierForOpts struct {
     generalOpts
 }
-func modifierFor(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) For(args... Value) (result Value, traves travestates) {
     var opts modifierForOpts
     args = parseOpts(ctx, &opts, plain, args...)
     // TODO: ...
@@ -539,7 +541,7 @@ type modifierCDOpts struct {
     printEnter bool `e,print-enter`
     printLeave bool `l,print-leave`
 }
-func modifierCD(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) CD(args... Value) (result Value, traves travestates) {
     var opts modifierCDOpts
     args = parseOpts(ctx, &opts, plain, args...)
 
@@ -577,7 +579,7 @@ type modifierMkdirOpts struct {
     generalOpts
     mode os.FileMode `m,mode`
 }
-func modifierMkdir(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Mkdir(args... Value) (result Value, traves travestates) {
     var opts = modifierMkdirOpts{ mode: os.FileMode(0755) }
     args = parseOpts(ctx, &opts, plain, args...)
 
@@ -604,7 +606,7 @@ type modifierPathOpts struct {
 }
 // (path $(dir $@))
 // (path /example/path)
-func modifierPath(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Path(args... Value) (result Value, traves travestates) {
     var opts modifierPathOpts
     args = parseOpts(ctx, &opts, plain, args...)
 
@@ -629,7 +631,7 @@ func modifierPath(ctx Context, args... Value) (result Value, traves travestates)
     return
 }
 
-func modifierSudo(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Sudo(args... Value) (result Value, traves travestates) {
     erro(at(ctx,ctx.Position()), "TODO: sudo modifier is not implemented yet").debug(1)
     return
 }
@@ -1279,7 +1281,7 @@ type modifierGrepOpts struct {
     recursive bool `a,all;r,recur;rr,recursive`
     noTraverse bool `n,notraverse;nt,no-traverse;go,grep-only`
 }
-func modifierGrep(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Grep(args... Value) (result Value, traves travestates) {
     if false && options.noDepsGrep || options.noGrep {
         return
     }
@@ -1660,6 +1662,7 @@ func traverseMissingDeps(ctx Context, lastTry string, errBytes []byte) (res bool
 }
 
 type modifierDepsContext struct { Context }
+func (mdc *modifierDepsContext) mustExists() bool { return true }
 func (mdc *modifierDepsContext) String() string {
     if fullContextStringer {
         return fmt.Sprintf("deps{%s}", mdc.Context)
@@ -1667,7 +1670,6 @@ func (mdc *modifierDepsContext) String() string {
         return mdc.Context.String()
     }
 }
-func (mdc *modifierDepsContext) mustExists() bool { return true }
 
 type modifierDepsOpts struct {
     generalOpts
@@ -1678,7 +1680,7 @@ type modifierDepsOpts struct {
     flags []Value `f,flags;o,opts`
     cc string `c,cc;c,compiler`
 }
-func modifierDeps(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Deps(args... Value) (result Value, traves travestates) {
     if options.noDepsGrep || options.noDeps {
         return
     }
@@ -1767,7 +1769,7 @@ CorrectCC:
         proj = ctx.Project()
         savedDepsFileName string
     )
-    ctx = &modifierDepsContext{ ctx }
+    ctx.Context = &modifierDepsContext{ ctx.Context }
     if savedDepsFileName, files, traves = loadSavedDepsAndCheckOutdated(ctx, ca); traves.has() {
         for _, brk := range traves { erro(at(ctx,brk.pos), "%v", brk) }
         errostack(ctx, 5, "%v: %v", proj, ctx).debug(16)
@@ -1825,7 +1827,7 @@ type modifierTouchOpts struct {
     path bool `p,path`
     mode os.FileMode `m,mode`
 }
-func modifierTouch(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Touch(args... Value) (result Value, traves travestates) {
     var opts modifierTouchOpts // = modifierTouchOpts{ mode: os.FileMode(0755) }
     if args = parseOpts(ctx, &opts, plain, args...); len(args) == 0 {
         if val := autoGet(ctx, "@"); val != nil { args = append(args, val) }
@@ -1865,7 +1867,7 @@ type modifierCheckOpts struct {
 // (check file=filename.txt)
 // (check dir=directory)
 // (check var=(NAME,VALUE))
-func modifierCheck(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Check(args... Value) (result Value, traves travestates) {
     var (
         pos = ctx.Position()
         opts modifierCheckOpts
@@ -2242,7 +2244,7 @@ type modifierCopyFileOpts struct {
     head Value "h,head"
     foot Value "f,foot"
 }
-func modifierCopyFile(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) CopyFile(args... Value) (result Value, traves travestates) {
     var opts modifierCopyFileOpts
     args = parseOpts(ctx, &opts, plain, args...)
 
@@ -2352,7 +2354,7 @@ func modifierCopyFile(ctx Context, args... Value) (result Value, traves travesta
     return
 }
 
-func modifierWriteFile(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) WriteFile(args... Value) (result Value, traves travestates) {
     args = mergex(ctx, plain, args...)
 
     var (
@@ -2401,7 +2403,7 @@ type modifierReadFileOpts struct {
     head Value "h,head"
     foot Value "f,foot"
 }
-func modifierReadFile(ctx Context, aa... Value) (result Value, traves travestates) {
+func (ctx modifier) ReadFile(aa... Value) (result Value, traves travestates) {
     var (
         opts modifierReadFileOpts
         args []Value
@@ -2501,7 +2503,7 @@ type modifierUpdateFileOpts struct {
     append bool `a,app,append,append-content`
     mode os.FileMode "m,mode"
 }
-func modifierUpdateFile(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) UpdateFile(args... Value) (result Value, traves travestates) {
     var (
         opts = modifierUpdateFileOpts{ mode: os.FileMode(0640) }
         filename string
@@ -2711,7 +2713,7 @@ type modifierWaitOpts struct {
     noTarget bool `nt,no-target`
     asType string "a,as"
 }
-func modifierWait(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Wait(args... Value) (result Value, traves travestates) {
     var (
         opts modifierWaitOpts
         execRes *ExecResult
@@ -2799,7 +2801,7 @@ type modifierStampOpts struct {
     next   bool "n,nxt,next"  // traveNext if failed to stamp
     error  bool "e,err,error" // traveErro if failed to stamp
 }
-func modifierStamp(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Stamp(args... Value) (result Value, traves travestates) {
     var opts modifierStampOpts
     args = parseOpts(ctx, &opts, plain, args...)
 
@@ -2842,7 +2844,7 @@ func modifierStamp(ctx Context, args... Value) (result Value, traves travestates
         }
         errostack(ctx, 10, "failed: %v", ctx).debug(10)
     } else if pos = target.Position(); pos.IsValid() {
-        ctx = at(ctx, pos)
+        var ctx = at(ctx, pos)
         if f, y := target.(*File); y {
             erro(ctx, "failed stamp(%v): %v %v", target, f.fullname(), f.info)
         } else {
@@ -2864,7 +2866,7 @@ type predictOpts struct {
     verbose  bool "v,verbose"
     verbose0 bool
 }
-func predict(ctx Context, args... Value) (result bool, message string, err error) {
+func (ctx modifier) predict(args... Value) (result bool, message string, err error) {
     var (
         target = as{autoGet(ctx, "@")}
         targetStr string
@@ -2941,7 +2943,8 @@ ForArgs:
                 erro(at(ctx,g.position), "predictor '%s' undefined (%T %v)", g.Elems[0], a, a).debug(1)
                 return
             } else {
-                a = pret(at(ctx, g.Elems[0].Position()), g.Elems[1:]...)
+                var ctx = modifier{ at(ctx.Context, g.Elems[0].Position()) }
+                a = pret(ctx, g.Elems[1:]...)
             }
 
             if a == nil {
@@ -2967,20 +2970,18 @@ ForArgs:
 }
 
 // (assert condition,'error message...')
-func modifierAssert(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Assert(args... Value) (result Value, traves travestates) {
     var (
         res bool
         msg string
         err error
     )
-    if res, msg, err = predict(ctx, args...); err != nil {
+    if res, msg, err = ctx.predict(args...); err != nil {
         erro(ctx, "prediction %v failed: %v", args, err).debug(6)
     } else if !res {
         var target Value = autoGet(ctx, "@")
         if msg == "" {
-            for _, a := range args {
-                erro(of(ctx,a), "assertion failed: %v", a)
-            }
+            for _, a := range args { erro(of(ctx,a), "assertion failed: %v", a) }
             errostack(ctx, 8, "(%T):", ctx).debug(6)
         } else {
             var vals = mergex(ctx, plain, args...)
@@ -2995,13 +2996,13 @@ func modifierAssert(ctx Context, args... Value) (result Value, traves travestate
     return
 }
 
-func modifierCond(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Cond(args... Value) (result Value, traves travestates) {
     var (
         res bool
         msg string
         err error
     )
-    if res, msg, err = predict(ctx, args...); err != nil {
+    if res, msg, err = ctx.predict(args...); err != nil {
         erro(ctx, "predict: %v", err).debug(1)
     } else if !res {
         s := traves.add(ctx, traveDone, nil)
@@ -3015,11 +3016,11 @@ type modifierCaseOpts struct {
     debug   bool `d,debug`
     verbose bool `v,verbose`
 }
-func modifierCase(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Case(args... Value) (result Value, traves travestates) {
     var opts modifierCaseOpts
     args = parseOpts(ctx, &opts, plain, args...)
 
-    if res, msg, err := predict(ctx, args...); err != nil {
+    if res, msg, err := ctx.predict(args...); err != nil {
         erro(ctx, "case: (res=%v) %v", res, err).debug(1)
     } else {
         var w travekind
@@ -3070,7 +3071,7 @@ type predictionOutdatedOpts struct {
     checksum bool "c,cs,crc,checksum"
     silent   bool "s,silent"
 }
-func predictionOutdated(ctx Context, args... Value) (result Value) {
+func (ctx modifier) predictOutdated(args... Value) (result Value) {
     var (
         programCtx = ctx.programContext()
         opts predictionOutdatedOpts
@@ -3143,7 +3144,7 @@ func predictionOutdated(ctx Context, args... Value) (result Value) {
     return
 }
 
-func predictionNoLoop(ctx Context, args... Value) (result Value) {
+func (ctx modifier) predictNoLoop(args... Value) (result Value) {
     var loop bool
     var target = autoGet(ctx, "@")
     for caller := ctx.programContext().caller(); caller != nil; caller = caller.caller() {
@@ -3167,7 +3168,7 @@ func predictionNoLoop(ctx Context, args... Value) (result Value) {
 type predictionTarget1stVisitOpts struct {
     silent bool "s,silent"
 }
-func predictionTarget1stVisit(ctx Context, args... Value) (result Value) {
+func (ctx modifier) predictTarget1stVisit(args... Value) (result Value) {
     var opts predictionTarget1stVisitOpts
     args = parseOpts(ctx, &opts, plain, args...)
 
@@ -3204,7 +3205,7 @@ type predictionTargetMaxVisitOpts struct {
     debug bool "d,debug;d,debug-trace;d,dump"
     silent bool "s,silent"
 }
-func predictionTargetMaxVisit(ctx Context, args... Value) (result Value) {
+func (ctx modifier) predictTargetMaxVisit(args... Value) (result Value) {
     var opts predictionTargetMaxVisitOpts
     args = parseOpts(ctx, &opts, plain, args...)
 
@@ -3287,7 +3288,7 @@ func _modifierFork(ctx Context, args... Value) (result Value, traves travestates
     }
     return
 }
-func modifierFork(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Fork(args... Value) (result Value, traves travestates) {
     var (
         prog = ctx.program()
         opts modifierForkOpts
@@ -3326,7 +3327,7 @@ type modifierGitModifiedOpts struct {
     debug bool "d,debug"
     verbose bool "v,verbose"
 }
-func modifierGitModified(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) GitModified(args... Value) (result Value, traves travestates) {
     var opts modifierGitModifiedOpts
     args = parseOpts(ctx, &opts, plain, args...)
 
@@ -3367,7 +3368,7 @@ type modifierGitAheadOpts struct {
     debug bool "d,debug"
     verbose bool "v,verbose"
 }
-func modifierGitAhead(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) GitAhead(args... Value) (result Value, traves travestates) {
     var opts modifierGitAheadOpts
     args = parseOpts(ctx, &opts, plain, args...)
 
@@ -3519,7 +3520,7 @@ type modifierOnceOpts struct {
     checksum bool `c,cs,checksum,s,sha,sha256,sum,h,hash`
     forval Value `for` // TODO: (once -for=$@)
 }
-func modifierOnce(ctx Context, args... Value) (result Value, traves travestates) {
+func (ctx modifier) Once(args... Value) (result Value, traves travestates) {
     // TODO: (once)           --> once for the RuleEntry, aka entry.doneOnce = true
     // TODO: (once -for=$@)   --> once for $@, aka entry.onces[$(expand $@)] = true
     var (

@@ -225,7 +225,7 @@ func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err 
     return
 }
 
-func (prog *Program) getModifiers(ctx Context, name string) (ms []*modifier) {
+func (prog *Program) getModifiers(ctx Context, name string) (ms []*modifiercall) {
     for _, d := range prog.depends {
         var g, ok = d.(*modifiergroup)
         if !ok { continue }
@@ -238,7 +238,7 @@ func (prog *Program) getModifiers(ctx Context, name string) (ms []*modifier) {
     return
 }
 
-func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
+func (prog *Program) modify(ctx Context, m *modifiercall) (traves travestates) {
     // TODO: using rules in a different project to implement modifiers, e.g.
     //       [ foo.check-preprequisites ]
     //       [ foo.baaaar ]
@@ -270,7 +270,7 @@ func (prog *Program) modify(ctx Context, m *modifier) (traves travestates) {
                 }
             }
         }
-        if value, traves = f(at(ctx, m.position), args...); traves.has() {
+        if value, traves = f(modifier{at(ctx, m.position)}, args...); traves.has() {
             if t := traves.not(traveCase, traveNext, traveDone); false && t.has() {
                 if options.verbose || options.verboseBreaks {
                     var _, ent, _ = entryIndicator(ctx, ctx.entry())

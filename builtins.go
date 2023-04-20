@@ -3083,12 +3083,13 @@ ForVals:
                                 if full, _, _ := val.match(ctx, elem); full {
                                         y += 1; continue ForVals
                                 }
-                        } else if elem.cmp(ctx, val) == cmpEqual {
+                        } else if val.cmp(ctx, elem) == cmpEqual {
                                 y += 1; continue ForVals
                         }
-                        if true && opts.debug>0 && !opts.string && !isNil(elem) &&
-                                val.Strval(ctx) == elem.Strval(ctx) {
-                                warn(of(ctx,val), "wrong: %T %v <-> %T %v", val, val, elem, elem)
+                        if opts.debug>0 && !opts.string && !isNil(elem) {
+                                if a, b := val.Strval(ctx), elem.Strval(ctx); a == b {
+                                        warn(of(ctx,val), "wrong: %T %v <-> %T %v ; '%s', '%s'", val, val, elem, elem, a, b)
+                                }
                         }
                 }
                 if opts.debug>0 { warn(of(ctx,val), "%d. %T %v", i, val, val) }

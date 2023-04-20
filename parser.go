@@ -2596,7 +2596,7 @@ func (p *parser) modifiers(ctx Context) *modifiergroup {
 	var (
 		posLp = p.loc(p.expect(token.LBRACK))
 		hasParameters bool // ((foo bar))
-		elems []*modifier
+		elems []*modifiercall
 	)
 
 	defer func(a parseBits) { p.bits = a }(p.bits)
@@ -2672,7 +2672,7 @@ ForModifiersExpr:
 		if len(group.Elems) == 0 {
 			erro(of(ctx,x), "empty modifier: %v", x).debug(1)
 		} else {
-			var m = &modifier{
+			var m = &modifiercall{
                 valbase: valbase{group.Position()},
                 name: group.Elems[0],
             }

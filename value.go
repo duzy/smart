@@ -5354,7 +5354,7 @@ func (p *List) traverse(ctx Context) (traves travestates) {
                 if _, ok := elem.(*modifiergroup); ok && t.has(traveNext) {
                     warn(ctx, "%T %v", elem, elem).debug(1)
                 }
-                if _, ok := elem.(*modifier); ok && t.has(traveNext) {
+                if _, ok := elem.(*modifiercall); ok && t.has(traveNext) {
                     warn(ctx, "%T %v", elem, elem).debug(1)
                 }
                 if t.has(/*traveCase, traveNext, traveDone, */traveFail) {
@@ -5371,7 +5371,7 @@ func (p *List) traverse(ctx Context) (traves travestates) {
             if _, ok := elem.(*modifiergroup); ok && t.has(traveNext) {
                 warn(ctx, "%T %v", elem, elem).debug(1)
             }
-            if _, ok := elem.(*modifier); ok && t.has(traveNext) {
+            if _, ok := elem.(*modifiercall); ok && t.has(traveNext) {
                 warn(ctx, "%T %v", elem, elem).debug(1)
             }
             if t.has(/*traveCase, traveNext, traveDone, */traveFail) {
