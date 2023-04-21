@@ -1856,18 +1856,18 @@ SwitchCompose:
 // ----------------------------------------------------------------------------
 // Clauses & Declarations
 
-type genericClauseOpts struct {
+type clauseOpts struct {
 	generalOpts
-	conds []Value `cond,if,where`
+	conds []Value `if,cond,where`
 
     keyword Token // e.g. use, files, eval, etc.
-    skip bool // e.g. -cond(false)
-    all  []Value // all option values (unparsed)
-    vals []Value // remaining option values after parsed
+    skip bool // e.g. -cond(false{}), -if(no{})
+
+    values, remainder []Value // all values (unparsed) and remainder
 	spec []Value
 }
 
-type parseSpecFunc func(Context, *CommentGroup, *genericClauseOpts, int)
+type parseSpecFunc func(Context, *CommentGroup, *clauseOpts, int)
 
 func isValidImport(lit string) bool {
 	const illegalChars = `!"#$%&'()*,:;<=>?[\]^{|}` + "`\uFFFD"
@@ -1926,7 +1926,7 @@ func (p *parser) _parseUseSpecProps(props []Value) (opts useOpts, params []Value
     return
 }
 
-func (p *parser) use(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
+func (p *parser) use(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	if p.imports = append(p.imports, &usespec{ g.spec }); g.skip {
 		// TODO: maybe give some information
 		return
@@ -1967,7 +1967,7 @@ func (p *parser) use(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int
     }
 
 	var opts useOpts
-	var args = parseOpts(ctx, &opts, 0, append(g.vals, g.spec[1:]...)...)
+	var args = parseOpts(ctx, &opts, 0, append(g.remainder, g.spec[1:]...)...)
 	for _, a := range args {
 		if _, ok := a.(*Flag); ok || true {
 			erro(of(ctx,a), "unkown use opts: %T %v", a, a).debug(1)
@@ -2006,11 +2006,11 @@ func (p *parser) use(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int
 	return
 }
 
-func (p *parser) include(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
+func (p *parser) include(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Spec")) }
 
-	var opts = includeOpts{ genericClauseOpts: g }
-	if vals := parseOpts(ctx, &opts, 0, g.vals...); len(vals) > 0 {
+	var opts = includeOpts{ clauseOpts: g }
+	if vals := parseOpts(ctx, &opts, 0, g.remainder...); len(vals) > 0 {
 		// TODO: deal with the unparsed generic options
 		warn(ctx, "unknown opts: %v", vals).debug(1)
 	}
@@ -2036,7 +2036,7 @@ func (p *parser) include(ctx Context, doc *CommentGroup, g *genericClauseOpts, _
 	if !g.skip { loader.include(ctx, opts, x) }
 }
 
-func (p *parser) files(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
+func (p *parser) files(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	defer p.setbits(p.setbit(parseFilesSpec))
 	if len(g.spec) != 1 {
 		erro(ctx, "too many files properties: %v", g.spec).debug(1)
@@ -2066,7 +2066,7 @@ func (p *parser) files(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ i
 		opts cacher
 		pats []Value
 	)
-	parseOpts(ctx, &opts, 0, g.vals...)
+	parseOpts(ctx, &opts, 0, g.remainder...)
 
 	if g, ok := val.(*Group); ok {
 		pats = g.Elems
@@ -2133,7 +2133,7 @@ func (p *parser) files(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ i
 	}
 }
 
-func (p *parser) evalConfiguration(ctx Context, g *genericClauseOpts, props []Value) {
+func (p *parser) evalConfiguration(ctx Context, g *clauseOpts, props []Value) {
 	var project = ctx.Project()
 	if project == nil {
 		erro(ctx, "configuration: nil project").debug(1)
@@ -2191,15 +2191,15 @@ func (p *parser) evalConfiguration(ctx Context, g *genericClauseOpts, props []Va
 	project.configured = true // relaxes universeContext.configure
 }
 
-func (p *parser) assert(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
-	if !g.skip { builtin{p.posit(), g.all, plain}.assert(g.spec...) }
+func (p *parser) assert(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
+	if !g.skip { builtin{p.posit(), g.remainder, plain}.assert(g.spec...) }
 }
 
-func (p *parser) append(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
-	if !g.skip { builtin{p.posit(), g.all, plain}.append(g.spec...) }
+func (p *parser) append(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
+	if !g.skip { builtin{p.posit(), g.remainder, plain}.append(g.spec...) }
 }
 
-func (p *parser) eval(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ int) {
+func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	var (
 		prop0, resolved, res Value
 		name string
@@ -2209,7 +2209,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *genericClauseOpts, _ in
 		var opts struct {
 			// TODO: options
 		}
-		for _, op := range parseOpts(ctx, &opts, plain, g.all...) {
+		for _, op := range parseOpts(ctx, &opts, plain, g.values...) {
 			var val Value
 			if v, y := op.(*Pair); y { op, val = v.Key, v.Value }
 			if v, y := op.(*Flag); y && v.name.Strval(ctx) == "ddd" {
@@ -2302,11 +2302,11 @@ ParamsParseLoop: // Parse the directive parameters
 func (p *parser) spec(ctx Context, keyword Token, pos Pos, f parseSpecFunc) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "spec("+keyword.String()+")")) }
 
-	var opts = genericClauseOpts{ keyword: keyword }
+	var opts = clauseOpts{ keyword: keyword }
 	for p.spaces(); p.tok == MINUS; p.spaces() {
-		opts.all = append(opts.all, p.expr(ctx, false))
+		opts.values = append(opts.values, p.expr(ctx, false))
 	}
-	opts.vals = parseOpts(ctx, &opts, expandZero, opts.all...)
+	opts.remainder = parseOpts(ctx, &opts, expandZero, opts.values...)
 
 	for _, cond := range opts.conds {
 		if t := cond.True(at(ctx, cond.Position())); !t {
@@ -3322,42 +3322,38 @@ func (p *parser) file(ctx Context) *parsedFile {
 	if options.traceLaunch { defer un(trace(t_launch, "parser.file")) }
 	if t_traverse.enabled  { defer un(trace(t_traverse, "File '"+p.scanner.File().Name()+"'")) }
     if false { defer un(tracef(t_traverse, "file(%s)", p.scanner.File().Name())) }
-
-	// Don't bother parsing the rest if we had errors scanning the first
-	// Likely not a Go source file at all.
-	if ctx.countErrors() > 0 { return nil }
+	if ctx.countErrors() > 0 {
+		// Don't bother parsing the rest if errors scanned,
+		// likely not a Go source file at all.
+		errostack(ctx, 5, "got errors").debug(10)
+		return nil
+	}
 
 	var (
-		abs, rel, tmp string
 		ident *barecomp
 		identStr string
 		implicitBase string // aka. foo.bar.Baz implicitly load base 'foo/bar'
+		abs, rel, tmp string
+		loader = ctx.loader()
+		position = ctx.Position()
 		keyword  = p.tok
 		filename = p.scanner.File().Name()
 		isMainFile = isEntryFileName(filename)
-		position = ctx.Position()
-		loader = ctx.loader()
 	)
 	assert(loader != nil, "nil loader")
 	assert(loader == loader, "bad loader")
 	defer loader.closeScope(loader.openScope(fmt.Sprintf("file %s", filename)))
-
 	if options.debugFileEntry {
 		warn(p, "parser.file: %v %v", p.tok, p.scanner.GetState()).debug(1)
 	}
 
-	/*if filename == confinitFilename {
-        abs, rel = context.workdir, "."
-        tmp = joinTmpPath(context.workdir, rel)
-	} else*/ {
-		if loader.mode&Flat != 0 {
-			abs = ctx.Project().absPath
-		} else {
-			abs = filepath.Dir(filename)
-		}
-		rel, _ = filepath.Rel(loader.WorkDir(), abs)
-		tmp = joinTmpPath(ctx, loader.WorkDir(), rel)
+	if loader.mode&Flat != 0 {
+		abs = ctx.Project().absPath
+	} else {
+		abs = filepath.Dir(filename)
 	}
+	rel, _ = filepath.Rel(loader.WorkDir(), abs)
+	tmp = joinTmpPath(ctx,loader.WorkDir(), rel)
 
 	if s := ctx.Scope(); s != nil {
 		//defer p.closeScope()
@@ -3412,8 +3408,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 
 		p.next(true)
 
-		// Options are *Flag or *Pair of a Flag.
-		var (
+		var ( // Options are *Flag or *Pair of a Flag.
 			opts projectDeclOpts
 			optVals []Value
 			pos Position
@@ -3425,9 +3420,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 		}
 		if !pos.IsValid() { pos = p.Position() }
 		if a := parseOpts(ctx, &opts, 0, optVals...); len(a) > 0 {
-			for _, v := range a {
-				erro(of(ctx,v), "unknown option '%v'", v).debug(1)
-			}
+			for _, v := range a { erro(of(ctx,v), "unknown option '%v'", v).debug(1) }
 			return nil
 		}
 
@@ -3492,7 +3485,6 @@ func (p *parser) file(ctx Context) *parsedFile {
 		}
 
 		// Don't bother parsing the rest if we had errors parsing the package clause.
-		// Likely not a Go source file at all.
 		if n := loader.countErrors(); n > 0 {
 			erro(p, "got %d errors parsing file: %s", filename).debug(1)
 			return nil

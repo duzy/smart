@@ -868,7 +868,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
 }
 
 type includeOpts struct {
-    *genericClauseOpts
+    *clauseOpts
     ifExists bool `if-exists,ifexists`
     isConfiguration bool // internal
 }
@@ -1815,7 +1815,7 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
         if _, ok := err.(*fs.PathError); ok && opts.ifExists {
             if opts.debug>0 {
                 prompt(ctx, "%v: source file not found\n", filename)
-                warnstack(ctx, 5, "#>", opts.all[0]).debug(opts.debug)
+                warnstack(ctx, 5, "#>", opts.values[0]).debug(opts.debug)
             }
         } else {
             prompt(ctx, "%v: %v\n", filename, err)
