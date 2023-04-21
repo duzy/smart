@@ -997,30 +997,30 @@ func leave(ctx Context, prog *Program, stop *enterec) (err error) {
 }
 
 func printEnteringDirectory(ctx Context) {
-  cd.mutex.Lock(); defer cd.mutex.Unlock()
+  cd.mutex.Lock() ; defer cd.mutex.Unlock()
   if size := len(cd.stack); size > 0 {
     var enter = cd.stack[0]
     if enter.silent { return }
     for _, p := range cd.stack {
       if p.print && p != enter {
         p.print = false
-        prompt(ctx, "smart:  Leaving directory '%s'\n", p.dir)
+        diag(ctx, diagPromptNL, "smart:  Leaving directory '%s'\n", p.dir)
       }
     }
     if !enter.print {
       enter.print = true
-      prompt(ctx, "smart: Entering directory '%s'\n", enter.dir)
+      diag(ctx, diagPromptNL, "smart: Entering directory '%s'\n", enter.dir)
     }
   }
 }
 
 func printLeavingDirectory(ctx Context) {
-  cd.mutex.Lock(); defer cd.mutex.Unlock()
+  cd.mutex.Lock() ; defer cd.mutex.Unlock()
   if size := len(cd.stack); size > 0 {
     for _, enter := range cd.stack {
       if enter.print {
         enter.print = false
-        prompt(ctx, "smart:  Leaving directory '%s'\n", enter.dir)
+        diag(ctx, diagPromptNL, "smart:  Leaving directory '%s'\n", enter.dir)
       }
     }
   }

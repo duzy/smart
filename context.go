@@ -210,6 +210,7 @@ const (
   diagWarn
   diagError
   diagPrompt
+  diagPromptNL
 )
 
 var (
@@ -328,17 +329,17 @@ func (diag *diagContext) String() string {
 }
 func (diag *diagContext) diagnostic() *diagContext { return diag }
 func (diag *diagContext) reset() {
-  diag.Lock(); defer diag.Unlock()
+  diag.Lock() ; defer diag.Unlock()
   diag.points = []*diagPoint{}
 }
 
 func (diag *diagContext) add(point *diagPoint) *diagPoint {
-  diag.Lock(); defer diag.Unlock()
+  diag.Lock() ; defer diag.Unlock()
   diag.points = append(diag.points, point)
   return point
 }
 func (diag *diagContext) nest(points []*diagPoint) {
-  diag.Lock(); defer diag.Unlock()
+  diag.Lock() ; defer diag.Unlock()
   diag.nested = append(diag.nested, points)
 }
 
@@ -348,7 +349,7 @@ func (diag *diagContext) diag(dt diagType, f string, args ...interface{}) *diagP
 }
 
 func (diag *diagContext) countErrors() (num int) {
-  diag.Lock(); defer diag.Unlock()
+  diag.Lock() ; defer diag.Unlock()
   for _, d := range diag.points {
     if d.dt == diagError { num += 1 }
   }
@@ -356,40 +357,66 @@ func (diag *diagContext) countErrors() (num int) {
 }
 func (diag *diagContext) totalErrors() (num int) { return diag.errs }
 func (diag *diagContext) checkErrors(reset bool) (num int) {
-  diag.Lock(); defer func() { diag.errs += num; diag.Unlock() } ()
+  diag.Lock() ; defer func() { diag.errs += num; diag.Unlock() } ()
+
   for i, points := range append([][]*diagPoint{diag.points}, diag.nested...) {
     var nested = i > 0 && len(points) > 0 && len(diag.nested) > 0
     if nested { fmt.Fprintf(stderr, "\n#%d:\n", i) }
+
     var lastPromptLn = -1
-    for j, d := range points {
+    var tempPromptLn []*diagPoint
+    for _, d := range points {
       var (
         msg = d.message
         pos = d.position.String()
       )
+      if strings.HasSuffix(msg, "\n") { lastPromptLn = 1 }
       if d.dt == diagPrompt {
-        if msg == "" {
-          // nothing needed to be done
-        } else if fmt.Fprintf(stderr, "%s", msg); strings.HasSuffix(msg, "\n") {
-          lastPromptLn = 1
-        } else {
-          lastPromptLn = 0
-        }
+        if msg != "" { fmt.Fprintf(stderr, "%s", msg) }
+        if lastPromptLn == -1 { lastPromptLn = 0 }
+      } else if d.dt == diagPromptNL {
+        if lastPromptLn == 0 { tempPromptLn = append(tempPromptLn, d) } else
+        if msg != "" { fmt.Fprintf(stderr, "%s", msg) }
+        if lastPromptLn == -1 { lastPromptLn = 0 }
       } else {
-        if false && lastPromptLn == 0 && j > 0 { fmt.Fprintf(stderr, "\n") }
         switch lastPromptLn = -1; d.dt {
         case diagError: fmt.Fprintf(stderr, "%v: %s\n",         pos, msg); num += 1
         case diagInfo : fmt.Fprintf(stderr, "%v:info: %s\n",    pos, msg)
         case diagWarn : fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
         }
       }
+
+      if lastPromptLn != 0 {
+        for _, d := range tempPromptLn { fmt.Fprintf(stderr, "%s", d.message) }
+        tempPromptLn = nil
+      }
+
       if len(d.stack) > 0 {
         if lastPromptLn == 0 { fmt.Fprintf(stderr, "\n") }
         fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(d.stack))
       }
-      if num > 49 { fmt.Fprintf(stderr, "%v: too many errors (%d)\n", pos, num); break }
+
+      if num > 49 {
+        fmt.Fprintf(stderr, "%v: too many errors (%d)\n", pos, num)
+        break
+      }
     }
+
+    if tempPromptLn != nil {
+      for _, d := range tempPromptLn {
+        fmt.Fprintf(stderr, "%s", d.message)
+        if strings.HasSuffix(d.message, "\n") {
+          lastPromptLn = 1
+        } else {
+          lastPromptLn = 0
+        }
+      }
+      if lastPromptLn == 0 { fmt.Fprintf(stderr, "\n") }
+    }
+
     if nested { fmt.Fprintf(stderr, "#%d;\n\n", i) }
   }
+
   if reset {
     diag.points =   []*diagPoint{}
     diag.nested = [][]*diagPoint{}

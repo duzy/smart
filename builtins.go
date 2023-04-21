@@ -50,7 +50,7 @@ var builtins = map[string]BuiltinFunc {
         `defined`:      BuiltinFunc{builtin.defined, builtinCallable, 0, expandZero, expandZero},
 
         `position`:     BuiltinFunc{builtin._position, builtinCallable, 0, expandZero, expandZero},
-        `date`:         BuiltinFunc{builtin.Date, builtinCallable, 0, expandZero, expandZero},
+        `date`:         BuiltinFunc{builtin.date, builtinCallable, 0, expandZero, expandZero},
 
         `assert`:       BuiltinFunc{builtin.assert, builtinCallable, 0, expandZero, expandZero},
         `debug`:        BuiltinFunc{builtin.debug, builtinCallable, 0, expandZero, expandZero},
@@ -58,15 +58,15 @@ var builtins = map[string]BuiltinFunc {
         `warning`:      BuiltinFunc{builtin.warning, builtinCallable, 0, expandZero, expandZero},
 
         // $(defor) (aka. defined-or)
-        `defor`:        BuiltinFunc{builtin.DefOr, builtinCallable, 0, expandZero, expandZero}, // $(defor $(x),$(y),$(z))  <=>  $(if $(defined $(x)),$(x),...)
-        `or`:           BuiltinFunc{builtin.Or, builtinCallable, 0, expandZero, expandZero},
-        `and`:          BuiltinFunc{builtin.And, builtinCallable, 0, expandZero, expandZero},
-        `not`:          BuiltinFunc{builtin.Not, builtinCallable, 0, expandZero, expandZero},
+        `defor`:        BuiltinFunc{builtin.defor, builtinCallable, 0, expandZero, expandZero}, // $(defor $(x),$(y),$(z))  <=>  $(if $(defined $(x)),$(x),...)
+        `or`:           BuiltinFunc{builtin.or, builtinCallable, 0, expandZero, expandZero},
+        `and`:          BuiltinFunc{builtin.and, builtinCallable, 0, expandZero, expandZero},
+        `not`:          BuiltinFunc{builtin.not, builtinCallable, 0, expandZero, expandZero},
         //`xor`:          BuiltinFunc{builtin.Xor, builtinCallable, 0, expandZero, expandZero},
 
-        `equal`:        BuiltinFunc{builtin.Equal, builtinCallable, 0, expandZero, expandZero},
-        `equals`:       BuiltinFunc{builtin.Equal, builtinCallable, 0, expandZero, expandZero},
-        `not-equal`:    BuiltinFunc{builtin.NotEqual, builtinCallable, 0, expandZero, expandZero},
+        `equal`:        BuiltinFunc{builtin.equal, builtinCallable, 0, expandZero, expandZero},
+        `equals`:       BuiltinFunc{builtin.equal, builtinCallable, 0, expandZero, expandZero},
+        `not-equal`:    BuiltinFunc{builtin.unequal, builtinCallable, 0, expandZero, expandZero},
         `match`:        BuiltinFunc{builtin.match, builtinCallable, 0, expandZero, expandZero},
 
         `greater`:      BuiltinFunc{builtin.Greater, builtinCallable, 0, expandZero, expandZero},
@@ -84,15 +84,15 @@ var builtins = map[string]BuiltinFunc {
         `auto`:         BuiltinFunc{nil, builtinCallable, 0, expandZero, expandZero},
         `var`:          BuiltinFunc{nil, builtinCallable, 0, expandZero, expandZero},
 
-        `closure`:      BuiltinFunc{builtin.Closure, builtinCallable, 0, expandZero, expandZero},
-        `env`:          BuiltinFunc{builtin.Env, builtinCallable, 0, expandZero, expandZero},
+        `closure`:      BuiltinFunc{builtin._closure, builtinCallable, 0, expandZero, expandZero},
+        `env`:          BuiltinFunc{builtin.env, builtinCallable, 0, expandZero, expandZero},
         `defs`:         BuiltinFunc{builtin.defs, builtinCallable, 0, expandZero, expandZero},
-        `sure-value`:   BuiltinFunc{builtin.SureValue, builtinCallable, 0, expandZero, expandZero},
-        `value`:        BuiltinFunc{builtin.Value, builtinCallable, 0, expandZero, expandZero},
-        `list`:         BuiltinFunc{builtin.List, builtinCallable, 0, expandZero, expandZero},
+        `sure-value`:   BuiltinFunc{builtin.sure, builtinCallable, 0, expandZero, expandZero},
+        `value`:        BuiltinFunc{builtin.value, builtinCallable, 0, expandZero, expandZero},
+        `list`:         BuiltinFunc{builtin.list, builtinCallable, 0, expandZero, expandZero},
 
-        `shell`:        BuiltinFunc{builtin.Shell, builtinCallable, 0, expandZero, expandZero},
-        `which`:        BuiltinFunc{builtin.Which, builtinCallable, 0, expandZero, expandZero},
+        `shell`:        BuiltinFunc{builtin.shell, builtinCallable, 0, expandZero, expandZero},
+        `which`:        BuiltinFunc{builtin.which, builtinCallable, 0, expandZero, expandZero},
 
         `plus`:     BuiltinFunc{builtin.Plus, builtinCallable, 0, expandZero, expandZero},
         `minus`:    BuiltinFunc{builtin.Minus, builtinCallable, 0, expandZero, expandZero},
@@ -101,47 +101,47 @@ var builtins = map[string]BuiltinFunc {
         `divide`:   BuiltinFunc{builtin.Divide, builtinCallable, 0, expandZero, expandZero},
         `div`:      BuiltinFunc{builtin.Divide, builtinCallable, 0, expandZero, expandZero},
 
-        `quote`:                BuiltinFunc{builtin.Quote, builtinCallable, 0, expandZero, expandZero},
-        `quote-join`:           BuiltinFunc{builtin.QuoteJoin, builtinCallable, 0, expandZero, expandZero},
-        `split-string`:         BuiltinFunc{builtin.SplitString, builtinCallable, 0, expandZero, expandZero},
-        `split-quote`:          BuiltinFunc{builtin.SplitQuote, builtinCallable, 0, expandZero, expandZero},
-        `split-quote-join`:     BuiltinFunc{builtin.SplitQuoteJoin, builtinCallable, 0, expandZero, expandZero},
-        `split-join-quote`:     BuiltinFunc{builtin.SplitJoinQuote, builtinCallable, 0, expandZero, expandZero},
+        `quote`:                BuiltinFunc{builtin.quote, builtinCallable, 0, expandZero, expandZero},
+        `quote-join`:           BuiltinFunc{builtin.quotejoin, builtinCallable, 0, expandZero, expandZero},
+        `split-string`:         BuiltinFunc{builtin.splitstring, builtinCallable, 0, expandZero, expandZero},
+        `split-quote`:          BuiltinFunc{builtin.splitquote, builtinCallable, 0, expandZero, expandZero},
+        `split-quote-join`:     BuiltinFunc{builtin.splitquotejoin, builtinCallable, 0, expandZero, expandZero},
+        `split-join-quote`:     BuiltinFunc{builtin.splitjoinquote, builtinCallable, 0, expandZero, expandZero},
         `unique`:               BuiltinFunc{builtin.unique, builtinCallable, 0, expandZero, expandZero},
-        `join`:                 BuiltinFunc{builtin.Join, builtinCallable, 0, expandZero, expandZero}, // concat
-        `field`:                BuiltinFunc{builtin.Field, builtinCallable, 0, expandZero, expandZero},
-        `fields`:               BuiltinFunc{builtin.Fields, builtinCallable, 0, expandZero, expandZero},
+        `join`:                 BuiltinFunc{builtin.join, builtinCallable, 0, expandZero, expandZero}, // concat
+        `field`:                BuiltinFunc{builtin.field, builtinCallable, 0, expandZero, expandZero},
+        `fields`:               BuiltinFunc{builtin.fields, builtinCallable, 0, expandZero, expandZero},
 
-        //`usee`:       BuiltinFunc{builtin.Usee, builtinCallable, 0, expandZero, expandZero},
-        `uses`:         BuiltinFunc{builtin.Uses, builtinCallable, 0, expandZero, expandZero},
+        //`usee`:       BuiltinFunc{builtin.usee, builtinCallable, 0, expandZero, expandZero},
+        `uses`:         BuiltinFunc{builtin.uses, builtinCallable, 0, expandZero, expandZero},
 
-        `path`:         BuiltinFunc{builtin.Path, builtinCallable, 0, expandZero, expandZero},
+        `path`:         BuiltinFunc{builtin.path, builtinCallable, 0, expandZero, expandZero},
         `bare`:         BuiltinFunc{builtin.bare, builtinCallable, 0, expandZero, expandZero}, // different from builtinBareword, for files, etc.
         `bareword`:     BuiltinFunc{builtin.bareword, builtinCallable, 0, expandZero, expandZero},
         `string`:       BuiltinFunc{builtin._string, builtinCallable, 0, expandZero, expandZero},
         `strval`:       BuiltinFunc{builtin.strval, builtinCallable, 0, expandZero, expandZero},
-        `strip`:        BuiltinFunc{builtin.Strip, builtinCallable, 0, expandZero, expandZero},
-        `trim`:         BuiltinFunc{builtin.Trim, builtinCallable, 0, expandZero, expandZero},
-        `trim-space`:   BuiltinFunc{builtin.TrimSpace, builtinCallable, 0, expandZero, expandZero},
-        `trim-left`:    BuiltinFunc{builtin.TrimLeft, builtinCallable, 0, expandZero, expandZero},
-        `trim-right`:   BuiltinFunc{builtin.TrimRight, builtinCallable, 0, expandZero, expandZero},
-        `trim-prefix`:  BuiltinFunc{builtin.TrimPrefix, builtinCallable, 0, expandZero, expandZero},
-        `trim-suffix`:  BuiltinFunc{builtin.TrimSuffix, builtinCallable, 0, expandZero, expandZero},
-        `trim-ext`:     BuiltinFunc{builtin.TrimExt, builtinCallable, 0, expandZero, expandZero},
+        `strip`:        BuiltinFunc{builtin.strip, builtinCallable, 0, expandZero, expandZero},
+        `trim`:         BuiltinFunc{builtin.trim, builtinCallable, 0, expandZero, expandZero},
+        `trim-space`:   BuiltinFunc{builtin.trimspace, builtinCallable, 0, expandZero, expandZero},
+        `trim-left`:    BuiltinFunc{builtin.trimleft, builtinCallable, 0, expandZero, expandZero},
+        `trim-right`:   BuiltinFunc{builtin.trimright, builtinCallable, 0, expandZero, expandZero},
+        `trim-prefix`:  BuiltinFunc{builtin.trimprefix, builtinCallable, 0, expandZero, expandZero},
+        `trim-suffix`:  BuiltinFunc{builtin.trimsuffix, builtinCallable, 0, expandZero, expandZero},
+        `trim-ext`:     BuiltinFunc{builtin.trimext, builtinCallable, 0, expandZero, expandZero},
 
-        `ext`:          BuiltinFunc{builtin.Ext, builtinCallable, 0, expandZero, expandZero},
+        `ext`:          BuiltinFunc{builtin.ext, builtinCallable, 0, expandZero, expandZero},
 
-        `addprefix`:    BuiltinFunc{builtin.AddPrefix, builtinCallable, 0, expandZero, expandZero},
-        `addsuffix`:    BuiltinFunc{builtin.AddSuffix, builtinCallable, 0, expandZero, expandZero},
+        `addprefix`:    BuiltinFunc{builtin.addprefix, builtinCallable, 0, expandZero, expandZero},
+        `addsuffix`:    BuiltinFunc{builtin.addsuffix, builtinCallable, 0, expandZero, expandZero},
 
-        `print`:        BuiltinFunc{builtin.Print, builtinCallable, 0, expandZero, expandZero},
-        `printf`:       BuiltinFunc{builtin.Printf, builtinCallable, 0, expandZero, expandZero},
-        `printl`:       BuiltinFunc{builtin.Printl, builtinCallable, 0, expandZero, expandZero},
-        `println`:      BuiltinFunc{builtin.Println, builtinCallable, 0, expandZero, expandZero},
+        `print`:        BuiltinFunc{builtin.print, builtinCallable, 0, expandZero, expandZero},
+        `printf`:       BuiltinFunc{builtin.printf, builtinCallable, 0, expandZero, expandZero},
+        `printl`:       BuiltinFunc{builtin.printl, builtinCallable, 0, expandZero, expandZero},
+        `println`:      BuiltinFunc{builtin.println, builtinCallable, 0, expandZero, expandZero},
 
         `uppercase`:    BuiltinFunc{builtin.UpperCase, builtinCallable, 0, expandZero, expandZero},
         `lowercase`:    BuiltinFunc{builtin.LowerCase, builtinCallable, 0, expandZero, expandZero},
-        `title`:        BuiltinFunc{builtin.Title, builtinCallable, 0, expandZero, expandZero},
+        `title`:        BuiltinFunc{builtin.title, builtinCallable, 0, expandZero, expandZero},
 
         `indent`:       BuiltinFunc{builtin.Indent, builtinCallable, 0, expandZero, expandZero},
 
@@ -219,7 +219,7 @@ var builtins = map[string]BuiltinFunc {
 
         `grep`:       BuiltinFunc{builtin.grep, builtinCallable, 1, expandDigits, expandUnDigits},
 
-        `untraversed`: BuiltinFunc{builtin.Untraversed, builtinCallable, 1, expandZero, expandZero},
+        `untraversed`: BuiltinFunc{builtin.untraversed, builtinCallable, 1, expandZero, expandZero},
 }
 
 var commands = map[string]BuiltinFunc {
@@ -252,8 +252,7 @@ var commands = map[string]BuiltinFunc {
         `link`:         BuiltinFunc{builtin.link, builtinCommand, 0, expandZero, expandZero},      // os/file_*.go
         `symlink`:      BuiltinFunc{builtin.symlink, builtinCommand, 0, expandZero, expandZero},   // os/file_*.go
 
-        `serve-http`:   BuiltinFunc{builtin.ServeHttp, builtinCommand, 0, expandZero, expandZero},
-        `serve-https`:  BuiltinFunc{builtin.ServeHttps, builtinCommand, 0, expandZero, expandZero},
+        `serve-http`:   BuiltinFunc{builtin.servehttp, builtinCommand, 0, expandZero, expandZero},
 
         `return`:       BuiltinFunc{builtin.Return, builtinCommand, 0, expandZero, expandZero},
 }
@@ -740,7 +739,7 @@ func (ctx builtin) _position(args... Value) (res Value) {
 type builtinDateOpts struct {
         time bool `t,tm,time,n,now`
 }
-func (ctx builtin) Date(args... Value) (res Value) {
+func (ctx builtin) date(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 opts = builtinDateOpts{ }
@@ -832,7 +831,7 @@ func (ctx builtin) assert(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) SureValue(args... Value) Value {
+func (ctx builtin) sure(args... Value) Value {
         for _, a := range args { if !a.True(ctx) {
                 erro(of(ctx,a), "assert: %T %v", a, a).debug(1)
         }}
@@ -840,7 +839,7 @@ func (ctx builtin) SureValue(args... Value) Value {
 }
 
 // $(defor $(x),$(y),$(z)) is identical to $(if $(defined $(x)),$(x),...)
-func (ctx builtin) DefOr(args... Value) (res Value) {
+func (ctx builtin) defor(args... Value) (res Value) {
         for _, a := range mergex(ctx, plain, args...) {
                 var _, unresolved = a.(unresolved)
                 if unresolved { continue } else {
@@ -851,7 +850,7 @@ func (ctx builtin) DefOr(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) Or(args... Value) (res Value) {
+func (ctx builtin) or(args... Value) (res Value) {
         for _, a := range args {
                 if v := a.True(ctx); v {
                         res = a
@@ -861,7 +860,7 @@ func (ctx builtin) Or(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) And(args... Value) (res Value) {
+func (ctx builtin) and(args... Value) (res Value) {
         for _, a := range args {
                 if v := a.True(ctx); v {
                         res = a
@@ -877,7 +876,7 @@ func (ctx builtin) And(args... Value) (res Value) {
 type builtinNotOpts struct {
         generalOpts
 }
-func (ctx builtin) Not(args... Value) (res Value) {
+func (ctx builtin) not(args... Value) (res Value) {
         var (
                 opts builtinNotOpts
                 t bool
@@ -900,7 +899,7 @@ func (ctx builtin) Not(args... Value) (res Value) {
 type builtinNotEqualOpts struct {
         generalOpts
 }
-func (ctx builtin) NotEqual(args... Value) (res Value) {
+func (ctx builtin) unequal(args... Value) (res Value) {
         var opts builtinNotEqualOpts
         ctx.parseOpts(&opts, plain)
         if n := len(args); n != 2 {
@@ -914,7 +913,7 @@ func (ctx builtin) NotEqual(args... Value) (res Value) {
 type builtinEqualOpts struct {
         generalOpts
 }
-func (ctx builtin) Equal(args... Value) (res Value) {
+func (ctx builtin) equal(args... Value) (res Value) {
         var opts builtinEqualOpts
         if ctx.parseOpts(&opts, plain); len(args) > 0 {
                 if a := merge(args[0]); len(a) == 1 {
@@ -1004,12 +1003,20 @@ func (ctx builtin) match(args... Value) (res Value) {
                 return
         }
 
-        patList = ctx.parseOpts(&opts, plain, args[0])
-        valList = mergex(ctx, plain, args[1:]...)
-        if opts.debug>0 { warn(ctx, "match: %v %v", patList, valList) }
+        if len(args) > 1 {
+                patList = ctx.parseOpts(&opts, plain, args[0])
+                valList = mergex(ctx, plain, args[1:]...)
+        } else {
+                valList = mergex(ctx, plain, args[0])
+        }
+        if opts.debug > 0 {
+                var ( n = len(args) ; d = opts.debug )
+                warn(ctx, "match: %v %v %v, %d", opts.regexps, patList, valList, n).debug(d)
+        }
 
         var pos = ctx.Position()
-        ForValList: for _, val := range valList {
+ForValList:
+        for _, val := range valList {
                 if isTrivial(val) { continue ForValList }
 
                 var str = val.Strval(ctx)
@@ -1031,7 +1038,7 @@ func (ctx builtin) match(args... Value) (res Value) {
                         }
                 }
 
-                if opts.debug>0 {
+                if opts.debug > 0 {
                         warn(ctx, "match: %v", str)
                         warn(ctx, "match: %v %T", val, val).debug(1)
                 }
@@ -1312,7 +1319,7 @@ func (ctx builtin) count(args... Value) (res Value) {
 type builtinEnvOpts struct {
         generalOpts
 }
-func (ctx builtin) Env(args... Value) (res Value) {
+func (ctx builtin) env(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 vals []Value
@@ -1370,7 +1377,7 @@ type builtinValueOpts struct {
         unexp bool `ux,unexpand,unexpanded`
         undef bool `u,un,undef`
 }
-func (ctx builtin) Value(args... Value) (res Value) {
+func (ctx builtin) value(args... Value) (res Value) {
         var (
                 opts builtinValueOpts
                 vals []Value
@@ -1471,7 +1478,7 @@ func (ctx builtin) call(p *delegate, args ...Value) (res Value) {
 type builtinClosureOpts struct {
         required bool `required,require-def,require-defs`
 }
-func (ctx builtin) Closure(args... Value) (res Value) {
+func (ctx builtin) _closure(args... Value) (res Value) {
         if len(args) < 1 {
                 erro(ctx, "insufficient args: %v", args).debug(1)
                 return
@@ -1547,12 +1554,12 @@ ForDefs:
         return MakeListOrScalar(ctx.Position(), vals)
 }
 
-func (ctx builtin) List(args... Value) (res Value) {
+func (ctx builtin) list(args... Value) (res Value) {
         res = MakeListOrScalar(ctx.Position(), args)
         return
 }
 
-func (ctx builtin) Shell(args... Value) (res Value) {
+func (ctx builtin) shell(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 vals []Value
@@ -1579,9 +1586,8 @@ func (ctx builtin) Shell(args... Value) (res Value) {
         return MakeListOrScalar(pos, vals)
 }
 
-type builtinWhichOpts struct {
-}
-func (ctx builtin) Which(args... Value) (res Value) {
+type builtinWhichOpts struct {}
+func (ctx builtin) which(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 opts builtinWhichOpts
@@ -1599,16 +1605,21 @@ func (ctx builtin) Which(args... Value) (res Value) {
 }
 
 type builtinServeHttpOpts struct {
+        ssl bool `s,ss,ssl`
         host string `h,host`
         port int `p,port`
 }
-func (ctx builtin) ServeHttp(args... Value) (res Value) {
+func (ctx builtin) servehttp(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 opts = builtinServeHttpOpts{ port:80 }
         )
 
         args = ctx.parseOpts(&opts, plain, args...)
+        if opts.ssl {
+                erro(ctx, "'serve-http(-ssl)' is unimplemented yet").debug(1)
+                return
+        }
 
         var server = &http.Server{}
         server.Addr = fmt.Sprintf("%s:%d", opts.host, opts.port)
@@ -1636,12 +1647,7 @@ func (ctx builtin) ServeHttp(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) ServeHttps(args... Value) (res Value) {
-        erro(ctx, "'serve-https' is unimplemented yet").debug(1)
-        return
-}
-
-func (ctx builtin) Print(args... Value) (res Value) {
+func (ctx builtin) print(args... Value) (res Value) {
         var (
                 x = len(args)
                 sb bytes.Buffer
@@ -1655,7 +1661,7 @@ func (ctx builtin) Print(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) Printl(args... Value) (res Value) {
+func (ctx builtin) printl(args... Value) (res Value) {
         var (
                 x = len(args)
                 sb bytes.Buffer
@@ -1672,7 +1678,7 @@ func (ctx builtin) Printl(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) Println(args... Value) (res Value) {
+func (ctx builtin) println(args... Value) (res Value) {
         var (
                 x = len(args)
                 sb bytes.Buffer
@@ -1887,7 +1893,7 @@ ForArgs:
         return
 }
 
-func (ctx builtin) Join(args... Value) (res Value) {
+func (ctx builtin) join(args... Value) (res Value) {
         if l := len(args); l > 0 {
                 var (
                         fields []string
@@ -1908,7 +1914,7 @@ func (ctx builtin) Join(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) Quote(args... Value) (res Value) {
+func (ctx builtin) quote(args... Value) (res Value) {
         args = mergex(ctx, plain, args...)
         if l := len(args); l > 0 {
                 var fields []string
@@ -1922,7 +1928,7 @@ func (ctx builtin) Quote(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) QuoteJoin(args... Value) (res Value) {
+func (ctx builtin) quotejoin(args... Value) (res Value) {
         var sep string
         args = mergex(ctx, plain, args...)
 
@@ -1943,7 +1949,7 @@ func (ctx builtin) QuoteJoin(args... Value) (res Value) {
 }
 
 // $(split-string .,1.2.3)
-func (ctx builtin) SplitString(args... Value) (res Value) {
+func (ctx builtin) splitstring(args... Value) (res Value) {
         args = mergex(ctx, plain, args...)
         if l := len(args); l > 0 {
                 var (
@@ -1991,15 +1997,15 @@ ValueType:
 }
 
 // TODO: deprecate this and add -quote to builtin.SplitString
-func (ctx builtin) SplitQuote(args... Value) (res Value) {
-        if res = ctx.SplitString(args...); !isNil(res) {
+func (ctx builtin) splitquote(args... Value) (res Value) {
+        if res = ctx.splitstring(args...); !isNil(res) {
                 quotestrings(res)
         }
         return
 }
 
 // TODO: deprecate this and add -quote to builtin.SplitString
-func (ctx builtin) SplitQuoteJoin(args... Value) (res Value) {
+func (ctx builtin) splitquotejoin(args... Value) (res Value) {
         var sep string
         if l := len(args); l > 1 {
                 sep = args[l-1].Strval(ctx)
@@ -2007,7 +2013,7 @@ func (ctx builtin) SplitQuoteJoin(args... Value) (res Value) {
         }
 
         var err error
-        if res = ctx.SplitQuote(args...); !isNil(res) {
+        if res = ctx.splitquote(args...); !isNil(res) {
                 if res, err = joinstrings(ctx, res, sep); err != nil {
                         erro(ctx, "%v", err).debug(1)
                 }
@@ -2017,7 +2023,7 @@ func (ctx builtin) SplitQuoteJoin(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) SplitJoinQuote(args... Value) (res Value) {
+func (ctx builtin) splitjoinquote(args... Value) (res Value) {
         var sep string
         if l := len(args); l > 1 {
                 sep = args[l-1].Strval(ctx)
@@ -2028,7 +2034,7 @@ func (ctx builtin) SplitJoinQuote(args... Value) (res Value) {
                 v Value
                 err error
         )
-        if v = ctx.SplitString(args...); !isNil(v) {
+        if v = ctx.splitstring(args...); !isNil(v) {
                 if v, err = joinstrings(ctx, v, sep); err == nil {
                         res = MakeString(ctx.Position(), strconv.Quote(v.Strval(ctx)))
                 }
@@ -2037,7 +2043,7 @@ func (ctx builtin) SplitJoinQuote(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) Field(args... Value) (res Value) {
+func (ctx builtin) field(args... Value) (res Value) {
         var pos = ctx.Position()
         if l := len(args); l >= 2 {
                 var (
@@ -2065,12 +2071,12 @@ func (ctx builtin) Field(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) Fields(args... Value) (res Value) {
+func (ctx builtin) fields(args... Value) (res Value) {
         // TODO: ...
         return
 }
 
-func (ctx builtin) Usee(args... Value) (result Value) {
+func (ctx builtin) usee(args... Value) (result Value) {
         var (
                 proj = ctx.Project() //current()
                 list []Value
@@ -2099,7 +2105,7 @@ func (ctx builtin) Usee(args... Value) (result Value) {
 type builtinUsesOpts struct {
        generalOpts
 }
-func (ctx builtin) Uses(args... Value) (result Value) {
+func (ctx builtin) uses(args... Value) (result Value) {
         var proj = ctx.Project() //current()
         if proj == nil {
                 erro(ctx, "unknown current context").debug(1)
@@ -2125,7 +2131,7 @@ ForArgs:
         return
 }
 
-func (ctx builtin) Path(args... Value) (result Value) {
+func (ctx builtin) path(args... Value) (result Value) {
         var (
                 pos = ctx.Position()
                 list []Value
@@ -2561,15 +2567,15 @@ ForSources:
         return
 }
 
-func (ctx builtin) Strip(args... Value) (res Value) {
-        return ctx.TrimSpace(args...)
+func (ctx builtin) strip(args... Value) (res Value) {
+        return ctx.trimspace(args...)
 }
 
-func (ctx builtin) TrimSpace(args... Value) (res Value) {
-        return ctx.Trim(append([]Value{MakeNone(ctx.Position())}, args...)...)
+func (ctx builtin) trimspace(args... Value) (res Value) {
+        return ctx.trim(append([]Value{MakeNone(ctx.Position())}, args...)...)
 }
 
-func (ctx builtin) Title(args... Value) (res Value) {
+func (ctx builtin) title(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 list []Value
@@ -2613,7 +2619,7 @@ func (ctx builtin) LowerCase(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) Trim(args... Value) (res Value) {
+func (ctx builtin) trim(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 cutset string
@@ -2635,7 +2641,7 @@ func (ctx builtin) Trim(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) TrimLeft(args... Value) (res Value) {
+func (ctx builtin) trimleft(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 cutset string
@@ -2657,7 +2663,7 @@ func (ctx builtin) TrimLeft(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) TrimRight(args... Value) (res Value) {
+func (ctx builtin) trimright(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 cutset string
@@ -2685,7 +2691,7 @@ type builtinTrimPrefixOpts struct {
 // $(trim-prefix foo%, fooxxx foo123)
 // $(trim-prefix %/foo, xxx/foo/a/b/c)
 // $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
-func (ctx builtin) TrimPrefix(args... Value) (res Value) {
+func (ctx builtin) trimprefix(args... Value) (res Value) {
         var (
                 opts builtinTrimPrefixOpts
                 prefixs, values, list []Value
@@ -2751,7 +2757,7 @@ func (ctx builtin) TrimPrefix(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) TrimSuffix(args... Value) (res Value) {
+func (ctx builtin) trimsuffix(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 cutset, s string
@@ -2777,7 +2783,7 @@ type builtinTrimExtOpts struct {
         all bool `a,all`
         ext []string `e,ext`
 }
-func (ctx builtin) TrimExt(args... Value) (res Value) {
+func (ctx builtin) trimext(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 opts builtinTrimExtOpts
@@ -2807,7 +2813,7 @@ func (ctx builtin) TrimExt(args... Value) (res Value) {
 type builtinExtOpts struct {
         generalOpts
 }
-func (ctx builtin) Ext(args... Value) (res Value) {
+func (ctx builtin) ext(args... Value) (res Value) {
         var (
                 opts builtinExtOpts
                 list []Value
@@ -2822,7 +2828,7 @@ func (ctx builtin) Ext(args... Value) (res Value) {
 type builtinAddPrefixOpts struct {
         generalOpts
 }
-func (ctx builtin) AddPrefix(args... Value) (res Value) {
+func (ctx builtin) addprefix(args... Value) (res Value) {
         if len(args) < 1 {
                 erro(ctx, "not enough args, try $(addprefix 'prefix', ...)").debug(1)
                 return
@@ -2868,7 +2874,7 @@ type builtinAddSuffixOpts struct {
         generalOpts
         final bool `final`
 }
-func (ctx builtin) AddSuffix(args... Value) (res Value) {
+func (ctx builtin) addsuffix(args... Value) (res Value) {
         if len(args) < 1 {
                 erro(ctx, "not enough args, try $(addsuffix 'suffix', ...)").debug(1)
                 return
@@ -2916,7 +2922,7 @@ func (ctx builtin) AddSuffix(args... Value) (res Value) {
 type builtinPrintfOpts struct {
         generalOpts
 }
-func (ctx builtin) Printf(args... Value) (res Value) {
+func (ctx builtin) printf(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 opts builtinPrintfOpts
@@ -4674,7 +4680,7 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
         return
 }
 
-func (ctx builtin) Untraversed(args... Value) Value {
+func (ctx builtin) untraversed(args... Value) Value {
         var pos = ctx.Position()
         var vals = mergex(ctx, plain, args...)
         return untraversed{MakeListOrScalar(pos, vals)}
