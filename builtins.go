@@ -1611,39 +1611,37 @@ type builtinServeHttpOpts struct {
 }
 func (ctx builtin) servehttp(args... Value) (res Value) {
         var (
-                pos = ctx.Position()
                 opts = builtinServeHttpOpts{ port:80 }
         )
-
-        args = ctx.parseOpts(&opts, plain, args...)
-        if opts.ssl {
+        if args = ctx.parseOpts(&opts, plain, args...); opts.ssl {
                 erro(ctx, "'serve-http(-ssl)' is unimplemented yet").debug(1)
                 return
         }
 
-        var server = &http.Server{}
+        var server = http.Server{}
         server.Addr = fmt.Sprintf("%s:%d", opts.host, opts.port)
-        fmt.Fprintf(stderr, "%s: serving http at %v\n", pos, server.Addr)
-        
-        http.HandleFunc("/quit", func(w http.ResponseWriter, r *http.Request) {
+        info(ctx, "serving http at %v ...", server.Addr)
+
+        var quit = func(w http.ResponseWriter, r *http.Request) {
                 io.WriteString(w, "<font color=red>Server will close in 1sec ...</font>")
                 go func() {
                         time.Sleep(1 * time.Second)
                         server.Shutdown(gc.Background())
                 } ()
-        })
+        }
+
+        http.HandleFunc("/-/end",  quit)
+        http.HandleFunc("/-/quit", quit)
+        http.HandleFunc("/-/shut", quit)
 
         for _, a := range args {
                 var s = a.Strval(ctx)
-                fmt.Fprintf(stderr, "%s: serving files %v ...\n", pos, s)
+                info(ctx, "serving files %v ...", s)
                 http.Handle("/", http.FileServer(http.Dir(s)))
         }
 
-        if err := server.ListenAndServe(); err == http.ErrServerClosed {
-                if false { info(ctx, "http server closed") }// Requested /quit
-        } else if err != nil {
-                erro(ctx, "%s", err).debug(1)
-        }
+        var err = server.ListenAndServe()
+        if err != nil && err != http.ErrServerClosed { erro(ctx, "%s", err).debug(1) }
         return
 }
 
