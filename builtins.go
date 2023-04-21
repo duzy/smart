@@ -69,13 +69,13 @@ var builtins = map[string]BuiltinFunc {
         `not-equal`:    BuiltinFunc{builtin.unequal, builtinCallable, 0, expandZero, expandZero},
         `match`:        BuiltinFunc{builtin.match, builtinCallable, 0, expandZero, expandZero},
 
-        `greater`:      BuiltinFunc{builtin.Greater, builtinCallable, 0, expandZero, expandZero},
-        `less`:         BuiltinFunc{builtin.Less, builtinCallable, 0, expandZero, expandZero},
+        `greater`:      BuiltinFunc{builtin.greater, builtinCallable, 0, expandZero, expandZero},
+        `less`:         BuiltinFunc{builtin.less, builtinCallable, 0, expandZero, expandZero},
 
-        `case`:         BuiltinFunc{builtin.Case, builtinCallable, 0, expandZero, expandZero},
-        `if`:           BuiltinFunc{builtin.If, builtinCallable, 0, expandZero, expandZero},
-        `ifeq`:         BuiltinFunc{builtin.IfEq, builtinCallable, 0, expandZero, expandZero},
-        `ifne`:         BuiltinFunc{builtin.IfNE, builtinCallable, 0, expandZero, expandZero},
+        `case`:         BuiltinFunc{builtin._case, builtinCallable, 0, expandZero, expandZero},
+        `if`:           BuiltinFunc{builtin._if, builtinCallable, 0, expandZero, expandZero},
+        `ifeq`:         BuiltinFunc{builtin._ifeq, builtinCallable, 0, expandZero, expandZero},
+        `ifne`:         BuiltinFunc{builtin._ifne, builtinCallable, 0, expandZero, expandZero},
 
         `foreach`:      BuiltinFunc{builtin.foreach, builtinCallable, 1, expandPlaceholders, expandUnPlaceholders},
         `count`:        BuiltinFunc{builtin.count, builtinCallable, 0, expandZero, expandZero},
@@ -254,7 +254,7 @@ var commands = map[string]BuiltinFunc {
 
         `serve-http`:   BuiltinFunc{builtin.servehttp, builtinCommand, 0, expandZero, expandZero},
 
-        `return`:       BuiltinFunc{builtin.Return, builtinCommand, 0, expandZero, expandZero},
+        `return`:       BuiltinFunc{builtin._return, builtinCommand, 0, expandZero, expandZero},
 }
 
 func RegisterBuiltins(m map[string]BuiltinFunc) (err error) {
@@ -923,6 +923,7 @@ func (ctx builtin) equal(args... Value) (res Value) {
                         args[0] = MakeList(args[0].Position(), a...)
                 }
         }
+
         if len(args) != 2 {
                 erro(ctx, "wrong number of arguments: %v", args)
                 erro(ctx, "try: $(equal <value-list>,<value-list>)").debug(1)
@@ -960,7 +961,7 @@ func (ctx builtin) equal(args... Value) (res Value) {
 type builtinGreaterOpts struct {
         generalOpts
 }
-func (ctx builtin) Greater(args... Value) (res Value) {
+func (ctx builtin) greater(args... Value) (res Value) {
         var opts builtinGreaterOpts
         ctx.parseOpts(&opts, plain)
 
@@ -975,7 +976,7 @@ func (ctx builtin) Greater(args... Value) (res Value) {
 type builtinLessOpts struct {
         generalOpts
 }
-func (ctx builtin) Less(args... Value) (res Value) {
+func (ctx builtin) less(args... Value) (res Value) {
         var opts builtinLessOpts
         ctx.parseOpts(&opts, plain)
 
@@ -1051,7 +1052,7 @@ ForValList:
 // 2: $(case val (a 'xxx') (b 'yyy') (c 'zzz') ('if none or nil'))
 // 3: $(case val (a 'xxx') (b 'yyy') (c 'zzz') (- 'if none or nil'))
 // 4: $(case val (a 'xxx') (b 'yyy') (c -) (- -))
-func (ctx builtin) Case(args... Value) (res Value) {
+func (ctx builtin) _case(args... Value) (res Value) {
         var val Value
         if args = merge(args...); len(args) == 0 { return } else
         if _, ok := args[0].(*Group); !ok {
@@ -1105,7 +1106,7 @@ func (ctx builtin) Case(args... Value) (res Value) {
 }
 
 // $(if cond, true-value, else-value, ...)
-func (ctx builtin) If(args... Value) (res Value) {
+func (ctx builtin) _if(args... Value) (res Value) {
         if n := len(args); n > 1 {
                 if false { if v := args[0]; v.String() == "&(.test.$_)" {
                         conds := mergex(ctx, plain, v)
@@ -1125,7 +1126,7 @@ func (ctx builtin) If(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) IfEq(args... Value) (res Value) {
+func (ctx builtin) _ifeq(args... Value) (res Value) {
         if n := len(args); n > 2 {
                 var (
                         a = args[0].expand(ctx, plain)
@@ -1146,7 +1147,7 @@ func (ctx builtin) IfEq(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) IfNE(args... Value) (res Value) {
+func (ctx builtin) _ifne(args... Value) (res Value) {
         if n := len(args); n > 2 {
                 var (
                         a = args[0].expand(ctx, plain)
@@ -4397,12 +4398,11 @@ func (ctx builtin) touchfile(args... Value) (res Value) {
 // $(grep 'status=([0-9]+)',$1,$@)
 type builtinGrepOpts struct {
         generalOpts
-        //val Value `c,cap,capture,v,val,value,r,res,result`
 }
 func (ctx builtin) grep(args... Value) (res Value) {
         var (
                 opts builtinGrepOpts
-                vals, list []Value
+                rvs, list []Value
                 rxs []*regexp.Regexp // TODO: move it into builtinGrepOpts
                 result Value
                 nargs int
@@ -4414,13 +4414,11 @@ func (ctx builtin) grep(args... Value) (res Value) {
                 return
         }
 
-        if vals = ctx.parseOpts(&opts, plain, args[0]); nargs == 2 {
-                args = args[1:]
-        } else if nargs == 3 {
-                result = args[1]
-                args = args[2:]
+        switch rvs = ctx.parseOpts(&opts, plain, args[0]); nargs {
+        case 2:   args = args[1:]
+        case 3: result = args[1] ; args = args[2:]
         }
-        for _, a := range vals {
+        for _, a := range rvs {
                 if s := a.Strval(ctx); s == "" {
                         erro(of(ctx,a), "empty regexp").debug(1)
                         return
@@ -4431,8 +4429,6 @@ func (ctx builtin) grep(args... Value) (res Value) {
                         rxs = append(rxs, r)
                 }
         }
-
-        vals = mergex(ctx, plain, args...)
 
         var pos = ctx.Position()
         var cc = autoContext{ Context:ctx, defs:make(autoDefMap) }
@@ -4455,7 +4451,7 @@ func (ctx builtin) grep(args... Value) (res Value) {
                 return
         }
 
-        for _, a := range vals {
+        for _, a := range mergex(ctx, plain, args...) {
                 var filename string
                 if f, y := a.(*File); y {
                         filename = f.fullname()
@@ -4463,7 +4459,7 @@ func (ctx builtin) grep(args... Value) (res Value) {
                         filename = a.Strval(ctx)
                 }
                 if filename == "" {
-                        errostack(of(ctx,a), 5, "empty filename: %v (%T) (%v -> %v)", a, a, args, vals).debug(64)
+                        errostack(of(ctx,a), 5, "empty filename: %v (%T) (%v -> %v)", a, a, args, rvs).debug(64)
                         return
                 }
 
@@ -4479,15 +4475,23 @@ func (ctx builtin) grep(args... Value) (res Value) {
                         scanner = bufio.NewScanner(file)
                 )
                 scanner.Split(bufio.ScanLines)
-                ScanLines: for scanner.Scan() {
+                outer: for scanner.Scan() {
                         var text = scanner.Text()
                         line += 1 // starting from #1
                         for _, rx := range rxs {
-                                if sm := rx.FindStringSubmatch(text); len(sm) > 0 {
-                                        if greped(line, sm) { break ScanLines }
+                                var sm = rx.FindStringSubmatch(text)
+                                if false && opts.debug > 0 && sm != nil {
+                                        warn(ctx, "%v %v %v", sm, rx, text)
                                 }
+                                if len(sm) > 0 && greped(line, sm) { break outer }
                         }
                 }
+        }
+        if false && opts.debug > 0 {
+                warn(ctx, "%v", rvs)
+                warn(ctx, "%v", result)
+                warn(ctx, "%v", args)
+                warn(ctx, "%v", list).debug(1)
         }
         if len(list) > 0 { res = MakeListOrScalar(pos, list) }
         return
@@ -4685,6 +4689,6 @@ func (ctx builtin) untraversed(args... Value) Value {
         return untraversed{MakeListOrScalar(pos, vals)}
 }
 
-func (ctx builtin) Return(args... Value) Value {
+func (ctx builtin) _return(args... Value) Value {
         return &returner{valbase{ctx.Position()}, args }
 }
