@@ -2860,28 +2860,36 @@ func (ctx modifier) stamp(args... Value) (result Value, traves travestates) {
     return
 }
 
+type modifierAssertOpts struct {
+    generalOpts
+    msg string `m,msg,message`
+}
 func (ctx modifier) assert(args... Value) (result Value, traves travestates) {
     var fails int
     var target = autoGet(ctx, "@")
-    for _, a := range args {
+    var opts modifierAssertOpts
+    for _, a := range parseOpts(ctx, &opts, plain, args...) {
         if _, y := a.(*punctuation); y { continue }
 
         var ctx = of(ctx, a)
 
-        var f *Flag
-        if p, y := a.(*Pair); y {
-            f, y = p.Key.(*Flag)
-        } else {
-            f, y = a.(*Flag)
-        }
-        if f != nil { switch f.name.Strval(ctx) {
-        case "a", "and", "m", "msg", "message":
-            warn(ctx, "obsoleted flag: %T %a", a, a).debug(1)
-        }}
+        // var f *Flag
+        // if p, y := a.(*Pair); y {
+        //     f, y = p.Key.(*Flag)
+        // } else {
+        //     f, y = a.(*Flag)
+        // }
+        // if false && f != nil { switch f.name.Strval(ctx) {
+        // case "a", "and", "m", "msg", "message":
+        //     warn(ctx, "obsoleted flag: %T %a", a, a).debug(1)
+        // }}
 
         if a.True(ctx) { continue }
-
-        erro(ctx, "assert failed: %v", a)
+        if s := opts.msg; s == "" {
+            erro(ctx, "assert failed: %v", a)
+        } else {
+            erro(ctx, "assert failed: %v: %s", a, s)
+        }
 
         traves.add(ctx, traveFail, target).
             error = fmt.Errorf("assert failed: %v", a)

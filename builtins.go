@@ -809,6 +809,7 @@ func (ctx builtin) warning(args... Value) (res Value) {
 
 type builtinAssertOpts struct {
         generalOpts
+        msg string `m,msg,message`
 }
 func (ctx builtin) assert(args... Value) (res Value) {
         var opts builtinAssertOpts
