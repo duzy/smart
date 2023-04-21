@@ -94,12 +94,12 @@ var builtins = map[string]BuiltinFunc {
         `shell`:        BuiltinFunc{builtin.shell, builtinCallable, 0, expandZero, expandZero},
         `which`:        BuiltinFunc{builtin.which, builtinCallable, 0, expandZero, expandZero},
 
-        `plus`:     BuiltinFunc{builtin.Plus, builtinCallable, 0, expandZero, expandZero},
-        `minus`:    BuiltinFunc{builtin.Minus, builtinCallable, 0, expandZero, expandZero},
-        `multiply`: BuiltinFunc{builtin.Multiply, builtinCallable, 0, expandZero, expandZero},
-        `mul`:      BuiltinFunc{builtin.Multiply, builtinCallable, 0, expandZero, expandZero},
-        `divide`:   BuiltinFunc{builtin.Divide, builtinCallable, 0, expandZero, expandZero},
-        `div`:      BuiltinFunc{builtin.Divide, builtinCallable, 0, expandZero, expandZero},
+        `plus`:     BuiltinFunc{builtin.plus, builtinCallable, 0, expandZero, expandZero},
+        `minus`:    BuiltinFunc{builtin.minus, builtinCallable, 0, expandZero, expandZero},
+        `multiply`: BuiltinFunc{builtin.multiply, builtinCallable, 0, expandZero, expandZero},
+        `mul`:      BuiltinFunc{builtin.multiply, builtinCallable, 0, expandZero, expandZero},
+        `divide`:   BuiltinFunc{builtin.divide, builtinCallable, 0, expandZero, expandZero},
+        `div`:      BuiltinFunc{builtin.divide, builtinCallable, 0, expandZero, expandZero},
 
         `quote`:                BuiltinFunc{builtin.quote, builtinCallable, 0, expandZero, expandZero},
         `quote-join`:           BuiltinFunc{builtin.quotejoin, builtinCallable, 0, expandZero, expandZero},
@@ -139,24 +139,24 @@ var builtins = map[string]BuiltinFunc {
         `printl`:       BuiltinFunc{builtin.printl, builtinCallable, 0, expandZero, expandZero},
         `println`:      BuiltinFunc{builtin.println, builtinCallable, 0, expandZero, expandZero},
 
-        `uppercase`:    BuiltinFunc{builtin.UpperCase, builtinCallable, 0, expandZero, expandZero},
-        `lowercase`:    BuiltinFunc{builtin.LowerCase, builtinCallable, 0, expandZero, expandZero},
+        `uppercase`:    BuiltinFunc{builtin.uppercase, builtinCallable, 0, expandZero, expandZero},
+        `lowercase`:    BuiltinFunc{builtin.lowercase, builtinCallable, 0, expandZero, expandZero},
         `title`:        BuiltinFunc{builtin.title, builtinCallable, 0, expandZero, expandZero},
 
-        `indent`:       BuiltinFunc{builtin.Indent, builtinCallable, 0, expandZero, expandZero},
+        `indent`:       BuiltinFunc{builtin.indent, builtinCallable, 0, expandZero, expandZero},
 
-        `substring`:    BuiltinFunc{builtin.Substring, builtinCallable, 0, expandZero, expandZero},
+        `substring`:    BuiltinFunc{builtin.substring, builtinCallable, 0, expandZero, expandZero},
 
         // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
-        `subst`:        BuiltinFunc{builtin.Subst, builtinCallable, 0, expandZero, expandZero},
+        `subst`:        BuiltinFunc{builtin.subst, builtinCallable, 0, expandZero, expandZero},
         `patsubst`:     BuiltinFunc{builtin.patsubst, builtinCallable, 0, expandZero, expandZero},
 
         `contains`:     BuiltinFunc{builtin.contains, builtinCallable, 0, expandZero, expandZero},
-        `filter`:       BuiltinFunc{builtin.Filter, builtinCallable, 0, expandZero, expandZero},
-        `filter-out`:   BuiltinFunc{builtin.FilterOut, builtinCallable, 0, expandZero, expandZero},
+        `filter`:       BuiltinFunc{builtin.filter, builtinCallable, 0, expandZero, expandZero},
+        `filter-out`:   BuiltinFunc{builtin.filterout, builtinCallable, 0, expandZero, expandZero},
 
-        `encode-base64`:BuiltinFunc{builtin.EncodeBase64, builtinCallable, 0, expandZero, expandZero},
-        `decode-base64`:BuiltinFunc{builtin.DecodeBase64, builtinCallable, 0, expandZero, expandZero},
+        `encode-base64`:BuiltinFunc{builtin.encodebase64, builtinCallable, 0, expandZero, expandZero},
+        `decode-base64`:BuiltinFunc{builtin.decodebase64, builtinCallable, 0, expandZero, expandZero},
 
         /* TODO:
         `encode-base32`
@@ -1003,8 +1003,8 @@ func (ctx builtin) match(args... Value) (res Value) {
                 return
         }
 
-        if len(args) > 1 {
-                patList = ctx.parseOpts(&opts, plain, args[0])
+        if ctx.parseOpts(&opts, plain); len(args) > 1 {
+                patList = mergex(ctx, plain, args[0])
                 valList = mergex(ctx, plain, args[1:]...)
         } else {
                 valList = mergex(ctx, plain, args[0])
@@ -1746,7 +1746,7 @@ type builtinMathOpts struct {
         generalOpts
         int bool `i,int,integer`
 }
-func (ctx builtin) Plus(args... Value) (result Value) {
+func (ctx builtin) plus(args... Value) (result Value) {
         var opts builtinMathOpts
         args = ctx.parseOpts(&opts, plain, args...)
         if opts.int {
@@ -1771,7 +1771,7 @@ func (ctx builtin) Plus(args... Value) (result Value) {
                 return MakeFloat(ctx.Position(), num)
         }
 }
-func (ctx builtin) Minus(args... Value) (result Value) {
+func (ctx builtin) minus(args... Value) (result Value) {
         var opts builtinMathOpts
         args = ctx.parseOpts(&opts, plain, args...)
         if opts.int {
@@ -1796,7 +1796,7 @@ func (ctx builtin) Minus(args... Value) (result Value) {
                 return MakeFloat(ctx.Position(), num)
         }
 }
-func (ctx builtin) Multiply(args... Value) (result Value) {
+func (ctx builtin) multiply(args... Value) (result Value) {
         var opts builtinMathOpts
         args = ctx.parseOpts(&opts, plain, args...)
         if opts.int {
@@ -1821,7 +1821,7 @@ func (ctx builtin) Multiply(args... Value) (result Value) {
                 return MakeFloat(ctx.Position(), num)
         }
 }
-func (ctx builtin) Divide(args... Value) (result Value) {
+func (ctx builtin) divide(args... Value) (result Value) {
         var opts builtinMathOpts
         args = ctx.parseOpts(&opts, plain, args...)
         if opts.int {
@@ -2322,17 +2322,17 @@ func (ctx builtin) filterValues1(neg bool, args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) Filter(args... Value) (res Value) {
-        // $(filter pattern…,text)
+// $(filter pattern…,text)
+func (ctx builtin) filter(args... Value) (res Value) {
         return ctx.filterValues1(false, args...)
 }
 
-func (ctx builtin) FilterOut(args... Value) (res Value) {
-        // $(filter-out pattern…,text)
+// $(filter-out pattern…,text)
+func (ctx builtin) filterout(args... Value) (res Value) {
         return ctx.filterValues1(true, args...)
 }
 
-func (ctx builtin) Substring(args... Value) (res Value) {
+func (ctx builtin) substring(args... Value) (res Value) {
         var pos = ctx.Position()
         args = mergex(ctx, plain, args...)
 
@@ -2374,7 +2374,7 @@ func (ctx builtin) Substring(args... Value) (res Value) {
 }
 
 // $(subst from,to,text)
-func (ctx builtin) Subst(args... Value) (res Value) {
+func (ctx builtin) subst(args... Value) (res Value) {
         var ( pos = ctx.Position(); list []Value )
         if nargs := len(args); nargs > 2 {
                 var (
@@ -2588,7 +2588,7 @@ func (ctx builtin) title(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) UpperCase(args... Value) (res Value) {
+func (ctx builtin) uppercase(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 list []Value
@@ -2603,7 +2603,7 @@ func (ctx builtin) UpperCase(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) LowerCase(args... Value) (res Value) {
+func (ctx builtin) lowercase(args... Value) (res Value) {
         var (
                 pos = ctx.Position()
                 list []Value
@@ -2990,7 +2990,7 @@ func (ctx builtin) printf(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) Indent(args... Value) (res Value) {
+func (ctx builtin) indent(args... Value) (res Value) {
         var (
                 l []Value
                 s string // indent
@@ -3014,7 +3014,7 @@ func (ctx builtin) Indent(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) Findstring(args... Value) (res Value) {
+func (ctx builtin) findstring(args... Value) (res Value) {
         // TODO: $(findstring find,text)
         return
 }
@@ -3086,37 +3086,37 @@ ForVals:
         return
 }
 
-func (ctx builtin) Sort(args... Value) (res Value) {
+func (ctx builtin) sort(args... Value) (res Value) {
         // TODO: $(sort list)
         return
 }
 
-func (ctx builtin) Word(args... Value) (res Value) {
+func (ctx builtin) word(args... Value) (res Value) {
         // TODO: $(word n,text)
         return
 }
 
-func (ctx builtin) WordList(args... Value) (res Value) {
+func (ctx builtin) wordlist(args... Value) (res Value) {
         // TODO: $(wordlist s,e,text)
         return
 }
 
-func (ctx builtin) Words(args... Value) (res Value) {
+func (ctx builtin) words(args... Value) (res Value) {
         // TODO: $(words n,text)
         return
 }
 
-func (ctx builtin) FirstWord(args... Value) (res Value) {
+func (ctx builtin) firstword(args... Value) (res Value) {
         // TODO: $(firstword names...)
         return
 }
 
-func (ctx builtin) LastWord(args... Value) (res Value) {
+func (ctx builtin) lastword(args... Value) (res Value) {
         // TODO: $(lastword names...)
         return
 }
 
-func (ctx builtin) EncodeBase64(args... Value) (res Value) {
+func (ctx builtin) encodebase64(args... Value) (res Value) {
         if len(args) > 0 {
                 pos := ctx.Position()
                 buf := new(bytes.Buffer)
@@ -3128,7 +3128,7 @@ func (ctx builtin) EncodeBase64(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) DecodeBase64(args... Value) (res Value) {
+func (ctx builtin) decodebase64(args... Value) (res Value) {
         if len(args) > 0 {
                 var list []Value
                 for _, a := range args {
