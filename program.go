@@ -320,8 +320,8 @@ func (t normalTraverseContext) traversed(target Value) (targets []Value) {
         t.autoSet(">", targets[len(targets)-1])
         if false {
             var ( v = targets[0] ; s = v.Strval(t) )
-            if strings.HasPrefix(s, ".configure/library/") {
-                warn(of(t, target), "%T %v", v, v).debug(1)
+            if strings.HasPrefix(s, ".configure/header/") || s == ".configure/header/HAVE_ASSERT_H.c" {
+                warn(of(t, target), "%T %v %s", v, v, s).debug(128)
             }
         }
     }

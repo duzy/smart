@@ -2574,9 +2574,7 @@ func (p *parser) ruleParams(ctx Context, args []Value) (err error) {
 					erro(of(ctx,elem), "%T '%s' already taken the name, no such parameter", a, s)
 				}
 			}
-			if d != nil {
-				d.set(ctx, DefArg, nil)
-			} else {
+			if d != nil { d.set(ctx, DefArg, nil) } else {
 				erro(of(ctx,elem), "'%s' is not defined", s)
 			}
 			p.params = append(p.params, d)
@@ -2830,9 +2828,9 @@ func (p *parser) rule(special specialRule, optvals, targets []Value) (result Val
 		params:   params,
 		position: position,
 		config:   p.configure,
-		targets:  barefilize(ctx, targets...),
-		depends:  barefilize(ctx, depends...),
-		ordered:  barefilize(ctx, ordered...),
+		targets:  targets, //barefilize(ctx, targets...),
+		depends:  depends, //barefilize(ctx, depends...),
+		ordered:  ordered, //barefilize(ctx, ordered...),
 		recipes:  recipes,
 		options:  optvals,
 		special:  special,

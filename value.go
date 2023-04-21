@@ -560,9 +560,8 @@ func closureWith(ctx Context, scopes ...*Scope) (res Context) {
 
 func refdef(ctx Context, val Value, origin Origin) (res bool) {
     for _, def := range val.defs(ctx) {
-        if def.origin == origin || origin == defany {
-            return true
-        }
+        if def.origin == origin || origin == defany { return true }
+        if true && def.value != nil && refdef(ctx, def.value, origin) { return true }
     }
     return
 }
@@ -926,6 +925,9 @@ func traverse(ctx Context, prereqValue Value, prereqStrval string, projects... *
         if prereqFile == nil {
             ctx.traversed(prereqValue) // set $< $> $^ or $|
         } else if targetValue != prereqFile {
+            if prereqFile.name == ".configure/header/.c" {
+                warn(ctx, "%T %v %v %v", prereqValue, prereqValue, prereqStrval, prereqFile).debug(1)
+            }
             ctx.traversed(prereqFile) // set $< $> $^ or $|
             bv = prereqFile
         } else if t := traves.of(traveFile); t.has() {
@@ -3460,6 +3462,9 @@ func (p *barefile) expand(ctx Context, w facet) (res Value) {
     return
 }
 func (p *barefile) traverse(ctx Context) (traves travestates) {
+    if p.Strval(ctx) == ".configure/header/.c" {
+        warn(ctx, "%T %v %s %v", p.Value, p.Value, p.Value.Strval(ctx), p.File).debug(1)
+    }
     if p.File != nil { traves = p.File.traverse(ctx) } else
     if p.Value != nil { traves = p.Value.traverse(ctx) }
     return
