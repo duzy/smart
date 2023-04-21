@@ -4451,15 +4451,20 @@ func (ctx builtin) grep(args... Value) (res Value) {
         }
 
         for _, a := range vals {
-                var file *os.File
-                var filename = a.Strval(ctx)
+                var filename string
+                if f, y := a.(*File); y {
+                        filename = f.fullname()
+                } else {
+                        filename = a.Strval(ctx)
+                }
                 if filename == "" {
-                        errostack(of(ctx,a), 5, "empty filename: %v (%T) (%v -> %v)",
-                                a, a, args, vals).debug(64)
+                        errostack(of(ctx,a), 5, "empty filename: %v (%T) (%v -> %v)", a, a, args, vals).debug(64)
                         return
                 }
+
+                var file *os.File
                 if file, err = os.Open(filename); err != nil {
-                        errostack(of(ctx,a), 5, "%T %v: %v", a, a, err).debug(128)
+                        errostack(of(ctx,a), 5, "%T %v: %s ; %v", a, a, filename, err).debug(128)
                         return
                 }
                 defer file.Close()
