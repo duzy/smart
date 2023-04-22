@@ -299,28 +299,20 @@ func applyUsingVar(ctx Context, user, usee *Project, nameVal Value) {
         opts.apply(c, d, merge(t.value))
     }
 }
-func applyUseeVars(ctx Context, user, usee *Project) {
-    var spec Value
-    if o := usee.resolveObject(ctx, "use.*"); o == nil {
-        // erro(ctx, "resolve use.* failed").debug(1)
-    } else if def, _ := o.(*def); def != nil {
-        spec = def.value
-    }
-    if !isTrivial(spec) {
-        // NOTE: apply vars like 'cflags', 'cxxflags', ...
-        for _, name := range merge(spec) { applyUseeVar(ctx, user, usee, name) }
-    }
-}
-func applyUserVars(ctx Context, user, usee *Project) {
+func applyUseVars(ctx Context, user, usee *Project) {
     var spec Value
     if o := user.resolveObject(ctx, "use.*"); o == nil {
         // erro(at(ctx,ctx.Position()), "resolve use.* failed").debug(1)
     } else if def, _ := o.(*def); def != nil {
-        spec = def.value
+        if spec = def.value; isTrivial(spec) { return }
     }
-    if !isTrivial(spec) {
+
+    for _, name := range merge(spec) {
+        // NOTE: apply vars like 'cflags', 'cxxflags', ...
+        applyUseeVar(ctx, user, usee, name)  // aka.     ABC += $(use.ABC)
+
         // NOTE: apply vars like 'use.cflags', 'use.cxxflags', ...
-        for _, value := range merge(spec) { applyUsingVar(ctx, user, usee, value) }
+        applyUsingVar(ctx, user, usee, name) // aka. use.ABC += $(use.ABC)
     }
 }
 
@@ -502,7 +494,7 @@ func (l *loader) use(ctx Context, opts useOpts, specVal Value, arged []Value, pa
         )
         if loaded == up {
             if !opts.noVars && !opts.files {
-                erro(ctx, "using `%s` multiple times", specName).debug(10)
+                errostack(ctx, 10, "%v: using `%s` multiple times: %v", l.project, specName, l.project.use.list).debug(10)
             }
             return
         }
@@ -643,8 +635,9 @@ func (l *loader) addUsing(ctx Context, usee *Project, params []Value, opts useOp
 
     // Add to the project using list, so that the use path is correct.
     if l.project.use.append(ctx, usee, params, opts); !opts.noVars {
-        applyUseeVars(ctx, l.project, usee) // aka.     ABC += $(use.ABC)
-        applyUserVars(ctx, l.project, usee) // aka. use.ABC += $(use.ABC)
+        // aka.     ABC += $(use.ABC)
+        // aka. use.ABC += $(use.ABC)
+        applyUseVars(ctx, l.project, usee)
         if 0 < len(opts.vars) {
             for _, v := range opts.vars {
                 warn(of(ctx,v), "var: %T %v", v, v)
@@ -1279,13 +1272,14 @@ func (l *loader) loadDotConfigure(ctx Context, ident *barecomp, identStr string,
             var ctx = at(l, position)
             var opts = useOpts{}
             if false {
-                applyUseeVars(ctx, l.project, loaded) // aka.     ABC += $(use.ABC)
-                applyUserVars(ctx, l.project, loaded) // aka. use.ABC += $(use.ABC)
+                // aka.     ABC += $(use.ABC)
+                // aka. use.ABC += $(use.ABC)
+                applyUseVars(ctx, l.project, loaded)
             } else if false {
                 for _, usee := range loaded.usees(true, false, false, false) {
-                    applyUseeVars(ctx, l.project, usee) // aka.     ABC += $(use.ABC)
-                    applyUserVars(ctx, l.project, usee) // aka. use.ABC += $(use.ABC)
-                    //warn(l, "%v %v %v", l.project, loaded, usee).debug(1)
+                    // aka.     ABC += $(use.ABC)
+                    // aka. use.ABC += $(use.ABC)
+                    applyUseVars(ctx, l.project, usee)
                 }
             } else if false {
                 if err := l.addUsing(ctx, loaded, nil, opts); err != nil {
@@ -1501,13 +1495,14 @@ func (l *loader) configuration(ctx Context, linfo *loadinfo, ident *barecomp, id
 
             var opts = useOpts{}
             if false {
-                applyUseeVars(ctx, l.project, loaded) // aka.     ABC += $(use.ABC)
-                applyUserVars(ctx, l.project, loaded) // aka. use.ABC += $(use.ABC)
+                // aka.     ABC += $(use.ABC)
+                // aka. use.ABC += $(use.ABC)
+                applyUseVars(ctx, l.project, loaded)
             } else if false {
                 for _, usee := range loaded.usees(true, false, false, false) {
-                    applyUseeVars(ctx, l.project, usee) // aka.     ABC += $(use.ABC)
-                    applyUserVars(ctx, l.project, usee) // aka. use.ABC += $(use.ABC)
-                    //warn(l, "%v %v %v", l.project, loaded, usee).debug(1)
+                    // aka.     ABC += $(use.ABC)
+                    // aka. use.ABC += $(use.ABC)
+                    applyUseVars(ctx, l.project, usee)
                 }
             } else if false {
                 if err := l.addUsing(ctx, loaded, nil, opts); err != nil {

@@ -824,6 +824,7 @@ func (ctx builtin) assert(args... Value) (res Value) {
                         if opts.warn {
                                 warnstack(ctx, d, "").debug(d)
                         } else {
+                                erro(ctx, "%v", a)
                                 errostack(ctx, d, "").debug(d)
                         }
                 }
@@ -3956,7 +3957,7 @@ type builtinStatOpts struct {
         generalOpts
         dir bool `di,dr,dir`
         file bool `fi,file`
-        symbol bool `s,sym,symlink,symbol;l,link`
+        symbol bool `s,sym,symlink,symbol,l,link`
 }
 func (ctx builtin) stat(args... Value) (res Value) {
         var (

@@ -3487,10 +3487,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 			return nil
 		}
 
-		var (
-			loaderProj  = loader.project
-			_, declared = linfo.declares[identStr]
-		)
+		var _, declared = linfo.declares[identStr]
 		if (loader.mode&Flat == 0) && loader.declare(at(ctx, ident.Position()), keyword, ident, identStr, &opts) {
 			// Change the 'default' owners into the new declared project
 			if s := ctx.Scope(); s != nil {
@@ -3503,19 +3500,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 			}
 			// NOTE: do.smart is always the first loaded, so the loadee will be pointed to it
 			if linfo.loadee == nil { linfo.loadee = ctx.Project() }
-			defer func(proj *Project) {
-				if false && loaderProj != nil && filepath.Base(filename) == entryFileName {
-					var ctx = at(ctx, ident.Position())
-					assert(loader.project == proj, "diverged project: %v != %v", loader.project, proj)
-					//applyUseeVars(ctx, loaderProj, p.project)  // aka. ABC += $(use.ABC)
-					applyUserVars(ctx, loaderProj, loader.project) // aka. use.ABC += $(use.ABC)
-					if loaderProj.name == "llvm.Analysis" {
-						warn(ctx, "%v, %v", loaderProj, loader.project).debug(24)
-					}
-				}
-				loader.closeCurrent(ident, identStr)
-			} (loader.project)
-
+			defer loader.closeCurrent(ident, identStr)
 			isMainFile = isMainFile && !declared;
 		}
 
