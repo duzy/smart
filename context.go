@@ -19,7 +19,10 @@ import (
   "io"
 )
 
-const productVerTag = "dev" // dev, alpha, beta, release
+const (
+  clocks = "🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚🕛🕜🕝🕞🕟🕠🕡🕢🕣🕤🕥🕦🕧"
+  productVerTag = "dev" // dev, alpha, beta, release
+)
 
 var ddd bool // debug dumps for special conditions
 

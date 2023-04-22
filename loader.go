@@ -615,7 +615,6 @@ func (l *loader) loadPlugin(ctx Context) (err error) {
 }
 
 func (l *loader) addUsing(ctx Context, usee *Project, params []Value, opts useOpts) (err error) {
-    // clocks:🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚🕛🕜🕝🕞🕟🕠🕡🕢🕣🕤🕥🕦🕧
     if options.verboseUsing {
         defer func(t time.Time) {
             var d = time.Now().Sub(t)
