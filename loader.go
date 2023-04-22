@@ -538,7 +538,7 @@ func (l *loader) use(ctx Context, opts useOpts, specVal Value, arged []Value, pa
             fmt.Fprintf(stderr, "%s├┤ %s:import(%s) (%s)\n", l.vs, l.project, specName, d)
         } (time.Now())
     }
-    if err = l.addUsing(ctx, loaded, params, opts); err != nil {
+    if err = l.addUsing(ctx, loaded, params, opts); err != nil { // see applyUseVars
         erro(ctx, "using '%v' failed: %v", loaded, err).debug(1)
         return
     }
@@ -1230,8 +1230,7 @@ func (l *loader) loadDotContainer(ctx Context, ident *barecomp, identStr string,
 
             var opts useOpts
             // TODO: parse the useOpts
-            // l.addUsing(at(l, position), loaded, nil, opts)
-            l.addUsing(ctx, loaded, nil, opts)
+            l.addUsing(ctx, loaded, nil, opts) // see applyUseVars
 
             result = true
         }
@@ -1271,26 +1270,10 @@ func (l *loader) loadDotConfigure(ctx Context, ident *barecomp, identStr string,
 
             var ctx = at(l, position)
             var opts = useOpts{}
-            if false {
-                // aka.     ABC += $(use.ABC)
-                // aka. use.ABC += $(use.ABC)
-                applyUseVars(ctx, l.project, loaded)
-            } else if false {
-                for _, usee := range loaded.usees(true, false, false, false) {
-                    // aka.     ABC += $(use.ABC)
-                    // aka. use.ABC += $(use.ABC)
-                    applyUseVars(ctx, l.project, usee)
-                }
-            } else if false {
-                if err := l.addUsing(ctx, loaded, nil, opts); err != nil {
-                    erro(ctx, "using '%v' failed: %v", loaded, err).debug(1)
-                }
-            } else if true {
-                for _, usee := range loaded.usees(true, false, false, false) {
-                    if err := l.addUsing(ctx, usee, nil, opts); err != nil {
-                        erro(ctx, "using '%v' failed: %v", usee, err).debug(1)
-                        break
-                    }
+            for _, usee := range loaded.usees(true, false, false, false) {
+                if err := l.addUsing(ctx, usee, nil, opts); err != nil { // see applyUseVars
+                    erro(ctx, "using '%v' failed: %v", usee, err).debug(1)
+                    break
                 }
             }
         }
@@ -1494,27 +1477,10 @@ func (l *loader) configuration(ctx Context, linfo *loadinfo, ident *barecomp, id
             l.project.configure, result = loaded, true
 
             var opts = useOpts{}
-            if false {
-                // aka.     ABC += $(use.ABC)
-                // aka. use.ABC += $(use.ABC)
-                applyUseVars(ctx, l.project, loaded)
-            } else if false {
-                for _, usee := range loaded.usees(true, false, false, false) {
-                    // aka.     ABC += $(use.ABC)
-                    // aka. use.ABC += $(use.ABC)
-                    applyUseVars(ctx, l.project, usee)
-                }
-            } else if false {
-                if err := l.addUsing(ctx, loaded, nil, opts); err != nil {
-                    erro(ctx, "using '%v' failed: %v", loaded, err).debug(1)
-                }
-                //l.importFileMaps(ctx, public, specVal)
-            } else if true {
-                for _, usee := range loaded.usees(true, false, false, false) {
-                    if err := l.addUsing(ctx, usee, nil, opts); err != nil {
-                        erro(ctx, "using '%v' failed: %v", usee, err).debug(1)
-                        break
-                    }
+            for _, usee := range loaded.usees(true, false, false, false) {
+                if err := l.addUsing(ctx, usee, nil, opts); err != nil { // see applyUseVars
+                    erro(ctx, "using '%v' failed: %v", usee, err).debug(1)
+                    break
                 }
             }
         }
