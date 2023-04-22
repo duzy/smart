@@ -2419,11 +2419,10 @@ SwitchDialect:
 			var (
 				isValue = p.dialect == "value"
 				x = p.expr(ctx, /*!isValue*/false) // parse first expr of recipe
-				n = isNil(x)
 				a *Argumented
 			)
-			if !n { if a, _ = x.(*Argumented); a != nil { x = a.value } }
-			if  n {
+			if !isNil(x) { if a, _ = x.(*Argumented); a != nil { x = a.value } }
+			if isNil(x) {
 				erro(ctx, "parsed value is nil")
 			} else if isValue {
 				// no resolving commands
@@ -2439,15 +2438,13 @@ SwitchDialect:
 				erro(of(ctx,x), "'%s' is not a command (%s)", t.string, typeof(sym))
 			} else if b.s.b&builtinCommand == 0 {
 				erro(of(ctx,x), "'%s' is not a command, use $(%s ...) instead", t.string, t.string)
-			} else {
-				x = sym
-			}
+			} else { x = sym }
 
 			if !isValue && p.tok.IsAssign() {
 				elems = append(elems, p.define(ctx, p.tok, x))
 				break SwitchDialect
 			} else if a != nil {
-				elems = append(elems, a)
+				elems, a.value = append(elems, a), x
 			} else {
 				elems = append(elems, x)
 			}
@@ -2490,8 +2487,8 @@ SwitchDialect:
 			var x Value
 			var bits = p.setbit(parseRecipeText)
 			switch p.tok {
-			default:           x = p.expr(ctx, false)
-			case RAW:    x = p.literal(false)
+			default:  x = p.expr(ctx, false)
+			case RAW: x = p.literal(false)
 				/*
 			case LINEND:
 				erro(ctx, "unexpected end of line for compound string")

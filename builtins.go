@@ -35,7 +35,7 @@ const (
 )
 type builtin struct {
         Context
-        opts []Value
+        v []Value
         w facet
 }
 type BuiltinFunc struct {
@@ -457,8 +457,8 @@ ForArgs:
         return
 }
 
-func (ctx *builtin) parseOpts(opts interface{}, w facet, args ...Value) (res []Value) {
-        if a := parseOpts(ctx.Context, opts, 0, ctx.opts...); len(a) > 0 {
+func (ctx *builtin) opts(opts interface{}, w facet, args ...Value) (res []Value) {
+        if a := parseOpts(ctx.Context, opts, 0, ctx.v...); len(a) > 0 {
                 for _, v := range a {
                         erro(ctx.Context, "unknown option: %v (%T)", v, v).debug(4)
                 }
@@ -588,7 +588,7 @@ func (ctx builtin) typeof(args... Value) (res Value) {
                 opts builtinTypeofOpts
                 elems []Value
         )
-        for _, arg := range ctx.parseOpts(&opts, plain, args...) {
+        for _, arg := range ctx.opts(&opts, plain, args...) {
                 if opts.expand { arg = arg.expand(ctx, plain) }
                 // Arguments are passed in a list:
                 //   $(fun abc)                 args: (abc)
@@ -608,7 +608,7 @@ func (ctx builtin) origin(args... Value) (res Value) {
                 opts builtinOriginOpts
                 elems []Value
         )
-        for _, arg := range ctx.parseOpts(&opts, plain, args...) {
+        for _, arg := range ctx.opts(&opts, plain, args...) {
                 var pos = arg.Position()
                 if name := arg.Strval(ctx); name == "" {
                         elems = append(elems, MakeNil(pos))
@@ -630,7 +630,7 @@ func (ctx builtin) defined(args... Value) (res Value) {
                 opts builtinDefinedOpts
                 elems []Value
         )
-        for _, arg := range ctx.parseOpts(&opts, plain, args...) {
+        for _, arg := range ctx.opts(&opts, plain, args...) {
                 var _, unresolved = arg.(unresolved)
                 elems = append(elems, MakeBoolean(pos, !unresolved))
         }
@@ -647,7 +647,7 @@ func (ctx builtin) PushContext(args... Value) (res Value) {
                 opts builtinPushContextOpts
                 m map[string]*def
         )
-        for _, arg := range ctx.parseOpts(&opts, plain, args...) {
+        for _, arg := range ctx.opts(&opts, plain, args...) {
                 var s = arg.Strval(ctx)
                 if s == "" { continue }
                 if m == nil { m = make(map[string]*def) }
@@ -668,7 +668,7 @@ type builtinPopContextOpts struct {
 }
 func (ctx builtin) PopContext(args... Value) (res Value) {
         var opts builtinPopContextOpts
-        for _, arg := range ctx.parseOpts(&opts, plain, args...) {
+        for _, arg := range ctx.opts(&opts, plain, args...) {
                 warn(ctx, "unused argument: %T %v", arg, arg).debug(1)
                 break
         }
@@ -716,7 +716,7 @@ func (ctx builtin) _position(args... Value) (res Value) {
                 opts builtinPositionOpts
                 vals []Value
         )
-        args = ctx.parseOpts(&opts, plain, args...)
+        args = ctx.opts(&opts, plain, args...)
 
         if opts.filename {
                 vals = append(vals, MakeString(pos, pos.Filename))
@@ -744,7 +744,7 @@ func (ctx builtin) date(args... Value) (res Value) {
                 pos = ctx.Position()
                 opts = builtinDateOpts{ }
         )
-        args = ctx.parseOpts(&opts, plain, args...)
+        args = ctx.opts(&opts, plain, args...)
 
         if t := time.Now(); len(args) > 0 {
                 var vals []Value
@@ -772,7 +772,7 @@ type builtinDebugOpts struct {
 }
 func (ctx builtin) debug(args... Value) (res Value) {
         var opts builtinDebugOpts
-        args = ctx.parseOpts(&opts, plain, args...)
+        args = ctx.opts(&opts, plain, args...)
 
         var s bytes.Buffer
         for i, a := range args {
@@ -813,7 +813,7 @@ type builtinAssertOpts struct {
 }
 func (ctx builtin) assert(args... Value) (res Value) {
         var opts builtinAssertOpts
-        ctx.parseOpts(&opts, expandZero)
+        ctx.opts(&opts, expandZero)
 
         var w = ctx.w
         var d = opts.debug ; if d < 1 { d = 1 + 5 }
@@ -886,7 +886,7 @@ func (ctx builtin) not(args... Value) (res Value) {
                 if _, y := args[0].(unexpanded); y {
                         // NOTE: no opts from unexpanded value
                         // TODO: apply this rule to parseOpts
-                } else if a := ctx.parseOpts(&opts, plain, args[0]); len(a)>0 {
+                } else if a := ctx.opts(&opts, plain, args[0]); len(a)>0 {
                         args = append(a, args...)
                 }
                 if opts.debug>0 { for i, a := range args { warn(ctx, "%v. %T %v", i, a, a) }}
@@ -902,7 +902,7 @@ type builtinNotEqualOpts struct {
 }
 func (ctx builtin) unequal(args... Value) (res Value) {
         var opts builtinNotEqualOpts
-        ctx.parseOpts(&opts, plain)
+        ctx.opts(&opts, plain)
         if n := len(args); n != 2 {
                 erro(ctx, "wrong number of arguments, try: $(not-equal <value-list>,<value-list>)")
         } else if args[0].cmp(ctx, args[1]) != cmpEqual {
@@ -916,7 +916,7 @@ type builtinEqualOpts struct {
 }
 func (ctx builtin) equal(args... Value) (res Value) {
         var opts builtinEqualOpts
-        if ctx.parseOpts(&opts, plain); len(args) > 0 {
+        if ctx.opts(&opts, plain); len(args) > 0 {
                 if a := merge(args[0]); len(a) == 1 {
                         args[0] = a[0]
                 } else {
@@ -963,7 +963,7 @@ type builtinGreaterOpts struct {
 }
 func (ctx builtin) greater(args... Value) (res Value) {
         var opts builtinGreaterOpts
-        ctx.parseOpts(&opts, plain)
+        ctx.opts(&opts, plain)
 
         if n := len(args); n != 2 {
                 erro(ctx, "wrong number of arguments, try: $(greater <value-list>,<value-list>)")
@@ -978,7 +978,7 @@ type builtinLessOpts struct {
 }
 func (ctx builtin) less(args... Value) (res Value) {
         var opts builtinLessOpts
-        ctx.parseOpts(&opts, plain)
+        ctx.opts(&opts, plain)
 
         if n := len(args); n != 2 {
                 erro(ctx, "wrong number of arguments, try: $(less <value-list>,<value-list>)")
@@ -1005,7 +1005,7 @@ func (ctx builtin) match(args... Value) (res Value) {
                 return
         }
 
-        if ctx.parseOpts(&opts, plain); len(args) > 1 {
+        if ctx.opts(&opts, plain); len(args) > 1 {
                 patList = mergex(ctx, plain, args[0])
                 valList = mergex(ctx, plain, args[1:]...)
         } else {
@@ -1226,7 +1226,7 @@ func (ctx builtin) foreach(args... Value) (res Value) {
 
         var (
                 opts builtinForEachOpts
-                values = ctx.parseOpts(&opts, plain, args[0])
+                values = ctx.opts(&opts, plain, args[0])
         )
         if len(values) == 0 {
                 var d = opts.debug ; if d < 1 { d = 1 }
@@ -1305,7 +1305,7 @@ func (ctx builtin) count(args... Value) (res Value) {
                 opts builtinCountOpts
                 num int64
         )
-        ctx.parseOpts(&opts, plain)
+        ctx.opts(&opts, plain)
 
         var x = len(opts.vals)
         for i, a := range args {
@@ -1343,7 +1343,7 @@ func (ctx builtin) _auto(p *delegate, args... Value) (res Value) {
         if len(args) == 0 { return }
 
         var opts builtinAutoOpts
-        ctx.parseOpts(&opts, plain)
+        ctx.opts(&opts, plain)
 
         var scope = ctx.Scope()
         if a := merge(args[0]); len(a) > 0 {
@@ -1385,7 +1385,7 @@ func (ctx builtin) value(args... Value) (res Value) {
                 vals []Value
                 closure bool
         )
-        if args = ctx.parseOpts(&opts, plain, args...); opts.undef {
+        if args = ctx.opts(&opts, plain, args...); opts.undef {
                 vals = append(vals, &undef{&None{valbase{ctx.Position()}, nil}})
         }
         closure = opts.closure
@@ -1436,7 +1436,7 @@ type builtinCallOpts struct {
 }
 func (ctx builtin) call(p *delegate, args ...Value) (res Value) {
         var opts builtinCallOpts
-        ctx.parseOpts(&opts, plain)
+        ctx.opts(&opts, plain)
 
         if len(args) == 0 {
                 erro(ctx, "no name specified: %v", args[0]).debug(1)
@@ -1465,7 +1465,7 @@ func (ctx builtin) call(p *delegate, args ...Value) (res Value) {
         if d, y := o.(*def); true && y {
                 res, _ = p.call(ctx, ctx.w, d, args...)
         } else {
-                res = o.Call(ctx, ctx.opts, args...)
+                res = o.Call(ctx, ctx.v, args...)
         }
 
         if res != nil {
@@ -1487,7 +1487,7 @@ func (ctx builtin) _closure(args... Value) (res Value) {
         }
 
         var opts builtinClosureOpts
-        ctx.parseOpts(&opts, plain)
+        ctx.opts(&opts, plain)
 
         var vals []Value
         for _, nameVal := range mergex(ctx, ctx.w, args...) {
@@ -1506,7 +1506,7 @@ func (ctx builtin) _closure(args... Value) (res Value) {
                                 erro(of(ctx,nameVal), "no def '%v' (%v)", name, nameVal).debug(1)
                         }
                 } else {
-                        vals = append(vals, def.Call(ctx, ctx.opts, args[1:]...))
+                        vals = append(vals, def.Call(ctx, ctx.v, args[1:]...))
                 }
         }
         return MakeListOrScalar(ctx.Position(), vals)
@@ -1524,7 +1524,7 @@ func (ctx builtin) defs(args... Value) (res Value) {
                 strs []string
                 vals []Value
         )
-        args = ctx.parseOpts(&opts, plain, args...)
+        args = ctx.opts(&opts, plain, args...)
 ForDefs:
         for name, _ := range ctx.Project().scope.elems {
                 if len(opts.rxs) == 0 {
@@ -1595,7 +1595,7 @@ func (ctx builtin) which(args... Value) (res Value) {
                 opts builtinWhichOpts
                 vals []Value
         )
-        for _, a := range ctx.parseOpts(&opts, plain, args...) {
+        for _, a := range ctx.opts(&opts, plain, args...) {
                 if s, err := exec.LookPath(a.Strval(ctx)); err != nil {
                         erro(ctx, "%v", err).debug(1)
                         return
@@ -1615,7 +1615,7 @@ func (ctx builtin) servehttp(args... Value) (res Value) {
         var (
                 opts = builtinServeHttpOpts{ port:80 }
         )
-        if args = ctx.parseOpts(&opts, plain, args...); opts.ssl {
+        if args = ctx.opts(&opts, plain, args...); opts.ssl {
                 erro(ctx, "'serve-http(-ssl)' is unimplemented yet").debug(1)
                 return
         }
@@ -1701,7 +1701,7 @@ type builtinAppendOpts struct {
 }
 func (ctx builtin) append(args... Value) (result Value) {
         var opts builtinAppendOpts
-        ctx.parseOpts(&opts, plain)
+        ctx.opts(&opts, plain)
 
         if len(args) < 2 {
                 erro(ctx, "insufficient number of arguments: %v", args).debug(1)
@@ -1750,7 +1750,7 @@ type builtinMathOpts struct {
 }
 func (ctx builtin) plus(args... Value) (result Value) {
         var opts builtinMathOpts
-        args = ctx.parseOpts(&opts, plain, args...)
+        args = ctx.opts(&opts, plain, args...)
         if opts.int {
                 var num int64
                 for n, a := range args {
@@ -1775,7 +1775,7 @@ func (ctx builtin) plus(args... Value) (result Value) {
 }
 func (ctx builtin) minus(args... Value) (result Value) {
         var opts builtinMathOpts
-        args = ctx.parseOpts(&opts, plain, args...)
+        args = ctx.opts(&opts, plain, args...)
         if opts.int {
                 var num int64
                 for n, a := range args {
@@ -1800,7 +1800,7 @@ func (ctx builtin) minus(args... Value) (result Value) {
 }
 func (ctx builtin) multiply(args... Value) (result Value) {
         var opts builtinMathOpts
-        args = ctx.parseOpts(&opts, plain, args...)
+        args = ctx.opts(&opts, plain, args...)
         if opts.int {
                 var num int64
                 for n, a := range args {
@@ -1825,7 +1825,7 @@ func (ctx builtin) multiply(args... Value) (result Value) {
 }
 func (ctx builtin) divide(args... Value) (result Value) {
         var opts builtinMathOpts
-        args = ctx.parseOpts(&opts, plain, args...)
+        args = ctx.opts(&opts, plain, args...)
         if opts.int {
                 var num int64
                 for n, a := range args {
@@ -1858,7 +1858,7 @@ type builtinUniqueOpts struct {
 }
 func (ctx builtin) unique(args... Value) (res Value) {
         var opts builtinUniqueOpts
-        if ctx.parseOpts(&opts, 0); opts.unexpand {
+        if ctx.opts(&opts, 0); opts.unexpand {
                 args = merge(args...)
         } else if opts.plain {
                 var x = plain
@@ -2114,7 +2114,7 @@ func (ctx builtin) uses(args... Value) (result Value) {
 
         var found bool
         var opts builtinUsesOpts
-        args = ctx.parseOpts(&opts, plain, args...)
+        args = ctx.opts(&opts, plain, args...)
 
 ForArgs:
         for _, arg := range args {
@@ -2150,7 +2150,7 @@ type builtinBareOpts struct {
 func (ctx builtin) bare(args... Value) (result Value) {
         var opts builtinBareOpts
         var vals []Value
-        for _, a := range ctx.parseOpts(&opts, plain, args...) {
+        for _, a := range ctx.opts(&opts, plain, args...) {
                 var val Value
                 switch t := a.(type) {
                 case *String, *Compound:
@@ -2196,7 +2196,7 @@ type builtinStrOpts struct {
 }
 func (ctx builtin) str(strval bool, w facet, args... Value) (result Value) {
         var opts builtinStrOpts
-        args = ctx.parseOpts(&opts, plain, args...)
+        args = ctx.opts(&opts, plain, args...)
 
         if len(args)+len(opts.clo)+len(opts.def) > 0 {
                 var defs []*def
@@ -2301,7 +2301,7 @@ func (ctx builtin) filterValues1(neg bool, args... Value) (res Value) {
                         vals, pats []Value
                         i int
                 )
-                if pats = ctx.parseOpts(&opts, plain, args[0]); len(pats) > 0 {
+                if pats = ctx.opts(&opts, plain, args[0]); len(pats) > 0 {
                         i = 1 // good
                 } else if pats = mergex(ctx, plain, args[1]); len(pats) == 0 {
                         erro(ctx, "no patterns: %v", args).debug(1)
@@ -2414,7 +2414,7 @@ func (ctx builtin) patsubst(args... Value) (res Value) {
         if len(args) < 3 {
                 erro(ctx, "not enough arguments").debug(1)
                 return
-        } else if srcPats = ctx.parseOpts(&opts, 0, args[0]); len(srcPats) == 0 {
+        } else if srcPats = ctx.opts(&opts, 0, args[0]); len(srcPats) == 0 {
                 if len(args) < 4 {
                         erro(ctx, "not enough arguments").debug(1)
                         return
@@ -2698,7 +2698,7 @@ func (ctx builtin) trimprefix(args... Value) (res Value) {
                 err error
         )
         if len(args) == 0 { return } else {
-                prefixs = ctx.parseOpts(&opts, plain, args[0])
+                prefixs = ctx.opts(&opts, plain, args[0])
         }
         if len(args) == 1 {
                 if len(prefixs) > 1 { values = prefixs[1:] }
@@ -2790,7 +2790,7 @@ func (ctx builtin) trimext(args... Value) (res Value) {
                 list []Value
                 ext string
         )
-        for i, a := range ctx.parseOpts(&opts, plain, args...) {
+        for i, a := range ctx.opts(&opts, plain, args...) {
                 if i == 0 { pos = a.Position() }
                 if s := a.Strval(ctx); s != "" {
                         if i == 0 && len(args) > 1 {
@@ -2818,7 +2818,7 @@ func (ctx builtin) ext(args... Value) (res Value) {
                 opts builtinExtOpts
                 list []Value
         )
-        for _, a := range ctx.parseOpts(&opts, plain, args...) {
+        for _, a := range ctx.opts(&opts, plain, args...) {
                 list = append(list, MakeString(a.Position(), filepath.Ext(a.Strval(ctx))))
         }
         res = MakeListOrScalar(ctx.Position(), list)
@@ -2835,14 +2835,14 @@ func (ctx builtin) addprefix(args... Value) (res Value) {
         }
 
         var opts builtinAddPrefixOpts
-        var prefixs = ctx.parseOpts(&opts, plain, args[0])
+        var prefixs = ctx.opts(&opts, plain, args[0])
         if len(prefixs) != 1 {
                 erro(ctx, "not enough args, try $(addprefix 'prefix', ...)").debug(1)
                 return
         }
 
         var list []Value
-        var vals = ctx.parseOpts(&opts, plain, args[1:]...)
+        var vals = ctx.opts(&opts, plain, args[1:]...)
         for _, prefix := range prefixs {
                 if !prefix.True(ctx) { continue }
                 var p, y = prefix.(*Pair)
@@ -2881,14 +2881,14 @@ func (ctx builtin) addsuffix(args... Value) (res Value) {
         }
 
         var opts builtinAddSuffixOpts
-        var suffixs = ctx.parseOpts(&opts, plain, args[0])
+        var suffixs = ctx.opts(&opts, plain, args[0])
         if len(suffixs) != 1 {
                 erro(ctx, "not enough args, try $(addsuffix 'suffix', ...)").debug(1)
                 return
         }
 
         var list []Value
-        var vals = ctx.parseOpts(&opts, plain, args[1:]...)
+        var vals = ctx.opts(&opts, plain, args[1:]...)
         for _, suffix := range suffixs {
                 if !suffix.True(ctx) { continue }
                 for _, val := range vals {
@@ -2932,7 +2932,7 @@ func (ctx builtin) printf(args... Value) (res Value) {
         if len(args) < 1 {
                 erro(ctx, "not enough args, try $(printf 'format', ...)").debug(1)
                 return
-        } else if vals = ctx.parseOpts(&opts, plain, args[0]); len(vals) != 1 {
+        } else if vals = ctx.opts(&opts, plain, args[0]); len(vals) != 1 {
                 erro(ctx, "not enough args, try $(printf 'format', ...)").debug(1)
                 return
         } else {
@@ -3041,7 +3041,7 @@ func (ctx builtin) contains(args... Value) (res Value) {
                 return
         }
 
-        ctx.parseOpts(&opts, plain)
+        ctx.opts(&opts, plain)
 
         var w = ctx.w|expandPairVal
         vals = mergex(ctx, w, args[0])
@@ -3156,7 +3156,7 @@ func (ctx builtin) fullname(args... Value) (res Value) {
                 opts builtinFullNameOpts
                 l []Value
         )
-        for _, a := range ctx.parseOpts(&opts, plain, args...) {
+        for _, a := range ctx.opts(&opts, plain, args...) {
                 if opts.debug > 0 {
                         if f, ok := toFile(a); ok {
                                 warn(ctx, "dir=%v sub=%v name=%v", f.dir, f.sub, f.name).debug(opts.debug)
@@ -3183,7 +3183,7 @@ func (ctx builtin) basex(n int, args... Value) (res Value) {
                 opts builtinBaseOpts
                 l []Value
         )
-        for _, a := range ctx.parseOpts(&opts, plain, args...) {
+        for _, a := range ctx.opts(&opts, plain, args...) {
                 var s string
                 if opts.fullname {
                         s, _ = as{a}.fullnameOrStrval(ctx)
@@ -3222,7 +3222,7 @@ func (ctx builtin) dirx(n int, args... Value) (res Value) {
                 l []Value
                 s string
         )
-        for _, a := range ctx.parseOpts(&opts, plain, args...) {
+        for _, a := range ctx.opts(&opts, plain, args...) {
                 if opts.fullname {
                         s, _ = as{a}.fullnameOrStrval(ctx)
                 } else {
@@ -3242,7 +3242,7 @@ func (ctx builtin) undirx(n int, args... Value) (res Value) {
                 l []Value
                 s string
         )
-        for _, a := range ctx.parseOpts(&opts, plain, args...) {
+        for _, a := range ctx.opts(&opts, plain, args...) {
                 if opts.fullname {
                         s, _ = as{a}.fullnameOrStrval(ctx)
                 } else {
@@ -3509,12 +3509,97 @@ func (ctx builtin) rename(args... Value) (res Value) {
 
 type builtinRemoveOpts struct {
         generalOpts
-        skip string `save,skip`
-        ignoreMissing bool `gm,ignoremissing,ignore-missing`
+        skip string `skip`
+        ignoreMissing bool `i,ig,ignore,ignore-missing`
         warnNotFile bool `warn-not-file`
         all bool `a,all,r,recursive`
 }
 func (ctx builtin) remove(args... Value) (res Value) {
+        var opts builtinRemoveOpts
+        ctx.opts(&opts, plain)
+
+        var remove func(Context, Value)
+        var removeFile = func(ctx Context, f *File) {
+                var err error
+                var s = f.fullname()
+                if opts.skip != "" {
+                        if strings.HasPrefix(s, opts.skip) { return } else
+                        if strings.HasPrefix(f.name, opts.skip) { return }
+                }
+                if opts.all { err = os.RemoveAll(s) } else { err = os.Remove(s) }
+                if err != nil {
+                        erro(ctx, "remove: %v", err)
+                        erro(ctx, "remove: %v -> %s", f, s).debug(6)
+                        return
+                }
+                if d := opts.debug; d>0 { warn(ctx, "remove %s (%s)", f, s).debug(d) }
+                if opts.verbose { prompt(ctx, "removed %s\n", f) }
+        }
+        var removePath = func(ctx Context, p *Path) {
+                var err error
+                var s = p.Strval(ctx)
+                if opts.skip != "" {
+                        if strings.HasPrefix(s, opts.skip) { return }
+                }
+                if opts.all { err = os.RemoveAll(s) } else {
+                        erro(ctx, "remove path: %v", p).debug(6)
+                        return
+                }
+                if err != nil {
+                        erro(ctx, "remove: %v", err)
+                        erro(ctx, "remove: %v", p).debug(6)
+                        return
+                }
+                if d := opts.debug; d>0 { warn(ctx, "remove %s", s).debug(d) }
+                if opts.verbose { prompt(ctx, "removed %s\n", s) }
+        }
+        var removePat = func(ctx Context, pat Value) {
+                var val = builtin{ Context:ctx }.wildcard(pat)
+                erro(ctx, "TODO: remove: %T %v -> %T %v", pat, pat, val, val).debug(1)
+        }
+
+        remove = func(ctx Context, v Value) {
+                if _, y := v.(*None); y {
+                        return
+                } else if isTrivial(v) {
+                        warnstack(ctx, 5, "triviality: %v (%T)", v, v).debug(6)
+                } else if u, y := v.(unexpanded); y {
+                        if !opts.verbose && opts.debug == 0 { return }
+                        warnstack(ctx, 5, "unexpended: %v (%T)", u.Value, u.Value).debug(6)
+                } else if l, y := v.(*List); y {
+                        for _, v := range l.Elems { remove(ctx, v) }
+                } else if d, y := v.(*delegate); y {
+                        if u, y := d.x.(unresolved); y {
+                                if opts.debug > 0 {
+                                        warn(ctx, "unresolved: %v: %v (%T, %v, %v)", d, u.Value, u.Value, d.o, d.a).debug(6)
+                                }
+                                return
+                        }
+                        warnstack(ctx, 5, "delegate: %v (%T, %v, %v)", d.x, d.x, d.o, d.a).debug(6)
+                } else if v.patterned(ctx) {
+                        removePat(ctx, v)
+                } else if f, y := v.(*File); y {
+                        removeFile(ctx, f)
+                } else if f = file(ctx, v.Strval(ctx)); f != nil {
+                        removeFile(ctx, f)
+                } else if p, y := v.(*Path); y {
+                        removePath(ctx, p)
+                } else if !opts.ignoreMissing {
+                        errostack(ctx, 5, "not file: %v (%T)", v, v).debug(6)
+                }
+        }
+        for _, a := range args {
+                var ctx = at(ctx.Context, a.Position())
+                remove(ctx, a.expand(ctx, plain))
+        }
+
+        if opts.debug > 0 { warn(ctx, "%v", args).debug(1) }
+        if opts.debug > 0 && ctx.checkErrors(true) > 0 {
+                errostack(ctx, 3, "remove errors").debug(1)
+        }
+        return
+}
+func (ctx builtin) old_remove(args... Value) (res Value) {
         var (
                 closured = closureProjects(ctx)
                 opts builtinRemoveOpts
@@ -3522,7 +3607,7 @@ func (ctx builtin) remove(args... Value) (res Value) {
                 str string
                 ok bool
         )
-        for _, v := range ctx.parseOpts(&opts, plain, args...) {
+        for _, v := range ctx.opts(&opts, plain, args...) {
                 var (
                         a = as{v}
                         ctx = at(ctx, a.Position())
@@ -3592,6 +3677,10 @@ type builtinRemoveAllOpts struct {
         generalOpts
 }
 func (ctx builtin) removeall(args... Value) (res Value) {
+        erro(ctx, "use $(remove -all): %v", args).debug(1)
+        return
+}
+func (ctx builtin) _removeall(args... Value) (res Value) {
         var (
                 closured = closureProjects(ctx)
                 opts builtinRemoveAllOpts
@@ -3599,7 +3688,7 @@ func (ctx builtin) removeall(args... Value) (res Value) {
                 str string
                 ok bool
         )
-        for _, v := range ctx.parseOpts(&opts, plain, args...) {
+        for _, v := range ctx.opts(&opts, plain, args...) {
                 var a = as{v}
                 var ctx = at(ctx, a.Position())
                 if a.patterned(ctx) {
@@ -3689,7 +3778,7 @@ type builtinLinkOpts struct {
 }
 func (ctx builtin) link(args... Value) (res Value) {
         var opts builtinLinkOpts
-        args = ctx.parseOpts(&opts, plain, args...)
+        args = ctx.opts(&opts, plain, args...)
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         oldname, newname string
@@ -3746,7 +3835,7 @@ type builtinSymlinkOpts struct {
 }
 func (ctx builtin) symlink(args... Value) (res Value) {
         var opts builtinSymlinkOpts
-        args = ctx.parseOpts(&opts, plain, args...)
+        args = ctx.opts(&opts, plain, args...)
 ForArgs:
         for i, na := 0, len(args); i < na; i += 1 {
                 var (
@@ -3760,14 +3849,14 @@ ForArgs:
                 case *Pair: // symlink srcName=dstName srcName=>dstName...
                         srcNameVal, dstNameVal = t.Key, t.Value
                 case *Group: // symlink (-u srcName dstName) (-v srcName dstName)...
-                        if aa = ctx.parseOpts(&opts, plain, t.Elems...); len(aa) != 2 {
+                        if aa = ctx.opts(&opts, plain, t.Elems...); len(aa) != 2 {
                                 erro(of(ctx,t), "expects two values for group").debug(1)
                                 return
                         } else {
                                 srcNameVal, dstNameVal = aa[0], aa[1]
                         }
                 case *List: // XXX: symlink old new, old new, ...
-                        if aa = ctx.parseOpts(&opts, plain, t.Elems...); len(aa) != 2 {
+                        if aa = ctx.opts(&opts, plain, t.Elems...); len(aa) != 2 {
                                 erro(of(ctx,t), "expects two values for list").debug(1)
                                 return
                         } else {
@@ -3880,7 +3969,7 @@ func (ctx builtin) stat(args... Value) (res Value) {
                 return
         }
 
-        if nams = ctx.parseOpts(&opts, plain, args...); len(nams) == 0 {
+        if nams = ctx.opts(&opts, plain, args...); len(nams) == 0 {
                 return
         }
 
@@ -3944,7 +4033,7 @@ func (ctx builtin) file(args... Value) (res Value) {
                 list []Value
         )
 
-        args = ctx.parseOpts(&opts, plain, args...)
+        args = ctx.opts(&opts, plain, args...)
 
         if opts.caller && false {
                 // program -> closure -> traversal -> ...
@@ -4013,7 +4102,7 @@ func (ctx builtin) glob(args... Value) (res Value) {
                 proj *Project
         )
 
-        args = ctx.parseOpts(&opts, plain, args...)
+        args = ctx.opts(&opts, plain, args...)
 
         var cwd string // TODO: get current work directory
         if proj = ctx.Project(); proj == nil {
@@ -4162,7 +4251,7 @@ func (ctx builtin) wildcard(args... Value) (res Value) {
                 files []*File
                 err error
         )
-        if args = ctx.parseOpts(&opts, plain, args...); len(opts.exclude) > 0 {
+        if args = ctx.opts(&opts, plain, args...); len(opts.exclude) > 0 {
                 opts.exclude = mergex(ctx, plain, opts.exclude...)
         }
 
@@ -4235,7 +4324,7 @@ func (ctx builtin) readfile(args... Value) (res Value) {
                 opts builtinReadFileOpts
                 l []Value
         )
-        for _, v := range ctx.parseOpts(&opts, plain, args...) {
+        for _, v := range ctx.opts(&opts, plain, args...) {
                 var (
                         a = as{v}
                         apos = a.Position()
@@ -4271,7 +4360,7 @@ func (ctx builtin) writefile(args... Value) (res Value) {
         // $(write-file -p filename,content)
         var opts builtinWriteFileOpts
         if len(args) > 0 {
-                var va = ctx.parseOpts(&opts, plain, args[1])
+                var va = ctx.opts(&opts, plain, args[1])
                 args = append(va, args[1:]...)
         }
 ForArgs:
@@ -4384,7 +4473,7 @@ func (ctx builtin) touchfile(args... Value) (res Value) {
         // $(touch-file filename)
         // $(touch-file -p filename)
         var opts = builtinTouchFileOpts{ mode: os.FileMode(0600) }
-        args = ctx.parseOpts(&opts, plain, args...)
+        args = ctx.opts(&opts, plain, args...)
         for i := 0; i < len(args); i += 1 {
                 if err := touch(ctx, args[i], uint32(opts.mode), opts.path); err != nil {
                         erro(ctx, "%v", err).debug(1)
@@ -4414,7 +4503,7 @@ func (ctx builtin) grep(args... Value) (res Value) {
                 return
         }
 
-        switch rvs = ctx.parseOpts(&opts, plain, args[0]); nargs {
+        switch rvs = ctx.opts(&opts, plain, args[0]); nargs {
         case 2:   args = args[1:]
         case 3: result = args[1] ; args = args[2:]
         }
