@@ -1213,11 +1213,9 @@ func (ctx builtin) For(args... Value) (res Value) {
 }
 
 type builtinForEachOpts struct {
-        // TODO: generalOpts
-        // TODO: Support passing opts like $(foreach(-empty) a, b, ...)
-        // NOTE: Disable all $(foreach) options to avoid messing with flag values.
-        debug int // `....`
-        empty bool // `empty,allow-empty`
+        generalOpts
+        empty bool `empty,allow-empty`
+        unique bool `u,uni,unique`
 }
 func (ctx builtin) foreach(args... Value) (res Value) {
         if n := len(args); n < 2 {
@@ -1225,14 +1223,18 @@ func (ctx builtin) foreach(args... Value) (res Value) {
                 return
         }
 
-        var (
-                opts builtinForEachOpts
-                values = ctx.opts(&opts, plain, args[0])
-        )
+        var opts builtinForEachOpts
+        var values = ctx.opts(&opts, plain, args[0])
         if len(values) == 0 {
                 var d = opts.debug ; if d < 1 { d = 1 }
-                errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v", len(args), args).debug(d)
+                errostack(ctx, 3, "$(foreach <list>,<template>): insurficient arguments: %v", args).debug(d)
                 return
+        } else if opts.unique {
+                var t = builtin{Context:ctx.Context}.unique(values...)
+                if isTrivial(t) {
+                        errostack(ctx, 3, "$(foreach <list>,<template>): invalid arguments: %v", args).debug(1)
+                        return
+                } else { values = merge(t) }
         }
 
         var (

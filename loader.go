@@ -187,21 +187,21 @@ type useOpts struct {
 
 type useVarOpts struct {
 	unique bool `u,uni,uniq,unique`
-    args []Value
+    remainder []Value
 }
 func (opts *useVarOpts) apply(ctx Context, def *def, vals []Value) {
     if opts.unique {
         def.append(ctx, vals...)
-        def.value = builtin{ctx, opts.args, plain}.unique(def.value)
+        def.value = builtin{ctx, opts.remainder, plain}.unique(def.value)
     }
 }
 func parseUseNameOpts(ctx Context, nameVal Value) (name string, opts useVarOpts) {
-    if arged, ok := nameVal.(*Argumented); ok {
-        var args []Value
-		nameVal, args = arged.value, arged.args
-        opts.args = parseOpts(ctx, &opts, plain, args...)
-	}
-	name = nameVal.Strval(ctx)
+    if a, y := nameVal.(*Argumented); y {
+        opts.remainder = parseOpts(ctx, &opts, plain, a.args...)
+		name = a.value.Strval(ctx)
+	} else {
+        name = nameVal.Strval(ctx)
+    }
     return
 }
 func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
@@ -217,6 +217,11 @@ func applyUseeVar(ctx Context, user, usee *Project, nameVal Value) {
 		d, alt = user.scope.define(ctx, DefVoid, name, none)
         isNewDef = !isNil(d) && isNil(alt)
 	)
+    if false { defer func() {
+        if strings.Contains(name, "-stdlib++-isystem") {
+            warn(ctx, "%v ; %v ; %v ; %v", user, usee, nameVal, d).debug(1)
+        }
+    } () }
 	if d == nil && !isNil(alt) { d, _ = alt.(*def) }
 	if d == nil {
 		erro(of(ctx,nameVal), `%v: "%s" is undefined`, user, name).debug(1)
@@ -274,6 +279,11 @@ func applyUsingVar(ctx Context, user, usee *Project, nameVal Value) {
         useName = "use." + name
         d, alt = user.scope.define(ctx, DefVoid, useName, none)
     )
+    if false { defer func() {
+        if strings.Contains(name, "-stdlib++-isystem") {
+            warn(ctx, "%v ; %v ; %v ; %v", user, usee, nameVal, d).debug(1)
+        }
+    } () }
     if d == nil && !isNil(alt) { d, _ = alt.(*def) }
     if d == nil {
         erro(of(ctx,nameVal), `%v: "%s" is undefined'`, user, name).debug(1)
