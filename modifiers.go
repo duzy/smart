@@ -196,12 +196,12 @@ var (
         `wait`:         modifier._wait,
         `stamp`:        modifier.stamp,
 
-        `check`:        modifier.Check,
+        `check`:        modifier.check,
         `assert`:       modifier.assert,
-        `case`:         modifier.Case,
-        `cond`:         modifier.Cond,
-        `if`:           modifier.Cond,
-        `where`:        modifier.Cond,
+        `case`:         modifier._case,
+        `cond`:         modifier.cond,
+        `if`:           modifier.cond,
+        `where`:        modifier.cond,
 
         `once`:         modifier.Once,
 
@@ -1867,7 +1867,7 @@ type modifierCheckOpts struct {
 // (check file=filename.txt)
 // (check dir=directory)
 // (check var=(NAME,VALUE))
-func (ctx modifier) Check(args... Value) (result Value, traves travestates) {
+func (ctx modifier) check(args... Value) (result Value, traves travestates) {
     var (
         pos = ctx.Position()
         opts modifierCheckOpts
@@ -2999,7 +2999,7 @@ ForArgs:
     return
 }
 
-func (ctx modifier) Cond(args... Value) (result Value, traves travestates) {
+func (ctx modifier) cond(args... Value) (result Value, traves travestates) {
     var (
         res bool
         msg string
@@ -3019,7 +3019,7 @@ type modifierCaseOpts struct {
     debug   bool `d,debug`
     verbose bool `v,verbose`
 }
-func (ctx modifier) Case(args... Value) (result Value, traves travestates) {
+func (ctx modifier) _case(args... Value) (result Value, traves travestates) {
     var opts modifierCaseOpts
     args = parseOpts(ctx, &opts, plain, args...)
 

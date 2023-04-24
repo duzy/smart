@@ -445,7 +445,8 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
       }
     case rxArNoSuchFile:
       if p.report {
-        addScannedDiag(diagError, lpos, fmt.Sprintf("'%v' file not found (as '%v')", filepath.Base(v[1].string), v[1].string))
+        var s = v[1].string
+        addScannedDiag(diagError, lpos, fmt.Sprintf("'%v' file not found", filepath.Base(s)))
       }
     case rxArNoArchiveMembers:
       if p.report {
