@@ -1232,8 +1232,8 @@ func (ctx builtin) foreach(args... Value) (res Value) {
         } else if opts.unique {
                 var t = builtin{Context:ctx.Context}.unique(values...)
                 if isTrivial(t) {
-                        errostack(ctx, 3, "$(foreach <list>,<template>): invalid arguments: %v", args).debug(1)
-                        return
+                        // errostack(ctx, 3, "$(foreach <list>,<template>): invalid arguments: %v", args).debug(1)
+                        // return
                 } else { values = merge(t) }
         }
 
