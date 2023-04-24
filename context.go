@@ -14,6 +14,7 @@ import (
   "bufio"
   "bytes"
   "sync"
+  "time"
   "fmt"
   "os"
   "io"
@@ -116,6 +117,7 @@ type Context interface {
   Scope() *Scope
 
   aquireLock() (unlock func())
+  gap(...interface{}) time.Duration
   wait()
 
   universe() *universe

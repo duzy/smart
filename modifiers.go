@@ -2890,9 +2890,9 @@ func (ctx modifier) assert(args... Value) (result Value, traves travestates) {
 }
 
 type predictOpts struct {
-    message  string "m,message;m,msg"
+    message  string "m,msg,message"
     and      bool "a,and"
-    verbose  bool "v,verbose"
+    verbose  bool "v,verb,verbose"
     verbose0 bool
 }
 func (ctx modifier) predict(args... Value) (result bool, message string, err error) {
@@ -2923,6 +2923,7 @@ func (ctx modifier) predict(args... Value) (result bool, message string, err err
     )
     defer func() { if opts.verbose {
         var status string
+        if d := ctx.gap(true); d > 0 { status += "gap " + d.String() }
         for reason, n := range reasons {
             if status != "" { status += ", " }
             if n == 1 { status += reason } else {
@@ -3074,27 +3075,27 @@ type predictionOutdatedOpts struct {
     silent   bool "s,silent"
 }
 func (ctx modifier) predictOutdated(args... Value) (result Value) {
-    var (
-        programCtx = ctx.programContext()
-        opts predictionOutdatedOpts
-        targetFullname string
-        target as
-        reason string
-        outdated bool
-        err error
-    )
-
+    var opts predictionOutdatedOpts
     args = parseOpts(ctx, &opts, plain, args...)
 
+    var err error
+    var target as
     if target.Value, _, _, err = wait(ctx); err != nil {
         erro(ctx, "waiting traversal failed: %v", err).debug(1)
         return
-    } else if ts := target.stat(ctx); ts == nil || ts.exists() != existenceConfirmed {
+    }
+
+    var (
+        reason string
+        outdated bool
+    )
+    if ts := target.stat(ctx); ts == nil || ts.exists() != existenceConfirmed {
         outdated, reason = true, fmt.Sprintf("target not exists: %s %v", typeof(target), target)
     } else if isDirty(ctx, target, args...) && isDirtyAfter(ctx, target, ts.mod()) {
         outdated, reason = true, "updated prerequisites"
     }
 
+    var targetFullname string
     if targetFullname, _ = target.fullnameOrStrval(ctx); outdated {
         assert(reason != "", "needs outdated reason")
     } else if outdated, err = isRecipesChanged(ctx, target); err != nil {
@@ -3122,11 +3123,11 @@ func (ctx modifier) predictOutdated(args... Value) (result Value) {
     }
 
     if opts.debug>0 || opts.verbose || (opts.verboseOutdated && outdated) || (opts.verboseUpdated && !outdated) {
-        var ( t = ctx.programContext(); m, s string )
+        var ( t = ctx.programContext(); s = time.Now().Sub(t.start).String(); m string )
+        if d := ctx.gap(true); d > 0 { s += ", gap " + d.String() }
+        if reason != "" { s += "; " + strings.TrimSpace(strings.TrimPrefix(reason, "outdated:")) }
         if outdated { m = "outdated" } else { m = "updated" }
-        if s = time.Now().Sub(t.start).String(); reason != "" {
-            s += "; " + strings.TrimSpace(strings.TrimPrefix(reason, "outdated:"))
-        }
+
         var (
             ts = trimPromptString(targetFullname)
             n = len(t.targets) + len(t.grepped)
@@ -3140,8 +3141,11 @@ func (ctx modifier) predictOutdated(args... Value) (result Value) {
 
     if opts.silent { reason = "" }
     if result = MakePrediction(ctx.Position(), outdated, reason); outdated {
-        if programCtx.dirt != "" { reason = programCtx.dirt + "; " + reason }
-        programCtx.dirt = reason
+        var pc = ctx.programContext()
+        if pc.dirt == "" {
+            if d := ctx.gap(true); d > 0 { reason += ", gap " + d.String() }
+        } else { reason = pc.dirt + "; " + reason }
+        pc.dirt = reason
     }
     return
 }

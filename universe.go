@@ -357,6 +357,8 @@ func (cache hitch) pat(ctx Context, key Value, bits int) (res *filemapCache) {
 type universe struct {
     diagContext
 
+    t time.Time
+
     workdir  string
     prefix   string // FIXME: prefix for distribution
 
@@ -367,8 +369,15 @@ type universe struct {
     fset    *FileSet
 
     statmutex sync.Mutex
-    filecache map[string]*filebase // File.fullname() -> File
     filemaps filemapCache
+    filecache map[string]*filebase // File.fullname() -> File
+}
+func (ctx *universe) gap(a ...interface{}) (d time.Duration) {
+    var t = time.Now()
+    if d = t.Sub(ctx.t); a != nil {
+        if x, y := a[0].(bool); x && y { ctx.t = t }
+    }
+    return
 }
 func (ctx *universe) arguments() []Value { return nil }
 func (ctx *universe) argumented() *argumentedContext { return nil }
@@ -490,6 +499,7 @@ func init() {
     ctx.globe.os,    _ = ctx.globe.define(ctx, DefVoid, ".os",    MakeString(pos, runtime.GOOS))
     ctx.globe.goals, _ = ctx.globe.define(ctx, DefVoid, ".goals", MakeNone(pos))
     ctx.globe.mode,  _ = ctx.globe.define(ctx, DefVoid, ".mode",  MakeNil(pos))
+    ctx.t = time.Now()
 }
 
 func (uc *universe) file(filename string, src []byte) *TokFile {
