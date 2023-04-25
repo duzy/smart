@@ -3122,9 +3122,13 @@ func (ctx modifier) predictOutdated(args... Value) (result Value) {
         }
     }
 
+    const warningGap = 5 * time.Second
+
     if opts.debug>0 || opts.verbose || (opts.verboseOutdated && outdated) || (opts.verboseUpdated && !outdated) {
         var ( t = ctx.programContext(); s = time.Now().Sub(t.start).String(); m string )
-        if d := ctx.gap(true); d > 0 { s += ", gap " + d.String() }
+        if d := ctx.gap(true); d > 0 { s += ", gap " + d.String()
+            if d > warningGap { warnstack(ctx, 5, "%v %v", target.Value, d).debug(32) }
+        }
         if reason != "" { s += "; " + strings.TrimSpace(strings.TrimPrefix(reason, "outdated:")) }
         if outdated { m = "outdated" } else { m = "updated" }
 
@@ -3143,7 +3147,9 @@ func (ctx modifier) predictOutdated(args... Value) (result Value) {
     if result = MakePrediction(ctx.Position(), outdated, reason); outdated {
         var pc = ctx.programContext()
         if pc.dirt == "" {
-            if d := ctx.gap(true); d > 0 { reason += ", gap " + d.String() }
+            if d := ctx.gap(true); d > 0 { reason += ", gap " + d.String()
+                if d > warningGap { warnstack(ctx, 5, "%v %v", target.Value, d).debug(32) }
+            }
         } else { reason = pc.dirt + "; " + reason }
         pc.dirt = reason
     }

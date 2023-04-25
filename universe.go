@@ -539,6 +539,12 @@ func (uc *universe) unmap(ctx Context, name interface{}) (maps []matchedFileMap)
         db = true
     } }
 
+    defer func (t time.Time) {
+        if d := time.Now().Sub(t); d > time.Duration(1)*time.Second {
+            warn(ctx, "%T %v %v", name, name, d).debug(1)
+        }
+    } (time.Now())
+
     var h = hitch{&uc.filemaps, hitched{name}}
     if v, y := name.(Value); y {
         cache = v.hit(ctx, h, cacheZero)

@@ -2207,7 +2207,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 
 	if g.skip { return } else if g.spec == nil {
 		var opts struct {
-			// TODO: options
+			configuration bool `configuration`
 		}
 		for _, op := range parseOpts(ctx, &opts, plain, g.values...) {
 			var val Value
@@ -2219,6 +2219,9 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 				erro(of(ctx,op), "unsupport flag: %T %v (%v)", v, v, val).debug(1)
 			}
 		}
+
+		// NOTE: see also universeContext.configure()
+		if opts.configuration { p.evalConfiguration(ctx, g, g.spec) }
 		return
 	} else if prop0 = g.spec[0]; isTrivial(prop0) {
 		erro(ctx, "illegal").debug(1)
@@ -2234,40 +2237,25 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	if name, resolved = loader.resolveObject(prop0); false {
 		erro(ctx, "resolve '%v' failed", prop0).debug(1)
 		return
-	} else if !isTrivial(resolved) {
-		// ...
 	} else if name == "configuration" {
-		// NOTE: see also universeContext.configure()
-		p.evalConfiguration(ctx, g, g.spec)
+		erro(ctx, "use '-configuration' instead", prop0).debug(1)
 		return
-	} else {
-		erro(ctx, "resolved '%v' is nil (options = %v)", prop0, *g).debug(1)
-		return
-	}
-
-	// At the point of `eval` was represented, the closure context
-	// might be empty. So we start closure with the current scope.
-	if op, y := resolved.(*Builtin); !y {
-		erro(ctx, "resolved '%v' is not a command (%s)", prop0, typeof(resolved)).debug(1)
-		return
-	} else if op.s.b&builtinCommand == 0 {
-		erro(ctx, "resolved builtin '%v' is not a command", prop0).debug(1)
-		return
-	} else if op.s.f != nil {
-		if false && strings.Contains(p.scanner.File().Name(), ".after.") {
-			warn(ctx, "%v: %v", p.scanner.File().Name(), ctx.Scope()).debug(1)
-			warn(ctx, "%v: %v", p.scanner.File().Name(), ctx).debug(1)
-			ctx.checkErrors(true)
-			for i, v := range g.spec[1:] {
-				warn(ctx, "%v: %v %s - %T %v - %d", p.scanner.File().Name(), p.tok, p.lit, v, v, i).debug(1)
-				ctx.checkErrors(true)
-				warn(ctx, "%v: %v %s %v", p.scanner.File().Name(), p.tok, p.lit, v.expand(ctx, plain)).debug(1)
-				ctx.checkErrors(true)
-				warn(ctx, "%v: %v %s %v", p.scanner.File().Name(), p.tok, p.lit, mergex(ctx, plain, v)).debug(1)
-				ctx.checkErrors(true)
-			}
+	} else if x, y := resolved.(*Builtin); y {
+		if x.s.b&builtinCommand == 0 {
+			erro(ctx, "resolved builtin '%v' is not a command", prop0).debug(1)
+			return
+		} else if x.s.f != nil {
+			res = x.s.f(builtin{ctx, opts, plain}, g.spec[1:]...)
 		}
-		res = op.s.f(builtin{ctx, opts, plain}, g.spec[1:]...)
+	} else if x, y := resolved.(*def); y {
+		if false {
+			res = x.Call(builtin{ctx, opts, plain}, nil, g.spec[1:]...)
+		} else {
+			res = x.Call(ctx, opts, g.spec[1:]...)
+		}
+	} else {
+		erro(ctx, "resolved '%v' is %s (%v)", prop0, typeof(resolved), *g).debug(1)
+		return
 	}
 
 	if ctx.checkErrors(true); isTrivial(res) { return }

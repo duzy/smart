@@ -1627,8 +1627,10 @@ func (ctx builtin) servehttp(args... Value) (res Value) {
         server.Addr = fmt.Sprintf("%s:%d", opts.host, opts.port)
         info(ctx, "serving http at %v ...", server.Addr)
 
+        var root string
         var quit = func(w http.ResponseWriter, r *http.Request) {
-                io.WriteString(w, "<font color=red>Server will close in 1sec ...</font>")
+                var s = "<font color=red>stop serving '%s' close in a second ...</font>"
+                io.WriteString(w, fmt.Sprintf(s, root))
                 go func() {
                         time.Sleep(1 * time.Second)
                         server.Shutdown(gc.Background())
@@ -1639,11 +1641,18 @@ func (ctx builtin) servehttp(args... Value) (res Value) {
         http.HandleFunc("/-/quit", quit)
         http.HandleFunc("/-/shut", quit)
 
-        for _, a := range args {
-                var s = a.Strval(ctx)
-                info(ctx, "serving files %v ...", s)
+        if args == nil {
+                var s = ctx.WorkDir()
                 http.Handle("/", http.FileServer(http.Dir(s)))
+        } else {
+                for _, a := range args {
+                        var s = a.Strval(ctx)
+                        info(ctx, "serving files %v ...", s)
+                        http.Handle("/", http.FileServer(http.Dir(s)))
+                }
         }
+
+        ctx.checkErrors(true) // flush
 
         var err = server.ListenAndServe()
         if err != nil && err != http.ErrServerClosed { erro(ctx, "%s", err).debug(1) }

@@ -1109,6 +1109,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
           erro(ctx, `%v: deleted: %v`, s, fullname)
         }
       }
+      warn(ctx, "%v: %v (deleted %d files)\n", target, err, len(files))
       errostack(ctx, 3, ``).debug(6)
       return
     } else if files, err := target.stamp(ctx); err != nil {
@@ -1280,7 +1281,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         }
         if diffLogPos { erro(at(ctx,logPos), "%v: %d known errors", str, en) }
         erro(at(ctx,positions[i]), "%v: exit status %d (%d known errors)", str, exeres.Status, en)
-        errostack(ctx, 32, "").debug(32)
+        errostack(ctx, 16, "").debug(32)
       } else if wn > 0 {
         if diffLogPos { warn(at(ctx,logPos), "%v: %d known warnings", str, wn) }
         warn(at(ctx,positions[i]), "%v: exit status %d", str, exeres.Status)
