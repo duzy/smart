@@ -139,7 +139,7 @@ type Context interface {
 
   positionContext() *positionContext
 
-  travestates() *travestates
+  travestates(...*travestate) *travestates
   traversed(target Value) []Value
 
   Project() *Project

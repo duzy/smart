@@ -390,7 +390,7 @@ func (ctx *universe) inner() Context { return nil }
 func (ctx *universe) spawn(c Context) Context { return c }
 func (ctx *universe) auto() *autoContext { return nil }
 func (ctx *universe) closure() *closureContext { return nil }
-func (ctx *universe) travestates() *travestates { return nil }
+func (ctx *universe) travestates(...*travestate) *travestates { return nil }
 func (ctx *universe) traversed(target Value) []Value { fail(ctx.Position(), "%v", target); return nil }
 func (ctx *universe) entry() Entry { return nil }
 func (ctx *universe) entryContext() *entryContext { return nil }

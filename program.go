@@ -44,6 +44,7 @@ type programContext struct {
     grepping bool
 
     traceLevel int
+    traves travestates
 
     interpreted []interpreter
 
@@ -63,6 +64,10 @@ func (pc *programContext) String() string {
     } else {
         return pc.autoContext.String()
     }
+}
+func (pc *programContext) travestates(a ...*travestate) *travestates {
+    if a != nil { pc.traves = append(pc.traves, a...) }
+    return &pc.traves
 }
 func (pc *programContext) programContext() *programContext { return pc }
 func (pc *programContext) program() *Program { return pc.prog }
@@ -225,83 +230,15 @@ func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err 
     return
 }
 
-func (prog *Program) getModifiers(ctx Context, name string) (ms []*modifiercall) {
+func (prog *Program) getModifiers(ctx Context, name string) (ms []*modification) {
     for _, d := range prog.depends {
-        var g, ok = d.(*modifiergroup)
+        var g, ok = d.(*modifications)
         if !ok { continue }
-        for _, m := range g.modifiers {
+        for _, m := range g.list {
             if m.name.Strval(ctx) == name {
                 ms = append(ms, m)
             }
         }
-    }
-    return
-}
-
-func (prog *Program) modify(ctx Context, m *modifiercall) (traves travestates) {
-    // TODO: using rules in a different project to implement modifiers, e.g.
-    //       [ foo.check-preprequisites ]
-    //       [ foo.baaaar ]
-    var (
-        name string
-        args = mergex(ctx, plain, m.name)
-    )
-    if n := len(args); n == 0 {
-        erro(of(ctx,m.name), "modifier name '%v' is empty", m.name).debug(1)
-        return
-    } else {
-        name = args[0].Strval(ctx)
-        args = append(args[1:], m.args...)
-    }
-
-    var proj = ctx.Project()
-    if f, ok := modifiers[name]; ok {
-        var value Value //= autoGet(ctx, "-")
-        // Special modifier processing (implicit interpretation) before (configure)
-        if len(ctx.programContext().interpreted) == 0 && len(prog.recipes) > 0 && name == "configure" {
-            // Evaluate for configure modifier
-            if i, ok := dialects["eval"]; ok && i != nil {
-                if err := prog.interpret(ctx, i, args); err != nil {
-                    var _, ent, _ = entryIndicator(ctx, ctx.entry())
-                    prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
-                    erro(ctx, "interpret failed: %v", err)
-                    errostack(ctx, 3, "%v", ctx).debug(1)
-                    return
-                }
-            }
-        }
-        if value, traves = f(modifier{at(ctx, m.position)}, args...); traves.has() {
-            if t := traves.not(traveCase, traveNext, traveDone); false && t.has() {
-                if options.verbose || options.verboseBreaks {
-                    var _, ent, _ = entryIndicator(ctx, ctx.entry())
-                    prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
-                    for _, s := range t { warn(at(ctx,s.pos), "%v: %s: %v", proj, name, s) }
-                    warnstack(ctx, 5, "").debug(16)
-                }
-            }
-            return
-        } else if h := autoGet(ctx,"-"); h == nil || isNil(value) || value == h {
-            // does nothing
-        } else if ctx.autoSet("-", value); false {
-            var _, ent, _ = entryIndicator(ctx, ctx.entry())
-            prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
-            erro(ctx, "setting buffer value failed: %v", value)
-            errostack(ctx, 3, "(%T):", ctx).debug(1)
-            fail(m.Position(), "%s failed for project %s", name, proj)
-        }
-    } else if i, _ := dialects[name]; i != nil {
-        if err := prog.interpret(ctx, i, args); err != nil {
-            var _, ent, _ = entryIndicator(ctx, ctx.entry())
-            prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
-            erro(ctx, "%s: %v", name, err)
-            errostack(ctx, 3, "(%T):", ctx).debug(1)
-            fail(m.Position(), "%s failed for project %s", name, proj)
-        }
-    } else {
-        var _, ent, _ = entryIndicator(ctx, ctx.entry())
-        prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
-        erro(ctx, "unknown modifier '%s'", name)
-        errostack(ctx, 3, "%v", ctx).debug(1)
     }
     return
 }
@@ -727,7 +664,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
     if ent := autoGet(ctx, "@"); !parallel {
         ForPrerequisites: for i, prerequisite := range prerequisites {
             var ctx = at(ctx, prerequisite.Position())
-            var _, g = prerequisite.(*modifiergroup)
+            var _, g = prerequisite.(*modifications)
             /****/ if u, y := prerequisite.(untraversed); y {
                 warn(ctx, "%v: untraversed %v", ent, u.Value).debug(1)
                 continue
@@ -884,7 +821,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
         )
         var state int
         for i, prerequisite := range prerequisites {
-            var _, g = prerequisite.(*modifiergroup)
+            var _, g = prerequisite.(*modifications)
             /****/ if u, y := prerequisite.(untraversed); y {
                 warn(ctx, "%v: untraversed %v", ent, u.Value).debug(1)
                 continue

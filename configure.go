@@ -566,7 +566,7 @@ type modifierConfigureOpts struct {
     generalOpts
     accumulate bool `a,accumulate;a,add`
 }
-func (ctx modifier) Configure(args ...Value) (result Value, _ travestates) {
+func (ctx modifier) configure(args ...Value) (result Value) {
     if options.traceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", ctx, options.reconfigure))) }
 
     var program = ctx.program()
@@ -971,7 +971,7 @@ func __modifierConfigureInput(ctx Context, args ...Value) (result Value, _ trave
     return
 }
 
-func (ctx modifier) ConfigureInput(args ...Value) (result Value, _ travestates) {
+func (ctx modifier) configureinput(args ...Value) (result Value) {
     var opts = configureConvertOpts{ mode: os.FileMode(0600) }
     var dealArgs = func(args []Value, out *bytes.Buffer) []Value {
         var project = ctx.Project()
@@ -1002,19 +1002,27 @@ func (ctx modifier) ConfigureInput(args ...Value) (result Value, _ travestates) 
         }
         return args
     }
-    return configureConvert(ctx, dealArgs, nil, &opts, args...)
+
+    var traves travestates
+    result, traves = configureConvert(ctx, dealArgs, nil, &opts, args...)
+    ctx.travestates(traves...)
+    return
 }
 
 // configure-file modifier (see also builtinConfigureFile), example usage:
 //
 //     config.h: config.h.in [(configure-file)]
 //
-func (ctx modifier) ConfigureFile(args ...Value) (result Value, _ travestates) {
+func (ctx modifier) configurefile(args ...Value) (result Value) {
     var opts = configureConvertOpts{ mode: os.FileMode(0600) }
     var convert = func(str string, out *bytes.Buffer) (err error) {
         return configure(ctx, out, ctx.Project(), str)
     }
-    return configureConvert(ctx, nil, convert, &opts, args...)
+
+    var traves travestates
+    result, traves = configureConvert(ctx, nil, convert, &opts, args...)
+    ctx.travestates(traves...)
+    return
 }
 
 type modifierExtractConfigurationOpts struct {
@@ -1027,7 +1035,7 @@ type modifierExtractConfigurationOpts struct {
 //
 //      config.h.in:[(extract-configuration)]: $(wildcard *.cpp)
 //
-func (ctx modifier) ExtractConfiguration(args ...Value) (result Value, _ travestates) {
+func (ctx modifier) ExtractConfiguration(args ...Value) (result Value) {
     var (
         pos = ctx.Position()
         opts = modifierExtractConfigurationOpts{ mode:os.FileMode(0640) } // sys default 0666

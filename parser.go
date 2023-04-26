@@ -2571,13 +2571,13 @@ func (p *parser) ruleParams(ctx Context, args []Value) (err error) {
 	return
 }
 
-func (p *parser) modifiers(ctx Context) *modifiergroup {
+func (p *parser) modifiers(ctx Context) *modifications {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Modifiers")) }
 
 	var (
 		posLp = p.loc(p.expect(LBRACK))
 		hasParameters bool // ((foo bar))
-		elems []*modifiercall
+		elems []*modification
 	)
 
 	defer func(a parseBits) { p.bits = a }(p.bits)
@@ -2653,7 +2653,7 @@ ForModifiersExpr:
 		if len(group.Elems) == 0 {
 			erro(of(ctx,x), "empty modifier: %v", x).debug(1)
 		} else {
-			var m = &modifiercall{
+			var m = &modification{
                 valbase: valbase{group.Position()},
                 name: group.Elems[0],
             }
@@ -2671,7 +2671,7 @@ ForModifiersExpr:
 	if p.tok == COLON {
 		erro(at(ctx,posLp), "unexpected colon after modifer").debug(1)
 	}
-    return &modifiergroup{ valbase: valbase{posLp}, modifiers: elems }
+    return &modifications{ valbase: valbase{posLp}, list: elems }
 }
 
 // 

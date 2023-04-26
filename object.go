@@ -1401,9 +1401,9 @@ func (entry *RuleEntry) option(ctx Context) (res bool, infos []Value) {
         ForPrograms: for _, program := range entry.programs {
                 if !program.configure { continue }
                 for _, depend := range program.depends {
-                        g, ok := depend.(*modifiergroup)
+                        g, ok := depend.(*modifications)
                         if!ok { continue }
-                        for _, m := range g.modifiers {
+                        for _, m := range g.list {
                                 if m.name.Strval(ctx) != "configure" { continue }
                                 for _, arg := range m.args {
                                         a, ok := arg.(*Argumented)

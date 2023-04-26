@@ -5360,10 +5360,10 @@ func (p *List) traverse(ctx Context) (traves travestates) {
                     m.Unlock() //if unlock != nil { unlock() }
                 }
 
-                if _, ok := elem.(*modifiergroup); ok && t.has(traveNext) {
+                if _, ok := elem.(*modifications); ok && t.has(traveNext) {
                     warn(ctx, "%T %v", elem, elem).debug(1)
                 }
-                if _, ok := elem.(*modifiercall); ok && t.has(traveNext) {
+                if _, ok := elem.(*modification); ok && t.has(traveNext) {
                     warn(ctx, "%T %v", elem, elem).debug(1)
                 }
                 if t.has(/*traveCase, traveNext, traveDone, */traveFail) {
@@ -5377,10 +5377,10 @@ func (p *List) traverse(ctx Context) (traves travestates) {
         for _, elem := range p.Elems {
             var t = elem.traverse(ctx)
             traves = append(traves, t...)
-            if _, ok := elem.(*modifiergroup); ok && t.has(traveNext) {
+            if _, ok := elem.(*modifications); ok && t.has(traveNext) {
                 warn(ctx, "%T %v", elem, elem).debug(1)
             }
-            if _, ok := elem.(*modifiercall); ok && t.has(traveNext) {
+            if _, ok := elem.(*modification); ok && t.has(traveNext) {
                 warn(ctx, "%T %v", elem, elem).debug(1)
             }
             if t.has(/*traveCase, traveNext, traveDone, */traveFail) {
