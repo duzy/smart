@@ -212,18 +212,26 @@ type (
     PredictionFunc func(modifier, ...Value) (Value)
 )
 
-func (m *modifier) apply(name string, args ...Value) (res Value) {
+func (m modifier) apply(name string, args ...Value) (res Value) {
     if f, y := modifiers[name]; y {
-        // for _, a := range args { if g, y := a.(*Group); y { warn(m.Context, "%v", g).debug(1) } }
-        return f(*m, args...)
-    } else {
-        var ctx = m.Context
-        var _, ent, _ = entryIndicator(ctx, ctx.entry())
-        prompt(ctx, "%v: %s failed for %s\n", ent, name, ctx.Project())
-        erro(ctx, "unknown modifier '%s'", name)
-        errostack(ctx, 3, "%v", ctx).debug(1)
-        return
+        for i, a := range args {
+            if g, y := a.(*Group); y {
+                var ctx = at(m.Context, a.Position())
+                var s = g.Elems[0].Strval(ctx)
+                var v = modifier{ctx}.apply(s, g.Elems[1:]...)
+                args[i] = v
+                if true && s != "dirty" { warn(ctx, "%d. %v -> %v", i, g, v).debug(1) }
+            }
+        }
+        return f(m, args...)
     }
+
+    var ctx = m.Context
+    var _, ent, _ = entryIndicator(ctx, ctx.entry())
+    prompt(ctx, "%v: %s failed for %s\n", ent, name, ctx.Project())
+    erro(ctx, "unknown modifier: %s (args=%v)", name, args)
+    errostack(ctx, 5, "%v", ctx).debug(10)
+    return
 }
 
 var (
@@ -277,24 +285,20 @@ var (
 
         `git-ahead`:    modifier.gitahead,
         `git-modified`: modifier.gitmodified,
-    }
 
-    init_predictors = map[string]PredictionFunc{
         `dirty`:            modifier.predictOutdated,
         `outdated`:         modifier.predictOutdated,
-        `no-loop`:          modifier.predictNoLoop,
-        `target-1st-visit`: modifier.predictTarget1stVisit,
-        `target-max-visit`: modifier.predictTargetMaxVisit,
+        // `no-loop`:          modifier.predictNoLoop,
+        // `target-1st-visit`: modifier.predictTarget1stVisit,
+        // `target-max-visit`: modifier.predictTargetMaxVisit,
     }
 
     modifiers  = make(map[string]ModifierFunc)
-    predictors = make(map[string]PredictionFunc)
     crc64Table = crc64.MakeTable(crc64.ECMA /*crc64.ISO*/)
 )
 func init() {
     // Install recursive modifiers here to avoid Go's loop detection.
-    for s, m := range init_modifiers  { modifiers [s] = m }
-    for s, m := range init_predictors { predictors[s] = m }
+    for s, m := range init_modifiers { modifiers [s] = m }
 }
 
 func RegisterModifiers(m map[string]ModifierFunc) (err error) {
@@ -2968,132 +2972,22 @@ func (ctx modifier) assert(args... Value) (result Value) {
     return
 }
 
-type predictOpts struct {
-    message  string "m,msg,message"
-    and      bool "a,and"
-    verbose  bool "v,verb,verbose"
-    verbose0 bool
-}
-func (ctx modifier) predict(args... Value) (result bool, message string, err error) {
-    var (
-        target = as{autoGet(ctx, "@")}
-        targetStr string
-        num int64
-    )
-    if target.trivial() {
-        errostack(ctx, 5, "target is trivial, %v", ctx).debug(10)
-        return
-    }
-    for caller := ctx.programContext().caller(); caller != nil; caller = caller.caller() {
-        if val := autoGet(caller, "@"); val != nil {
-            var same = target == val
-            if !same && false {
-                same = eq(ctx, target, val)
-            }
-            if same { num += 1 }
-        } else if n := caller.execRec[target]; n > 0 {
-            num += int64(n)
-        }
-    }
-
-    var (
-        opts predictOpts
-        reasons = make(map[string]int)
-    )
-    defer func() { if opts.verbose {
-        var status string
-        if d := ctx.gap(true); d > 0 { status += "gap " + d.String() }
-        for reason, n := range reasons {
-            if status != "" { status += ", " }
-            if n == 1 { status += reason } else {
-                status += fmt.Sprintf("%s (%d)", reason, n)
-            }
-        }
-        if status == "" {
-            var s string
-            if result { s = "Yes" } else { s = "No" }
-            status = fmt.Sprintf("%v (%d)", s, num)
-        } else if false {
-            status += fmt.Sprintf(" (result=%v)", result)
-        }
-        prompt(ctx, "… %s\n", status)
-    }} ()
-
-ForArgs:
-    for _, arg := range args {
-        switch tv := arg.(type) {
-        case *String, *Compound:
-            message = tv.Strval(ctx)
-            continue ForArgs
-        }
-
-        var va = parseOpts(ctx, &opts, plain, arg)
-        if len(va) == 0 {
-            continue ForArgs
-        } else if len(va) == 1 && isTrivial(va[0]) {
-            continue ForArgs
-        }
-
-        if opts.verbose && !opts.verbose0 {
-            targetStr, _ = target.fullnameOrStrval(ctx)
-            prompt(ctx, "checking %v …", filepath.Base(targetStr))
-            opts.verbose0 = true
-        }
-
-        if !opts.and && result { break }
-        if !opts.and || (opts.and && result) { for i, a := range va {
-            var tru bool
-            if g, ok := a.(*Group); !ok {
-                // preserve the value of 'a'
-            } else if len(g.Elems) == 0 {
-                erro(at(ctx,g.position), "predictor is empty group").debug(1)
-                return
-            } else if pret, ok := predictors[g.Elems[0].Strval(ctx)]; !ok {
-                erro(at(ctx,g.position), "predictor '%s' undefined (%T %v)", g.Elems[0], a, a).debug(1)
-                return
-            } else {
-                var ctx = modifier{ at(ctx.Context, g.Elems[0].Position()) }
-                a = pret(ctx, g.Elems[1:]...)
-            }
-
-            if a == nil {
-                warn(ctx, "predictor %v is <nil>", arg).debug(1)
-                continue // skip
-            } else if p, ok := a.(*prediction); ok {
-                if p.reason != "" { reasons[p.reason] += 1 }
-                tru = p.bool
-            } else if tru = a.True(ctx); tru {
-                reasons[fmt.Sprintf("#%v", i+1)] += 1
-            }
-
-            if opts.and { // logical 'and' mode
-                result = result && tru
-                opts.and = false // reset -and flag
-            } else if tru { // logical 'or' mode
-                result = true
-                break
-            }
-        }}
-    }
-    return
-}
-
 func (ctx modifier) cond(args... Value) (result Value) {
-    var (
-        res bool
-        msg string
-        err error
-    )
-    if res, msg, err = ctx.predict(args...); err != nil {
-        erro(ctx, "predict: %v", err).debug(1)
-    } else if !res {
-        var traves travestates
-        s := traves.add(ctx, traveDone, nil)
-        if msg != "" { s.error = fmt.Errorf("%s", msg) }
-        s.prog = ctx.program()
-        ctx.travestates(traves...)
+    // TODO: make it lisp-like (cond), e.g.:
+    //     (cond
+    //       ((condition) ...)
+    //       (true{} ...))
+    for _, a := range args {
+        if !a.True(ctx.Context) {
+            var traves travestates
+            s := traves.add(ctx, traveDone, nil)
+            // s.error = fmt.Errorf("%s", msg)
+            s.prog = ctx.program()
+            ctx.travestates(traves...)
+            return
+        }
     }
-    return
+    return MakeBoolean(ctx.Position(), true)
 }
 
 type modifierCaseOpts struct {
@@ -3102,27 +2996,21 @@ type modifierCaseOpts struct {
 }
 func (ctx modifier) _case(args... Value) (result Value) {
     var opts modifierCaseOpts
-    args = parseOpts(ctx, &opts, plain, args...)
+    // TODO: parseOpts(ctx, &opts, plain, ...)
 
-    if res, msg, err := ctx.predict(args...); err != nil {
-        erro(ctx, "case: (res=%v) %v", res, err).debug(1)
-    } else {
-        var w travekind
-        if res { w = traveCase } else { w = traveNext }
-
-        var traves travestates
-        var s = traves.add(ctx, w, nil) // trave 'case' or 'next'
-        if msg != "" { s.error = fmt.Errorf("%s", msg) }
-        s.prog = ctx.program()
-        ctx.travestates(traves...)
-
-        if opts.verbose {
-            prompt(ctx, "%v: %v (msg=%s)", autoGet(ctx, "@"), w, msg)
-        }
-        if opts.debug {
-            warn(ctx, "%v", w)
-        }
+    var w travekind = traveNext
+    for _, a := range args {
+        if a.True(ctx.Context) { w = traveCase ; break }
     }
+
+    var traves travestates
+    var s = traves.add(ctx, w, nil) // trave 'case' or 'next'
+    // s.error = fmt.Errorf("%s", msg)
+    s.prog = ctx.program()
+    ctx.travestates(traves...)
+
+    if opts.verbose { prompt(ctx, "%v: %v", autoGet(ctx, "@"), w) }
+    if opts.debug { warn(ctx, "%v", w) }
     return
 }
 
