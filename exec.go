@@ -1279,8 +1279,9 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
             warn(ctx, "remove: %v", e).debug(1)
           }
         }
-        if diffLogPos { erro(at(ctx,logPos), "%v: %d known errors", str, en) }
-        erro(at(ctx,positions[i]), "%v: exit status %d (%d known errors)", str, exeres.Status, en)
+
+        if diffLogPos && en > 0 { erro(at(ctx,logPos), "%v: %d known errors", str, en) }
+        erro(at(ctx,positions[i]), "%v: exit status %d", str, exeres.Status)
         errostack(ctx, 16, "").debug(32)
       } else if wn > 0 {
         if diffLogPos { warn(at(ctx,logPos), "%v: %d known warnings", str, wn) }

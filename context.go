@@ -381,7 +381,7 @@ func (diag *diagContext) checkErrors(reset bool) (num int) {
         if lastPromptLn == -1 { lastPromptLn = 0 }
       } else if d.dt == diagPromptNL {
         if lastPromptLn == 0 { tempPromptLn = append(tempPromptLn, d) } else
-        if msg != "" { fmt.Fprintf(stderr, "%s", msg) }
+        if msg != "" { fmt.Fprintf(stderr, "%s\n", msg) }
         if lastPromptLn == -1 { lastPromptLn = 0 }
       } else {
         switch lastPromptLn = -1; d.dt {
