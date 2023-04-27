@@ -3905,8 +3905,10 @@ ForArgs:
                         return
                 }
 
-                var src = filepath.Join(srcDir, srcName)
-                var dst = filepath.Join(dstDir, dstName)
+                var src = srcName
+                var dst = dstName
+                if !filepath.IsAbs(src) { src = filepath.Join(srcDir, srcName) }
+                if !filepath.IsAbs(dst) { dst = filepath.Join(dstDir, dstName) }
                 if _, err := os.Stat(src); err != nil {
                         prompt(ctx, "symlink: %v: %v\n", srcName, err)
                         errostack(of(ctx,srcNameVal), 6, "%v does not exist", srcName).debug(8)
