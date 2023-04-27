@@ -66,7 +66,13 @@ func (pc *programContext) String() string {
     }
 }
 func (pc *programContext) travestates(a ...*travestate) *travestates {
-    if a != nil { pc.traves = append(pc.traves, a...) }
+    if a != nil {
+        if len(a) == 1 && a[0] == nil {
+            pc.traves = nil
+        } else {
+            pc.traves = append(pc.traves, a...)
+        }
+    }
     return &pc.traves
 }
 func (pc *programContext) programContext() *programContext { return pc }
@@ -678,6 +684,8 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                 if false  { ctx.autoSet(">", prerequisite) }
             }
 
+            if false { pc.travestates(nil) }
+
             var t = prerequisite.traverse(ctx)
             if prog.debug_traverse > 0 { if true { prog.debug_traverse -= 1 }
                 for i, a := range t { info(of(ctx,prerequisite), "%v: %d. %v %v", ent, i, a.what, a) }
@@ -849,6 +857,8 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                 }
 
                 ctx.autoSet(">", prerequisite)
+
+                if false { pc.travestates(nil) }
 
                 var t = prerequisite.traverse(ctx)
                 if false { if prerequisite.String() == ".test.fxxbar" {

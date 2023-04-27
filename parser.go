@@ -296,7 +296,7 @@ func (p *parser) step() {
 	// if p.tok != LINEND && p.lineComment != nil { p.tok = LINEND }
 
 	if p.ddd {
-		var t = warn(p, "%v %v %v", p.tok, p.lit, p.scanner.GetState())
+		var t = warn(p, "%v %v %v", p.tok, p.lit, p.scanner.ScanState)
 		if p.tok == COMPOUND { t.debug(12) }
 		if p.tok == LINEND { t.debug(24) }
 		p.checkErrors(true)
@@ -317,7 +317,7 @@ func (p *parser) spaces() {
 				TokFor: for p.tok != EOF {
 					switch p.tok {
 					case RECIPE: // TODO: using p.isRecipeStart()
-						p.scanner.LeaveCompoundLineContext()
+						if false { p.scanner.pop(isCompoundLine) }
 						p.step()
 					default: break TokFor
 					}
@@ -1674,13 +1674,13 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 		}
 	}
 
-	var s = p.scanner.GetState()
+	var s = p.scanner.ScanState
 	if p.lineComment != nil {
 		for _, comment := range p.lineComment.List {
 			erro(at(p,comment.Pos), "# %s", comment.Text)
 		}
 	}
-	erro(p, "bad unary expression '%v' (lit=%s, left=%v, scan=%v)", p.tok, p.lit, lhs, s).debug(32)
+	erro(p, "bad unary expression '%v' (lit=%s, left=%v, bits=%022b, scan=%v)", p.tok, p.lit, lhs, p.bits, s).debug(32)
 
 	p.step() // go to the next token
 	return MakeNil(p.Position())
@@ -2398,12 +2398,10 @@ func (p *parser) recipe(ctx Context) Value {
 SwitchDialect:
 	switch p.dialect {
 	case "", "eval", "value":
-		p.scanner.LeaveCompoundLineContext()
+		p.scanner.pop(isCompoundLine)
 		p.next(true) // skip RECIPE or SEMICOLON and parse in list mode
 		position = p.Position()
 		if isList = true; !p.isEndOfLine() {
-			defer p.setbit(p.setbit(parseRecipeBuiltin))
-
 			var (
 				isValue = p.dialect == "value"
 				x = p.expr(ctx, /*!isValue*/false) // parse first expr of recipe
@@ -2414,7 +2412,7 @@ SwitchDialect:
 				erro(ctx, "parsed value is nil")
 			} else if isValue {
 				// no resolving commands
-			} else if t, ok := x.(*bareword); !ok {
+			} else if t, y := x.(*bareword); !y {
 				// does nothing
 			} else if _, sym := loader.resolveObject(t); false {
 				erro(ctx, "resolve '%v' failed", x)
@@ -2422,7 +2420,7 @@ SwitchDialect:
 				erro(of(ctx,x), "resolved '%v' (from %v) is nil", t.string, x)
 			} else if false {
 				erro(of(ctx,x), "builtin command no more supported, use $(%s ...) instead", t.string)
-			} else if b, ok := sym.(*Builtin); !ok {
+			} else if b, y := sym.(*Builtin); !y {
 				erro(of(ctx,x), "'%s' is not a command (%s)", t.string, typeof(sym))
 			} else if b.s.b&builtinCommand == 0 {
 				erro(of(ctx,x), "'%s' is not a command, use $(%s ...) instead", t.string, t.string)
@@ -2438,53 +2436,41 @@ SwitchDialect:
 			}
 
 			var cmdargs []Value
+
+			p.setbit(parseRecipeBuiltin)
 			for p.tok != EOF && p.tok != SEMICOLON && p.tok != LINEND && p.lineComment == nil {
-				if p.spaces(); p.lineComment != nil {
-					// TODO: comment = p.lineComment
-					break
+				if p.spaces(); p.lineComment != nil { break }
+				if !p.tok.IsRuleDelim() { x = p.expr(ctx, false) } else
+				if false { x = p.rule(specialRuleRec, nil, elems) } else {
+					erro(ctx, "unsupported token: %s, %v", p.tok, elems).debug(1)
 				}
-
-				if p.tok.IsRuleDelim() {
-					if false {
-						x = p.rule(specialRuleRec, nil, elems) // RuleEntry
-					} else {
-						erro(ctx, "unsupported token: %s, %v", p.tok, elems).debug(1)
-					}
-				} else {
-					x = p.expr(ctx, false)
-				}
-
-				cmdargs = append(cmdargs, x)
-				if p.tok == COMMA {
+				if cmdargs = append(cmdargs, x); p.tok == COMMA {
 					p.next(true)
 					elems = append(elems, MakeList(p.Position(), cmdargs...))
 					cmdargs = []Value{}
 				}
-				if p.lineComment != nil {
-					// TODO: comment = p.lineComment
-					break
-				}
+				if p.lineComment != nil { break }
 			}
+			p.clearbit(parseRecipeBuiltin)
 			elems = append(elems, MakeList(p.Position(), cmdargs...))
 		}
 
 	default:
+		p.scanner.push(isCompoundLine) // NOTE: scanner does not set isCompoundLine correctly, fixit here
 		p.next(true) // skip RECIPE or SEMICOLON and parse in line-string mode
 		position = p.Position()
+		p.setbit(parseRecipeText)
 		for !p.isEndOfLine() {
 			var x Value
-			var bits = p.setbit(parseRecipeText)
-			switch p.tok {
-			default:  x = p.expr(ctx, false)
-			case RAW: x = p.literal(false)
-				/*
-			case LINEND:
-				erro(ctx, "unexpected end of line for compound string")
-				break ForCompound*/
+			if p.tok == RAW {
+				x = p.literal(false)
+			} else {
+				x = p.expr(ctx, false)
 			}
-			p.setbits(bits)
 			elems = append(elems, x)
 		}
+		p.clearbit(parseRecipeText)
+		p.scanner.pop(isCompoundLine)
 	}
 	if p.spaces(); p.tok != EOF { p.linend() }
     if len(elems) == 0 {
@@ -2783,13 +2769,13 @@ func (p *parser) rule(special specialRule, optvals, targets []Value) (result Val
 		recipes = append(recipes, p.recipe(ctx))
 	} else /*if p.tok == LINEND || p.lineComment != nil*/ {
 		// Parse recipes in the program scope.
-		p.scanner.Recipes(true) // Turn on recipes before LINEND.
+		p.scanner.recipes(true) // Turn on recipes before LINEND.
 		if p.linend() { // Take the new line.
 			for p.tok != EOF && p.isRecipeStart() {
 				recipes = append(recipes, p.recipe(ctx))
 			}
 		}
-		p.scanner.Recipes(false)
+		p.scanner.recipes(false)
 	}
 
 	var params []string
@@ -2890,8 +2876,7 @@ func (p *parser) specialRule() Value {
 
 var pprofCounter int
 func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, expandParams []Value) {
-	p.scanner.SetState(t.state)
-	p.pos, p.tok, p.lit = t.pos, t.tok, t.lit
+	p.pos, p.tok, p.lit, p.scanner.ScanState = t.pos, t.tok, t.lit, t.state
 
 	// TODO: deal with expandParams
 
@@ -2963,9 +2948,8 @@ func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 			var c = time.Duration(count)
             warnstack(ctx, 3, "slow: %v, %d * %v, prof-%d", d, count, d/c, pprofCounter).debug(1)
         }
-		p.pos, p.tok, p.lit	 = pos, tok, lit
-		p.scanner.SetState(state)
-	} (time.Now(), p.pos, p.tok, p.lit, p.scanner.GetState())
+		p.pos, p.tok, p.lit, p.scanner.ScanState = pos, tok, lit, state
+	} (time.Now(), p.pos, p.tok, p.lit, p.scanner.ScanState)
 
 	// TODO: parseOpts(params) -> add option to turn off asFile in Context
 
@@ -3063,12 +3047,10 @@ func (p *parser) callTemplate(ctx Context, t *template, name Value, args []Value
 			var c = time.Duration(count)
             infostack(ctx, 3, "%v: slow: %v, %v, %d*%v", name, d, count, d/c).debug(1)
         }
-		p.pos, p.tok, p.lit	 = pos, tok, lit
-		p.scanner.SetState(state)
-	} (time.Now(), p.pos, p.tok, p.lit, p.scanner.GetState())
+		p.pos, p.tok, p.lit, p.scanner.ScanState = pos, tok, lit, state
+	} (time.Now(), p.pos, p.tok, p.lit, p.scanner.ScanState)
 
-	p.scanner.SetState(t.state)
-	p.pos, p.tok, p.lit = t.pos, t.tok, t.lit
+	p.pos, p.tok, p.lit, p.scanner.ScanState = t.pos, t.tok, t.lit, t.state
 
 	// NOTE: a new scope is required for template expansion
 	var loader = ctx.loader()
@@ -3137,7 +3119,7 @@ func (p *parser) template(ctx Context) {
 	var params = mergex(ctx, plain, p.values(ctx, false)...)
 	// TODO: parse template options - parseOpts
 
-	var tmpl = &template{ state:p.scanner.GetState(), pos:p.pos, tok:p.tok, lit:p.lit }
+	var tmpl = &template{ state:p.scanner.ScanState, pos:p.pos, tok:p.tok, lit:p.lit }
 	if verb == "def" {
 		if len(params) != 1 {
 			erro(at(ctx,starting), "too many def params: %v", params)
@@ -3159,7 +3141,7 @@ func (p *parser) template(ctx Context) {
 			if p.spaces(); p.tok == EOF { return }
 		}
 		if p.tok != TEMPLATE { p.step(); continue }
-		if false { info(p, "%v: %v", p.tok, p.scanner.GetState()).debug(1) }
+		if false { info(p, "%v: %v", p.tok, p.scanner.ScanState).debug(1) }
 
 		var pos, stop = p.pos, p.stop
 		if p.next(true); p.tok != BAREWORD && p.tok != FOREACH {
@@ -3183,7 +3165,7 @@ func (p *parser) template(ctx Context) {
 			if nested > 0 { nested -= 1 } else {
 				p.next(true) // consumes the 'end'
 				p.expect(LINEND)
-				state := p.scanner.GetState()
+				state := p.scanner.ScanState
 				tmpl.end, tmpl.endPos = &state, pos
 				return //true
 			}
@@ -3329,7 +3311,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 	assert(loader == loader, "bad loader")
 	defer loader.closeScope(loader.openScope(fmt.Sprintf("file %s", filename)))
 	if options.debugFileEntry {
-		warn(p, "parser.file: %v %v", p.tok, p.scanner.GetState()).debug(1)
+		warn(p, "parser.file: %v %v", p.tok, p.scanner.ScanState).debug(1)
 	}
 
 	if loader.mode&Flat != 0 {

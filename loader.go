@@ -1808,12 +1808,12 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
     l.p.scanner.Init(file, text, scanMode,
         func(p Position, s string) {
             var pos = Position(p)
-            errostack(at(ctx,pos), 3, "%s, scan=%v", s, l.p.scanner.GetState()).debug(128)
+            errostack(at(ctx,pos), 3, "%s, scan=%v", s, l.p.scanner.ScanState).debug(128)
             fail(pos, "syntax error")
         },
         func(p Position, s string) {
-            // warnstack(at(ctx,Position(p)), 3, "%s, scan=%v", s, l.p.scanner.GetState()).debug(1)
-            warn(at(ctx,Position(p)), "%s, scan=%v", s, l.p.scanner.GetState()).debug(6)
+            // warnstack(at(ctx,Position(p)), 3, "%s, scan=%v", s, l.p.scanner.ScanState).debug(1)
+            warn(at(ctx,Position(p)), "%s, scan=%v", s, l.p.scanner.ScanState).debug(6)
         })
 	l.p.next(true)
 

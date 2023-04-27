@@ -24,7 +24,6 @@ const (
 	isBrace          // 0000000100000000 {...}             256
 	isRecipes        // 0000001000000000
 	isRecipeTab      // 0000010000000000 \t
-	// isLineFeed       // 0000100000000000 \n
 	isHashValid      // 0001000000000000 scan '#' as HASH token
 	isMaximumBit     // 1000000000000000
 )
@@ -83,8 +82,7 @@ func (s *ScanState) RemBits(bits scanbits) (prev scanbits) {
 }
 
 func (s *ScanState) CommentsOff() scanbits { return s.AddBits(isHashValid) }
-func (s *ScanState) LeaveCompoundLineContext() { s.pop(isCompoundLine) }
-func (s *ScanState) Recipes(v bool) {
+func (s *ScanState) recipes(v bool) {
 	var bits = s.bits
 	if v { bits |= isRecipes } else { bits &^= isRecipes }
 	s.bits = bits
@@ -214,7 +212,6 @@ func (bits scanbits) isCompoundLine()   bool { return bits&isCompoundLine != 0 }
 func (bits scanbits) isCompoundString() bool { return bits&isCompoundString != 0 }
 func (bits scanbits) isGroup()          bool { return bits&isGroup != 0 }
 func (bits scanbits) isBrace()          bool { return bits&isBrace != 0 }
-// func (bits scanbits) isLineFeed()       bool { return bits&isLineFeed != 0 }
 func (bits scanbits) canRecipe()        bool { return bits&(isRecipeTab|isRecipes) != 0 }
 
 func IsLetter(ch rune) bool {
@@ -280,8 +277,6 @@ func (s *Scanner) Init(file *TokFile, src []byte, mode ScanMode, err, war ErrorH
 	// The BOM at file beginning will be discarded.
 	if s.next(); s.ch == bom { s.next() }
 }
-func (s *Scanner) SetState(state ScanState) { s.ScanState = state }
-func (s *Scanner) GetState() (ScanState) { return s.ScanState }
 
 func (s *Scanner) error(offs int, msg string) {
 	if s.err != nil { s.err(s.file.Position(s.file.Pos(offs)), msg) }
