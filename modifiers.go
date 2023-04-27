@@ -2953,10 +2953,9 @@ func (ctx modifier) assert(args... Value) (result Value) {
     for _, a := range parseOpts(ctx, &opts, plain, args...) {
         if _, y := a.(*punctuation); y { continue }
 
-        var ctx = of(ctx, a)
         if a.True(ctx) { continue }
         if s := opts.msg; s == "" {
-            erro(ctx, "assert failed: %v", a)
+            erro(ctx, "assert failed: %T %v", a, a)
         } else {
             erro(ctx, "assert failed: %v: %s", a, s)
         }
