@@ -181,7 +181,7 @@ func (p *ProjectName) traverse(ctx Context) (traves travestates) {
         return
 }
 func (p *ProjectName) stat(ctx Context) (si *statinfo) {
-        if t := p.Project.defaultEntry; t != nil && t.Class() != UseRuleEntry { si = t.stat(ctx) }
+        if t := p.Project.defaultEntry; t != nil && t.Class() != UseRule { si = t.stat(ctx) }
         return
 }
 func (p *ProjectName) cmp(ctx Context, v Value) (res cmpres) {
@@ -1057,33 +1057,33 @@ func (p *Builtin) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return
 }
 
-type RuleEntryClass int
+type RuleClass int
 
 const (
-        GeneralRuleEntry RuleEntryClass = iota
-        PatternRuleEntry
-        PathPattRuleEntry
-        UseRuleEntry
+        GeneralRule RuleClass = iota
+        PatternRule
+        PathPattRule
+        UseRule
 )
 
-var namesForRuleEntryClass = []string{
-        GeneralRuleEntry:  "GeneralRuleEntry",
-        PatternRuleEntry:  "PatternRuleEntry",
-        PathPattRuleEntry: "PathPattRuleEntry",
-        UseRuleEntry:      "UseRuleEntry",
+var namesForRuleClass = []string{
+        GeneralRule:  "GeneralRule",
+        PatternRule:  "PatternRule",
+        PathPattRule: "PathPattRule",
+        UseRule:      "UseRule",
 }
 
-func (c RuleEntryClass) String() string {
+func (c RuleClass) String() string {
         var i = int(c)
-        if 0 <= i && i < len(namesForRuleEntryClass) {
-                return namesForRuleEntryClass[i]
+        if 0 <= i && i < len(namesForRuleClass) {
+                return namesForRuleClass[i]
         }
-        return fmt.Sprintf("RuleEntryClass(%d)", i)
+        return fmt.Sprintf("RuleClass(%d)", i)
 }
 
 type entryContext struct {
         Context
-        ent *RuleEntry
+        ent *Rule
 }
 func (ec *entryContext) entry() Entry { return ec.ent }
 func (ec *entryContext) entryContext() *entryContext { return ec }
@@ -1125,7 +1125,7 @@ func (ec *entryContext) Position() Position { return ec.ent.position }
 type Entry interface {
         Object
         Executer
-        Class() RuleEntryClass
+        Class() RuleClass
         Target() Value // pattern or concrete target
         Programs() []*Program
         setPrograms([]*Program)
@@ -1158,23 +1158,23 @@ func (p *ResolveEntries) Programs() (programs []*Program) {
         return
 }
 
-// RuleEntry represents a declared rule entry.
-type RuleEntry struct {
-        class RuleEntryClass
+// Rule represents a declared rule entry.
+type Rule struct {
+        class RuleClass
         target Value
         argumented []Value // for restriction/filter
         programs []*Program
         position Position
 }
-func (_ *RuleEntry) kind() kind { return valOther }
-func (entry *RuleEntry) Class() RuleEntryClass { return entry.class }
-func (entry *RuleEntry) Target() Value { return entry.target }
-func (entry *RuleEntry) Programs() []*Program { return entry.programs }
-func (entry *RuleEntry) DeclScope() *Scope { return entry.OwnerProject().scope }
-func (entry *RuleEntry) OwnerProject() *Project { return entry.programs[0].project }
-func (entry *RuleEntry) setPrograms(programs []*Program) { entry.programs = programs }
-func (entry *RuleEntry) setPosition(position Position) { entry.position = position }
-func (entry *RuleEntry) Position() (pos Position) {
+func (_ *Rule) kind() kind { return valOther }
+func (entry *Rule) Class() RuleClass { return entry.class }
+func (entry *Rule) Target() Value { return entry.target }
+func (entry *Rule) Programs() []*Program { return entry.programs }
+func (entry *Rule) DeclScope() *Scope { return entry.OwnerProject().scope }
+func (entry *Rule) OwnerProject() *Project { return entry.programs[0].project }
+func (entry *Rule) setPrograms(programs []*Program) { entry.programs = programs }
+func (entry *Rule) setPosition(position Position) { entry.position = position }
+func (entry *Rule) Position() (pos Position) {
         if pos = entry.position; !pos.IsValid() {
                 if pos = entry.target.Position(); !pos.IsValid() {
                         for _, prog := range entry.programs {
@@ -1184,7 +1184,7 @@ func (entry *RuleEntry) Position() (pos Position) {
         }
         return
 }
-func (entry *RuleEntry) Name(ctx Context) (name string) {
+func (entry *Rule) Name(ctx Context) (name string) {
         if entry == nil {
                 erro(ctx, "nil entry")
         } else if isNil(entry.target) {
@@ -1194,34 +1194,34 @@ func (entry *RuleEntry) Name(ctx Context) (name string) {
         }
         return
 }
-func (entry *RuleEntry) True(ctx Context) bool { return entry.target.True(ctx) }
-func (entry *RuleEntry) Float(_ Context) (f float64, _ error) { return 0, nil }
-func (entry *RuleEntry) Integer(_ Context) (i int64, _ error) { return 0, nil }
-func (entry *RuleEntry) Strval(ctx Context) string { return entry.target.Strval(ctx) }
-func (entry *RuleEntry) String() string {
+func (entry *Rule) True(ctx Context) bool { return entry.target.True(ctx) }
+func (entry *Rule) Float(_ Context) (f float64, _ error) { return 0, nil }
+func (entry *Rule) Integer(_ Context) (i int64, _ error) { return 0, nil }
+func (entry *Rule) Strval(ctx Context) string { return entry.target.Strval(ctx) }
+func (entry *Rule) String() string {
         if entry.target == nil { return "<nil entry>" }
         return entry.target.String()
 }
-func (entry *RuleEntry) updated(ctx Context, v ...bool) bool {
+func (entry *Rule) updated(ctx Context, v ...bool) bool {
         var res = entry.target.updated(ctx, v...)
         if res { ctx.dirtyMark(entry.target) }
         return res
 }
-func (entry *RuleEntry) updatedDeps(ctx Context, v ...Value) []Value {
+func (entry *Rule) updatedDeps(ctx Context, v ...Value) []Value {
         var res = entry.target.updatedDeps(ctx, v...)
         return res
 }
-// RuleEntry.Execute executes the rule program only if the target is outdated.
-func (entry *RuleEntry) Execute(ctx Context, a ...Value) (result []Value, traves travestates) {
+// Rule.Execute executes the rule program only if the target is outdated.
+func (entry *Rule) Execute(ctx Context, a ...Value) (result []Value, traves travestates) {
         switch entry.class {
-        case PatternRuleEntry, PathPattRuleEntry:
+        case PatternRule, PathPattRule:
                 erro(ctx, "executing pattern entry '%v'", entry.target).debug(1)
                 return
         default:
                 return entry.execute(ctx, a...)
         }
 }
-func (entry *RuleEntry) execute(cc Context, a... Value) (result []Value, traves travestates) {
+func (entry *Rule) execute(cc Context, a... Value) (result []Value, traves travestates) {
         if cc = (&entryContext{ cc, entry }); len(a) > 0 { cc = &argumentedContext{ cc, a } }
 ForPrograms:
         for _, program := range entry.programs {
@@ -1238,7 +1238,7 @@ ForPrograms:
         }
         return
 }
-func (entry *RuleEntry) Get(_ Context, name string) (Value, error) {
+func (entry *Rule) Get(_ Context, name string) (Value, error) {
         switch name {
         case "class": return MakeString(entry.position, entry.class.String()), nil
         case "name" : return entry.target, nil //return MakeString(entry.position, entry.Name()), nil
@@ -1246,8 +1246,8 @@ func (entry *RuleEntry) Get(_ Context, name string) (Value, error) {
         }
         return nil, fmt.Errorf("no such entry property (%s)", name)
 }
-func (entry *RuleEntry) rescope(ctx Context, scope *Scope) { panic("RuleEntry.rescope not supported") }
-func (entry *RuleEntry) recipes() (recipes []Value) {
+func (entry *Rule) rescope(ctx Context, scope *Scope) { panic("Rule.rescope not supported") }
+func (entry *Rule) recipes() (recipes []Value) {
         for _, prog := range entry.programs {
                 for _, recipe := range prog.recipes {
                         recipes = append(recipes, recipe)
@@ -1255,13 +1255,13 @@ func (entry *RuleEntry) recipes() (recipes []Value) {
         }
         return
 }
-func (entry *RuleEntry) hasRecipes() (res bool) {
+func (entry *Rule) hasRecipes() (res bool) {
         for _, prog := range entry.programs {
                 if res = len(prog.recipes) > 0; res { break }
         }
         return
 }
-func (entry *RuleEntry) refs(ctx Context, v Value) bool {
+func (entry *Rule) refs(ctx Context, v Value) bool {
         if entry.target.refs(ctx, v) { return true }
 
         return false
@@ -1276,7 +1276,7 @@ func (entry *RuleEntry) refs(ctx Context, v Value) bool {
         }
         return false
 }
-func (entry *RuleEntry) defs(ctx Context, s ...string) (res []*def) {
+func (entry *Rule) defs(ctx Context, s ...string) (res []*def) {
         res = entry.target.defs(ctx, s...)
         for _, prog := range entry.programs {
                 for _, depend := range prog.depends {
@@ -1288,7 +1288,7 @@ func (entry *RuleEntry) defs(ctx Context, s ...string) (res []*def) {
         }
         return
 }
-func (entry *RuleEntry) expandible(ctx Context, w facet) (res bool) {
+func (entry *Rule) expandible(ctx Context, w facet) (res bool) {
         if res = entry.target.expandible(ctx, w); res { return }
         if false {
                 for _, prog := range entry.programs {
@@ -1302,7 +1302,7 @@ func (entry *RuleEntry) expandible(ctx Context, w facet) (res bool) {
         }
         return
 }
-func (entry *RuleEntry) expand(ctx Context, w facet) (res Value) {
+func (entry *Rule) expand(ctx Context, w facet) (res Value) {
         if entry == nil {
                 // happens from some &{xxx} exprs
                 erro(ctx, "expand nil entry (w=%016b)", w).debug(1)
@@ -1312,7 +1312,7 @@ func (entry *RuleEntry) expand(ctx Context, w facet) (res Value) {
         var target Value
         if target = entry.target.expand(ctx, w); target != entry.target {
                 // TODO: test if programs are needed to be disclosed??
-                res = &RuleEntry{
+                res = &Rule{
                         entry.class, target,
                         entry.argumented,
                         entry.programs,
@@ -1323,9 +1323,9 @@ func (entry *RuleEntry) expand(ctx Context, w facet) (res Value) {
         }
         return
 }
-func (entry *RuleEntry) delete(  ctx Context) (files []*File, err error) { return entry.target.delete(ctx) }
-func (entry *RuleEntry) stamp(   ctx Context) (files []*File, err error) { return entry.target.stamp(ctx) }
-func (entry *RuleEntry) traverse(ctx Context) (traves travestates) {
+func (entry *Rule) delete(  ctx Context) (files []*File, err error) { return entry.target.delete(ctx) }
+func (entry *Rule) stamp(   ctx Context) (files []*File, err error) { return entry.target.stamp(ctx) }
+func (entry *Rule) traverse(ctx Context) (traves travestates) {
         if target := autoGet(ctx, "@"); target == nil {
                 erro(ctx, "$@ is not defined").debug(1)
                 return
@@ -1373,10 +1373,10 @@ ForPrograms:
         return
 }
 // FIXME: entry.target maybe not the real target
-func (entry *RuleEntry) stat(ctx Context) (si *statinfo) { return entry.target.stat(ctx) }
-func (entry *RuleEntry) cmp(ctx Context, v Value) (res cmpres) {
-        if a, ok := v.(*RuleEntry); ok {
-                assert(ok, "value is not RuleEntry")
+func (entry *Rule) stat(ctx Context) (si *statinfo) { return entry.target.stat(ctx) }
+func (entry *Rule) cmp(ctx Context, v Value) (res cmpres) {
+        if a, ok := v.(*Rule); ok {
+                assert(ok, "value is not Rule")
                 if /*entry.class == a.class &&*/ entry.target.cmp(ctx, a.target) == cmpEqual {
                         if entry.OwnerProject() == a.OwnerProject() {
                                 res = cmpEqual
@@ -1387,17 +1387,17 @@ func (entry *RuleEntry) cmp(ctx Context, v Value) (res cmpres) {
         }
         return
 }
-func (entry *RuleEntry) patterned(ctx Context) bool { return entry.target.patterned(ctx) }
-func (entry *RuleEntry) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) {
+func (entry *Rule) patterned(ctx Context) bool { return entry.target.patterned(ctx) }
+func (entry *Rule) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) {
     full, s, stems = entry.target.match(ctx, i)
     return
 }
-func (entry *RuleEntry) stencil(ctx Context, stems []string) (val Value, rest []string) {
+func (entry *Rule) stencil(ctx Context, stems []string) (val Value, rest []string) {
     val, rest = entry.target.stencil(ctx, stems)
     return
 }
 
-func (entry *RuleEntry) option(ctx Context) (res bool, infos []Value) {
+func (entry *Rule) option(ctx Context) (res bool, infos []Value) {
         ForPrograms: for _, program := range entry.programs {
                 if !program.configure { continue }
                 for _, depend := range program.depends {
@@ -1427,15 +1427,15 @@ func (entry *RuleEntry) option(ctx Context) (res bool, infos []Value) {
         return
 }
 
-func (entry *RuleEntry) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+func (entry *Rule) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
 
-type PatternEntry struct { RuleEntry }
+type PatternEntry struct { Rule }
 func (p *PatternEntry) expand(ctx Context, w facet) (res Value) {
-        if ent := p.RuleEntry.expand(ctx, w); ent != &p.RuleEntry {
-                res = &PatternEntry{ *ent.(*RuleEntry) }
+        if ent := p.Rule.expand(ctx, w); ent != &p.Rule {
+                res = &PatternEntry{ *ent.(*Rule) }
         } else {
                 res = p
         }
@@ -1445,7 +1445,7 @@ func (p *PatternEntry) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*PatternEntry); ok {
                 assert(ok, "value is not PatternEntry")
                 // FIXME: p.Pattern.cmp(p.Pattern)
-                if p.RuleEntry.cmp(ctx, &a.RuleEntry) == cmpEqual {
+                if p.Rule.cmp(ctx, &a.Rule) == cmpEqual {
                         res = cmpEqual
                 }
         } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
@@ -1502,7 +1502,7 @@ func (p *stemmed) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (p *stemmed) traverse(ctx Context) (traves travestates) {
-        var real = p.RuleEntry // TODO: avoid copying the RuleEntry, use p directly
+        var real = p.Rule // TODO: avoid copying the Rule, use p directly
         real.target = p.target
         return real.traverse(&stemmedContext{ ctx, p })
 }

@@ -434,7 +434,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
                     //   update-file: [((in)) (closure) (set @=&@)] $(in) \
                     //       [(read-file $>) (update-file -p)]
                     //
-                    // see also RuleEntry.traverse for the same skip.
+                    // see also Rule.traverse for the same skip.
                     return
                 }
             }
@@ -569,7 +569,7 @@ func (prog *Program) execute(cc Context) (result Value, traves travestates) {
         if false { return }
     }
 
-    if pc.print && entry.Class() == UseRuleEntry { pc.print = false }
+    if pc.print && entry.Class() == UseRule { pc.print = false }
     if pc.print && prog.configure { pc.print = false }
     cd.stack[0].silent = !pc.print
 

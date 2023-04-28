@@ -782,9 +782,9 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
   }
 
   if patterned {
-    var class = PatternRuleEntry
-    if _, ok := target.(*Path); ok { class = PathPattRuleEntry }
-    var pattern = &PatternEntry{RuleEntry{
+    var class = PatternRule
+    if _, ok := target.(*Path); ok { class = PathPattRule }
+    var pattern = &PatternEntry{Rule{
       position: target.Position(), class: class, target: target, argumented: arged,
     }}
     p.patterns = append(p.patterns, pattern)
@@ -798,8 +798,8 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
     entry, _ = p.entries[name]
   }
   if entry == nil {
-    entry = &RuleEntry{
-      position: target.Position(), class: GeneralRuleEntry, target: target, argumented: arged,
+    entry = &Rule{
+      position: target.Position(), class: GeneralRule, target: target, argumented: arged,
     }
     p.entries[name] = entry
   }

@@ -900,7 +900,7 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
     ctx = at(ctx, spec.Position())
 
     // Execute the rule entry to update include source.
-    if entry, ok := spec.(*RuleEntry); ok && entry != nil {
+    if entry, ok := spec.(*Rule); ok && entry != nil {
         var (
             result []Value
             okay bool

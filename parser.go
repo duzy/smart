@@ -2031,7 +2031,7 @@ func (p *parser) include(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 			x = val
 		}}
 
-		x = p.rule(specialRuleNor, nil, []Value{x}) // this should return a RuleEntry
+		x = p.rule(specialRuleNor, nil, []Value{x}) // this should return a Rule
 	}
 	if !g.skip { loader.include(ctx, opts, x) }
 }
@@ -2168,7 +2168,7 @@ func (p *parser) evalConfiguration(ctx Context, g *clauseOpts, props []Value) {
 	defer ce.close()
 
 	for _, dep := range mergex(ctx, plain, props[1:]...) {
-		if re, y := dep.(*RuleEntry); !y {
+		if re, y := dep.(*Rule); !y {
 			erro(ctx, "unsupported prerequisite: %T %v", dep, dep).debug(1)
 		} else if _, ts := re.Execute(ctx); len(ts) > 0 {
 			for _, brk := range ts {

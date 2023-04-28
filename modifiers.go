@@ -244,10 +244,6 @@ var (
         `env`:          modifier.env, // interpreter environments
         `set`:          modifier.set,
 
-        `by`:           modifier.SetDirtyPats,
-        `dirty-by`:     modifier.SetDirtyPats,
-        `dirty-opts`:   modifier.SetDirtyPats,
-
         `closure`:      modifier._closure,
         `for`:          modifier._for,
 
@@ -286,8 +282,12 @@ var (
         `git-ahead`:    modifier.gitahead,
         `git-modified`: modifier.gitmodified,
 
-        `dirty`:            modifier.predictOutdated,
-        `outdated`:         modifier.predictOutdated,
+        `by`:           modifier.setDirtyPats,
+        `dirty-by`:     modifier.setDirtyPats,
+        `dirty-opts`:   modifier.setDirtyPats,
+
+        `dirty`:            modifier.dirtyp,
+        `outdated`:         modifier.dirtyp,
         // `no-loop`:          modifier.predictNoLoop,
         // `target-1st-visit`: modifier.predictTarget1stVisit,
         // `target-max-visit`: modifier.predictTargetMaxVisit,
@@ -517,7 +517,7 @@ type modifierSetDirtyPatsOpts struct {
     generalOpts
     pats []Value
 }
-func (ctx modifier) SetDirtyPats(args... Value) (result Value) {
+func (ctx modifier) setDirtyPats(args... Value) (result Value) {
     var opts = ctx.dirtyOpts()
     opts.pats = parseOpts(ctx, opts, plain, args...)
     return
@@ -725,9 +725,9 @@ func parseDependList(ctx Context, dependList *List) (depends *List, traves trave
             } else {
                 depends.Append(d)
             }
-        case *RuleEntry:
+        case *Rule:
             switch d.class {
-            case GeneralRuleEntry, PatternRuleEntry, PathPattRuleEntry:
+            case GeneralRule, PatternRule, PathPattRule:
                 depends.Append(d)
             default:
                 erro(ctx, "unsupported entry depend `%v' (%v)", d, d.class).debug(1)
@@ -3037,15 +3037,15 @@ func isDirtyAfter(ctx Context, target Value, t time.Time) (res bool) {
     return
 }
 
-type predictionOutdatedOpts struct {
+type dirtypOpts struct {
     generalOpts
     verboseUpdated  bool "vu,verbose-updated"
     verboseOutdated bool "vo,verbose-outdated"
     checksum bool "c,cs,crc,checksum"
     silent   bool "s,silent"
 }
-func (ctx modifier) predictOutdated(args... Value) (result Value) {
-    var opts predictionOutdatedOpts
+func (ctx modifier) dirtyp(args... Value) (result Value) {
+    var opts dirtypOpts
     args = parseOpts(ctx, &opts, plain, args...)
 
     var err error
@@ -3097,7 +3097,7 @@ func (ctx modifier) predictOutdated(args... Value) (result Value) {
     if opts.debug>0 || opts.verbose || (opts.verboseOutdated && outdated) || (opts.verboseUpdated && !outdated) {
         var ( t = ctx.programContext(); s = time.Now().Sub(t.start).String(); m string )
         if d := ctx.gap(true); d > 0 { s += ", gap " + d.String()
-            if d > warningGap { warnstack(ctx, 5, "%v %v", target.Value, d).debug(32) }
+            if d > warningGap { warnstack(ctx, 5, "%v: %v", target.Value, d).debug(32) }
         }
         if reason != "" { s += "; " + strings.TrimSpace(strings.TrimPrefix(reason, "outdated:")) }
         if outdated { m = "outdated" } else { m = "updated" }
@@ -3118,7 +3118,7 @@ func (ctx modifier) predictOutdated(args... Value) (result Value) {
         var pc = ctx.programContext()
         if pc.dirt == "" {
             if d := ctx.gap(true); d > 0 { reason += ", gap " + d.String()
-                if d > warningGap { warnstack(ctx, 5, "%v %v", target.Value, d).debug(32) }
+                if d > warningGap { warnstack(ctx, 5, "%v: %v", target.Value, d).debug(32) }
             }
         } else { reason = pc.dirt + "; " + reason }
         pc.dirt = reason
@@ -3503,7 +3503,7 @@ type modifierOnceOpts struct {
     forval Value `for` // TODO: (once -for=$@)
 }
 func (ctx modifier) once(args... Value) (result Value) {
-    // TODO: (once)           --> once for the RuleEntry, aka entry.doneOnce = true
+    // TODO: (once)           --> once for the Rule, aka entry.doneOnce = true
     // TODO: (once -for=$@)   --> once for $@, aka entry.onces[$(expand $@)] = true
     var (
         n int

@@ -498,7 +498,7 @@ func (ac *argumentedContext) argumentedSet(args []Value) (prev []Value) {
   return
 }
 
-func executeEntry(ctx Context, entry *RuleEntry, args ...Value) (result []Value, okay bool) {
+func executeEntry(ctx Context, entry *Rule, args ...Value) (result []Value, okay bool) {
   var traves travestates
   if result, traves = entry.Execute(at(ctx, entry.position), args...); !traves.has() {
     okay = true; return
@@ -527,7 +527,7 @@ func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
   } else {
     var okay bool
     switch g := goal.(type) {
-    case *RuleEntry:
+    case *Rule:
       if result, okay = executeEntry(at(ctx, g.position), g, args...); !okay {
         erro(at(ctx,ctx.Position()), "update '%v' failed", g).debug(1)
       }

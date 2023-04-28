@@ -24,10 +24,10 @@ func TestCheckLog1(t *testing.T) {
 `))
                         if !bytes.Equal(v, h) { t.Errorf("bad header:\n%s\n%s", v, h) }
 
-                        v = []byte(fmt.Sprintf(`RuleEntry /path/to/otherwhere
-RuleEntry ./path/to/somewhere
-RuleEntry ../path/to/anywhere
-RuleEntry path/to/overthere
+                        v = []byte(fmt.Sprintf(`Rule /path/to/otherwhere
+Rule ./path/to/somewhere
+Rule ../path/to/anywhere
+Rule path/to/overthere
 compile foo.c -> sub/foo.o
 compile bar.c src/baz.c -> sub/bar.o
 sub/foo.o sub/bar.o -> sub

@@ -1456,7 +1456,7 @@ func (a as) file(ctx Context, projects ...*Project) (f *File) {
     case *barefile : f = t.File
     case *def      : if !isTrivial(t.value) { return as{t.value   }.file(ctx) }
     case *List     : if len(t.Elems) == 1   { return as{t.Elems[0]}.file(ctx) }
-    case *RuleEntry:                          return as{t.target  }.file(ctx)
+    case *Rule:                          return as{t.target  }.file(ctx)
     case *String, *Compound:
         // NOTE: escape 'string' and "compound" values from file parsing,
         // NOTE: this optimized the performance.
@@ -6836,7 +6836,7 @@ func (p *selection) traverse(ctx Context) (traves travestates) {
     if val := p.value(ctx, plain); isTrivial(val) {
         warn(ctx, "selected trivial value '%v' (%T %v, %T %v) ", p, p.o, p.o, p.s, p.s).debug(10)
     } else {
-        _ = val.updated(ctx) // NOTE: ensure that updated flag is correct (see RuleEntry.updated)
+        _ = val.updated(ctx) // NOTE: ensure that updated flag is correct (see Rule.updated)
         traves = val.traverse(ctx)
     }
     return
