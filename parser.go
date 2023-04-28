@@ -317,7 +317,7 @@ func (p *parser) spaces() {
 				TokFor: for p.tok != EOF {
 					switch p.tok {
 					case RECIPE: // TODO: using p.isRecipeStart()
-						if false { p.scanner.pop(isCompoundLine) }
+						if true { p.scanner.pop(isCompoundLine) }
 						p.step()
 					default: break TokFor
 					}
