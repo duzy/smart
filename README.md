@@ -1,6 +1,6 @@
-# Smart (Simpler Making ART) (BETA)
+# Smart (Simple Make ART) (BETA)
 
-NOTE: The `smart` project has temporarily gone private and should reopen again in the future.
+NOTE: The `smart` project has temporarily gone private and should reopen again in the future, please read [here](https://duzy.dev/project/smart) for more information.
 
 ## Overview
 
