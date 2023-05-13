@@ -2167,7 +2167,7 @@ func (p *parser) evalConfiguration(ctx Context, g *clauseOpts, props []Value) {
 	)
 	defer ce.close()
 
-	for _, dep := range mergex(ctx, plain, props[1:]...) {
+	for _, dep := range mergex(ctx, plain, props/* [1:] */...) {
 		if re, y := dep.(*Rule); !y {
 			erro(ctx, "unsupported prerequisite: %T %v", dep, dep).debug(1)
 		} else if _, ts := re.Execute(ctx); len(ts) > 0 {
@@ -2238,7 +2238,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 		erro(ctx, "resolve '%v' failed", prop0).debug(1)
 		return
 	} else if name == "configuration" {
-		erro(ctx, "use '-configuration' instead", prop0).debug(1)
+		erro(ctx, "use '-configuration' instead (%v)", prop0).debug(1)
 		return
 	} else if x, y := resolved.(*Builtin); y {
 		if x.s.b&builtinCommand == 0 {

@@ -369,7 +369,7 @@ type universe struct {
     fset    *FileSet
 
     statmutex sync.Mutex
-    filemaps filemapCache
+    filemaps filemapCache // value -> dirs
     filecache map[string]*filebase // File.fullname() -> File
 }
 func (ctx *universe) gap(a ...interface{}) (d time.Duration) {
@@ -411,6 +411,7 @@ func (ctx *universe) Position() (res Position) {
     return
 }
 func (ctx *universe) wait() {}
+func (ctx *universe) dirty(_ Context, args ...Value) (res bool, reason string) { return }
 func (ctx *universe) appendCallerUpdated() bool { return false }
 func (ctx *universe) mustExists() bool { return false }
 func (ctx *universe) WorkDir() string { return ctx.workdir }

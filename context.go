@@ -139,9 +139,6 @@ type Context interface {
 
   positionContext() *positionContext
 
-  travestates(...*travestate) *travestates
-  traversed(target Value) []Value
-
   Project() *Project
   projects(Context, ...*Project) []*Project
 
@@ -150,6 +147,10 @@ type Context interface {
 
   dirtyOpts() *modifierSetDirtyPatsOpts
   dirtyMark(...Value)
+  dirty(ctx Context, args ...Value) (bool, string)
+
+  travestates(...*travestate) *travestates
+  traversed(target Value) []Value
 
   entry() Entry
   entryContext() *entryContext

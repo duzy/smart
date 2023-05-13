@@ -99,9 +99,9 @@ func (p *use) patterned(ctx Context) bool { return false }
 func (p *use) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return }
 func (p *use) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
 func (p *use) True(ctx Context) bool { return p.project != nil }
-func (p *use) updated(ctx Context, v ...bool) (res bool) {
+func (p *use) updated(ctx Context) (res bool) {
         if entry := p.project.defaultEntry; entry != nil {
-                res = entry.updated(ctx, v...)
+                res = entry.updated(ctx)
         }
         return
 }
@@ -162,9 +162,9 @@ func (p *uselist) Strval(ctx Context) (s string) {
 func (p *uselist) True(ctx Context) bool { return len(p.list) > 0 }
 func (p *uselist) Integer(ctx Context) (i int64, _ error) { return int64(len(p.list)), nil }
 func (p *uselist) Float(ctx Context) (f float64, _ error) { return 0, nil }
-func (p *uselist) updated(ctx Context, v ...bool) (res bool) {
+func (p *uselist) updated(ctx Context) (res bool) {
         for _, elem := range p.list {
-                res = res || elem.updated(ctx, v...)
+                res = res || elem.updated(ctx)
         }
         return
 }

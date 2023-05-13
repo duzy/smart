@@ -13,6 +13,7 @@ import (
     "errors"
     "fmt"
     "hash/crc64"
+    // "hash/maphash"
     "io"
     "io/fs"
     "io/ioutil"
@@ -286,8 +287,8 @@ var (
         `dirty-by`:     modifier.setDirtyPats,
         `dirty-opts`:   modifier.setDirtyPats,
 
-        `dirty`:            modifier.dirtyp,
-        `outdated`:         modifier.dirtyp,
+        `dirty`:            modifier.dirtyPredict,
+        // `outdated`:         modifier.dirtyPredict,
         // `no-loop`:          modifier.predictNoLoop,
         // `target-1st-visit`: modifier.predictTarget1stVisit,
         // `target-max-visit`: modifier.predictTargetMaxVisit,
@@ -1015,7 +1016,7 @@ func tempFile(ctx Context, prefix, hashee0 string, hasheeN... interface{}) (file
         erro(ctx, "hashing failed: %v", err).debug(1)
     } else if _, err = fmt.Fprint(nameHash, hasheeN...); err != nil {
         erro(ctx, "hashing failed: %v", err).debug(1)
-    } else if nameSum := nameHash.Sum(nil); len(nameSum) != sha256.Size {
+    } else if nameSum := nameHash.Sum(nil); len(nameSum) != nameHash.Size() {
         erro(ctx, "hash sum invalid: %v", len(nameSum)).debug(1)
     } else if project := ctx.Project(); project == nil {
         erro(ctx, "current project is nil: %v", ctx).debug(1)
@@ -1603,7 +1604,6 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
                     return nil, nil // requests to update savedDepsFile
                 }
                 if parallel {
-                    if false { info(ctx, "spawn %v", ctx) }
                     jobs.Add(1); go depFile(ctx.spawn(ctx), depPos, word)
                 } else {
                     depFile(ctx, depPos, word)
@@ -2977,11 +2977,10 @@ func (ctx modifier) cond(args... Value) (result Value) {
     //       ((condition) ...)
     //       (true{} ...))
     for _, a := range args {
-        if !a.True(ctx.Context) {
+        if a == nil { warn(ctx, "nil arg").debug(1) }
+        if a == nil || !a.True(ctx.Context) {
             var traves travestates
-            s := traves.add(ctx, traveDone, nil)
-            // s.error = fmt.Errorf("%s", msg)
-            s.prog = ctx.program()
+            traves.add(ctx, traveDone, nil)
             ctx.travestates(traves...)
             return
         }
@@ -2990,8 +2989,7 @@ func (ctx modifier) cond(args... Value) (result Value) {
 }
 
 type modifierCaseOpts struct {
-    debug   bool `d,debug`
-    verbose bool `v,verbose`
+    generalOpts
 }
 func (ctx modifier) _case(args... Value) (result Value) {
     var opts modifierCaseOpts
@@ -3009,7 +3007,7 @@ func (ctx modifier) _case(args... Value) (result Value) {
     ctx.travestates(traves...)
 
     if opts.verbose { prompt(ctx, "%v: %v", autoGet(ctx, "@"), w) }
-    if opts.debug { warn(ctx, "%v", w) }
+    if opts.debug > 0 { warn(ctx, "%v", w) }
     return
 }
 
@@ -3037,91 +3035,14 @@ func isDirtyAfter(ctx Context, target Value, t time.Time) (res bool) {
     return
 }
 
-type dirtypOpts struct {
-    generalOpts
-    verboseUpdated  bool "vu,verbose-updated"
-    verboseOutdated bool "vo,verbose-outdated"
-    checksum bool "c,cs,crc,checksum"
-    silent   bool "s,silent"
-}
-func (ctx modifier) dirtyp(args... Value) (result Value) {
-    var opts dirtypOpts
-    args = parseOpts(ctx, &opts, plain, args...)
-
-    var err error
-    var target as
-    if target.Value, _, _, err = wait(ctx); err != nil {
-        erro(ctx, "waiting traversal failed: %v", err).debug(1)
-        return
-    }
-
-    var (
-        reason string
-        outdated bool
-    )
-    if ts := target.stat(ctx); ts == nil || ts.exists() != existenceConfirmed {
-        outdated, reason = true, fmt.Sprintf("target not exists: %s %v", typeof(target), target)
-    } else if isDirty(ctx, target, args...) && isDirtyAfter(ctx, target, ts.mod()) {
-        outdated, reason = true, "updated prerequisites"
-    }
-
-    var targetFullname string
-    if targetFullname, _ = target.fullnameOrStrval(ctx); outdated {
-        assert(reason != "", "needs outdated reason")
-    } else if outdated, err = isRecipesChanged(ctx, target); err != nil {
-        erro(ctx, "recipes changed: %v", err).debug(1)
-        return
-    } else if outdated {
-        reason = "recipes changed"
-    } else if !opts.checksum {
-        // does nothing
-    } else if true {
-        erro(ctx, "FIXME: check prerequisites against the saved checksums").debug(1)
-        return
-    } else if depends := autoGet(ctx, "^"); depends != nil {
-        for _, depend := range merge(depends) {
-            var ( a = as{depend} ; file2 string )
-            if a.trivial() {
-                // does nothing
-            } else if file2, _ = a.fullnameOrStrval(ctx); file2 != "" {
-                // see: same, err = crc64CompareFileChecksum(ctx, targetFullname, file2)
-                // TODO.1: load saved checksum for depend, set outdated if no such
-                // TODO.2: calculate checksum for depend and compare with the loaded
-                // TODO.3: set outdated if the two checksums differred
-            }
-        }
-    }
-
-    const warningGap = 5 * time.Second
-
-    if opts.debug>0 || opts.verbose || (opts.verboseOutdated && outdated) || (opts.verboseUpdated && !outdated) {
-        var ( t = ctx.programContext(); s = time.Now().Sub(t.start).String(); m string )
-        if d := ctx.gap(true); d > 0 { s += ", gap " + d.String()
-            if d > warningGap { warnstack(ctx, 5, "%v: %v", target.Value, d).debug(32) }
-        }
-        if reason != "" { s += "; " + strings.TrimSpace(strings.TrimPrefix(reason, "outdated:")) }
-        if outdated { m = "outdated" } else { m = "updated" }
-
-        var (
-            ts = trimPromptString(targetFullname)
-            n = len(t.targets) + len(t.grepped)
-        )
-        if db := opts.debug>0; db && !opts.verbose {
-            warn(ctx, "%s (%T) (%s) …… %s (%d files in %s, debug=%d)", ts, target, targetFullname, m, n, s, opts.debug).debug(opts.debug * 2)
-        } else {
-            prompt(ctx, "%s …… %s (%d files in %s)\n", ts, m, n, s).debug(db, 6)
-        }
-    }
-
-    if opts.silent { reason = "" }
-    if result = MakePrediction(ctx.Position(), outdated, reason); outdated {
-        var pc = ctx.programContext()
-        if pc.dirt == "" {
-            if d := ctx.gap(true); d > 0 { reason += ", gap " + d.String()
-                if d > warningGap { warnstack(ctx, 5, "%v: %v", target.Value, d).debug(32) }
-            }
-        } else { reason = pc.dirt + "; " + reason }
-        pc.dirt = reason
+func (ctx modifier) dirtyPredict(args... Value) (result Value) {
+    var res, reason = dirty(ctx, args...)
+    if res {
+        result = MakePrediction(ctx.Position(), res, reason)
+    } else {
+        var traves travestates
+        traves.add(ctx, traveDone, nil)
+        ctx.travestates(traves...)
     }
     return
 }
@@ -3183,8 +3104,8 @@ func (ctx modifier) predictTarget1stVisit(args... Value) (result Value) {
 }
 
 type predictionTargetMaxVisitOpts struct {
+    generalOpts
     closure bool "c,closure"
-    debug bool "d,debug;d,debug-trace;d,dump"
     silent bool "s,silent"
 }
 func (ctx modifier) predictTargetMaxVisit(args... Value) (result Value) {
@@ -3213,7 +3134,7 @@ func (ctx modifier) predictTargetMaxVisit(args... Value) (result Value) {
     for caller := ctx.programContext().caller(); caller != nil; caller = caller.caller() {
         var ct = autoGet(caller, "@")
         if n := caller.execRec[target]; n > 0 { num += int64(n) }
-        if opts.debug && num > 0 {
+        if opts.debug > 0 && num > 0 {
             if head { head = false
                 prompt(ctx, "  %s: nth(%d)\n", ctx.Position(), nth)
             }
@@ -3306,8 +3227,7 @@ func (ctx modifier) fork(args... Value) (result Value) {
 }
 
 type modifierGitModifiedOpts struct {
-    debug bool "d,debug"
-    verbose bool "v,verbose"
+    generalOpts
 }
 func (ctx modifier) gitmodified(args... Value) (result Value) {
     var opts modifierGitModifiedOpts
@@ -3347,8 +3267,7 @@ func (ctx modifier) gitmodified(args... Value) (result Value) {
 }
 
 type modifierGitAheadOpts struct {
-    debug bool "d,debug"
-    verbose bool "v,verbose"
+    generalOpts
 }
 func (ctx modifier) gitahead(args... Value) (result Value) {
     var opts modifierGitAheadOpts
@@ -3497,8 +3416,7 @@ func onceSHA256(ctx Context, target Value, opts *modifierOnceOpts, args... Value
 }
 
 type modifierOnceOpts struct {
-    debug    bool `d,debug`
-    verbose  bool `v,verbose`
+    generalOpts
     checksum bool `c,cs,checksum,s,sha,sha256,sum,h,hash`
     forval Value `for` // TODO: (once -for=$@)
 }
@@ -3532,10 +3450,9 @@ func (ctx modifier) once(args... Value) (result Value) {
     if n > 1 {
         s := traves.add(ctx, traveDone, target)
         s.error = fmt.Errorf(`executed %d times`, n)
-        s.prog = ctx.program()
     }
 
-    if opts.debug {
+    if opts.debug > 0 {
         warn(ctx, "%T %v %p %v", target, target, target, n)
         warnstack(at(ctx, target.Position()), -1, "%p %v %v", target, target, n).debug(16)
     }
@@ -3559,7 +3476,6 @@ func (ctx modifier) once(args... Value) (result Value) {
                 n := rec.targets[target]
                 s := traves.add(ctx, traveDone, target)
                 s.error = fmt.Errorf(`executed %d times`, n)
-                s.prog = ctx.program()
             }
         }
     }

@@ -20,6 +20,13 @@ import (
 type dependPatternUnfit struct {}
 func (*dependPatternUnfit) Error() string { return "pattern unfit" }
 
+type dirtyOpts struct {
+    generalOpts
+    verboseUpdated  bool "vu,verbose-updated"
+    verboseOutdated bool "vo,verbose-outdated"
+    checksum bool "c,cs,crc,checksum"
+    silent   bool "s,silent"
+}
 type programContext struct {
     autoContext
     sync.Mutex
@@ -29,8 +36,6 @@ type programContext struct {
     prog *Program
     params []string // $0, $1, $2, ...
     dirt string // reason of outdated
-
-    /// traverseContext
 
     start time.Time // start time
 
@@ -52,10 +57,10 @@ type programContext struct {
 }
 func (pc *programContext) caller() *programContext { return pc.Context.programContext() }
 func (pc *programContext) inner() Context { return &pc.autoContext }
-func (pc *programContext) wait() { pc.WaitGroup.Wait() }
 func (pc *programContext) aquireLock() (unlock func()) {
     pc.Lock() ; return func() { pc.Unlock() }
 }
+func (pc *programContext) wait() { pc.WaitGroup.Wait() }
 //XXX: func (pc *programContext) stems() []string { return nil }
 func (pc *programContext) String() string {
     if fullContextStringer {
@@ -127,22 +132,26 @@ func (pc *programContext) closureScopes() (scopes []*Scope) {
 
 func (pc *programContext) dirtyOpts() *modifierSetDirtyPatsOpts { return &pc.by }
 func (pc *programContext) dirtyMark(vals ...Value) {
-    const enableDirtyMark = true
+    const (
+        enableDirtyMark = true
+        perUpdatedDep = true
+    )
     if !enableDirtyMark {
         // does nothing
-    } else if tt := merge(autoGet(pc, "@")); len(tt) == 0 {
+    } else if targets := merge(autoGet(pc, "@")); len(targets) == 0 {
         // should not happen, but safely ignoring..
     } else if len(vals) == 0 {
-        vals = append(vals, tt...)
-    } else if /*last := vals[len(vals)-1]; last != tt*/true {
-        const perUpdatedDep = true
+        vals = append(vals, targets...)
+    } else if true {
+        vals = merge(vals...)
+
         var (
             mat, dup bool
             opts = pc.dirtyOpts()
         )
-        vals = merge(vals...)
-        for _, t := range tt {
-            ForVals: for _, val := range vals {
+        for _, t := range targets {
+        ForVals:
+            for _, val := range vals {
                 if eq(pc, val, t) {
                     dup = true; continue ForVals
                 }
@@ -154,17 +163,88 @@ func (pc *programContext) dirtyMark(vals ...Value) {
                 }
             }
             if !perUpdatedDep && mat { t.updatedDeps(pc, vals...) }
-            if !dup { // vals = append(vals, merge(tt)...)
+            if !dup { // vals = append(vals, merge(targets)...)
                 vals = append(t.updatedDeps(pc), vals...)
                 vals = append(merge(t), vals...)
             }
-            if false { warn(pc, "dirtyMark: %T %v; %v, %v, %v, %v", t, t, vals, dup,
-                t.updated(pc), t.updatedDeps(pc)).debug(0) }
-            if false { warn(pc, "dirtyMark: %T %v; %v, %v, %v, %v", t, t, vals, dup,
-                t.updated(pc), t.updatedDeps(pc)).debug(18) }
+            if false { warn(pc, "dirtyMark: %T %v; %v, %v, %v, %v", t, t, vals, dup, t.updated(pc), t.updatedDeps(pc)).debug(0) }
+            if false { warn(pc, "dirtyMark: %T %v; %v, %v, %v, %v", t, t, vals, dup, t.updated(pc), t.updatedDeps(pc)).debug(18) }
         }
     }
     if enableDirtyMark { pc.Context.dirtyMark(vals...) }
+}
+func (pc *programContext) dirty(ctx Context, args ...Value) (outdated bool, reason string) {
+    var targetValue, files, execRes, err = wait(pc)
+    var target = as{ targetValue }
+    var opts dirtyOpts
+    args = parseOpts(ctx, &opts, plain, args...)
+
+    if false { info(ctx, "dirty: %v, %v, %v, %v", target, files, execRes, err).debug(1) }
+
+    if ts := target.stat(ctx); ts == nil || ts.exists() != existenceConfirmed {
+        outdated, reason = true, fmt.Sprintf("target not exists: %s %v", typeof(target), target)
+    } else if isDirty(ctx, target, args...) && isDirtyAfter(ctx, target, ts.mod()) {
+        outdated, reason = true, "updated prerequisites"
+    }
+
+    var targetFullname string
+    if targetFullname, _ = target.fullnameOrStrval(ctx); outdated {
+        assert(reason != "", "needs outdated reason")
+    } else if outdated, err = isRecipesChanged(ctx, target); err != nil {
+        erro(ctx, "recipes changed: %v", err).debug(1)
+        return
+    } else if outdated {
+        reason = "recipes changed"
+    } else if !opts.checksum {
+        // does nothing
+    } else if true {
+        erro(ctx, "FIXME: check prerequisites against the saved checksums").debug(1)
+        return
+    } else if depends := autoGet(ctx, "^"); depends != nil {
+        for _, depend := range merge(depends) {
+            var ( a = as{depend} ; file2 string )
+            if a.trivial() {
+                // does nothing
+            } else if file2, _ = a.fullnameOrStrval(ctx); file2 != "" {
+                // see: same, err = crc64CompareFileChecksum(ctx, targetFullname, file2)
+                // TODO.1: load saved checksum for depend, set outdated if no such
+                // TODO.2: calculate checksum for depend and compare with the loaded
+                // TODO.3: set outdated if the two checksums differred
+            }
+        }
+    }
+
+    const warningGap = 5 * time.Second
+
+    if opts.debug>0 || opts.verbose || (opts.verboseOutdated && outdated) || (opts.verboseUpdated && !outdated) {
+        var ( t = pc; s = time.Now().Sub(t.start).String(); m string )
+        if d := ctx.gap(true); d > 0 { s += ", gap " + d.String()
+            if d > warningGap { warnstack(ctx, 5, "%v: %v", target.Value, d).debug(32) }
+        }
+        if reason != "" { s += "; " + strings.TrimSpace(strings.TrimPrefix(reason, "outdated:")) }
+        if outdated { m = "outdated" } else { m = "updated" }
+
+        var (
+            ts = trimPromptString(targetFullname)
+            n = len(t.targets) + len(t.grepped)
+        )
+        if db := opts.debug>0; db && !opts.verbose {
+            warn(ctx, "%s (%T) (%s) …… %s (%d files in %s, debug=%d)", ts, target, targetFullname, m, n, s, opts.debug).debug(opts.debug * 2)
+        } else {
+            prompt(ctx, "%s …… %s (%d files in %s)\n", ts, m, n, s).debug(db, 6)
+        }
+    }
+
+    if opts.silent { reason = "" }
+    if outdated {
+        if pc.dirt == "" {
+            if d := ctx.gap(true); d > 0 { reason += ", gap " + d.String()
+                if d > warningGap { warnstack(ctx, 5, "%v: %v", target.Value, d).debug(32) }
+            }
+        } else { reason = pc.dirt + "; " + reason }
+        pc.dirt = reason
+    }
+    return
 }
 
 type Program struct {

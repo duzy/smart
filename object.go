@@ -155,7 +155,7 @@ type ProjectName struct {
         scope *Scope
 }
 func (_ *ProjectName) kind() kind { return valOther }
-func (_ *ProjectName) updated(_ Context, _ ...bool) bool { return false }
+func (_ *ProjectName) updated(_ Context) bool { return false }
 func (_ *ProjectName) updatedDeps(_ Context, _ ...Value) []Value { return nil }
 func (_ *ProjectName) stamp(ctx Context) (files []*File, err error) { return }
 func (_ *ProjectName) delete(_ Context) (files []*File, err error) { return }
@@ -213,7 +213,7 @@ type ScopeName struct {
         name string
 }
 func (_ *ScopeName) kind() kind { return valOther }
-func (_ *ScopeName) updated(_ Context, _ ...bool) bool { return false }
+func (_ *ScopeName) updated(_ Context) bool { return false }
 func (_ *ScopeName) updatedDeps(_ Context, _ ...Value) []Value { return nil }
 func (_ *ScopeName) stamp(ctx Context) (files []*File, err error) { return }
 func (_ *ScopeName) delete(_ Context) (files []*File, err error) { return }
@@ -977,7 +977,7 @@ func (p *undetermined) Strval(ctx Context) string { return p.value.Strval(ctx) }
 func (p *undetermined) True(ctx Context) bool { return false }
 func (p *undetermined) Float(ctx Context) (f float64, _ error) { return 0, nil }
 func (p *undetermined) Integer(ctx Context) (i int64, _ error) { return 0, nil }
-func (p *undetermined) updated(_ Context, _ ...bool) bool { return false }
+func (p *undetermined) updated(_ Context) bool { return false }
 func (p *undetermined) updatedDeps(_ Context, _ ...Value) []Value { return nil }
 func (p *undetermined) refs(ctx Context, v Value) bool {
         return p.identifier.refs(ctx, v) || p.value.refs(ctx, v)
@@ -1202,8 +1202,8 @@ func (entry *Rule) String() string {
         if entry.target == nil { return "<nil entry>" }
         return entry.target.String()
 }
-func (entry *Rule) updated(ctx Context, v ...bool) bool {
-        var res = entry.target.updated(ctx, v...)
+func (entry *Rule) updated(ctx Context) bool {
+        var res = entry.target.updated(ctx)
         if res { ctx.dirtyMark(entry.target) }
         return res
 }

@@ -243,7 +243,6 @@ var commands = map[string]BuiltinFunc {
         `write-file`:   BuiltinFunc{builtin.writefile, builtinCommand, 0, expandZero, expandZero}, // io/ioutil/ioutil.go
         `touch-file`:   BuiltinFunc{builtin.touchfile, builtinCommand, 0, expandZero, expandZero},
         `mkdir`:        BuiltinFunc{builtin.mkdir, builtinCommand, 0, expandZero, expandZero},     // os/file.go
-        `mkdir-all`:    BuiltinFunc{builtin.mkdirall, builtinCommand, 0, expandZero, expandZero},  // os/path.go
         `chdir`:        BuiltinFunc{builtin.chdir, builtinCommand, 0, expandZero, expandZero},     // os/file.go
         `rename`:       BuiltinFunc{builtin.rename, builtinCommand, 0, expandZero, expandZero},    // os/file.go
         `remove`:       BuiltinFunc{builtin.remove, builtinCommand, 0, expandZero, expandZero},    // os/file_*.go
@@ -3377,21 +3376,28 @@ func (ctx builtin) relativedir(args... Value) (res Value) {
         return
 }
 
+type builtinMkdirOpts struct {
+        generalOpts
+        all bool `a,all,p,path`
+}
 func (ctx builtin) mkdir(args... Value) (res Value) {
+        var opts builtinRemoveOpts
+        ctx.opts(&opts, plain)
+
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
-                        a = args[i]
                         name string
-                        perm os.FileMode
+                        a = args[i]
+                        perm = os.FileMode(0755)
                 )
                 switch t := a.(type) {
                 case *Pair: // mkdir name => perm name => perm
                         name = t.Key.Strval(ctx)
-                        perm = permVal(ctx, t.Value,0600)
+                        perm = permVal(ctx, t.Value, uint32(perm))
                 case *Group: // mkdir (name perm) (name perm)
                         if t.Len() == 2 {
                                 name = t.Get(0).Strval(ctx)
-                                perm = permVal(ctx, t.Get(1),0600)
+                                perm = permVal(ctx, t.Get(1), uint32(perm))
                         } else {
                                 erro(ctx, "Wrong size of list `%v'", t).debug(1)
                                 break
@@ -3399,7 +3405,7 @@ func (ctx builtin) mkdir(args... Value) (res Value) {
                 case *List: // mkdir name perm, name perm, ...
                         if t.Len() == 2 {
                                 name = t.Get(0).Strval(ctx)
-                                perm = permVal(ctx, t.Get(1),0600)
+                                perm = permVal(ctx, t.Get(1), uint32(perm))
                         } else {
                                 erro(ctx, "Wrong size of list `%v'", t).debug(1)
                                 break
@@ -3407,54 +3413,20 @@ func (ctx builtin) mkdir(args... Value) (res Value) {
                 default: // mkdir name perm, name perm, ...
                         name = args[i].Strval(ctx)
                         if i+1 < nargs {
-                                perm = permVal(ctx, args[i+1],0600)
+                                perm = permVal(ctx, args[i+1], uint32(perm))
                                 i += 1
                         }
                 }
-                if err := os.Mkdir(name, perm); err != nil {
-                        erro(ctx, "%v", err).debug(1)
-                        break
-                }
-        }
-        return
-}
-
-func (ctx builtin) mkdirall(args... Value) (res Value) {
-        for i, nargs := 0, len(args); i < nargs; i += 1 {
-                var (
-                        a = args[i]
-                        name string
-                        perm os.FileMode
-                )
-                switch t := a.(type) {
-                case *Pair: // mkdir name => perm name => perm
-                        name = t.Key.Strval(ctx)
-                        perm = permVal(ctx, t.Value,0600)
-                case *Group: // mkdir (name perm) (name perm)
-                        if t.Len() == 2 {
-                                name = t.Get(0).Strval(ctx)
-                                perm = permVal(ctx, t.Get(1),0600)
-                        } else {
-                                erro(ctx, "Wrong size of list `%v'", t).debug(1)
+                if opts.all {
+                        if err := os.MkdirAll(name, perm); err != nil {
+                                erro(ctx, "%v", err).debug(1)
                                 break
                         }
-                case *List: // mkdir name perm, name perm, ...
-                        if t.Len() == 2 {
-                                name = t.Get(0).Strval(ctx)
-                                perm = permVal(ctx, t.Get(1),0600)
-                        } else {
-                                erro(ctx, "Wrong size of list `%v'", t).debug(1)
+                } else {
+                        if err := os.Mkdir(name, perm); err != nil {
+                                erro(ctx, "%v", err).debug(1)
                                 break
                         }
-                default: // mkdir name perm, name perm, ...
-                        if name = args[i].Strval(ctx); i+1 < nargs {
-                                perm = permVal(ctx, args[i+1],0600)
-                                i += 1
-                        }
-                }
-                if err := os.MkdirAll(name, perm); err != nil {
-                        erro(ctx, "%v", err).debug(1)
-                        break
                 }
         }
         return
