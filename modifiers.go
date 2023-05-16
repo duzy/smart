@@ -166,6 +166,8 @@ func (_ *modifications) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (g *modifications) traverse(ctx Context) (traves travestates) {
+    if pc := ctx.programContext(); pc != nil { pc.Wait() }
+
     for _, m := range g.list {
         var ctx = at(ctx, m.position)
         if t := m.traverse(ctx); t.has() {
@@ -287,8 +289,8 @@ var (
         `dirty-by`:     modifier.setDirtyPats,
         `dirty-opts`:   modifier.setDirtyPats,
 
-        `dirty`:            modifier.dirtyPredict,
-        // `outdated`:         modifier.dirtyPredict,
+        `dirty`:            modifier.predictDirty,
+        // `outdated`:         modifier.predictDirty,
         // `no-loop`:          modifier.predictNoLoop,
         // `target-1st-visit`: modifier.predictTarget1stVisit,
         // `target-max-visit`: modifier.predictTargetMaxVisit,
@@ -535,10 +537,7 @@ type modifierClosureOpts struct {
 func (ctx modifier) _closure(args... Value) (result Value) {
     // Closure the caller program, the context will be restored when execution is finished.
     var closureCtx Context
-    if t := ctx.programContext(); t != nil && false {
-        t.Context = closureWith(t.Context)
-        closureCtx = t.Context
-    } else if pc := ctx.programContext(); pc != nil {
+    if pc := ctx.programContext(); pc != nil {
         pc.Context = closureWith(pc.Context)
         closureCtx = pc.Context
     } else {
@@ -548,8 +547,8 @@ func (ctx modifier) _closure(args... Value) (result Value) {
 
     assert(ctx.closure() != nil, "context not closured: %v", ctx)
 
-    var set = func(name string, val Value) {
-        var ( t Value ; noop bool )
+    var set = func(name string, val Value) (t Value) {
+        var noop bool
         if v, y := val.(*boolean); y {
             if !v.bool { noop = true }
         } else if isTrivial(val) {
@@ -569,13 +568,44 @@ func (ctx modifier) _closure(args... Value) (result Value) {
         } else if !noop {
             errostack(ctx, 3, "%v: %s is nil", closureCtx.Project(), name).debug(1)
         }
+
+        return
     }
 
     var opts modifierClosureOpts
     args = parseOpts(ctx, &opts, plain, args...)
     if opts.verbose { info(ctx, "%v: %v", ctx.Project(), ctx).debug(1) }
     if opts.dump { infostack(ctx, -1, "%v: %v", ctx.Project(), ctx).debug(1) }
-    if closureCtx != ctx { if opts.target != nil { set("@", opts.target) } }
+    if closureCtx != ctx { if opts.target != nil {
+        var t = as{set("@", opts.target)}
+
+        var ( f *File ; s string ; y bool ; n int )
+        if f, s, y = t.fullname(ctx); !y {
+            s = t.Strval(ctx)
+        } else if n = f.traversed; n > 1 {
+            // traversed = true
+        } else if n, y = dirtyDups[s]; y && n > 1 {
+            // traversed = true
+        }
+
+        if n > 1 {
+            if opts.verbose {
+                var d = ctx.gap(false)
+                var ts = trimPromptString(s)
+                prompt(ctx, "%s …… traversed (%d, %v)\n", ts, n, d)
+                if false { warnstack(ctx, 64, "%v, %v, (%d, %v)", f, s, n, d).debug(64) }
+            }
+            var traves travestates
+            traves.add(ctx, traveDone, nil)
+            ctx.travestates(traves...)
+            return
+        }
+
+        if isInnerAuto(ctx, t.Value) {
+            errostack(ctx, 16, "loop: %v", t).debug(10)
+            return
+        }
+    } }
 
     var dir string // closure work directory
     if proj := ctx.Project(); proj == nil {
@@ -1674,7 +1704,7 @@ func traverseMissingDep(ctx Context, dep string) (res bool, traves travestates) 
     } else if file := proj.file(ctx, dep); file == nil {
         if false {
             // FIXME: traverse won't work with 'nil' target value
-            traves = traverse(ctx, nil, dep)
+            traves = ctx.traverse(ctx, nil/*, dep*/)
             okay = !traves.has(traveFail)
         } else {
             prompt(ctx, "%s: dep is unknown file; project %v\n", dep, proj)
@@ -1750,9 +1780,7 @@ type modifierDepsOpts struct {
     cc string `c,cc,compiler`
 }
 func (ctx modifier) deps(args... Value) (result Value) {
-    if options.noDepsGrep || options.noDeps {
-        return
-    }
+    if options.noDepsGrep || options.noDeps { return }
 
     // NOTE: parse opts for (deps) before expanding the args, because we share args
     //       with the compilers!
@@ -3011,34 +3039,9 @@ func (ctx modifier) _case(args... Value) (result Value) {
     return
 }
 
-func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
-    var opts = ctx.dirtyOpts()
-    if len(target.updatedDeps(ctx)) > 0 { return true }
-    if v := autoGet(ctx, "^"); v != nil { a = append(a, v) }
-    for _, dep := range mergex(ctx, plain, a...) {
-        var mat bool = len(opts.pats) == 0
-        if !mat { for _, pat := range opts.pats { if mat, _, _ = pat.match(ctx, dep); mat { break }}}
-        if mat && (dep.updated(ctx) || dep.stat(ctx).mod().After(target.stat(ctx).mod())) {
-            return true
-        }
-    }
-    return
-}
-
-func isDirtyAfter(ctx Context, target Value, t time.Time) (res bool) {
-    for _, dep := range target.updatedDeps(ctx) {
-        if ds := dep.stat(ctx); ds != nil {
-            res = ds.mod().After(t) || isDirtyAfter(ctx, dep, t)
-            if res { break }
-        }
-    }
-    return
-}
-
-func (ctx modifier) dirtyPredict(args... Value) (result Value) {
-    var res, reason = dirty(ctx, args...)
-    if res {
-        result = MakePrediction(ctx.Position(), res, reason)
+func (ctx modifier) predictDirty(args... Value) (result Value) {
+    if res := ctx.dirty(ctx, args...); res {
+        result = MakePrediction(ctx.Position(), res, /*reason*/"")
     } else {
         var traves travestates
         traves.add(ctx, traveDone, nil)
@@ -3144,7 +3147,7 @@ func (ctx modifier) predictTargetMaxVisit(args... Value) (result Value) {
     }
 
     var s string;
-    if opts.silent {
+    ;      if opts.silent {
     } else if num == 0  { //s = "nth: zero"
     } else if num < nth { //s = "nth"
     } else { s = fmt.Sprintf("%d visits", num+1) }

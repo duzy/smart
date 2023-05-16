@@ -183,19 +183,19 @@ func (s *Scope) FindDef(name string) (res *def) {
 	return
 }
 
-func (scope *Scope) ProjectName(ctx Context, name string, project *Project) (pn *ProjectName, alt Object) {
+func (scope *Scope) projectName(ctx Context, name string, project *Project) (pn *projectName, alt Object) {
 	scope.mutex.Lock(); defer scope.mutex.Unlock()
 	if alt = scope.elems[name]; alt == nil {
-		pn = &ProjectName{ project, scope }
+		pn = &projectName{ project, scope }
 		scope.replace(ctx, name, pn)
 	}
 	return
 }
 
-func (scope *Scope) ScopeName(ctx Context, name string, s *Scope) (sn *ScopeName, alt Object) {
+func (scope *Scope) scopeName(ctx Context, name string, s *Scope) (sn *scopeName, alt Object) {
 	scope.mutex.Lock(); defer scope.mutex.Unlock()
 	if alt = scope.elems[name]; alt == nil {
-		sn = &ScopeName{ s, name } // TODO: scope,
+		sn = &scopeName{ s, name } // TODO: scope,
 		scope.replace(ctx, name, sn)
 	}
 	return

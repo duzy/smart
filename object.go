@@ -150,50 +150,50 @@ func (p unresolved) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p unresolved) traverse(ctx Context) (traves travestates) { return }
 
-type ProjectName struct {
+type projectName struct {
         *Project
         scope *Scope
 }
-func (_ *ProjectName) kind() kind { return valOther }
-func (_ *ProjectName) updated(_ Context) bool { return false }
-func (_ *ProjectName) updatedDeps(_ Context, _ ...Value) []Value { return nil }
-func (_ *ProjectName) stamp(ctx Context) (files []*File, err error) { return }
-func (_ *ProjectName) delete(_ Context) (files []*File, err error) { return }
-func (_ *ProjectName) defs(_ Context, _ ...string) (res []*def) { return }
-func (_ *ProjectName) refs(_ Context, _ Value) (res bool) { return }
-func (_ *ProjectName) patterned(_ Context) bool { return false }
-func (_ *ProjectName) expandible(_ Context, _ facet) bool { return false }
-func (p *ProjectName) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
-func (p *ProjectName) match(ctx Context, i interface{}) (bool, interface{}, []string) { return matchStrval(ctx, p, i) }
-func (_ *ProjectName) Integer(_ Context) (int64, error) { return 0, nil }
-func (_ *ProjectName) Float(_ Context) (float64, error) { return .0, nil }
-func (p *ProjectName) Position() Position { return p.position }
-func (p *ProjectName) Strval(_ Context) string { return p.name }
-func (p *ProjectName) Name(_ Context) string { return p.name }
-func (p *ProjectName) True(_ Context) bool { return p.Project != nil }
-func (p *ProjectName) DeclScope() *Scope { return p.scope }
-func (p *ProjectName) OwnerProject() *Project { return p.scope.project }
-func (p *ProjectName) Get(ctx Context, name string) (Value, error) { return p.resolveObject(ctx, name), nil }
-func (p *ProjectName) Call(_ Context, _ []Value, _ ...Value) (value Value) { return p }
-func (p *ProjectName) expand(_ Context, _ facet) (res Value) { return p }
-func (p *ProjectName) traverse(ctx Context) (traves travestates) {
+func (_ *projectName) kind() kind { return valOther }
+func (_ *projectName) updated(_ Context) bool { return false }
+func (_ *projectName) updatedDeps(_ Context, _ ...Value) []Value { return nil }
+func (_ *projectName) stamp(ctx Context) (files []*File, err error) { return }
+func (_ *projectName) delete(_ Context) (files []*File, err error) { return }
+func (_ *projectName) defs(_ Context, _ ...string) (res []*def) { return }
+func (_ *projectName) refs(_ Context, _ Value) (res bool) { return }
+func (_ *projectName) patterned(_ Context) bool { return false }
+func (_ *projectName) expandible(_ Context, _ facet) bool { return false }
+func (p *projectName) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
+func (p *projectName) match(ctx Context, i interface{}) (bool, interface{}, []string) { return matchStrval(ctx, p, i) }
+func (_ *projectName) Integer(_ Context) (int64, error) { return 0, nil }
+func (_ *projectName) Float(_ Context) (float64, error) { return .0, nil }
+func (p *projectName) Position() Position { return p.position }
+func (p *projectName) Strval(_ Context) string { return p.name }
+func (p *projectName) Name(_ Context) string { return p.name }
+func (p *projectName) True(_ Context) bool { return p.Project != nil }
+func (p *projectName) DeclScope() *Scope { return p.scope }
+func (p *projectName) OwnerProject() *Project { return p.scope.project }
+func (p *projectName) Get(ctx Context, name string) (Value, error) { return p.resolveObject(ctx, name), nil }
+func (p *projectName) Call(_ Context, _ []Value, _ ...Value) (value Value) { return p }
+func (p *projectName) expand(_ Context, _ facet) (res Value) { return p }
+func (p *projectName) traverse(ctx Context) (traves travestates) {
         if t := p.Project.defaultEntry; t != nil { traves = t.traverse(ctx) }
         return
 }
-func (p *ProjectName) stat(ctx Context) (si *statinfo) {
+func (p *projectName) stat(ctx Context) (si *statinfo) {
         if t := p.Project.defaultEntry; t != nil && t.Class() != UseRule { si = t.stat(ctx) }
         return
 }
-func (p *ProjectName) cmp(ctx Context, v Value) (res cmpres) {
-        if a, y := v.(*ProjectName); y {
-                assert(y, "value is not ProjectName")
+func (p *projectName) cmp(ctx Context, v Value) (res cmpres) {
+        if a, y := v.(*projectName); y {
+                assert(y, "value is not projectName")
                 if p.Project == a.Project { res = cmpEqual }
         } else if l, y := v.(*List); y && len(l.Elems) == 1 {
                 res = p.cmp(ctx, l.Elems[0])
         }
         return
 }
-func (p *ProjectName) rescope(_ Context, scope *Scope) {
+func (p *projectName) rescope(_ Context, scope *Scope) {
         if p.scope != scope {
                 if p.scope != nil {
                         delete(p.scope.elems, p.name)
@@ -203,40 +203,40 @@ func (p *ProjectName) rescope(_ Context, scope *Scope) {
                 }
         }
 }
-func (p *ProjectName) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+func (p *projectName) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
 
-type ScopeName struct {
+type scopeName struct {
         *Scope
         name string
 }
-func (_ *ScopeName) kind() kind { return valOther }
-func (_ *ScopeName) updated(_ Context) bool { return false }
-func (_ *ScopeName) updatedDeps(_ Context, _ ...Value) []Value { return nil }
-func (_ *ScopeName) stamp(ctx Context) (files []*File, err error) { return }
-func (_ *ScopeName) delete(_ Context) (files []*File, err error) { return }
-func (_ *ScopeName) defs(_ Context, _ ...string) (res []*def) { return }
-func (_ *ScopeName) refs(_ Context, _ Value) (res bool) { return }
-func (_ *ScopeName) patterned(_ Context) bool { return false }
-func (_ *ScopeName) expandible(_ Context, _ facet) bool { return false }
-func (p *ScopeName) match(ctx Context, i interface{}) (bool, interface{}, []string) { return matchStrval(ctx, p, i) }
-func (p *ScopeName) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
-func (_ *ScopeName) stat(ctx Context) (si *statinfo) { return }
-func (_ *ScopeName) traverse(ctx Context) (traves travestates) { return }
-func (_ *ScopeName) Integer(_ Context) (int64, error) { return 0, nil }
-func (_ *ScopeName) Float(_ Context) (float64, error) { return .0, nil }
-func (p *ScopeName) Position() Position { return p.position }
-func (p *ScopeName) String() string  { return fmt.Sprintf("{scope %s}", p.name) }
-func (p *ScopeName) Strval(_ Context) string { return p.name }
-func (p *ScopeName) Name(_ Context) string { return p.name }
-func (p *ScopeName) True(_ Context) bool { return p.Scope != nil }
-func (p *ScopeName) OwnerProject() *Project { return p.Scope.project }
-func (p *ScopeName) DeclScope() *Scope { return p.Scope.outer }
-func (p *ScopeName) Call(_ Context, _ []Value, _ ...Value) (value Value) { return p }
-func (p *ScopeName) expand(_ Context, _ facet) (res Value) { return p }
-func (p *ScopeName) Get(ctx Context, name string) (value Value, err error) {
+func (_ *scopeName) kind() kind { return valOther }
+func (_ *scopeName) updated(_ Context) bool { return false }
+func (_ *scopeName) updatedDeps(_ Context, _ ...Value) []Value { return nil }
+func (_ *scopeName) stamp(ctx Context) (files []*File, err error) { return }
+func (_ *scopeName) delete(_ Context) (files []*File, err error) { return }
+func (_ *scopeName) defs(_ Context, _ ...string) (res []*def) { return }
+func (_ *scopeName) refs(_ Context, _ Value) (res bool) { return }
+func (_ *scopeName) patterned(_ Context) bool { return false }
+func (_ *scopeName) expandible(_ Context, _ facet) bool { return false }
+func (p *scopeName) match(ctx Context, i interface{}) (bool, interface{}, []string) { return matchStrval(ctx, p, i) }
+func (p *scopeName) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
+func (_ *scopeName) stat(ctx Context) (si *statinfo) { return }
+func (_ *scopeName) traverse(ctx Context) (traves travestates) { return }
+func (_ *scopeName) Integer(_ Context) (int64, error) { return 0, nil }
+func (_ *scopeName) Float(_ Context) (float64, error) { return .0, nil }
+func (p *scopeName) Position() Position { return p.position }
+func (p *scopeName) String() string  { return fmt.Sprintf("{scope %s}", p.name) }
+func (p *scopeName) Strval(_ Context) string { return p.name }
+func (p *scopeName) Name(_ Context) string { return p.name }
+func (p *scopeName) True(_ Context) bool { return p.Scope != nil }
+func (p *scopeName) OwnerProject() *Project { return p.Scope.project }
+func (p *scopeName) DeclScope() *Scope { return p.Scope.outer }
+func (p *scopeName) Call(_ Context, _ []Value, _ ...Value) (value Value) { return p }
+func (p *scopeName) expand(_ Context, _ facet) (res Value) { return p }
+func (p *scopeName) Get(ctx Context, name string) (value Value, err error) {
         if s := p.Resolve(name); s != nil {
                 if value, _ = s.(Value); value == nil {
                         err = fmt.Errorf("`%s' in scope is invalid (%T)", name, p.name, s)
@@ -246,15 +246,15 @@ func (p *ScopeName) Get(ctx Context, name string) (value Value, err error) {
         }
         return
 }
-func (p *ScopeName) cmp(ctx Context, v Value) (res cmpres) {
-        if a, y := v.(*ScopeName); y {
+func (p *scopeName) cmp(ctx Context, v Value) (res cmpres) {
+        if a, y := v.(*scopeName); y {
                 if p.Scope == a.Scope { res = cmpEqual }
         } else if l, y := v.(*List); y && len(l.Elems) == 1 {
                 res = p.cmp(ctx, l.Elems[0])
         }
         return
 }
-func (p *ScopeName) rescope(_ Context, scope *Scope) {
+func (p *scopeName) rescope(_ Context, scope *Scope) {
         if p.Scope != scope {
                 if p.Scope != nil {
                         delete(p.Scope.elems, p.name)
@@ -264,7 +264,7 @@ func (p *ScopeName) rescope(_ Context, scope *Scope) {
                 }
         }
 }
-func (p *ScopeName) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+func (p *scopeName) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -348,10 +348,6 @@ type autoContext struct {
         defs autoDefMap
 }
 func (ac *autoContext) inner() Context { return ac.Context }
-// func (ac *autoContext) spawn(ctx Context) Context {
-//         ac.mutex.Lock(); defer ac.mutex.Unlock()
-//         return &autoContext{ Context: ac.Context.spawn(ctx), defs: ac.defs.clone() }
-// }
 func (ac *autoContext) aquireLock() (unlock func()) {
     ac.Lock() ; return func() { ac.Unlock() }
 }
@@ -1122,6 +1118,17 @@ func (ec *entryContext) Position() Position { return ec.ent.position }
 //         return
 // }
 
+func isInnerAuto(ctx Context, target Value) (res bool) {
+        if ac := ctx.auto(); ac != nil {
+                var n int
+                for ac = ac.inner().auto(); ac != nil; ac = ac.inner().auto() {
+                        if n > 1 { return true }
+                        if t := autoGet(ac, "@"); t != nil && eq(ctx, t, target) { n += 1 }
+                }
+        }
+        return
+}
+
 type Entry interface {
         Object
         Executer
@@ -1406,7 +1413,7 @@ func (entry *Rule) option(ctx Context) (res bool, infos []Value) {
                         for _, m := range g.list {
                                 if m.name.Strval(ctx) != "configure" { continue }
                                 for _, arg := range m.args {
-                                        a, ok := arg.(*Argumented)
+                                        a, ok := arg.(*argumented)
                                         if!ok { continue }
                                         f, ok := a.value.(*Flag)
                                         if!ok { continue }

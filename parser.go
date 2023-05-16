@@ -753,8 +753,8 @@ func (p *parser) group(lhs bool) *Group {
 	return MakeGroup(ctx.Position(), elems...)
 }
 
-func (p *parser) argumentedExpr(x Value) *Argumented {
-	if t_traverse.enabled { defer un(trace(t_traverse, "Argumented")) }
+func (p *parser) argumentedExpr(x Value) *argumented {
+	if t_traverse.enabled { defer un(trace(t_traverse, "argumented")) }
 
 	defer p.setbits(p.setbit(parseGroup))
 	p.clearbit(parseCall)
@@ -777,7 +777,7 @@ func (p *parser) argumentedExpr(x Value) *Argumented {
 		a = append(a, p.list(p.posit(), false))
 	}
 	p.expect(RPAREN)
-	return MakeArgumented(x, a...)
+	return Makeargumented(x, a...)
 }
 
 func (p *parser) globMeta() (x *GlobMeta) {
@@ -1226,7 +1226,7 @@ func (p *parser) closuredelegate() (result Value) {
 
 	const allowClosureName = true
 	resolveObject := func(lPos Position, lTok Token, name Value) (str string, obj Value, okay bool) {
-		if a, y := name.(*Argumented); y { name = a.value }
+		if a, y := name.(*argumented); y { name = a.value }
 		if sel, y := name.(*selection); y {
 			if sel == nil {
 				erro(at(ctx,name.Position()), "nil selection: %v", name).debug(1)
@@ -1372,7 +1372,7 @@ func (p *parser) closuredelegate() (result Value) {
 
 		if name = p.expr(ctx, false); isNil(name) {
 			erro(at(ctx,posName), "%v: parsed name is nil", proj).debug(1)
-		} else if a, y := name.(*Argumented); y {
+		} else if a, y := name.(*argumented); y {
 			var args = merge(a.args...)
 			for _, v := range args {
 				if p, y := v.(*Pair);  y { v = p.Key }
@@ -1786,7 +1786,7 @@ SwitchCompose:
 	case LPAREN:
 		if p.bits&parseNoArg == 0 {
 			if false {
-				if _, ok := x.(*Argumented); ok { erro(ctx, "nested argumentation") }
+				if _, ok := x.(*argumented); ok { erro(ctx, "nested argumentation") }
 			}
 			if x = p.argumentedExpr(x); !isNil(x) {
 				goto SwitchCompose
@@ -1907,7 +1907,7 @@ func (p *parser) _parseUseSpecProps(props []Value) (opts useOpts, params []Value
                 erro(of(ctx,t.Key), "parameter `%v' unsupported `%T`", prop, prop)
                 return
             }
-        case *Argumented: // -param(value)
+        case *argumented: // -param(value)
             switch tt := t.value.(type) {
             case *Flag:
                 switch s = tt.name.Strval(ctx); s {
@@ -1953,7 +1953,7 @@ func (p *parser) use(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
         for _, val := range mergex(ctx, plain, v.Value) {
             if !isTrivial(val) { specVals = append(specVals, val) }
         }
-	case *Argumented:
+	case *argumented:
         for _, val := range mergex(ctx, plain, v.value) {
             if !isTrivial(val) { specVals = append(specVals, val) }
         }
@@ -2077,7 +2077,7 @@ func (p *parser) files(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	}
 
 	if path == nil {
-		if len(pats) == 1 { if a, ok := pats[0].(*Argumented); ok { if f, ok := a.value.(*Flag); ok {
+		if len(pats) == 1 { if a, ok := pats[0].(*argumented); ok { if f, ok := a.value.(*Flag); ok {
 			var name = f.name.Strval(ctx)
 			switch name {
 			default:
@@ -2229,7 +2229,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	}
 
 	var opts []Value
-	if a, y := prop0.(*Argumented); y { prop0, opts = a.value, a.args }
+	if a, y := prop0.(*argumented); y { prop0, opts = a.value, a.args }
 
 	ctx = at(ctx, prop0.Position())
 
@@ -2405,9 +2405,9 @@ SwitchDialect:
 			var (
 				isValue = p.dialect == "value"
 				x = p.expr(ctx, /*!isValue*/false) // parse first expr of recipe
-				a *Argumented
+				a *argumented
 			)
-			if !isNil(x) { if a, _ = x.(*Argumented); a != nil { x = a.value } }
+			if !isNil(x) { if a, _ = x.(*argumented); a != nil { x = a.value } }
 			if isNil(x) {
 				erro(ctx, "parsed value is nil")
 			} else if isValue {
@@ -2735,12 +2735,12 @@ func (p *parser) rule(special specialRule, optvals, targets []Value) (result Val
 
 	// switch special {
 	// case specialRuleUse:
-	// 	if name, alt := ctx.Scope().ProjectName(ctx, selfproj, ctx.Project()); alt != nil {
+	// 	if name, alt := ctx.Scope().projectName(ctx, selfproj, ctx.Project()); alt != nil {
 	// 		erro(ctx, "name `%s` already taken, not automatic (%T)", selfproj, alt)
 	// 	} else if name == nil {
 	// 		erro(ctx, "cannot define `%s` automatic", selfproj)
 	// 	}
-	// 	if name, alt := ctx.Scope().ProjectName(ctx, userproj, nil); alt != nil {
+	// 	if name, alt := ctx.Scope().projectName(ctx, userproj, nil); alt != nil {
 	// 		erro(ctx, "name `%s` already taken, not automatic (%T)", userproj, alt)
 	// 	} else if name == nil {
 	// 		erro(ctx, "cannot define `%s` automatic", userproj)
@@ -3089,7 +3089,7 @@ func (p *parser) template(ctx Context) {
 
 	var (
 		starting = p.Position()
-		arged *Argumented
+		arged *argumented
 		verb string
 	)
 	p.expect(TEMPLATE) // expect and skip 'template'
@@ -3101,7 +3101,7 @@ func (p *parser) template(ctx Context) {
 		return
 	} else if w, ok := op.(*bareword); ok {
 		verb = w.string
-	} else if arged, ok = op.(*Argumented); !ok {
+	} else if arged, ok = op.(*argumented); !ok {
 		erro(of(ctx,op), "unknown template verb: %v", op).debug(1)
 		return
 	}
@@ -3124,7 +3124,7 @@ func (p *parser) template(ctx Context) {
 		if len(params) != 1 {
 			erro(at(ctx,starting), "too many def params: %v", params)
 			return
-		} else if arged, ok := params[0].(*Argumented); !ok {
+		} else if arged, ok := params[0].(*argumented); !ok {
 			erro(at(ctx,starting), "too many def params: %v", params)
 			return
 		} else {

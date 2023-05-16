@@ -40,7 +40,7 @@ ForRecipes:
             name = vals[0]
             ov []Value
         )
-        if a, y := name.(*Argumented); y { name, ov = a.value, a.args }
+        if a, y := name.(*argumented); y { name, ov = a.value, a.args }
         if false && n == 1 && isTrivial(name) {
             list = append(list, name)
             continue

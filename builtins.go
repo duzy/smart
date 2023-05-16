@@ -209,7 +209,7 @@ var builtins = map[string]BuiltinFunc {
         `relative-dir`: BuiltinFunc{builtin.relativedir, builtinCallable, 0, expandZero, expandZero},
 
         `file`:       BuiltinFunc{builtin.file, builtinCallable, 0, expandZero, expandZero},
-        `stat`:       BuiltinFunc{builtin.stat, builtinCallable, 0, expandZero, expandZero},// stat (deprecates file-exists)
+        `stat`:       BuiltinFunc{builtin._stat, builtinCallable, 0, expandZero, expandZero},// stat (deprecates file-exists)
         `glob`:       BuiltinFunc{builtin.glob, builtinCallable, 0, expandZero, expandZero},
         `wildcard`:   BuiltinFunc{builtin.wildcard, builtinCallable, 0, expandZero, expandZero},
 
@@ -436,7 +436,7 @@ ForArgs:
                         value = MakeBoolean(flag.position, true)
                 } else if pair, y := arg.(*Pair); y {
                         if flag, okay = pair.Key.(*Flag); okay { value = pair.Value }
-                } else if aa, y := arg.(*Argumented); y {
+                } else if aa, y := arg.(*argumented); y {
                         if flag, okay = aa.value.(*Flag); okay {
                                 value = MakeListOrScalar(aa.Position(), aa.args)
                         }
@@ -3944,7 +3944,7 @@ type builtinStatOpts struct {
         file bool `fi,file`
         symbol bool `s,sym,symlink,symbol,l,link`
 }
-func (ctx builtin) stat(args... Value) (res Value) {
+func (ctx builtin) _stat(args... Value) (res Value) {
         var (
                 proj = ctx.Project()
                 opts builtinStatOpts

@@ -365,8 +365,8 @@ type universe struct {
     scope   *Scope
     globe   *Globe
 
-    paths   searchlist
     fset    *FileSet
+    paths   searchlist
 
     statmutex sync.Mutex
     filemaps filemapCache // value -> dirs
@@ -392,6 +392,7 @@ func (ctx *universe) auto() *autoContext { return nil }
 func (ctx *universe) closure() *closureContext { return nil }
 func (ctx *universe) travestates(...*travestate) *travestates { return nil }
 func (ctx *universe) traversed(target Value) []Value { fail(ctx.Position(), "%v", target); return nil }
+func (ctx *universe) traverse(_ Context, prereqValue Value) (traves travestates) { return }
 func (ctx *universe) entry() Entry { return nil }
 func (ctx *universe) entryContext() *entryContext { return nil }
 func (ctx *universe) stems() []string { return nil }
@@ -411,7 +412,6 @@ func (ctx *universe) Position() (res Position) {
     return
 }
 func (ctx *universe) wait() {}
-func (ctx *universe) dirty(_ Context, args ...Value) (res bool, reason string) { return }
 func (ctx *universe) appendCallerUpdated() bool { return false }
 func (ctx *universe) mustExists() bool { return false }
 func (ctx *universe) WorkDir() string { return ctx.workdir }
@@ -440,8 +440,9 @@ func (ctx *universe) closureScopes() (scopes []*Scope) {
     }
     return
 }
-func (ctx *universe) dirtyOpts() *modifierSetDirtyPatsOpts { return nil }
 func (ctx *universe) dirtyMark(vals ...Value) { return }
+func (ctx *universe) dirtyOpts() *modifierSetDirtyPatsOpts { return nil }
+func (ctx *universe) dirty(Context, ...Value) (res bool) { return }
 
 func (ctx *universe) help()       { do_helpscreen(ctx) }
 func (ctx *universe) helpFlags()  { print_flag_trace(ctx) }
@@ -495,7 +496,7 @@ func init() {
         //_timestamps: make(map[string]time.Time),
         //_timestampx: new(sync.Mutex),
     }
-    _, _ = ctx.scope.ScopeName(ctx, ".GLOBE", ctx.globe.Scope)
+    _, _ = ctx.scope.scopeName(ctx, ".GLOBE", ctx.globe.Scope)
 
     ctx.globe.os,    _ = ctx.globe.define(ctx, DefVoid, ".os",    MakeString(pos, runtime.GOOS))
     ctx.globe.goals, _ = ctx.globe.define(ctx, DefVoid, ".goals", MakeNone(pos))
@@ -505,6 +506,158 @@ func init() {
 
 func (uc *universe) file(filename string, src []byte) *TokFile {
     return uc.fset.AddFile(filename, -1, len(src))
+}
+
+type filestub struct {
+    dir  string      // full directory where the file was or should be found
+    sub  string      // matched sub path (see Project.search), may be Dir (absoletep path)
+    name string      // constant represented name (e.g. relative filename)
+    filemap *FileMap // matched pattern (see 'files' directive)
+    other *filestub  // pointed to another stub (in a different project) of the same file
+    traversed int
+}
+func (p *filestub) subname() (s string) {
+    if isAbsOrRel(p.sub) {
+        s = p.name
+    } else {
+        s = filepath.Join(p.sub, p.name)
+    }
+    return
+}
+
+type filebase struct {
+    stub filestub    // cycled-list of file stubs of different projects
+    info os.FileInfo // file info if exists
+    _updated bool // true if this file has been updated by a program
+    _updatedDeps []Value // any updated deps
+}
+func (p *filebase) exists() bool { return p.info != nil }
+
+func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) *File {
+    return ctx.stat(ctx, name, sub, dir, infos...)
+}
+func (uc *universe) stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File) {
+    var (
+        base *filebase
+        stub *filestub
+        fullname string
+    )
+
+    uc.statmutex.Lock(); defer uc.statmutex.Unlock()
+
+    // Trims / suffix
+    if dir != "" { dir = filepath.Clean(dir) }
+    if sub != "" { sub = filepath.Clean(sub) }
+    if false {
+        var t = strings.HasPrefix(name, "./")
+        if name!= "" { name = filepath.Clean(name) }
+        if t         { name = "./" + name }
+    }
+
+    if filepath.IsAbs(name) {
+        if fullname = name; dir == "" {
+            //dir, sub = filepath.Dir(fullname), ""
+            //name = filepath.Base(fullname)
+        } else if strings.HasPrefix(fullname, dir+PathSep) {
+            tail := fullname[len(dir)+1:]
+            //sub  = filepath.Dir(tail)
+            //name = filepath.Base(tail)
+            if sub == "" { name = tail } else
+            if strings.HasPrefix(fullname, sub+PathSep) {
+                name = tail[len(sub)+1:]
+            }
+        } else if dir != "" {
+            if true { dir = "" } else if false {
+                erro(ctx, "dir name conflicts: %s <-> %s (sub=%v)", dir, name, sub).debug(16)
+                unreachable("path error")
+            } else {
+                return
+            }
+        }
+    } else if filepath.IsAbs(sub) {
+        if fullname = filepath.Join(sub, name); dir == "" {
+            dir = sub // trims / suffix
+            sub = "" // .
+        } else if sub == dir {
+            sub = "" // .
+        } else if strings.HasPrefix(sub, dir) {
+            sub = strings.TrimPrefix(sub, dir)
+            sub = strings.TrimPrefix(sub, PathSep)
+            sub = filepath.Clean(sub)
+        } else if false {
+            dir = sub
+            sub = ""
+        } else {
+            unreachable("conflicted sub/dir: ", sub, " ", dir) //return
+        }
+    } else if filepath.IsAbs(dir) {
+        fullname = filepath.Join(dir, sub, name)
+    } else {
+        dir = filepath.Join(ctx.WorkDir(), dir)
+        fullname = filepath.Join(dir, sub, name)
+    }
+
+    var addNotExisted bool
+    var fileInfo os.FileInfo
+    if len(infos) == 1 {
+        if fileInfo = infos[0]; fileInfo == nil {
+            addNotExisted = true
+        }
+        if enable_assertions && fileInfo != nil {
+            assert(fileInfo.Name() == filepath.Base(fullname), "`%s` file name conflicted", fileInfo.Name())
+        }
+    } else if len(infos) > 1 {
+        unreachable("too many input file infos")
+    }
+
+    var okay bool // NOTE: filepath.Join can have the same efffect as filepath.Clean
+    var cleanFullname = filepath.Clean(fullname) // clean paths like /path/to/foo/../bar -> /path/to/bar
+    if base, okay = uc.filecache[cleanFullname]; okay {
+        if base.info == nil {
+            if fileInfo == nil { fileInfo, _ = os.Stat(fullname) }
+            if fileInfo == nil && !addNotExisted { return nil } // file not exists
+            base.info = fileInfo
+        }
+
+        var head = &base.stub
+        if enable_assertions {
+            for stub = head; stub != nil ; stub = stub.other {
+                s1, s2 := filepath.Join(stub.dir, stub.sub, stub.name), filepath.Join(fullname)
+                assert(s1 == s2, "fullname '%s' conflicted:\n" +
+                    "panic: (%s, %s, %s) %s\n" +
+                    "panic: (%s, %s, %s) %s\n",
+                    fullname,
+                    stub.dir, stub.sub, stub.name, s1,
+                    dir, sub, name, s2)
+                if stub.other == head { break }
+            }
+        }
+        for stub = head; stub != nil; stub = stub.other {
+            if stub.dir == dir && stub.sub == sub && stub.name == name {
+                goto GotFile
+            }
+            if stub.other == head { break }
+        }
+
+        stub = &filestub{ dir, sub, name, nil, head.other, 0 }
+        head.other = stub
+    } else {
+        if fileInfo == nil {
+            fileInfo, _ = os.Stat(fullname)
+            if fileInfo == nil && !addNotExisted {
+                return nil // file not exists
+            }
+        }
+
+        base = &filebase{ filestub{ dir, sub, name, nil, nil, 0 }, fileInfo, false, nil }
+        base.stub.other = &base.stub
+        stub = &base.stub
+        uc.filecache[cleanFullname] = base
+    }
+
+GotFile:
+    file = &File{valbase{ctx.Position()},base,stub}
+    return
 }
 
 func (uc *universe) cache(ctx Context, p *Project, patts, paths []Value) (res []FileMap) {
@@ -627,7 +780,7 @@ func (dc *universe) search(linfo *loadinfo, specName string) (absPath string, is
             isDir, absPath = fi.IsDir(), s
         }
     } else {
-        for _, base := range uni.paths {
+        for _, base := range dc.paths {
             var s string
             if filepath.IsAbs(base) {
                 s = filepath.Join(base, specName)
@@ -779,7 +932,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
                         goals = append(goals, entry)
                     }
                 }
-            case *Argumented:
+            case *argumented:
                 {
                     // For examples:
                     //     project-name(-clean)
@@ -920,7 +1073,7 @@ func (dc *universe) loadTopWork() (err error) {
             if s := t.name.Strval(ctx); s == "clean" {
                 mode.position, mode.string = t.position, "clean"
             }
-        case *Argumented:
+        case *argumented:
             dc.globe.args[t.value] = t.args
             if f, ok := t.value.(*Flag); ok {
                 dc.globe.flags = append(dc.globe.flags, f)
@@ -1011,13 +1164,13 @@ func (g *Globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, sp
         absPath: absPath,
         relPath: relPath,
         tmpPath: tmpPath,
-        use:  new(uselist), // TODO: use ScopeName instead?
+        use:  new(uselist), // TODO: use scopeName instead?
         spec: spec,
         name: name,
     }
     m.scope = NewScope(m.position, outer, m, fmt.Sprintf("project %q", name))
     m.scope.mutex.Lock()
-    m.scope.elems[".self"] = &ProjectName{ m, m.scope }
+    m.scope.elems[".self"] = &projectName{ m, m.scope }
     m.scope.elems[".usee"] = m.use
     m.scope.mutex.Unlock()
     m.use.name = "usee"

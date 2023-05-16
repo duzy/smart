@@ -107,13 +107,11 @@ func (o *commandLineOpts) debugParsing(syntax string) (res bool) {
 const fullContextStringer bool = false
 
 type Context interface {
-  Position() Position
   String() string // for debug
-
-  Globe() *Globe
-
+  Position() Position
   WorkDir() string
 
+  Globe() *Globe
   Scope() *Scope
 
   aquireLock() (unlock func())
@@ -145,15 +143,18 @@ type Context interface {
   programContext() *programContext
   program() *Program
 
-  dirtyOpts() *modifierSetDirtyPatsOpts
   dirtyMark(...Value)
-  dirty(ctx Context, args ...Value) (bool, string)
+  dirtyOpts() *modifierSetDirtyPatsOpts
+  dirty(ctx Context, args ...Value) bool
 
   travestates(...*travestate) *travestates
   traversed(target Value) []Value
+  traverse(ctx Context, prereqValue Value) (traves travestates)
 
   entry() Entry
   entryContext() *entryContext
+
+  stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
 
   stemmedContext() *stemmedContext
   stemmed() *stemmed
@@ -542,7 +543,7 @@ func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
 func walkSmartBaseDirs(ctx Context, cwd string, vis func(string)bool) (s string) {
   s = cwd
   for s != "" {
-    file := stat(ctx, ".smart", "", s)
+    file := ctx.stat(ctx, ".smart", "", s)
     if file != nil && file.info.IsDir() && !vis(s) { break }
     if up := filepath.Dir(s); up == s {
       break

@@ -777,7 +777,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
   case *Group:
     erro(ctx, "group target not supported: %v", t).debug(1)
     return
-  case *Argumented:
+  case *argumented:
     target, arged = t.value, merge(t.args...)
   }
 

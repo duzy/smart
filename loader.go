@@ -196,7 +196,7 @@ func (opts *useVarOpts) apply(ctx Context, def *def, vals []Value) {
     }
 }
 func parseUseNameOpts(ctx Context, nameVal Value) (name string, opts useVarOpts) {
-    if a, y := nameVal.(*Argumented); y {
+    if a, y := nameVal.(*argumented); y {
         opts.remainder = parseOpts(ctx, &opts, plain, a.args...)
 		name = a.value.Strval(ctx)
 	} else {
@@ -342,7 +342,7 @@ func (l *loader) use(ctx Context, opts useOpts, specVal Value, arged []Value, pa
         isDir, traveUseLoop bool
         err error
     )
-    if n, y := specVal.(*ProjectName); y {
+    if n, y := specVal.(*projectName); y {
         if false { warnstack(ctx, 3, "use project: %v %s", n, n.spec).debug(6) }
         loaded = n.Project
     } else if specName = specVal.Strval(ctx); specName == "" {
@@ -392,8 +392,8 @@ func (l *loader) use(ctx Context, opts useOpts, specVal Value, arged []Value, pa
     if false && traveUseLoop {
         if loaded == nil {
             // ...
-        } else if _, a := scope.ProjectName(ctx, loaded.name, loaded); a != nil {
-            if val, ok := a.(*ProjectName); !ok || val == nil {
+        } else if _, a := scope.projectName(ctx, loaded.name, loaded); a != nil {
+            if val, ok := a.(*projectName); !ok || val == nil {
                 erro(ctx, "name `%s' already taken (%T).", loaded.name, a).debug(1)
             }
         }
@@ -405,9 +405,9 @@ func (l *loader) use(ctx Context, opts useOpts, specVal Value, arged []Value, pa
         if loaded == nil {
             erro(ctx, "%v (%v,dir=%v) not loaded in %v", specName, absPath, isDir, scope).debug(32)
             return
-        } else if name, _ := scope.Lookup(loaded.name).(*ProjectName); name == nil {
-            if _, alt := scope.ProjectName(ctx, loaded.name, loaded); alt != nil {
-                if val, ok := alt.(*ProjectName); !ok || val == nil {
+        } else if name, _ := scope.Lookup(loaded.name).(*projectName); name == nil {
+            if _, alt := scope.projectName(ctx, loaded.name, loaded); alt != nil {
+                if val, ok := alt.(*projectName); !ok || val == nil {
                     erro(ctx, "name `%s' already taken (%T).", loaded.name, alt).debug(1)
                 }
             }
@@ -665,14 +665,14 @@ func (l *loader) usePath() (s string) {
     return
 }
 
-func iterateArgumentedIdentElems(ctx Context, elems, stems []Value, f func(elems, stems []Value)) {
+func iterateargumentedIdentElems(ctx Context, elems, stems []Value, f func(elems, stems []Value)) {
     for i, elem := range elems {
-        if a, ok := elem.(*Argumented); ok {
+        if a, ok := elem.(*argumented); ok {
             var prefix, suffix = elems[:i], elems[i+1:]
-            iterateArgumentedIdentifiers(ctx, a, func(ident Value, stems2 []Value) {
+            iterateargumentedIdentifiers(ctx, a, func(ident Value, stems2 []Value) {
                 var head   = append(prefix, ident)
                 var stems3 = append(stems , stems2...)
-                iterateArgumentedIdentElems(ctx, suffix, stems3, func(elems, stems []Value) {
+                iterateargumentedIdentElems(ctx, suffix, stems3, func(elems, stems []Value) {
                     f(append(head, elems...), stems)
                 })
             })
@@ -682,11 +682,11 @@ func iterateArgumentedIdentElems(ctx Context, elems, stems []Value, f func(elems
     f(elems, stems)
 }
 
-func iterateArgumentedIdentifiers(ctx Context, identifier Value, f func(ident Value, stem []Value)) {
+func iterateargumentedIdentifiers(ctx Context, identifier Value, f func(ident Value, stem []Value)) {
     switch t := identifier.(type) {
-    case *Argumented:
+    case *argumented:
         var args = mergex(ctx, plain, t.args...)
-        iterateArgumentedIdentifiers(ctx, t.value, func(ident Value, stems []Value) {
+        iterateargumentedIdentifiers(ctx, t.value, func(ident Value, stems []Value) {
             var pos = ident.Position()
             for _, arg := range args {
                 if isTrivial(arg) { continue }
@@ -694,7 +694,7 @@ func iterateArgumentedIdentifiers(ctx Context, identifier Value, f func(ident Va
             }
         })
     case *barecomp:
-        iterateArgumentedIdentElems(ctx, t.Elems, nil, func(elems, stems []Value) {
+        iterateargumentedIdentElems(ctx, t.Elems, nil, func(elems, stems []Value) {
             if len(stems) == 0 { f(t, stems) } else {
                 f(MakeBarecomp(t.Position(), elems...), stems)
             }
@@ -705,7 +705,7 @@ func iterateArgumentedIdentifiers(ctx Context, identifier Value, f func(ident Va
 }
 
 func (l *loader) define(ctx Context, tok Token, identifier, value Value) (defs []*def) {
-    iterateArgumentedIdentifiers(ctx, identifier, func(ident Value, stems []Value) {
+    iterateargumentedIdentifiers(ctx, identifier, func(ident Value, stems []Value) {
         var def = l.define1(ctx, tok, ident, value)
         defs = append(defs, def)
     })
@@ -724,7 +724,7 @@ func (l *loader) define1(ctx Context, tok Token, identifier, value Value) (res *
             return
         }
 
-    case *Argumented:
+    case *argumented:
         var args = mergex(ctx, plain, t.args...)
         erro(ctx, "TODO: multiple defs: %v args=%v", t.value, args)
         return
@@ -1047,7 +1047,7 @@ func (l *loader) bases(ctx Context, linfo *loadinfo, implicitBase string, params
         var numBaseParams int
         for _, elem := range params {
             if l, y := elem.(*List); y && len(l.Elems) == 1 { elem = l.Elems[0] }
-            if a, y := elem.(*Argumented); y { elem = a.value }
+            if a, y := elem.(*argumented); y { elem = a.value }
             if _, y := elem.(*Pair); y { continue }
             numBaseParams += 1
         }
@@ -1081,7 +1081,7 @@ func (l *loader) bases(ctx Context, linfo *loadinfo, implicitBase string, params
             err error
         )
         if list, y := elem.(*List); y && len(list.Elems) == 1 { elem = list.Elems[0] }
-        if a, y := elem.(*Argumented); y { elem, args = a.value, a.args }
+        if a, y := elem.(*argumented); y { elem, args = a.value, a.args }
         if p, y := elem.(*Pair); y {
             var (
                 identifier = p.Key
@@ -1229,7 +1229,7 @@ func (l *loader) loadDotContainer(ctx Context, ident *barecomp, identStr string,
     }
 
     if loaded, yes := uni.globe.loaded[file.fullname()]; yes && loaded != nil {
-        name, _ := l.Scope().Lookup(loaded.Name()).(*ProjectName)
+        name, _ := l.Scope().Lookup(loaded.Name()).(*projectName)
         if name == nil {
             erro(ctx, "%v: %v: `dock` is not a project", l.project.name, file).debug(1)
         } else {
@@ -1264,9 +1264,9 @@ func (l *loader) loadDotConfigure(ctx Context, ident *barecomp, identStr string,
     }
 
     if loaded, yes := uni.globe.loaded[file.fullname()]; yes && loaded != nil {
-        if name, _ := l.Scope().Lookup(loaded.name).(*ProjectName); name == nil {
-            if _, alt := l.Scope().ProjectName(at(l, position), loaded.name, loaded); alt != nil {
-                if val, ok := alt.(*ProjectName); !ok || val == nil {
+        if name, _ := l.Scope().Lookup(loaded.name).(*projectName); name == nil {
+            if _, alt := l.Scope().projectName(at(l, position), loaded.name, loaded); alt != nil {
+                if val, ok := alt.(*projectName); !ok || val == nil {
                     erro(ctx, "name `%s' already taken (%T).", loaded.name, alt).debug(1)
                 }
             }
@@ -1295,7 +1295,7 @@ func (l *loader) declare(ctx Context, keyword Token, ident *barecomp, identStr s
         var (
             linfo = uni.globe.loads[0]
             dec, ok = linfo.declares[identStr]
-            at, _ = l.Globe().Lookup(identStr).(*ProjectName)
+            at, _ = l.Globe().Lookup(identStr).(*projectName)
         )
         if !ok {
             dec = &declare{ project: at.Project }
@@ -1343,8 +1343,8 @@ func (l *loader) declare(ctx Context, keyword Token, ident *barecomp, identStr s
         linfo.declares[name] = dec
     }
     if loader := linfo.loader; loader != nil {
-        if _, a := loader.scope.ProjectName(ctx, name, dec.project); a != nil {
-            if v, ok := a.(*ProjectName); !ok || v == nil {
+        if _, a := loader.scope.projectName(ctx, name, dec.project); a != nil {
+            if v, ok := a.(*projectName); !ok || v == nil {
                 erro(of(ctx,a), "`%s` name already taken (%T).", name, a).debug(1)
                 return
             }
@@ -1470,9 +1470,9 @@ func (l *loader) configuration(ctx Context, linfo *loadinfo, ident *barecomp, id
             erro(ctx, "not loaded: %s (dir=%v)", absPath, isDir).debug(1)
             return
         } else {
-            if name, _ := l.Scope().Lookup(dotConfigure).(*ProjectName); name == nil {
-                if _, alt := l.Scope().ProjectName(ctx, dotConfigure, loaded); alt != nil {
-                    if val, ok := alt.(*ProjectName); !ok || val == nil {
+            if name, _ := l.Scope().Lookup(dotConfigure).(*projectName); name == nil {
+                if _, alt := l.Scope().projectName(ctx, dotConfigure, loaded); alt != nil {
+                    if val, ok := alt.(*projectName); !ok || val == nil {
                         erro(ctx, "name `%s' already taken (%T).", loaded.name, alt).debug(1)
                     }
                 }
@@ -1580,7 +1580,7 @@ func (l *loader) OpenNamedScope(name, comment string) (scopes []*Scope) {
 
         scopes = l.openScope(comment)
         if scope := l.Scope(); scope != nil {
-            outer.ScopeName(at(l, scope.position), name, scope)
+            outer.scopeName(at(l, scope.position), name, scope)
         } else {
             erro(ctx, "open scope '%s' failed (%v)", name, comment).debug(8)
         }
@@ -2066,8 +2066,8 @@ func (l *loader) load(ctx Context, specName, absPath string, source interface{})
 
     // Check loaded project.
     if loaded, yes := uni.globe.loaded[absPath]; yes {
-        if _, a := l.Scope().ProjectName(at(l, l.Position()), loaded.Name(), loaded); a != nil {
-            if val, ok := a.(*ProjectName); !ok || val == nil {
+        if _, a := l.Scope().projectName(at(l, l.Position()), loaded.Name(), loaded); a != nil {
+            if val, ok := a.(*projectName); !ok || val == nil {
                 erro(ctx, "`%v` name already taken (%T).", loaded, a)
             }
         }
@@ -2123,9 +2123,9 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
         }
         if proj := l.Scope().project; proj == nil {
             if false { erro(ctx, "%v: no owner project for %s", loaded.name, l.Scope()).debug(1) }
-        } else if name, _ := proj.scope.Lookup(loaded.name).(*ProjectName); name == nil {
-            if _, alt := proj.scope.ProjectName(at(l, pos), loaded.name, loaded); alt != nil {
-                if val, ok := alt.(*ProjectName); !ok || val == nil {
+        } else if name, _ := proj.scope.Lookup(loaded.name).(*projectName); name == nil {
+            if _, alt := proj.scope.projectName(at(l, pos), loaded.name, loaded); alt != nil {
+                if val, ok := alt.(*projectName); !ok || val == nil {
                     erro(ctx, "name `%s' already taken (%T).", loaded.name, alt).debug(1)
                 }
             }
@@ -2134,8 +2134,8 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
 
     // Check loaded project.
     if loaded, loadedOkay = uni.globe.loaded[absDir]; loadedOkay {
-        /*if _, a := l.Scope().ProjectName(at(l, pos), loaded.name, loaded); a != nil {
-            if val, ok := a.(*ProjectName); !ok || val == nil {
+        /*if _, a := l.Scope().projectName(at(l, pos), loaded.name, loaded); a != nil {
+            if val, ok := a.(*projectName); !ok || val == nil {
                 erro(ctx, "name `%s' already taken (%T).", loaded.name, a).debug(1)
             }
         }*/

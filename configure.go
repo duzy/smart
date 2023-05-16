@@ -660,7 +660,7 @@ ForConfig:
 
         var ( name Value ; para []Value )
         switch arg := a.(type) {
-        case *Argumented:
+        case *argumented:
             if flag, okay := arg.value.(*Flag); !okay {
                 erro(of(ctx,a), " `%v` is unsupported value (%T)", arg.value, arg.value).debug(1)
                 return
