@@ -570,12 +570,15 @@ func refdef(ctx Context, val Value, origin Origin) (res bool) {
 func (pc *programContext) level(n int) { pc.traceLevel += n }
 func (pc *programContext) trace(a ...interface{}) { printIndentDots(pc.traceLevel, a...) }
 func (pc *programContext) tracef(s string, a ...interface{}) { printIndentDots(pc.traceLevel, fmt.Sprintf(s, a...)) }
-func (pc *programContext) traversed(target Value) (targets []Value) {
+func (pc *programContext) traversed(target Value) []Value {
     if !isTrivial(target) {
-        pc.targets = append(pc.targets, target)
+        if cc, y := pc.Context.(*closureContext); y && false {
+            pc.targets = cc.traversed(target)
+        } else {
+            pc.targets = append(pc.targets, target)
+        }
     }
-    targets = pc.targets
-    return
+    return pc.targets
 }
 
 func entryIndicator(ctx Context, entry Value) (str, ent, tar string) {

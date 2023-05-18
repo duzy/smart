@@ -589,12 +589,13 @@ func (ctx modifier) _closure(args... Value) (result Value) {
         }
 
         if n > 1 {
-            if opts.verbose {
+            if true || opts.verbose {
                 var d = ctx.gap(false)
                 var ts = trimPromptString(s)
                 prompt(ctx, "%s …… traversed (%d, %v)\n", ts, n, d)
                 if false { warnstack(ctx, 64, "%v, %v, (%d, %v)", f, s, n, d).debug(64) }
             }
+
             var traves travestates
             traves.add(ctx, traveDone, nil)
             ctx.travestates(traves...)

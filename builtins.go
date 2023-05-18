@@ -4527,28 +4527,30 @@ func (ctx builtin) grep(args... Value) (res Value) {
         }
 
         for _, a := range mergex(ctx, plain, args...) {
+                var file *os.File
                 var filename string
+
                 if f, y := a.(*File); y {
                         filename = f.fullname()
                 } else {
                         filename = a.Strval(ctx)
                 }
-                if filename == "" {
-                        errostack(of(ctx,a), 5, "empty filename: %v (%T) (%v -> %v)", a, a, args, rvs).debug(64)
-                        return
-                }
 
-                var file *os.File
-                if file, err = os.Open(filename); err != nil {
-                        errostack(of(ctx,a), 5, "%T %v: %s ; %v", a, a, filename, err).debug(128)
+                if c := of(ctx, a); filename == "" {
+                        var pc = ctx.Context.programContext()
+                        erro(c, "empty filename: %T %v", a, a)
+                        erro(c, "%v %v", rvs, args)
+                        errostack(c, 5, "%p %v", pc, pc.autoGet("^")).debug(64)
+                        return
+                } else if file, err = os.Open(filename); err != nil {
+                        erro(c, "%v", err)
+                        errostack(c, 5, "%v (%T)", a.Strval(ctx), a).debug(128)
                         return
                 }
                 defer file.Close()
 
-                var (
-                        line int // line number
-                        scanner = bufio.NewScanner(file)
-                )
+                var line int // line number
+                var scanner = bufio.NewScanner(file)
                 scanner.Split(bufio.ScanLines)
                 outer: for scanner.Scan() {
                         var text = scanner.Text()
@@ -4561,12 +4563,6 @@ func (ctx builtin) grep(args... Value) (res Value) {
                                 if len(sm) > 0 && greped(line, sm) { break outer }
                         }
                 }
-        }
-        if false && opts.debug > 0 {
-                warn(ctx, "%v", rvs)
-                warn(ctx, "%v", result)
-                warn(ctx, "%v", args)
-                warn(ctx, "%v", list).debug(1)
         }
         if len(list) > 0 { res = MakeListOrScalar(pos, list) }
         return

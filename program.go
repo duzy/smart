@@ -219,7 +219,7 @@ func (pc *programContext) dirty(ctx Context, args ...Value) (outdated bool) {
     var ts = trimPromptString(targetFull)
     var n = dirtyDups[targetFull] ; dirtyDups[targetFull] = n + 1
     if n > 0 {
-        if verb && !(opts.verboseOutdated || opts.verboseUpdated) {
+        if true || verb && !(opts.verboseOutdated || opts.verboseUpdated) {
             var d = ctx.gap(false)
             prompt(ctx, "%s …… duplication (%d, %v)\n", ts, n, d)//.debug(true, 64)
             if false { warnstack(ctx, 64, "%v, %v, (%d, %v)", targetFile, targetFull, n, d).debug(64) }
@@ -284,13 +284,15 @@ func (pc *programContext) dirty(ctx Context, args ...Value) (outdated bool) {
     return
 }
 
-const traverseCacheOn = true
+const traverseCacheOn = false
 var traverseCache = make(map[uint64]int, 128)
 
 // traverse - traverse the prerrequiste for the current target $@
 func (pc *programContext) traverse(ctx Context, prereqValue Value) (traves travestates) {
     var (
-        prereqStrval = prereqValue.Strval(ctx)
+        verb = options.verbose || options.verboseBreaks
+
+        prereqStrval string
         prereqPattern Value
         prereqFile *File
         prereqObj Object
@@ -301,7 +303,48 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (traves trave
         stemmedList []*stemmed
 
         targetValue Value
+
+        traversed int
+        okay bool
     )
+    defer func() {
+        var (
+            av = targetValue
+            bv = prereqValue
+        )
+
+        if prereqFile == nil {
+            ctx.traversed(prereqValue) // set $< $> $^ or $|
+        } else if targetValue != prereqFile {
+            ctx.traversed(prereqFile) // set $< $> $^ or $|
+            bv = prereqFile
+        } else if t := traves.of(traveFile); t.has() {
+            for _, s := range t {
+                if d := s.depend; d != bv && !isTrivial(d) { bv = d }
+            }
+        }
+        if !isTrivial(av) && !isTrivial(bv) {
+            var (
+                a = av.stat(ctx).mod()
+                b = bv.stat(ctx).mod()
+            )
+            if (!a.IsZero() && b.After(a)) || bv.updated(ctx) || bv.updatedDeps(ctx) != nil {
+                av.updatedDeps(ctx, bv)
+            }
+        }
+
+        if prereqFile != nil {
+            if prereqFile.exists() { prereqFile.traversed += 1 }
+            if okay && traversed > 0 && prereqFile.exists() && traves.has(traveNext) {
+                traves = traves.not(traveNext)
+            }
+            if !traves.has(traveFile) {
+                trave := traves.add(ctx, traveFile, targetValue)
+                trave.dependPat = prereqPattern
+                trave.depend = prereqFile
+            }
+        }
+    } ()
 
     if targetValue = getTargetValue(ctx); targetValue == nil {
         prompt(of(ctx,prereqValue), "%s: target is nil\n", prereqStrval)
@@ -350,6 +393,9 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (traves trave
             prereqValue = MakeString(ctx.Position(), prereqStrval)
             mapPrereqFile = nil // only do it once
         }
+    } else if prereqStrval = prereqValue.Strval(ctx); prereqStrval == "" {
+        errostack(ctx, 3, "prerequisite is nothing: %v", prereqValue).debug(8)
+        return
     } else if prereqObj, _ = prereqValue.(Object); prereqObj != nil {
         if false { info(ctx, "%v: %T %v %s", prereqObj, prereqObj, prereqObj, prereqStrval).debug(1) }
     } else if prereqValue.patterned(ctx) {
@@ -394,8 +440,10 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (traves trave
     var travedPrereqFile func (*travestate) *File
     if prereqFile != nil {
         if n := prereqFile.traversed; n > 0 {
-            if n > 1 {
-                info(ctx, "traversed: %v: %d, %T %v, %v", targetValue, prereqFile.traversed, prereqValue, prereqValue, prereqFile.fullname()) //.debug(10)
+            if false && n > 1 {
+                warn(ctx, "traversed: %v: %v %T", targetValue, prereqValue, prereqValue)
+                warn(ctx, "traversed: %v: %v", targetValue, prereqFile.fullname())
+                warnstack(ctx, 3, "traversed: %d", prereqFile.traversed).debug(10)
             }
             return
         }
@@ -489,9 +537,9 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (traves trave
 
     // NOTE: Don't delete, keep it for future debugging.
     if false { if ((
-        strings.HasPrefix(prereqStrval, "libunwind.o") ||
+        strings.HasPrefix(prereqStrval, "/") ||
             false) && (
-        strings.HasSuffix(prereqStrval, "libunwind.o") ||
+        strings.HasSuffix(prereqStrval, "patchlevel.c") ||
             false)) { db = true
         var s, _, _ = entryIndicator(ctx, targetValue)
         prompt(ctx, "%v : %T %v\n", s, prereqValue, prereqStrval)
@@ -533,50 +581,6 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (traves trave
             warn(ctx, "%v : %v", targetValue, prereqObj).debug(32)
         } ()
     }}
-
-    var (
-        verb = options.verbose || options.verboseBreaks
-        t = pc
-        traversed int
-        okay bool
-    )
-    defer func() {
-        var (
-            av = targetValue
-            bv = prereqValue
-        )
-        if prereqFile == nil {
-            ctx.traversed(prereqValue) // set $< $> $^ or $|
-        } else if targetValue != prereqFile {
-            ctx.traversed(prereqFile) // set $< $> $^ or $|
-            bv = prereqFile
-        } else if t := traves.of(traveFile); t.has() {
-            for _, s := range t {
-                if d := s.depend; d != bv && !isTrivial(d) { bv = d }
-            }
-        }
-        if !isTrivial(av) && !isTrivial(bv) {
-            var (
-                a = av.stat(ctx).mod()
-                b = bv.stat(ctx).mod()
-            )
-            if (!a.IsZero() && b.After(a)) || bv.updated(ctx) || bv.updatedDeps(ctx) != nil {
-                av.updatedDeps(ctx, bv)
-            }
-        }
-
-        if prereqFile != nil {
-            if prereqFile.exists() { prereqFile.traversed += 1 }
-            if okay && traversed > 0 && prereqFile.exists() && traves.has(traveNext) {
-                traves = traves.not(traveNext)
-            }
-            if !traves.has(traveFile) {
-                trave := traves.add(ctx, traveFile, targetValue)
-                trave.dependPat = prereqPattern
-                trave.depend = prereqFile
-            }
-        }
-    } ()
 
     type traveResT int
     const (
@@ -748,7 +752,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (traves trave
 
 ForProjectsConcretes:
     for _, project := range projects {
-        var entries = project.resolveEntries(ctx, prereqStrval, t.grepping, false)
+        var entries = project.resolveEntries(ctx, prereqStrval, pc.grepping, false)
         if entries != nil && len(entries.all) > 0 {
             concreteList = append(concreteList, entries.all...)
         } else {
@@ -978,18 +982,13 @@ const maxCallRecursion  = 32 //64
 type normalTraverseContext struct { Context }
 type orderTraverseContext struct { Context }
 func (t normalTraverseContext) traversed(target Value) (targets []Value) {
-    if  targets = t.Context.traversed(target); false {
-        targets = mergex(t, plain, targets...)
-    }
-    if len(targets) > 0 {
+    if targets = t.Context.traversed(target); len(targets) > 0 {
         t.autoSet("^", MakeList(t.Position(), targets...))
         t.autoSet("<", targets[0])
         t.autoSet(">", targets[len(targets)-1])
-        if false {
-            var ( v = targets[0] ; s = v.Strval(t) )
-            if strings.HasPrefix(s, ".configure/header/") || s == ".configure/header/HAVE_ASSERT_H.c" {
-                warn(of(t, target), "%T %v %s", v, v, s).debug(128)
-            }
+        var c = at(t.Context, target.Position())
+        if false && strings.HasSuffix(target.Strval(c), "patchlevel.c") {
+            warn(c, "%T %p %v\n", t.Context, t.Context, t.autoGet("^")).debug(32)
         }
     }
     return
@@ -1388,27 +1387,20 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
     const dbg = false
     if !parallel {
     ForPrerequisites:
-        for i, prerequisite := range prerequisites {
+        for _, prerequisite := range prerequisites {
             var ctx = at(ctx, prerequisite.Position())
             switch t := prerequisite.(type) {
-            case unexpanded:
-                warn(ctx, "%v: unexpanded %v", ent, t.Value).debug(1)
-                continue
-            case untraversed:
-                warn(ctx, "%v: untraversed %v", ent, t.Value).debug(1)
-                continue
-            default:
-                if i == 0 { ctx.autoSet("<", prerequisite) }
-                if false  { ctx.autoSet(">", prerequisite) }
+            case unexpanded : warn(ctx, "%v: unexpanded %v" , ent, t.Value).debug(1) ; continue
+            case untraversed: warn(ctx, "%v: untraversed %v", ent, t.Value).debug(1) ; continue
             }
 
             if false { pc.travestates(nil) }
-            // if t := autoGet(ctx, "@"); !eq(ctx, ent, t) && isInnerAuto(ctx, t) {
-            //     errostack(ctx, 16, "loop: %v: %v", ent, t).debug(10)
-            //     return
-            // }
 
+            // var v = prerequisite.String() == "$(outtmp)/patchlevel.c"
+            // if v { warnstack(ctx, 3, "%v: %p %v", prerequisite, pc, ctx.autoGet("^")).debug(1) }
             var t = prerequisite.traverse(ctx)
+            // if v { warnstack(ctx, 3, "%v: %p %v; %v", prerequisite, pc, ctx.autoGet("^"), t).debug(1) }
+
             if prog.debug_traverse > 0 { if true { prog.debug_traverse -= 1 }
                 for i, a := range t { info(of(ctx,prerequisite), "%v: %d. %v %v", ent, i, a.what, a) }
                 infostack(of(ctx,prerequisite), 12, "%v: %v: %v %v", prog.project, ent, prerequisite, autoGet(ctx, ">")).debug(10)
@@ -1423,10 +1415,6 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) (traves traves
                 isPatternStemmedForTarget = stemd != nil && stemd.target != nil &&
                     eq(ctx, stemd.target, target)
             )
-            // if !eq(ctx, ent, target) && isInnerAuto(ctx, target) {
-            //     errostack(ctx, 16, "loop: %v: %v", ent, target).debug(10)
-            //     return
-            // }
 
             if depend != nil { depends.add(depend) }
             if tt := t.of(traveFail); tt.has() {
