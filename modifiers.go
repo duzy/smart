@@ -404,17 +404,15 @@ func (ctx modifier) debug(args... Value) (result Value) {
         }
     }
     if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.error) == 0 {
-        var m *diagPoint
+        var ( p = ctx.Position() ; s = ctx.stems() ; m *diagPoint )
         if len(args) == 0 {
-            m = prompt(ctx, "%v: target=%v stems=%v depends=%v\n",
-                ctx.Position(), target, ctx.stems(), depends)
+            m = prompt(ctx, "%v: target=%v stems=%v depends=%v\n", p, target, s, depends)
         } else if opts.verbose {
-            m = prompt(ctx, "%v: %v ; target=%v stems=%v depends=%v\n",
-                ctx.Position(), args, target, ctx.stems(), depends)
+            m = prompt(ctx, "%v: target=%v stems=%v depends=%v ; %v\n", p, target, s, depends, args)
         } else if len(args) == 1 {
-            m = prompt(ctx, "%v: %v (%T)\n", ctx.Position(), args[0], args[0])
+            m = prompt(ctx, "%v: %v (%T)\n", p, args[0], args[0])
         } else {
-            m = prompt(ctx, "%v: %v\n", ctx.Position(), args)
+            m = prompt(ctx, "%v: %v\n", p, args)
         }
         if n := opts.n * 2; opts.s > 0 {
             infostack(ctx, opts.s, "").debug(n)
