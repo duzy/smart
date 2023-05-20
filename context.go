@@ -503,22 +503,23 @@ func (ac *argumentedContext) argumentedSet(args []Value) (prev []Value) {
 func executeEntry(ctx Context, entry *Rule, args ...Value) (result []Value, okay bool) {
   var traves travestates
   if result, traves = entry.Execute(at(ctx, entry.position), args...); !traves.has() {
-    okay = true; return
+    return result, true
   }
 
   if t := traves.of(traveFail); t.has() {
-    traves, okay = traves.not(traveFail), false
     for _, brk := range t { erro(at(ctx,brk.pos), "%v: %v", entry, brk).debug(1) }
-    return
+    traves = traves.not(traveFail)
+    return result, false
   }
 
   if t := traves.of(traveCase, traveDone, traveNext, traveRule, traveFile); t.has() {
-    traves, okay = traves.not(traveCase, traveDone, traveNext, traveRule, traveFile), true
+    traves = traves.not(traveCase, traveDone, traveNext, traveRule, traveFile)
   }
 
   if traves.has() {
     for _, brk := range traves { erro(at(ctx,brk.pos), "%v: %v", entry, brk).debug(1) }
-    okay = false
+  } else {
+    okay = true
   }
   return
 }

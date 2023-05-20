@@ -19,7 +19,7 @@ import (
     "errors"
     "bytes"
     "io/fs"
-    "sync"
+    // "sync"
     "time"
     "math"
     "fmt"
@@ -158,9 +158,9 @@ var (
 const ( // larger value higher priority
     traveUnkn travekind = iota
     traveObj  // found object
-    traveRule // found object
+    traveRule // found rule
     traveFile // exists file
-    traveNext // (cond ...) and (case ...)
+    traveNext // (cond ...), (case ...), unfit patterns
     traveCase // (case ...) selected
     traveDone // (cond ...) and (case ...)
     traveFail // (assert ...) and errors
@@ -593,14 +593,16 @@ func entryIndicator(ctx Context, entry Value) (str, ent, tar string) {
     return
 }
 
-func infostack(ctx Context, n int, s string, a ...interface{}) *diagPoint { return callstack(ctx, n, diagInfo , s, a...) }
-func errostack(ctx Context, n int, s string, a ...interface{}) *diagPoint { return callstack(ctx, n, diagError, s, a...) }
-func warnstack(ctx Context, n int, s string, a ...interface{}) *diagPoint { return callstack(ctx, n, diagWarn , s, a...) }
-func callstack(ctx Context, n int, dt diagType, s string, a ...interface{}) (point *diagPoint) {
+func infostack(ctx Context, n int, a ...interface{}) *diagPoint { return callstack(ctx, n, diagInfo , a...) }
+func errostack(ctx Context, n int, a ...interface{}) *diagPoint { return callstack(ctx, n, diagError, a...) }
+func warnstack(ctx Context, n int, a ...interface{}) *diagPoint { return callstack(ctx, n, diagWarn , a...) }
+func callstack(ctx Context, n int, dt diagType, a ...interface{}) (point *diagPoint) {
     var (
         proj  = ctx.Project()
         entry = ctx.entry()
+        s string
     )
+    if len(a) > 0 { if t, y := a[0].(string); y { s, a = t, a[1:] }}
     if s != "" && s != "<#" && s != "#>" {
         point = diag(ctx, dt, s, a...)
     } else if entry == nil {
@@ -1090,7 +1092,7 @@ type Value interface {
     updated(Context) bool
     updatedDeps(Context, ...Value) []Value
 
-    traverse(Context) travestates
+    traverse(Context)
 }
 
 type valueList []Value
@@ -1150,7 +1152,7 @@ func (_ *valbase) stamp(ctx Context) (file []*File, err error) { return }
 func (_ *valbase) updated(_ Context) bool { return false }
 func (_ *valbase) updatedDeps(_ Context, _ ...Value) []Value { return nil }
 func (_ *valbase) delete(ctx Context) (file []*File, err error) { return }
-func (_ *valbase) traverse(ctx Context) (traves travestates) { return }
+func (_ *valbase) traverse(ctx Context) { }
 
 func matchStrval(ctx Context, p Value, i interface{}) (full bool, s string, stems []string) {
     var v = p.Strval(ctx)
@@ -1304,7 +1306,7 @@ func (p *argumented) Strval(ctx Context) (s string) {
     return
 }
 
-func (p *argumented) traverse(ctx Context) (traves travestates) {
+func (p *argumented) traverse(ctx Context) {
     //!< IMPORTANT! - Don't merge-expand arguments here!
     //!< Arguments should be passed to program.execute as it is.
     var args []Value
@@ -1332,7 +1334,8 @@ func (p *argumented) traverse(ctx Context) (traves travestates) {
     } else {
         args = p.args
     }
-    return p.value.traverse(&argumentedContext{ ctx, args })
+
+    p.value.traverse(&argumentedContext{ ctx, args })
 }
 
 func (p *argumented) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
@@ -1577,10 +1580,7 @@ func (p *Any) Strval(ctx Context) (s string) {
     return
 }
 func (p *Any) String() string { return fmt.Sprintf("<%v>", p.value) }
-func (p *Any) traverse(ctx Context) (traves travestates) {
-    if v, ok := p.value.(Value); ok { traves = v.traverse(ctx) }
-    return
-}
+func (p *Any) traverse(ctx Context) { if v, ok := p.value.(Value); ok { v.traverse(ctx) } }
 func (p *Any) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b): %T", bits, p.value).debug(32)
     return
@@ -1625,10 +1625,7 @@ func (p *negative) Integer(ctx Context) (res int64, _ error) {
     if !p.x.True(ctx) { res = 1 }
     return
 }
-func (p *negative) traverse(ctx Context) (traves travestates) {
-    if p.x != nil { traves = p.x.traverse(ctx) }
-    return
-}
+func (p *negative) traverse(ctx Context) { if p.x != nil { p.x.traverse(ctx) } }
 func (p *negative) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
@@ -2232,9 +2229,7 @@ func (p *String) match(ctx Context, i interface{}) (full bool, s interface{}, st
 func (p *String) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
 }
-func (p *String) traverse(ctx Context) (traves travestates) {
-    return ctx.traverse(at(ctx, p.position), p)
-}
+func (p *String) traverse(ctx Context) { ctx.traverse(at(ctx, p.position), p) }
 func (p *String) elemStr(_ Context, o Object, k elemkind) (s string) {
     if k&elemNoQuote == 0 { s = `'`+p.string+`'` } else { s = p.string }
     return
@@ -2297,10 +2292,8 @@ func (p *punctuation) match(ctx Context, i interface{}) (full bool, res interfac
     return
 }
 func (p *punctuation) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
-func (p *punctuation) traverse(ctx Context) (traves travestates) { return }
-func (p *punctuation) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    return cache.filemapCache
-}
+func (p *punctuation) hit(ctx Context, cache hitch, bits int) *filemapCache { return cache.filemapCache }
+func (p *punctuation) traverse(ctx Context) { }
 
 type bareword struct { valbase; string }
 func (p *bareword) String() string { return p.string }
@@ -2383,9 +2376,7 @@ func (p *bareword) match(ctx Context, i interface{}) (full bool, s interface{}, 
 func (p *bareword) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
 }
-func (p *bareword) traverse(ctx Context) (traves travestates) {
-    return ctx.traverse(at(ctx, p.position), p)
-}
+func (p *bareword) traverse(ctx Context) { ctx.traverse(at(ctx, p.position), p) }
 
 type qualiword struct { valbase; words []string } // TODO: foo.bar.zar, foo.&(bar).zar ???
 func (p *qualiword) String() string { return strings.Join(p.words,".") }
@@ -2428,9 +2419,7 @@ func (p *qualiword) match(ctx Context, i interface{}) (full bool, s interface{},
 func (p *qualiword) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
 }
-func (p *qualiword) traverse(ctx Context) (traves travestates) {
-    return ctx.traverse(at(ctx, p.position), p)
-}
+func (p *qualiword) traverse(ctx Context) { ctx.traverse(at(ctx, p.position), p) }
 func (p *qualiword) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
@@ -2641,12 +2630,7 @@ func (p *barecomp) expand(ctx Context, w facet) (res Value) {
     if u > 0 { res = unexpanded{res} }
     return
 }
-func (p *barecomp) traverse(ctx Context) (traves travestates) {
-    return ctx.traverse(at(ctx, p.Position()), p)
-}
-// func (p *barecomp) obsolete_hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-//     return cache.comp(ctx, []string{ p.Strval(ctx) }, 0, bits)
-// }
+func (p *barecomp) traverse(ctx Context) { ctx.traverse(at(ctx, p.Position()), p) }
 func (p *barecomp) obsolete_hit2(ctx Context, cache hitch, bits int) (res *filemapCache) {
     var elems, u, _ = plain.expand(ctx, p.Elems...)
     if u > 0 { return cache.val(ctx, p, bits) }
@@ -2926,13 +2910,12 @@ func (p *barefile) expand(ctx Context, w facet) (res Value) {
     }
     return
 }
-func (p *barefile) traverse(ctx Context) (traves travestates) {
+func (p *barefile) traverse(ctx Context) {
     if p.Strval(ctx) == ".configure/header/.c" {
         warn(ctx, "%T %v %s %v", p.Value, p.Value, p.Value.Strval(ctx), p.File).debug(1)
     }
-    if p.File != nil { traves = p.File.traverse(ctx) } else
-    if p.Value != nil { traves = p.Value.traverse(ctx) }
-    return
+    if p.File != nil { p.File.traverse(ctx) } else
+    if p.Value != nil { p.Value.traverse(ctx) }
 }
 func (p *barefile) updated(ctx Context) (res bool) {
     if p.File != nil { res = p.File.updated(ctx) }
@@ -3462,9 +3445,7 @@ func (p *Path) stat(ctx Context) (si *statinfo) {
     }
     return
 }
-func (p *Path) traverse(ctx Context) (traves travestates) {
-    return ctx.traverse(at(ctx, p.position), p)
-}
+func (p *Path) traverse(ctx Context) { ctx.traverse(at(ctx, p.position), p) }
 func (p *Path) patterned(ctx Context) (result bool) {
     for _, seg := range p.Elems {
         if result = seg.patterned(ctx); result { break }
@@ -4156,9 +4137,12 @@ func (p *File) isSysFile() (res bool) {
     }
     return
 }
-func (p *File) traverse(ctx Context) (traves travestates) {
-    if !p.isSysFile() && p.traversed == 0 { traves = ctx.traverse(ctx, p) }
-    return
+func (p *File) traverse(ctx Context) {
+    if !p.isSysFile() && p.traversed == 0 {
+        ctx.traverse(ctx, p)
+    } else if pc := ctx.programContext(); pc != nil {
+        pc.deferTrave(ctx, getTargetValue(ctx), p, nil, p)
+    }
 }
 
 func (p *File) cmp(ctx Context, v Value) (res cmpres) {
@@ -4400,9 +4384,7 @@ func (p *Flag) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *Flag) traverse(ctx Context) (traves travestates) {
-    return ctx.traverse(at(ctx, p.position), p)
-}
+func (p *Flag) traverse(ctx Context) { ctx.traverse(at(ctx, p.position), p) }
 func (p *Flag) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
     return
@@ -4488,9 +4470,7 @@ func (p *Compound) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *Compound) traverse(ctx Context) (traves travestates) {
-    return ctx.traverse(at(ctx, p.position), p)
-}
+func (p *Compound) traverse(ctx Context) { ctx.traverse(at(ctx, p.position), p) }
 func (p *Compound) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b): %v", bits, p).debug(32)
     return
@@ -4540,58 +4520,13 @@ func (p *List) expand(ctx Context, w facet) (res Value) {
     if u > 0 { res = unexpanded{res} }
     return
 }
-func (p *List) traverse(ctx Context) (traves travestates) {
-    if options.parallel {
-        const (
-            stateCont int = 0
-            stateBrek     = 1
-        )
-        var state int
-        var m sync.Mutex
-        var pc sync.WaitGroup //= ctx.programContext()
-        defer pc.Wait() ; for i, elem := range p.Elems {
-            if state == stateBrek { break } else { pc.Add(1) }
-            go func (ctx Context, i int, elem Value) {
-                defer func() {
-                    pc.Done()
-                    if n, e := checkFailure(ctx); n>0 || e> 0 {
-                        // TODO: panics and errors
-                    }
-                } ()
+func (p *List) traverse(ctx Context) {
+    var pc = ctx.programContext()
+    for _, elem := range p.Elems {
+        elem.traverse(ctx)
 
-                var t = elem.traverse(ctx)
-                {
-                    m.Lock() //var unlock = ctx.aquireLock()
-                    traves = append(traves, t...)
-                    m.Unlock() //if unlock != nil { unlock() }
-                }
-
-                if _, ok := elem.(*modifications); ok && t.has(traveNext) {
-                    warn(ctx, "%T %v", elem, elem).debug(1)
-                }
-                if _, ok := elem.(*modification); ok && t.has(traveNext) {
-                    warn(ctx, "%T %v", elem, elem).debug(1)
-                }
-                if t.has(/*traveCase, traveNext, traveDone, */traveFail) {
-                    m.Lock() //var unlock = ctx.aquireLock()
-                    state = stateBrek
-                    m.Unlock() //if unlock != nil { unlock() }
-                }
-            } (ctx.spawn(ctx), i, elem)
-        }
-    } else {
-        for _, elem := range p.Elems {
-            var t = elem.traverse(ctx)
-            traves = append(traves, t...)
-            if _, ok := elem.(*modifications); ok && t.has(traveNext) {
-                warn(ctx, "%T %v", elem, elem).debug(1)
-            }
-            if _, ok := elem.(*modification); ok && t.has(traveNext) {
-                warn(ctx, "%T %v", elem, elem).debug(1)
-            }
-            if t.has(/*traveCase, traveNext, traveDone, */traveFail) {
-                break
-            }
+        if pc.traves.has(traveCase, traveNext, traveDone, traveFail) {
+            break
         }
     }
     return
@@ -4771,9 +4706,8 @@ func (p *Group) expand(ctx Context, w facet) (res Value) {
     if u > 0 { res = unexpanded{res} }
     return
 }
-func (p *Group) traverse(ctx Context) (traves travestates) {
-    warn(at(ctx,p.position), "traversing group: %v", p).debug(32)
-    return
+func (p *Group) traverse(ctx Context) {
+    errostack(at(ctx,p.position), 3, "traversing group: %v", p).debug(32)
 }
 func (p *Group) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Group); ok {
@@ -4851,10 +4785,9 @@ func (p *Pair) refs(ctx Context, v Value) bool { return p.Key.refs(ctx, v) || p.
 func (p *Pair) defs(ctx Context, s ...string) []*def {
     return append(p.Key.defs(ctx, s...), p.Value.defs(ctx, s...)...)
 }
-func (p *Pair) traverse(ctx Context) (traves travestates) {
+func (p *Pair) traverse(ctx Context) {
     erro(at(ctx,p.position), "traversing pair '%v' is undefined", p)
     errostack(at(ctx, p.position), -1, "pair is not traversible: %v", p).debug(16)
-    return
 }
 func (p *Pair) expandible(ctx Context, w facet) bool {
     if p.Key.expandible(ctx, w) { return true }
@@ -4951,7 +4884,7 @@ type selected struct { Value }
 
 type unexpanded struct { Value }
 func (u unexpanded) True(ctx Context) bool { return false }
-func (u unexpanded) traverse(ctx Context) (traves travestates) { return }
+func (u unexpanded) traverse(ctx Context) { }
 func (u unexpanded) match(_ Context, _ interface{}) (b bool, s interface{}, a []string) { return }
 func (u unexpanded) expand(ctx Context, w facet) Value {
     return u.Value.expand(ctx, w) // NOTE: for a stack in debug traces
@@ -4959,7 +4892,7 @@ func (u unexpanded) expand(ctx Context, w facet) Value {
 
 type untraversed struct { Value }
 // func (u untraversed) True(ctx Context) bool { return false }
-func (u untraversed) traverse(ctx Context) (traves travestates) { return }
+func (u untraversed) traverse(ctx Context) { }
 func (u untraversed) expand(ctx Context, w facet) Value {
     if v := u.Value.expand(ctx, w); v != u.Value { u = untraversed{v} }
     return u
@@ -5075,8 +5008,9 @@ func (p *delegate) defs(ctx Context, s ...string) (res []*def) {
     }
     return
 }
-func (p *delegate) traverse(ctx Context) (traves travestates) {
+func (p *delegate) traverse(ctx Context) {
     ctx = at(ctx, p.position)
+
     if val := p.expand(ctx, plain); val == nil {
         warn(at(ctx,p.position), "delegate '%v' expands to nil", p)
         warnstack(ctx, -1, "").debug(16)
@@ -5086,9 +5020,8 @@ func (p *delegate) traverse(ctx Context) (traves travestates) {
             warnstack(ctx, -1, "", p).debug(16)
         }
     } else {
-        traves = val.traverse(ctx)
+        val.traverse(ctx)
     }
-    return
 }
 func (p *delegate) name(ctx Context, sel bool) (name string) {
     switch x := p.x.(type) {
@@ -5869,16 +5802,16 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
         return
     }
 }
-func (p *closure) traverse(ctx Context) (traves travestates) {
+func (p *closure) traverse(ctx Context) {
     ctx = at(ctx, p.position)
+
     if val := p.expand(ctx, /* expandClosure */plain); isNil(val) {
         warn(ctx, "closure '%v' expands to nil", p).debug(1)
     } else if isNone(val) {
         warn(ctx, "closure '%v' expands to none", p).debug(1)
     } else {
-        traves = val.traverse(ctx)
+        val.traverse(ctx)
     }
-    return
 }
 func (p *closure) stat(ctx Context) (si *statinfo) {
     erro(at(ctx,p.position), "cant stat closure %v, must expand it first", p).debug(16)
@@ -6037,15 +5970,15 @@ func (p *selection) expand(ctx Context, w facet) (res Value) {
     }
     return
 }
-func (p *selection) traverse(ctx Context) (traves travestates) {
+func (p *selection) traverse(ctx Context) {
     ctx = at(ctx, p.position)
+
     if val := p.value(ctx, plain); isTrivial(val) {
         warn(ctx, "selected trivial value '%v' (%T %v, %T %v) ", p, p.o, p.o, p.s, p.s).debug(10)
     } else {
         _ = val.updated(ctx) // NOTE: ensure that updated flag is correct (see Rule.updated)
-        traves = val.traverse(ctx)
+        val.traverse(ctx)
     }
-    return
 }
 func (p *selection) updated(ctx Context) (res bool) { // NOTE: this seems not affecting the result
     if val := p.value(ctx, plain); isTrivial(val) {
@@ -6318,7 +6251,7 @@ DoneVals:
     }
     return
 }
-func (p *PercPattern) traverse(ctx Context) (traves travestates) { return ctx.traverse(ctx, p) }
+func (p *PercPattern) traverse(ctx Context) { ctx.traverse(ctx, p) }
 func (p *PercPattern) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*PercPattern); ok {
         if p.Prefix.cmp(ctx, a.Prefix) == cmpEqual {
@@ -6441,7 +6374,7 @@ func (p *GlobPattern) stencil(ctx Context, stems []string) (val Value, rest []st
     unreachable(fmt.Sprintf("Unimplemented GlobPattern stencil %v (stems=%v)", p, stems))
     return
 }
-func (p *GlobPattern) traverse(ctx Context) (traves travestates) { return ctx.traverse(ctx, p) }
+func (p *GlobPattern) traverse(ctx Context) { ctx.traverse(ctx, p) }
 func (p *GlobPattern) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*GlobPattern); ok {
         if len(p.Components) == len(a.Components) {
@@ -6517,7 +6450,7 @@ func (p *RegexpPattern) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *RegexpPattern) traverse(ctx Context) (traves travestates) { return ctx.traverse(ctx, p) }
+func (p *RegexpPattern) traverse(ctx Context) { ctx.traverse(ctx, p) }
 func (p *RegexpPattern) expand(_ Context, _ facet) Value { return p }
 func (p *RegexpPattern) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)

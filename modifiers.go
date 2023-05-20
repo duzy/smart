@@ -68,7 +68,7 @@ func (_ *modification) cmp(ctx Context, v Value) (res cmpres) {
     if _, ok := v.(*modification); ok { res = cmpEqual }
     return
 }
-func (m *modification) traverse(ctx Context) (traves travestates) {
+func (m *modification) traverse(ctx Context) {
     ctx = at(ctx, m.position)
 
     var (
@@ -129,7 +129,6 @@ func (m *modification) traverse(ctx Context) (traves travestates) {
         brk := pc.traves.add(ctx, traveFail, nil)
         brk.error = fmt.Errorf("%s: %d errors counted", m.name, n)
     }
-    return pc.traves
 }
 func (m *modification) String() (s string) {
     s = "(" + m.name.String()
@@ -165,19 +164,17 @@ func (_ *modifications) cmp(ctx Context, v Value) (res cmpres) {
     if _, ok := v.(*modifications); ok { res = cmpEqual }
     return
 }
-func (g *modifications) traverse(ctx Context) (traves travestates) {
-    if pc := ctx.programContext(); pc != nil { pc.Wait() }
+func (g *modifications) traverse(ctx Context) {
+    var pc = ctx.programContext()
+    if pc != nil { pc.Wait() }
 
     for _, m := range g.list {
         var ctx = at(ctx, m.position)
-        if t := m.traverse(ctx); t.has() {
-            traves = append(traves, t...) // collect travestates
-        } else {
-            continue
-        }
-        if t := traves.of(traveFail); t.has() {
+        if m.traverse(ctx); pc == nil { continue }
+
+        if t := pc.traves.of(traveFail); t.has() {
             return
-        } else if t = traves.not(traveCase, traveDone, traveNext); t.has() {
+        } else if t = pc.traves.not(traveCase, traveDone, traveNext, traveRule, traveFile); t.has() {
             if true || (options.verbose || options.verboseBreaks) {
                 var _, ent, _ = entryIndicator(ctx, ctx.entry())
                 warn(ctx, "%v: %s failed\n", ent, m.name)
@@ -185,13 +182,12 @@ func (g *modifications) traverse(ctx Context) (traves travestates) {
                 warnstack(ctx, 5, "").debug(16)
             }
             break
-        } else if t = traves.of(traveCase); t.has() {
+        } else if t = pc.traves.of(traveCase); t.has() {
             continue // case selected
-        } else if t = traves.of(traveDone, traveNext); t.has() {
+        } else if t = pc.traves.of(traveDone, traveNext); t.has() {
             return // done or try next rule entry
         }
     }
-    return
 }
 
 func (g *modifications) String() (s string) {
@@ -222,8 +218,8 @@ func (m modifier) apply(name string, args ...Value) (res Value) {
                 var ctx = at(m.Context, a.Position())
                 var s = g.Elems[0].Strval(ctx)
                 var v = modifier{ctx}.apply(s, g.Elems[1:]...)
-                args[i] = v
                 if true && s != "dirty" { warn(ctx, "%d. %v -> %v", i, g, v).debug(1) }
+                args[i] = v
             }
         }
         return f(m, args...)
@@ -260,10 +256,10 @@ var (
         `grep`:         modifier.grep,
         `deps`:         modifier.deps,
 
-        `copy-file`:       modifier.CopyFile,
-        `write-file`:      modifier.WriteFile,
-        `read-file`:       modifier.ReadFile,
-        `update-file`:     modifier.UpdateFile,
+        `copy-file`:       modifier.copyfile,
+        `write-file`:      modifier.writefile,
+        `read-file`:       modifier.readfile,
+        `update-file`:     modifier.updatefile,
         `configure-input`: modifier.configureinput,
         `configure-file`:  modifier.configurefile,
         `configure`:       modifier.configure,
@@ -364,10 +360,10 @@ func (ctx modifier) print(args... Value) (result Value) {
 
 type modifierDebugOpts struct {
     generalOpts
-    cond    Value `if,cond,where,when`
-    info  []Value `i,info`
-    warn  []Value `w,warn`
-    error []Value `e,er,err,error`
+    cond   Value `if,cond,where,when`
+    info []Value `i,info`
+    warn []Value `w,warn`
+    erro []Value `e,er,err,erro,error`
     checkOutdated bool `dirty,cd,checkdirty,check-dirty,co,check-outdated`
     traverse int `tr,trave,traverse`
     s int `s,stack,sn,stack-number`
@@ -379,9 +375,9 @@ func (ctx modifier) debug(args... Value) (result Value) {
     if opts.cond != nil && !opts.cond.True(ctx) { return }
     if n := opts.traverse; n > 0 { ctx.program().debug_traverse += n }
 
-    for _, v := range opts.info  { info(of(ctx,v), "%s", v.Strval(ctx)).debug(1) }
-    for _, v := range opts.warn  { warn(of(ctx,v), "%s", v.Strval(ctx)).debug(1) }
-    for _, v := range opts.error { erro(of(ctx,v), "%s", v.Strval(ctx)).debug(1) }
+    for _, v := range opts.info { info(of(ctx,v), "%s", v.Strval(ctx)).debug(1) }
+    for _, v := range opts.warn { warn(of(ctx,v), "%s", v.Strval(ctx)).debug(1) }
+    for _, v := range opts.erro { erro(of(ctx,v), "%s", v.Strval(ctx)).debug(1) }
 
     var (
         target  = autoGet(ctx, "@")
@@ -403,7 +399,7 @@ func (ctx modifier) debug(args... Value) (result Value) {
             }
         }
     }
-    if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.error) == 0 {
+    if len(opts.info) == 0 && len(opts.warn) == 0 && len(opts.erro) == 0 {
         var ( p = ctx.Position() ; s = ctx.stems() ; m *diagPoint )
         if len(args) == 0 {
             m = prompt(ctx, "%v: target=%v stems=%v depends=%v\n", p, target, s, depends)
@@ -1436,10 +1432,10 @@ func (ctx modifier) grep(args... Value) (result Value) {
         } (time.Now())
     }
 
-    var t = ctx.programContext()
+    var pc = ctx.programContext()
     var tar = target
-    defer func(v bool) { t.grepping = v } (t.grepping)
-    t.grepping = true
+    defer func(v bool) { pc.grepping = v } (pc.grepping)
+    pc.grepping = true
 
 ForTarget:
     for _, target := range targets {
@@ -1452,32 +1448,31 @@ ForTarget:
             return
         }
 
-        gc.target.Value, t.grepped = target, nil
+        gc.target.Value, pc.grepped = target, nil
         if err := grep(ctx, &gc); err != nil {
             erro(ctx, "grep files from %v failed: %v", target, err).debug(1)
             return
         } else if gc.noTraverse {
             // does nothing
-        } else if len(t.grepped) > 0 {
-            var traves travestates
-            for _, val := range t.grepped {
-                if traves = val.traverse(ctx); !traves.has() { continue }
-                for _, brk := range traves { erro(at(ctx,brk.pos), "%v: %v", val, brk).debug(1) }
+        } else if len(pc.grepped) > 0 {
+            for _, val := range pc.grepped {
+                if val.traverse(ctx); !pc.traves.has() { continue }
+                for _, brk := range pc.traves { erro(at(ctx,brk.pos), "%v: %v", val, brk).debug(1) }
                 erro(ctx, "broken traversal for grepped %v from %v", val, target)
                 errostack(ctx, 5, "%v", ctx).debug(16)
                 break ForTarget
             }
         }
-        grepped = append(grepped, t.grepped...)
+        grepped = append(grepped, pc.grepped...)
     }
-    t.grepped = grepped
+    pc.grepped = grepped
 
     var pos = ctx.Position()
     if !gc.noTraverse {
         ctx.autoSet("~", MakeNone(pos))
-        t.grepped = nil
+        pc.grepped = nil
     } else {
-        result = MakeListOrScalar(pos, t.grepped)
+        result = MakeListOrScalar(pos, pc.grepped)
     }
     return
 }
@@ -1525,6 +1520,8 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
         missMux, travesMux sync.Mutex
         jobs sync.WaitGroup
     )
+
+    var pc = ctx.programContext()
     var depFile = func(ctx Context, depPos Position, word string) {
         var dc = depContext{diagContext{ Context: ctx }}; ctx = &dc
         if parallel { defer func() {
@@ -1532,6 +1529,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
             if len(dc.points) > 0 { dc.inner().diagnostic().nest(dc.points) }
             jobs.Done() // minus 1
         }() }
+
         if i := strings.Index(word, " "); i > 0 {
             warn(ctx, "ignore dep with spaces: %v", word).debug(1)
         } else if file := findDepFile(word); file == nil {
@@ -1557,9 +1555,9 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
             }
         } else if ignored(file.fullname()) {
             //continue // dep is the target itself
-        } else if t := file.traverse(ctx); !t.has() {
+        } else if file.traverse(ctx); !pc.traves.has() {
             addFile(file)
-        } else if t = t.not(traveCase, traveDone, traveNext); t.has() {
+        } else if t := pc.traves.not(traveCase, traveDone, traveNext); t.has() {
             prompt(ctx, "%v: missing dep\n", file)
             if savedDepsFile != nil {
                 var s = filepath.Base(file.name)
@@ -1694,6 +1692,7 @@ func traverseMissingDep(ctx Context, dep string) (res bool, traves travestates) 
         okay bool
         fullname string
         proj = ctx.Project()
+        pc = ctx.programContext()
     )
     if proj == nil {
         prompt(ctx, "%s: traverse dep failed, project %v\n", dep, proj)
@@ -1713,15 +1712,15 @@ func traverseMissingDep(ctx Context, dep string) (res bool, traves travestates) 
         }
         fullname = dep
     } else {
-        traves = file.traverse(ctx)
-        okay = !traves.has(traveFail) && file.exists()
+        file.traverse(ctx)
+        okay = !pc.traves.has(traveFail) && file.exists()
         fullname = file.fullname()
     }
-    if traves.has(traveCase, traveNext, traveDone) {
-        traves = traves.not(traveCase, traveNext, traveDone)
+    if pc.traves.has(traveCase, traveNext, traveDone) {
+        pc.traves = traves.not(traveCase, traveNext, traveDone)
         // TODO: for _, brk := range t { ... }
     }
-    if traves.has() {
+    if pc.traves.has() {
         prompt(ctx, "%s: traverse dep failed (okay=%v), project %v\n", fullname, okay, proj)
         for _, brk := range traves { erro(at(ctx,brk.pos), "%v: missing %v: %v", proj, dep, brk.what   ) }
         errostack(ctx, 5, "%v: %v", proj, ctx).debug(10)
@@ -2005,7 +2004,7 @@ func (ctx modifier) check(args... Value) (result Value) {
         }
     }
 
-    if !(isNil(opts.file) || isNone(opts.file)) {
+    if opts.file != nil {
         var ( s string; f *File )
         if f, res = toFile(opts.file); res {
             if res = f.exists(); !res && opts.verbose {
@@ -2029,7 +2028,7 @@ func (ctx modifier) check(args... Value) (result Value) {
             return
         }
     }
-    if !(isNil(opts.dir) || isNone(opts.dir)) {
+    if opts.dir != nil {
         var ( s string; f *File )
         if f, res = toFile(opts.dir); res {
             if res = f.exists(); !res && opts.verbose {
@@ -2346,7 +2345,7 @@ type modifierCopyFileOpts struct {
     head Value "h,head"
     foot Value "f,foot"
 }
-func (ctx modifier) CopyFile(args... Value) (result Value) {
+func (ctx modifier) copyfile(args... Value) (result Value) {
     var opts modifierCopyFileOpts
     args = parseOpts(ctx, &opts, plain, args...)
 
@@ -2456,7 +2455,7 @@ func (ctx modifier) CopyFile(args... Value) (result Value) {
     return
 }
 
-func (ctx modifier) WriteFile(args... Value) (result Value) {
+func (ctx modifier) writefile(args... Value) (result Value) {
     args = mergex(ctx, plain, args...)
 
     var (
@@ -2507,7 +2506,7 @@ type modifierReadFileOpts struct {
     head Value "h,head"
     foot Value "f,foot"
 }
-func (ctx modifier) ReadFile(aa... Value) (result Value) {
+func (ctx modifier) readfile(aa... Value) (result Value) {
     var (
         opts modifierReadFileOpts
         args []Value
@@ -2516,6 +2515,7 @@ func (ctx modifier) ReadFile(aa... Value) (result Value) {
         target as
     )
     args = parseOpts(ctx, &opts, plain, aa...)
+
     if n := len(args); n > 1 {
         erro(ctx, "too many files: %v", args).debug(1)
         return
@@ -2526,7 +2526,7 @@ func (ctx modifier) ReadFile(aa... Value) (result Value) {
     }
 
     var traves travestates
-    defer ctx.travestates(traves...)
+    defer func() { ctx.travestates(traves...) } ()
 
     if target.trivial() {
         errostack(ctx, 3, "target for reading is invalid (%T) (%v -> %v)", target.Value, aa, args).debug(10)
@@ -2537,13 +2537,12 @@ func (ctx modifier) ReadFile(aa... Value) (result Value) {
             s.error = traveTargetNotDefinedFile
             s.depend = val
         } else if true {
-            prompt(ctx, "%v: not defined as file\n", target.Strval(ctx))
-            erro(ctx, "(%T) %v", target.Value, target.Value)
-            errostack(ctx, 8, "").debug(64)
+            erro(ctx, "not a file: %v (%T)", target.Value, target.Value)
+            errostack(ctx, 8).debug(64)
         }
         return
     } else if filename == "" {
-        errostack(of(ctx,target), 3, "target filename is empty").debug(32)
+        errostack(of(ctx,target), 3, "%v: empty fullname", target).debug(32)
         return
     }
 
@@ -2561,7 +2560,7 @@ func (ctx modifier) ReadFile(aa... Value) (result Value) {
     }
     if opts.debug>0 && err != nil {
         warn(ctx, "%v: %v ; stems=%v\n", target, err, ctx.stems())
-        warnstack(ctx, 5, "").debug(opts.debug)
+        warnstack(ctx, 5).debug(opts.debug)
     }
     return
 }
@@ -2610,7 +2609,7 @@ type modifierUpdateFileOpts struct {
     append bool `a,app,append,append-content`
     mode os.FileMode "m,mode"
 }
-func (ctx modifier) UpdateFile(args... Value) (result Value) {
+func (ctx modifier) updatefile(args... Value) (result Value) {
     var (
         opts = modifierUpdateFileOpts{ mode: os.FileMode(0640) }
         filename string
@@ -2721,7 +2720,7 @@ func (ctx modifier) UpdateFile(args... Value) (result Value) {
             prompt(ctx, "%s:1: empty content: %v\n", filename, v).debug(1)
         }
         erro(ctx, "empty content for '%v'", target)
-        errostack(ctx, 6, "").debug(64)
+        errostack(ctx, 6).debug(64)
         return
     }
 

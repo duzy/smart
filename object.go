@@ -148,7 +148,7 @@ func (p unresolved) cmp(ctx Context, v Value) (res cmpres) {
         }
         return
 }
-func (p unresolved) traverse(ctx Context) (traves travestates) { return }
+func (p unresolved) traverse(ctx Context) { }
 
 type projectName struct {
         *Project
@@ -176,10 +176,7 @@ func (p *projectName) OwnerProject() *Project { return p.scope.project }
 func (p *projectName) Get(ctx Context, name string) (Value, error) { return p.resolveObject(ctx, name), nil }
 func (p *projectName) Call(_ Context, _ []Value, _ ...Value) (value Value) { return p }
 func (p *projectName) expand(_ Context, _ facet) (res Value) { return p }
-func (p *projectName) traverse(ctx Context) (traves travestates) {
-        if t := p.Project.defaultEntry; t != nil { traves = t.traverse(ctx) }
-        return
-}
+func (p *projectName) traverse(ctx Context) { if t := p.Project.defaultEntry; t != nil { t.traverse(ctx) } }
 func (p *projectName) stat(ctx Context) (si *statinfo) {
         if t := p.Project.defaultEntry; t != nil && t.Class() != UseRule { si = t.stat(ctx) }
         return
@@ -224,7 +221,7 @@ func (_ *scopeName) expandible(_ Context, _ facet) bool { return false }
 func (p *scopeName) match(ctx Context, i interface{}) (bool, interface{}, []string) { return matchStrval(ctx, p, i) }
 func (p *scopeName) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
 func (_ *scopeName) stat(ctx Context) (si *statinfo) { return }
-func (_ *scopeName) traverse(ctx Context) (traves travestates) { return }
+func (_ *scopeName) traverse(ctx Context) { }
 func (_ *scopeName) Integer(_ Context) (int64, error) { return 0, nil }
 func (_ *scopeName) Float(_ Context) (float64, error) { return .0, nil }
 func (p *scopeName) Position() Position { return p.position }
@@ -926,7 +923,7 @@ func (d *def) Get(ctx Context, name string) (res Value, err error) {
         }
         return
 }
-func (d *def) traverse(ctx Context) (traves travestates) {
+func (d *def) traverse(ctx Context) {
         var value Value
         if d.origin == DefArg || d.origin == DefAuto {
                 value = autoGet(ctx, d.name)
@@ -935,8 +932,7 @@ func (d *def) traverse(ctx Context) (traves travestates) {
                 value = d.value
                 // d.mutex.Unlock()
         }
-        if value != nil { traves = value.traverse(ctx) }
-        return
+        if value != nil { value.traverse(ctx) }
 }
 func (d *def) stat(ctx Context) (si *statinfo) {
         var value Value
@@ -996,7 +992,7 @@ func (p *undetermined) expand(ctx Context, w facet) (res Value) {
         }
         return
 }
-func (p *undetermined) traverse(ctx Context) (traves travestates) { return }
+func (p *undetermined) traverse(ctx Context) { }
 func (p *undetermined) exists() existence { return existenceMatterless }
 func (p *undetermined) stat(ctx Context) (si *statinfo) { return }
 func (p *undetermined) stamp(ctx Context) (files []*File, err error) { return }
@@ -1332,7 +1328,7 @@ func (entry *Rule) expand(ctx Context, w facet) (res Value) {
 }
 func (entry *Rule) delete(  ctx Context) (files []*File, err error) { return entry.target.delete(ctx) }
 func (entry *Rule) stamp(   ctx Context) (files []*File, err error) { return entry.target.stamp(ctx) }
-func (entry *Rule) traverse(ctx Context) (traves travestates) {
+func (entry *Rule) traverse(ctx Context) {
         if target := autoGet(ctx, "@"); target == nil {
                 erro(ctx, "$@ is not defined").debug(1)
                 return
@@ -1360,18 +1356,16 @@ func (entry *Rule) traverse(ctx Context) (traves travestates) {
                 ctx = &entryContext{ ctx, entry }
         }
 
-        var (
-                result []Value
-                entryPos = entry.Position()
-        )
+        var result []Value
+        var entryPos = entry.Position()
 ForPrograms:
         for _, prog := range entry.programs {
                 var pos = prog.position
                 if !pos.IsValid() { pos = entryPos }
 
                 var res, t = prog.execute(at(ctx, pos))
-                result = append(result, merge(res)...)
-                traves = append(traves, t...)
+                if res != nil { result = append(result, merge(res)...) }
+
                 if t.has(traveFail) { break ForPrograms }
                 for _, s := range t.of(traveCase, traveDone) {
                         if s.prog == prog { break ForPrograms }
@@ -1508,8 +1502,8 @@ func (p *stemmed) cmp(ctx Context, v Value) (res cmpres) {
         }
         return
 }
-func (p *stemmed) traverse(ctx Context) (traves travestates) {
+func (p *stemmed) traverse(ctx Context) {
         var real = p.Rule // TODO: avoid copying the Rule, use p directly
         real.target = p.target
-        return real.traverse(&stemmedContext{ ctx, p })
+        real.traverse(&stemmedContext{ ctx, p })
 }
