@@ -582,7 +582,7 @@ func (ctx modifier) _closure(args... Value) (result Value) {
         }
 
         if n > 1 {
-            if true || opts.verbose {
+            if opts.verbose {
                 var d = ctx.gap(false)
                 var ts = trimPromptString(s)
                 prompt(ctx, "%s …… traversed (%d, %v)\n", ts, n, d)

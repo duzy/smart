@@ -209,7 +209,7 @@ func (pc *programContext) dirty(ctx Context, args ...Value) (outdated bool) {
     var ts = trimPromptString(targetFull)
     var n = dirtyDups[targetFull] ; dirtyDups[targetFull] = n + 1
     if n > 0 {
-        if true || verb && !(opts.verboseOutdated || opts.verboseUpdated) {
+        if verb && !(opts.verboseOutdated || opts.verboseUpdated) {
             var d = ctx.gap(false)
             prompt(ctx, "%s …… duplication (%d, %v)\n", ts, n, d)//.debug(true, 64)
             if false { warnstack(ctx, 64, "%v, %v, (%d, %v)", targetFile, targetFull, n, d).debug(64) }
