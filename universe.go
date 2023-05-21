@@ -1170,6 +1170,7 @@ func (g *Globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, sp
     }
     m.scope = NewScope(m.position, outer, m, fmt.Sprintf("project %q", name))
     m.scope.mutex.Lock()
+    m.scope.elems[".base"], _ = outer.elems[".self"]
     m.scope.elems[".self"] = &projectName{ m, m.scope }
     m.scope.elems[".usee"] = m.use
     m.scope.mutex.Unlock()
