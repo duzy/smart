@@ -214,9 +214,7 @@ func (pc *programContext) dirty(ctx Context, args ...Value) (outdated bool) {
             prompt(ctx, "%s …… duplication (%d, %v)\n", ts, n, d)//.debug(true, 64)
             if false { warnstack(ctx, 64, "%v, %v, (%d, %v)", targetFile, targetFull, n, d).debug(64) }
         }
-        var traves travestates
-        traves.add(ctx, traveDone, nil)
-        ctx.travestates(traves...)
+        pc.traves.add(ctx, traveDone, nil)
         return
     }
 
@@ -467,7 +465,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
     }
 
     // NOTE: Don't delete, keep it for future debugging.
-    if true { if ((
+    if false { if ((
         strings.HasPrefix(prereqStrval, "/") ||
             false) && (
         strings.HasSuffix(prereqStrval, "curl/curlver.h") ||

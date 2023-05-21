@@ -108,13 +108,17 @@ func (ce *configureExecutor) execute(ctx Context, project *Project, entry Entry)
 
     result = project
 
-    if val, traves := entry.Execute(ctx); len(traves) > 0 {
-        for _, brk := range traves {
-            if brk.what == traveFail {
-                erro(ctx, "execute '%v' failed: %v", entry, brk).debug(1)
+    if val, traves := entry.Execute(ctx); traves.has() {
+        if t := traves.of(traveFail); t.has() {
+            for _, s := range traves {
+                if s.what == traveFail {
+                    erro(at(ctx, s.pos), "execute '%v' failed: %v", entry, s)
+                } else {
+                    info(ctx, "%v: %v", entry, s)
+                }
             }
+            erro(ctx, "%v: %v", entry, val).debug(1)
         }
-        erro(ctx, "%v: %v", entry, val).debug(1)
     }
 
     var s = entry.Target().Strval(ctx)
@@ -763,9 +767,10 @@ type (
         update   bool `u,update`
     }
 )
-func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData configureConvertFunc, opts *configureConvertOpts, args ...Value) (result Value, traves travestates) {
+func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData configureConvertFunc, opts *configureConvertOpts, args ...Value) (result Value) {
     var (
         project = ctx.Project()
+        pc = ctx.programContext()
         closured = closureProjects(ctx)
         filename string
         file *File
@@ -779,7 +784,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         return
     } else if file, filename, _ = target.fullname(ctx, closured...); file == nil {
         if depend := autoGet(ctx,">"); !isTrivial(depend) {
-            s := traves.add(ctx, traveFail, target.Value)
+            s := pc.traves.add(ctx, traveFail, target.Value)
             s.error = traveTargetNotDefinedFile
             s.depend = depend
         } else if true {
@@ -915,7 +920,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
 // 
 //     config.h.in: configure.ac [(configure-input)]
 //     
-func _modifierConfigureInput(ctx Context, args ...Value) (result Value, _ travestates) {
+func _modifierConfigureInput(ctx Context, args ...Value) (result Value) {
     var opts = configureConvertOpts{ mode: os.FileMode(0600) }
     var convert = func(str string, out *bytes.Buffer) (err error) {
         return autoconf(ctx, out, ctx.Project(), str)
@@ -930,7 +935,7 @@ type modifierConfigureInputOpts struct {
     update bool "u,up,update"
     debug bool "d,db,debug"
 }
-func __modifierConfigureInput(ctx Context, args ...Value) (result Value, _ travestates) {
+func __modifierConfigureInput(ctx Context, args ...Value) (result Value) {
     var (
         opts = modifierConfigureInputOpts{ mode:os.FileMode(0640) }
         project = ctx.Project()
@@ -1005,10 +1010,7 @@ func (ctx modifier) configureinput(args ...Value) (result Value) {
         return args
     }
 
-    var traves travestates
-    result, traves = configureConvert(ctx, dealArgs, nil, &opts, args...)
-    ctx.travestates(traves...)
-    return
+    return configureConvert(ctx, dealArgs, nil, &opts, args...)
 }
 
 // configure-file modifier (see also builtinConfigureFile), example usage:
@@ -1021,10 +1023,7 @@ func (ctx modifier) configurefile(args ...Value) (result Value) {
         return configure(ctx, out, ctx.Project(), str)
     }
 
-    var traves travestates
-    result, traves = configureConvert(ctx, nil, convert, &opts, args...)
-    ctx.travestates(traves...)
-    return
+    return configureConvert(ctx, nil, convert, &opts, args...)
 }
 
 type modifierExtractConfigurationOpts struct {

@@ -147,7 +147,7 @@ type Context interface {
   dirtyOpts() *modifierSetDirtyPatsOpts
   dirty(ctx Context, args ...Value) bool
 
-  travestates(...*travestate) *travestates
+  // travestates(...*travestate) *travestates
   traversed(target Value) []Value
   traverse(ctx Context, prereqValue Value) (traves travestates)
 
