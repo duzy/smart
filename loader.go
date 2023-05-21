@@ -1072,7 +1072,8 @@ func (l *loader) bases(ctx Context, linfo *loadinfo, implicitBase string, params
         implicitBases = append(implicitBases, MakePathStr(position, implicitBase))
     }
 
-    ParamsLoop: for i, elem := range append(implicitBases, params...) {
+ParamsLoop:
+    for i, elem := range append(implicitBases, params...) {
         var (
             elemPos = elem.Position()
             absPath string
@@ -1130,9 +1131,9 @@ func (l *loader) bases(ctx Context, linfo *loadinfo, implicitBase string, params
         if n := ctx.checkErrors(true); n > 0 {
             warn(at(ctx,position), "%v: %d errors: %v -> %v", l.project, n, elem, specName).debug(1)
             break ParamsLoop
-        } else if f, ok := toFile(elem); ok && f.info != nil {
-            if absPath = f.fullname(); true { assert(filepath.IsAbs(absPath), "invalid abs path: %v", f) }
-            isDir = f.info.IsDir()
+        } else if f, y := toFile(elem); y && f.info != nil {
+            absPath, isDir = f.fullname(), f.info.IsDir()
+            if true { assert(filepath.IsAbs(absPath), "invalid abs path: %v", f) }
         } else if absPath, isDir, err = uni.search(linfo, specName); err != nil {
             erro(at(ctx,elemPos), "%v: search base failed: %v -> %v", l.project, elem, specName)
             erro(at(ctx,elemPos), "%v: search base failed, %v", l.project, err).debug(6)
@@ -1169,12 +1170,12 @@ func (l *loader) bases(ctx Context, linfo *loadinfo, implicitBase string, params
             erro(at(ctx,elemPos), "%v: base '%s' not loaded, %v", l.project, specName, elem)
             erro(at(ctx,position), "%v: base '%s' not loaded, %s", l.project, specName, absPath).debug(6)
             break ParamsLoop
-        } else if loaded, yes := uni.globe.loaded[absPath]; yes && loaded != nil {
-            if l.project.hasBase(loaded) {
-                continue ParamsLoop
+        } else if loaded, y := uni.globe.loaded[absPath]; y && loaded != nil {
+            if l.project.hasBase(loaded) { continue ParamsLoop }
+            if l.project.bases == nil { // set .base to the first project name
+                l.project.scope.projectName(ctx, ".base", loaded)
             }
-            // chain loaded base project, note that err might not be nil
-            l.project.bases = append(l.project.bases, loaded) //l.project.Chain(loaded)
+            l.project.bases = append(l.project.bases, loaded)
         } else if implicit {
             warn(of(ctx,elem), "implicit base '%s' not defined (as %s)", specName, absPath).debug(1)
         } else {
