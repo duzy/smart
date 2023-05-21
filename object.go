@@ -1219,10 +1219,10 @@ func (entry *Rule) Execute(ctx Context, a ...Value) (result []Value, traves trav
         switch entry.class {
         case PatternRule, PathPattRule:
                 erro(ctx, "executing pattern entry '%v'", entry.target).debug(1)
-                return
         default:
-                return entry.execute(ctx, a...)
+                result, traves = entry.execute(ctx, a...)
         }
+        return
 }
 func (entry *Rule) execute(cc Context, a... Value) (result []Value, traves travestates) {
         if cc = (&entryContext{ cc, entry }); len(a) > 0 { cc = &argumentedContext{ cc, a } }

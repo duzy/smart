@@ -803,18 +803,20 @@ func isRecipesChanged(ctx Context, target Value) (outdated bool, err error) {
 }
 
 func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *ExecResult, err error) {
-    var ( // waiting for prerequisites
+    var (
         pos Position = ctx.Position()
+        pc = ctx.programContext()
         calleeErrs []error
     )
 
+    // waiting for prerequisites
     if false { ctx.wait() } // aka programContext.WaitGroup.Wait(), FIXME: deadlock
 
-    if t := ctx.programContext(); t != nil {
-        //t.group.Wait()
-        t.calleeErrsM.Lock()
-        calleeErrs = t.calleeErrs; t.calleeErrs = nil
-        t.calleeErrsM.Unlock()
+    if pc != nil {
+        //pc.group.Wait()
+        pc.calleeErrsM.Lock()
+        calleeErrs = pc.calleeErrs; pc.calleeErrs = nil
+        pc.calleeErrsM.Unlock()
     }
 
     if target = getTargetValue(ctx); target == nil {
@@ -878,7 +880,7 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
         erro(at(ctx,pos), "%v", err).debug(1)
         return
     } else if optReportFileUpdates {
-        reportFileUpdates(ctx, ctx.programContext().start, files)
+        reportFileUpdates(ctx, pc.start, files)
     }
     return
 }

@@ -1016,7 +1016,6 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
         args  = cc.arguments()
         pos   = cc.Position()
     )
-    if !pos.IsValid() { pos = entry.Position() }
     if cc != nil && cc.checkErrors(true) > 0 {
         var errs = cc.totalErrors()
         var s string; if errs > 1 { s = "s" }
@@ -1027,19 +1026,13 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
         return
     }
 
-    assert(prog.project == prog.scope.project, "mismatched scope/project")
-    if options.verbose { info(ctx, "%v: %v", entry, args).debug(1) }
-
     var pc = programContext{
         autoContext: autoContext{ Context:cc, defs:make(autoDefMap) },
-        prog: prog,
-
         execRec: make(map[Value]int),
         start: time.Now(),
         print: true,
+        prog: prog,
     }
-
-    ctx = &pc
 
     defer func() {
         var (
@@ -1073,6 +1066,10 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
         _traves = pc.traves
     } ()
 
+    ctx = &pc
+
+    assert(prog.project == prog.scope.project, "mismatched scope/project")
+    if options.verbose { info(ctx, "%v: %v", entry, args).debug(1) }
     if cc != nil {
         var depth, loop int = 0, -1
         var a = []Value{ autoGet(cc, "@") }
@@ -1157,7 +1154,9 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
             return
         }
 
-        if stems := cc.stems(); stems != nil { ctx.autoSet("*", MakeString(pos, stems[0])) }
+        if stems := cc.stems(); stems != nil {
+            ctx.autoSet("*", MakeString(pos, stems[0]))
+        }
     }
 
     var alreadyUpdated bool

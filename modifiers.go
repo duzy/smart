@@ -112,7 +112,9 @@ func (m *modification) traverse(ctx Context) {
     }
 
     var mod = modifier{at(ctx, m.position)}
-    if value := mod.apply(name, m.args...); pc.traves.has() {
+    if value := mod.apply(name, m.args...); pc.traves.has(traveFail) {
+        if true && value != nil { warn(ctx, "%v %v", value, pc.traves).debug(1) }
+
         if t := pc.traves.not(traveCase, traveNext, traveDone); false && t.has() {
             if options.verbose || options.verboseBreaks {
                 var _, ent, _ = entryIndicator(ctx, ctx.entry())
@@ -121,7 +123,7 @@ func (m *modification) traverse(ctx Context) {
                 warnstack(ctx, 5, "").debug(16)
             }
         }
-    } else if h := autoGet(ctx,"-"); !isNil(value) && value != h {
+    } else if h := autoGet(ctx,"-"); value != nil && value != h {
         ctx.autoSet("-", value)
     }
 
@@ -2839,41 +2841,44 @@ func (ctx modifier) _wait(args... Value) (result Value) {
     }
 
     // Wait for prerequisites and/or execution
-    if _, _, execRes, err = wait(ctx, opts.verbose, waitForExecResult, stampCurrentTarget); execRes != nil {
-        var (
-            pos = ctx.Position()
-            a []Value
-            s string
-            v Value
-        )
-        if opts.stdout {
-            // TODO: warn(ctx, "deprecated (wait -stdout), use (shell -stdout) instead; %v", execRes).debug(1)
-            if b := execRes.Stdout.Buf; b != nil { s = b.String() }
-            if opts.trim { s = strings.TrimSpace(s) }
-            switch opts.asType {
-            case "answer": v = MakeAnswer (pos,(s == "yes"))
-            case "bool":   v = MakeBoolean(pos,(s == "true"))
-            default:       v = MakeString (pos,s)
-            }
-            a = append(a, v)
-        }
-        if opts.stderr {
-            // TODO: warn(ctx, "deprecated (wait -stderr), use (shell -stderr) instead; %v", execRes).debug(1)
-            if b := execRes.Stderr.Buf; b != nil { s = b.String() }
-            if opts.trim { s = strings.TrimSpace(s) }
-            switch opts.asType {
-            case "answer": v = MakeAnswer (pos,(s == "yes"))
-            case "bool":   v = MakeBoolean(pos,(s == "true"))
-            default:       v = MakeString (pos,s)
-            }
-            a = append(a, v)
-        }
-        if opts.status {
-            // TODO: warn(ctx, "deprecated (wait -status), use (shell -status) instead; %v", execRes).debug(1)
-            a = append(a, MakeInt(pos,int64(execRes.Status)))
-        }
-        if len(a) > 0 { result = MakeListOrScalar(pos, a) }
+    if _, _, execRes, err = wait(ctx, opts.verbose, waitForExecResult, stampCurrentTarget); execRes == nil {
+        return
     }
+
+    var (
+        pos = ctx.Position()
+        a []Value
+        s string
+        v Value
+    )
+    if opts.stdout {
+        // TODO: warn(ctx, "deprecated (wait -stdout), use (shell -stdout) instead; %v", execRes).debug(1)
+        if b := execRes.Stdout.Buf; b != nil { s = b.String() }
+        if opts.trim { s = strings.TrimSpace(s) }
+        switch opts.asType {
+        case "answer": v = MakeAnswer (pos,(s == "yes"))
+        case "bool":   v = MakeBoolean(pos,(s == "true"))
+        default:       v = MakeString (pos,s)
+        }
+        a = append(a, v)
+    }
+    if opts.stderr {
+        // TODO: warn(ctx, "deprecated (wait -stderr), use (shell -stderr) instead; %v", execRes).debug(1)
+        if b := execRes.Stderr.Buf; b != nil { s = b.String() }
+        if opts.trim { s = strings.TrimSpace(s) }
+        switch opts.asType {
+        case "answer": v = MakeAnswer (pos,(s == "yes"))
+        case "bool":   v = MakeBoolean(pos,(s == "true"))
+        default:       v = MakeString (pos,s)
+        }
+        a = append(a, v)
+    }
+    if opts.status {
+        // TODO: warn(ctx, "deprecated (wait -status), use (shell -status) instead; %v", execRes).debug(1)
+        a = append(a, MakeInt(pos,int64(execRes.Status)))
+    }
+
+    if len(a) > 0 { result = MakeListOrScalar(pos, a) }
     return
 }
 

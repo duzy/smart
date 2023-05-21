@@ -79,6 +79,7 @@ func (ce *configureExecutor) execute(ctx Context, project *Project, entry Entry)
         if p.configured { return nil, true } // already configured
 
         ce.defs = make(map[string]*def) // reset defs for p
+
         var f, e = p.openConfiguration(ctx)
         if e != nil {
             erro(ctx, "%v", e).debug(1)
@@ -113,8 +114,7 @@ func (ce *configureExecutor) execute(ctx Context, project *Project, entry Entry)
                 erro(ctx, "execute '%v' failed: %v", entry, brk).debug(1)
             }
         }
-    } else if entry.String() == "-check-file" {
-        warn(ctx, "configure %v: %v", entry, val).debug(1)
+        erro(ctx, "%v: %v", entry, val).debug(1)
     }
 
     var s = entry.Target().Strval(ctx)
@@ -133,8 +133,8 @@ func (ce *configureExecutor) execute(ctx Context, project *Project, entry Entry)
             // Set <nil> value with exec-assigning ('!=') to a None value.
             fmt.Fprintf(ce.writer, "%v !=\n", def.name)
         } else {
-            fmt.Fprintf(ce.writer, "%v = %v\n", def.name,
-                elementString(ctx, def, def.value, elemNoBrace))
+            var s = elementString(ctx, def, def.value, elemNoBrace)
+            fmt.Fprintf(ce.writer, "%v = %v\n", def.name, s)
         }
     } else {
         erro(ctx, "`%s` unconfigured", s).debug(1)
@@ -191,8 +191,7 @@ func (ctx *universe) configure() {
         }
     }
 
-    var ce = &configureExecutor{ defs:make(map[string]*def) }
-    defer ce.close()
+    var ce = &configureExecutor{ defs:make(map[string]*def) } ; defer ce.close()
     for _, entry := range configuration.entries {
         var okay bool
         if project, okay = ce.execute(ctx, project, entry); !okay {
@@ -468,10 +467,13 @@ ForInParams:
             warn(ctx, `%v: configure yields value the same as input will be ignored: %v`, entry, result).debug(1)
             result = nil // simply discard the result as it's the same as the input (hyphen) value
         }
+
         if traves = traves.not(traveDone, traveRule, traveFile); traves.has() {
             for i, s := range traves { erro(ctx, "%v: %d. %v", entry, i, s) }
             erro(ctx, "%v: %d trave states", entry, len(traves)).debug(16)
         }
+
+        if false { info(ctx, "configure: %v: %v %v", entry, result, traves).debug(1) }
     }
     configured = true
     return
