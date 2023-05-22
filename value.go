@@ -4027,9 +4027,8 @@ func (p *File) fullname() (s string) {
 }
 func (p *File) searchInMatchedPaths(ctx Context, proj *Project) (res bool) {
     if p.filemap != nil {
-        // FIXME: File should keep both 'match' and 'pre',
-        // or just remove searchInMatchedPaths
-        f := p.filemap.stat(ctx, proj.absPath, p.name)
+        // FIXME: File should keep both 'match' and 'pre', or just remove searchInMatchedPaths
+        var f = p.filemap.stat(ctx, p.name)
         if f != nil && f.info != nil { p.info, res = f.info, true }
     }
     return

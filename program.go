@@ -282,12 +282,12 @@ func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, 
                 break
             }
         }
-        if prereqFile == nil {
-            if prereqFile = file(ctx, prereqStrval); prereqFile != nil {
-                prereqValue = prereqFile
-            }
-        }
-        if prereqFile == nil && prereqValue != nil {
+
+        if prereqFile != nil {
+            // okay
+            // } else if prereqFile = file(ctx, prereqStrval); prereqFile != nil {
+            //     prereqValue = prereqFile
+        } else if prereqValue != nil {
             if f, y := toFile(prereqValue); y { prereqFile = f }
             if _, y := prereqValue.(*Path); y {
                 if f := stat(ctx, prereqStrval, "", ""); f != nil { prereqFile, prereqValue = f, f }
@@ -424,9 +424,9 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
         if prereqFile != nil && !prereqFile.exists() {
             for i, concrete := range concreteList { warn(at(ctx,concrete.Position()), "%v : concrete: %d. %v (%d programs)", targetValue, i, concrete, len(concrete.Programs())) }
             for i, stemmed  := range stemmedList  { warn(at(ctx,stemmed.position), "%v : stemmed: %d. %v", targetValue, i, stemmed) }
-            for i, s := range pc.traves { warn(at(ctx,s.pos), "%v : travestate: %v: %d. %v", i, targetValue, i, s) }
-            erro(of(ctx, prereqValue), "missing %v", prereqValue)
-            errostack(ctx, 5, "missing %v", prereqFile).debug(10)
+            for i, s := range pc.traves { warn(at(ctx,s.pos), "%v : %d. %v", targetValue, i, s) }
+            erro(of(ctx, prereqValue), "missing %v %v, %v", prereqValue, prereqFile.fullname(), projects)
+            errostack(ctx, 5, "%v %v", prereqFile, prereqFile.filemap).debug(10)
         }
     } ()
 
@@ -756,35 +756,52 @@ ForProjectsPatterns:
 CheckPrereqResult:
     if false && prereqFile == nil { prereqFile, _ = toFile(prereqValue) }
 
-    if prereqFile == nil {/* fallthrough */} else
-    if prereqFile.exists() {
+    var p = prereqFile
+    if p == nil {/* fallthrough */} else
+    if p.exists() {
         trave := pc.traves.add(ctx, traveFile, targetValue)
         trave.dependPat = prereqPattern
-        trave.depend = prereqFile
+        trave.depend = p
         return
-    } else /* if prereqFile.name == prereqStrval */ {
-        for _, project := range projects {
-            if prereqFile.searchInMatchedPaths(ctx, project) {
-                assert(prereqFile.exists(), "file must exists at this point")
-                trave := pc.traves.add(ctx, traveFile, targetValue)
-                trave.dependPat = prereqPattern
-                trave.depend = prereqFile
-                return
-            }
+    } else /* if p.name == prereqStrval */ {
+        // for _, project := range projects {
+        //     if p.filemap == nil { continue }
+        //     var f = p.filemap.stat(ctx, /* project.absPath */"", p.name)
+        //     if f != nil && f.info != nil {
+        //         assert(p.exists(), "file must exists at this point")
+        //         trave := pc.traves.add(ctx, traveFile, targetValue)
+        //         trave.dependPat = prereqPattern
+        //         trave.depend = p
+        //         return
+        //     }
+        // }
+
+        var m = p.filemap
+        var f = m.stat(ctx, p.name)
+        if p.name == "tablegen-min" {
+            prompt(ctx, "%v: {%v %v %v} %v\n", p.name, p.dir, p.sub, p.name, p.info)
+            prompt(ctx, "%v: {%v %v %v} %v\n", p.name, f.dir, f.sub, f.name, f.info)
+            prompt(ctx, "%v: %v %v\n", m.project, m.patts, m.locs)
+        }
+        if f != nil && f.info != nil {
+            assert(p.exists(), "file must exists at this point")
+            trave := pc.traves.add(ctx, traveFile, targetValue)
+            trave.dependPat = prereqPattern
+            trave.depend = p
+            return
         }
     }
 
-    if prereqFile != nil && prereqFile.exists() {
+    if p != nil && p.exists() {
         if !pc.traves.has(traveFail) { return }
         if !pc.traves.has() { return }
     }
-    if prereqFile == nil && prereqObj == nil && !pc.traves.has() {
-        if prereqFile = stat(ctx, prereqStrval, "", ""); prereqFile != nil {
-            prereqValue = prereqFile
-
+    if p == nil && prereqObj == nil && !pc.traves.has() {
+        if p = stat(ctx, prereqStrval, "", ""); p != nil {
             trave := pc.traves.add(ctx, traveFile, targetValue)
             trave.dependPat = prereqPattern
-            trave.depend = prereqFile
+            trave.depend = p
+            prereqValue = p
             return
         }
     }

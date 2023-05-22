@@ -2519,10 +2519,10 @@ ForSources:
 
                                 var f *File
                                 if match.filemap != nil {
-                                        if f = match.stat(ctx, t.dir, nameStr); f != nil {
+                                        if f = match.stat(ctx, /* t.dir, */ nameStr); f != nil {
                                                 assert(f.name == nameStr, fmt.Sprintf("invalid file name: %s != %s (t.dir=%s)", f.name, nameStr, t.dir))
-                                        } else if f = match.stat(ctx, proj.absPath, nameStr); f != nil {
-                                                assert(f.name == nameStr, fmt.Sprintf("invalid file name: %s != %s (proj.absPath=%s)", f.name, nameStr, proj.absPath))
+                                        // } else if f = match.stat(ctx, proj.absPath, nameStr); f != nil {
+                                        //         assert(f.name == nameStr, fmt.Sprintf("invalid file name: %s != %s (proj.absPath=%s)", f.name, nameStr, proj.absPath))
                                         }
                                 }
                                 if f == nil {

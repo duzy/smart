@@ -122,49 +122,52 @@ func (filemap *FileMap) match(ctx Context, pat Value, val interface{}) (matched 
   return // NOTE: also `globMatchFile(ctx, pat, str, true)`
 }
 
-func (p *FileMap) stat(ctx Context, base, name string) (file *File) {
+func (p *FileMap) stat(ctx Context, name string) (file *File) {
+  if false && name == "tablegen-min" {
+    defer func() {
+      var d, s string
+      if file != nil { d, s = file.dir, file.sub }
+      warn(ctx, "%v", ctx.projects(ctx))
+      warnstack(ctx, 5, "%v: {%s %s %s}", file, d, s, name).debug(32)
+    } ()
+  }
+
   var patts = p.patts
   if len(patts) == 0 {
     errostack(ctx, 5, "no map patterns: %v", p).debug(16)
     return
   }
 
-  if base = filepath.Clean(base); len(p.locs) == 0 {
-    if false { file = stat(ctx, name, "", base, nil) } else {
-      for i, pat := range p.patts {
-        if f, y := pat.(*File); y {
-          if f.name == name { return f }
-          if false { info(ctx, "pattern %d. %v %s (exists=%v)", i, pat, f.fullname(), f.exists()).debug(1) }
-        }
-      }
-
-      for i, pat := range p.patts {
-        if f, y := pat.(*File); y {
-          info(ctx, "pattern %d. %v %s (exists=%v)", i, f, f.fullname(), f.exists())
-        } else {
-          info(ctx, "pattern %d. %v (%T)", i, pat, pat)
-        }
-      }
-      errostack(ctx, 5, "%s %s -> %v", base, name, p.patts).debug(32)
+  if len(p.locs) == 0 {
+    for _, pat := range p.patts {
+      if f, y := pat.(*File); y && f.name == name { return f }
     }
+
+    for i, pat := range p.patts {
+      if f, y := pat.(*File); y {
+        info(ctx, "pattern %d. %v %s (exists=%v)", i, f, f.fullname(), f.exists())
+      } else {
+        info(ctx, "pattern %d. %v (%T)", i, pat, pat)
+      }
+    }
+    errostack(ctx, 5, "%s -> %v", name, p.patts).debug(32)
     return
   }
 
   var pos = patts[0].Position()
   for _, path := range p.locs {
     if isNil(path) {
-      erro(at(ctx,pos), "nil path: base=%s)", base)
       erro(at(ctx,pos), "nil path: name=%s",  name)
       erro(at(ctx,pos), "nil path: %v", p).debug(32)
       fail(pos, "file mapping nil path: %v", p)
     } else if isNone(path) {
-      warn(at(ctx,pos), "nil path: base=%s)", base)
       warn(at(ctx,pos), "nil path: name=%s",  name)
       warn(at(ctx,pos), "nil path: %v", p).debug(32)
       continue
     }
 
-    var sub string
+    var dir, sub string
+
     if sub = path.Strval(ctx); sub == "" {
       if true {
         erro(at(ctx,path.Position()), "filemap path '%v' is empty (%T)", path, path)
@@ -174,41 +177,22 @@ func (p *FileMap) stat(ctx Context, base, name string) (file *File) {
       }
       return
     } else if s := filepath.Clean(sub); sub != s {
-      if false {
-        erro(at(ctx,path.Position()), "filemap path '%v' is not clean (sub=%s)", path, sub)
-        erro(at(ctx,pos), "filemap path '%v' is not clean (pattern=%v)", path, patts)
-        erro(ctx, "filemap path '%v' is not clean (project=%v)", path, ctx.Project())//.at(pos)
-        erro(ctx, "filemap path '%v' is not clean in %v", ctx).debug(16)
-        return
-      } else {
-        sub = s
-      }
+      sub = s
     }
 
-    var dir string
     if filepath.IsAbs(sub) {    // 'sub' is abs
       if filepath.IsAbs(name) { // 'name' is abs too
         if s := sub+PathSep; strings.HasPrefix(name, s) { // 'name' should have 'sub' prefix
-          if false {
-            warn(at(ctx,pos), "sub  = %v", s)
-            warn(at(ctx,pos), "name = %v", name)
-            warn(ctx, "%v", ctx).debug(6)
-          }
           name = strings.TrimPrefix(name, s)
         } else {
-          if false {
-            warn(at(ctx,pos), "sub  = %v", sub)
-            warn(at(ctx,pos), "name = %v", name)
-            warn(ctx, "%v", ctx).debug(6)
-          }
           continue
         }
       }
-    } else if !filepath.IsAbs(name) { dir = base }
-
-    if file = stat(ctx, name, sub, dir, nil); file != nil {
-      break
+    } else if !filepath.IsAbs(name) {
+      // dir = filepath.Clean(base)
     }
+
+    if file = stat(ctx, name, sub, dir, nil); file != nil { break }
 
     var pre string // Not used!
     if filepath.IsAbs(sub) {
@@ -514,16 +498,17 @@ outer:
 func (p *Project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File) {
   for _, m := range maps {
     var f *File //, _ = toFile(m.pattern)
-    if filepath.IsAbs(m.name) {
-      f = m.stat(ctx, "", m.name)
-    } else {
-      if m.project.changedWD != "" { f = m.stat(ctx, m.project.changedWD, m.name) }
-      if f == nil { f = m.stat(ctx, m.project.absPath, m.name) }
-      if f == nil {
-        if p.changedWD != "" { f = m.stat(ctx, p.changedWD, m.name) }
-        if f == nil { f = m.stat(ctx, p.absPath, m.name) }
-      }
-    }
+    // if filepath.IsAbs(m.name) {
+    //   f = m.stat(ctx, "", m.name)
+    // } else {
+    //   if m.project.changedWD != "" { f = m.stat(ctx, m.project.changedWD, m.name) }
+    //   if f == nil { f = m.stat(ctx, m.project.absPath, m.name) }
+    //   if f == nil {
+    //     if p.changedWD != "" { f = m.stat(ctx, p.changedWD, m.name) }
+    //     if f == nil { f = m.stat(ctx, p.absPath, m.name) }
+    //   }
+    // }
+    f = m.stat(ctx, m.name)
 
     if f != nil {
       f.filemap = &m.FileMap
