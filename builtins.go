@@ -2282,6 +2282,10 @@ func filterValues(ctx Context, pats []Value, opts builtinFilterOpts, neg bool, v
                                                 vals = append(vals, MakeString(v.Position(), s))
                                         }
                                         v = MakeListOrScalar(v.Position(), vals)
+                                } else if true {
+                                        // 'v' is just good enough
+                                } else if t, r := pat.stencil(ctx, stems); t != nil && len(r) == 0 {
+                                        v = t
                                 } else if s, y := res.(string); y {
                                         v = MakeString(v.Position(), s)
                                 } else if a, y := res.([]string); y {

@@ -425,8 +425,8 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
             for i, concrete := range concreteList { warn(at(ctx,concrete.Position()), "%v : concrete: %d. %v (%d programs)", targetValue, i, concrete, len(concrete.Programs())) }
             for i, stemmed  := range stemmedList  { warn(at(ctx,stemmed.position), "%v : stemmed: %d. %v", targetValue, i, stemmed) }
             for i, s := range pc.traves { warn(at(ctx,s.pos), "%v : %d. %v", targetValue, i, s) }
-            erro(of(ctx, prereqValue), "missing %v %v, %v", prereqValue, prereqFile.fullname(), projects)
-            errostack(ctx, 5, "%v %v", prereqFile, prereqFile.filemap).debug(10)
+            erro(of(ctx, prereqValue), "missing %v %v", prereqValue, prereqFile.fullname())
+            errostack(ctx, 5, "%v %v", projects, prereqFile.filemap).debug(10)
         }
     } ()
 

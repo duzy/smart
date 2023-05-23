@@ -123,12 +123,12 @@ func (filemap *FileMap) match(ctx Context, pat Value, val interface{}) (matched 
 }
 
 func (p *FileMap) stat(ctx Context, name string) (file *File) {
-  if false && name == "tablegen-min" {
+  if false && name == "der_dsa_gen.c" {
     defer func() {
-      var d, s string
-      if file != nil { d, s = file.dir, file.sub }
-      warn(ctx, "%v", ctx.projects(ctx))
-      warnstack(ctx, 5, "%v: {%s %s %s}", file, d, s, name).debug(32)
+      var ( d, s string ; e bool )
+      if file != nil { d, s, e = file.dir, file.sub, file.exists() }
+      warn(ctx, "%v: %v", name, ctx.projects(ctx))
+      warnstack(ctx, 5, "%v: {%s %s %s} %v", file, d, s, name, e).debug(32)
     } ()
   }
 
