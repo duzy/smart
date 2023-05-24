@@ -190,14 +190,20 @@ func isDirtyAfter(ctx Context, target Value, t time.Time) (res bool) {
 
 var dirtyDups = make(map[string]int)
 func (pc *programContext) dirty(ctx Context, args ...Value) (outdated bool) {
-    var targetValue, /*files*/_, /*execRes*/_, err = wait(pc)
-    var targetFull, reason string
-    var targetFile *File
-    var target = as{ targetValue }
+    var target as
+    if val, /*files*/_, /*execRes*/_, err := wait(pc); err != nil {
+        errostack(ctx, 5, "%v", err).debug(10)
+        return
+    } else {
+        target.Value = val
+    }
+
     var opts dirtyOpts
     args = parseOpts(ctx, &opts, plain, args...)
 
     var y bool
+    var targetFile *File
+    var targetFull string
     if targetFile, targetFull, y = target.fullname(ctx); !y {
         targetFull = target.Strval(ctx)
     } else if n := targetFile.traversed; n > 1 {
@@ -218,18 +224,19 @@ func (pc *programContext) dirty(ctx Context, args ...Value) (outdated bool) {
         return
     }
 
+    var reason string
     if s := target.stat(ctx); s == nil || s.exists() != existenceConfirmed {
-        outdated, reason = true, fmt.Sprintf("target not exists: %s %v", typeof(target), target)
+        outdated, reason = true, fmt.Sprintf("not exists: %s %v", typeof(target), target)
     } else if isDirty(ctx, target, args...) && isDirtyAfter(ctx, target, s.mod()) {
         outdated, reason = true, "prerequisites updated"
     }
 
     if outdated {
         assert(reason != "", "needs outdated reason")
-    } else if outdated, err = isRecipesChanged(ctx, target); err != nil {
-        erro(ctx, "recipes changed: %v", err).debug(1)
+    } else if y, e := isRecipesChanged(ctx, target); e != nil {
+        erro(ctx, "recipes changed: %v", e).debug(1)
         return
-    } else if outdated {
+    } else if outdated = y; y {
         reason = "recipes changed"
     } else if !opts.checksum {
         // does nothing
@@ -242,17 +249,19 @@ func (pc *programContext) dirty(ctx Context, args ...Value) (outdated bool) {
         (opts.verboseOutdated && outdated) ||
         (opts.verboseUpdated && !outdated)
 
-    const warningGap = 100 * time.Second
+    if verb || outdated {
+        if d := ctx.gap(true); d > 0 { reason += ", gap " + d.String()
+            if d > 10*time.Second { warnstack(ctx, 5, "%v: %v", target.Value, d).debug(32) }
+        }
+    }
 
     if verb {
-        var ( t = pc; s = time.Now().Sub(t.start).String(); m string )
-        if d := ctx.gap(true); d > 0 { s += ", gap " + d.String()
-            if d > warningGap { warnstack(ctx, 5, "%v: %v", target.Value, d).debug(32) }
-        }
+        var m string
+        var s = time.Now().Sub(pc.start).String()
         if reason != "" { s += "; " + strings.TrimSpace(strings.TrimPrefix(reason, "outdated:")) }
         if outdated { m = "outdated" } else { m = "updated" }
 
-        var n = len(t.targets) + len(t.grepped)
+        var n = len(pc.targets) + len(pc.grepped)
         if db := opts.debug>0; db && !opts.verbose {
             warn(ctx, "%s (%T) (%s) …… %s (%d files in %s, debug=%d)", ts, target, targetFull, m, n, s, opts.debug).debug(opts.debug * 2)
         } else {
@@ -260,15 +269,8 @@ func (pc *programContext) dirty(ctx Context, args ...Value) (outdated bool) {
         }
     }
 
-    if opts.silent { reason = "" }
-    if outdated {
-        if pc.dirt == "" {
-            if d := ctx.gap(true); d > 0 { reason += ", gap " + d.String()
-                if d > warningGap { warnstack(ctx, 5, "%v: %v", target.Value, d).debug(32) }
-            }
-        } else { reason = pc.dirt + "; " + reason }
-        pc.dirt = reason
-    }
+    if outdated && pc.dirt != "" { reason = pc.dirt + "; " + reason }
+    if !opts.silent && reason != "" { pc.dirt = reason }
     return
 }
 

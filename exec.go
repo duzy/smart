@@ -1079,7 +1079,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     return
   }
 
-  var caller = ctx.programContext().caller()
+  var caller = programCtx.caller()
   defer func() {
     if log != nil && log.writer != nil { log.writer.Flush() }
     if logFile != nil { logFile.Close() }
@@ -1156,7 +1156,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       if n := exeres.Stdout.wrote; n > 0 { s += fmt.Sprintf(", stdout=%d bytes", n) }
       if n := exeres.Stderr.wrote; n > 0 { s += fmt.Sprintf(", stderr=%d bytes", n) }
       if t := programCtx.dirt; t != "" { s += "; " + t }
-      prompt(ctx, "%s%s (%v%s)\n", ps, st, time.Now().Sub(start), s)
+      prompt(ctx, "%s%s (exec %v%s)\n", ps, st, time.Now().Sub(start), s)
     }
   } ()
 
