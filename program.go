@@ -250,8 +250,10 @@ func (pc *programContext) dirty(ctx Context, args ...Value) (outdated bool) {
         (opts.verboseUpdated && !outdated)
 
     if verb || outdated {
-        if d := ctx.gap(true); d > 0 { reason += ", gap " + d.String()
-            if d > 10*time.Second { warnstack(ctx, 5, "%v: %v", target.Value, d).debug(32) }
+        if d := ctx.gap(true); d > 0 {
+            var s = "gap " + d.String()
+            if reason != "" { reason += ", " } ; reason += s
+            if d > 10*time.Second { warnstack(ctx, 5, "%v: %v", target.Value, d).debug(64) }
         }
     }
 
@@ -888,17 +890,20 @@ func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err 
         ctx = at(ctx, prog.position)
     }
 
-    var (
-        target Value
-        value Value
-    )
-
-    // wait for prerequisites before interpretion
-    if target, _, _, err = wait(ctx); err != nil {
+    var target Value
+    if target, _, _, err = wait(ctx); err != nil { // wait for prerequisites
         erro(ctx, "waiting traversal failed: %v", err).debug(1)
         return
     }
 
+    var pc = ctx.programContext()
+    if f, y := target.(*File); y && pc != nil && !ctx.dirty(ctx) {
+        pc.traves.add(ctx, traveDone, nil) // NOTE: modifier.predictDirty
+        if false { info(ctx, "interpret: %v %s", f, f.fullname()) }
+        return
+    }
+
+    var value Value
     if value, err = i.Evaluate(ctx, params...); err != nil {
         var (
             _, ent, _ = entryIndicator(ctx, ctx.entry())
@@ -908,7 +913,7 @@ func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err 
         erro(ctx, "%s: %v", nam, err)
         errostack(ctx, 3, "%v", ctx).debug(1)
         return
-    } else if isNil(value) {
+    } else if value == nil {
         // disgard nil value
     } else if def, prev := ctx.autoSet("-", value); def == nil {
         var (
@@ -929,8 +934,8 @@ func (prog *Program) interpret(ctx Context, i interpreter, params []Value) (err 
         prompt(ctx, "%v: %s\n", ent, nam)
         erro(ctx, "update recipes hash failed: %v", err)
         errostack(ctx, 3, "%v", ctx).debug(1)
-    } else if t := ctx.programContext(); t != nil {
-        t.interpreted = append(t.interpreted, i)
+    } else if pc != nil {
+        pc.interpreted = append(pc.interpreted, i)
     }
     return
 }
@@ -1303,9 +1308,9 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
         return
     }
 
-    if prog.language != "" || len(pc.interpreted) > 0 || len(prog.recipes) == 0 {
+    if prog.language != "" || len(prog.recipes) == 0 {
         // does nothing
-    } else if d := autoGet(ctx,"-"); d == nil {
+    } else if d := autoGet(ctx,"-"); d == nil || len(pc.interpreted) == 0 {
         // Using the default statements interpreter (aka. evaluation).
         if i, ok := dialects["eval"]; ok && i != nil {
             if err := prog.interpret(ctx, i, nil); err != nil {
