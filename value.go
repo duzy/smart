@@ -1072,8 +1072,8 @@ type Value interface {
     // Returns all defs (of names if specified) used in this value.
     defs(Context, ...string) []*def
 
-    // Test if this value is expandible for some bits.
-    expandible(Context, facet) bool
+    // Test if this value is expandable for some bits.
+    expandable(Context, facet) bool
 
     // &(...)        -> $(...)
     // $(...)        -> ......
@@ -1144,7 +1144,7 @@ func (_ *valbase) True(_ Context) (res bool) { return }
 func (_ *valbase) kind() kind { return valOther }
 func (_ *valbase) refs(_ Context, _ Value) (res bool) { return }
 func (_ *valbase) defs(_ Context, _ ...string) (res []*def) { return }
-func (_ *valbase) expandible(_ Context, _ facet) bool { return false }
+func (_ *valbase) expandable(_ Context, _ facet) bool { return false }
 func (_ *valbase) cmp(_ Context, _ Value) (res cmpres) { return }
 func (_ *valbase) patterned(_ Context) bool { return false }
 func (_ *valbase) match(_ Context, i interface{}) (full bool, s interface{}, stems []string) { return }
@@ -1220,10 +1220,10 @@ func (p *argumented) defs(ctx Context, s ...string) (res []*def) {
 }
 func (p *argumented) updated(ctx Context) bool { return p.value.updated(ctx) }
 func (p *argumented) updatedDeps(ctx Context, v ...Value) []Value { return p.value.updatedDeps(ctx, v...) }
-func (p *argumented) expandible(ctx Context, w facet) (res bool) {
-    if res = p.value.expandible(ctx, w); !res && w&expandArgedArgs != 0 {
+func (p *argumented) expandable(ctx Context, w facet) (res bool) {
+    if res = p.value.expandable(ctx, w); !res && w&expandArgedArgs != 0 {
         for _, a := range p.args {
-            if res = a.expandible(ctx, w); res { break }
+            if res = a.expandable(ctx, w); res { break }
         }
     }
     return
@@ -1528,8 +1528,8 @@ func (p *Any) defs(ctx Context, s ...string) (res []*def) {
     if v, ok := p.value.(Value); ok { res = v.defs(ctx, s...) }
     return
 }
-func (p *Any) expandible(ctx Context, w facet) (res bool) {
-    if v, ok := p.value.(Value); ok { res = v.expandible(ctx, w) }
+func (p *Any) expandable(ctx Context, w facet) (res bool) {
+    if v, ok := p.value.(Value); ok { res = v.expandable(ctx, w) }
     return
 }
 func (p *Any) Position() (res Position) {
@@ -1591,7 +1591,7 @@ func (p *Any) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 type negative struct { valbase; x Value }
 func (p *negative) refs(ctx Context, o Value) bool { return p.x.refs(ctx, o) }
 func (p *negative) defs(ctx Context, s ...string) []*def { return p.x.defs(ctx, s...) }
-func (p *negative) expandible(ctx Context, w facet) bool { return p.x.expandible(ctx, w) }
+func (p *negative) expandable(ctx Context, w facet) bool { return p.x.expandable(ctx, w) }
 func (p *negative) expand(ctx Context, w facet) (res Value) {
     if val := p.x.expand(ctx, w); val != p.x {
         res = &negative{p.valbase, val}
@@ -2465,7 +2465,7 @@ func (p *elements) defs(ctx Context, s ...string) (res []*def) {
     for _, elem := range p.Elems { res = append(res, elem.defs(ctx, s...)...) }
     return
 }
-func (p *elements) expandible(ctx Context, w facet) (res bool) {
+func (p *elements) expandable(ctx Context, w facet) (res bool) {
     var pos = ctx.Position()
     for _, elem := range p.Elems {
         if elem == nil {
@@ -2474,7 +2474,7 @@ func (p *elements) expandible(ctx Context, w facet) (res bool) {
         } else {
             pos = elem.Position()
         }
-        if res = elem.expandible(ctx, w); res { break }
+        if res = elem.expandable(ctx, w); res { break }
     }
     return
 }
@@ -2525,8 +2525,8 @@ func compareElems(ctx Context, elemsL, elemsR []Value) (res cmpres) {
 
 type paircomp struct { *Pair }
 func (p paircomp) True(ctx Context) (res bool) {
-    if !(p.Key.expandible(ctx, expandDelegate|expandClosure) ||
-        p.Value.expandible(ctx, expandDelegate|expandClosure)) {
+    if !(p.Key.expandable(ctx, expandDelegate|expandClosure) ||
+        p.Value.expandable(ctx, expandDelegate|expandClosure)) {
          res = p.Pair.True(ctx)
     }
     return
@@ -2535,8 +2535,8 @@ func (p paircomp) String() (s string) {
     return p.Pair.String()
 }
 func (p paircomp) Strval(ctx Context) (s string) {
-    if !(p.Key.expandible(ctx, expandDelegate|expandClosure) ||
-        p.Value.expandible(ctx, expandDelegate|expandClosure)) {
+    if !(p.Key.expandable(ctx, expandDelegate|expandClosure) ||
+        p.Value.expandable(ctx, expandDelegate|expandClosure)) {
         s = p.Pair.Strval(ctx)
     }
     return
@@ -2623,8 +2623,8 @@ func (p *barecomp) elemStr(ctx Context, o Object, k elemkind) (s string) {
     }
     return
 }
-func (p *barecomp) expandible(ctx Context, w facet) bool {
-    return p.elements.expandible(ctx, w)
+func (p *barecomp) expandable(ctx Context, w facet) bool {
+    return p.elements.expandable(ctx, w)
 }
 func (p *barecomp) expand(ctx Context, w facet) (res Value) {
     var elems, u, n = w.expand(ctx, p.Elems...)
@@ -2897,7 +2897,7 @@ func (p *barefile) Float(ctx Context) (f float64, _ error) {
 func (p *barefile) refs(ctx Context, v Value) bool { return p.Value.refs(ctx, v) }
 func (p *barefile) defs(ctx Context, s ...string) []*def { return p.Value.defs(ctx, s...) }
 func (p *barefile) elemStr(ctx Context, o Object, k elemkind) (s string) { return elementString(ctx, o, p.Value, k) }
-func (p *barefile) expandible(ctx Context, w facet) bool { return p.Value.expandible(ctx, w) }
+func (p *barefile) expandable(ctx Context, w facet) bool { return p.Value.expandable(ctx, w) }
 func (p *barefile) expand(ctx Context, w facet) (res Value) {
     if w&expandFullName != 0 {
         var f = p.File
@@ -2987,7 +2987,7 @@ func barefilize(ctx Context, targets ...Value) []Value {
                 file.position = target.Position()
             }
         case *barecomp, *Path:
-            if t.patterned(ctx) || t.expandible(ctx, expandClosure) || refdef(ctx, t, DefArg) {
+            if t.patterned(ctx) || t.expandable(ctx, expandClosure) || refdef(ctx, t, DefArg) {
                 break
             } else if file := project.file(ctx, t.Strval(ctx)); file != nil {
                 targets[i] = &barefile{ target, file }
@@ -3336,7 +3336,7 @@ func (p *GlobRange) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *GlobRange) expandible(ctx Context, w facet) bool { return p.Chars.expandible(ctx, w) }
+func (p *GlobRange) expandable(ctx Context, w facet) bool { return p.Chars.expandable(ctx, w) }
 func (p *GlobRange) expand(ctx Context, w facet) (res Value) {
     if val := p.Chars.expand(ctx, w); val != p.Chars {
         res = &GlobRange{p.valbase, val}
@@ -3389,7 +3389,7 @@ func (p *Path) True(ctx Context) (t bool) {
 }
 func (p *Path) refs(ctx Context, v Value) (res bool) { return p.elements.refs(ctx, v) }
 func (p *Path) defs(ctx Context, s ...string) (res []*def) { return p.elements.defs(ctx, s...) }
-func (p *Path) expandible(ctx Context, w facet) bool { return p.elements.expandible(ctx, w) }
+func (p *Path) expandable(ctx Context, w facet) bool { return p.elements.expandable(ctx, w) }
 func (p *Path) expand(ctx Context, w facet) (res Value) {
     var elems, u, n = expandPathElems(ctx, w, p.Elems...)
     if n > 0 { res = &Path{p.valbase, elements{elems}} } else { res = p }
@@ -3514,7 +3514,7 @@ func (p *Path) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
             stopPat = elem
             break
         }
-        if elem.expandible(ctx, plain) {
+        if elem.expandable(ctx, plain) {
             if false { warn(ctx, "%08b: %v: %v[%d]: %T %v", bits, p, elems, i, elem, elem).debug(1) }
             stopVal = elem
             break
@@ -4067,7 +4067,7 @@ func (p *File) stamp(ctx Context) (files []*File, err error) {
     }
     return
 }
-func (p *File) expandible(ctx Context, w facet) (res bool) {
+func (p *File) expandable(ctx Context, w facet) (res bool) {
     return w&expandFullName != 0 && !filepath.IsAbs(p.name)
 }
 func (p *File) expand(ctx Context, w facet) (res Value) {
@@ -4267,7 +4267,7 @@ func (p *Flag) match(ctx Context, i interface{}) (full bool, res interface{}, st
     }
     return
 }
-func (p *Flag) expandible(ctx Context, w facet) bool { return p.name.expandible(ctx, w) }
+func (p *Flag) expandable(ctx Context, w facet) bool { return p.name.expandable(ctx, w) }
 func (p *Flag) expand(ctx Context, w facet) (res Value) {
     if name := p.name.expand(ctx, w); name != p.name {
         res = &Flag{p.valbase, name}
@@ -4410,7 +4410,7 @@ func (p *Compound) Integer(ctx Context) (i int64, err error) {
 func (p *Compound) True(ctx Context) bool { return p.elements.True(ctx) }
 func (p *Compound) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
 func (p *Compound) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
-func (p *Compound) expandible(ctx Context, w facet) bool { return p.elements.expandible(ctx, w) }
+func (p *Compound) expandable(ctx Context, w facet) bool { return p.elements.expandable(ctx, w) }
 func (p *Compound) expand(ctx Context, w facet) (res Value) {
     var elems, u, n = w.expand(ctx, p.Elems...)
     if n > 0 { res = &Compound{p.valbase, elements{elems}} } else { res = p }
@@ -4700,7 +4700,7 @@ func (p *Group) elemStr(ctx Context, o Object, k elemkind) string {
     }
     return fmt.Sprintf("(%s)", strings.Join(strs, " "))
 }
-func (p *Group) expandible(ctx Context, w facet) bool { return p.elements.expandible(ctx, w) }
+func (p *Group) expandable(ctx Context, w facet) bool { return p.elements.expandable(ctx, w) }
 func (p *Group) expand(ctx Context, w facet) (res Value) {
     var elems, u, n = w.expand(ctx, p.Elems...)
     if n > 0 { res = &Group{p.valbase, elements{elems}} } else { res = p }
@@ -4790,9 +4790,9 @@ func (p *Pair) traverse(ctx Context) {
     erro(at(ctx,p.position), "traversing pair '%v' is undefined", p)
     errostack(at(ctx, p.position), -1, "pair is not traversible: %v", p).debug(16)
 }
-func (p *Pair) expandible(ctx Context, w facet) bool {
-    if p.Key.expandible(ctx, w) { return true }
-    return w&expandPairVal != 0 && p.Value.expandible(ctx, w)
+func (p *Pair) expandable(ctx Context, w facet) bool {
+    if p.Key.expandable(ctx, w) { return true }
+    return w&expandPairVal != 0 && p.Value.expandable(ctx, w)
 }
 func (p *Pair) expand(ctx Context, w facet) (res Value) {
     res = p
@@ -5121,20 +5121,35 @@ func (p *delegate) args(ctx Context, w facet) (args []Value, u, n int) {
     if len(args) == 0 && u == 0 && n == 0 { args = p.a }
     return
 }
-func (p *delegate) expandible(ctx Context, w facet) (res bool) {
+func (p *delegate) expandable(ctx Context, w facet) (res bool) {
     if res = w&expandDelegate != 0; !res {
         if def, ok := p.x.(*def); ok && (def.origin == DefAuto && w&expandAuto == 0) {
-            res = false // p.x.expandible(ctx, w) // TODO: auto -> placeholder
+            res = false // p.x.expandable(ctx, w) // TODO: auto -> placeholder
         } else {
-            res = p.x.expandible(ctx, w)
+            res = p.x.expandable(ctx, w)
         }
         if !res { for _, a := range p.a {
-            if res = a.expandible(ctx, w); res { break }
+            if res = a.expandable(ctx, w); res { break }
         }}
     }
     return
 }
 func (p *delegate) expand(ctx Context, w facet) (res Value) {
+    var v1 Value
+    var t1 time.Time
+    defer func(t0 time.Time) {
+        var t2 = time.Now()
+        if d := t2.Sub(t0); d > 1*time.Second {
+            var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) )
+            var pos = ctx.Position()
+            prompt(ctx, "%v: slow: %v\n", pos, p)
+            prompt(ctx, "%v: slow:→%v\n", pos, v1)
+            prompt(ctx, "%v: slow:→%v\n", pos, res)
+            prompt(ctx, "%v: slow: %v⇒%v+%v\n", pos, d, d1, d2).debug(1)
+            if false { warnstack(ctx, 3).debug(6) }
+        }
+    } (time.Now())
+
     if /* ctx = at(ctx, p.position) */; isNil(p.x) {
         erro(at(ctx,p.position), "delegate of nil: %v (w=%024b)", p, w)
         errostack(at(ctx,p.position), 5, "delegate nil: %v (%p)", p, p).debug(64)
@@ -5187,36 +5202,42 @@ func (p *delegate) expand(ctx Context, w facet) (res Value) {
         }} ()
     }}
 
-    if res, final = p.reveal(ctx, w); res == nil {
-        return MakeNil(p.position)
+    if v1, final = p.reveal(ctx, w); v1 == nil || final {
+        if true && v1 == nil { v1 = MakeNil(p.position) }
+        return v1
     } else if close {
         w |= offBits
         w &= ^(expandClose)
-        // if u, y := res.(unexpanded); y { res = u.Value }
-    } else if final {
-        return
+        // if u, y := v1.(unexpanded); y { v1 = u.Value }
     } else {
         w &= ^(expandDigits|expandPlaceholders)
     }
 
+    t1 = time.Now()
+
     // avoid self-expand loop
-    if u, y := res.(unexpanded); res == p || (y && u.Value == p) {
-        return
+    if u, y := v1.(unexpanded); v1 == p || (y && u.Value == p) {
+        return v1
     } else if a := ctx.auto(); a != nil {
         // chop off the auto context to preserve $1, $2... in res
-        res = res.expand(a.inner(), w)
-        if res.String() == "$(llvm_ar)" {
-            info(ctx, "%T %v %v", res, res, res.expand(ctx, w)).debug(1)
-            if d, y := res.(*delegate); y {
-                info(ctx, "%T %v", d.x, d.x).debug(1)
-            }
-        }
-        return
+        return v1.expand(a.inner(), w)
     } else {
-        return res.expand(ctx, w)
+        return v1.expand(ctx, w)
     }
 }
 func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
+    var t1 time.Time
+    defer func(t0 time.Time) {
+        var t2 = time.Now()
+        if d := t2.Sub(t0); d > 1*time.Second {
+            var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) )
+            var pos = ctx.Position()
+            prompt(ctx, "%v: slow: %v\n", pos, p)
+            prompt(ctx, "%v: slow:→%v\n", pos, res)
+            prompt(ctx, "%v: slow: %v⇒%v+%v\n", pos, d, d1, d2).debug(4)
+        }
+    } (time.Now())
+
     res = p // set default to selfing
 
     var (
@@ -5415,6 +5436,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         }
     }
 
+    t1 = time.Now()
 
     var bin, _ = x.(*Builtin)
     if bin != nil && bin.name == "auto" {
@@ -5500,7 +5522,7 @@ func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *delegate) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     var v = p.expand(ctx, plain)
-    if v == p || v.expandible(ctx, plain) {
+    if v == p || v.expandable(ctx, plain) {
         if false { warnstack(at(ctx, p.position), 3, "incomplete file pattern: %v -> %v", p, v).debug(16) }
         res = cache.val(ctx, p, bits)
     } else {
@@ -5543,11 +5565,11 @@ func (p *closure) True(ctx Context) (t bool) {
 func (p *closure) elemStr(ctx Context, o Object, k elemkind) string {
     return p._elemStr(ctx, o, k, "&")
 }
-func (p *closure) expandible(ctx Context, w facet) (res bool) {
+func (p *closure) expandable(ctx Context, w facet) (res bool) {
     if res = w&expandClosure != 0; !res {
-        if res = p.x.expandible(ctx, w); !res {
+        if res = p.x.expandable(ctx, w); !res {
             for _, a := range p.a {
-                if res = a.expandible(ctx, w); res { break }
+                if res = a.expandable(ctx, w); res { break }
             }
         }
     }
@@ -5844,7 +5866,7 @@ func (p *closure) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *closure) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     var v = p.expand(ctx, plain)
-    if v == p || v.expandible(ctx, plain) {
+    if v == p || v.expandable(ctx, plain) {
         if false { warnstack(at(ctx, p.position), 3, "incomplete file pattern: %v -> %v", p, v).debug(16) }
         res = cache.val(ctx, p, bits)
     } else {
@@ -5955,9 +5977,9 @@ func (p *selection) value(ctx Context, w facet) (v Value) {
     }
     return
 }
-func (p *selection) expandible(ctx Context, w facet) (res bool) {
+func (p *selection) expandable(ctx Context, w facet) (res bool) {
     if res = w&expandSelection != 0; !res {
-        res = p.o.expandible(ctx, w) || p.s.expandible(ctx, w)
+        res = p.o.expandable(ctx, w) || p.s.expandable(ctx, w)
     }
     return
 }
@@ -6075,7 +6097,7 @@ func (p *PercPattern) Strval(ctx Context) (s string) {
 }
 func (p *PercPattern) refs(ctx Context, v Value) bool { return p.Prefix.refs(ctx, v) || p.Suffix.refs(ctx, v) }
 func (p *PercPattern) defs(ctx Context, s ...string) []*def { return append(p.Prefix.defs(ctx, s...), p.Suffix.defs(ctx, s...)...) }
-func (p *PercPattern) expandible(ctx Context, w facet) bool { return p.Prefix.expandible(ctx, w) || p.Suffix.expandible(ctx, w) }
+func (p *PercPattern) expandable(ctx Context, w facet) bool { return p.Prefix.expandable(ctx, w) || p.Suffix.expandable(ctx, w) }
 func (p *PercPattern) expand(ctx Context, w facet) (res Value) {
     var (
         prefix Value
@@ -6339,9 +6361,9 @@ func (p *GlobPattern) defs(ctx Context, s ...string) (res []*def) {
     }
     return
 }
-func (p *GlobPattern) expandible(ctx Context, w facet) (res bool) {
+func (p *GlobPattern) expandable(ctx Context, w facet) (res bool) {
     for _, comp := range p.Components {
-        if res = comp.expandible(ctx, w); res { break }
+        if res = comp.expandable(ctx, w); res { break }
     }
     return
 }
@@ -6548,7 +6570,18 @@ func merge(args... Value) (elems []Value) {
 }
 
 func mergex(ctx Context, w facet, values ...Value) (res []Value) {
-    res, _, _ = w.expand(ctx, values...)
+    var t1 time.Time
+
+    defer func(t0 time.Time) {
+        var t2 = time.Now()
+        if d := t2.Sub(t0); d > 1*time.Second {
+            var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) ; p = ctx.Position() )
+            prompt(ctx, "%v: slow: %v; %v\n", p, values, res)
+            prompt(ctx, "%v: slow: %v⇒%v+%v\n", p, d, d1, d2).debug(1)
+        }
+    } (time.Now())
+
+    res, _, _ = w.expand(ctx, values...) ; t1 = time.Now()
     return merge(res...)
 }
 

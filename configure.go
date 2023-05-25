@@ -1102,9 +1102,9 @@ func (ctx modifier) ExtractConfiguration(args ...Value) (result Value) {
         var a []Value
         switch d := depend.(type) {
         case *File:
-            if a, err = filterValues(ctx, pats, filterOpts, false, d); err != nil {
-                erro(ctx, " filter values failed: %v", err).debug(1)
-            } else { sources = append(sources, a...) }
+            if a = filterValues(ctx, pats, filterOpts, false, d); len(a) > 0 {
+                sources = append(sources, a...)
+            }
         case *Path:
             var s = d.Strval(ctx)
             err = walkFiles(ctx, s, pats, func(file *File, err error) error {
@@ -1124,10 +1124,7 @@ func (ctx modifier) ExtractConfiguration(args ...Value) (result Value) {
                     if err == nil { sources = append(sources, file) }
                     return err
                 })
-            } else if a, err = filterValues(ctx, pats, filterOpts, false, d); err != nil {
-                erro(ctx, " filter values failed: %v", err).debug(1)
-                return
-            } else {
+            } else if a = filterValues(ctx, pats, filterOpts, false, d); len(a) > 0 {
                 sources = append(sources, a...)
             }
         }

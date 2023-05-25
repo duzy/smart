@@ -1139,24 +1139,17 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     }
 
     if opts.prompt {
-      var (
-        ps = opts.promStr
-        st = trimPromptString(targetName)
-        s string
-      )
-      if caller == nil {
-        if st += " …… "; err == nil {
-          st += "ok"
-        // } else if _, ok := err.(*scanner.Error); ok {
-        //   st += "scan error" // fmt.Fprintf(stderr, "%v\n", err)
-        } else {
-          st += err.Error()
-        }
+      var ps = opts.promStr
+      if ps += trimPromptString(targetName); caller == nil {
+        if ps += " …… "; err != nil { ps += err.Error() } else { ps += "ok" }
       }
-      if n := exeres.Stdout.wrote; n > 0 { s += fmt.Sprintf(", stdout=%d bytes", n) }
-      if n := exeres.Stderr.wrote; n > 0 { s += fmt.Sprintf(", stderr=%d bytes", n) }
-      if t := programCtx.dirt; t != "" { s += "; " + t }
-      prompt(ctx, "%s%s (exec %v%s)\n", ps, st, time.Now().Sub(start), s)
+      if ps != "" {
+        var s = time.Now().Sub(start).String()
+        if n := exeres.Stdout.wrote; n > 0 { s += fmt.Sprintf(", stdout=%d bytes", n) }
+        if n := exeres.Stderr.wrote; n > 0 { s += fmt.Sprintf(", stderr=%d bytes", n) }
+        if t := programCtx.dirt; t != "" { s += "; " + t }
+        prompt(ctx, "%s (exec %s)\n", ps, s)
+      }
     }
   } ()
 

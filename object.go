@@ -119,7 +119,7 @@ func (p unresolved) Integer(_ Context) (int64, error) { return 0, nil }
 func (p unresolved) True(_ Context) bool { return false }
 func (p unresolved) refs(_ Context, _ Value) (res bool) { return }
 func (p unresolved) defs(_ Context, _ ...string) (res []*def) { return }
-func (p unresolved) expandible(_ Context, _ facet) bool { return false }
+func (p unresolved) expandable(_ Context, _ facet) bool { return false }
 func (p unresolved) patterned(_ Context) bool { return false }
 func (p unresolved) Get(_ Context, name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
 func (p unresolved) Call(ctx Context, o []Value, a ...Value) (result Value) { result = p; return }
@@ -162,7 +162,7 @@ func (_ *projectName) delete(_ Context) (files []*File, err error) { return }
 func (_ *projectName) defs(_ Context, _ ...string) (res []*def) { return }
 func (_ *projectName) refs(_ Context, _ Value) (res bool) { return }
 func (_ *projectName) patterned(_ Context) bool { return false }
-func (_ *projectName) expandible(_ Context, _ facet) bool { return false }
+func (_ *projectName) expandable(_ Context, _ facet) bool { return false }
 func (p *projectName) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
 func (p *projectName) match(ctx Context, i interface{}) (bool, interface{}, []string) { return matchStrval(ctx, p, i) }
 func (_ *projectName) Integer(_ Context) (int64, error) { return 0, nil }
@@ -178,7 +178,7 @@ func (p *projectName) Call(_ Context, _ []Value, _ ...Value) (value Value) { ret
 func (p *projectName) expand(_ Context, _ facet) (res Value) { return p }
 func (p *projectName) traverse(ctx Context) { if t := p.Project.defaultEntry; t != nil { t.traverse(ctx) } }
 func (p *projectName) stat(ctx Context) (si *statinfo) {
-        if t := p.Project.defaultEntry; t != nil && t.Class() != UseRule { si = t.stat(ctx) }
+        if t := p.Project.defaultEntry; t != nil /* && t.Class() != UseRule */ { si = t.stat(ctx) }
         return
 }
 func (p *projectName) cmp(ctx Context, v Value) (res cmpres) {
@@ -217,7 +217,7 @@ func (_ *scopeName) delete(_ Context) (files []*File, err error) { return }
 func (_ *scopeName) defs(_ Context, _ ...string) (res []*def) { return }
 func (_ *scopeName) refs(_ Context, _ Value) (res bool) { return }
 func (_ *scopeName) patterned(_ Context) bool { return false }
-func (_ *scopeName) expandible(_ Context, _ facet) bool { return false }
+func (_ *scopeName) expandable(_ Context, _ facet) bool { return false }
 func (p *scopeName) match(ctx Context, i interface{}) (bool, interface{}, []string) { return matchStrval(ctx, p, i) }
 func (p *scopeName) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
 func (_ *scopeName) stat(ctx Context) (si *statinfo) { return }
@@ -599,11 +599,11 @@ func (d *def) defs(ctx Context, s ...string) (res []*def) {
         }
         return
 }
-func (d *def) expandible(ctx Context, w facet) (res bool) {
+func (d *def) expandable(ctx Context, w facet) (res bool) {
         if d.origin == DefArg || d.origin == DefAuto {
                 // res = true // expand to DefAutoVal
                 if v := autoGet(ctx,d.name); !isTrivial(v) {
-                        res = v.expandible(ctx, w)
+                        res = v.expandable(ctx, w)
                 }
         } else {
                 var value Value
@@ -611,7 +611,7 @@ func (d *def) expandible(ctx Context, w facet) (res bool) {
                 value = d.value
                 // d.mutex.Unlock()
                 if value != nil {
-                        res = value.expandible(ctx, w)
+                        res = value.expandable(ctx, w)
                 }
         }
         return
@@ -780,6 +780,28 @@ func (d *def) set(ctx Context, origin Origin, value Value, app... Value) {
         // d.mutex.Lock()
         d.origin, d.value = origin, MakeListOrScalar(pos, vals)
         // d.mutex.Unlock()
+        return
+
+        if _, y := d.value.(unexpanded); y { return }
+
+        if origin == DefExpand1 &&
+                d.value.expandable(ctx, expandDelegate) == true &&
+                d.value.expandable(ctx, expandClosure) == false {
+                var val = d.value.expand(ctx, /*expandClosure|expandDelegate*/plain)
+                warn(ctx, "expandable: %T %v", d.value, d.value)
+                warn(ctx, "expandable: %T %v", val, val).debug(1)
+
+                // FIXME: d.value = val
+        }
+        if origin == DefExpand2 &&
+                d.value.expandable(ctx, expandDelegate) == true &&
+                d.value.expandable(ctx, expandClosure) == false {
+                var val = d.value.expand(ctx, /*expandClosure|expandDelegate*/plain)
+                warn(ctx, "expandable: %T %v", d.value, d.value)
+                warn(ctx, "expandable: %T %v", val, val).debug(1)
+
+                // FIXME: d.value = val
+        }
         return
 }
 func (d *def) append(ctx Context, va... Value) {
@@ -977,8 +999,8 @@ func (p *undetermined) refs(ctx Context, v Value) bool {
 func (p *undetermined) defs(ctx Context, s ...string) (res []*def) {
         return append(p.identifier.defs(ctx, s...), p.value.defs(ctx, s...)...)
 }
-func (p *undetermined) expandible(ctx Context, w facet) bool {
-        return p.identifier.expandible(ctx, w) || p.value.expandible(ctx, w)
+func (p *undetermined) expandable(ctx Context, w facet) bool {
+        return p.identifier.expandable(ctx, w) || p.value.expandable(ctx, w)
 }
 func (p *undetermined) expand(ctx Context, w facet) (res Value) {
         var (
@@ -1055,14 +1077,14 @@ const (
         GeneralRule RuleClass = iota
         PatternRule
         PathPattRule
-        UseRule
+        // UseRule
 )
 
 var namesForRuleClass = []string{
         GeneralRule:  "GeneralRule",
         PatternRule:  "PatternRule",
         PathPattRule: "PathPattRule",
-        UseRule:      "UseRule",
+        // UseRule:      "UseRule",
 }
 
 func (c RuleClass) String() string {
@@ -1291,15 +1313,15 @@ func (entry *Rule) defs(ctx Context, s ...string) (res []*def) {
         }
         return
 }
-func (entry *Rule) expandible(ctx Context, w facet) (res bool) {
-        if res = entry.target.expandible(ctx, w); res { return }
+func (entry *Rule) expandable(ctx Context, w facet) (res bool) {
+        if res = entry.target.expandable(ctx, w); res { return }
         if false {
                 for _, prog := range entry.programs {
                         for _, depend := range prog.depends {
-                                if res = depend.expandible(ctx, w); res { return }
+                                if res = depend.expandable(ctx, w); res { return }
                         }
                         for _, recipe := range prog.recipes {
-                                if res = recipe.expandible(ctx, w); res { return }
+                                if res = recipe.expandable(ctx, w); res { return }
                         }
                 }
         }

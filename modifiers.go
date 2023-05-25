@@ -55,10 +55,10 @@ func (m *modification) refs(ctx Context, v Value) bool {
     }
     return false
 }
-func (m *modification) expandible(ctx Context, w facet) (res bool) {
-    if res = m.name.expandible(ctx, w); !res {
+func (m *modification) expandable(ctx Context, w facet) (res bool) {
+    if res = m.name.expandable(ctx, w); !res {
         for _, a := range m.args {
-            if res = a.expandible(ctx, w); res { break }
+            if res = a.expandable(ctx, w); res { break }
         }
     }
     return
@@ -84,6 +84,14 @@ func (m *modification) traverse(ctx Context) {
     } else {
         name = args[0].Strval(ctx)
         args = append(args[1:], m.args...)
+    }
+
+    if false {
+        defer func(d0 time.Duration) {
+            if d := ctx.gap(); d > 10*time.Second {
+                info(ctx, "%v: %v %v", name, (d-d0), d).debug(1)
+            }
+        } (ctx.gap())
     }
 
     // Special modifier processing (implicit interpretation) before (configure)
@@ -155,9 +163,9 @@ func (g *modifications) refs(ctx Context, v Value) (res bool) {
     }
     return
 }
-func (g *modifications) expandible(ctx Context, w facet) (res bool) {
+func (g *modifications) expandable(ctx Context, w facet) (res bool) {
     for _, m := range g.list {
-        if res = m.expandible(ctx, w); res { break }
+        if res = m.expandable(ctx, w); res { break }
     }
     return
 }

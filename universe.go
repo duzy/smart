@@ -214,7 +214,7 @@ func (cache hitch) expand(ctx Context, s string) (res bool) {
         }
         if good {
             for _, elem := range merge(v.expand(ctx, plain)) {
-                if elem.expandible(ctx, plain) {
+                if elem.expandable(ctx, plain) {
                     if false { warn(ctx, "%s: %s %v -> %s %v", s, typeof(v), v, typeof(elem), elem).debug(1) }
                 } else if elem.patterned(ctx) {
                     erro(ctx, "%s: unexpected: %s %v -> %s %v", s, typeof(v), v, typeof(elem), elem).debug(1)

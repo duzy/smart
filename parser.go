@@ -1265,7 +1265,7 @@ func (p *parser) closuredelegate() (result Value) {
 
 		switch lTok {
 		case LPAREN:
-			if allowClosureName && name.expandible(ctx, expandDelegate|expandClosure) {
+			if allowClosureName && name.expandable(ctx, expandDelegate|expandClosure) {
 				return str, unresolved{name, proj}, true // recursive delegation or closure
 			} else if str, resolved = loader.resolveObject(name); false {
 				erro(at(ctx,name.Position()), "resolve '%v' (%s) failed", name, str).debug(1)
@@ -1301,7 +1301,7 @@ func (p *parser) closuredelegate() (result Value) {
 				if obj = resolveConfig(name, str); !isNil(obj) {
 					okay = true
 					return
-				} else if tok.IsClosure() || name.expandible(ctx, expandClosure|expandDelegate) ||
+				} else if tok.IsClosure() || name.expandable(ctx, expandClosure|expandDelegate) ||
 					refdef(ctx, name, defany) {
 					obj, okay = unresolved{name, proj}, true // recursive delegation or closure
 					return
@@ -1327,11 +1327,11 @@ func (p *parser) closuredelegate() (result Value) {
 				return
 			}
 		case LBRACE:
-			if allowClosureName && name.expandible(ctx, expandDelegate|expandClosure) {
+			if allowClosureName && name.expandable(ctx, expandDelegate|expandClosure) {
 				erro(of(ctx,name), "%v: name '%v' (%T) is closured", proj, name, name).debug(1)
 				return
 			} else if resolved = loader.resolveEntries(name); isNil(resolved) {
-				if name.expandible(ctx, plain) {
+				if name.expandable(ctx, plain) {
 					var s = name.Strval(ctx)
 					erro(of(ctx,name), "resolved '%v' (aka. %s) is nil (project=%v)", name, s, proj).debug(1)
 				} else {
@@ -1384,7 +1384,7 @@ func (p *parser) closuredelegate() (result Value) {
 		}
 
 		if isNil(name) {/* error */} else
-		if !allowClosureName && name.expandible(ctx, expandClosure|expandDelegate) {
+		if !allowClosureName && name.expandable(ctx, expandClosure|expandDelegate) {
 			erro(at(ctx,posName), "%v: name '%v' (%T) is closured", proj, name, name).debug(1)
 		} else if nameStr, obj, okay = resolveObject(posLp, tokLp, name); !okay {
 			erro(at(ctx,posName), "%v: name '%v' is unidentified", proj, name).debug(1)
@@ -1498,7 +1498,7 @@ func (p *parser) closuredelegate() (result Value) {
 			// &'xxxx' or &"xxxx"
 			if name = p.expr(ctx, false); isNil(name) {
 				erro(at(ctx,posLp), "parsed name is nil").debug(1)
-			} else if name.expandible(ctx, expandClosure) {
+			} else if name.expandable(ctx, expandClosure) {
 				erro(at(ctx,name.Position()), "name '%v' (%T) is closured (project=%v)", name, name, proj).debug(1)
 			} else if nameStr, obj, okay = resolveObject(posLp, tokLp, name); !okay {
 				erro(at(ctx,name.Position()), "name '%v' is unidentified", name).debug(1)
@@ -2070,7 +2070,7 @@ func (p *parser) files(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 
 	if g, ok := val.(*Group); ok {
 		pats = g.Elems
-	} else if val.expandible(ctx, expandClosure) {
+	} else if val.expandable(ctx, expandClosure) {
 		pats = []Value{ val }
 	} else {
 		pats = mergex(ctx, plain, val)
@@ -2105,7 +2105,7 @@ func (p *parser) files(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	} else {
 		var patsNew []Value
 		for _, pat := range pats {
-			if pat.expandible(ctx, expandClosure) {
+			if pat.expandable(ctx, expandClosure) {
 				patsNew = append(patsNew, pat)
 			} else {
 				patsNew = append(patsNew, mergex(ctx, plain, pat)...)
@@ -2208,6 +2208,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	if g.skip { return } else if g.spec == nil {
 		var opts struct {
 			configuration bool `configuration`
+			optimize Value `o,opt,optimize`
 		}
 		for _, op := range parseOpts(ctx, &opts, plain, g.values...) {
 			var val Value

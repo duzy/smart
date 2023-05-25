@@ -33,9 +33,9 @@ func (p *use) defs(ctx Context, s ...string) (res []*def) {
     }
     return
 }
-func (p *use) expandible(ctx Context, w facet) (res bool) {
+func (p *use) expandable(ctx Context, w facet) (res bool) {
         for _, a := range p.params {
-                if res = a.expandible(ctx, w); res { return }
+                if res = a.expandable(ctx, w); res { return }
         }
         return
 }
@@ -228,9 +228,9 @@ func (p *uselist) defs(ctx Context, s ...string) (res []*def) {
     }
     return
 }
-func (p *uselist) expandible(ctx Context, w facet) (res bool) {
+func (p *uselist) expandable(ctx Context, w facet) (res bool) {
         for _, a := range p.list {
-                if res = a.expandible(ctx, w); res { break }
+                if res = a.expandable(ctx, w); res { break }
         }
         return
 }

@@ -1105,7 +1105,7 @@ ParamsLoop:
         )
         if specVal = elem.expand(ctx, plain); specVal == nil {
             specVal = elem // okay!
-        } else if true && specVal.expandible(ctx, plain) {
+        } else if true && specVal.expandable(ctx, plain) {
             erro(at(ctx,elemPos), "incomplete expand: %T %v -> %T %v", elem, elem, specVal, specVal).debug(1)
             return
         } else if defs := specVal.defs(ctx); len(defs) > 0 {

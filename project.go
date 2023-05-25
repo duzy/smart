@@ -38,7 +38,7 @@ func (p *filemap) String() (s string) {
   return
 }
 
-func (p *FileMap) String() (s string) {
+func (p FileMap) String() (s string) {
   if p.pattern == nil {
     s = p.filemap.String()
   } else {
@@ -51,7 +51,7 @@ func (p *FileMap) Patterns(ctx Context) (pats []Value) {
   var patts = []Value{ p.pattern }
   if patts[0] == nil { patts = p.patts }
   for _, pattern := range patts {
-    if pattern.expandible(ctx, expandClosure) {
+    if pattern.expandable(ctx, expandClosure) {
       if false && !options.allowClosureFilemap { // -closure-files
         warnstack(of(ctx,pattern), 8, "closure filemap pattern may cause recursive file resolving: %v", pattern).debug(32)
         ctx.checkErrors(true) // check here to report warnings immediately
@@ -320,9 +320,11 @@ func (p *Project) getFileMaps(ctx Context, baseFiles, useeFiles bool) (filemaps 
   var appendFilemaps = func(a ...FileMap) { filemaps = append(filemaps, a...) }
 
   appendFilemaps(p.filemaps...)
+
   if baseFiles { for _, base := range p.bases {
     appendFilemaps(base.getFileMaps(ctx, true, useeFiles)...)
   }}
+
   if p.configure != nil && ctx.isConfiguration() {
     appendFilemaps(p.configure.getFileMaps(ctx, true, useeFiles)...)
   }
@@ -355,7 +357,22 @@ func (p *Project) getFileMaps(ctx Context, baseFiles, useeFiles bool) (filemaps 
 }
 
 func (p *Project) wildcard(ctx Context, opts wildcardOpts, patterns ...Value) (files []*File, err error) {
-  var filemaps = p.getFileMaps(ctx, opts.baseFiles, opts.useeFiles)
+  var filemaps []FileMap
+  var t1 time.Time
+  defer func(t0 time.Time) {
+    var t2 = time.Now()
+    if d := t2.Sub(t0); d > 1*time.Second {
+      var ( d1 = t1.Sub(t0) ; pos = ctx.Position() )
+      prompt(ctx, "%v: slow: %d patterns, %v\n", pos, len(patterns), patterns)
+      prompt(ctx, "%v: slow: %d filemaps\n", pos, len(filemaps))
+      prompt(ctx, "%v: slow: %d files\n", pos, len(files))
+      prompt(ctx, "%v: slow: %v %v\n", pos, d, d1).debug(4)
+    }
+  } (time.Now())
+
+  // NOTE: no baseFiles or useeFiles for performance
+  filemaps = p.getFileMaps(ctx, false, false) ; t1 = time.Now()
+
 ForPatterns:
   for _, inPat := range patterns {
     var (
@@ -363,6 +380,7 @@ ForPatterns:
       breakAbsRel bool
       matched bool
     )
+
   ForFilemaps:
     for _, m := range filemaps {
       for _, pattern := range m.Patterns(ctx) {
@@ -450,7 +468,7 @@ ForPatterns:
             files = append(files, file)
             if n := opts.debug; n>0 /* && p.name == "lib.unwind" */ { warn(ctx, "%v -> %v %v+%v",
               pattern, sub, prefix, file).debug(n) }
-          } else if patterned && !path.expandible(ctx, expandClosure) && len(m.locs) == 1 {
+          } else if patterned && !path.expandable(ctx, expandClosure) && len(m.locs) == 1 {
             if false {
               // Just report that the pattern matches no files in the
               // file system (if only one path specified).
@@ -657,7 +675,32 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
 }
 
 func (p *Project) resolvePatterns(ctx Context, v Value, s string) (res []*stemmed) {
-  if res = p.resolvePatterns123(ctx, v, s); false && len(res) > 0 {
+  var t1, t2 time.Time
+
+  defer func(t0 time.Time) {
+    var t = time.Now()
+    if d := t.Sub(t0); d > 1*time.Second {
+      var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) ; d3 = t.Sub(t2) ; n int )
+      var a = autoGet(ctx, "@")
+      for sc := ctx.stemmedContext(); sc != nil; n += 1 {
+        if c := sc.inner(); c != nil { sc = c.stemmedContext() } else { break }
+      }
+
+      var pos = ctx.Position()
+      prompt(ctx, "%v: slow: %v: %v, %v %v %v ; %v", pos, p, d, d1, d2, d3, ctx.gap())
+      prompt(ctx, "%v: slow: %v: %v: %v %v, %d nests", pos, p, a, v, p.patterns, n).debug(4)
+
+      for _, pat := range p.patterns {
+        var ( pt = pat.target ; pa = pat.argumented )
+        var full, r, stems = pt.match(ctx, s)
+        var m = joinMatchRes(ctx, r)
+        prompt(ctx, "%v: slow: %v%v: %v: %v %v %v, %v ; %v", pos, pt, pa, s, full, r, stems, m)
+      }
+      warnstack(ctx, 3).debug(6)
+    }
+  } (time.Now())
+
+  if res, t1, t2 = p.resolvePatterns123(ctx, v, s); false && len(res) > 0 {
     for _, t := range res {
       if file, _ := toFile(t.target); file != nil {
         file.position = t.position
@@ -670,30 +713,51 @@ func (p *Project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
   return
 }
 
-func (p *Project) resolvePatterns123(ctx Context, v Value, s string) (res []*stemmed) {
-  if true  { res = append(res, p.resolvePatterns1(ctx, v, s)...) }
-  if true  { res = append(res, p.resolvePatterns2(ctx, v, s)...) }
+func (p *Project) resolvePatterns123(ctx Context, v Value, s string) (res []*stemmed, t1, t2 time.Time) {
+  if true  { res = append(res, p.resolvePatterns1(ctx, v, s)...) } ; t1 = time.Now()
+  if true  { res = append(res, p.resolvePatterns2(ctx, v, s)...) } ; t2 = time.Now()
   if false { res = append(res, p.resolvePatterns3(ctx, v, s)...)/* heavy work, VERY SLOW! */ }
   return
 }
 
 func (p *Project) resolvePatterns1(ctx Context, val Value, s string) (res []*stemmed) {
-  ForPatterns: for _, pat := range p.patterns {
+  defer func(t0 time.Time) {
+    var t = time.Now()
+    if d := t.Sub(t0); d > 1*time.Second {
+      var pos = ctx.Position()
+      prompt(ctx, "%v: slow: %v %v", pos, val, d).debug(1)
+    }
+  } (time.Now())
+
+ForPatterns:
+  for _, pat := range p.patterns {
     if full, r, stems := pat.target.match(ctx, s); full {
       var m = joinMatchRes(ctx, r)
 
-      for sc := ctx.stemmedContext(); sc != nil; { // pattern loop detection
-        if s := sc.stem.target.Strval(ctx); s == m {
-          continue ForPatterns // break the loop
+      if true {
+        for sc := ctx.stemmedContext(); sc != nil; { // pattern loop detection
+          if s := sc.stem.target.Strval(ctx); s == m {
+            continue ForPatterns // break the loop
+          }
+          if c := sc.inner(); c != nil { sc = c.stemmedContext() } else { break }
         }
-        if c := sc.inner(); c != nil { sc = c.stemmedContext() } else { break }
       }
 
-      if ok := false; len(pat.argumented) > 0 {
-        for _, a := range mergex(ctx, plain, pat.argumented...) {
-          if ok, _, _ = a.match(ctx, s); ok { break }
+      if pa := pat.argumented; len(pa) > 0 {
+        var y bool
+        var t1 = time.Now()
+        var av = mergex(ctx, plain, pa...)
+        var t2 = time.Now()
+        for _, a := range av { if y, _, _ = a.match(ctx, s); y { break } }
+
+        var t3 = time.Now()
+        if d := t3.Sub(t1); d > 1*time.Second {
+          var ( d2 = t2.Sub(t1) ; d3 = t3.Sub(t2) )
+          var ( p = ctx.Position() ; pt = pat.target )
+          prompt(ctx, "%v: slow: %v, %v→%d; %v⇒%v+%v", p, pt, pa, len(av), d, d2, d3).debug(1)
         }
-        if !ok { continue ForPatterns }
+
+        if !y { continue ForPatterns }
       }
 
       res = append(res, &stemmed{pat, val, stems})
@@ -704,17 +768,20 @@ func (p *Project) resolvePatterns1(ctx Context, val Value, s string) (res []*ste
 
 func (p *Project) resolvePatterns2(ctx Context, val Value, s string) (res []*stemmed) {
   for _, base := range p.bases {
-    res = append(res, base.resolvePatterns123(ctx, val, s)...)
+    var a, _, _ = base.resolvePatterns123(ctx, val, s)
+    res = append(res, a...)
   }
   if p.configure != nil && ctx.isConfiguration() {
-    res = append(res, p.configure.resolvePatterns123(ctx, val, s)...)
+    var a, _, _ = p.configure.resolvePatterns123(ctx, val, s)
+    res = append(res, a...)
   }
   return
 }
 
 func (p *Project) resolvePatterns3(ctx Context, val Value, s string) (res []*stemmed) {
   for _, use := range p.use.list {
-    res = append(res, use.project.resolvePatterns123(ctx, val, s)...)
+    var a, _, _ = use.project.resolvePatterns123(ctx, val, s)
+    res = append(res, a...)
   }
   return
 }
@@ -749,7 +816,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
   } ()
 
   // The 'use' rule entries.
-  var closured = target.expandible(ctx, expandClosure)
+  var closured = target.expandable(ctx, expandClosure)
   if special == specialRuleUse && !closured {
     var opts entryOpts
     parseOpts(ctx, &opts, 0, options...)

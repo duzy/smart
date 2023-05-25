@@ -236,6 +236,8 @@ var commands = map[string]BuiltinFunc {
         `push-context`: BuiltinFunc{builtin.PushContext, builtinCommand, 0, expandZero, expandZero},
         `pop-context`:  BuiltinFunc{builtin.PopContext, builtinCommand, 0, expandZero, expandZero},
 
+        `plain`:     BuiltinFunc{builtin.plain, builtinCommand, 0, expandZero, expandZero},
+
         `append`:       BuiltinFunc{builtin.append, builtinCommand, 0, expandZero, expandZero},
         // `pop`:          BuiltinFunc{builtin.Pop, builtinCommand, 0, expandZero, expandZero},
 
@@ -1393,7 +1395,7 @@ func (ctx builtin) value(args... Value) (res Value) {
         closure = opts.closure
         for _, a := range args {
                 var (
-                        closure = closure || a.expandible(ctx, expandClosure)
+                        closure = closure || a.expandable(ctx, expandClosure)
                         name string
                         val Value
                 )
@@ -1449,7 +1451,7 @@ func (ctx builtin) call(p *delegate, args ...Value) (res Value) {
                 o Caller
                 name string
                 nameVal = args[0]
-                closure bool = opts.closure || nameVal.expandible(ctx, expandClosure)
+                closure bool = opts.closure || nameVal.expandable(ctx, expandClosure)
         )
         if name = nameVal.Strval(ctx); closure {
                 for _, scope := range ctx.closureScopes() {
@@ -1560,6 +1562,19 @@ ForDefs:
 
 func (ctx builtin) list(args... Value) (res Value) {
         res = MakeListOrScalar(ctx.Position(), args)
+        return
+}
+
+func (ctx builtin) plain(args... Value) (res Value) {
+        var opts struct {
+                generalOpts
+        }
+        for _, val := range ctx.opts(&opts, plain, args...) {
+                var _, o = ctx.Scope().Find(val.Strval(ctx))
+                if d, y := o.(*def); y && d.value != nil {
+                        d.value = d.value.expand(ctx, plain)
+                }
+        }
         return
 }
 
@@ -2228,16 +2243,16 @@ func (ctx builtin) str(strval bool, w facet, args... Value) (result Value) {
                         if opts.expand && v != nil { v = v.expand(ctx, w) }
                         if v == nil { t = "<nil>" } else
                         if strval { t = v.Strval(ctx) } else { t = v.String() }
-                        strs = append(strs, t)
                         if opts.debug>0 { warn(ctx, "%T %v -> %v", d.value, d.value, t) }
+                        strs = append(strs, t)
                 }
                 for _, a := range args {
                         var t string
                         if f, y := a.(fullfile); y && opts.name { a = f.File }
                         if opts.expand { a = a.expand(ctx, w) }
                         if strval { t = a.Strval(ctx) } else { t = a.String() }
-                        strs = append(strs, t)
                         if opts.debug>0 { warn(ctx, "%T %v -> %v", a, a, t) }
+                        strs = append(strs, t)
                 }
 
                 if len(opts.join)>0 {
@@ -2270,9 +2285,21 @@ func (ctx builtin) _string(args... Value) (result Value) {
 }
 
 type builtinFilterOpts struct {
+        generalOpts
         stem bool `s,stem;us,use-stem`
 }
-func filterValues(ctx Context, pats []Value, opts builtinFilterOpts, neg bool, values... Value) (result []Value, err error) {
+func filterValues(ctx Context, pats []Value, opts builtinFilterOpts, neg bool, values... Value) (result []Value) {
+        var t1 time.Time
+
+        defer func(t0 time.Time) {
+                if d := time.Now().Sub(t0); d > 1*time.Second {
+                        var ( d1 = t1.Sub(t0) ; pos = ctx.Position() )
+                        prompt(ctx, "%v: slow: %d result, %v\n", pos, len(result), result)
+                        prompt(ctx, "%v: slow: %d pats, %v\n", pos, len(pats), pats)
+                        prompt(ctx, "%v: slow: %v⇒%v\n", pos, d, d1).debug(4)
+                }
+        } (time.Now())
+
         var filter = func(v Value) Value {
                 for _, pat := range pats {
                         if full, res, stems := pat.match(ctx, v); full {
@@ -2300,16 +2327,16 @@ func filterValues(ctx Context, pats []Value, opts builtinFilterOpts, neg bool, v
                 }
                 if neg { return v } else { return nil }
         }
-        for _, v := range mergex(ctx, plain, values...) {
-                if t := filter(v); err != nil { break } else if t != nil {
-                        result = append(result, t)
-                }
+
+        var vals = mergex(ctx, plain, values...) ; t1 = time.Now()
+        for _, v := range vals {
+                if t := filter(v); t != nil { result = append(result, t) }
         }
         return
 }
 
 func (ctx builtin) filterValues1(neg bool, args... Value) (res Value) {
-        var ( pos = ctx.Position(); err error )
+        var pos = ctx.Position()
         if len(args) > 1 {
                 var (
                         opts builtinFilterOpts
@@ -2331,22 +2358,19 @@ func (ctx builtin) filterValues1(neg bool, args... Value) (res Value) {
                 }
 
                 vals = mergex(ctx, plain, args[i:]...)
-                if vals, err = filterValues(ctx, pats, opts, neg, vals...); err == nil {
-                        res = MakeListOrScalar(pos, vals)
-                }
+                vals = filterValues(ctx, pats, opts, neg, vals...)
+                if len(vals) > 0 { res = MakeListOrScalar(pos, vals) }
         }
-        if res == nil && err == nil { res = MakeNone(pos) }
+        if res == nil { res = MakeNone(pos) }
         return
 }
 
-// $(filter pattern…,text)
 func (ctx builtin) filter(args... Value) (res Value) {
-        return ctx.filterValues1(false, args...)
+        return ctx.filterValues1(false, args...) // $(filter pattern…,text)
 }
 
-// $(filter-out pattern…,text)
 func (ctx builtin) filterout(args... Value) (res Value) {
-        return ctx.filterValues1(true, args...)
+        return ctx.filterValues1(true, args...) // $(filter-out pattern…,text)
 }
 
 func (ctx builtin) substring(args... Value) (res Value) {
@@ -2421,9 +2445,28 @@ type builtinPatsubstOpts struct {
 }
 func (ctx builtin) patsubst(args... Value) (res Value) {
         var (
-                opts builtinPatsubstOpts
-                srcPats, dstPats, sources []Value
+                opts = builtinPatsubstOpts{ noFileMap: true }
+
+                closured = closureProjects(ctx)
+                proj = ctx.Project()
+
+                srcPats, dstPats, sources, list []Value
+                filemaps []FileMap
+
+                t1 time.Time
         )
+        defer func(t0 time.Time) {
+                var ( a = opts.baseFiles ; b = opts.useeFiles ; t2 = time.Now() )
+                if d := t2.Sub(t0); d > 1*time.Second || ((a || b) && len(filemaps) > 1000) {
+                        var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) ; pos = ctx.Position() )
+                        prompt(ctx, "%v: slow: src %d %v\n", pos, len(srcPats), srcPats)
+                        prompt(ctx, "%v: slow: dst %d %v\n", pos, len(dstPats), dstPats)
+                        prompt(ctx, "%v: slow: sources %d %v\n", pos, len(sources), sources)
+                        prompt(ctx, "%v: slow: list %d %v\n", pos, len(list), list)
+                        prompt(ctx, "%v: slow: filemaps(%v,%v) %d %v\n", pos, a, b, len(filemaps), filemaps)
+                        prompt(ctx, "%v: slow: %v⇒%v+%v\n", pos, d, d1, d2).debug(4)
+                }
+        } (time.Now())
 
         // TODO: support flags -name and -full for name-only and full-name-only matching
         if len(args) < 3 {
@@ -2442,15 +2485,11 @@ func (ctx builtin) patsubst(args... Value) (res Value) {
                 sources = mergex(ctx, plain, args[2:]...)
         }
 
-        var (
-                proj = ctx.Project()
-                closured = closureProjects(ctx)
-                filemaps []FileMap
-                list []Value
-        )
         if !opts.noFileMap {
                 filemaps = proj.getFileMaps(ctx, opts.baseFiles, opts.useeFiles)
         }
+
+        t1 = time.Now()
 
 ForSources:
         for _, src := range sources {
@@ -2492,10 +2531,12 @@ ForSources:
                         }
                 }
                 if !isTrivial(src) { list = append(list, src) }
+
                 continue ForSources // just append src to the list
 
                 // Compose the matched results with stem value.
-                stencilTargetPats: for _, dst := range dstPats {
+        stencilTargetPats:
+                for _, dst := range dstPats {
                         var nameStr string
                         var nameVal, ramnant = dst.stencil(ctx, stems)
                         if isNil(nameVal) {
@@ -2866,7 +2907,7 @@ func (ctx builtin) addprefix(args... Value) (res Value) {
                         if y && !isTrivial(p.Value) {
                                 val = MakeBarecomp(val.Position(), p.Value, val)
                         }
-                        if val.expandible(ctx, expandDelegate|expandClosure) {
+                        if val.expandable(ctx, expandDelegate|expandClosure) {
                                 if y {
                                         val = paircomp{MakePair(p.Position(), p.Key, val)}
                                 } else {
@@ -2915,7 +2956,7 @@ func (ctx builtin) addsuffix(args... Value) (res Value) {
                         if y && !isTrivial(p.Value) {
                                 val = MakeBarecomp(p.Key.Position(), val, p.Key)
                         }
-                        if val.expandible(ctx, expandDelegate|expandClosure) {
+                        if val.expandable(ctx, expandDelegate|expandClosure) {
                                 if y {
                                         val = paircomp{MakePair(pos, val, p.Value)}
                                 } else {
@@ -2956,9 +2997,11 @@ func (ctx builtin) printf(args... Value) (res Value) {
 
         var i int
         var a []interface{}
-        ForArgs: for n, v := range mergex(ctx, plain, args[1:]...) {
+ForArgs:
+        for n, v := range mergex(ctx, plain, args[1:]...) {
                 if n == 0 { pos = v.Position() }
-                ForFmt: for i < len(f) {
+        ForFmt:
+                for i < len(f) {
                         if f[i] != '%' { i += 1; continue }
                         for i += 1; i < len(f); i += 1 {
                                 switch f[i] {
@@ -4144,80 +4187,100 @@ func readDirNames(ctx Context, opts *wildcardOpts) (names []string) {
         return
 }
 
-func wildcardPathPatsInDir3(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
-        var dbg = false //strings.Contains(opts.dir, "/external/llvm-project/llvm/include")
-        var names = readDirNames(ctx, opts)
-        forNames: for _, name := range names {
-                for _, x := range opts.exclude {
-                        if full, _, _ := x.match(ctx, name); full { continue forNames }
+func wildcard(ctx Context, a_opts *wildcardOpts, a_pats ...Value) (files []*File) {
+        var opts = *a_opts // clone opts
+        var pats = a_pats
+        var dir = opts.dir
+        var names []string
+        var ( d1, d2 time.Duration ; n int )
+        defer func(t0 time.Time) {
+                var t2 = time.Now()
+                if d := t2.Sub(t0); d > 1*time.Second {
+                        var pos = ctx.Position()
+                        prompt(ctx, "%v: slow: dir=%s, %d excludes\n", pos, dir, len(opts.exclude))
+                        prompt(ctx, "%v: slow: %d names, %v\n", pos, len(names), names)
+                        prompt(ctx, "%v: slow: %d pats, %v\n", pos, len(a_pats), a_pats)
+                        prompt(ctx, "%v: slow: %d files, %v\n", pos, len(files), files)
+                        prompt(ctx, "%v: slow: %v⇒%v+%v * %d\n", pos, d, d1, d2, n).debug(4)
                 }
+        } (time.Now())
+
+        type subpat struct {
+                name string
+                pat Path
+        }
+
+        var ps *subpat
+        var subs []*subpat
+        var str string
+        var t0, t1 time.Time
+        var app = func(_ *Path) {
+                var f = stat(ctx, str, "", dir) ; assert(f != nil, "stat %s %s", str, dir)
+                if false { prompt(ctx, "%s %s\n", f, f.dir) }
+                switch d := f.info.IsDir(); opts.filetype {
+                case "":                 files = append(files, f)
+                case "d", "dir" : if d { files = append(files, f) }
+                case "f", "file": if!d { files = append(files, f) }
+                default: erro(ctx, "unknown -filetype: %s (%v)", opts.filetype, f).debug(1)
+                }
+        }
+
+ReadNames:
+        n += 1
+        t0 = time.Now()
+        names = readDirNames(ctx, &opts)
+        t1 = time.Now()
+        d1 += t1.Sub(t0)
+        t0 = t1
+ForNames:
+        for _, name := range names {
+                if ps != nil {
+                        str = filepath.Join(ps.name, name)
+                } else {
+                        str = name
+                }
+
+                for _, x := range opts.exclude {
+                        if full, _, _ := x.match(ctx, str); full { continue ForNames }
+                }
+
+                var ds = filepath.Join(dir, str)
                 for _, pat := range pats {
                         var ctx = at(ctx, pat.Position())
                         var p, ok = pat.(*Path)
                         if !ok || len(p.Elems) <= 1 {
-                                var full, s, stems = pat.match(ctx, name)
-                                if dbg { warn(ctx, "%T %v %v; %v %v %v; %v %s", pat, pat, name, full, s, stems, p.Elems, opts.dir) }
-                                if full {
-                                        files = append(files, stat(ctx, name, "", opts.dir))
-                                        if opts.debug>0 {
-                                                warn(ctx, "wildcard: %v -> %v -> %v",
-                                                        name, pat, opts.dir).debug(opts.debug)
-                                        }
-                                        continue forNames
+                                if ok, _, _ = pat.match(ctx, name); ok {
+                                        app(p)
+                                        continue ForNames
                                 } else {
                                         continue
                                 }
-                        } else if full, s, stems := p.Elems[0].match(ctx, name); !full {
+                        } else if ok, _, _ = p.Elems[0].match(ctx, name); !ok {
                                 continue
-                        } else if dbg {
-                                warn(ctx, "%T %v %v; %v %v", p.Elems[0], p.Elems[0], name, s, stems)
                         }
 
-                        var subOpts wildcardOpts = *opts
-                        subOpts.dir = filepath.Join(opts.dir, name)
-                        if fi, err := os.Stat(subOpts.dir); err != nil {
+                        if fi, err := os.Stat(ds); err != nil {
                                 erro(ctx, "%v", err).debug(1)
                                 return
-                        } else if !fi.IsDir() {
-                                continue
-                        }
-
-                        var subPat = Path{ valbase:valbase{ p.Elems[1].Position() } }
-                        subPat.Elems = p.Elems[1:]
-                        if dbg { warn(ctx, "%T %v -> %v %v", pat, pat, &subPat, subOpts.dir) }
-
-                        var subs = wildcardPathPatsInDir3(ctx, &subOpts, &subPat)
-                        for _, f := range subs {
-                                if false {
-                                        f.name = filepath.Join(name, f.name)
-                                        f.dir = filepath.Dir(f.dir)
-                                } else if !f.change(filepath.Dir(f.dir), "", filepath.Join(name, f.name)) {
-                                        prompt(ctx, "%v: %v: can't change file into %s/%s\n", opts.dir, f, name, f.name)
-                                        errostack(ctx, 6, "can't change into: %v/%v", name, f.name).debug(12)
-                                        return
-                                }
-                        }
-                        files = append(files, subs...)
-                        if opts.debug>0 {
-                                warn(ctx, "wildcard: %v -> %v -> %v",
-                                        name, pat, subs).debug(opts.debug)
+                        } else if fi.IsDir() {
+                                var sub = &subpat{ name: str }
+                                sub.pat.position = p.Elems[1].Position()
+                                sub.pat.Elems = p.Elems[1:]
+                                subs = append(subs, sub)
+                        } else if ok, _, _ = p.match(ctx, str); ok {
+                                app(p)
+                                continue ForNames
                         }
                 }
         }
-        return
-}
+        d2 += time.Now().Sub(t0)
 
-func wildcardPathPatsInDir(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
-        if files = wildcardPathPatsInDir3(ctx, opts, pats...); opts.filetype != "" {
-                var res []*File
-                for _, file := range files {
-                        switch opts.filetype {
-                        case "d", "dir" : if file.info.IsDir() { res = append(res, file) }
-                        case "f", "file": if!file.info.IsDir() { res = append(res, file) }
-                        default: erro(ctx, "unknown -filetype option: %s (file=%v)", opts.filetype, file).debug(1)
-                        }
-                }
-                files = res
+        if len(subs) > 0 {
+                ps = subs[0]
+                subs = subs[1:]
+                opts.dir = filepath.Join(dir, ps.name)
+                pats = []Value{ &ps.pat }
+                goto ReadNames
         }
         return
 }
@@ -4227,8 +4290,6 @@ type wildcardOpts struct {
         includeMissing bool `im,includemissing,include-missing,m,missing`
         ignoreMissing bool `gm,ignoremissing,ignore-missing`
         errorMissing bool `em,errormissing,e,err,error-missing,no-missing`
-        baseFiles bool `b,base,bases;bf,base-files`
-        useeFiles bool `u,used;u,using;uf,used-files`
         names bool `bare,n,name,names`
         strs bool `s,str,strs,string,strings`
         exclude []Value `x,ex,excl,exclude,except,no,not`
@@ -4239,8 +4300,18 @@ func (ctx builtin) wildcard(args... Value) (res Value) {
         var (
                 opts wildcardOpts
                 files []*File
-                err error
+                t1 time.Time
         )
+        defer func(t0 time.Time) {
+                var t2 = time.Now()
+                if d := t2.Sub(t0); d > 1*time.Second {
+                        var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) ; pos = ctx.Position() )
+                        prompt(ctx, "%v: slow: %d files, dir=%s\n", pos, len(files), opts.dir)
+                        prompt(ctx, "%v: slow: %v\n", pos, res)
+                        prompt(ctx, "%v: slow: %v⇒%v+%v\n", pos, d, d1, d2).debug(4)
+                }
+        } (time.Now())
+
         if args = ctx.opts(&opts, plain, args...); len(opts.exclude) > 0 {
                 opts.exclude = mergex(ctx, plain, opts.exclude...)
         }
@@ -4252,14 +4323,21 @@ func (ctx builtin) wildcard(args... Value) (res Value) {
         }
 
         if opts.dir != "" {
-                files = wildcardPathPatsInDir(ctx, &opts, args...)
-        } else if files, err = ctx.Project().wildcard(ctx, opts, args...); err != nil {
-                erro(ctx, "wildcard failed: %v", err).debug(1)
-                return
+                files = wildcard(ctx, &opts, args...)
+        } else {
+                var a, e = ctx.Project().wildcard(ctx, opts, args...)
+                if e != nil {
+                        erro(ctx, "wildcard failed: %v", e).debug(1)
+                        return
+                }
+                files = a
         }
 
+        t1 = time.Now()
+
         var vals []Value
-        ForFiles: for _, file := range files {
+ForFiles:
+        for _, file := range files {
                 for _, x := range opts.exclude {
                         if ok, _, _ := x.match(ctx, file); ok {
                                 continue ForFiles

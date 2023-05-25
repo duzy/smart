@@ -253,7 +253,9 @@ func (pc *programContext) dirty(ctx Context, args ...Value) (outdated bool) {
         if d := ctx.gap(true); d > 0 {
             var s = "gap " + d.String()
             if reason != "" { reason += ", " } ; reason += s
-            if d > 10*time.Second { warnstack(ctx, 5, "%v: %v", target.Value, d).debug(64) }
+            if false && d > 10*time.Second {
+                warnstack(ctx, 10, "%v: %v", target.Value, d).debug(64)
+            }
         }
     }
 
@@ -400,6 +402,8 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
 
         projects = ctx.projects(ctx)
 
+        t1, t2 time.Time
+
         targetValue Value
 
         prereqPattern Value
@@ -410,7 +414,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
         concreteList []Entry
         stemmedList []*stemmed
     )
-    defer func() {
+    defer func(t0 time.Time) {
         if false && (db || strings.HasSuffix(prereqStrval, "include/__cxxabi_config.h")) {
             var s = targetValue.Strval(ctx)
             var b bool ; if prereqFile != nil { b = prereqFile.exists() }
@@ -432,19 +436,21 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
             erro(of(ctx, prereqValue), "missing %v %v", prereqValue, prereqFile.fullname())
             errostack(ctx, 5, "%v %v", projects, prereqFile.filemap).debug(10)
         }
-    } ()
 
-    defer func(t time.Time) {
-        var d = time.Now().Sub(t)
-        if d > 1000 * time.Second /* && prereqStrval != "touch" */ {
-            var ac = ctx.auto()
-            for ac != nil {
-                if ac.autoGet("@") == targetValue {
-                    warn(ctx, "%v", targetValue).debug(1)
+        if d := time.Now().Sub(t0); d > 60*time.Second {
+            if false {
+                var ac = ctx.auto()
+                for ac != nil {
+                    if ac.autoGet("@") == targetValue {
+                        warn(ctx, "%v", targetValue).debug(1)
+                    }
+                    ac = ac.Context.auto()
                 }
-                ac = ac.Context.auto()
             }
-            warnstack(ctx, 32, "%v: %s %v - %v, %v", targetValue, typeof(prereqValue), prereqValue, d, ctx.gap(false)).debug(10)
+            for i, c := range concreteList { warn(at(ctx,c.Position()), "%v : C#%d %v", targetValue, i, c) }
+            for i, s := range stemmedList  { warn(at(ctx,s.position), "%v : S#%d %v", targetValue, i, s) }
+            warnstack(ctx, 5, "slow: %v: %v: %v, %v", targetValue, prereqValue, d, ctx.gap()).debug(10)
+            ctx.checkErrors(true)
         }
     } (time.Now())
 
@@ -717,6 +723,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
         return
     }
 
+    t1 = time.Now()
 ForProjectsConcretes:
     for _, project := range projects {
         var entries = project.resolveEntries(ctx, prereqStrval, pc.grepping, false)
@@ -737,9 +744,14 @@ ForProjectsConcretes:
             }
         }
     }
+    if d := time.Now().Sub(t1); d > 60*time.Second {
+        for _, concrete := range concreteList { prompt(ctx, "%v: slow: %v", concrete.Position(), concrete) }
+        prompt(ctx, "%v: slow: %v: %v %v (%d concretes)", ctx.Position(), targetValue, prereqValue, d, len(concreteList)).debug(1)
+    }
 
     if prereqFile != nil && prereqFile.exists() { goto CheckPrereqResult }
 
+    t2 = time.Now()
 ForProjectsPatterns:
     for _, project := range projects {
         var patterns = project.resolvePatterns(ctx, prereqValue, prereqStrval)
@@ -755,6 +767,10 @@ ForProjectsPatterns:
             case traveResReturn: return //if ok { return } else { break ForPatterns }
             }
         }
+    }
+    if d := time.Now().Sub(t2); d > 60*time.Second {
+        for _, stemmed  := range stemmedList { prompt(ctx, "%v: slow: %v", stemmed.position, stemmed) }
+        prompt(ctx, "%v: slow: %v: %v %v (%d stemmed)", ctx.Position(), targetValue, prereqValue, d, len(stemmedList)).debug(1)
     }
 
 CheckPrereqResult:
@@ -1261,7 +1277,7 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
         if false { return }
     }
 
-    if pc.print && entry.Class() == UseRule { pc.print = false }
+    // if pc.print && entry.Class() == UseRule { pc.print = false }
     if pc.print && prog.configure { pc.print = false }
     cd.stack[0].silent = !pc.print
 
@@ -1353,12 +1369,19 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) {
 
 ForPrerequisites:
     for _, prerequisite := range prerequisites {
-        var ctx = at(ctx, prerequisite.Position())
-
+        var t0 = time.Now()
+        var pos = prerequisite.Position()
+        var ctx = at(ctx, pos)
         switch u := prerequisite.(type) {
         case unexpanded : warn(ctx, "%v: unexpanded %v" , ent, u.Value).debug(1) ; continue
         case untraversed: warn(ctx, "%v: untraversed %v", ent, u.Value).debug(1) ; continue
         default: prerequisite.traverse(ctx)
+        }
+        if d := time.Now().Sub(t0); d > 30*time.Second {
+            var p = prerequisite
+            var a = autoGet(ctx, "@")
+            var t = autoGet(ctx, "^")
+            prompt(ctx, "%v: %v: %v: %v ; %v", pos, a, p, t, d).debug(1)
         }
 
         if prog.debug_traverse > 0 { if true { prog.debug_traverse -= 1 }
