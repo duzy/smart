@@ -2439,9 +2439,7 @@ type builtinPatsubstOpts struct {
         findFiles bool `find,find-file`
         fullFiles bool `ff,fullfile,fullfiles`
         cleanPath bool `c,clean,cleanpath`
-        // baseFiles bool `b,base,bases;bf,base-files,search-bases`
-        // useeFiles bool `u,used,using;uf,used-files,search-usees`
-        noFileMap bool `nm,nomap,no-map,nofiles,no-files,no-filemap`
+        noFileMap bool `nomap,no-map,nofile,nofiles,no-files,no-filemap`
         warnDstNomap bool `warn-dst-nomap`
         erroDstNomap bool `err-dst-nomap,error-dst-nomap`
 }
@@ -2484,10 +2482,6 @@ func (ctx builtin) patsubst(args... Value) (res Value) {
                 dstPats = mergex(ctx, plain, args[1])
                 sources = mergex(ctx, plain, args[2:]...)
         }
-
-        // if !opts.noFileMap {
-        //         filemaps = proj.getFileMaps(ctx, opts.baseFiles, opts.useeFiles)
-        // }
 
         t1 = time.Now()
 
@@ -2555,16 +2549,19 @@ ForSources:
                         }
 
                         if srcFile != nil {
-                                var dstFile = proj.file(ctx, nameStr)
+                                var dstFile *File
+                                if !opts.noFileMap { dstFile = proj.file(ctx, nameStr) }
                                 if dstFile == nil {
                                         var a = []interface{}{
-                                                "unmapped destination: %v: %v: %v, source %v",
-                                                proj, dstPat, nameStr, srcFile,
+                                                "%v: %v (%v): unmapped destination",
+                                                proj, nameStr, dstPat,
                                         }
                                         if opts.erroDstNomap {
-                                                errostack(of(ctx,dstPat), 5, a...).debug(4)
+                                                erro(of(ctx,srcPat), "%v: %v (%v)", proj, srcFile, srcPat)
+                                                errostack(of(ctx,dstPat), 10, a...).debug(4)
                                         } else if opts.warnDstNomap {
-                                                warnstack(of(ctx,dstPat), 5, a...).debug(4)
+                                                warn(of(ctx,srcPat), "%v: %v (%v)", proj, srcFile, srcPat)
+                                                warnstack(of(ctx,dstPat), 10, a...).debug(4)
                                         }
 
                                         dstFile = stat(ctx, nameStr, srcFile.sub, srcFile.dir, nil)
