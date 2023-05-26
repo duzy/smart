@@ -3971,8 +3971,8 @@ func (p *PathPun) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 
 func toFile(v Value) (f *File, y bool) {
     if f, y = v.(*File); !y {
-        var t fullfile
-        if t, y = v.(fullfile); y { f = t.File }
+        var ff fullfile
+        if ff, y = v.(fullfile); y { f = ff.File }
     }
     return
 }

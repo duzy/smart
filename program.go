@@ -475,7 +475,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
     }
 
     // NOTE: Don't delete, keep it for future debugging.
-    if true { if ((
+    if false { if ((
         strings.HasPrefix(prereqStrval, "") ||
             false) && (
         strings.Contains(prereqStrval, "/") ||

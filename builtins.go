@@ -2439,31 +2439,31 @@ type builtinPatsubstOpts struct {
         findFiles bool `find,find-file`
         fullFiles bool `ff,fullfile,fullfiles`
         cleanPath bool `c,clean,cleanpath`
-        baseFiles bool `b,base,bases;bf,base-files,search-bases`
-        useeFiles bool `u,used,using;uf,used-files,search-usees`
+        // baseFiles bool `b,base,bases;bf,base-files,search-bases`
+        // useeFiles bool `u,used,using;uf,used-files,search-usees`
         noFileMap bool `nm,nomap,no-map,nofiles,no-files,no-filemap`
+        warnDstNomap bool `warn-dst-nomap`
+        erroDstNomap bool `err-dst-nomap,error-dst-nomap`
 }
 func (ctx builtin) patsubst(args... Value) (res Value) {
         var (
-                opts = builtinPatsubstOpts{ noFileMap: true }
+                opts builtinPatsubstOpts
 
                 closured = closureProjects(ctx)
                 proj = ctx.Project()
 
                 srcPats, dstPats, sources, list []Value
-                filemaps []FileMap
 
                 t1 time.Time
         )
         defer func(t0 time.Time) {
-                var ( a = opts.baseFiles ; b = opts.useeFiles ; t2 = time.Now() )
-                if d := t2.Sub(t0); d > 1*time.Second || ((a || b) && len(filemaps) > 1000) {
+                var t2 = time.Now()
+                if d := t2.Sub(t0); d > 1*time.Second {
                         var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) ; pos = ctx.Position() )
                         prompt(ctx, "%v: slow: src %d %v\n", pos, len(srcPats), srcPats)
                         prompt(ctx, "%v: slow: dst %d %v\n", pos, len(dstPats), dstPats)
                         prompt(ctx, "%v: slow: sources %d %v\n", pos, len(sources), sources)
                         prompt(ctx, "%v: slow: list %d %v\n", pos, len(list), list)
-                        prompt(ctx, "%v: slow: filemaps(%v,%v) %d %v\n", pos, a, b, len(filemaps), filemaps)
                         prompt(ctx, "%v: slow: %v⇒%v+%v\n", pos, d, d1, d2).debug(4)
                 }
         } (time.Now())
@@ -2485,9 +2485,9 @@ func (ctx builtin) patsubst(args... Value) (res Value) {
                 sources = mergex(ctx, plain, args[2:]...)
         }
 
-        if !opts.noFileMap {
-                filemaps = proj.getFileMaps(ctx, opts.baseFiles, opts.useeFiles)
-        }
+        // if !opts.noFileMap {
+        //         filemaps = proj.getFileMaps(ctx, opts.baseFiles, opts.useeFiles)
+        // }
 
         t1 = time.Now()
 
@@ -2495,15 +2495,17 @@ ForSources:
         for _, src := range sources {
                 var (
                         source interface{} = src
-                        file *File
+                        srcFile *File
+                        srcPat Value
+                        stems []string
                         ok bool
                 )
-                if file, ok = toFile(src); ok {
-                        source = file
+                if srcFile, ok = toFile(src); ok {
+                        source = srcFile
                 } else if opts.findFiles {
                         var s = src.Strval(ctx)
-                        if file = proj.file(ctx, s); file != nil {
-                                source = file
+                        if srcFile = proj.file(ctx, s); srcFile != nil {
+                                source = srcFile
                         } else {
                                 source = s
                         }
@@ -2524,66 +2526,60 @@ ForSources:
                 var full = opts.fullFiles
                 if !full { _, full = src.(fullfile) }
 
-                var ( srcPat Value ; stems []string )
                 for _, srcPat = range srcPats {
                         if ok, _, stems = srcPat.match(ctx, source); ok {
                                 goto stencilTargetPats
                         }
                 }
-                if !isTrivial(src) { list = append(list, src) }
 
+                if !isTrivial(src) { list = append(list, src) }
                 continue ForSources // just append src to the list
 
                 // Compose the matched results with stem value.
         stencilTargetPats:
-                for _, dst := range dstPats {
-                        var nameStr string
-                        var nameVal, ramnant = dst.stencil(ctx, stems)
+                for _, dstPat := range dstPats {
+                        var nameVal, ramnant = dstPat.stencil(ctx, stems)
                         if isNil(nameVal) {
-                                erro(ctx, "nil stencil: %T %v (stems=%v, ramnant=%v)", dst, dst, stems, ramnant).debug(1)
+                                erro(ctx, "nil stencil: %T %v (stems=%v, ramnant=%v)", dstPat, dstPat, stems, ramnant).debug(1)
                                 return
                         } else if opts.debug>0 {
                                 warnstack(ctx, opts.debug, "patsubst: %v: %v -> %v -> %v %v -> %v %v",
-                                        srcPat, src, source, stems, dst, nameVal, ramnant).debug(opts.debug)
+                                        srcPat, src, source, stems, dstPat, nameVal, ramnant).debug(opts.debug)
                         }
 
+                        var nameStr string
                         if nameStr = nameVal.Strval(ctx); nameStr == "" {
                                 continue stencilTargetPats
                         } else if opts.cleanPath {
                                 nameStr = filepath.Clean(nameStr)
                         }
 
-                        if t := file; t != nil {
-                                var match FileMap
-                                for _, m := range filemaps {
-                                        if ok, _, _ := m.Match(ctx, nameStr); ok {
-                                                match = m
-                                                break
+                        if srcFile != nil {
+                                var dstFile = proj.file(ctx, nameStr)
+                                if dstFile == nil {
+                                        var a = []interface{}{
+                                                "unmapped destination: %v: %v: %v, source %v",
+                                                proj, dstPat, nameStr, srcFile,
                                         }
+                                        if opts.erroDstNomap {
+                                                errostack(of(ctx,dstPat), 5, a...).debug(4)
+                                        } else if opts.warnDstNomap {
+                                                warnstack(of(ctx,dstPat), 5, a...).debug(4)
+                                        }
+
+                                        dstFile = stat(ctx, nameStr, srcFile.sub, srcFile.dir, nil)
                                 }
 
-                                var f *File
-                                if match.filemap != nil {
-                                        if f = match.stat(ctx, /* t.dir, */ nameStr); f != nil {
-                                                assert(f.name == nameStr, fmt.Sprintf("invalid file name: %s != %s (t.dir=%s)", f.name, nameStr, t.dir))
-                                        // } else if f = match.stat(ctx, proj.absPath, nameStr); f != nil {
-                                        //         assert(f.name == nameStr, fmt.Sprintf("invalid file name: %s != %s (proj.absPath=%s)", f.name, nameStr, proj.absPath))
-                                        }
-                                }
-                                if f == nil {
-                                        f = stat(ctx, nameStr, t.sub, t.dir, nil/* okay missing */)
-                                }
-
-                                if f.position = srcPat.Position(); full {
-                                        list = append(list, fullfile{f})
+                                if dstFile.position = srcPat.Position(); full {
+                                        list = append(list, fullfile{dstFile})
                                 } else {
-                                        list = append(list, f)
+                                        list = append(list, dstFile)
                                 }
                                 continue stencilTargetPats
                         }
 
                         // Deal with source value types
-                        switch pos := dst.Position(); src.(type) {
+                        switch pos := dstPat.Position(); src.(type) {
                         case *File, fullfile:
                         case *String, *Compound:
                                 list = append(list, MakeString(pos, nameStr))
