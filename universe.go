@@ -47,6 +47,33 @@ type filemapCachePat struct {
     value hitched
 }
 
+type hitched struct { v interface{} } // Value, string, []string
+
+func (h hitched) match(ctx Context, i interface{}) (full bool, res interface{}, stems []string) {
+    if v, y := h.v.(Value); y { full, res, stems = v.match(ctx, i) } else
+    if s, y := h.v.(string); y {
+        if o, y := i.(string); y {
+            if strings.HasPrefix(o, s) { res, full = s, (len(s) == len(o)) }
+        }
+    } else if s, y := h.v.([]string); y {
+        if o, y := i.([]string); y {
+            var ( n int ; f bool ; a []string )
+            for ; n < len(s) && n < len(o); n++ {
+                if strings.HasPrefix(o[n], s[n]) {
+                    a, f = append(a, s[n]), (len(o[n]) == len(s[n]))
+                }
+            }
+            res, full = a, (n == len(s) && n == len(o) && f)
+        }
+    }
+    return
+}
+
+type hitch struct {
+    *filemapCache
+    value hitched // aka full pattern
+}
+
 func (cache hitch) strx(ctx Context, s string, bits int) (res *filemapCache) {
     return cache.str(ctx, strings.Split(s, PathSep), 0, bits)
 }
@@ -59,7 +86,12 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*filemapCache
     var j = i + 1
     const useAllFetched = false
     defer func(c *filemapCache) {
-        if false { if (ss[0] == "llvm") && (false ||
+        if false { if (false ||
+            ss[0] == "foo.o" ||
+            ss[0] == "foo" ||
+            false) && (true ||
+            ss[i] == "foo" ||
+            ss[i] == "o" ||
             // ss[i] == "llvm-config.h" ||
             // strings.HasSuffix(ss[i], ".inc") ||
             // strings.HasSuffix(ss[i], ".h") ||
@@ -76,6 +108,7 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*filemapCache
                 warnstack(ctx, 3, "%08b: %v[%d]: %s; %p %p, %v\n", bits, ss, i, ss[i], c, res, c.strs["curl"]).debug(64)
             }
         }}
+
         if res != nil && res.maps == nil && (bits&cacheStore == 0) && (j == len(ss)) {
             if !useAllFetched { warnstack(ctx, 3, "%08b: %v[%d]: empty cache (%p, %v)\n", bits, ss, i, c, res).debug(12) }
             res = nil // it doesn't make sense to fetch a 'empty' cache
@@ -248,6 +281,7 @@ func (cache *filemapCache) comp(ctx Context, a, ss []string, i, bits int) (res *
             if c = cache.char_str(k, bits, true); c != nil && (bits&cacheStore != 0 || c.maps != nil) { res = c }
         } else { break }
     }
+
     return
 }
 
@@ -686,41 +720,42 @@ func (m matchedFileMap) String() string {
 }
 
 func (uc *universe) unmap(ctx Context, name interface{}) (maps []matchedFileMap) {
-    var cache *filemapCache
     var db bool
-    if false { if s, y := name.(string); y && s == "curl/curlver.h" {
-        defer func() { info(ctx, "%T %v %p", name, name, cache).debug(16) } ()
-        db = true
-    } }
-
-    defer func (t time.Time) {
-        if d := time.Now().Sub(t); d > time.Duration(1)*time.Second {
-            warn(ctx, "%T %v %v", name, name, d).debug(1)
+    var cache *filemapCache
+    var t1 time.Time
+    defer func (t0 time.Time) {
+        var ( t2 = time.Now() ; d = t2.Sub(t0) )
+        if db {
+            prompt(ctx, "%v: %T %v %p ; %v\n", ctx.Position(), name, name, cache, d).debug(16)
+        } else if d > 1*time.Second {
+            var ( pos = ctx.Position() ; d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) )
+            prompt(ctx, "%v: slow: %T %v\n", pos, name, name)
+            prompt(ctx, "%v: slow:→%v\n", pos, maps)
+            prompt(ctx, "%v: slow: %v⇒%v\n", pos, d, d1, d2).debug(6)
         }
     } (time.Now())
 
+    const S = ""
+
     var h = hitch{&uc.filemaps, hitched{name}}
-    if v, y := name.(Value); y {
+    if v, y := name.(Value); y { if S != "" { db = S == v.Strval(ctx) }
         cache = v.hit(ctx, h, cacheZero)
-        if db { warn(ctx, "%p", cache).debug(1) }
-    } else if s, y := name.(string); y {
+    } else if s, y := name.(string); y { if S != "" { db = S == s }
         cache = h.strx(ctx, s, cacheZero) // checks PathSep
-        if db { warn(ctx, "%v %p %p, %v", strings.Split(s, PathSep), h.filemapCache, cache,
-            h.filemapCache.strs["curl"]).debug(1) }
-    } else if a, y := name.([]string); y {
+    } else if a, y := name.([]string); y { if S != "" { db = S == filepath.Join(a...) }
         cache = h.strs(ctx, a, cacheZero)
-        if db { warn(ctx, "%p", cache).debug(1) }
     } else {
         if uncachedGetError { errostack(ctx, 3, "uncached: %T %v", name, name).debug(16) }
         return
     }
 
-    if cache == nil { return }
+    if t1 = time.Now(); cache == nil { return }
 
     for _, m := range cache.maps {
         var matched, pattern, s = m.Match(ctx, name)
         if matched { maps = append(maps, matchedFileMap{m, pattern, s}) }
     }
+
     if len(maps) == 0 && len(cache.maps) > 0 {
         for i, m := range cache.maps { warn(ctx, "%v: %d. %v %v", name, i, m.pattern, m.locs) }
         warn(ctx, "%v (%T)", name, name).debug(1)

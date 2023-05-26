@@ -999,32 +999,6 @@ func (a as) fullnameOpt2(ctx Context, projects ...*Project) (file *File, s strin
 
 func (a as) trivial() bool { return isTrivial(a.Value) }
 
-type hitched struct { v interface{} } // Value, string, []string
-func (h hitched) match(ctx Context, i interface{}) (full bool, res interface{}, stems []string) {
-    if v, y := h.v.(Value); y { full, res, stems = v.match(ctx, i) } else
-    if s, y := h.v.(string); y {
-        if o, y := i.(string); y {
-            if strings.HasPrefix(o, s) { res, full = s, (len(s) == len(o)) }
-        }
-    } else if s, y := h.v.([]string); y {
-        if o, y := i.([]string); y {
-            var ( n int ; f bool ; a []string )
-            for ; n < len(s) && n < len(o); n++ {
-                if strings.HasPrefix(o[n], s[n]) {
-                    a, f = append(a, s[n]), (len(o[n]) == len(s[n]))
-                }
-            }
-            res, full = a, (n == len(s) && n == len(o) && f)
-        }
-    }
-    return
-}
-
-type hitch struct {
-    *filemapCache
-    value hitched // aka full pattern
-}
-
 func joinMatchRes(ctx Context, res interface{}) (str string) {
     if s, y := res.(string); y { str = s } else
     if a, y := res.([]string); y { str = strings.Join(a, PathSep) } else
@@ -2237,12 +2211,7 @@ func (p *String) elemStr(_ Context, o Object, k elemkind) (s string) {
     return
 }
 func (p *String) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    if false { warn(at(ctx, p.position), "%08b: cache unsupported: %s", bits, p).debug(32) }
-    if false {
-        return cache.strx(at(ctx, p.position), p.string, bits)
-    } else {
-        return cache.strs(at(ctx, p.position), []string{p.string}, bits)
-    }
+    return cache.strx(at(ctx, p.position), p.string, bits)
 }
 
 func isTrueString(s string) (t bool) {
@@ -2688,9 +2657,6 @@ func (p *barecomp) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 
     var ( a []string ; part string ; pat Value )
     for i, elem := range elems {
-        if false && strings.HasPrefix(p.String(), "\"HAVE_") && strings.HasSuffix(p.String(), "\".log") {
-            info(ctx, "%08b: %v: %v[%d], %T %v ; %v %s", bits, cache.value, elems, i, elem, elem, a, part).debug(6)
-        }
         if v, y := elem.(*punctuation); y {
             if v.tok == DOT { a = append(a, part) ; part = "" } else {
                 errostack(ctx, 3, "%08b: %v[%d]: unsupported punctuation: %v", bits, elems, i, v.tok).debug(64)
@@ -2705,13 +2671,20 @@ func (p *barecomp) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
             warnstack(ctx, 3, "%08b: %v[%d]: empty: %T %v", bits, elems, i, elem, elem).debug(64)
         }
     }
-
     if len(a) == 0 || part != "" { a = append(a, part) }
+
     if c := cache.comp(ctx, a, nil, -1, bits); c !=  nil {
-        if pat == nil { res = c } else {
+        if pat == nil {
+            res = c
+        } else {
             cache.filemapCache = c
-            if c = pat.hit(ctx, cache, bits); c != nil { res = c } else {
-            }
+            if c = pat.hit(ctx, cache, bits); c != nil { res = c }
+        }
+    }
+
+    if res == nil && pat == nil {
+        if cache.filemapCache = cache.char0(bits); cache.filemapCache != nil {
+            res = cache.strx(at(ctx, p.position), p.Strval(ctx), bits)
         }
     }
 

@@ -468,6 +468,12 @@ func (ctx *builtin) opts(opts interface{}, w facet, args ...Value) (res []Value)
         return
 }
 
+// see https://go.dev/doc/tutorial/generics
+func _opts [Opts interface{}] (ctx *builtin, w facet, args ...Value) (opts Opts, res []Value) {
+        res = ctx.opts(&opts, w, args...)
+        return
+}
+
 func parseOpts(ctx Context, iOpts interface{}, w facet, args... Value) (rest []Value) {
         if w&^expandNone == 0 {
                 rest = merge(args...) // NOTE: set the returning args first of all!
@@ -820,6 +826,10 @@ func (ctx builtin) assert(args... Value) (res Value) {
         var d = opts.debug ; if d < 1 { d = 1 + 5 }
         for _, a := range args {
                 var ctx = at(ctx, a.Position())
+                if a.String() == "$(match(-all) **.o,foo)" {
+                        var v = a.expand(ctx, w)
+                        warn(ctx, "%v: %v %v %T", a, v.True(ctx), v, v).debug(1)
+                }
                 if v := a.expand(ctx, w); !v.True(ctx) {
                         prompt(ctx, "assert: %T %v → %T %v\n", a, a, v, v)
                         if opts.warn {
@@ -993,7 +1003,8 @@ func (ctx builtin) less(args... Value) (res Value) {
 type builtinMatchOpts struct {
         generalOpts
         regexps []*regexp.Regexp `r,re,rx,reg,regex,regexp`
-        negated bool `n,ne,neg,negated,negative`
+        negated bool `n,ne,neg,negated,negative,not`
+        all bool `a,all`
 }
 // $(match val1 val2 val3, a b c d...)
 // $(match -rx=r1 -rx=r2 -rx=r3, a b c d...)
@@ -1028,17 +1039,26 @@ ForValList:
                         var matched = rx.MatchString(str);
                         if opts.negated { matched = !matched }
                         if matched {
-                                res = MakeBoolean(pos, true)
-                                return
+                                if opts.all {
+                                        if res == nil { res = MakeBoolean(pos, true) }
+                                } else {
+                                        return MakeBoolean(pos, true)
+                                }
+                        } else if opts.all {
+                                return nil
                         }
                 }
                 for _, pat := range patList {
-                        var matched, s, _ = pat.match(ctx, str)
-                        if !matched { matched = !opts.fullname && s != "" }
+                        var matched, _, _ = pat.match(ctx, str)
                         if opts.negated { matched = !matched }
                         if matched {
-                                res = MakeBoolean(pos, true)
-                                return
+                                if opts.all {
+                                        if res == nil { res = MakeBoolean(pos, true) }
+                                } else {
+                                        return MakeBoolean(pos, true)
+                                }
+                        } else if opts.all {
+                                return nil
                         }
                 }
 
@@ -2511,7 +2531,9 @@ ForSources:
                                                 proj, nameStr, dstPat,
                                         }
                                         if opts.erroDstNomap {
+                                                var t = files(ctx, nameVal, proj)
                                                 erro(of(ctx,srcPat), "%v: %v (%v)", proj, srcFile, srcPat)
+                                                erro(of(ctx,srcPat), "%v: %v %v", proj, nameVal, t)
                                                 errostack(of(ctx,dstPat), 10, a...).debug(4)
                                         } else if opts.warnDstNomap {
                                                 warn(of(ctx,srcPat), "%v: %v (%v)", proj, srcFile, srcPat)
@@ -4069,22 +4091,17 @@ func (ctx builtin) _stat(args... Value) (res Value) {
         return
 }
 
-type builtinFileOpts struct {
-        generalOpts
-        caller bool `c,cc,caller,callercontext,caller-context`
-        exists bool `e,ex,exist,exists,me,mustexist,must-exist,must,required`
-        ignore bool `i,ig,ignore,ignore-missing`
-        report bool `r,report,reportmissing;rm,report-missing;er,err,error`
-}
-func (ctx builtin) file(args... Value) (res Value) {
-        var (
-                opts builtinFileOpts
-                proj *Project
-                list []Value
-        )
+func (ctx builtin) file(aa... Value) (res Value) {
+        var opts, args = _opts[struct {
+                generalOpts
+                caller bool `c,cc,caller,callercontext,caller-context`
+                mustex bool `e,ex,exist,exists,me,mustexist,must-exist,must,required`
+                missin bool `mis,miss,missing,im,include-missing,ne,not-exists,notexists`
+                ignore bool `i,ig,ignore,ignore-missing`
+                report bool `r,report,reportmissing;rm,report-missing;er,err,error`
+        }](&ctx, plain, aa...)
 
-        args = ctx.opts(&opts, plain, args...)
-
+        var proj *Project
         if opts.caller && false {
                 // program -> closure -> traversal -> ...
                 if false {
@@ -4096,34 +4113,29 @@ func (ctx builtin) file(args... Value) (res Value) {
                 proj = ctx.Project()
         }
 
+        var list []Value
         for _, a := range args {
-                var (
-                        ctx = at(ctx, a.Position())
-                        file, y = toFile(a)
-                        am []matchedFileMap
-                )
-                if y {
-                        if list = append(list, file); !file.exists() { file.stat(ctx) }
-                        if !file.exists() && opts.report {
-                                info(ctx, "%v is no such file", a).debug(1)
+                var ctx = at(ctx, a.Position())
+                if f, y := toFile(a); y {
+                        if list = append(list, f); !f.exists() { f.stat(ctx)
+                                if opts.report {
+                                        info(ctx, "no such file {%v %v %v}", f.dir, f.sub, f.name).debug(1)
+                                }
                         }
                         continue
-                } else if s := a.Strval(ctx); s == "" {
-                        erro(ctx, `%v: %T "%v" is empty`, proj, a, a)
-                        errostack(ctx, 3, "(%T): %v", ctx, proj).debug(6)
-                        continue
-                } else if am = files(ctx, /* a */s, proj); am == nil {
-                        continue // does nothing!
                 }
 
+                var am = files(ctx, a, proj)
+                if am == nil { continue }
+
                 var en int
-                for _, file = range proj.selectFiles(ctx, am) {
-                        if file.exists() || !opts.exists {
-                                list = append(list, file)
-                        } else if opts.exists {
+                for _, f := range proj.selectFiles(ctx, am) {
+                        if f.exists() || opts.missin {
+                                list = append(list, f)
+                        } else if opts.mustex {
                                 en += 1
                         } else if opts.ignore {
-                                if opts.verbose { info(ctx, "%s(%v) → %v", typeof(a), a, file).debug(1) }
+                                if opts.verbose { info(ctx, "%s(%v) → %v", typeof(a), a, f).debug(1) }
                         }
                 }
                 if en > 0 {
@@ -4131,7 +4143,7 @@ func (ctx builtin) file(args... Value) (res Value) {
                                 info(of(ctx,m.pattern), "found %d. %s → %s(%s) → %v", i, m.name, typeof(m.pattern), m.pattern, m.locs)
                         }
                         erro(ctx, `%v: %s(%v) is not a file (%v)`, proj, typeof(a), a, list)
-                        errostack(ctx, 5, "").debug(16)
+                        errostack(ctx, 5).debug(16)
                         break
                 }
         }
@@ -4204,7 +4216,20 @@ func readDirNames(ctx Context, opts *wildcardOpts) (names []string) {
         return
 }
 
+type wildcardOpts struct {
+        generalOpts
+        includeMissing bool `im,includemissing,include-missing,m,missing`
+        ignoreMissing bool `gm,ignoremissing,ignore-missing`
+        errorMissing bool `em,errormissing,e,err,error-missing,no-missing`
+        names bool `bare,n,name,names`
+        strs bool `s,str,strs,string,strings`
+        exclude []Value `x,ex,exc,excl,exclude,except,no,not`
+        filetype string `ft,filetype,file-type` // dir, file, etc.
+        dir string `di,dir,directory`
+}
 func wildcard(ctx Context, a_opts *wildcardOpts, a_pats ...Value) (files []*File) {
+        if a_opts.dir == "" { return ctx.Project().wildcard(ctx, a_opts, a_pats...) }
+
         var opts = *a_opts // clone opts
         var pats = a_pats
         var dir = opts.dir
@@ -4231,9 +4256,15 @@ func wildcard(ctx Context, a_opts *wildcardOpts, a_pats ...Value) (files []*File
         var subs []*subpat
         var str string
         var t0, t1 time.Time
+        var missing = opts.includeMissing && !opts.ignoreMissing
         var app = func(_ *Path) {
-                var f = stat(ctx, str, "", dir) ; assert(f != nil, "stat %s %s", str, dir)
+                var a []os.FileInfo
+                if missing { a = []os.FileInfo{nil} }
+
+                var f = stat(ctx, str, "", dir, a...)
+                assert(f != nil, "stat %s %s", str, dir)
                 if false { prompt(ctx, "%s %s\n", f, f.dir) }
+
                 switch d := f.info.IsDir(); opts.filetype {
                 case "":                 files = append(files, f)
                 case "d", "dir" : if d { files = append(files, f) }
@@ -4302,21 +4333,11 @@ ForNames:
         return
 }
 
-type wildcardOpts struct {
-        generalOpts
-        includeMissing bool `im,includemissing,include-missing,m,missing`
-        ignoreMissing bool `gm,ignoremissing,ignore-missing`
-        errorMissing bool `em,errormissing,e,err,error-missing,no-missing`
-        names bool `bare,n,name,names`
-        strs bool `s,str,strs,string,strings`
-        exclude []Value `x,ex,excl,exclude,except,no,not`
-        filetype string `ft,filetype,file-type` // dir, file, etc.
-        dir string `di,dir,directory`
-}
 func (ctx builtin) wildcard(args... Value) (res Value) {
         var (
                 opts wildcardOpts
                 files []*File
+                vals []Value
                 t1 time.Time
         )
         defer func(t0 time.Time) {
@@ -4326,6 +4347,8 @@ func (ctx builtin) wildcard(args... Value) (res Value) {
                         prompt(ctx, "%v: slow: %d files, dir=%s\n", pos, len(files), opts.dir)
                         prompt(ctx, "%v: slow: %v\n", pos, res)
                         prompt(ctx, "%v: slow: %v⇒%v+%v\n", pos, d, d1, d2).debug(4)
+                } else if opts.timing {
+                        info(ctx, "wildcard: %v", d).debug(1)
                 }
         } (time.Now())
 
@@ -4333,26 +4356,8 @@ func (ctx builtin) wildcard(args... Value) (res Value) {
                 opts.exclude = mergex(ctx, plain, opts.exclude...)
         }
 
-        if opts.timing {
-                defer func(t time.Time) {
-                        info(ctx, "wildcard time: %v", time.Now().Sub(t)).debug(1)
-                } (time.Now())
-        }
+        files = wildcard(ctx.Context, &opts, args...) ; t1 = time.Now()
 
-        if opts.dir != "" {
-                files = wildcard(ctx, &opts, args...)
-        } else {
-                var a, e = ctx.Project().wildcard(ctx, opts, args...)
-                if e != nil {
-                        erro(ctx, "wildcard failed: %v", e).debug(1)
-                        return
-                }
-                files = a
-        }
-
-        t1 = time.Now()
-
-        var vals []Value
 ForFiles:
         for _, file := range files {
                 for _, x := range opts.exclude {

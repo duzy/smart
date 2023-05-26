@@ -356,7 +356,7 @@ func (p *Project) getFileMaps(ctx Context, baseFiles, useeFiles bool) (filemaps 
   return
 }
 
-func (p *Project) wildcard(ctx Context, opts wildcardOpts, patterns ...Value) (files []*File, err error) {
+func (p *Project) wildcard(ctx Context, opts *wildcardOpts, patterns ...Value) (files []*File) {
   var filemaps []FileMap
   var t1 time.Time
   defer func(t0 time.Time) {
@@ -371,63 +371,65 @@ func (p *Project) wildcard(ctx Context, opts wildcardOpts, patterns ...Value) (f
   } (time.Now())
 
   // NOTE: no baseFiles or useeFiles for performance
-  filemaps = p.getFileMaps(ctx, false, false) ; t1 = time.Now()
+  filemaps = p.filemaps ; t1 = time.Now()
 
 ForPatterns:
   for _, inPat := range patterns {
     var (
       inPatPatterned = inPat.patterned(ctx)
-      breakAbsRel bool
-      matched bool
+      breakAbsRel, matched bool
     )
 
   ForFilemaps:
     for _, m := range filemaps {
-      for _, pattern := range m.Patterns(ctx) {
-        if matched, _, _ = pattern.match(ctx, inPat); !matched {
-          // flip matching patterns
-          if !inPatPatterned {
-            // unmatched pattern
-          } else if matched, _, _ = inPat.match(ctx, pattern); matched {
-            breakAbsRel = true // using the arg glob
-            goto afterMatchedPattern
+      for _, mapPat := range m.Patterns(ctx) {
+        if matched, _, _ = mapPat.match(ctx, inPat); !matched {
+          if inPatPatterned { // flip matching patterns
+            if matched, _, _ = inPat.match(ctx, mapPat); matched {
+              breakAbsRel = true // using the arg glob
+              goto afterMatchedPattern // unmatched pattern
+            }
           }
           continue /*ForFilemaps -- FIXES: break too early */; afterMatchedPattern:
         }
 
-        // glob returned file names
-        var (
-          names []string
-          str string
-        )
-        if file, y := toFile(pattern); y && len(m.locs) == 0 {
-          files = append(files, file)
-          if n := opts.debug; n>0 /* && p.name == "lib.unwind" */ { warn(ctx, "%v -> %v (exists=%v)",
-            pattern, file, file.exists()).debug(n) }
-          continue
-        } else if str = pattern.Strval(ctx); str == "" {
-          erro(ctx, "empty pattern: %v", pattern).debug(1)
+        var str string
+        var mapPatPatterned = mapPat.patterned(ctx)
+        if str = mapPat.Strval(ctx); str == "" {
+          erro(ctx, "empty pattern: %v", mapPat).debug(1)
           return
         }
 
-        // Absolute or relative files are not related to the paths.
-        if filepath.IsAbs(str) || strings.HasPrefix(str, "./") || strings.HasPrefix(str, "../") {
-          if names, err = filepath.Glob(str); err != nil { break ForPatterns }
-          for _, s := range names {
-            file := stat(ctx, filepath.Base(s), "", filepath.Dir(s))
-            files = append(files, file)
-            if enable_assertions { assert(file != nil, "`%s` missing", s) }
-            if n := opts.debug; n>0 { warn(ctx, "%v -> %v (exists=%v)",
-              pattern, file, file.exists()).debug(n) }
+        var err error
+        var names []string // glob returned file names
+        var missing = opts.includeMissing && !opts.ignoreMissing
+        if len(m.locs) == 0 {
+          if f, y := toFile(mapPat); y { files = append(files, f)
+            if n := opts.debug; n>0 { warn(ctx, "%v -> %v (exists=%v)", mapPat, f, f.exists()).debug(n) }
+            continue
           }
+
+          if names, err = filepath.Glob(str); err != nil {
+            erro(ctx, "%v: wildcard: %v", p, err).debug(1)
+            break ForPatterns
+          }
+
+          for _, s := range names {
+            f := stat(ctx, s, "", "")
+            files = append(files, f)
+            if enable_assertions { assert(f != nil, "`%s` missing", s) }
+            if n := opts.debug; n>0 { warn(ctx, "%v -> %v (exists=%v)", mapPat, f, f.exists()).debug(n) }
+          }
+          if names == nil && !mapPatPatterned && missing {
+            files = append(files, stat(ctx, str, "", "", nil))
+          }
+
           if breakAbsRel {
             continue ForPatterns
           } else {
             continue ForFilemaps
           }
         }
-
-        var patterned = pattern.patterned(ctx)
 
         // Check against paths for non-abs/rel patterns.
         for _, path := range m.locs {
@@ -446,13 +448,13 @@ ForPatterns:
               var name = strings.TrimPrefix(s, prefix)
               if file := stat(ctx, name, sub, prefix, nil); file == nil {
                 if n := opts.debug; n>0 { warn(ctx, "%v -> %v %v (nil)",
-                  pattern, sub, prefix).debug(n) }
+                  mapPat, sub, prefix).debug(n) }
                 erro(of(ctx,m.pattern), "%v: '%v' not found in %v", p, name, path)
                 errostack(of(ctx,path), 6, "").debug(12)
-              } else if file.exists() || opts.includeMissing {
+              } else if file.exists() || missing {
                 files = append(files, file)
                 if n := opts.debug; n>0 /* && p.name == "lib.unwind" */ { warnstack(ctx, n, "%v -> %v %v+%v (exists=%v)",
-                  pattern, sub, prefix, file, file.exists()).debug(n) }
+                  mapPat, sub, prefix, file, file.exists()).debug(n) }
               } else if opts.ignoreMissing {
                 continue
               } else if opts.errorMissing {
@@ -461,22 +463,22 @@ ForPatterns:
                 if true { fail(path.Position(), "missing %v", path) }
               }
             }
-          } else if !patterned && opts.includeMissing {
+          } else if !mapPatPatterned && missing {
             // If the filemap is not a pattern (e.g. foobar.cpp), we include it in the returning files
             // Append this non-existed/missing file.
-            file := stat(ctx, pattern.Strval(ctx), sub, prefix, nil)
+            file := stat(ctx, mapPat.Strval(ctx), sub, prefix, nil)
             files = append(files, file)
             if n := opts.debug; n>0 /* && p.name == "lib.unwind" */ { warn(ctx, "%v -> %v %v+%v",
-              pattern, sub, prefix, file).debug(n) }
-          } else if patterned && !path.expandable(ctx, expandClosure) && len(m.locs) == 1 {
+              mapPat, sub, prefix, file).debug(n) }
+          } else if mapPatPatterned && !path.expandable(ctx, expandClosure) && len(m.locs) == 1 {
             if false {
               // Just report that the pattern matches no files in the
               // file system (if only one path specified).
-              warn(of(ctx,pattern), "%s: %v matches no files in '%v'", p.name, m.pattern, sub)
+              warn(of(ctx,mapPat), "%s: %v matches no files in '%v'", p.name, m.pattern, sub)
               warn(of(ctx,inPat), "%s: here is %v (try using flag -m, aka -include-missing)", p.name, inPat).debug(1)
             }
           } else if opts.errorMissing {
-            erro(of(ctx,m.pattern), "%v: '%v' not found in %v", p, pattern, path)
+            erro(of(ctx,m.pattern), "%v: '%v' not found in %v", p, mapPat, path)
             errostack(of(ctx,path), 6, "(%T):", ctx).debug(12)
             if true { fail(path.Position(), "missing %v", path) }
             break ForPatterns
