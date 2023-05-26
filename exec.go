@@ -613,8 +613,8 @@ func (p *ExecResult) onFirstWrote() {
   if p.printEnteringOnFirstWrote {
     printEnteringDirectory(p.ctx)
 
-    // Call checkErrors to ensure printEnteringDirectory works immediately
-    if errs := p.ctx.checkErrors(true); errs > 0 {
+    // Call flushDiags to ensure printEnteringDirectory works immediately
+    if errs := p.ctx.flushDiags(true); errs > 0 {
       warn(p.ctx, "exec: encountered %d errors", errs).debug(1)
     }
   }
@@ -1067,7 +1067,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   exeres.Stdout.res = exeres
   exeres.Stderr.res = exeres
 
-  if ctx.checkErrors(true) > 0 {
+  if ctx.flushDiags(true) > 0 {
     if str := trimPromptString(targetName); filepath.IsAbs(targetName) {
       var pos Position; pos.Filename, pos.Line = targetName, 1
       warn(ctx, "got %d error(s)", ctx.totalErrors())

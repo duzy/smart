@@ -54,7 +54,7 @@ func (p *FileMap) Patterns(ctx Context) (pats []Value) {
     if pattern.expandable(ctx, expandClosure) {
       if false && !options.allowClosureFilemap { // -closure-files
         warnstack(of(ctx,pattern), 8, "closure filemap pattern may cause recursive file resolving: %v", pattern).debug(32)
-        ctx.checkErrors(true) // check here to report warnings immediately
+        ctx.flushDiags(true) // check here to report warnings immediately
       }
 
       // FIXME+TODO: this could be time consuming to expand clousre in the filemap
@@ -64,7 +64,7 @@ func (p *FileMap) Patterns(ctx Context) (pats []Value) {
       var unexpanded int
       if pats, unexpanded, _ = plain.expand(ctx, pattern); unexpanded>0 {
         errostack(of(ctx,pattern), 3, "unexpanded file pattern: %v", pats).debug(15)
-        ctx.checkErrors(true) // check here to report warnings immediately
+        ctx.flushDiags(true) // check here to report warnings immediately
       }
       pats = mergex(ctx, plain, pats...)
     } else {
@@ -1056,12 +1056,12 @@ func printEnteringDirectory(ctx Context) {
     for _, p := range cd.stack {
       if p.print && p != enter {
         p.print = false
-        diag(ctx, diagPromptNL, "smart:  Leaving directory '%s'\n", p.dir)
+        diag(ctx, diagPromptNL, "smart:  Leaving directory '%s'", p.dir)
       }
     }
     if !enter.print {
       enter.print = true
-      diag(ctx, diagPromptNL, "smart: Entering directory '%s'\n", enter.dir)
+      diag(ctx, diagPromptNL, "smart: Entering directory '%s'", enter.dir)
     }
   }
 }
@@ -1072,7 +1072,7 @@ func printLeavingDirectory(ctx Context) {
     for _, enter := range cd.stack {
       if enter.print {
         enter.print = false
-        diag(ctx, diagPromptNL, "smart:  Leaving directory '%s'\n", enter.dir)
+        diag(ctx, diagPromptNL, "smart:  Leaving directory '%s'", enter.dir)
       }
     }
   }

@@ -976,7 +976,7 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
         }
     }
 
-    if n := ctx.checkErrors(true); n > 0 {
+    if n := ctx.flushDiags(true); n > 0 {
         warn(ctx, "got %d errors", n).debug(1)
         if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.totalErrors()) }
     }
@@ -1128,7 +1128,7 @@ ParamsLoop:
             }
         }
 
-        if n := ctx.checkErrors(true); n > 0 {
+        if n := ctx.flushDiags(true); n > 0 {
             warn(at(ctx,position), "%v: %d errors: %v -> %v", l.project, n, elem, specName).debug(1)
             break ParamsLoop
         } else if f, y := toFile(elem); y && f.info != nil {
@@ -1874,7 +1874,7 @@ ListLoop:
                 erro(ctx, "parse config failed: %v", err).debug(1)
                 break ListLoop
             }
-            if ctx.checkErrors(true) > 0 { return }
+            if ctx.flushDiags(true) > 0 { return }
         } else if s, a := l.def(l.Position(), name); a != nil {
             erro(ctx, "declare project: %v", err).debug(1)
             break ListLoop
@@ -1903,7 +1903,7 @@ func (l *loader) sources(pos Position, path string, filter func(os.FileInfo) boo
             }
         }
 
-        if n := l.checkErrors(true); n > 0 {
+        if n := l.flushDiags(true); n > 0 {
             errostack(ctx, 3, "%d errors parsing: %s", n, path).debug(12)
             if options.failOnErrors {
                 fail(l.Position(), "fail by %d errors", l.totalErrors())
@@ -2000,7 +2000,7 @@ ListLoop:
 
             var d *diagPoint
             var src, _, err = l.source(ctx, filename, nil, mode|parsingDir, nil)
-            if n := ctx.checkErrors(true); n > 0 {
+            if n := ctx.flushDiags(true); n > 0 {
                 if s, n := filepath.Base(filename), n; err == nil {
                     d = erro(ctx, "%d diagnostic errors parsing file '%s'", n, s)
                 } else {
@@ -2080,7 +2080,7 @@ func (l *loader) load(ctx Context, specName, absPath string, source interface{})
     defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
 
     var doc, _, err = l.source(ctx, absPath, source, parseMode, nil)
-    if n := l.checkErrors(true); n > 0 {
+    if n := l.flushDiags(true); n > 0 {
         warn(ctx, "load '%s' got %d errors", specName, n).debug(1)
         if options.failOnErrors { fail(l.Position(), "fail by %d errors", l.totalErrors()) }
         return

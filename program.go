@@ -434,7 +434,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
             for i, stemmed  := range stemmedList  { warn(at(ctx,stemmed.position), "%v : stemmed: %d. %v", targetValue, i, stemmed) }
             for i, s := range pc.traves { warn(at(ctx,s.pos), "%v : %d. %v", targetValue, i, s) }
             erro(of(ctx, prereqValue), "missing %v %v", prereqValue, prereqFile.fullname())
-            errostack(ctx, 5, "%v %v", projects, prereqFile.filemap).debug(10)
+            errostack(ctx, 5, "%v, filemap=%v", projects, prereqFile.filemap).debug(10)
         }
 
         if d := time.Now().Sub(t0); d > 60*time.Second {
@@ -450,7 +450,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
             for i, c := range concreteList { warn(at(ctx,c.Position()), "%v : C#%d %v", targetValue, i, c) }
             for i, s := range stemmedList  { warn(at(ctx,s.position), "%v : S#%d %v", targetValue, i, s) }
             warnstack(ctx, 5, "slow: %v: %v: %v, %v", targetValue, prereqValue, d, ctx.gap()).debug(10)
-            ctx.checkErrors(true)
+            ctx.flushDiags(true)
         }
     } (time.Now())
 
@@ -475,10 +475,12 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
     }
 
     // NOTE: Don't delete, keep it for future debugging.
-    if false { if ((
-        strings.HasPrefix(prereqStrval, "/") ||
+    if true { if ((
+        strings.HasPrefix(prereqStrval, "") ||
             false) && (
-        strings.HasSuffix(prereqStrval, "curl/curlver.h") ||
+        strings.Contains(prereqStrval, "/") ||
+            false) && (
+        strings.HasSuffix(prereqStrval, ".o") ||
             false)) { db = true
         var s, _, _ = entryIndicator(ctx, targetValue)
         prompt(ctx, "%v : %T %v\n", s, prereqValue, prereqStrval)
@@ -724,6 +726,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
     }
 
     t1 = time.Now()
+
 ForProjectsConcretes:
     for _, project := range projects {
         var entries = project.resolveEntries(ctx, prereqStrval, pc.grepping, false)
@@ -752,6 +755,7 @@ ForProjectsConcretes:
     if prereqFile != nil && prereqFile.exists() { goto CheckPrereqResult }
 
     t2 = time.Now()
+
 ForProjectsPatterns:
     for _, project := range projects {
         var patterns = project.resolvePatterns(ctx, prereqValue, prereqStrval)
@@ -783,9 +787,23 @@ CheckPrereqResult:
         trave.dependPat = prereqPattern
         trave.depend = p
         return
-    } else /* if p.name == prereqStrval */ {
+    } else if m := p.filemap; m != nil {
+        var f = m.stat(ctx, p.name)
+        if f != nil && f.info == nil && f.name == "tablegen-min" {
+            var pos = ctx.Position()
+            prompt(ctx, "%v: {%v %v %v}\n", pos, p.dir, p.sub, p.name)
+            prompt(ctx, "%v: {%v %v %v}\n", pos, f.dir, f.sub, f.name)
+            prompt(ctx, "%v: %v: %v %v\n", pos, m.project, m.patts, m.locs).debug(1)
+        }
+        if f != nil && f.info != nil {
+            assert(p.exists(), "file must exists at this point")
+            trave := pc.traves.add(ctx, traveFile, targetValue)
+            trave.dependPat = prereqPattern
+            trave.depend = p
+            return
+        }
+
         // for _, project := range projects {
-        //     if p.filemap == nil { continue }
         //     var f = p.filemap.stat(ctx, /* project.absPath */"", p.name)
         //     if f != nil && f.info != nil {
         //         assert(p.exists(), "file must exists at this point")
@@ -795,21 +813,6 @@ CheckPrereqResult:
         //         return
         //     }
         // }
-
-        var m = p.filemap
-        var f = m.stat(ctx, p.name)
-        if p.name == "tablegen-min" {
-            prompt(ctx, "%v: {%v %v %v} %v\n", p.name, p.dir, p.sub, p.name, p.info)
-            prompt(ctx, "%v: {%v %v %v} %v\n", p.name, f.dir, f.sub, f.name, f.info)
-            prompt(ctx, "%v: %v %v\n", m.project, m.patts, m.locs)
-        }
-        if f != nil && f.info != nil {
-            assert(p.exists(), "file must exists at this point")
-            trave := pc.traves.add(ctx, traveFile, targetValue)
-            trave.dependPat = prereqPattern
-            trave.depend = p
-            return
-        }
     }
 
     if p != nil && p.exists() {
@@ -1054,7 +1057,7 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
         args  = cc.arguments()
         pos   = cc.Position()
     )
-    if cc != nil && cc.checkErrors(true) > 0 {
+    if cc != nil && cc.flushDiags(true) > 0 {
         var errs = cc.totalErrors()
         var s string; if errs > 1 { s = "s" }
         prompt(cc, "%v: canceled execution (%d error%s), project %s\n", entry, errs,s, prog.project)
@@ -1079,7 +1082,7 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
             // tb = traves.not(traveDone, traveNext)
         )
         if isTrivial(targets) { targets = entry.Target() }
-        if ctx.checkErrors(true) > 0 {
+        if ctx.flushDiags(true) > 0 {
             var (
                 str, ent, tar = entryIndicator(ctx, entry)
                 errs = ctx.totalErrors()
@@ -1185,7 +1188,7 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
                     erro(at(ctx,pos), "%v : %v", t, autoGet(c, ">"))
                 }
 
-                ctx.checkErrors(true) // dump immediately
+                ctx.flushDiags(true) // dump immediately
             }
             errostack(ctx, depth, "#>", entry).debug(512)
             if false { fail(prog.position, "max call depth") }
@@ -1296,7 +1299,7 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
 
     // Update normal prerequisites
     prog.traverse(normalTraverseContext{ctx}, prog.depends)
-    if errs := ctx.checkErrors(true); errs > 0 {
+    if errs := ctx.flushDiags(true); errs > 0 {
         s := pc.traves.add(at(ctx, prog.position), traveFail, nil)
         s.error = fmt.Errorf("%d errors counted", errs)
         prompt(ctx, "%v: execute failed, project %s; traves=%v\n", entry, proj, pc.traves).debug(1)
@@ -1311,7 +1314,7 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
 
     // Update order-only prerequisites
     prog.traverse(orderTraverseContext{ctx}, prog.ordered)
-    if errs := ctx.checkErrors(true); errs > 0 {
+    if errs := ctx.flushDiags(true); errs > 0 {
         s := pc.traves.add(at(ctx, prog.position), traveFail, nil)
         s.error = fmt.Errorf("%d errors counted", errs)
         prompt(ctx, "%v: execute failed, project %s; traves=%v\n", entry, proj, pc.traves).debug(1)
@@ -1361,7 +1364,7 @@ func (prog *Program) traverse(ctx Context, prerequisites []Value) {
                 prompt(ctx, "%v: %d. %v\n", g, i, s)
                 if i > 10 { break }
             }
-            warnstack(ctx, 5, "%d errors", ctx.checkErrors(true)).debug(16)
+            warnstack(ctx, 5, "%d errors", ctx.flushDiags(true)).debug(16)
         }
 
         // FIXME: optimization: the traves may grow into large number of traveFile
@@ -1381,7 +1384,9 @@ ForPrerequisites:
             var p = prerequisite
             var a = autoGet(ctx, "@")
             var t = autoGet(ctx, "^")
-            prompt(ctx, "%v: %v: %v: %v ; %v", pos, a, p, t, d).debug(1)
+            prompt(ctx, "%v: %v: @: %v", pos, a, p)
+            prompt(ctx, "%v: %v: ^: %v", pos, a, t)
+            prompt(ctx, "%v: %v", pos, d).debug(1)
         }
 
         if prog.debug_traverse > 0 { if true { prog.debug_traverse -= 1 }

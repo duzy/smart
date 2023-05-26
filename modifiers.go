@@ -135,7 +135,7 @@ func (m *modification) traverse(ctx Context) {
         ctx.autoSet("-", value)
     }
 
-    if n := ctx.checkErrors(true); n > 0 {
+    if n := ctx.flushDiags(true); n > 0 {
         brk := pc.traves.add(ctx, traveFail, nil)
         brk.error = fmt.Errorf("%s: %d errors counted", m.name, n)
     }
@@ -1528,7 +1528,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
     var depFile = func(ctx Context, depPos Position, word string) {
         var dc = depContext{diagContext{ Context: ctx }}; ctx = &dc
         if parallel { defer func() {
-            checkFailure(ctx, true/* don't call checkErrors */)
+            checkFailure(ctx, true/* don't call flushDiags */)
             if len(dc.points) > 0 { dc.inner().diagnostic().nest(dc.points) }
             jobs.Done() // minus 1
         }() }
@@ -1579,7 +1579,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
 
         var n int
         if savedDepsFile == nil {
-            if n = dc.checkErrors(true); n > 0 { // aka. dc.points = nil
+            if n = dc.flushDiags(true); n > 0 { // aka. dc.points = nil
                 var s = trimPromptString(targetVal.String())
                 prompt(ctx, "%v: %d errors counted\n", word, n).debug(1)
                 erro(ctx, `%v: %d errors for "%s", dep "%s"`, proj, n, s, word)
@@ -2980,7 +2980,7 @@ func (ctx modifier) assert(args... Value) (result Value) {
         fails += 1
     }
     if fails > 0 { errostack(ctx, 8, "").debug(6) }
-    if ctx.checkErrors(true) > 0 { fail(ctx.Position(), "assertion") }
+    if ctx.flushDiags(true) > 0 { fail(ctx.Position(), "assertion") }
     return
 }
 

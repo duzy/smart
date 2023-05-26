@@ -70,7 +70,7 @@ type configureExecutor struct {
 }
 
 func (ce *configureExecutor) execute(ctx Context, project *Project, entry Entry) (result *Project, okay bool) {
-    if n := ctx.checkErrors(true); n > 0 {
+    if n := ctx.flushDiags(true); n > 0 {
         return
     } else if ctx = at(ctx, entry.Position()); ctx == nil {
         erro(ctx, "%v: nil positional context", project).debug(1)
@@ -207,7 +207,7 @@ func (ctx *universe) configure() {
         prompt(ctx, "configure failed: %v\n", err).debug(1)
         return
     }
-    if n := ctx.checkErrors(true); n > 0 {
+    if n := ctx.flushDiags(true); n > 0 {
         warn(ctx, "configuration got %d errors", ctx.totalErrors()).debug(1)
         if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.totalErrors()) }
         //return
@@ -453,7 +453,7 @@ ForInParams:
         traves travestates
     )
     for _, entry := range entries.all {
-        if reses, traves = entry.execute(ctx, params...); ctx.checkErrors(true) > 0 {
+        if reses, traves = entry.execute(ctx, params...); ctx.flushDiags(true) > 0 {
             warn(at(ctx,entry.Position()), "%v", entry)
             warnstack(ctx, 5, `configure '%s' got %d error(s)`,
                 entryName, ctx.totalErrors()).debug(1)

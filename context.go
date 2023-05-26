@@ -168,7 +168,7 @@ type Context interface {
 
   diagnostic() *diagContext
   diag(diagType, string, ...interface{}) *diagPoint
-  checkErrors(bool) int
+  flushDiags(bool) int
   countErrors() int
   totalErrors() int
 
@@ -316,7 +316,7 @@ func (d *diagPoint) debug(args ...interface{}) *diagPoint {
 type diagContext struct {
   Context
   sync.Mutex
-  points []*diagPoint
+  points   []*diagPoint
   nested [][]*diagPoint
   errs int
 }
@@ -355,79 +355,61 @@ func (diag *diagContext) diag(dt diagType, f string, args ...interface{}) *diagP
   return diag.add(&diagPoint{ dt, diag.Position(), fmt.Sprintf(f, args...), nil })
 }
 
-func (diag *diagContext) countErrors() (num int) {
-  diag.Lock() ; defer diag.Unlock()
-  for _, d := range diag.points {
-    if d.dt == diagError { num += 1 }
-  }
+func (diag *diagContext) totalErrors() (errs int) { return diag.errs }
+func (diag *diagContext) countErrors() (errs int) { return diag.checkErrors() }
+func (diag *diagContext) checkErrors() (errs int) {
+  diag.Lock()
+  for _, d := range diag.points { if d.dt == diagError { errs += 1 } }
+  diag.Unlock()
   return
 }
-func (diag *diagContext) totalErrors() (num int) { return diag.errs }
-func (diag *diagContext) checkErrors(reset bool) (num int) {
-  diag.Lock() ; defer func() { diag.errs += num; diag.Unlock() } ()
+func (diag *diagContext) flushDiags(_ bool) (errs int) {
+  var flush = func(d *diagPoint, pend bool) (pended bool) {
+    var (
+      pos = d.position.String()
+      msg = d.message
+    )
 
-  for i, points := range append([][]*diagPoint{diag.points}, diag.nested...) {
-    var nested = i > 0 && len(points) > 0 && len(diag.nested) > 0
-    if nested { fmt.Fprintf(stderr, "\n#%d:\n", i) }
-
-    var lastPromptLn = -1
-    var tempPromptLn []*diagPoint
-    for _, d := range points {
-      var (
-        msg = d.message
-        pos = d.position.String()
-      )
-      if strings.HasSuffix(msg, "\n") { lastPromptLn = 1 }
-      if d.dt == diagPrompt {
-        if msg != "" { fmt.Fprintf(stderr, "%s", msg) }
-        if lastPromptLn == -1 { lastPromptLn = 0 }
-      } else if d.dt == diagPromptNL {
-        if lastPromptLn == 0 { tempPromptLn = append(tempPromptLn, d) } else
-        if msg != "" { fmt.Fprintf(stderr, "%s\n", msg) }
-        if lastPromptLn == -1 { lastPromptLn = 0 }
-      } else {
-        switch lastPromptLn = -1; d.dt {
-        case diagError: fmt.Fprintf(stderr, "%v: %s\n",         pos, msg); num += 1
-        case diagInfo : fmt.Fprintf(stderr, "%v:info: %s\n",    pos, msg)
-        case diagWarn : fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
-        }
-      }
-
-      if lastPromptLn != 0 {
-        for _, d := range tempPromptLn { fmt.Fprintf(stderr, "%s", d.message) }
-        tempPromptLn = nil
-      }
-
-      if len(d.stack) > 0 {
-        if lastPromptLn == 0 { fmt.Fprintf(stderr, "\n") }
-        fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(d.stack))
-      }
-
-      if num > 49 {
-        fmt.Fprintf(stderr, "%v: too many errors (%d)\n", pos, num)
-        break
-      }
+    switch d.dt {
+    case diagError: fmt.Fprintf(stderr, "%v: %s\n",         pos, msg); errs += 1
+    case diagInfo : fmt.Fprintf(stderr, "%v:info: %s\n",    pos, msg)
+    case diagWarn : fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
+    case diagPromptNL: if msg != "" { fmt.Fprintf(stderr, "%s\n", msg) }
+    case diagPrompt  : if msg != "" { fmt.Fprintf(stderr, "%s", msg) }
+      if pend && !strings.HasSuffix(msg, "\n") { return true }
     }
 
-    if tempPromptLn != nil {
-      for _, d := range tempPromptLn {
-        fmt.Fprintf(stderr, "%s", d.message)
-        if strings.HasSuffix(d.message, "\n") {
-          lastPromptLn = 1
-        } else {
-          lastPromptLn = 0
-        }
-      }
-      if lastPromptLn == 0 { fmt.Fprintf(stderr, "\n") }
+    if len(d.stack) > 0 { fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(d.stack)) }
+    return
+  }
+
+  defer func() { diag.errs += errs } ()
+
+  for {
+    var point *diagPoint
+
+    diag.Lock()
+    if len(diag.points) > 0 {
+      point = diag.points[0]
+      diag.points = diag.points[1:]
     }
+    diag.Unlock()
 
-    if nested { fmt.Fprintf(stderr, "#%d;\n\n", i) }
+    if point == nil || flush(point, true) { break }
+    if errs > 49 {
+      fmt.Fprintf(stderr, "%v: too many errors (%d)\n", diag.Position(), errs)
+      break
+    }
   }
 
-  if reset {
-    diag.points =   []*diagPoint{}
-    diag.nested = [][]*diagPoint{}
+  diag.Lock()
+  for i := 0; len(diag.nested) > 0; diag.nested = diag.nested[1:] {
+    i += 1
+    fmt.Fprintf(stderr, "\n#%d:\n", i)
+    for _, d := range diag.nested[0] { flush(d, false) }
+    fmt.Fprintf(stderr, "#%d;\n\n", i)
   }
+  diag.Unlock()
   return
 }
 
@@ -465,13 +447,13 @@ func at(ctx Context, pos Position) Context {
         if true {
           prompt(ctx, "%v: too many positions: %T\n", p, c)
           warn(ctx, "too many positions: %v, %v, %v", i, num, ctx).debug(1)
-          ctx.checkErrors(true)
+          ctx.flushDiags(true)
         }
       }
     }
     if wrap { ctx = &positionContext{ ctx, pos } } else {
       warn(ctx, "too many positions: %v, %v", num, ctx).debug(128)
-      ctx.checkErrors(true)
+      ctx.flushDiags(true)
     }
   } else if _, y := ctx.(*loader); false && y && p.Same(&pos) {
     ctx = &positionContext{ ctx, pos }
@@ -642,7 +624,7 @@ func checkFailure(ctx Context, dontCheckErrors ...bool) (panics, errs int) {
   }
   if len(dontCheckErrors) > 0 && dontCheckErrors[0] {
     // okay
-  } else if errs = ctx.checkErrors(true); errs > 0 && panics == 0 {
+  } else if errs = ctx.flushDiags(true); errs > 0 && panics == 0 {
     warn(ctx, "got %d errors (%s)", ctx.totalErrors(), ctx).debug(16)
     if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.totalErrors()) }
   }
@@ -700,7 +682,7 @@ func CommandLine() {
 
   if err := context.loadTopWork(); err != nil {
     erro(context, "loading work failed: %v", err)
-  } else if context.checkErrors(true) > 0 {
+  } else if context.flushDiags(true) > 0 {
     prompt(context, "loading work got %d errors\n", context.totalErrors())
   } else if options.help {
     context.help()
@@ -714,7 +696,7 @@ func CommandLine() {
     context.configure()
   } else if result, err := context.run(); err != nil {
     erro(context, "run work failed: %v", err)
-  } else if context.checkErrors(true) > 0 {
+  } else if context.flushDiags(true) > 0 {
     prompt(context, "run work got %d errors\n", context.totalErrors())
   } else if result != nil {
     for i, v := range result {

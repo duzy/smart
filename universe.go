@@ -809,7 +809,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
     if options.verbose { info(ctx, "goal: %v", main).debug(1) }
 
     removeTempDirs(ctx)
-    if false && ddd { info(ctx, "%v", main).debug(1) ; ctx.checkErrors(true) }
+    if false && ddd { info(ctx, "%v", main).debug(1) ; ctx.flushDiags(true) }
 
     if options.cpuProf != "" || options.autoProfs {
         var prof = options.cpuProf
@@ -871,7 +871,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
             var ctx = at(ctx, entry.Position())
             if options.verboseExecFlags {
                 info(ctx, "%v", entry)
-                ctx.checkErrors(true)
+                ctx.flushDiags(true)
             }
 
             var ( res []Value; traves []*travestate )
@@ -1110,8 +1110,8 @@ func (dc *universe) loadTopWork() (err error) {
     if options.verboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
 
     if false && ddd {
-        info(dc, "%v", base).debug(128) ; dc.checkErrors(true)
-        defer func() { info(dc, "%v", base).debug(6) ; dc.checkErrors(true) } ()
+        info(dc, "%v", base).debug(128) ; dc.flushDiags(true)
+        defer func() { info(dc, "%v", base).debug(6) ; dc.flushDiags(true) } ()
     }
 
     if !dc.globe.top.path(base, nil) { return }

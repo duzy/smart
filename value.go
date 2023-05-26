@@ -4921,7 +4921,7 @@ func (p *delegate) Strval(ctx Context) (s string) {
     } else {
         if v.refs(ctx, p.x) {
             warnstack(ctx, 3, "%v %v ; %T %v", p, p.x, v, v).debug(128)
-            ctx.checkErrors(true)
+            ctx.flushDiags(true)
         } else {
             s = v.Strval(ctx)
         }
@@ -5198,7 +5198,7 @@ func (p *delegate) expand(ctx Context, w facet) (res Value) {
             }
             warn(ctx, "delegate.expand: final=%v; same=%v; close=%v; %020b",
                 final, same, close, w).debug(64)
-            ctx.checkErrors(true)
+            ctx.flushDiags(true)
         }} ()
     }}
 
@@ -5316,7 +5316,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
                 warn(ctx, "reveal: unexpanded: %T %v", t.Value, t.Value)
             }
             warnstack(ctx, 3, "reveal: final=%v; same=%v; %020b", final, p.x==x, w).debug(100)
-            ctx.checkErrors(true)
+            ctx.flushDiags(true)
             db -= 1
         }}} ()
     }}
@@ -5616,7 +5616,7 @@ func (p *closure) expand(ctx Context, w facet) (res Value) {
             warn(ctx, "closure.expand: final=%v; same=%v; close=%v; %020b",
                 final, same, close, w)
             warnstack(ctx, 5, "").debug(64)
-            ctx.checkErrors(true)
+            ctx.flushDiags(true)
         }}} ()
     }}
 
@@ -5698,7 +5698,7 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
                 warn(ctx, "disclose: unexpanded: %T %v", t.Value, t.Value)
             }
             warnstack(ctx, 10, "final=%v; same=%v; %020b", final, p.x==x, w).debug(32)
-            ctx.checkErrors(true)
+            ctx.flushDiags(true)
         }} ()
     }}
 
@@ -5734,7 +5734,7 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
             warnstack(ctx, 3, "%T %v -> %T %v, %024b %024b",
                 ur.Value, ur.Value, name, name, w,
                 w & (expandPlaceholders | expandDigits)).debug(32)
-            ctx.checkErrors(true)
+            ctx.flushDiags(true)
         }}
 
         var ux unexpanded
