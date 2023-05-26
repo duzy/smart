@@ -1673,52 +1673,6 @@ func (ctx builtin) servehttp(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) print(args... Value) (res Value) {
-        var (
-                x = len(args)
-                sb bytes.Buffer
-        )
-        for i, a := range mergex(ctx, ctx.w, args...) {
-                if a == nil { continue } else
-                if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
-                fmt.Fprintf(&sb, "%s", EscapedString(ctx, a))
-        }
-        prompt(ctx, sb.String())
-        return
-}
-
-func (ctx builtin) printl(args... Value) (res Value) {
-        var (
-                x = len(args)
-                sb bytes.Buffer
-        )
-        for i, a := range mergex(ctx, ctx.w, args...) {
-                if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
-                var s = EscapedString(ctx, a)
-                fmt.Fprintf(&sb, "%s", s)
-                if i == x && !strings.HasSuffix(s, "\n") {
-                        fmt.Fprintf(&sb, "\n")
-                }
-        }
-        prompt(ctx, sb.String())
-        return
-}
-
-func (ctx builtin) println(args... Value) (res Value) {
-        var (
-                x = len(args)
-                sb bytes.Buffer
-        )
-        for i, a := range mergex(ctx, ctx.w, args...) {
-                if a == nil { continue } else
-                if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
-                fmt.Fprintf(&sb, "%s", EscapedString(ctx, a))
-        }
-        fmt.Fprintf(&sb, "\n")
-        prompt(ctx, sb.String())
-        return
-}
-
 type builtinAppendOpts struct {
         generalOpts
         auto bool `a,auto`
@@ -3040,6 +2994,76 @@ ForArgs:
                 }
         }
         res = MakeString(pos, fmt.Sprintf(f, a...))
+        return
+}
+
+type builtinPrintOpts struct {
+        generalOpts
+        noErrs bool `noerrs,noerrors,no-errs,no-errors`
+        noWarn bool `nowarn,nowarns,no-warn,no-warns`
+}
+
+func (ctx builtin) print(args... Value) (res Value) {
+        var (
+                x = len(args)
+                diag = ctx.diagnostic()
+                sb bytes.Buffer
+                opts builtinPrintOpts
+        )
+        ctx.opts(&opts, plain)
+        if opts.noErrs && diag.check(diagError) > 0 { return }
+        if opts.noWarn && diag.check(diagWarn) > 0 { return }
+
+        for i, a := range mergex(ctx, ctx.w, args...) {
+                if a == nil { continue } else
+                if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
+                fmt.Fprintf(&sb, "%s", EscapedString(ctx, a))
+        }
+        prompt(ctx, sb.String())
+        return
+}
+
+func (ctx builtin) printl(args... Value) (res Value) {
+        var (
+                x = len(args)
+                diag = ctx.diagnostic()
+                sb bytes.Buffer
+                opts builtinPrintOpts
+        )
+        ctx.opts(&opts, plain)
+        if opts.noErrs && diag.check(diagError) > 0 { return }
+        if opts.noWarn && diag.check(diagWarn) > 0 { return }
+
+        for i, a := range mergex(ctx, ctx.w, args...) {
+                if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
+                var s = EscapedString(ctx, a)
+                fmt.Fprintf(&sb, "%s", s)
+                if i == x && !strings.HasSuffix(s, "\n") {
+                        fmt.Fprintf(&sb, "\n")
+                }
+        }
+        prompt(ctx, sb.String())
+        return
+}
+
+func (ctx builtin) println(args... Value) (res Value) {
+        var (
+                x = len(args)
+                diag = ctx.diagnostic()
+                sb bytes.Buffer
+                opts builtinPrintOpts
+        )
+        ctx.opts(&opts, plain)
+        if opts.noErrs && diag.check(diagError) > 0 { return }
+        if opts.noWarn && diag.check(diagWarn) > 0 { return }
+
+        for i, a := range mergex(ctx, ctx.w, args...) {
+                if a == nil { continue } else
+                if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
+                fmt.Fprintf(&sb, "%s", EscapedString(ctx, a))
+        }
+        fmt.Fprintf(&sb, "\n")
+        prompt(ctx, sb.String())
         return
 }
 

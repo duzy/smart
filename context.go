@@ -356,10 +356,10 @@ func (diag *diagContext) diag(dt diagType, f string, args ...interface{}) *diagP
 }
 
 func (diag *diagContext) totalErrors() (errs int) { return diag.errs }
-func (diag *diagContext) countErrors() (errs int) { return diag.checkErrors() }
-func (diag *diagContext) checkErrors() (errs int) {
+func (diag *diagContext) countErrors() (errs int) { return diag.check(diagError) }
+func (diag *diagContext) check(dt diagType) (errs int) {
   diag.Lock()
-  for _, d := range diag.points { if d.dt == diagError { errs += 1 } }
+  for _, d := range diag.points { if d.dt == dt { errs += 1 } }
   diag.Unlock()
   return
 }
