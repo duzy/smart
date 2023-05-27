@@ -299,6 +299,20 @@ func (cache *filemapCache) match(ctx Context, ss []string, i, bits int) (res *fi
     return
 }
 
+func (cache *filemapCache) matchVal(ctx Context, val Value) (res *filemapCachePat) {
+    if cache.pats != nil {
+        for _, m := range cache.pats {
+            for _, p := range m {
+                if f, _, _ := p.value.match(ctx, val); f { return p }
+            }
+        }
+    }
+    if cache.chars != nil { // for all patterns without prefixs, e.g.: *bar
+        if c, _ := cache.chars[char(0)]; c != nil { res = c.matchVal(ctx, val) }
+    }
+    return
+}
+
 func (cache *filemapCache) char_str(s string, bits int, chars bool) (res *filemapCache) {
     if chars {
         if s == "" {

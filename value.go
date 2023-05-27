@@ -3500,6 +3500,10 @@ func (p *Path) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
         if false { warn(ctx, "%08b: %v: %v: %v %v", bits, p, elems, stopPat, stopVal).debug(1) }
     } else if c := cache.strs(at(ctx, p.position), ss, bits|cachePath); c != nil {
         cache.filemapCache = c
+    } else if m := cache.match(at(ctx, p.position), ss, 0, bits|cachePath); m != nil {
+        cache.filemapCache = &m.filemapCache
+    } else if m = cache.matchVal(at(ctx, p.position), p); m != nil {
+        cache.filemapCache = &m.filemapCache
     } else {
         if (bits&cacheStore) != 0 { erro(ctx, "%08b: %v: %v: %v", bits, p, elems, ss).debug(1) }
         return
@@ -3513,10 +3517,13 @@ func (p *Path) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     } else if stopVal != nil {
         res = stopVal.hit(ctx, cache, bits|cachePath)
         if false {
-            warn(ctx, "%08b: %v: %v: %v: %T %v ; %p", bits, p, elems, ss, stopPat, stopPat, res).debug(1)
+            warn(ctx, "%08b: %v: %v: %v: %T %v ; %p", bits, p, elems, ss, stopVal, stopVal, res).debug(1)
         }
     } else {
         res = cache.filemapCache
+        if false {
+            warn(ctx, "%08b: %v: %v: %v ; %p", bits, p, elems, ss, res).debug(1)
+        }
     }
     return
 }
