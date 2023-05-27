@@ -909,12 +909,11 @@ func (ctx builtin) not(args... Value) (res Value) {
         return
 }
 
-type builtinNotEqualOpts struct {
-        generalOpts
-}
 func (ctx builtin) unequal(args... Value) (res Value) {
-        var opts builtinNotEqualOpts
-        ctx.opts(&opts, plain)
+        // var opts, _ = _opts[struct {
+        //         generalOpts
+        // }](&ctx, plain)
+
         if n := len(args); n != 2 {
                 erro(ctx, "wrong number of arguments, try: $(not-equal <value-list>,<value-list>)")
         } else if args[0].cmp(ctx, args[1]) != cmpEqual {
@@ -923,12 +922,12 @@ func (ctx builtin) unequal(args... Value) (res Value) {
         return
 }
 
-type builtinEqualOpts struct {
-        generalOpts
-}
 func (ctx builtin) equal(args... Value) (res Value) {
-        var opts builtinEqualOpts
-        if ctx.opts(&opts, plain); len(args) > 0 {
+        var opts, _ = _opts[struct {
+                generalOpts
+        }](&ctx, plain)
+
+        if len(args) > 0 {
                 if a := merge(args[0]); len(a) == 1 {
                         args[0] = a[0]
                 } else {

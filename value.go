@@ -3434,6 +3434,8 @@ func (p *Path) cmp(ctx Context, v Value) (res cmpres) {
         res = p.cmp(ctx, l.Elems[0])
     } else if u, o := v.(unexpanded); o && u.Value != nil {
         res = p.cmp(ctx, u.Value)
+    } else if f, ok := v.(*File); ok {
+        if s := p.Strval(ctx); f.name == s { res = cmpEqual }
     }
     return
 }
@@ -4149,7 +4151,7 @@ func (p *File) cmp(ctx Context, v Value) (res cmpres) {
         res = p.cmp(ctx, u.Value)
     } else {
         switch v.(type) {
-        case *barecomp, *bareword:
+        case *barecomp, *bareword, *Path:
             if s := v.Strval(ctx); s == p.name { res = cmpEqual }
         }
     }
