@@ -2610,7 +2610,7 @@ func (p *barecomp) obsolete_hit2(ctx Context, cache hitch, bits int) (res *filem
     var chars = (bits&(cacheGlob|cacheRegex)) != 0
     var hit = func(i int, pat Value) (res *filemapCache) {
         if len(part) > 0 {
-            if c := cache.char_str(part, bits|cacheBare, chars && pat != nil); c != nil {
+            if c := cache.charstr(part, bits|cacheBare, chars && pat != nil); c != nil {
                 cache.filemapCache = c
             } else if (bits&cacheStore) != 0 {
                 errostack(ctx, 3, "%08b: %v[%d]: uncached", bits, part, elems, i).debug(16)
@@ -2673,7 +2673,7 @@ func (p *barecomp) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     }
     if len(a) == 0 || part != "" { a = append(a, part) }
 
-    if c := cache.comp(ctx, a, nil, -1, bits); c !=  nil {
+    if c := cache.comp(ctx, a, bits); c !=  nil {
         if pat == nil {
             res = c
         } else {
@@ -3502,9 +3502,9 @@ func (p *Path) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
         if false { warn(ctx, "%08b: %v: %v: %v %v", bits, p, elems, stopPat, stopVal).debug(1) }
     } else if c := cache.strs(at(ctx, p.position), ss, bits|cachePath); c != nil {
         cache.filemapCache = c
-    } else if m := cache.match(at(ctx, p.position), ss, 0, bits|cachePath); m != nil {
+    } else if m := cache.match(at(ctx, p.position), ss); m != nil {
         cache.filemapCache = &m.filemapCache
-    } else if m = cache.matchVal(at(ctx, p.position), p); m != nil {
+    } else if m = cache.match(at(ctx, p.position), p); m != nil {
         cache.filemapCache = &m.filemapCache
     } else {
         if (bits&cacheStore) != 0 { erro(ctx, "%08b: %v: %v: %v", bits, p, elems, ss).debug(1) }
@@ -3936,14 +3936,10 @@ func (p *PathPun) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     if false { return cache.str(ctx, []string{p.Strval(ctx)}, 0, bits, nil) }
 
     var s = p.Strval(ctx)
-    var c = cache.char_str(s, bits, false)
+    var c = cache.charstr(s, bits, false)
     if c != nil { res = c } else {
-        if c = cache.char_str(s, bits, true); c != nil {
-            if m := c.match(ctx, []string{s}, 0, bits); m != nil {
-                if false {
-                    warn(ctx, "%v(%s): %p: %v\n", p, s, c, c.pats)
-                    warn(ctx, "%v(%s): %p: %v\n", p, s, m, m.value).debug(6)
-                }
+        if c = cache.charstr(s, bits, true); c != nil {
+            if m := c.match(ctx, s); m != nil {
                 res = &m.filemapCache
             }
         }

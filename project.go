@@ -530,6 +530,10 @@ func (p *Project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File
     // }
     f = m.stat(ctx, m.name)
 
+    if false && strings.HasSuffix(m.name, ".o") {
+      prompt(ctx, "%v: %v %v → %v %v\n", p, m.FileMap, m.name, f, f.exists())
+    }
+
     if f != nil {
       f.filemap = &m.FileMap
       files = append(files, f)

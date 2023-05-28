@@ -2533,7 +2533,7 @@ ForSources:
                                                 var t = files(ctx, nameVal, proj)
                                                 erro(of(ctx,srcPat), "%v: %v (%v)", proj, srcFile, srcPat)
                                                 erro(of(ctx,srcPat), "%v: %v %v", proj, nameVal, t)
-                                                errostack(of(ctx,dstPat), 10, a...).debug(4)
+                                                errostack(of(ctx,dstPat), 16, a...).debug(6)
                                         } else if opts.warnDstNomap {
                                                 warn(of(ctx,srcPat), "%v: %v (%v)", proj, srcFile, srcPat)
                                                 warnstack(of(ctx,dstPat), 10, a...).debug(4)
