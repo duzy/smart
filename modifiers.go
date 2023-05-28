@@ -2969,9 +2969,9 @@ func (ctx modifier) assert(args... Value) (result Value) {
 
         if a.True(ctx) { continue }
         if s := opts.msg; s == "" {
-            erro(ctx, "assert failed: %T %v", a, a)
+            erro(of(ctx, a), "assert failed: %s: %v", typeof(a), a)
         } else {
-            erro(ctx, "assert failed: %v: %s", a, s)
+            erro(of(ctx, a), "assert failed: %v: %s", a, s)
         }
 
         pc.traves.add(ctx, traveFail, target).
