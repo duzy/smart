@@ -95,18 +95,16 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*filemapCache
     const useAllFetched = false
     defer func(c *filemapCache) {
         if false { if (false ||
-            ss[0] == "internal" ||
-            ss[0] == "experimental" ||
+            ss[0] == ".configure" ||
             false) && (false ||
-            // ss[i] == "charconv_bigint.o" ||
-            strings.HasSuffix(ss[i], "memory_resource.o") ||
+            strings.HasSuffix(ss[i], ".out") ||
             false) {
             if res != nil {
                 if false { warn(ctx, "%v[%d]: %s → %v\n", ss, i, ss[i], res.maps) }
                 for k, m := range res.maps {
                     warn(ctx, "%08b: %v[%d]: %s → %d %v %v %v\n", bits, ss, i, ss[i], k, m.project, m.pattern, m.locs)
                 }
-                warnstack(ctx, 3, "%08b: %v[%d]: %s; %p %p %v", bits, ss, i, ss[i], c, res, res.maps).debug(32)
+                warnstack(ctx, 3, "%08b: %v[%d]: %s; %p %v", bits, ss, i, ss[i], c, res.maps).debug(32)
             } else {
                 warn(ctx, "%08b: %v[%d]: %v %v\n", bits, ss, i, aa, (bits&(cacheGlob|cacheRegex)))
                 warn(ctx, "%08b: %v: strs: %v\n", bits, ss[i], c.strs)
@@ -185,24 +183,17 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*filemapCache
 
     if bits&cacheStore != 0 { return }
 
-    var s string
+    var cs []*filemapCache
     for k := len(a)-2; 0 <= k; k-- {
         var c = a[k].char0(bits)
         if c == nil { continue }
+        if p := c.match(ctx, ss); p != nil { return &p.filemapCache }
+        cs = append(cs, c)
+    }
 
-        var p = c.match(ctx, ss)
-        if p == nil {
-            if s == "" { s = filepath.Join(ss...) }
-            p = c.match(ctx, s)
-        }
-
-        if false && s == "experimental/memory_resource.o" {
-            prompt(ctx, "%s: pats: %v\n", s, c.pats)
-            prompt(ctx, "%s: pats: %v\n", s, c.match(ctx, ss))
-            prompt(ctx, "%s: pats: %v\n", s, c.match(ctx, s)).debug(1)
-        }
-
-        if p != nil && p.maps != nil { return &p.filemapCache }
+    var s string = filepath.Join(ss...)
+    for _, c := range cs {
+        if p := c.match(ctx, s); p != nil { return &p.filemapCache }
     }
     return
 }
@@ -259,11 +250,10 @@ func (cache *filemapCache) comp(ctx Context, a []string, bits int) (res *filemap
 }
 
 func (cache *filemapCache) match(ctx Context, val interface{}) (res *filemapCachePat) {
-    if cache.pats != nil {
-        for _, m := range cache.pats {
-            for _, p := range m {
-                if f, _, _ := p.value.match(ctx, val); f { return p }
-            }
+    for _, m := range cache.pats {
+        for _, p := range m {
+            if len(p.maps) == 0 { continue }
+            if f, _, _ := p.value.match(ctx, val); f { return p }
         }
     }
     if cache.chars != nil { // for all patterns without prefixs, e.g.: *bar
