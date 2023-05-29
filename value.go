@@ -5188,8 +5188,8 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         if d := t2.Sub(t0); d > 1*time.Second {
             var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) )
             var pos = ctx.Position()
-            prompt(ctx, "%v: slow: %v\n", pos, p)
-            prompt(ctx, "%v: slow:→%v\n", pos, res)
+            prompt(ctx, "%v: slow: %v (%T %v)\n", pos, p, p.o, p.o)
+            prompt(ctx, "%v: slow:→%v (%T)\n", pos, res, res)
             prompt(ctx, "%v: slow: %v⇒%v+%v\n", pos, d, d1, d2).debug(4)
         }
     } (time.Now())
