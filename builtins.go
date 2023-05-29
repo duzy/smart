@@ -4094,8 +4094,7 @@ func (ctx builtin) file(aa... Value) (res Value) {
         var opts, args = _opts[struct {
                 generalOpts
                 caller bool `c,cc,caller,callercontext,caller-context`
-                mustex bool `e,ex,exist,exists,me,mustexist,must-exist,must,required`
-                missin bool `mis,miss,missing,im,include-missing,ne,not-exists,notexists`
+                exists bool `e,ex,exist,exists,me,existsist,must-exist,must,required`
                 ignore bool `i,ig,ignore,ignore-missing`
                 report bool `r,report,reportmissing;rm,report-missing;er,err,error`
         }](&ctx, plain, aa...)
@@ -4112,35 +4111,63 @@ func (ctx builtin) file(aa... Value) (res Value) {
                 proj = ctx.Project()
         }
 
+        var en int
         var list []Value
-        for _, a := range args {
+        var fil = func(a Value) {
                 var ctx = at(ctx, a.Position())
+                var am []matchedFileMap
+                var fs []*File
+                if false && strings.HasPrefix(fmt.Sprintf("%s", a), ".configure/compiles/") {
+                        defer func() {
+                                info(ctx, "%s: %v\n", a, am)
+                                info(ctx, "%s: %v\n", a, fs)
+                                info(ctx, "%s: %v\n", a, list)
+                                info(ctx, "%s: %v\n", a, file(ctx, a.Strval(ctx)))
+                                info(ctx, "%s: %T\n", a, a).debug(16)
+                        } ()
+                }
+
                 if f, y := toFile(a); y {
                         if list = append(list, f); !f.exists() { f.stat(ctx)
                                 if opts.report {
                                         info(ctx, "no such file {%v %v %v}", f.dir, f.sub, f.name).debug(1)
                                 }
                         }
-                        continue
+                        return
                 }
 
-                var am = files(ctx, a, proj)
-                if am == nil { continue }
+                if am = files(ctx, a, proj); am == nil {
+                        if am = files(ctx, a.Strval(ctx), proj); am != nil {
+                                warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", proj, a, a, ctx.Project()).debug(6)
+                        } else if f := file(ctx, a.Strval(ctx)); f != nil {
+                                warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", proj, a, a, ctx.Project()).debug(6)
 
-                var en int
-                for _, f := range proj.selectFiles(ctx, am) {
-                        if f.exists() || opts.missin {
                                 list = append(list, f)
-                        } else if opts.mustex {
-                                en += 1
+                                return
+                        } else {
+                                return
+                        }
+                }
+
+                if fs = proj.selectFiles(ctx, am); fs == nil { return }
+
+                for _, f := range fs {
+                        if !opts.exists || f.exists() {
+                                list = append(list, f)
                         } else if opts.ignore {
                                 if opts.verbose { info(ctx, "%s(%v) → %v", typeof(a), a, f).debug(1) }
+                        } else if opts.exists {
+                                en += 1
                         }
                 }
-                if en > 0 {
-                        for i, m := range am {
-                                info(of(ctx,m.pattern), "found %d. %s → %s(%s) → %v", i, m.name, typeof(m.pattern), m.pattern, m.locs)
-                        }
+
+                if en > 0 { for i, m := range am {
+                        info(of(ctx,m.pattern), "found %d. %s → %s(%s) → %v", i, m.name, typeof(m.pattern), m.pattern, m.locs)
+                } }
+        }
+
+        for _, a := range args {
+                if fil(a); en > 0 {
                         erro(ctx, `%v: %s(%v) is not a file (%v)`, proj, typeof(a), a, list)
                         errostack(ctx, 5).debug(16)
                         break

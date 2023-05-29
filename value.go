@@ -4051,24 +4051,6 @@ func (p *File) expandable(ctx Context, w facet) (res bool) {
 func (p *File) expand(ctx Context, w facet) (res Value) {
     if w&expandFullName != 0 && !filepath.IsAbs(p.name) {
         res = fullfile{p}
-    } else if /* w&expandFullName != 0 && !filepath.IsAbs(p.name) */false {
-        var fullname = p.fullname()
-        if false && !filepath.IsAbs(fullname) { return p }
-
-        var stub, fullstub *filestub
-        for stub = p.filestub; stub != nil; stub = stub.other {
-            if stub.name == fullname /*&& stub.dir == "" && stub.sub == ""*/ {
-                fullstub = stub; break
-            } else if stub.other == p.filestub {
-                break
-            }
-        }
-        if fullstub == nil {
-            fullstub = &filestub{ name:fullname, other:stub.other }
-            stub.other = fullstub
-        }
-
-        res = &File{p.valbase, p.filebase, fullstub}
     } else {
         res = p
     }
@@ -5146,6 +5128,7 @@ func (p *delegate) expand(ctx Context, w facet) (res Value) {
     var close = w&expandPlain != 0
     if  close { w = (w&^offBits) | expandClose }
     if false { if s := p.String();
+        s == "$(file $(name).log)" ||
         // s == "$(foreach q p $(foreach $1,&(.test.foo)$_),x$_)" ||
         // s == "$(call -c &(.test.x),$1$1,$2$2)" ||
         // s == "$(foreach $1,&(.test.foo)$_)" ||
@@ -5225,6 +5208,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
         db int
     )
     if false { if s := p.String(); (
+        s == "$(file $(name).log)" ||
         // s == "$(call -c &(.test.x),$1$1,$2$2)" ||
         // s == "$(foreach $1 $2,$(value .test.$_) $(value .test~&(.test.s).$_))" ||
         // s == "$(foreach $1,$(value -c .test.$_)$1)" ||
@@ -5284,7 +5268,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
             warn(ctx, "reveal: @: %v", autoGet(ctx, "@"))
             warn(ctx, "reveal: <: %v", autoGet(ctx, "<"))
             warn(ctx, "reveal: >: %v", autoGet(ctx, ">"))
-            warn(ctx, "reveal: %T: %v", p.x, p)
+            warn(ctx, "reveal: %T: %v (%v)", p.x, p, file(ctx, ".configure/compiles/LZMA_VERSION.log"))
             warn(ctx, "reveal: args=%v, unexpanded=%v, transformed=%v", args, u, n)
             warn(ctx, "reveal: -> %T %v (same=%v)", res, res, same)
             if !same {

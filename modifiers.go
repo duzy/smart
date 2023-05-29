@@ -492,23 +492,26 @@ ForArgs:
         )
         switch a := arg.(type) {
         case *bareword: name = a.string
-        case *Pair: // NOTE: Pair.Value is not expanded yet! We need to expand it again.
-            name = a.Key.Strval(ctx)
-            if value = a.Value.expand(ctx, plain); isNil(value) {
-                value = a.Value
-            }
+        case *Pair: // NOTE: Pair.Value is not expanded, need to do it again.
+            name, value = a.Key.Strval(ctx), a.Value.expand(ctx, plain)
+            if isNil(value) { value = a.Value }
         case *Flag:
-            value = MakeNone(a.Position())
-            if name = a.name.Strval(ctx); name == "" { name = "-" }
+            name, value = a.name.Strval(ctx), MakeNone(a.Position())
+            if name == "" { name = "-" }
         default:
             erro(ctx, "%T `%s` is unsupported (try: foo=value)", arg, arg).debug(1)
             return
         }
+
         if def = program.scope.FindDef(name); def == nil {
             erro(ctx, "no such def '%s' (%v, %v)", name, arg, args).debug(16)
             break ForArgs
         } else {
-            def.val(ctx, value)
+            var auto = def.origin == DefAuto || def.origin == DefArg
+            if def.val(ctx, value); !auto && isNil(def.value) && !isNil(value) {
+                errostack(ctx, 3, "set def wrong: %T %v (auto: %v)", value, value, autoGet(ctx, def.name)).debug(6)
+            }
+
             defs = append(defs, def)
         }
     }
@@ -2979,7 +2982,7 @@ func (ctx modifier) assert(args... Value) (result Value) {
 
         fails += 1
     }
-    if fails > 0 { errostack(ctx, 8, "").debug(6) }
+    if fails > 0 { errostack(ctx, 8, "%v: %v", target, args).debug(6) }
     if ctx.flushDiags(true) > 0 { fail(ctx.Position(), "assertion") }
     return
 }

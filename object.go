@@ -719,13 +719,16 @@ func (d *def) set(ctx Context, origin Origin, value Value, app... Value) {
 
         var vals []Value
         if value != nil { vals = merge(value) }
-        if len(app) > 0 { vals = append(vals, app...) }
-        for _, val := range vals {
-                if def, ok := val.(*def); ok {
+        if   app != nil { vals = append(vals, app...) }
+
+        for i, val := range vals {
+                if o, y := val.(*def); y {
                         // Appending Def value is not recommended, but if it does, we make
                         // a warning here to give a chance for further optimization.
                         warn(ctx, "%v; (%v)", d, d.origin)
-                        warnstack(ctx, 5, "%v: append a Def value: %v", d.name, def).debug(16)
+                        warnstack(ctx, 5, "%v: use def as value: %v", o).debug(16)
+
+                        vals[i] = o.value // replace defs
                 }
         }
 

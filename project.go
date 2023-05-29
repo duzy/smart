@@ -493,9 +493,16 @@ ForPatterns:
 func files(ctx Context, iname interface{}, projects ...*Project) (maps []matchedFileMap) {
   if len(projects) == 0 { projects = append(projects, ctx.Project()) }
 
+  var ms = ctx.universe().unmap(ctx, iname)
+  if false && strings.HasPrefix(fmt.Sprintf("%s", iname), ".configure/compiles/") {
+    defer func() {
+      prompt(ctx, "%s: %T %v %v\n", iname, iname, ms, maps).debug(16)
+    } ()
+  }
+
   var a, b, c, d []matchedFileMap // four sections
 outer:
-  for _, m := range ctx.universe().unmap(ctx, iname) {
+  for _, m := range ms {
     for _, p := range projects {
       if m.project == p {
         a = append(a, m) ; continue outer
@@ -529,23 +536,24 @@ func (p *Project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File
     //   }
     // }
     f = m.stat(ctx, m.name)
-
-    if false && strings.HasSuffix(m.name, ".o") {
-      prompt(ctx, "%v: %v %v → %v %v\n", p, m.FileMap, m.name, f, f.exists())
-    }
-
     if f != nil {
       f.filemap = &m.FileMap
       files = append(files, f)
+    }
+
+    if false && strings.HasSuffix(m.name, ".log") {
+      info(ctx, "%v: %v %v → %v %v\n", p, m.FileMap, m.name, f, files).debug(16)
     }
   }
   return
 }
 
 func (p *Project) selectFile(ctx Context, maps []matchedFileMap) (file *File) {
-  var a = p.selectFiles(ctx, maps)
-  for _, f := range a { if f.exists() { return f } }
-  if len(a) > 0 { file = a[0] /* pick the first one if no exists */ }
+  if a := p.selectFiles(ctx, maps); len(a) > 0 {
+    if file = a[0]; !file.exists() {
+      for _, f := range a { if f.exists() { return f } }
+    }
+  }
   return
 }
 

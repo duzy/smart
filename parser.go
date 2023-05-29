@@ -2486,27 +2486,26 @@ SwitchDialect:
 func (p *parser) movar(ctx Context, args []Value) (err error) {
 	var loader = ctx.loader()
 	// Parsing (var a=xxx,b=yyy) definitions
-	for _, elem := range args[1:] {
+	for _, elem := range args {
 		var kv, ok = elem.(*Pair)
 		if !ok || kv == nil {
-			erro(of(ctx,elem), "bad var form (%T)", elem)
+			erro(of(ctx,elem), "bad var form (%T)", elem).debug(1)
 			continue
 		}
 
 		var name string
 		var k, v = kv.Key, kv.Value
 		if name = k.Strval(at(ctx, k.Position())); name == "" {
-			erro(of(ctx,k), "name '%v' is empty", k)
+			erro(of(ctx,k), "name '%v' is empty", k).debug(1)
 		}
+
 		if def, alt := loader.def(elem.Position(), name); alt != nil {
-			erro(of(ctx,k), "Def '%v' already existed: %T", name, alt)
-		} else if def != nil {
-			var ctx = at(ctx, v.Position())
-			if g, ok := v.(*Group); ok {
-				def.val(ctx, g.ToList(def.position))
-			} else {
-				def.val(ctx, v)
-			}
+			erro(of(ctx,k), "'%v' already defined: %T", name, alt).debug(1)
+		} else if def == nil {
+			erro(of(ctx,k), "'%v' not defined", name).debug(1)
+		} else {
+			if g, y := v.(*Group); y { v = g.ToList(def.position) }
+			def.val(at(ctx, v.Position()), v)
 		}
 	}
 	return
@@ -2596,7 +2595,7 @@ ForModifiersExpr:
 		switch n := group.Elems[0].(type) {
 		case *bareword:
 			if name = n.string; name == "var" {
-				p.movar(ctx, group.Elems)
+				p.movar(ctx, merge(group.Elems[1:]...))
 				continue ForModifiersExpr
 			} else if name == "configure" {
 				p.defineConfigureTargets(ctx)
