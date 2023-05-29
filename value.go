@@ -2683,15 +2683,6 @@ func (p *barecomp) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
         }
     }
 
-    // if res == nil && pat == nil {
-    //     // if res = cache.str(ctx, a, 0, bits); res != nil {
-    //     //     return
-    //     // }
-    //     if cache.filemapCache = cache.char0(bits); cache.filemapCache != nil {
-    //         res = cache.strx(at(ctx, p.position), p.Strval(ctx), bits)
-    //     }
-    // }
-
     if res == nil && (bits&cacheStore) != 0 {
         errostack(ctx, 3, "%08b: %v -> %v: uncached", bits, p, elems).debug(64)
     }
