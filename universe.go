@@ -92,7 +92,6 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*filemapCache
     var aa = strings.Split(ss[i], ".")
     var j = i + 1
 
-    const useAllFetched = false
     defer func(c *filemapCache) {
         if false { if (false ||
             ss[0] == ".configure" ||
@@ -116,7 +115,7 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*filemapCache
         }}
 
         if res != nil && res.maps == nil && (bits&cacheStore == 0) && (j == len(ss)) {
-            if !useAllFetched { warnstack(ctx, 3, "%08b: %v[%d]: empty cache (%p, %v)\n", bits, ss, i, c, res).debug(12) }
+            warnstack(ctx, 3, "%08b: %v[%d]: empty cache (%p, %v)\n", bits, ss, i, c, res).debug(12)
             res = nil // it doesn't make sense to fetch a 'empty' cache
         }
     } (cache.filemapCache)
@@ -125,35 +124,30 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*filemapCache
 
     if c := cache.comp(ctx, aa, bits); c != nil {
         if j == len(ss) {
-            if useAllFetched || bits&cacheStore != 0 || c.maps != nil { return c }
+            if bits&cacheStore != 0 || c.maps != nil { return c }
         } else if c != cache.filemapCache {
             return hitch{c, cache.value}.str(ctx, ss, j, bits, a...)
-        } else if useAllFetched {
-            errostack(ctx, 3, "%08b: %v[%d]: %s %s\n", bits, ss, i, ss[i], ss[j]).debug(16)
-            return
         }
     }
 
     if m := cache.match(ctx, ss); m != nil {
         if c := &m.filemapCache; j == len(ss) {
-            if useAllFetched || bits&cacheStore != 0 || c.maps != nil { return c }
+            if bits&cacheStore != 0 || c.maps != nil { return c }
         } else if c != cache.filemapCache {
             return hitch{c, cache.value}.str(ctx, ss, j, bits, a...)
-        } else if true {
+        } else {
             errostack(ctx, 3, "%08b: %v[%d]: %s %s\n", bits, ss, i, ss[i], ss[j]).debug(16)
             return
         }
     }
 
     if c := cache.charstr(ss[i], bits, true); c != nil { // prefixed-patterns: lib*.a test_*.c
-        if false { warn(ctx, "%v[%d]: c.pats %p %v\n", ss, i, c, c.pats).debug(1) }
         if m := c.match(ctx, ss); m != nil {
-            if false { warn(ctx, "%v[%d]: %p: %v\n", ss, i, m, m.value).debug(1) }
             if c := &m.filemapCache; j == len(ss) {
-                if useAllFetched || bits&cacheStore != 0 || c.maps != nil { return c }
+                if bits&cacheStore != 0 || c.maps != nil { return c }
             } else if c != cache.filemapCache {
                 return hitch{c, cache.value}.str(ctx, ss, j, bits, a...)
-            } else if true {
+            } else {
                 errostack(ctx, 3, "%08b: %v[%d]: %s %s\n", bits, ss, i, ss[i], ss[j]).debug(16)
                 return
             }
@@ -165,13 +159,11 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*filemapCache
     } else if cache.expand(ctx, s) {
         if c := cache.comp(ctx, aa, bits); c != nil {
             if j == len(ss) {
-                if useAllFetched || bits&cacheStore != 0 || c.maps != nil { return c }
+                if bits&cacheStore != 0 || c.maps != nil { return c }
             } else if c != cache.filemapCache {
                 return hitch{c, cache.value}.str(ctx, ss, j, bits, a...)
-            } else if true {
-                errostack(ctx, 3, "%08b: %v[%d]: %s %s\n", bits, ss, i, ss[i], ss[j]).debug(16)
-                return
             } else {
+                errostack(ctx, 3, "%08b: %v[%d]: %s %s\n", bits, ss, i, ss[i], ss[j]).debug(16)
                 return
             }
         } else {
@@ -701,12 +693,18 @@ func (uc *universe) unmap(ctx Context, name interface{}) (maps []matchedFileMap)
     const S = ""
 
     var h = hitch{&uc.filemaps, hitched{name}}
-    if v, y := name.(Value); y { if S != "" { db = S == v.Strval(ctx) }
-        cache = v.hit(ctx, h, cacheZero)
-    } else if s, y := name.(string); y { if S != "" { db = S == s }
-        cache = h.strx(ctx, s, cacheZero) // checks PathSep
-    } else if a, y := name.([]string); y { if S != "" { db = S == filepath.Join(a...) }
-        cache = h.strs(ctx, a, cacheZero)
+    if v, y := name.(Value); y {
+        if cache = v.hit(ctx, h, cacheZero); cache == nil {
+            var s = v.Strval(ctx) ; if S != "" { db = S == s }
+            if c := h.char0(cacheZero); c != nil { // FIXES: *.o <-> sub/foo.o
+                h.filemapCache = c
+                cache = h.strx(ctx, s, cacheZero)
+            }
+        } else if S != "" { db = S == v.Strval(ctx) }
+    } else if s, y := name.(string); y {
+        if cache = h.strx(ctx, s, cacheZero); S != "" { db = S == s }
+    } else if a, y := name.([]string); y {
+        if cache = h.strs(ctx, a, cacheZero); S != "" { db = S == filepath.Join(a...) }
     } else {
         if uncachedGetError { errostack(ctx, 3, "uncached: %T %v", name, name).debug(16) }
         return

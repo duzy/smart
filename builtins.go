@@ -4137,10 +4137,12 @@ func (ctx builtin) file(aa... Value) (res Value) {
                 }
 
                 if am = files(ctx, a, proj); am == nil {
-                        if am = files(ctx, a.Strval(ctx), proj); am != nil {
-                                warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", proj, a, a, ctx.Project()).debug(6)
-                        } else if f := file(ctx, a.Strval(ctx)); f != nil {
-                                warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", proj, a, a, ctx.Project()).debug(6)
+                        const w = false
+                        var s = a.Strval(ctx)
+                        if am = files(ctx, s, proj); am != nil {
+                                if w { warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", proj, a, a, ctx.Project()).debug(6) }
+                        } else if f := file(ctx, s); f != nil {
+                                if w { warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", proj, a, a, ctx.Project()).debug(6) }
 
                                 list = append(list, f)
                                 return

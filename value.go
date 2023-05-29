@@ -916,16 +916,17 @@ func (a as) file(ctx Context, projects ...*Project) (f *File) {
             }
             erro(ctx, "FIXME: %v: %v (%T, %v)", p, v, v, projects)
             erro(ctx, "FIXME: %v: %v (%s)", p, t, t.fullname())
-            errostack(ctx, 5, "").debug(32)
+            errostack(ctx, 5).debug(32)
         }
     } } ()
 
     switch t := a.Value.(type) {
     case *File     : f = t
     case *barefile : f = t.File
+    case  fullfile : f = t.File
     case *def      : if !isTrivial(t.value) { return as{t.value   }.file(ctx) }
     case *List     : if len(t.Elems) == 1   { return as{t.Elems[0]}.file(ctx) }
-    case *Rule:                          return as{t.target  }.file(ctx)
+    case *Rule:                               return as{t.target  }.file(ctx)
     case *String, *Compound:
         // NOTE: escape 'string' and "compound" values from file parsing,
         // NOTE: this optimized the performance.
@@ -2682,11 +2683,14 @@ func (p *barecomp) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
         }
     }
 
-    if res == nil && pat == nil {
-        if cache.filemapCache = cache.char0(bits); cache.filemapCache != nil {
-            res = cache.strx(at(ctx, p.position), p.Strval(ctx), bits)
-        }
-    }
+    // if res == nil && pat == nil {
+    //     // if res = cache.str(ctx, a, 0, bits); res != nil {
+    //     //     return
+    //     // }
+    //     if cache.filemapCache = cache.char0(bits); cache.filemapCache != nil {
+    //         res = cache.strx(at(ctx, p.position), p.Strval(ctx), bits)
+    //     }
+    // }
 
     if res == nil && (bits&cacheStore) != 0 {
         errostack(ctx, 3, "%08b: %v -> %v: uncached", bits, p, elems).debug(64)
