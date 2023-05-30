@@ -4065,8 +4065,7 @@ func (p *File) updatedDeps(_ Context, v ...Value) []Value {
     return p._updatedDeps
 }
 func (p *File) stat(ctx Context) (si *statinfo) {
-    var err error
-    if p.info != nil {
+    if err := error(nil); p.info != nil {
         // good already
     } else if p.info, err = os.Stat(p.fullname()); err == nil {
         // good
@@ -4076,10 +4075,10 @@ func (p *File) stat(ctx Context) (si *statinfo) {
         }
         return
     } else {
-        erro(at(ctx,p.position), "File.stat failed: %v", err).debug(1)
+        erro(at(ctx,p.position), "File.stat: %v", err).debug(1)
+        return
     }
-    if err == nil { si = &statinfo{ file: p } }
-    return
+    return &statinfo{ file: p }
 }
 func (p *File) isSysFile() (res bool) {
     if p.filemap != nil && len(p.filemap.locs) == 1 {
@@ -5186,8 +5185,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
     defer func(t0 time.Time) {
         var t2 = time.Now()
         if d := t2.Sub(t0); d > 1*time.Second {
-            var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) )
-            var pos = ctx.Position()
+            var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) ; pos = ctx.Position() )
             prompt(ctx, "%v: slow: %v (%T %v)\n", pos, p, p.o, p.o)
             prompt(ctx, "%v: slow:→%v (%T)\n", pos, res, res)
             prompt(ctx, "%v: slow: %v⇒%v+%v\n", pos, d, d1, d2).debug(4)

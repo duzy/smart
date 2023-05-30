@@ -279,6 +279,9 @@ const (
         // ::=
         DefExpand2 // expand all (delegates, closures, paths)
 
+        // ;:=
+        DefExpand3 // TODO: expand as plain
+
         // !=
         DefExecute  // value to be executed
         DefExecuted // executed result, TODO: remove DefExecuted state, add !:= for immediately executed defs
@@ -783,6 +786,7 @@ func (d *def) set(ctx Context, origin Origin, value Value, app... Value) {
         // d.mutex.Lock()
         d.origin, d.value = origin, MakeListOrScalar(pos, vals)
         // d.mutex.Unlock()
+
         return
 
         if _, y := d.value.(unexpanded); y { return }

@@ -364,22 +364,21 @@ func (ctx modifier) print(args... Value) (result Value) {
     return
 }
 
-type modifierDebugOpts struct {
-    generalOpts
-    cond   Value `if,cond,where,when`
-    info []Value `i,info`
-    warn []Value `w,warn`
-    erro []Value `e,er,err,erro,error`
-    checkOutdated bool `dirty,cd,checkdirty,check-dirty,co,check-outdated`
-    traverse int `tr,trave,traverse`
-    s int `s,stack,sn,stack-number`
-    n int `c,count,n,num,cn,call-number`
-}
-func (ctx modifier) debug(args... Value) (result Value) {
-    var opts modifierDebugOpts
-    args = parseOpts(ctx, &opts, plain, args...)
+func (ctx modifier) debug(aa ...Value) (result Value) {
+    var opts, args = mop[struct {
+        generalOpts
+        cond   Value `if,cond,where,when`
+        info []Value `i,info`
+        warn []Value `w,warn`
+        erro []Value `e,er,err,erro,error`
+        checkOutdated bool `dirty,cd,checkdirty,check-dirty,co,check-outdated`
+        traverse int `tr,trave,traverse`
+        s int `s,stack,sn,stack-number`
+        n int `c,count,n,num,cn,call-number`
+    }](&ctx, plain, aa...)
+
     if opts.cond != nil && !opts.cond.True(ctx) { return }
-    if n := opts.traverse; n > 0 { ctx.program().debug_traverse += n }
+    if n := opts.traverse; n > 0 { ctx.programContext().debug_traverse += n }
 
     for _, v := range opts.info { info(of(ctx,v), "%s", v.Strval(ctx)).debug(1) }
     for _, v := range opts.warn { warn(of(ctx,v), "%s", v.Strval(ctx)).debug(1) }
@@ -2958,23 +2957,24 @@ func (ctx modifier) stamp(args... Value) (result Value) {
     return
 }
 
-type modifierAssertOpts struct {
-    generalOpts
-    msg string `m,msg,message`
-}
 func (ctx modifier) assert(args... Value) (result Value) {
     var fails int
     var target = autoGet(ctx, "@")
     var pc = ctx.programContext()
-    var opts modifierAssertOpts
-    for _, a := range parseOpts(ctx, &opts, plain, args...) {
+    var opts, _ = mop[struct {
+        generalOpts
+        msg string `m,msg,message`
+    }](&ctx, plain)
+
+    for _, a := range args {
         if _, y := a.(*punctuation); y { continue }
 
-        if a.True(ctx) { continue }
-        if s := opts.msg; s == "" {
-            erro(of(ctx, a), "assert failed: %s: %v", typeof(a), a)
+        if v := a.expand(ctx, plain); v.True(ctx) {
+            continue
+        } else if s := opts.msg; s == "" {
+            erro(of(ctx, a), "assert failed: %s: %v → %v", typeof(a), a, v)
         } else {
-            erro(of(ctx, a), "assert failed: %v: %s", a, s)
+            erro(of(ctx, a), "assert failed: %v: %v: %s", a, v, s)
         }
 
         pc.traves.add(ctx, traveFail, target).

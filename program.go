@@ -53,6 +53,8 @@ type programContext struct {
 
     interpreted []interpreter
 
+    debug_traverse int
+
     print bool // printing work directories (Entering/Leaving)
 }
 func (pc *programContext) caller() *programContext { return pc.Context.programContext() }
@@ -402,8 +404,6 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
 
         projects = ctx.projects(ctx)
 
-        t1, t2 time.Time
-
         targetValue Value
 
         prereqPattern Value
@@ -413,6 +413,8 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
 
         concreteList []Entry
         stemmedList []*stemmed
+
+        t1, t2 time.Time
     )
     defer func(t0 time.Time) {
         if false && (db || strings.HasSuffix(prereqStrval, "include/__cxxabi_config.h")) {
@@ -430,10 +432,10 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
         result = pc.traves
 
         if prereqFile != nil && !prereqFile.exists() {
-            for i, concrete := range concreteList { warn(at(ctx,concrete.Position()), "%v : concrete: %d. %v (%d programs)", targetValue, i, concrete, len(concrete.Programs())) }
-            for i, stemmed  := range stemmedList  { warn(at(ctx,stemmed.position), "%v : stemmed: %d. %v", targetValue, i, stemmed) }
-            for i, s := range pc.traves { warn(at(ctx,s.pos), "%v : %d. %v", targetValue, i, s) }
-            erro(of(ctx, prereqValue), "missing %v %v", prereqValue, prereqFile.fullname())
+            erro(of(ctx, prereqValue), "%v: missing %v %v", targetValue, prereqValue, prereqFile.fullname())
+            for i, concrete := range concreteList { warn(at(ctx,concrete.Position()), "%v: concrete: %d. %v (%d programs)", targetValue, i, concrete, len(concrete.Programs())) }
+            for i, stemmed  := range stemmedList  { warn(at(ctx,stemmed.position), "%v: stemmed: %d. %v", targetValue, i, stemmed) }
+            for i, s := range pc.traves { warn(at(ctx,s.pos), "%v: %d. %v", targetValue, i, s) }
             errostack(ctx, 5, "%v, filemap=%v", projects, prereqFile.filemap).debug(10)
         }
 
@@ -475,13 +477,13 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
     }
 
     // NOTE: Don't delete, keep it for future debugging.
-    if false { if ((
+    if false && ((
         strings.HasPrefix(prereqStrval, "") ||
             false) && (
         strings.Contains(prereqStrval, "/") ||
             false) && (
         strings.HasSuffix(prereqStrval, ".o") ||
-            false)) { db = true
+            false)) {
         var s, _, _ = entryIndicator(ctx, targetValue)
         prompt(ctx, "%v : %T %v\n", s, prereqValue, prereqStrval)
         warn(ctx, "@: %T %v : %v", targetValue, targetValue, ctx.program().depends)
@@ -512,7 +514,8 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
             }
             warnstack(ctx, 5, "%v", ctx.entry()).debug(10)
         }
-    }}
+        db = true
+    }
 
     if traverseCacheOn && traverseCache != nil && prereqFile != nil {
         var h maphash.Hash
@@ -788,31 +791,22 @@ CheckPrereqResult:
         trave.depend = p
         return
     } else if m := p.filemap; m != nil {
-        var f = m.stat(ctx, p.name)
-        if f != nil && f.info == nil && f.name == "tablegen-min" {
+        if p.info == nil { p.stat(ctx) }
+        if true && p.info == nil && p.name == "tablegen-min" {
+            var f = m.stat(ctx, p.name)
             var pos = ctx.Position()
+            for _, loc := range m.locs { prompt(ctx, "%v: %v ⇒ %v\n", pos, m, loc) }
             prompt(ctx, "%v: {%v %v %v}\n", pos, p.dir, p.sub, p.name)
             prompt(ctx, "%v: {%v %v %v}\n", pos, f.dir, f.sub, f.name)
-            prompt(ctx, "%v: %v: %v %v\n", pos, m.project, m.patts, m.locs).debug(1)
+            prompt(ctx, "%v: %v, patts=%v\n", pos, m.project, m.patts).debug(1)
         }
-        if f != nil && f.info != nil {
+        if p.info != nil {
             assert(p.exists(), "file must exists at this point")
             trave := pc.traves.add(ctx, traveFile, targetValue)
             trave.dependPat = prereqPattern
             trave.depend = p
             return
         }
-
-        // for _, project := range projects {
-        //     var f = p.filemap.stat(ctx, /* project.absPath */"", p.name)
-        //     if f != nil && f.info != nil {
-        //         assert(p.exists(), "file must exists at this point")
-        //         trave := pc.traves.add(ctx, traveFile, targetValue)
-        //         trave.dependPat = prereqPattern
-        //         trave.depend = p
-        //         return
-        //     }
-        // }
     }
 
     if p != nil && p.exists() {
@@ -899,7 +893,6 @@ type Program struct {
     language  string
     changedWD string
     configure bool
-    debug_traverse int
 }
 func (prog *Program) Position() Position { return prog.position }
 func (prog *Program) Project() *Project { return prog.project }
@@ -1384,12 +1377,16 @@ ForPrerequisites:
             var p = prerequisite
             var a = autoGet(ctx, "@")
             var t = autoGet(ctx, "^")
-            prompt(ctx, "%v: %v: @: %v", pos, a, p)
-            prompt(ctx, "%v: %v: ^: %v", pos, a, t)
-            prompt(ctx, "%v: %v", pos, d).debug(1)
+            var c = autoGet(ctx, "<")
+            var d = autoGet(ctx, ">")
+            prompt(ctx, "%v: Program.traverse %v: @: %v\n", pos, p, a)
+            prompt(ctx, "%v: Program.traverse %v: ^: %v\n", pos, p, t)
+            prompt(ctx, "%v: Program.traverse %v: <: %v\n", pos, p, c)
+            prompt(ctx, "%v: Program.traverse %v: >: %v\n", pos, p, d)
+            prompt(ctx, "%v: Program.traverse %v\n", pos, d).debug(1)
         }
 
-        if prog.debug_traverse > 0 { if true { prog.debug_traverse -= 1 }
+        if pc.debug_traverse > 0 { if true { pc.debug_traverse -= 1 }
             for i, a := range pc.traves { info(of(ctx,prerequisite), "%v: %d. %v %v", ent, i, a.what, a) }
             warnstack(of(ctx,prerequisite), 12, "%v: %v: %v %v", prog.project, ent, prerequisite, autoGet(ctx, ">")).debug(10)
         }
