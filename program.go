@@ -191,7 +191,7 @@ func isDirtyAfter(ctx Context, target Value, t time.Time) (res bool) {
 }
 
 var dirtyDups = make(map[string]int)
-func (pc *programContext) dirty(ctx Context, args ...Value) (outdated bool) {
+func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
     var target as
     if val, /*files*/_, /*execRes*/_, err := wait(pc); err != nil {
         errostack(ctx, 5, "%v", err).debug(10)
@@ -200,12 +200,25 @@ func (pc *programContext) dirty(ctx Context, args ...Value) (outdated bool) {
         target.Value = val
     }
 
-    var opts dirtyOpts
-    args = parseOpts(ctx, &opts, plain, args...)
-
-    var y bool
+    var reason string
     var targetFile *File
     var targetFull string
+    if true { if s := target.Strval(ctx); s != "" && (
+        strings.HasSuffix(s, "libllvm.BinaryFormat.a") ||
+            s == "tablegen-min" ||
+            false) {
+        defer func() {
+            for _, s := range pc.traves { prompt(ctx, "%v: %v\n", target.Value, s) }
+            prompt(ctx, "%v: %s\n", target.Value, targetFull)
+            prompt(ctx, "%v: outdated=%v, %s\n", target.Value, outdated, reason)
+            prompt(ctx, "%v: %v %v %v\n", target.Value, dirtyDups[s], dirtyDups[targetFull], len(dirtyDups))
+            warnstack(ctx, 5).debug(10)
+        } ()
+    }}
+
+    var opts, args = _opts[dirtyOpts](ctx, plain, aa...)
+
+    var y bool
     if targetFile, targetFull, y = target.fullname(ctx); !y {
         targetFull = target.Strval(ctx)
     } else if n := targetFile.traversed; n > 1 {
@@ -226,7 +239,6 @@ func (pc *programContext) dirty(ctx Context, args ...Value) (outdated bool) {
         return
     }
 
-    var reason string
     if s := target.stat(ctx); s == nil || s.exists() != existenceConfirmed {
         outdated, reason = true, fmt.Sprintf("not exists: %s %v", typeof(target), target)
     } else if isDirty(ctx, target, args...) && isDirtyAfter(ctx, target, s.mod()) {
@@ -885,6 +897,7 @@ type Program struct {
     position Position
     project *Project
     scope   *Scope
+    _env     []*Pair
     params   []*def
     depends  []Value // normal
     ordered  []Value // order-only
@@ -1013,32 +1026,14 @@ func (prog *Program) workDir(ctx Context) (workDir string) {
 }
 
 func (prog *Program) env(ctx Context) (env []string, osi int) {
-      var envars []*Pair // disclosed values
-    if def, _ := prog.scope.Lookup(TheShellEnvarsDef).(*def); def != nil {
-        if l, _ := def.value.(*List); l != nil {
-            for _, v := range l.Elems {
-                var t Value
-                if t = v.expand(ctx, expandClosure); isNil(t) { t = v }
-                if p, ok := t.(*Pair); ok {
-                    envars = append(envars, p)
-                } else {
-                    erro(of(ctx,t), "env expecting pairs: %T", t).debug(1)
-                    return
-                }
-            }
-        }
-    }
-
     env = os.Environ()
     osi = len(env)
-    for _, p := range envars {
+    for _, p := range prog._env {
         var (
             k = p.Key.Strval(ctx)
             v = p.Value.Strval(ctx)
         )
-        // if i > 0 { envstr += " && " }
-        // envstr += fmt.Sprintf(`%s=%s`, k, strconv.Quote(v))
-        env = append(env, fmt.Sprintf("%s=%s", k, v))
+        env = append(env, fmt.Sprintf("%s=%s", k, v)) // strconv.Quote(v)
     }
     return
 }

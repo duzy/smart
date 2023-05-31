@@ -479,6 +479,11 @@ func mop[Opts interface{}] (ctx *modifier, w facet, args ...Value) (opts Opts, r
         return
 }
 
+func _opts[Opts interface{}](ctx Context, w facet, args... Value) (opts Opts, res []Value) {
+        res = parseOpts(ctx, &opts, w, args...)
+        return
+}
+
 func parseOpts(ctx Context, iOpts interface{}, w facet, args... Value) (rest []Value) {
         if w&^expandNone == 0 {
                 rest = merge(args...) // NOTE: set the returning args first of all!

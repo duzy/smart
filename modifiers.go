@@ -30,7 +30,6 @@ import (
 var launchTime = time.Now()
 
 const (
-    TheShellEnvarsDef = "shell→envars" // '→' ' → '
     TheShellStatusDef = "shell→status" // status code of execution
 )
 
@@ -443,27 +442,13 @@ func (ctx modifier) env(args... Value) (result Value) {
     args = mergex(ctx, plain, args...)
 
     var program = ctx.program()
-    var d, a = program.scope.define(ctx, DefVoid, TheShellEnvarsDef, nil)
-    if d == nil && a != nil { d, _ = a.(*def) }
-    if d == nil {
-        erro(ctx, "failed setting %v", TheShellEnvarsDef).debug(1)
-        return
-    }
-
-    var envars = new(List)
-    if !isTrivial(d.value) {
-        envars.Elems = merge(d.value)
-    }
     for _, a := range args {
-        if _, ok := a.(*Pair); ok {
-            envars.Append(a)
+        if p, ok := a.(*Pair); ok {
+            program._env = append(program._env, p)
         } else {
-            erro(ctx, "%v: not a pair value: %v (%T)", TheShellEnvarsDef, a, a).debug(1)
-            return
+            erro(ctx, "env: not a pair value: %v (%T)", a, a).debug(1)
         }
     }
-
-    d.value = envars
     return
 }
 
@@ -3003,12 +2988,10 @@ func (ctx modifier) cond(args... Value) (result Value) {
     return MakeBoolean(ctx.Position(), true)
 }
 
-type modifierCaseOpts struct {
-    generalOpts
-}
 func (ctx modifier) _case(args... Value) (result Value) {
-    var opts modifierCaseOpts
-    // TODO: parseOpts(ctx, &opts, plain, ...)
+    var opts, _ = mop[struct {
+        generalOpts
+    }](&ctx, plain)
 
     var w travekind = traveNext
     for _, a := range args {
