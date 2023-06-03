@@ -620,7 +620,7 @@ func checkFailure(ctx Context, dontCheckErrors ...bool) (panics, errs int) {
       var s = filepath.Join(pos.Filename, "build.smart")
       if _, e := os.Stat(s); e == nil { pos.Filename = s }
     }
-    erro(at(ctx,pos), "failed: got %d panics", panics).debug(128)
+    errostack(at(ctx,pos), 5, "failed: got %d panics", panics).debug(128)
   }
   if len(dontCheckErrors) > 0 && dontCheckErrors[0] {
     // okay

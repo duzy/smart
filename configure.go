@@ -352,9 +352,14 @@ func (cc *configureContext) String() string { return fmt.Sprintf("configure{%s}"
 func (cc *configureContext) inner() Context { return cc.Context }
 func (cc *configureContext) isConfiguration() bool { return true }
 
+
 type commonConfigureOpts struct {
     silent bool `s,silent`
     noResetHyphen bool `r,reset` // reset hyphen value, aka. "-"
+}
+type modifierConfigureOpts struct {
+    generalOpts
+    accumulate bool `a,add,accumulate`
 }
 func executeConfigureEntry(ctx Context, opts *modifierConfigureOpts, entryName string, target Value, paramsOrig ...Value) (configured bool, result Value) {
     if options.traceConfig { defer un(trace(t_config, fmt.Sprintf("executeConfigureEntry(%s %v)", entryName, ctx))) }
@@ -568,11 +573,7 @@ func configureDo(ctx Context, opts *modifierConfigureOpts, target Value, name Va
 //     (configure -library(lib,function,include='<xxx.h>'))
 //     (configure -symbol(symbol,include='<xxx.h>'))
 //     (configure -compiles(info="..."))
-type modifierConfigureOpts struct {
-    generalOpts
-    accumulate bool `a,accumulate;a,add`
-}
-func (ctx modifier) configure(args ...Value) (result Value) {
+func (ctx modifier) configure(aa ...Value) (result Value) {
     if options.traceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", ctx, options.reconfigure))) }
 
     var program = ctx.program()
@@ -582,8 +583,7 @@ func (ctx modifier) configure(args ...Value) (result Value) {
     }
 
     var pos = ctx.Position()
-    var opts modifierConfigureOpts
-    args = parseOpts(ctx, &opts, plain, args...)
+    var opts, args = _opts[modifierConfigureOpts](ctx.Context, plain, aa...)
 
     if program.project.configure == nil {
         if program.project.name == "configure" {
@@ -849,8 +849,8 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         }
     }}
     if data.Len() == 0 {
-        prompt(ctx, "%v: %v\n", filename, autoGet(ctx,"@"))
-        erro(ctx, "no configuration data").debug(6)
+        prompt(ctx, "%v: %v %v\n", filename, autoGet(ctx,"@"), autoGet(ctx,">"))
+        errostack(ctx, 5, "empty configuration data").debug(6)
         return
     } else if f := ctx.Project().configuration(ctx); (f == nil || !f.exists()) && opts.debug>0 {
         // NOTE: TrimSpace to ease emacs *compilation* parse errors

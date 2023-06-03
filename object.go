@@ -726,11 +726,13 @@ func (d *def) set(ctx Context, origin Origin, value Value, app... Value) {
 
         for i, val := range vals {
                 if o, y := val.(*def); y {
-                        // Appending Def value is not recommended, but if it does, we make
-                        // a warning here to give a chance for further optimization.
-                        warn(ctx, "%v; (%v)", d, d.origin)
-                        warnstack(ctx, 5, "%v: use def as value: %v", o).debug(16)
-
+                        if false {
+                                // Appending Def value is not recommended, but if it does, we make
+                                // a warning here to give a chance for further optimization.
+                                warn(ctx, "use def as value: %v", o)
+                                warn(ctx, "%v: %v", d.origin, d)
+                                warnstack(ctx, 5).debug(16)
+                        }
                         vals[i] = o.value // replace defs
                 }
         }

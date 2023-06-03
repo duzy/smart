@@ -232,6 +232,10 @@ func (p travestates) String() (s string) {
     return
 }
 
+func (traves *travestates) slice(i int) (res travestates) {
+    return (*traves)[i:]
+}
+
 func (traves *travestates) has(what ...travekind) (res bool) {
     if len(what) == 0 { res = len(*traves) > 0 } else {
     ForTravestates:
@@ -266,10 +270,10 @@ ForTravestates:
 }
 
 func (traves *travestates) not(what ...travekind) (res travestates) {
-ForTravestates:
+outter:
     for _, s := range *traves {
         for _, w := range what {
-            if s.what == w { continue ForTravestates }
+            if s.what == w { continue outter }
         }
         res = append(res, s)
     }
@@ -277,12 +281,30 @@ ForTravestates:
 }
 
 func (traves *travestates) of(what ...travekind) (res travestates) {
-ForTravestates:
+outter:
     for _, s := range *traves {
         for _, w := range what {
             if s.what == w {
                 res = append(res, s)
-                continue ForTravestates
+                continue outter
+            }
+        }
+    }
+    return
+}
+
+func (traves *travestates) my(ctx Context, target Value, what ...travekind) (res travestates) {
+outter:
+    for _, s := range *traves {
+        if !eq(ctx, target, s.target) { continue }
+        if what == nil {
+            res = append(res, s)
+            continue
+        }
+        for _, w := range what {
+            if s.what == w {
+                res = append(res, s)
+                continue outter
             }
         }
     }
@@ -290,7 +312,7 @@ ForTravestates:
 }
 
 func (traves *travestates) unique(ctx Context, what ...travekind) (res travestates) {
-ForTravestates:
+outter:
     for _, s := range *traves {
         for _, w := range what {
             if s.what == w {
@@ -298,11 +320,11 @@ ForTravestates:
                     // FIXME: seems not working
                     if s.what == s2.what && (s == s2 || (true && eq(ctx, s.target, s2.target) &&
                         ((s.depend != nil && s2.depend != nil && eq(ctx, s.depend, s2.depend))))) {
-                        continue ForTravestates
+                        continue outter
                     }
                 } 
                 res = append(res, s)
-                continue ForTravestates
+                continue outter
             }
         }
     }
@@ -1072,9 +1094,9 @@ type Value interface {
     traverse(Context)
 }
 
-type valueList []Value
+type valvec []Value
 
-func (vals valueList) contains(val Value) (res bool) {
+func (vals valvec) contains(val Value) (res bool) {
     if val != nil {
         for _, v := range vals {
             if res = v == val; res { break }
@@ -1083,7 +1105,7 @@ func (vals valueList) contains(val Value) (res bool) {
     return
 }
 
-func (vals *valueList) add(val Value) (res *valueList) {
+func (vals *valvec) add(val Value) (res *valvec) {
     if val != nil && !vals.contains(val) {
         *vals = append(*vals, val)
     }

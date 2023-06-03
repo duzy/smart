@@ -70,34 +70,30 @@ func (_ *modification) cmp(ctx Context, v Value) (res cmpres) {
 func (m *modification) traverse(ctx Context) {
     ctx = at(ctx, m.position)
 
+    defer func(t0 time.Time) {
+        var t2 = time.Now()
+        if d := t2.Sub(t0); d > 1*time.Second {
+            var pos = ctx.Position()
+            prompt(ctx, "%v: slow: %v ⇒ %v\n", pos, m, d).debug(1)
+        }
+    } (time.Now())
+
     var (
-        name string
-        args = mergex(ctx, plain, m.name)
         pc   = ctx.programContext()
         prog = ctx.program()
         proj = ctx.Project()
+        name = m.name.Strval(ctx)
     )
-    if n := len(args); n == 0 {
+    if name == "" {
         erro(of(ctx,m.name), "modifier name '%v' is empty", m.name).debug(1)
         return
-    } else {
-        name = args[0].Strval(ctx)
-        args = append(args[1:], m.args...)
-    }
-
-    if false {
-        defer func(d0 time.Duration) {
-            if d := ctx.gap(); d > 10*time.Second {
-                info(ctx, "%v: %v %v", name, (d-d0), d).debug(1)
-            }
-        } (ctx.gap())
     }
 
     // Special modifier processing (implicit interpretation) before (configure)
     if len(pc.interpreted) == 0 && len(prog.recipes) > 0 && name == "configure" {
         // Evaluate for configure modifier
         if i, ok := dialects["eval"]; ok && i != nil {
-            if err := prog.interpret(ctx, i, args); err != nil {
+            if err := prog.interpret(ctx, i, m.args); err != nil {
                 var _, ent, _ = entryIndicator(ctx, ctx.entry())
                 prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
                 erro(ctx, "interpret failed: %v", err)
@@ -108,7 +104,7 @@ func (m *modification) traverse(ctx Context) {
     }
 
     if i, _ := dialects[name]; i != nil {
-        if err := prog.interpret(ctx, i, args); err != nil {
+        if err := prog.interpret(ctx, i, m.args); err != nil {
             var _, ent, _ = entryIndicator(ctx, ctx.entry())
             prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
             erro(ctx, "%s: %v", name, err)
@@ -223,7 +219,8 @@ func (m modifier) apply(name string, args ...Value) (res Value) {
                 var ctx = at(m.Context, a.Position())
                 var s = g.Elems[0].Strval(ctx)
                 var v = modifier{ctx}.apply(s, g.Elems[1:]...)
-                if true && s != "dirty" { warn(ctx, "%d. %v -> %v", i, g, v).debug(1) }
+                if true && s != "dirty" { warn(ctx, "%v -> %v", g, v).debug(1) }
+                if v == nil { v = MakeNil(a.Position()) }
                 args[i] = v
             }
         }
@@ -1938,33 +1935,34 @@ func (ctx modifier) touch(args... Value) (result Value) {
     return
 }
 
-type modifierCheckOpts struct {
-    generalOpts
-    trim bool `trim,trim-string`
-    answer bool `a,answer`
-    boolean bool `b,boolean;r,result`
-    silent bool `s,slient`
-    good bool `g,good`
-    file Value `f,file`
-    dir Value `di,dir`
-}
 // (check status=1 stdout="foobar" stderr="")
 // (check file=filename.txt)
 // (check dir=directory)
 // (check var=(NAME,VALUE))
-func (ctx modifier) check(args... Value) (result Value) {
+func (ctx modifier) check(aa ...Value) (result Value) {
     var (
         pos = ctx.Position()
-        opts modifierCheckOpts
+        pc  = ctx.programContext()
         optBreak travekind // breaking with good results
         makeResult func(Position,bool) Value // returns results only if non-nil
-        value = autoGet(ctx, "-")
         values []Value
         pairs []*Pair
         res bool
     )
 
-    args = parseOpts(ctx, &opts, plain, args...)
+    var opts, args = _opts[struct{
+        generalOpts
+        trim bool `trim,trim-string`
+        answer bool `a,answer`
+        boolean bool `b,boolean;r,result`
+        silent bool `s,slient`
+        exists bool `e,ex,exists`
+        regular bool `reg,regular`
+        isdir bool `isdir`
+        good bool `g,good`
+        file Value `f,file`
+        dir Value `di,dir`
+    }](ctx.Context, plain, aa...)
 
     if opts.good    { optBreak   = traveDone }
     if opts.answer  { makeResult = func(p Position,v bool) Value { return MakeAnswer(p, v) } }
@@ -1973,7 +1971,6 @@ func (ctx modifier) check(args... Value) (result Value) {
         makeResult = func(p Position,v bool) Value { return MakeBoolean(p, v) }
     }
 
-    var pc = ctx.programContext()
     for _, arg := range args {
         switch a := arg.(type) {
         case *Pair: pairs = append(pairs, a)
@@ -1990,29 +1987,42 @@ func (ctx modifier) check(args... Value) (result Value) {
     }
 
     if opts.file != nil {
-        var ( s string; f *File )
-        if f, res = toFile(opts.file); res {
-            if res = f.exists(); !res && opts.verbose {
-                warn(of(ctx,opts.file), "file '%v' does not exists", opts.file).debug(1)
-            }
-        } else if s = opts.file.Strval(ctx); filepath.IsAbs(s) {
-            if f = stat(at(ctx, opts.file.Position()), s, "", ""); f != nil {
-                res = f.exists()
-            }
-        } else if f = file(ctx, s); f != nil {
-            res = f.exists()
+        var ( s string; f *File ; val = opts.file )
+        if v, y := val.(*boolean); y {
+            if v.bool { val = autoGet(ctx, "@") } else { val = nil }
         }
-        if res { res = !f.info.Mode().IsDir() } // .IsRegular()
-        if opts.verbose {
-            warn(of(ctx,opts.file), "'%v' is file: %v", opts.file, res).debug(1)
+
+        if val == nil {
+            erro(ctx, "nil file value to check").debug(1)
+            return
+        } else if f, res = toFile(val); res {
+            // best case
+        } else if s = val.Strval(ctx); filepath.IsAbs(s) {
+            if f = stat(at(ctx, val.Position()), s, "", ""); f != nil { res = true }
+        } else if f = file(ctx, s); f != nil { res = true }
+
+        if f != nil {
+            if opts.regular { res = f.exists()
+                if opts.verbose { warnstack(of(ctx,val), 3, "check regular file '%v': %v", val, res).debug(1) }
+            } else if opts.isdir { res = f.info != nil && f.info.Mode().IsDir()
+                if opts.verbose { warnstack(of(ctx,val), 3, "check file is dir '%v': %v", val, res).debug(1) }
+            } else if opts.exists { res = f.exists()
+                if opts.verbose { warnstack(of(ctx,val), 3, "check file exists '%v': %v", val, res).debug(1) }
+            } else if opts.verbose {
+                warnstack(of(ctx,val), 3, "check file '%v': %v", val, res).debug(1)
+            }
+        } else if opts.verbose {
+            warnstack(of(ctx,val), 3, "check file '%v': %v", val, res).debug(1)
         }
+
         if makeResult != nil {
             values = append(values, makeResult(pos, res))
         } else if !res {
-            pc.traves.addf(ctx, optBreak, "value '%v' is not file", opts.file)
+            pc.traves.addf(ctx, optBreak, "'%v' is not file", val)
             return
         }
     }
+
     if opts.dir != nil {
         var ( s string; f *File )
         if f, res = toFile(opts.dir); res {
@@ -2039,6 +2049,7 @@ func (ctx modifier) check(args... Value) (result Value) {
     }
 
     var program = ctx.program()
+    var value = autoGet(ctx, "-")
 ForPairs:
     for _, p := range pairs {
         var key, str string
@@ -2952,6 +2963,11 @@ func (ctx modifier) assert(args... Value) (result Value) {
     }](&ctx, plain)
 
     for _, a := range args {
+        if a == nil {
+            errostack(ctx, 3, "assert failed: nil arg").debug(16)
+            return
+        }
+
         if _, y := a.(*punctuation); y { continue }
 
         if v := a.expand(ctx, plain); v.True(ctx) {
