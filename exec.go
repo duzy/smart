@@ -780,29 +780,32 @@ func (p *execContext) skips(tag string) bool {
 }
 
 func (p *execContext) run() (err error) {
+  if p.containerToRun != "" {
+    p.retried[p.containerToRun] = true // mark it to skip next time
+    err = p.runContainerAndRetry()
+    p.containerToRun = ""
+    return
+  }
+
   var pc = p.Context.programContext()
 
   pc.Add(1)
   p.num += 1
 
-  var run = func() {
+  var run = func(c *exec.Cmd) {
     defer pc.Done()
 
-    if err = p.sh.Run(); err == nil {
+    if err = c.Run(); err == nil {
       err = p.check()
     } else if ee, ok := err.(*exec.ExitError); !ok {
       erro(p.Context, "exec failed: %v", err).debug(1)
       return
     } else if p.Status = ee.ExitCode(); p.Status == 0 {
       err = p.check() // success!
-    } else if p.containerToRun != "" {
-      p.retried[p.containerToRun] = true // mark it to skip next time
-      err = p.runContainerAndRetry()
-      p.containerToRun = ""
     }
   }
 
-  if true { run() } else { go run() }
+  if true { run(p.sh) } else { go run(p.sh) }
   return
 }
 
@@ -1064,31 +1067,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   recipes = mergex(ctx, w, program.recipes...)
 
   var positions []Position
-  for i, recipe := range recipes {
+  for _, recipe := range recipes {
     if !recipePos.IsValid() { recipePos = recipe.Position() }
 
     var str = recipe.Strval(ctx)
-    if false && strings.Contains(str, "llvm-driver-objcopy.cpp") {
-      var vals = mergex(ctx, w, recipe.(*Compound).Elems...)
-      warn(ctx, "%v %T", program.recipes[i], program.recipes[i])
-      warn(ctx, "%v %T", recipe, recipe)
-      warn(ctx, "%v", vals)
-      warn(ctx, "%v", str)
-      for _, val := range vals {
-        if true {
-          warn(ctx, "%T %v", val, val)
-        } else if val.Strval(ctx) == "llvm-driver-objcopy.cpp" {
-          warn(ctx, "%T %v", val, val)
-          if c, ok := val.(*barecomp); ok {
-            for _, val := range c.Elems {
-              warn(ctx, "%T %v", val, val)
-            }
-          }
-        }
-      }
-      warnstack(ctx, 3, "").debug(1)
-    }
-
     if str = strings.TrimRightFunc(str, unicode.IsSpace); str == "" {
       source += "\n" // an empty line
       continue

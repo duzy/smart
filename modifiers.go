@@ -572,8 +572,6 @@ func (ctx modifier) _closure(args... Value) (result Value) {
             s = t.Strval(ctx)
         } else if n = f.traversed; n > 1 {
             // traversed = true
-        } else if n, y = dirtyDups[s]; y && n > 1 {
-            // traversed = true
         }
 
         if n > 1 {

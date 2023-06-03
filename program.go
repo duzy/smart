@@ -190,7 +190,6 @@ func isDirtyAfter(ctx Context, target Value, t time.Time) (res bool) {
     return
 }
 
-var dirtyDups = make(map[string]int)
 func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
     var target as
     if val, /*files*/_, /*execRes*/_, err := wait(pc); err != nil {
@@ -203,15 +202,13 @@ func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
     var reason string
     var targetFile *File
     var targetFull string
-    if true { if s := target.Strval(ctx); s != "" && (
-        strings.HasSuffix(s, "libllvm.BinaryFormat.a") ||
-            s == "tablegen-min" ||
-            false) {
+    if false { if s := target.Strval(ctx); s != "" && (
+        // s == "tablegen-min" ||
+        false) {
         defer func() {
             for _, s := range pc.traves { prompt(ctx, "%v: %v\n", target.Value, s) }
             prompt(ctx, "%v: %s\n", target.Value, targetFull)
             prompt(ctx, "%v: outdated=%v, %s\n", target.Value, outdated, reason)
-            prompt(ctx, "%v: %v %v %v\n", target.Value, dirtyDups[s], dirtyDups[targetFull], len(dirtyDups))
             warnstack(ctx, 5).debug(32)
         } ()
     }}
@@ -228,16 +225,6 @@ func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
 
     var verb = opts.debug>0 || opts.verbose
     var ts = trimPromptString(targetFull)
-    var n = dirtyDups[targetFull] ; dirtyDups[targetFull] = n + 1
-    if n > 0 {
-        if verb && !(opts.verboseOutdated || opts.verboseUpdated) {
-            var d = ctx.gap(false)
-            prompt(ctx, "%s …… duplication (%d, %v)\n", ts, n, d)//.debug(true, 64)
-            if false { warnstack(ctx, 64, "%v, %v, (%d, %v)", targetFile, targetFull, n, d).debug(64) }
-        }
-        pc.traves.add(ctx, traveDone, nil)
-        return
-    }
 
     if s := target.stat(ctx); s == nil || s.exists() != existenceConfirmed {
         outdated, reason = true, fmt.Sprintf("not exists: %s %v", typeof(target), target)
