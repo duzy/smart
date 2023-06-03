@@ -70,20 +70,23 @@ func (_ *modification) cmp(ctx Context, v Value) (res cmpres) {
 func (m *modification) traverse(ctx Context) {
     ctx = at(ctx, m.position)
 
-    defer func(t0 time.Time) {
-        var t2 = time.Now()
-        if d := t2.Sub(t0); d > 1*time.Second {
-            var pos = ctx.Position()
-            prompt(ctx, "%v: slow: %v ⇒ %v\n", pos, m, d).debug(1)
-        }
-    } (time.Now())
-
     var (
         pc   = ctx.programContext()
         prog = ctx.program()
         proj = ctx.Project()
         name = m.name.Strval(ctx)
     )
+    defer func(t0 time.Time) {
+        var n time.Duration = 1
+        if name == "shell" || name == "sh" { n = 10 }
+
+        var t2 = time.Now()
+        if d := t2.Sub(t0); d > n*time.Second {
+            var pos = ctx.Position()
+            prompt(ctx, "%v: slow: %v ⇒ %v\n", pos, m, d).debug(1)
+        }
+    } (time.Now())
+
     if name == "" {
         erro(of(ctx,m.name), "modifier name '%v' is empty", m.name).debug(1)
         return
@@ -730,7 +733,7 @@ func parseDependList(ctx Context, dependList *List) (depends *List) {
             if dl := parseDependList(ctx, d); dl != nil {
                 depends.Elems = append(depends.Elems, dl.Elems...)
             }
-        case *ExecResult:
+        case *execResult:
             if d.Status != 0 {
                 brk := pc.traves.add(ctx, traveFail, nil)
                 brk.error = fmt.Errorf("bad status %v", d.Status)
@@ -2028,7 +2031,7 @@ ForPairs:
         var key, str string
         switch key = p.Key.Strval(ctx); key {
         case "status":
-            var exeres, _ = value.(*ExecResult)
+            var exeres, _ = value.(*execResult)
             if exeres == nil {
                 pc.traves.addf(ctx, optBreak, "value '%v' is not exec result", value)
                 erro(of(ctx,value), "value '%v' (%T) is not exec result", value, value).debug(6)
@@ -2068,7 +2071,7 @@ ForPairs:
                 break ForPairs
             }
         case "stdout", "stderr":
-            var exeres, _ = value.(*ExecResult)
+            var exeres, _ = value.(*execResult)
             if exeres == nil {
                 pc.traves.addf(ctx, optBreak, "not an exec result (%T)", value)
                 erro(of(ctx,value), "value '%v' (%T) is not exec result", value, value).debug(6)
@@ -2639,7 +2642,7 @@ func (ctx modifier) updatefile(args... Value) (result Value) {
     // Check existed file content checksum
     var (
         content string
-        exeres *ExecResult
+        exeres *execResult
     )
     if val := autoGet(ctx, "-"); val == nil {
         // no buffer value
@@ -2647,7 +2650,7 @@ func (ctx modifier) updatefile(args... Value) (result Value) {
         prompt(ctx, "%v: %T\n", filename, val).debug(1)
         fail(ctx.Position(), "%s", filename)
     } else {
-        exeres, _ = val.(*ExecResult)
+        exeres, _ = val.(*execResult)
     }
 
     if content != "" {
@@ -2785,12 +2788,12 @@ type modifierWaitOpts struct {
 func (ctx modifier) _wait(args... Value) (result Value) {
     var (
         opts modifierWaitOpts
-        execRes *ExecResult
+        execRes *execResult
     )
     args = parseOpts(ctx, &opts, plain, args...)
 
     var (
-        waitForExecResult = opts.stdout || opts.stderr || opts.status || opts.execRes
+        waitForexecResult = opts.stdout || opts.stderr || opts.status || opts.execRes
         stampCurrentTarget = !opts.noTarget
         target Value = autoGet(ctx, "@")
         err error
@@ -2804,7 +2807,7 @@ func (ctx modifier) _wait(args... Value) (result Value) {
     }
 
     // Wait for prerequisites and/or execution
-    if _, _, execRes, err = wait(ctx, opts.verbose, waitForExecResult, stampCurrentTarget); execRes == nil {
+    if _, _, execRes, err = wait(ctx, opts.verbose, waitForexecResult, stampCurrentTarget); execRes == nil {
         return
     }
 

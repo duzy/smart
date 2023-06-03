@@ -206,8 +206,8 @@ type scannedExecDiag struct {
   num int
 }
 type ExecBuffer struct {
-  res *ExecResult
-  log *ExecLog
+  *execContext
+
   Buf *bytes.Buffer
   Tie  io.Writer
   line bytes.Buffer
@@ -222,7 +222,7 @@ type ExecBuffer struct {
 }
 func (p *ExecBuffer) filter(s string) { p.filters = append(p.filters, s) }
 func (p *ExecBuffer) Write(b []byte) (n int, err error) {
-  if p.wrote == 0 { p.res.onFirstWrote() }
+  if p.wrote == 0 { p.onFirstWrote() }
 
   for _, s := range p.filters {
     if bytes.Equal(b, []byte(s)) { // string(b) == s
@@ -287,7 +287,7 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
             }
             a = append(a, v)
           }
-          if _, e := p.scan(p.res.position, &knownMatch{ rx, l, a }); e != nil {
+          if _, e := p.scan(p.position, &knownMatch{ rx, l, a }); e != nil {
             p.errors = append(p.errors, e)
           }
         }
@@ -318,13 +318,14 @@ func (p *ExecBuffer) convPos(s1, s2, s3 string) Position {
   return convPosition(p.filepath(s1), s2, s3)
 }
 func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
-  var ctx = p.res.ctx
+  var ctx = p.Context
   if p == nil {
     erro(at(ctx,pos), "nil exec buffer").debug(1)
     return
   }
+
   var (
-    container *Project = p.res.container
+    container *Project = p.container
     lpos Position = pos
     reportIncludedFrom = func() (res bool) {
       if p.includedFrom.pos1.IsValid() && p.includedFrom.pos2.IsValid() {
@@ -338,12 +339,12 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
     }
     addScannedDiag = func(dt diagType, pos Position, msg string) {
       var done bool
-      for _, rec := range p.res.scannedDiags {
+      for _, rec := range p.scannedDiags {
         if rec.msg == msg { rec.num += 1; done = true }
       }
       if !done {
         var e = &scannedExecDiag{ pos, lpos, dt, msg, 1 }
-        p.res.scannedDiags = append(p.res.scannedDiags, e)
+        p.scannedDiags = append(p.scannedDiags, e)
       }
     }
   )
@@ -363,12 +364,12 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         addScannedDiag(diagError, lpos, fmt.Sprintf("start container failed: %v", err))
       }
     case rxNoContainer:
-      if name := v[1].string; p.res.skips(name) {
+      if name := v[1].string; p.skips(name) {
         if p.report {
           addScannedDiag(diagError, lpos, fmt.Sprintf("container not running: %v", name))
         }
       } else {
-        p.res.containerToRun = name
+        p.containerToRun = name
       }
     case rxContainerNotRunning:
       if p.report {
@@ -488,7 +489,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
     //     } else {
     //       addScannedDiag(diagError, lpos, fmt.Sprintf("clang%s: %s", vs, v[2].string))
     //     }
-    //     p.res.errs += 1
+    //     p.errs += 1
     //   }
     case rxCmdError:
       if p.report {
@@ -558,12 +559,87 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
   return
 }
 
-type ExecResult struct {
-  valbase
+type execOpts struct {
+  generalOpts
+  deprecated  bool `dump,deprecate`
+  dropFailed  bool `df,drop-fail`
+  infos       bool `sci,scan-infos`
+  silentErrs  bool `s,silent,silent-errors` // silent errors
+  zeroErrs    bool `ze,zero-errors` // require zero error scaned from STDERR
+  tieStdout   bool `to,tie-out,tie-stdout` // tied with log
+  tieStderr   bool `te,tie-err,tie-stderr` // tied with log
+  bufStdout   bool `o,stdout;bo,buffer-stdout;so,save-stdout`
+  bufStderr   bool `e,stderr;be,buffer-stderr;se,save-stderr`
+  stdin       bool `i,stdin;in,input`
+  stamp       bool `st,stamp;sf,stamp-file`
+  noStamp     bool `ns,nostamp,no-stamp,no-stamp-file`
+  waitRes     bool `wr,wait,waitres,wait-res,waitresult,wait-result` // wait for execution finished
+  report      bool `r,rs,report,report-stamp;vs,verbose-stamp`
+  retStdout   bool `ro,return-stdout,result-stdout,stdout`
+  retStderr   bool `re,return-stderr,result-stderr,stderr`
+  retStatus   bool `rs,return-status,result-status,status` // may work with zero-errors
+  scanStdout  bool `so,scan-stdout,scan-out`
+  scanStderr  bool `se,scan-stderr,scan-err`
+  parallel    bool `par,parallel,no-order`
+  path        bool `p,path`
+  noCD        bool `n,nocd`
+  prompt      bool `pm,prompt;m,msg`
+  promptSrc   bool `ps,prompt-src,prompt-source;vs,verbose-source`
+  promStr     string `c,cmd;m,msg`
+  workDir     string `cd,change-dir,wd,workdir,work-dir,work-directory`
+  tie         string `t,tie` // all, both, stdout, stderr, out, err
+  logFileName *optFullname "l,log"
+}
 
+type execResult struct {
+  valbase
+  vals []Value
   Stdout ExecBuffer
   Stderr ExecBuffer
   Status int // aka. exit code
+}
+func (p *execResult) expand(_ Context, _ facet) Value { return p }
+func (p *execResult) cmp(ctx Context, v Value) (res cmpres) {
+  if a, ok := v.(*execResult); ok {
+    assert(ok, "value is not execResult")
+    if p.Status == a.Status { res = cmpEqual }
+  }
+  return
+}
+func (p *execResult) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (p *execResult) True(ctx Context) (res bool) {
+  res = p.Status == 0 && p.Stderr.Buf != nil && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */
+  return
+}
+func (p *execResult) Integer(ctx Context) (i int64, _ error) { return int64(p.Status), nil }
+func (p *execResult) Float(ctx Context) (f float64, _ error) { return float64(p.Status), nil }
+func (p *execResult) Strval(ctx Context) (s string) {
+  if p.Stdout.Buf != nil { s = p.Stdout.Buf.String() }
+  return
+}
+func (p *execResult) String() string {
+  var s bytes.Buffer
+  fmt.Fprintf(&s, "(execResult status=%d", p.Status)
+  if p.Stdout.Buf != nil { fmt.Fprintf(&s, " stdout=%S", p.Stdout.Buf) }
+  if p.Stderr.Buf != nil { fmt.Fprintf(&s, " stderr=%S", p.Stderr.Buf) }
+  fmt.Fprintf(&s, ")")
+  return s.String()
+}
+
+type execContext struct {
+  Context
+
+  execOpts
+  execResult
+
+  targetName string
+
+  log *ExecLog
+  logPos Position
+  srcPos Position
 
   retried map[string]bool // work with containerToRun
   containerToRun string   // work with retried
@@ -571,58 +647,27 @@ type ExecResult struct {
   printEnteringOnFirstWrote bool
 
   num int
-  ctx Context
   x  *executor
   sh *exec.Cmd
   container *Project
 
   scannedDiags []*scannedExecDiag
 }
-func (p *ExecResult) expand(_ Context, _ facet) Value { return p }
-func (p *ExecResult) cmp(ctx Context, v Value) (res cmpres) {
-  if a, ok := v.(*ExecResult); ok {
-    assert(ok, "value is not ExecResult")
-    if p.Status == a.Status { res = cmpEqual }
-  }
-  return
-}
-func (p *ExecResult) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
-func (p *ExecResult) True(ctx Context) (res bool) {
-  res = p.Status == 0 && p.Stderr.Buf != nil && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */
-  return
-}
-func (p *ExecResult) Integer(ctx Context) (i int64, _ error) { return int64(p.Status), nil }
-func (p *ExecResult) Float(ctx Context) (f float64, _ error) { return float64(p.Status), nil }
-func (p *ExecResult) Strval(ctx Context) (s string) {
-  if p.Stdout.Buf != nil { s = p.Stdout.Buf.String() }
-  return
-}
-func (p *ExecResult) String() string {
-  var s bytes.Buffer
-  fmt.Fprintf(&s, "(ExecResult status=%d", p.Status)
-  if p.Stdout.Buf != nil { fmt.Fprintf(&s, " stdout=%S", p.Stdout.Buf) }
-  if p.Stderr.Buf != nil { fmt.Fprintf(&s, " stderr=%S", p.Stderr.Buf) }
-  fmt.Fprintf(&s, ")")
-  return s.String()
-}
 
-func (p *ExecResult) onFirstWrote() {
+func (p *execContext) onFirstWrote() {
   if p.printEnteringOnFirstWrote {
-    printEnteringDirectory(p.ctx)
+    printEnteringDirectory(p.Context)
 
     // Call flushDiags to ensure printEnteringDirectory works immediately
-    if errs := p.ctx.flushDiags(true); errs > 0 {
-      warn(p.ctx, "exec: encountered %d errors", errs).debug(1)
+    if errs := p.Context.flushDiags(true); errs > 0 {
+      warn(p.Context, "exec: encountered %d errors", errs).debug(1)
     }
   }
 }
 
-func (p *ExecResult) runContainerAndRetry(ctx Context) (status int, err error) {
+func (p *execContext) runContainerAndRetry() (err error) {
   if p.container == nil {
-    erro(at(ctx,p.position), "no container").debug(1)
+    erro(p.Context, "no container").debug(1)
     return
   } else if maxRetries < p.num {
     fmt.Fprintf(p.sh.Stderr, "\n---- Retried %d times\n", p.num)
@@ -635,15 +680,15 @@ func (p *ExecResult) runContainerAndRetry(ctx Context) (status int, err error) {
   )
 
   fmt.Fprintf(sh.Stderr, "\n---- Run container '%s'\n", name)
-  if entries := p.container.resolveEntries(ctx, "run", false, false); entries != nil {
+  if entries := p.container.resolveEntries(p.Context, "run", false, false); entries != nil {
     for _, run := range entries.all {
-      if _, traves := run.execute(p.ctx, nil); traves.has() {
-        erro(at(ctx,p.position), "%d travestates", len(traves)).debug(1)
+      if _, traves := run.execute(p.Context, nil); traves.has() {
+        erro(p.Context, "%d travestates", len(traves)).debug(1)
         return
       } //else { p.t.group.Wait() }
     }
   } else {
-    erro(ctx, "%s⇒run undefined", p.container).debug(1)
+    erro(p.Context, "%s⇒run undefined", p.container).debug(1)
     return
   }
 
@@ -659,14 +704,14 @@ func (p *ExecResult) runContainerAndRetry(ctx Context) (status int, err error) {
   p.sh = exec.Command(sh.Path, sh.Args[1:]...) // must ignore Args[0]
   p.sh.Stdout, p.sh.Stderr, p.sh.Stdin = sh.Stdout, sh.Stderr, sh.Stdin
   p.sh.Dir, p.sh.Env = sh.Dir, sh.Env
-  if status, err = p.run(ctx); err != nil {
+  if err = p.run(); err != nil {
     fmt.Fprintf(sh.Stderr, "\n---- Retry failed: %s\n", err)
   }
   return
 }
 
 // DEPRECATED
-func (p *ExecResult) ensureContainerRunning(ctx Context, containerName string) (err error) {
+func (p *execContext) ensureContainerRunning(containerName string) (err error) {
   var (
     stdoutR, stdoutW = io.Pipe()
     stderrR, stderrW = io.Pipe()
@@ -711,83 +756,148 @@ func (p *ExecResult) ensureContainerRunning(ctx Context, containerName string) (
   } (stderrR)
 
   if err = cmd.Run(); err == nil && foundID == "" {
-    if entries := p.container.resolveEntries(ctx, "run", false, false); entries != nil {
+    if entries := p.container.resolveEntries(p.Context, "run", false, false); entries != nil {
       for _, run := range entries.all {
-        if _, traves := run.execute(p.ctx, nil); traves.has() {
-          erro(at(ctx,p.position), "%d travestates", len(traves)).debug(1)
+        if _, traves := run.execute(p.Context, nil); traves.has() {
+          erro(p.Context, "%d travestates", len(traves)).debug(1)
           return
         } //else { p.t.group.Wait() }
       }
     } else {
-      erro(ctx, "%s⇒run undefined", p.container).debug(1)
+      erro(p.Context, "%s⇒run undefined", p.container).debug(1)
       return
     }
   } else if err != nil {
-    erro(at(ctx,p.container.position), "%v", err).debug(1)
+    erro(at(p.Context,p.container.position), "%v", err).debug(1)
   }
   return
 }
 
-func (p *ExecResult) skips(tag string) bool {
+func (p *execContext) skips(tag string) bool {
   if p.retried == nil { p.retried = make(map[string]bool) }
   var a, b = p.retried[tag]
   return a && b
 }
 
-func (p *ExecResult) run(ctx Context) (status int, err error) {
+func (p *execContext) run() (err error) {
+  var pc = p.Context.programContext()
+
+  pc.Add(1)
   p.num += 1
-  if err = p.sh.Run(); err == nil {
-    return
-  } else if ee, ok := err.(*exec.ExitError); !ok {
-    erro(ctx, "exec failed: %v", err).debug(1)
-    return
-  } else if status = ee.ExitCode(); status == 0 {
-    return // success!
-  } else if p.containerToRun != "" {
-    p.retried[p.containerToRun] = true // mark it to skip next time
-    status, err = p.runContainerAndRetry(ctx)
-    p.containerToRun = ""
+
+  var run = func() {
+    defer pc.Done()
+
+    if err = p.sh.Run(); err == nil {
+      err = p.check()
+    } else if ee, ok := err.(*exec.ExitError); !ok {
+      erro(p.Context, "exec failed: %v", err).debug(1)
+      return
+    } else if p.Status = ee.ExitCode(); p.Status == 0 {
+      err = p.check() // success!
+    } else if p.containerToRun != "" {
+      p.retried[p.containerToRun] = true // mark it to skip next time
+      err = p.runContainerAndRetry()
+      p.containerToRun = ""
+    }
   }
+
+  if true { run() } else { go run() }
   return
 }
 
-type (
-  executorOpts struct {
-    generalOpts
-    deprecated  bool `dump,deprecate`
-    dropFailed  bool `df,drop-fail`
-    infos       bool `sci,scan-infos`
-    silentErrs  bool `s,silent,silent-errors` // silent errors
-    zeroErrs    bool `ze,zero-errors` // require zero error scaned from STDERR
-    tieStdout   bool `to,tie-out,tie-stdout` // tied with log
-    tieStderr   bool `te,tie-err,tie-stderr` // tied with log
-    bufStdout   bool `o,stdout;bo,buffer-stdout;so,save-stdout`
-    bufStderr   bool `e,stderr;be,buffer-stderr;se,save-stderr`
-    stdin       bool `i,stdin;in,input`
-    stamp       bool `st,stamp;sf,stamp-file`
-    noStamp     bool `ns,nostamp,no-stamp,no-stamp-file`
-    wait        bool `wr,wait,waitres,wait-res,waitresult,wait-result` // wait for execution finished
-    report      bool `r,rs,report,report-stamp;vs,verbose-stamp`
-    retStdout   bool `ro,return-stdout,result-stdout,stdout`
-    retStderr   bool `re,return-stderr,result-stderr,stderr`
-    retStatus   bool `rs,return-status,result-status,status` // may work with zero-errors
-    scanStdout  bool `so,scan-stdout,scan-out`
-    scanStderr  bool `se,scan-stderr,scan-err`
-    parallel    bool `par,parallel,no-order`
-    path        bool `p,path`
-    noCD        bool `n,nocd`
-    prompt      bool `pm,prompt;m,msg`
-    promptSrc   bool `ps,prompt-src,prompt-source;vs,verbose-source`
-    promStr     string `c,cmd;m,msg`
-    workDir     string `cd,change-dir,wd,workdir,work-dir,work-directory`
-    tie         string `t,tie` // all, both, stdout, stderr, out, err
-    logFileName *optFullname "l,log"
+func (p *execContext) check() (err error) {
+  if (!p.silentErrs || p.debug>0) && (len(p.scannedDiags) > 0 || p.Status != 0 || err != nil) {
+    if p.silentErrs || p.retStatus {
+      err = nil
+    } else if p.Status != 0 {
+      err = &exitstatus{ p.Status } // set or convert error
+    }
+
+    var en, wn, in int
+    for _, rec := range p.scannedDiags {
+      switch rec.dt {
+      case diagError: en += rec.num
+      case diagWarn:  wn += rec.num
+      case diagInfo:  in += rec.num
+      }
+    }
+
+    var ctx = p.Context
+    if en > 0 || p.Status != 0 || err != nil {
+      prompt(ctx, "exec: failure (status=%d; err=%v); target=%s\n", p.Status, err, p.targetName)
+    } else if wn > 0 {
+      prompt(ctx, "%v: %d warnings\n", p.targetName, wn)
+    }
+
+    for i, rec := range p.scannedDiags {
+      if !p.infos && rec.dt == diagInfo { continue }
+      if !p.logPos.IsValid() { p.logPos = rec.lpos }
+      if i == 0 && !rec.position.Same(&rec.lpos) {
+        diag(at(ctx,rec.lpos), rec.dt, rec.msg)//.debug(1)
+      }
+      if rec.num > 1 {
+        diag(at(ctx,rec.position), rec.dt, `%s (%d)`, rec.msg, rec.num)//.debug(1)
+      } else {
+        diag(at(ctx,rec.position), rec.dt, rec.msg)//.debug(1)
+      }
+      if n := (en+wn+in)-(i+1); i == 8 && 0 < n {
+        diag(at(ctx,rec.lpos), rec.dt, "%d more...", n)//.debug(1)
+        break
+      }
+    }
+
+    var pos = ctx.Position()
+    if !p.logPos.IsValid() && p.log != nil {
+      p.logPos.Filename = p.log.filename
+      p.logPos.Line = p.Stderr.log.lines + 1
+    } else {
+      p.logPos = pos
+    }
+
+    var diffLogPos = !p.logPos.SameLine(&pos)
+    var str, _, _ = entryIndicator(ctx, ctx.entry())
+    if (!p.retStatus && p.Status != 0) || en > 0 {
+      if p.dropFailed {
+        if e := os.RemoveAll(p.targetName); e != nil {
+          warn(ctx, "remove: %v", e).debug(1)
+        }
+      }
+
+      if diffLogPos && en > 0 { erro(at(ctx,p.logPos), "%v: %d known errors", str, en) }
+      erro(at(ctx,p.srcPos), "%v: exit status %d", str, p.Status)
+      errostack(ctx, 16, "").debug(32)
+    } else if wn > 0 {
+      if diffLogPos { warn(at(ctx,p.logPos), "%v: %d known warnings", str, wn) }
+      warn(at(ctx,p.srcPos), "%v: exit status %d", str, p.Status)
+
+      warn(ctx, "%v: %d known warnings", str, wn)
+      warnstack(ctx, 3, "").debug(1)
+    } else if in > 0 && p.infos {
+      if diffLogPos { info(at(ctx,p.logPos), "%v: %d known messages", str, in) }
+      info(at(ctx,p.srcPos), "%v: exit status %d", str, p.Status)
+      info(ctx, "%v: %d known messages", str, in)
+      infostack(ctx, 8, "").debug(1)
+    }
+
+    if p.retStatus {
+      if p.zeroErrs && en == 0 && err == nil {
+        p.vals = append(p.vals, MakeInt(p.logPos, int64(p.Status)))
+      } else {
+        p.vals = append(p.vals, MakeNone(p.logPos))
+      }
+    } else if p.Status != 0 || err != nil {
+      // break
+    }
   }
-  executor struct {
-    cmd, opt string
-    contained bool
-  }
-)
+
+  return
+}
+
+type executor struct {
+  cmd, opt string
+  contained bool
+}
 func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error) {
   if options.traceExecutor {
     var t = autoGet(ctx, "@")
@@ -795,43 +905,46 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   }
 
   var (
-    opts = executorOpts{ scanStderr: true }
     pos = ctx.Position()
+    exe = &execContext{ Context:ctx, x:p }
     cmd = p.cmd
   )
-  if args = parseOpts(ctx, &opts, plain, args...); opts.deprecated {
+
+  exe.position = pos
+  exe.scanStderr = true
+
+  if args = parseOpts(ctx, &exe.execOpts, plain, args...); exe.deprecated {
     erro(ctx, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug(1)
     return
-  } else if !opts.prompt {
-    opts.prompt = opts.promStr != ""
+  } else if !exe.prompt {
+    exe.prompt = exe.promStr != ""
   }
-  switch opts.tie {
-  case "stdout", "out" : opts.tieStdout = true
-  case "stderr", "err" : opts.tieStderr = true
-  case "all"   , "both": opts.tieStdout, opts.tieStderr = true, true
+  switch exe.tie {
+  case "stdout", "out" : exe.tieStdout = true
+  case "stderr", "err" : exe.tieStderr = true
+  case "all"   , "both": exe.tieStdout, exe.tieStderr = true, true
   }
 
   if false { defer func() { warn(ctx, "%v", cmd).debug(8) } () }
 
   var (
-    programCtx = ctx.programContext()
-    program = programCtx.program()
-    targetName string
+    pc = ctx.programContext()
+    program = pc.program()
     target as
   )
   if target.Value = getTargetValue(ctx); program == nil {
     erro(ctx, "needs program context to exec: %v", ctx).debug(16)
     return
-  } else if opts.stamp && target.patterned(ctx) {
+  } else if exe.stamp && target.patterned(ctx) {
     errostack(ctx, 5, "target is pattern: %v", target).debug(64)
     return
   } else if _, ok := target.Value.(*Flag); ok {
     // no stamp required for Flags
   } else if _, ok = toFile(target.Value); !ok {
     // no stamp required for non-file targets
-  } else if targetName, _ = target.fullnameOrStrval(ctx); ctx.isConfiguration() {
+  } else if exe.targetName, _ = target.fullnameOrStrval(ctx); ctx.isConfiguration() {
     // does nothing
-  } else if opts.wait {
+  } else if exe.waitRes {
     // good to work without (stamp) or (wait) with the -wait flag
   } else if ms := program.getModifiers(ctx, "stamp"); len(ms) > 0 {
     switch t := target.Value; t.(type) {
@@ -842,18 +955,17 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     }
   } else if ms := program.getModifiers(ctx, "wait"); len(ms) > 0 {
     // should be good to work
-  } else if t := target.Value; !(opts.stamp || opts.noStamp || opts.silentErrs) {
+  } else if t := target.Value; !(exe.stamp || exe.noStamp || exe.silentErrs) {
     warn(ctx, "add -stamp to (shell); target=%v (%T)", t, t).debug(1)
   }
 
-  if (opts.retStdout && opts.retStatus) || (opts.retStderr && opts.retStatus) {
+  if (exe.retStdout && exe.retStatus) || (exe.retStderr && exe.retStatus) {
     erro(ctx, "cannot have both status and stdout|stderr at the same time (try -so or -se)").debug(1)
     return
   }
 
   var (
     start = time.Now()
-    exeres = &ExecResult{valbase:valbase{pos}, ctx:ctx, x:p}
     aa []string
   )
   for i, v := range args {
@@ -924,16 +1036,16 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   // Because the current work directory is not
   // thread safe.
   var workDir string
-  if opts.workDir != "" {
-    workDir = opts.workDir
+  if exe.workDir != "" {
+    workDir = exe.workDir
   } else if workDir = program.workDir(ctx); workDir == "" {
     erro(ctx, "CWD is empty").debug(1)
     return
   }
 
-  if opts.path {
+  if exe.path {
     var s string
-    if s = filepath.Dir(targetName); s != "" && s != "." && s != "/" {
+    if s = filepath.Dir(exe.targetName); s != "" && s != "." && s != "/" {
       if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
         erro(of(ctx,target), "make path '%s' for target failed: %v", s, err).debug(1)
         return
@@ -942,38 +1054,16 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   }
 
   var (
-    positions []Position
     recipePos Position
     recipes []Value
     sources []string
     source string
     w = plain
   )
-  if opts.fullname { w |= expandFullName }
-
-  // TODO: regonize file/path/fullname in recipes
-  // var a = mergex(ctx, w, program.recipes...)
-  // for _, v := range program.recipes {
-  //   if strings.Contains(v.String(), ".configure/library") {
-  //     if p, y := v.(*Compound); y {
-  //       for _, v := range p.Elems {
-  //         if strings.Contains(v.String(), ".configure/library/") {
-  //           warn(of(ctx,v), "%v (%T)", v, v)
-  //           warn(of(ctx,v), "%v", v.expand(ctx, expandFullName))
-  //         }
-  //       }
-  //     }
-  //     var t = v.expand(ctx, expandFullName)
-  //     warn(of(ctx,v), "%v (%T)", v, v)
-  //     warn(of(ctx,v), "%v", v.Strval(ctx))
-  //     warn(of(ctx,v), "%v", t)
-  //     warn(of(ctx,v), "%v", t.Strval(ctx))
-  //     warn(of(ctx,v), "%v", a).debug(1)
-  //   }
-  // }
-
+  if exe.fullname { w |= expandFullName }
   recipes = mergex(ctx, w, program.recipes...)
 
+  var positions []Position
   for i, recipe := range recipes {
     if !recipePos.IsValid() { recipePos = recipe.Position() }
 
@@ -1036,40 +1126,34 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     }
   }
 
-  var (
-    logPos Position
-    logFile *os.File
-    log *ExecLog
-  )
-  if opts.logFileName != nil { log = &ExecLog{ filename: opts.logFileName.string } }
-  if opts.bufStdout || opts.retStdout { exeres.Stdout.Buf = new(bytes.Buffer) }
-  if opts.bufStderr || opts.retStderr { exeres.Stderr.Buf = new(bytes.Buffer) }
-  if opts.tieStdout { exeres.Stdout.Tie = stdout }
-  if opts.tieStderr { exeres.Stderr.Tie = stderr }
-  if log == nil || log.filename == "" {
+  var logFile *os.File
+  if exe.logFileName != nil { exe.log = &ExecLog{ filename: exe.logFileName.string } }
+  if exe.bufStdout || exe.retStdout { exe.Stdout.Buf = new(bytes.Buffer) }
+  if exe.bufStderr || exe.retStderr { exe.Stderr.Buf = new(bytes.Buffer) }
+  if exe.tieStdout { exe.Stdout.Tie = stdout }
+  if exe.tieStderr { exe.Stderr.Tie = stderr }
+  if exe.log == nil || exe.log.filename == "" {
     // no log required
-  } else if err = os.MkdirAll(filepath.Dir(log.filename), os.FileMode(0755)); err != nil {
+  } else if err = os.MkdirAll(filepath.Dir(exe.log.filename), os.FileMode(0755)); err != nil {
     erro(at(ctx,program.position), "%v", err).debug(1)
     return
-  } else if logFile, err = os.Create(log.filename); err != nil {
+  } else if logFile, err = os.Create(exe.log.filename); err != nil {
     erro(at(ctx,program.position), "%v", err).debug(1)
     return
   } else {
     cmdline := strings.Join(sources, "\n")
-    log.createWriter(logFile, workDir, cmdline)
-    exeres.Stdout.log = log
-    exeres.Stderr.log = log
+    exe.log.createWriter(logFile, workDir, cmdline)
   }
-  exeres.Stdout.scanKnownErrors = opts.scanStdout
-  exeres.Stderr.scanKnownErrors = opts.scanStderr
-  exeres.Stdout.defaultDirectory = workDir
-  exeres.Stderr.defaultDirectory = workDir
-  exeres.Stdout.res = exeres
-  exeres.Stderr.res = exeres
+  exe.Stdout.scanKnownErrors = exe.scanStdout
+  exe.Stderr.scanKnownErrors = exe.scanStderr
+  exe.Stdout.defaultDirectory = workDir
+  exe.Stderr.defaultDirectory = workDir
+  exe.Stdout.execContext = exe
+  exe.Stderr.execContext = exe
 
   if ctx.flushDiags(true) > 0 {
-    if str := trimPromptString(targetName); filepath.IsAbs(targetName) {
-      var pos Position; pos.Filename, pos.Line = targetName, 1
+    if str := trimPromptString(exe.targetName); filepath.IsAbs(exe.targetName) {
+      var pos Position; pos.Filename, pos.Line = exe.targetName, 1
       warn(ctx, "got %d error(s)", ctx.totalErrors())
       warn(at(ctx,pos), "cancel execution for %s", str).debug(1)
     } else {
@@ -1079,23 +1163,24 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     return
   }
 
-  var caller = programCtx.caller()
   defer func() {
-    if log != nil && log.writer != nil { log.writer.Flush() }
+    var caller = pc.caller()
+    if exe.log != nil && exe.log.writer != nil { exe.log.writer.Flush() }
     if logFile != nil { logFile.Close() }
-    if log != nil && log.filename != "" &&
-      exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
-      if false { os.Remove(log.filename) }}
-    if !opts.silentErrs && caller != nil && err != nil { caller.calleeError(err) }
-    exeres.Stdout.res = nil
-    exeres.Stderr.res = nil
-    exeres.container = nil
-    exeres.ctx = nil
-    exeres.sh = nil
-    exeres.x = nil
+    if exe.log != nil && exe.log.filename != "" &&
+      exe.Stdout.wrote == 0 && exe.Stderr.wrote == 0 {
+      if false { os.Remove(exe.log.filename) }
+    }
+    if !exe.silentErrs && caller != nil && err != nil { caller.calleeError(err) }
+    exe.Stdout.execContext = nil
+    exe.Stderr.execContext = nil
+    exe.container = nil
+    exe.Context = nil
+    exe.sh = nil
+    exe.x = nil
 
     // Stamp the target file.
-    if !opts.stamp || ctx.isConfiguration() {
+    if !exe.stamp || ctx.isConfiguration() {
       // no stamp for target files
     } else if err != nil {
       var files, e = target.delete(ctx)
@@ -1118,13 +1203,13 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       } else {
         prompt(ctx, "%v: target not found, \"%v\"\n", pe.Path, err)
       }
-      if opts.logFileName != nil && !logPos.IsValid() {
-        prompt(ctx, "%v:1: see logs for \"%s\"\n", opts.logFileName.string, target)
+      if exe.logFileName != nil && !exe.logPos.IsValid() {
+        prompt(ctx, "%v:1: see logs for \"%s\"\n", exe.logFileName.string, target)
       }
       erro(ctx, `stamp "%v" failed`, target)
       errostack(ctx, 6, ``).debug(10)
       return
-    } else if opts.report {
+    } else if exe.report {
       var t = ctx.programContext()
       reportFileUpdates(ctx, t.start, files)
     }
@@ -1138,34 +1223,37 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       return
     }
 
-    if opts.prompt {
-      var ps = opts.promStr
-      if ps += trimPromptString(targetName); caller == nil {
+    if exe.prompt {
+      var ps = exe.promStr
+      if ps += trimPromptString(exe.targetName); caller == nil {
         if ps += " …… "; err != nil { ps += err.Error() } else { ps += "ok" }
       }
       if ps != "" {
         var s = time.Now().Sub(start).String()
-        if n := exeres.Stdout.wrote; n > 0 { s += fmt.Sprintf(", stdout=%d bytes", n) }
-        if n := exeres.Stderr.wrote; n > 0 { s += fmt.Sprintf(", stderr=%d bytes", n) }
-        if t := programCtx.dirt; t != "" { s += "; " + t }
+        if n := exe.Stdout.wrote; n > 0 { s += fmt.Sprintf(", stdout=%d bytes", n) }
+        if n := exe.Stderr.wrote; n > 0 { s += fmt.Sprintf(", stderr=%d bytes", n) }
+        if t := pc.dirt; t != "" { s += "; " + t }
         prompt(ctx, "%s (exec %s)\n", ps, s)
       }
     }
   } ()
 
-  var res []Value
   for i, src := range sources {
-    var pos = positions[i]
+    var ctx = at(ctx, positions[i])
+    exe.srcPos = ctx.Position()
+
     if a := "@"; strings.HasPrefix(src, a) {
       src = strings.TrimPrefix(src, a)
-    } else if opts.promptSrc && !opts.prompt {
+    } else if exe.promptSrc && !exe.prompt {
       var s string = src
       s = strings.Replace(s, "\n", "\\n", -1)
       s = strings.Replace(s, "\\\\n", "\\\n", -1)
       prompt(ctx, "%s\n", s)//.debug(1)
     }
+
     if src = strings.TrimSpace(src); src == "" { continue }
-    if false && !opts.noCD && workDir != "" {
+
+    if false && !exe.noCD && workDir != "" {
       if strings.HasPrefix(src, "#") {
         src = fmt.Sprintf("cd '%s' %s", workDir, src)
       } else {
@@ -1174,16 +1262,18 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         src = fmt.Sprintf("cd '%s' && (%s\n)", workDir, src)
       }
     }
+
     if cmd == "docker" && len(envstr) > 0 {
       src = fmt.Sprintf("%s && %s", envstr, src)
     }
 
     if options.noExec { continue }
+
     if false {
       // Restricts the number of workers.
-      ///fmt.Fprintf(stderr, "run.1: %v\n", targetName)
+      ///fmt.Fprintf(stderr, "run.1: %v\n", exe.targetName)
       var num = waitForWork(); defer releaseWork(num)
-      ///fmt.Fprintf(stderr, "run.2: %v\n", targetName)
+      ///fmt.Fprintf(stderr, "run.2: %v\n", exe.targetName)
     }
 
     if false { for {
@@ -1192,139 +1282,58 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         return
       } else if s, _ := os.Getwd(); s == workDir { break }
     }}
-    if !opts.silentErrs || opts.prompt || opts.promptSrc {
-      exeres.printEnteringOnFirstWrote = true
+
+    if !exe.silentErrs || exe.prompt || exe.promptSrc {
+      exe.printEnteringOnFirstWrote = true
     }
 
-    exeres.container = container
-    exeres.sh = exec.Command(cmd, aa...)
-    exeres.sh.Dir = workDir // always set command work directory
-    exeres.sh.Env = env
-    exeres.sh.Stdout = &exeres.Stdout
-    exeres.sh.Stderr = &exeres.Stderr
-    if opts.stdin {
-      exeres.sh.Stdin = os.Stdin
-      exeres.sh.Args = append(exeres.sh.Args, "-ti")
+    exe.container = container
+    exe.sh = exec.Command(cmd, aa...)
+    exe.sh.Dir = workDir // always set command work directory
+    exe.sh.Env = env
+    exe.sh.Stdout = &exe.Stdout
+    exe.sh.Stderr = &exe.Stderr
+    if exe.stdin {
+      exe.sh.Stdin = os.Stdin
+      exe.sh.Args = append(exe.sh.Args, "-ti")
     }
-    if p.opt != "" { exeres.sh.Args = append(exeres.sh.Args, p.opt) }
-    if src   != "" { exeres.sh.Args = append(exeres.sh.Args, src) }
-    if opts.debug > 0 {
+    if p.opt != "" { exe.sh.Args = append(exe.sh.Args, p.opt) }
+    if src   != "" { exe.sh.Args = append(exe.sh.Args, src) }
+    if exe.debug > 0 {
       warn(at(ctx,program.position), "%v: %v", ctx.entry(), target)
       warn(ctx, "context: %v", ctx.programContext())
-      warn(ctx, "exec:\n%v", exeres.sh).debug(opts.debug*2)
+      warn(ctx, "exec:\n%v", exe.sh).debug(exe.debug*2)
     }
 
-    exeres.Stdout.report = !opts.silentErrs
-    exeres.Stderr.report = !opts.silentErrs
-    exeres.Status, err = exeres.run(at(ctx, pos))
-    if false { warn(ctx, "%v: %v --> %v", cmd, src, exeres.Status).debug(1) }
-    if (!opts.silentErrs || opts.debug>0) && (len(exeres.scannedDiags) > 0 || exeres.Status != 0 || err != nil) {
-      if opts.silentErrs || opts.retStatus {
-        err = nil
-      } else if exeres.Status != 0 {
-        err = &exitstatus{ exeres.Status } // set or convert error
-      }
-
-      var en, wn, in int
-      for _, rec := range exeres.scannedDiags {
-        switch rec.dt {
-        case diagError: en += rec.num
-        case diagWarn:  wn += rec.num
-        case diagInfo:  in += rec.num
-        }
-      }
-      if en > 0 || exeres.Status != 0 || err != nil {
-        prompt(ctx, "exec: failure (status=%d; err=%v); target=%s\n", exeres.Status, err, targetName)
-      } else if wn > 0 {
-        prompt(ctx, "%v: %d warnings\n", targetName, wn)
-      }
-
-      for i, rec := range exeres.scannedDiags {
-        if !opts.infos && rec.dt == diagInfo { continue }
-        if !logPos.IsValid() { logPos = rec.lpos }
-        if i == 0 && !rec.position.Same(&rec.lpos) {
-          diag(at(ctx,rec.lpos), rec.dt, rec.msg)//.debug(1)
-        }
-        if rec.num > 1 {
-          diag(at(ctx,rec.position), rec.dt, `%s (%d)`, rec.msg, rec.num)//.debug(1)
-        } else {
-          diag(at(ctx,rec.position), rec.dt, rec.msg)//.debug(1)
-        }
-        if n := (en+wn+in)-(i+1); i == 8 && 0 < n {
-          diag(at(ctx,rec.lpos), rec.dt, "%d more...", n)//.debug(1)
-          break
-        }
-      }
-
-      var pos = ctx.Position()
-      if !logPos.IsValid() && log != nil {
-        logPos.Filename = log.filename
-        logPos.Line = exeres.Stderr.log.lines + 1
-      } else {
-        logPos = pos
-      }
-
-      var diffLogPos = !logPos.SameLine(&pos)
-      var str, _, _ = entryIndicator(ctx, ctx.entry())
-      if (!opts.retStatus && exeres.Status != 0) || en > 0 {
-        if opts.dropFailed {
-          if e := os.RemoveAll(targetName); e != nil {
-            warn(ctx, "remove: %v", e).debug(1)
-          }
-        }
-
-        if diffLogPos && en > 0 { erro(at(ctx,logPos), "%v: %d known errors", str, en) }
-        erro(at(ctx,positions[i]), "%v: exit status %d", str, exeres.Status)
-        errostack(ctx, 16, "").debug(32)
-      } else if wn > 0 {
-        if diffLogPos { warn(at(ctx,logPos), "%v: %d known warnings", str, wn) }
-        warn(at(ctx,positions[i]), "%v: exit status %d", str, exeres.Status)
-
-        warn(ctx, "%v: %d known warnings", str, wn)
-        warnstack(ctx, 3, "").debug(1)
-      } else if in > 0 && opts.infos {
-        if diffLogPos { info(at(ctx,logPos), "%v: %d known messages", str, in) }
-        info(at(ctx,positions[i]), "%v: exit status %d", str, exeres.Status)
-        info(ctx, "%v: %d known messages", str, in)
-        infostack(ctx, 8, "").debug(1)
-      }
-
-      if opts.retStatus {
-        if opts.zeroErrs && en == 0 && err == nil {
-          res = append(res, MakeInt(logPos, int64(exeres.Status)))
-        } else {
-          res = append(res, MakeNone(logPos))
-        }
-      } else if exeres.Status != 0 || err != nil {
-        break
-      }
-    }
+    exe.Stdout.report = !exe.silentErrs
+    exe.Stderr.report = !exe.silentErrs
+    if err = exe.run(); exe.Status != 0 || err != nil { break }
   }
 
   // Add stdout result
-  if opts.retStdout {
+  if exe.retStdout {
     var s string
-    if exeres.Stdout.Buf != nil {
-      s = exeres.Stdout.Buf.String()
+    if exe.Stdout.Buf != nil {
+      s = exe.Stdout.Buf.String()
     }
-    res = append(res, MakeString(pos, s))
+    exe.vals = append(exe.vals, MakeString(pos, s))
   }
 
   // Add stderr result
-  if opts.retStderr {
+  if exe.retStderr {
     var s string
-    if exeres.Stderr.Buf != nil {
-      s = exeres.Stderr.Buf.String()
+    if exe.Stderr.Buf != nil {
+      s = exe.Stderr.Buf.String()
     }
-    res = append(res, MakeString(pos, s))
+    exe.vals = append(exe.vals, MakeString(pos, s))
   }
 
   // The execution is performed asynchronously, the result can't be fetched immediately.
-  // Caller should do a t.wait(...) or exeres.wait() before using the result.
-  if len(res) == 0 {
-    result = exeres
+  // Caller should do a t.wait(...) or exe.wait() before using the result.
+  if exe.vals == nil {
+    result = &exe.execResult
   } else {
-    result = MakeListOrScalar(pos, res)
+    result = MakeListOrScalar(pos, exe.vals)
   }
   return
 }

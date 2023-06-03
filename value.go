@@ -824,7 +824,7 @@ func isRecipesChanged(ctx Context, target Value) (outdated bool, err error) {
     return
 }
 
-func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *ExecResult, err error) {
+func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *execResult, err error) {
     var (
         pos Position = ctx.Position()
         pc = ctx.programContext()
@@ -883,14 +883,14 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *Exec
 
     var (
         optReportFileUpdates  = len(opts) > 0 && opts[0]
-        optWaitForExecResult  = len(opts) > 1 && opts[1]
+        optWaitForexecResult  = len(opts) > 1 && opts[1]
         optStampCurrentTarget = len(opts) > 2 && opts[2]
     )
-    if optWaitForExecResult {
+    if optWaitForexecResult {
         // Waiting for command (shell/python/etc.) exec result
         if val := autoGet(ctx, "-"); val != nil {
             var ok bool
-            if execRes, ok = val.(*ExecResult); ok {
+            if execRes, ok = val.(*execResult); ok {
                 //execRes.wg.Wait()
             }
         }

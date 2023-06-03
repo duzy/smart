@@ -645,7 +645,7 @@ func (ctx modifier) configure(aa ...Value) (result Value) {
 
         switch v := value.(type) {
         default: d.set(ctx, DefConfig, value)
-        case *ExecResult:
+        case *execResult:
             var s string
             if /*v.wg.Wait()*/; v.Status == 0 && v.Stdout.Buf != nil {
                 s = v.Stdout.Buf.String()
