@@ -1389,11 +1389,11 @@ ForPrerequisites:
             var a = target
             var t = autoGet(ctx, "^")
             var c = autoGet(ctx, "<")
-            var d = depend
+            var q = depend
             prompt(ctx, "%v: Program.traverse %v: @: %v\n", pos, p, a)
             prompt(ctx, "%v: Program.traverse %v: ^: %v\n", pos, p, t)
             prompt(ctx, "%v: Program.traverse %v: <: %v\n", pos, p, c)
-            prompt(ctx, "%v: Program.traverse %v: >: %v\n", pos, p, d)
+            prompt(ctx, "%v: Program.traverse %v: >: %v\n", pos, p, q)
             prompt(ctx, "%v: Program.traverse %v\n", pos, d).debug(1)
         }
 

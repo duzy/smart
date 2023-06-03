@@ -1251,20 +1251,6 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
 
     if options.noExec { continue }
 
-    if false {
-      // Restricts the number of workers.
-      ///fmt.Fprintf(stderr, "run.1: %v\n", exe.targetName)
-      var num = waitForWork(); defer releaseWork(num)
-      ///fmt.Fprintf(stderr, "run.2: %v\n", exe.targetName)
-    }
-
-    if false { for {
-      if err = lockCD(workDir, 25*time.Millisecond); err != nil {
-        erro(ctx, "%v", err).debug(1)
-        return
-      } else if s, _ := os.Getwd(); s == workDir { break }
-    }}
-
     if !exe.silentErrs || exe.prompt || exe.promptSrc {
       exe.printEnteringOnFirstWrote = true
     }
