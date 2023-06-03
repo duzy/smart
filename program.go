@@ -1411,7 +1411,7 @@ ForPrerequisites:
         }
 
         if false && !prog.configure {
-            prompt(ctx, "%v: %s %v; %s %v\n", target, typeof(prerequisite), prerequisite, typeof(depend), depend)
+            prompt(ctx, "%v: %s %v ; %s %v\n", target, typeof(prerequisite), prerequisite, typeof(depend), depend)
             for _, s := range traves {
                 if s.what == traveFile {
                     var f = s.depend.(*File)
@@ -1421,7 +1421,7 @@ ForPrerequisites:
                 }
             }
             if false { prompt(ctx, "%v: %v\n", target, prog.configure).debug(6) }
-            if true { infostack(ctx, 3, "%v: %v", target, prog.configure).debug(16) }
+            if true { infostack(ctx, 3, "%v, configure=%v", target, prog.configure).debug(16) }
         }
 
         if pc.debug_traverse > 0 { if true { pc.debug_traverse -= 1 }
@@ -1435,8 +1435,6 @@ ForPrerequisites:
                     var dependMine = depends.contains(s.depend)
                     if s.error == traveTargetNotDefinedFile && dependMine {
                         // add traveNext to try the next pattern
-                        // trave := traves.remove(s).add(ctx, traveNext, target)
-                        // trave.depend = s.depend
                         pc.traves.remove(s).add(ctx, traveNext, target)
                     } else if depend == nil {
                         prompt(ctx, "%v: %v\n", target, s).debug(1)

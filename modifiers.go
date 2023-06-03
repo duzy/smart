@@ -1946,7 +1946,6 @@ func (ctx modifier) check(aa ...Value) (result Value) {
         optBreak travekind // breaking with good results
         makeResult func(Position,bool) Value // returns results only if non-nil
         values []Value
-        pairs []*Pair
         res bool
     )
 
@@ -1964,30 +1963,15 @@ func (ctx modifier) check(aa ...Value) (result Value) {
         dir Value `di,dir`
     }](ctx.Context, plain, aa...)
 
-    if opts.good    { optBreak   = traveDone }
-    if opts.answer  { makeResult = func(p Position,v bool) Value { return MakeAnswer(p, v) } }
-    if opts.boolean { makeResult = func(p Position,v bool) Value { return MakeBoolean(p, v) } }
-    if opts.silent && makeResult == nil {
-        makeResult = func(p Position,v bool) Value { return MakeBoolean(p, v) }
-    }
+    if opts.good   { optBreak   = traveDone }
+    if opts.answer { makeResult = func(p Position,v bool) Value { return MakeAnswer(p, v) } }
+    if makeResult == nil && ( opts.boolean ||
+        (opts.file != nil && (opts.exists || opts.regular || opts.isdir)) ||
+        (opts.dir  != nil && (opts.exists || opts.regular || opts.isdir)) ||
+        (opts.silent)) { makeResult = func(p Position,v bool) Value { return MakeBoolean(p, v) } }
 
-    for _, arg := range args {
-        switch a := arg.(type) {
-        case *Pair: pairs = append(pairs, a)
-        default:
-            if res = arg.True(ctx); makeResult != nil {
-                values = append(values, makeResult(pos, res))
-            } else {
-                pc.traves.addf(ctx, optBreak, "value '%v' is false", arg)
-                if opts.verbose {
-                    warn(ctx, "value '%v' is false", arg).debug(1)
-                }
-            }
-        }
-    }
-
-    if opts.file != nil {
-        var ( s string; f *File ; val = opts.file )
+    var checkFile = func (val Value, dir bool) {
+        var ( s string; f *File )
         if v, y := val.(*boolean); y {
             if v.bool { val = autoGet(ctx, "@") } else { val = nil }
         }
@@ -2002,10 +1986,10 @@ func (ctx modifier) check(aa ...Value) (result Value) {
         } else if f = file(ctx, s); f != nil { res = true }
 
         if f != nil {
-            if opts.regular { res = f.exists()
+            if !dir || opts.regular { res = f.exists()
                 if opts.verbose { warnstack(of(ctx,val), 3, "check regular file '%v': %v", val, res).debug(1) }
-            } else if opts.isdir { res = f.info != nil && f.info.Mode().IsDir()
-                if opts.verbose { warnstack(of(ctx,val), 3, "check file is dir '%v': %v", val, res).debug(1) }
+            } else if dir || opts.isdir { res = f.info != nil && f.info.Mode().IsDir()
+                if opts.verbose { warnstack(of(ctx,val), 3, "check dir '%v': %v", val, res).debug(1) }
             } else if opts.exists { res = f.exists()
                 if opts.verbose { warnstack(of(ctx,val), 3, "check file exists '%v': %v", val, res).debug(1) }
             } else if opts.verbose {
@@ -2023,35 +2007,24 @@ func (ctx modifier) check(aa ...Value) (result Value) {
         }
     }
 
-    if opts.dir != nil {
-        var ( s string; f *File )
-        if f, res = toFile(opts.dir); res {
-            if res = f.exists(); !res && opts.verbose {
-                warn(of(ctx,opts.dir), "file '%v' does not exists", opts.dir).debug(1)
-            }
-        } else if s = opts.dir.Strval(ctx); filepath.IsAbs(s) {
-            if f = stat(at(ctx, opts.dir.Position()), s, "", ""); f != nil {
-                res = f.exists()
-            }
-        } else if f = file(ctx, s); f != nil {
-            res = f.exists()
-        }
-        if res { res = f.info.Mode().IsDir() }
-        if opts.verbose {
-            warn(of(ctx,opts.dir), "'%v' is file: %v", opts.dir, res).debug(1)
-        }
-        if makeResult != nil {
-            values = append(values, makeResult(pos, res))
-        } else if !res {
-            pc.traves.addf(ctx, optBreak, "value '%v' is not dir", opts.dir)
-            return
-        }
-    }
+    if opts.file != nil { checkFile(opts.file, false) }
+    if opts.dir  != nil { checkFile(opts.dir, true) }
 
     var program = ctx.program()
     var value = autoGet(ctx, "-")
 ForPairs:
-    for _, p := range pairs {
+    for _, arg := range args {
+        var p, y = arg.(*Pair)
+        if !y {
+            if res = arg.True(ctx); makeResult != nil {
+                values = append(values, makeResult(pos, res))
+            } else {
+                pc.traves.addf(ctx, optBreak, "value '%v' is false", arg)
+                if opts.verbose { warn(ctx, "value '%v' is false", arg).debug(1) }
+            }
+            continue
+        }
+
         var key, str string
         switch key = p.Key.Strval(ctx); key {
         case "status":
@@ -2194,9 +2167,8 @@ ForPairs:
             break ForPairs
         }
     }
-    if len(values) > 0 {
-        result = MakeListOrScalar(pos, values)
-    }
+
+    if len(values) > 0 { result = MakeListOrScalar(pos, values) }
     return
 }
 
@@ -2953,14 +2925,14 @@ func (ctx modifier) stamp(args... Value) (result Value) {
     return
 }
 
-func (ctx modifier) assert(args... Value) (result Value) {
+func (ctx modifier) assert(aa... Value) (result Value) {
     var fails int
     var target = autoGet(ctx, "@")
     var pc = ctx.programContext()
-    var opts, _ = mop[struct {
+    var opts, args = mop[struct {
         generalOpts
         msg string `m,msg,message`
-    }](&ctx, plain)
+    }](&ctx, expandZero, aa...)
 
     for _, a := range args {
         if a == nil {
@@ -2975,7 +2947,7 @@ func (ctx modifier) assert(args... Value) (result Value) {
         } else if s := opts.msg; s == "" {
             erro(of(ctx, a), "assert failed: %s: %v → %v", typeof(a), a, v)
         } else {
-            erro(of(ctx, a), "assert failed: %v: %v: %s", a, v, s)
+            erro(of(ctx, a), "assert failed: %s %v: %v: %s", typeof(a), a, v, s)
         }
 
         pc.traves.add(ctx, traveFail, target).
@@ -2984,7 +2956,7 @@ func (ctx modifier) assert(args... Value) (result Value) {
         fails += 1
     }
     if fails > 0 { errostack(ctx, 8, "%v: %v", target, args).debug(6) }
-    if ctx.flushDiags(true) > 0 { fail(ctx.Position(), "assertion") }
+    if ctx.flushDiags(true) > 0 { fail(ctx.Position(), "assertion: %v", aa) }
     return
 }
 

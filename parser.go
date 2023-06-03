@@ -2583,7 +2583,7 @@ ForModifiersExpr:
 			return nil
 		} else if g, ok := x.(*Group); !ok {
 			var xv = x.expand(ctx, expandDelegate/*TODO: expandInline or expandAuto*/)
-			warn(at(ctx,x.Position()), "modifier: %T %v   →   %T %v", x, x, xv, xv).debug(1)
+			erro(at(ctx,x.Position()), "modifier: %T %v   →   %T %v", x, x, xv, xv).debug(1)
 			continue ForModifiersExpr
 		} else {
 			group = g
