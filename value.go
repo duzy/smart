@@ -587,22 +587,6 @@ func refdef(ctx Context, val Value, origin Origin) (res bool) {
     return
 }
 
-// traverseContext is a single thread traverse context, for traversing in a new goroutine,
-// a spawned traversal must be used and then merge.
-func (pc *programContext) level(n int) { pc.traceLevel += n }
-func (pc *programContext) trace(a ...interface{}) { printIndentDots(pc.traceLevel, a...) }
-func (pc *programContext) tracef(s string, a ...interface{}) { printIndentDots(pc.traceLevel, fmt.Sprintf(s, a...)) }
-func (pc *programContext) traversed(target Value) []Value {
-    if !isTrivial(target) {
-        if cc, y := pc.Context.(*closureContext); y && false {
-            pc.targets = cc.traversed(target)
-        } else {
-            pc.targets = append(pc.targets, target)
-        }
-    }
-    return pc.targets
-}
-
 func entryIndicator(ctx Context, entry Value) (str, ent, tar string) {
     if !isNil(entry) { ent = entry.Strval(ctx) }
     if val := autoGet(ctx, "@"); val == nil || isTrivial(val) {

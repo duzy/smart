@@ -53,6 +53,8 @@ type programContext struct {
     grepped []Value
     grepping bool
 
+    countFiles int
+
     traceLevel int
     traves travestates
 
@@ -62,8 +64,8 @@ type programContext struct {
 
     print bool // printing work directories (Entering/Leaving)
 }
-func (pc *programContext) caller() *programContext { return pc.Context.pc() }
 func (pc *programContext) inner() Context { return &pc.autoContext }
+func (pc *programContext) caller() *programContext { return pc.Context.pc() }
 func (pc *programContext) aquireLock() (unlock func()) {
     pc.Lock() ; return func() { pc.Unlock() }
 }
@@ -76,6 +78,32 @@ func (pc *programContext) String() string {
         return pc.autoContext.String()
     }
 }
+
+// traverseContext is a single thread traverse context, for traversing in a new goroutine,
+// a spawned traversal must be used and then merge.
+func (pc *programContext) level(n int) { pc.traceLevel += n }
+func (pc *programContext) trace(a ...interface{}) { printIndentDots(pc.traceLevel, a...) }
+func (pc *programContext) tracef(s string, a ...interface{}) { printIndentDots(pc.traceLevel, fmt.Sprintf(s, a...)) }
+
+func (pc *programContext) traversed(target Value) []Value {
+    if !isTrivial(target) {
+        pc.targets = append(pc.targets, target)
+
+        if false { if cc, y := pc.Context.(*closureContext); y {
+            pc.targets = cc.traversed(target)
+        } }
+
+        if _, y := toFile(target); y {
+            if c := pc.caller(); c != nil { c.addFilesCount(1) }
+        }
+    }
+    return pc.targets
+}
+func (pc *programContext) addFilesCount(n int) {
+    pc.countFiles += n
+    if c := pc.caller(); c != nil { c.addFilesCount(1) }
+}
+
 func (pc *programContext) pc() *programContext { return pc }
 func (pc *programContext) program() *Program { return pc.prog }
 func (pc *programContext) projects(ctx Context, projects ...*Project) []*Project {
@@ -309,22 +337,22 @@ func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
         (opts.verboseOutdated && outdated) ||
         (opts.verboseUpdated && !outdated)
 
-    if verb || outdated {
+    if verb {
         var d = time.Now().Sub(pc.start)
-        var s = "dur " + d.String()
-        if reason != "" { reason += ", " } ; reason += s
         if false && d > 10*time.Second {
             warnstack(ctx, 10, "%v: %v", target.Value, d).debug(64)
         }
-    }
 
-    if verb {
         var m string
-        var s = time.Now().Sub(pc.start).String()
-        if reason != "" { s += "; " + strings.TrimSpace(strings.TrimPrefix(reason, "outdated:")) }
         if outdated { m = "outdated" } else { m = "updated" }
 
-        var n = len(pc.targets) + len(pc.grepped)
+        var s = d.String()
+        if reason != "" { s += "; " + strings.TrimSpace(strings.TrimPrefix(reason, "outdated:")) }
+        if targetFile != nil && targetFile.traversed > 1 {
+            s += fmt.Sprintf(", traversed %d", targetFile.traversed)
+        }
+
+        var n = len(pc.targets) + len(pc.grepped) + pc.countFiles
         if db := opts.debug>0; db && !opts.verbose {
             warn(ctx, "%s (%T) (%s) …… %s (%d files in %s, debug=%d)", ts, target, targetFull, m, n, s, opts.debug).debug(opts.debug * 2)
         } else {
