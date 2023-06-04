@@ -824,55 +824,48 @@ func isRecipesChanged(ctx Context, target Value) (outdated bool, err error) {
     return
 }
 
-func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *execResult, err error) {
-    var (
-        pos Position = ctx.Position()
-        pc = ctx.programContext()
-        calleeErrs []error
-    )
-
-    // waiting for prerequisites
-    if false { ctx.wait() } // aka programContext.WaitGroup.Wait(), FIXME: deadlock
-
+type waitOpts struct {
+    ReportUpdates bool
+    ExecResults bool
+    StampCurrentTarget bool
+}
+func wait(ctx Context, opts waitOpts) (target Value, files []*File, execRes *execResult, err error) {
+    var calleeErrs []error
+    var pc = ctx.pc()
     if pc != nil {
-        //pc.group.Wait()
+        // wait for all jobs done
+        if false { pc.WaitGroup.Wait() } // FIXME: deadlock
+
         pc.calleeErrsM.Lock()
         calleeErrs = pc.calleeErrs; pc.calleeErrs = nil
         pc.calleeErrsM.Unlock()
     }
 
     if target = getTargetValue(ctx); target == nil {
-        erro(at(ctx,pos), "target is nil")
+        erro(ctx, "target is nil")
         errostack(ctx, 8, "").debug(8)
         return
     } else if isTrivial(target) {
-        erro(at(ctx,pos), "trivial target (%T)", target)
+        erro(ctx, "trivial target (%T)", target)
         errostack(ctx, 8, "").debug(8)
         return
     } else if n := len(calleeErrs); n > 0 /*&& t.stems == nil*/ {
-        var (
-            numRealErrs = 0
-            targetPos = pos//target.Position()
-            targetValuePos = target.Position()
-        )
+        var numRealErrs = 0
         for _, err := range calleeErrs {
             erro(ctx, "%v: %v", target, err).debug(1)
             numRealErrs += 1
         }
         if numRealErrs == 0 { return } // simply return if no real errors
-        if !pos.Same(&targetPos) {
-            var s string; if n > 1 { s = "s" }
-            erro(at(ctx,targetPos), "%d error%s while waiting prerequisites for '%v'", n, s, target).debug(1)
-        }
 
+        var ctxPos, targetPos = ctx.Position(), target.Position()
         var v = target
         if l, ok := v.(*List); ok && l.Len() == 1 { v = l.Elems[0] }
-        if targetValuePos.IsValid() && !targetValuePos.Same(&targetPos) {
+        if targetPos.IsValid() && !targetPos.Same(&ctxPos) {
             if f, y := toFile(v); y && f != nil && f.filemap != nil {
-                erro(at(ctx,targetValuePos), "waiting for '%v'", target)
+                erro(at(ctx,targetPos), "waiting for '%v'", target)
                 erro(of(ctx,f.filemap.pattern), "via pattern '%v' (of %v)", v, f.filemap.project).debug(1)
             } else {
-                erro(at(ctx,targetValuePos), "waiting for '%v'", target).debug(1)
+                erro(at(ctx,targetPos), "waiting for '%v'", target).debug(1)
             }
         }
         if def, ok := v.(*def); ok && target != v && target != def.value { // trace source Def in diagnostics
@@ -881,12 +874,7 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *exec
         return
     }
 
-    var (
-        optReportFileUpdates  = len(opts) > 0 && opts[0]
-        optWaitForexecResult  = len(opts) > 1 && opts[1]
-        optStampCurrentTarget = len(opts) > 2 && opts[2]
-    )
-    if optWaitForexecResult {
+    if opts.ExecResults {
         // Waiting for command (shell/python/etc.) exec result
         if val := autoGet(ctx, "-"); val != nil {
             var ok bool
@@ -895,14 +883,14 @@ func wait(ctx Context, opts ...bool) (target Value, files []*File, execRes *exec
             }
         }
     }
-    if !optStampCurrentTarget {
+    if !opts.StampCurrentTarget {
         // done!
     } else if files, err = target.stamp(ctx); err != nil {
         if p := target.Position(); p.IsValid() { erro(at(ctx,p), "%v", err) }
-        erro(at(ctx,pos), "%v", err).debug(1)
+        erro(ctx, "%v", err).debug(1)
         return
-    } else if optReportFileUpdates {
-        reportFileUpdates(ctx, pc.start, files)
+    } else if opts.ReportUpdates {
+        reportFileUpdates(ctx, files)
     }
     return
 }
@@ -2458,13 +2446,10 @@ func (p *elements) defs(ctx Context, s ...string) (res []*def) {
     return
 }
 func (p *elements) expandable(ctx Context, w facet) (res bool) {
-    var pos = ctx.Position()
-    for _, elem := range p.Elems {
+    for i, elem := range p.Elems {
         if elem == nil {
-            warnstack(at(ctx,pos), 6, "nil element: %v", p).debug(32)
+            warnstack(of(ctx, elem), 6, "nil element #%d: %v", i, p).debug(32)
             break
-        } else {
-            pos = elem.Position()
         }
         if res = elem.expandable(ctx, w); res { break }
     }
@@ -3966,8 +3951,10 @@ func (p *PathPun) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 
 func toFile(v Value) (f *File, y bool) {
     if f, y = v.(*File); !y {
-        var ff fullfile
-        if ff, y = v.(fullfile); y { f = ff.File }
+        switch t := v.(type) {
+        case fullfile: f, y = t.File, true
+        case as: f, y = toFile(t.Value)
+        }
     }
     return
 }
@@ -4117,7 +4104,7 @@ func (p *File) isSysFile() (res bool) {
 func (p *File) traverse(ctx Context) {
     if !p.isSysFile() && p.traversed == 0 {
         ctx.traverse(ctx, p)
-    } else if pc := ctx.programContext(); pc != nil {
+    } else if pc := ctx.pc(); pc != nil {
         pc.deferTrave(ctx, getTargetValue(ctx), p, nil, p)
     }
 }
@@ -4188,7 +4175,7 @@ func (p *File) change(dir, sub, name string) (okay bool) {
             }
             if stub.other == head { break }
         }
-        p.filestub = &filestub{ dir, sub, name, nil, head.other, 0 }
+        p.filestub = &filestub{ dir, sub, name, nil, head.other, 0, 0 }
         head.other, okay = p.filestub, true
     }
     return
@@ -4498,7 +4485,7 @@ func (p *List) expand(ctx Context, w facet) (res Value) {
     return
 }
 func (p *List) traverse(ctx Context) {
-    var pc = ctx.programContext()
+    var pc = ctx.pc()
     for _, elem := range p.Elems {
         elem.traverse(ctx)
 

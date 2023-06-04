@@ -70,7 +70,8 @@ var (
   rxCouldnotParseObj   = rx(`((?:clang|(?:[^\.]+\.)?l?ld|wasm)(?:\-.+?)?): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`)
   rxLdLibNotFound      = rx(`((?:clang|(?:[^\.]+\.)?l?ld|wasm)(?:\-.+?)?): library not found for (.+)`)
   rxTooManyPosArgs     = rx(`(.+?): Too many positional arguments specified!`)
-  rxUndefinedReference = rx(`  +"(.+?)", referenced from:`)
+  rxUndefinedReference = rx(`  +"([^"]+?)", referenced from:`)
+  rxUndefReference     = rx(`undef: *(.+)`)
   rxShellCmdNotFound   = rx(`(.+?): (.+?):( command)? not found`)
   rxIgnoringDirectory  = rx(`ignoring (duplicate|nonexistent) directory "(.*?)"`)
   rxExitStatus = rx(`exit status (\-?[0-9]+)`)
@@ -213,7 +214,7 @@ type ExecBuffer struct {
   line bytes.Buffer
   filters []string
   wrote uint64
-  report bool
+
   scanKnownErrors bool
   errorPos Position
   errors []error
@@ -456,7 +457,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
           erro(at(ctx,lpos), "%s", v[0].string)
           erro(at(ctx,lpos), "%s", obj)
           if !isNil(obj) {
-            if val := obj.expand(ctx.closure().programContext(), plain); !isNil(val) {
+            if val := obj.expand(ctx.closure().pc(), plain); !isNil(val) {
               erro(at(ctx,lpos), "%s -> %v", obj.Name(ctx), val)
             }
           }
@@ -517,6 +518,10 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
         addScannedDiag(diagError, lpos, fmt.Sprintf("%s: too many positional arguments", v[1].string))
       }
     case rxUndefinedReference:
+      if p.report {
+        addScannedDiag(diagError, lpos, fmt.Sprintf("Undefined reference '%s'", v[1].string))
+      }
+    case rxUndefReference:
       if p.report {
         addScannedDiag(diagError, lpos, fmt.Sprintf("Undefined reference '%s'", v[1].string))
       }
@@ -635,22 +640,28 @@ type execContext struct {
   execOpts
   execResult
 
-  targetName string
+  positions []Position
+  sources []string
 
   log *ExecLog
   logPos Position
   srcPos Position
 
+  target as
+  targetName string
+
   retried map[string]bool // work with containerToRun
   containerToRun string   // work with retried
+  container *Project
 
   printEnteringOnFirstWrote bool
 
   num int
   x  *executor
   sh *exec.Cmd
-  container *Project
+  args []string
 
+  start time.Time
   scannedDiags []*scannedExecDiag
 }
 
@@ -787,7 +798,7 @@ func (p *execContext) run() (err error) {
     return
   }
 
-  var pc = p.Context.programContext()
+  var pc = p.Context.pc()
 
   pc.Add(1)
   p.num += 1
@@ -897,6 +908,196 @@ func (p *execContext) check() (err error) {
   return
 }
 
+func (exe *execContext) exec(cmd, opt string, err error) {
+  var (
+    ctx = exe.Context
+    pc = ctx.pc()
+    program = ctx.program()
+    env, envSep = program.env(ctx)
+    envstr string
+    logFile *os.File
+  )
+  for i, s := range env[envSep:] {
+    if i > 0 { envstr += " && " }
+    if k := strings.Index(s, "="); k > 0 {
+      envstr += fmt.Sprintf(`%s%s`, s[:k+1], strconv.Quote(s[k+2:]))
+    }
+  }
+
+  if ctx.flushDiags(true) > 0 {
+    if str := trimPromptString(exe.targetName); filepath.IsAbs(exe.targetName) {
+      var pos Position; pos.Filename, pos.Line = exe.targetName, 1
+      warn(ctx, "got %d error(s)", ctx.totalErrors())
+      warn(at(ctx,pos), "cancel execution for %s", str).debug(1)
+    } else {
+      warn(ctx, "got %d error(s), cancel execution for %s", ctx.totalErrors(), str).debug(1)
+    }
+    if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.totalErrors()) }
+    return
+  }
+
+  exe.start = time.Now()
+
+  defer func() {
+    var caller = pc.caller()
+    if exe.log != nil && exe.log.writer != nil { exe.log.writer.Flush() }
+    if logFile != nil { logFile.Close() }
+    if exe.log != nil && exe.log.filename != "" &&
+      exe.Stdout.wrote == 0 && exe.Stderr.wrote == 0 {
+      if false { os.Remove(exe.log.filename) }
+    }
+    if !exe.silentErrs && caller != nil && err != nil { caller.calleeError(err) }
+    exe.Stdout.execContext = nil
+    exe.Stderr.execContext = nil
+    exe.container = nil
+    exe.Context = nil
+    exe.sh = nil
+    exe.x = nil
+
+    // Stamp the target file.
+    if !exe.stamp || ctx.isConfiguration() {
+      // no stamp for target files
+    } else if err != nil {
+      var files, e = exe.target.delete(ctx)
+      if e != nil { erro(ctx, `%v: delete: %v`, exe.target, e) }
+
+      if exe.log != nil {
+        var s, l = exe.log.filename, exe.log.lines
+        prompt(ctx, "%v:%d: %v: %v\n", s, l, exe.target, err)
+      } else {
+        prompt(ctx, "%v: %v (deleted %d files)\n", exe.target, err, len(files))
+      }
+
+      for _, file := range files {
+        if s, fn := file.String(), file.fullname(); s == fn {
+          erro(ctx, `%v: deleted`, s)
+        } else {
+          erro(ctx, `%v: deleted, %v`, s, fn)
+        }
+      }
+      errostack(ctx, 3, "%v: %v", exe.target, err).debug(16)
+      return
+    } else if files, e := exe.target.stamp(ctx); e != nil {
+      if pe, ok := e.(*fs.PathError); ok { err = fmt.Errorf(`"%v" not found`, exe.target)
+        prompt(ctx, "%v: target not found, stamp \"%v\"\n", pe.Path, exe.target)
+      } else {
+        prompt(ctx, "%v: target not found, \"%v\"\n", pe.Path, e)
+      }
+      if exe.logFileName != nil && !exe.logPos.IsValid() {
+        prompt(ctx, "%v:1: see logs for \"%s\"\n", exe.logFileName.string, exe.target)
+      }
+      errostack(ctx, 6, `stamp "%v" failed`, exe.target).debug(10)
+      return
+    } else if !exe.prompt && exe.report {
+      reportFileUpdates(ctx, files)
+    }
+
+    if err == nil {
+      // Good!
+    } else if ctx.isConfiguration() {
+      err = nil
+    } else {
+      erro(ctx, "shell: %v", err).debug(1)
+      return
+    }
+
+    if exe.prompt {
+      var ps = exe.promStr
+      if ps += trimPromptString(exe.targetName); caller == nil {
+        if ps += " …… "; err != nil { ps += err.Error() } else { ps += "ok" }
+      }
+      if ps != "" {
+        var s = time.Now().Sub(exe.start).String()
+        if n := exe.Stdout.wrote; n > 0 { s += fmt.Sprintf(", stdout=%d bytes", n) }
+        if n := exe.Stderr.wrote; n > 0 { s += fmt.Sprintf(", stderr=%d bytes", n) }
+        if t := pc.dirt; t != "" { s += "; " + t }
+        prompt(ctx, "%s (exec %s)\n", ps, s)
+      }
+    }
+  } ()
+
+  if exe.logFileName != nil { exe.log = &ExecLog{ filename: exe.logFileName.string } }
+  if exe.bufStdout || exe.retStdout { exe.Stdout.Buf = new(bytes.Buffer) }
+  if exe.bufStderr || exe.retStderr { exe.Stderr.Buf = new(bytes.Buffer) }
+  if exe.tieStdout { exe.Stdout.Tie = stdout }
+  if exe.tieStderr { exe.Stderr.Tie = stderr }
+  if exe.log == nil || exe.log.filename == "" {
+    // no log required
+  } else if err = os.MkdirAll(filepath.Dir(exe.log.filename), os.FileMode(0755)); err != nil {
+    erro(at(ctx,program.position), "%v", err).debug(1)
+    return
+  } else if logFile, err = os.Create(exe.log.filename); err != nil {
+    erro(at(ctx,program.position), "%v", err).debug(1)
+    return
+  } else {
+    cmdline := strings.Join(exe.sources, "\n")
+    exe.log.createWriter(logFile, exe.workDir, cmdline)
+  }
+  exe.Stdout.scanKnownErrors = exe.scanStdout
+  exe.Stderr.scanKnownErrors = exe.scanStderr
+  exe.Stdout.defaultDirectory = exe.workDir
+  exe.Stderr.defaultDirectory = exe.workDir
+  exe.Stdout.execContext = exe
+  exe.Stderr.execContext = exe
+
+  for i, src := range exe.sources {
+    var ctx = at(ctx, exe.positions[i])
+    exe.srcPos = ctx.Position()
+
+    if a := "@"; strings.HasPrefix(src, a) {
+      src = strings.TrimPrefix(src, a)
+    } else if exe.promptSrc && !exe.prompt {
+      var s string = src
+      s = strings.Replace(s, "\n", "\\n", -1)
+      s = strings.Replace(s, "\\\\n", "\\\n", -1)
+      prompt(ctx, "%s\n", s)//.debug(1)
+    }
+
+    if src = strings.TrimSpace(src); src == "" { continue }
+
+    if false && !exe.noCD && exe.workDir != "" {
+      if strings.HasPrefix(src, "#") {
+        src = fmt.Sprintf("cd '%s' %s", exe.workDir, src)
+      } else {
+        // Insert a "\n" before the right paren ')' to ensure that
+        // it's working with comments like "true #comment...".
+        src = fmt.Sprintf("cd '%s' && (%s\n)", exe.workDir, src)
+      }
+    }
+
+    if cmd == "docker" && len(envstr) > 0 {
+      src = fmt.Sprintf("%s && %s", envstr, src)
+    }
+
+    if options.noExec { continue }
+
+    if !exe.silentErrs || exe.prompt || exe.promptSrc {
+      exe.printEnteringOnFirstWrote = true
+    }
+
+    exe.sh = exec.Command(cmd, exe.args...)
+    exe.sh.Dir = exe.workDir // always set command work directory
+    exe.sh.Env = env
+    exe.sh.Stdout = &exe.Stdout
+    exe.sh.Stderr = &exe.Stderr
+    if exe.stdin {
+      exe.sh.Stdin = os.Stdin
+      exe.sh.Args = append(exe.sh.Args, "-ti")
+    }
+    if opt != "" { exe.sh.Args = append(exe.sh.Args, opt) }
+    if src != "" { exe.sh.Args = append(exe.sh.Args, src) }
+    if exe.debug > 0 {
+      warn(at(ctx,program.position), "%v: %v", ctx.entry(), exe.target)
+      warn(ctx, "context: %v", ctx.pc())
+      warn(ctx, "exec:\n%v", exe.sh).debug(exe.debug*2)
+    }
+
+    exe.Stdout.report = !exe.silentErrs
+    exe.Stderr.report = !exe.silentErrs
+    if err = exe.run(); exe.Status != 0 || err != nil { break }
+  }
+}
+
 type executor struct {
   cmd, opt string
   contained bool
@@ -915,50 +1116,40 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
 
   exe.position = pos
   exe.scanStderr = true
+  args = parseOpts(ctx, &exe.execOpts, plain, args...)
 
-  if args = parseOpts(ctx, &exe.execOpts, plain, args...); exe.deprecated {
+  if exe.deprecated {
     erro(ctx, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug(1)
     return
-  } else if !exe.prompt {
-    exe.prompt = exe.promStr != ""
   }
+
+  if !exe.prompt { exe.prompt = exe.promStr != "" }
+
   switch exe.tie {
   case "stdout", "out" : exe.tieStdout = true
   case "stderr", "err" : exe.tieStderr = true
   case "all"   , "both": exe.tieStdout, exe.tieStderr = true, true
   }
 
-  if false { defer func() { warn(ctx, "%v", cmd).debug(8) } () }
-
-  var (
-    pc = ctx.programContext()
-    program = pc.program()
-    target as
-  )
-  if target.Value = getTargetValue(ctx); program == nil {
+  var pc = ctx.pc()
+  var program = pc.program()
+  if exe.target.Value = getTargetValue(ctx); program == nil {
     erro(ctx, "needs program context to exec: %v", ctx).debug(16)
     return
-  } else if exe.stamp && target.patterned(ctx) {
-    errostack(ctx, 5, "target is pattern: %v", target).debug(64)
+  } else if exe.stamp && exe.target.patterned(ctx) {
+    errostack(ctx, 5, "target is pattern: %v", exe.target).debug(64)
     return
-  } else if _, ok := target.Value.(*Flag); ok {
+  } else if _, ok := exe.target.Value.(*Flag); ok {
     // no stamp required for Flags
-  } else if _, ok = toFile(target.Value); !ok {
+  } else if _, ok = toFile(exe.target.Value); !ok {
     // no stamp required for non-file targets
-  } else if exe.targetName, _ = target.fullnameOrStrval(ctx); ctx.isConfiguration() {
+  } else if exe.targetName, _ = exe.target.fullnameOrStrval(ctx); ctx.isConfiguration() {
     // does nothing
   } else if exe.waitRes {
     // good to work without (stamp) or (wait) with the -wait flag
-  } else if ms := program.getModifiers(ctx, "stamp"); len(ms) > 0 {
-    switch t := target.Value; t.(type) {
-    case *barefile, *File, *Path:
-      warn(at(ctx,ms[0].position), "use (shell -stamp) instead of stamp modifier (%T %v)", t, t).debug(1)
-    default:
-      warn(at(ctx,ms[0].position), "no need to use (shell -stamp) here", t, t).debug(1)
-    }
-  } else if ms := program.getModifiers(ctx, "wait"); len(ms) > 0 {
+  } else if m := program.getModifiers(ctx, "wait"); len(m) > 0 {
     // should be good to work
-  } else if t := target.Value; !(exe.stamp || exe.noStamp || exe.silentErrs) {
+  } else if t := exe.target.Value; !(exe.stamp || exe.noStamp || exe.silentErrs) {
     warn(ctx, "add -stamp to (shell); target=%v (%T)", t, t).debug(1)
   }
 
@@ -967,10 +1158,6 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     return
   }
 
-  var (
-    start = time.Now()
-    aa []string
-  )
   for i, v := range args {
     var s string
     if p.contained && i == 0 {
@@ -978,32 +1165,31 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
         cmd = defaultShell
       }
     } else if s = strings.TrimSpace(v.Strval(ctx)); s != "" {
-      aa = append(aa, s)
+      exe.args = append(exe.args, s)
     }
   }
 
-  var container *Project
   if p.contained {
     if program.project.name == dotContainer {
-      container = program.project
+      exe.container = program.project
     } else if _, containerSym := program.project.scope.Find(dotContainer); containerSym != nil {
       if pn, _ := containerSym.(*projectName); pn != nil {
-        container = pn.Project
+        exe.container = pn.Project
       }
     }
 
-    if container == nil {
+    if exe.container == nil {
       erro(ctx, "container unavailable (in %s)", program.project.name).debug(1)
       return
     }
 
     var strval = func(name string) (str string) {
-      var ctx = closureWith(ctx, container.Scope())
-      if obj := container.resolveObject(ctx, name); obj != nil {
+      var ctx = closureWith(ctx, exe.container.Scope())
+      if obj := exe.container.resolveObject(ctx, name); obj != nil {
         if d, _ := obj.(*def); d != nil {
           if v := d.Call(ctx, nil); v != nil {
             if str = v.Strval(ctx); str == "-" {
-              /*if v, err = def.DiscloseValue(container); err == nil && v != nil {
+              /*if v, err = def.DiscloseValue(exe.container); err == nil && v != nil {
                   if str, err = v.Strval(ctx); str == "" { str = "-" }
                   fmt.Fprintf(stderr, "%v: %v (%v)\n", name, str, def)
                 }*/
@@ -1027,10 +1213,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     }
 
     if options.verbose {
-      prompt(ctx, "%v: container=%v, image=%v\n", container, containerName, containerImage)
+      prompt(ctx, "%v: container=%v, image=%v\n", exe.container, containerName, containerImage)
     }
 
-    aa = append(aa, "exec", containerName, cmd)
+    exe.args = append(exe.args, "exec", containerName, cmd)
     cmd = "docker"
   }
 
@@ -1038,10 +1224,9 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   // sometimes even the 'sh.Dir' is set to cwd.
   // Because the current work directory is not
   // thread safe.
-  var workDir string
   if exe.workDir != "" {
-    workDir = exe.workDir
-  } else if workDir = program.workDir(ctx); workDir == "" {
+    // good
+  } else if exe.workDir = program.workDir(ctx); exe.workDir == "" {
     erro(ctx, "CWD is empty").debug(1)
     return
   }
@@ -1050,7 +1235,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     var s string
     if s = filepath.Dir(exe.targetName); s != "" && s != "." && s != "/" {
       if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
-        erro(of(ctx,target), "make path '%s' for target failed: %v", s, err).debug(1)
+        erro(of(ctx,exe.target), "make path '%s' for target failed: %v", s, err).debug(1)
         return
       }
     }
@@ -1059,14 +1244,13 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   var (
     recipePos Position
     recipes []Value
-    sources []string
     source string
     w = plain
   )
+
   if exe.fullname { w |= expandFullName }
   recipes = mergex(ctx, w, program.recipes...)
 
-  var positions []Position
   for _, recipe := range recipes {
     if !recipePos.IsValid() { recipePos = recipe.Position() }
 
@@ -1088,194 +1272,19 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     // Duplicate all %
     //source = strings.Replace(source, "%", "%%", -1)
 
-    positions = append(positions, recipePos); recipePos = Position{}
-    sources = append(sources, source)
+    exe.positions = append(exe.positions, recipePos) ; recipePos = Position{}
+    exe.sources = append(exe.sources, source)
     source = ""
   }
-  if len(recipes) > 0 && len(sources) == 0 {
+  if len(recipes) > 0 && len(exe.sources) == 0 {
     erro(ctx, "empty recipes: %v", recipes).debug(1)
     return;
   }
 
-  var (
-    env, envSep = program.env(ctx)
-    envstr string
-  )
-  for i, s := range env[envSep:] {
-    if i > 0 { envstr += " && " }
-    if k := strings.Index(s, "="); k > 0 {
-      envstr += fmt.Sprintf(`%s%s`, s[:k+1], strconv.Quote(s[k+2:]))
-    }
-  }
-
-  var logFile *os.File
-  if exe.logFileName != nil { exe.log = &ExecLog{ filename: exe.logFileName.string } }
-  if exe.bufStdout || exe.retStdout { exe.Stdout.Buf = new(bytes.Buffer) }
-  if exe.bufStderr || exe.retStderr { exe.Stderr.Buf = new(bytes.Buffer) }
-  if exe.tieStdout { exe.Stdout.Tie = stdout }
-  if exe.tieStderr { exe.Stderr.Tie = stderr }
-  if exe.log == nil || exe.log.filename == "" {
-    // no log required
-  } else if err = os.MkdirAll(filepath.Dir(exe.log.filename), os.FileMode(0755)); err != nil {
-    erro(at(ctx,program.position), "%v", err).debug(1)
-    return
-  } else if logFile, err = os.Create(exe.log.filename); err != nil {
-    erro(at(ctx,program.position), "%v", err).debug(1)
-    return
+  if true {
+    exe.exec(cmd, p.opt, err)
   } else {
-    cmdline := strings.Join(sources, "\n")
-    exe.log.createWriter(logFile, workDir, cmdline)
-  }
-  exe.Stdout.scanKnownErrors = exe.scanStdout
-  exe.Stderr.scanKnownErrors = exe.scanStderr
-  exe.Stdout.defaultDirectory = workDir
-  exe.Stderr.defaultDirectory = workDir
-  exe.Stdout.execContext = exe
-  exe.Stderr.execContext = exe
-
-  if ctx.flushDiags(true) > 0 {
-    if str := trimPromptString(exe.targetName); filepath.IsAbs(exe.targetName) {
-      var pos Position; pos.Filename, pos.Line = exe.targetName, 1
-      warn(ctx, "got %d error(s)", ctx.totalErrors())
-      warn(at(ctx,pos), "cancel execution for %s", str).debug(1)
-    } else {
-      warn(ctx, "got %d error(s), cancel execution for %s", ctx.totalErrors(), str).debug(1)
-    }
-    if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.totalErrors()) }
-    return
-  }
-
-  defer func() {
-    var caller = pc.caller()
-    if exe.log != nil && exe.log.writer != nil { exe.log.writer.Flush() }
-    if logFile != nil { logFile.Close() }
-    if exe.log != nil && exe.log.filename != "" &&
-      exe.Stdout.wrote == 0 && exe.Stderr.wrote == 0 {
-      if false { os.Remove(exe.log.filename) }
-    }
-    if !exe.silentErrs && caller != nil && err != nil { caller.calleeError(err) }
-    exe.Stdout.execContext = nil
-    exe.Stderr.execContext = nil
-    exe.container = nil
-    exe.Context = nil
-    exe.sh = nil
-    exe.x = nil
-
-    // Stamp the target file.
-    if !exe.stamp || ctx.isConfiguration() {
-      // no stamp for target files
-    } else if err != nil {
-      var files, e = target.delete(ctx)
-      prompt(ctx, "%v: %v (deleted %d files)\n", target, err, len(files))
-      if e != nil { erro(ctx, `%v: delete: %v`, target, e) }
-      for _, file := range files {
-        var fullname = file.fullname()
-        if s := file.String(); s == fullname {
-          erro(ctx, `%v: deleted`, s)
-        } else {
-          erro(ctx, `%v: deleted: %v`, s, fullname)
-        }
-      }
-      warn(ctx, "%v: %v (deleted %d files)\n", target, err, len(files))
-      errostack(ctx, 3, ``).debug(6)
-      return
-    } else if files, err := target.stamp(ctx); err != nil {
-      if pe, ok := err.(*fs.PathError); ok { err = fmt.Errorf(`"%v" not found`, target)
-        prompt(ctx, "%v: target not found, stamp \"%v\"\n", pe.Path, target)
-      } else {
-        prompt(ctx, "%v: target not found, \"%v\"\n", pe.Path, err)
-      }
-      if exe.logFileName != nil && !exe.logPos.IsValid() {
-        prompt(ctx, "%v:1: see logs for \"%s\"\n", exe.logFileName.string, target)
-      }
-      erro(ctx, `stamp "%v" failed`, target)
-      errostack(ctx, 6, ``).debug(10)
-      return
-    } else if exe.report {
-      var t = ctx.programContext()
-      reportFileUpdates(ctx, t.start, files)
-    }
-
-    if err == nil {
-      // Good!
-    } else if ctx.isConfiguration() {
-      err = nil
-    } else {
-      erro(ctx, "shell: %v", err).debug(1)
-      return
-    }
-
-    if exe.prompt {
-      var ps = exe.promStr
-      if ps += trimPromptString(exe.targetName); caller == nil {
-        if ps += " …… "; err != nil { ps += err.Error() } else { ps += "ok" }
-      }
-      if ps != "" {
-        var s = time.Now().Sub(start).String()
-        if n := exe.Stdout.wrote; n > 0 { s += fmt.Sprintf(", stdout=%d bytes", n) }
-        if n := exe.Stderr.wrote; n > 0 { s += fmt.Sprintf(", stderr=%d bytes", n) }
-        if t := pc.dirt; t != "" { s += "; " + t }
-        prompt(ctx, "%s (exec %s)\n", ps, s)
-      }
-    }
-  } ()
-
-  for i, src := range sources {
-    var ctx = at(ctx, positions[i])
-    exe.srcPos = ctx.Position()
-
-    if a := "@"; strings.HasPrefix(src, a) {
-      src = strings.TrimPrefix(src, a)
-    } else if exe.promptSrc && !exe.prompt {
-      var s string = src
-      s = strings.Replace(s, "\n", "\\n", -1)
-      s = strings.Replace(s, "\\\\n", "\\\n", -1)
-      prompt(ctx, "%s\n", s)//.debug(1)
-    }
-
-    if src = strings.TrimSpace(src); src == "" { continue }
-
-    if false && !exe.noCD && workDir != "" {
-      if strings.HasPrefix(src, "#") {
-        src = fmt.Sprintf("cd '%s' %s", workDir, src)
-      } else {
-        // Insert a "\n" before the right paren ')' to ensure that
-        // it's working with comments like "true #comment...".
-        src = fmt.Sprintf("cd '%s' && (%s\n)", workDir, src)
-      }
-    }
-
-    if cmd == "docker" && len(envstr) > 0 {
-      src = fmt.Sprintf("%s && %s", envstr, src)
-    }
-
-    if options.noExec { continue }
-
-    if !exe.silentErrs || exe.prompt || exe.promptSrc {
-      exe.printEnteringOnFirstWrote = true
-    }
-
-    exe.container = container
-    exe.sh = exec.Command(cmd, aa...)
-    exe.sh.Dir = workDir // always set command work directory
-    exe.sh.Env = env
-    exe.sh.Stdout = &exe.Stdout
-    exe.sh.Stderr = &exe.Stderr
-    if exe.stdin {
-      exe.sh.Stdin = os.Stdin
-      exe.sh.Args = append(exe.sh.Args, "-ti")
-    }
-    if p.opt != "" { exe.sh.Args = append(exe.sh.Args, p.opt) }
-    if src   != "" { exe.sh.Args = append(exe.sh.Args, src) }
-    if exe.debug > 0 {
-      warn(at(ctx,program.position), "%v: %v", ctx.entry(), target)
-      warn(ctx, "context: %v", ctx.programContext())
-      warn(ctx, "exec:\n%v", exe.sh).debug(exe.debug*2)
-    }
-
-    exe.Stdout.report = !exe.silentErrs
-    exe.Stderr.report = !exe.silentErrs
-    if err = exe.run(); exe.Status != 0 || err != nil { break }
+    go exe.exec(cmd, p.opt, err)
   }
 
   // Add stdout result

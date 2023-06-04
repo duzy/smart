@@ -770,7 +770,7 @@ type (
 func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData configureConvertFunc, opts *configureConvertOpts, args ...Value) (result Value) {
     var (
         project = ctx.Project()
-        pc = ctx.programContext()
+        pc = ctx.pc()
         closured = closureProjects(ctx)
         filename string
         file *File
@@ -883,7 +883,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
             return
         } else if same {
             var tt = file.info.ModTime()
-            for _, d := range merge(ctx.programContext().targets...) {
+            for _, d := range merge(ctx.pc().targets...) {
                 if f, ok := toFile(d); !ok { continue } else
                 if dt := f.info.ModTime(); dt.After(tt) { tt = dt }
             }

@@ -637,7 +637,7 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
     if false {
       // if s == "touch" { warnstack(ctx, 3, "%v: %s %v %v", p, s, entry, y).debug(1) }
       var t1 = autoGet(ctx, "@")
-      for pc := ctx.programContext(); pc != nil; { // loop detection
+      for pc := ctx.pc(); pc != nil; { // loop detection
         if pc.entry() == entry {
           var t2 = autoGet(pc, "@")
           if eq(ctx, t1, t2) || t1.Strval(ctx) == t2.Strval(ctx) {
@@ -652,7 +652,7 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
           }
         }
         if c := pc.inner(); c != nil {
-          pc = c.programContext()
+          pc = c.pc()
         } else {
           break
         }

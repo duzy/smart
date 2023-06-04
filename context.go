@@ -115,8 +115,7 @@ type Context interface {
   Scope() *Scope
 
   aquireLock() (unlock func())
-  gap(...interface{}) time.Duration
-  wait()
+  gap(...bool) time.Duration
 
   universe() *universe
 
@@ -140,11 +139,11 @@ type Context interface {
   Project() *Project
   projects(Context, ...*Project) []*Project
 
-  programContext() *programContext
+  pc() *programContext
   program() *Program
 
   dirtyMark(...Value)
-  dirtyOpts() *modifierSetDirtyPatsOpts
+  dirtyOpts() *dirtyOpts
   dirty(ctx Context, args ...Value) bool
 
   // travestates(...*travestate) *travestates

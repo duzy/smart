@@ -2038,6 +2038,7 @@ func (p *parser) include(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 
 func (p *parser) files(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	defer p.setbits(p.setbit(parseFilesSpec))
+
 	if len(g.spec) != 1 {
 		erro(ctx, "too many files properties: %v", g.spec).debug(1)
 		return
@@ -2051,6 +2052,7 @@ func (p *parser) files(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 		}
 		path = p.expr(ctx, false)
 	}
+
 	if p.spaces(); p.lineComment != nil {
 		//spec.Comment = p.lineComment
 	}

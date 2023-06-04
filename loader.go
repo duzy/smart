@@ -176,13 +176,11 @@ func saveLoadingInfo(l *loader, specName, absDir, baseName string) *loader {
 }
 
 type useOpts struct {
-	noUse    bool `nu,nouse;uu,unuse` // TODO
-    noVars   bool `nv,novars;nv,no-vars`
-	files    bool `f,files` // NOTE: see also '-import(xxxx)'
-	filesPub bool `fp,files-pub;fp,files-public;pf,public-files`
-    // public   bool `p,pub;pub,public` // NOTE: work with -files flag
-	reuse    bool `r,reuse;ru,reusing`
-    vars   []Value `var,vars`
+	noUse  bool `nu,nouse;uu,unuse` // TODO
+    noVars bool `nv,novars,no-vars`
+	files  bool `f,files` // NOTE: see also '-import(xxxx)'
+	reuse  bool `r,ru,reuse,reusing`
+    vars []Value `var,vars`
 }
 
 type useVarOpts struct {

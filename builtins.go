@@ -3942,7 +3942,7 @@ func (ctx builtin) file(aa... Value) (res Value) {
                 if false {
                         proj = ctx.closure().Project()
                 } else {
-                        proj = ctx.programContext().Project()
+                        proj = ctx.pc().Project()
                 }
         } else {
                 proj = ctx.Project()
@@ -4501,7 +4501,7 @@ func (ctx builtin) grep(args... Value) (res Value) {
                 }
 
                 if c := of(ctx, a); filename == "" {
-                        var pc = ctx.Context.programContext()
+                        var pc = ctx.Context.pc()
                         erro(c, "empty filename: %T %v", a, a)
                         erro(c, "%v %v", rvs, args)
                         errostack(c, 5, "%p %v", pc, pc.autoGet("^")).debug(64)

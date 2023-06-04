@@ -361,11 +361,9 @@ type universe struct {
     filemaps filemapCache // value -> dirs
     filecache map[string]*filebase // File.fullname() -> File
 }
-func (ctx *universe) gap(a ...interface{}) (d time.Duration) {
+func (ctx *universe) gap(a ...bool) (d time.Duration) {
     var t = time.Now()
-    if d = t.Sub(ctx.t); a != nil {
-        if x, y := a[0].(bool); x && y { ctx.t = t }
-    }
+    if d = t.Sub(ctx.t); a != nil && a[0] { ctx.t = t }
     return
 }
 func (ctx *universe) arguments() []Value { return nil }
@@ -394,13 +392,12 @@ func (ctx *universe) projects(_ Context, projs ...*Project) []*Project {
     return nil
 }
 func (ctx *universe) program() *Program { return nil }
-func (ctx *universe) programContext() *programContext { return nil }
+func (ctx *universe) pc() *programContext { return nil }
 func (ctx *universe) positionContext() *positionContext { return nil }
 func (ctx *universe) Position() (res Position) {
     res.Filename, res.Line = ctx.workdir, 1
     return
 }
-func (ctx *universe) wait() {}
 func (ctx *universe) appendCallerUpdated() bool { return false }
 func (ctx *universe) mustExists() bool { return false }
 func (ctx *universe) WorkDir() string { return ctx.workdir }
@@ -430,7 +427,7 @@ func (ctx *universe) closureScopes() (scopes []*Scope) {
     return
 }
 func (ctx *universe) dirtyMark(vals ...Value) { return }
-func (ctx *universe) dirtyOpts() *modifierSetDirtyPatsOpts { return nil }
+func (ctx *universe) dirtyOpts() *dirtyOpts { return nil }
 func (ctx *universe) dirty(Context, ...Value) (res bool) { return }
 
 func (ctx *universe) help()       { do_helpscreen(ctx) }
@@ -503,7 +500,7 @@ type filestub struct {
     name string      // constant represented name (e.g. relative filename)
     filemap *FileMap // matched pattern (see 'files' directive)
     other *filestub  // pointed to another stub (in a different project) of the same file
-    traversed int
+    traving, traversed int
 }
 func (p *filestub) subname() (s string) {
     if isAbsOrRel(p.sub) {
@@ -628,7 +625,7 @@ func (uc *universe) stat(ctx Context, name, sub, dir string, infos ...os.FileInf
             if stub.other == head { break }
         }
 
-        stub = &filestub{ dir, sub, name, nil, head.other, 0 }
+        stub = &filestub{ dir, sub, name, nil, head.other, 0, 0 }
         head.other = stub
     } else {
         if fileInfo == nil {
@@ -638,7 +635,7 @@ func (uc *universe) stat(ctx Context, name, sub, dir string, infos ...os.FileInf
             }
         }
 
-        base = &filebase{ filestub{ dir, sub, name, nil, nil, 0 }, fileInfo, false, nil }
+        base = &filebase{ filestub{ dir, sub, name, nil, nil, 0, 0 }, fileInfo, false, nil }
         base.stub.other = &base.stub
         stub = &base.stub
         uc.filecache[cleanFullname] = base
