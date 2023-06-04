@@ -701,7 +701,7 @@ func (p *Project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
       }
 
       var pos = ctx.Position()
-      prompt(ctx, "%v: slow: %v: %v, %v %v %v ; %v", pos, p, d, d1, d2, d3, ctx.gap())
+      prompt(ctx, "%v: slow: %v: %v, %v %v %v", pos, p, d, d1, d2, d3)
       prompt(ctx, "%v: slow: %v: %v: %v %v, %d nests", pos, p, a, v, p.patterns, n).debug(4)
 
       for _, pat := range p.patterns {

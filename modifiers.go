@@ -497,10 +497,9 @@ ForArgs:
             if auto && name == "@" {
                 var f, s, y = as{value}.fullname(ctx)
                 if opts.verbose {
-                    var d = ctx.gap(false)
                     var ts = trimPromptString(s)
-                    prompt(ctx, "%s …… traversed (%d, %v)\n", ts, f.traversed, d)
-                    if false { warnstack(ctx, 64, "%v, %v, (%v)", f, s, d).debug(64) }
+                    prompt(ctx, "%s …… traversed (%d)\n", ts, f.traversed)
+                    if false { warnstack(ctx, 64).debug(64) }
                 }
                 if y && f.traversed > 1 {
                     pc.traves.add(ctx, traveDone, nil)
@@ -579,10 +578,9 @@ func (ctx modifier) _closure(aa ...Value) (result Value) {
 
         if n > 1 {
             if opts.verbose {
-                var d = ctx.gap(false)
                 var ts = trimPromptString(s)
-                prompt(ctx, "%s …… traversed (%d, %v)\n", ts, n, d)
-                if false { warnstack(ctx, 64, "%v, %v, (%d, %v)", f, s, n, d).debug(64) }
+                prompt(ctx, "%s …… traversed (%d, %v)\n", ts, n)
+                if false { warnstack(ctx, 64, "%v, %v, (%d)", f, s, n).debug(64) }
             }
 
             pc.traves.add(ctx, traveDone, nil)

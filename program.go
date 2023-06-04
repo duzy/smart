@@ -310,12 +310,11 @@ func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
         (opts.verboseUpdated && !outdated)
 
     if verb || outdated {
-        if d := ctx.gap(true); d > 0 {
-            var s = "gap " + d.String()
-            if reason != "" { reason += ", " } ; reason += s
-            if false && d > 10*time.Second {
-                warnstack(ctx, 10, "%v: %v", target.Value, d).debug(64)
-            }
+        var d = time.Now().Sub(pc.start)
+        var s = "dur " + d.String()
+        if reason != "" { reason += ", " } ; reason += s
+        if false && d > 10*time.Second {
+            warnstack(ctx, 10, "%v: %v", target.Value, d).debug(64)
         }
     }
 
@@ -513,7 +512,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
             }
             for i, c := range concreteList { warn(at(ctx,c.Position()), "%v : C#%d %v", targetValue, i, c) }
             for i, s := range stemmedList  { warn(at(ctx,s.position), "%v : S#%d %v", targetValue, i, s) }
-            warnstack(ctx, 5, "slow: %v: %v: %v, %v", targetValue, prereqValue, d, ctx.gap()).debug(10)
+            warnstack(ctx, 5, "slow: %v: %v: %v", targetValue, prereqValue, d).debug(10)
             ctx.flushDiags(true)
         }
     } (time.Now())
