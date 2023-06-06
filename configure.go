@@ -361,18 +361,20 @@ type modifierConfigureOpts struct {
     generalOpts
     accumulate bool `a,add,accumulate`
 }
-func executeConfigureEntry(ctx Context, opts *modifierConfigureOpts, entryName string, target Value, paramsOrig ...Value) (configured bool, result Value) {
-    if options.traceConfig { defer un(trace(t_config, fmt.Sprintf("executeConfigureEntry(%s %v)", entryName, ctx))) }
+func configureExecuteEntry(ctx Context, opts *modifierConfigureOpts, entryName interface{}, target Value, paramsOrig ...Value) (configured bool, result Value) {
+    if options.traceConfig { defer un(trace(t_config, fmt.Sprintf("configureExecuteEntry(%s %v)", entryName, ctx))) }
 
     var entries *ResolveEntries
     if program := ctx.program(); program == nil {
-        erro(ctx, "needs program context to configure: %v", ctx).debug(1)
+        errostack(ctx, 3, "needs program context to configure: %v", ctx).debug(16)
         return
     } else if program.project.configure == nil {
-        erro(ctx, "%v: .configure not provided for %v (%s)", program.project, target, entryName).debug(1)
+        errostack(ctx, 3, "%v: .configure not provided for %v (%s)", program.project, target, entryName).debug(16)
         return
-    } else if entries = program.project.configure.resolveEntries(ctx, "-"+entryName, false, false); entries == nil {
-        erro(ctx, "unknown configuration action `%v`, no such entry", entryName).debug(1)
+    } else if entries = program.project.configure.resolveEntries(ctx, entryName, false, false); entries == nil {
+        var t = &program.project.configure._entries
+        if t.fast != nil { t = t.fast["-"] }
+        errostack(ctx, 3, "%T %v: unknown configuration action, %v", entryName, entryName, t).debug(16)
         return
     }
 
@@ -460,8 +462,7 @@ ForInParams:
     for _, entry := range entries.all {
         if reses, traves = entry.execute(ctx, params...); ctx.flushDiags(true) > 0 {
             warn(at(ctx,entry.Position()), "%v", entry)
-            warnstack(ctx, 5, `configure '%s' got %d error(s)`,
-                entryName, ctx.totalErrors()).debug(1)
+            warnstack(ctx, 5, `configure '%s' got %d error(s)`, entryName, ctx.totalErrors()).debug(1)
             if options.failOnErrors { fail(pos, "fail by %d errors", ctx.totalErrors()) }
         } else if n := len(reses); n != 1 {
             if true { // just bypass, no configuration results - <nil>
@@ -488,19 +489,26 @@ ForInParams:
     return
 }
 
-func configureDo(ctx Context, opts *modifierConfigureOpts, target Value, name Value, args []Value) (configured bool, result Value) {
+func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, name Value, args []Value) (configured bool, result Value) {
     if options.traceConfig { defer un(trace(t_config, "configureDo")) }
 
-    var (
-        pos = ctx.Position()
-        strName = name.Strval(ctx)
-        params []Value
-        infos []Value
-    )
-    if strName == "" {
+    var opName string
+    if f, y := name.(*Flag); y {
+        opName = f.name.Strval(ctx)
+    } else {
+        opName = name.Strval(ctx)
+    }
+
+    if opName == "" {
         erro(ctx, " empty configure name: %v (%T)", name, name).debug(1)
         return
     }
+
+    var (
+        pos = ctx.Position()
+        params []Value
+        infos []Value
+    )
 
     for _, arg := range mergex(ctx, plain, args...) {
         if isTrivial(arg) { continue }
@@ -514,11 +522,6 @@ func configureDo(ctx Context, opts *modifierConfigureOpts, target Value, name Va
             return
         }
     }
-    if false { if s := target.Strval(ctx); s == "HAVE_FUN_SENDFILE" {
-        warn(ctx, "%v: %v", s, args)
-        warn(ctx, "%v: %v", s, mergex(ctx, plain, args...))
-        warn(ctx, "%v: %v", s, params).debug(1)
-    }}
 
     defer func() {
         if isNil(result) {
@@ -547,7 +550,7 @@ func configureDo(ctx Context, opts *modifierConfigureOpts, target Value, name Va
     //   -option
     //   -package
     //   ...
-    if config, ok := configurationOps[strName]; ok {
+    if config, ok := configurationOps[opName]; ok {
         params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
         result = config(ctx, nil, params...)
         if options.traceConfig {
@@ -555,7 +558,7 @@ func configureDo(ctx Context, opts *modifierConfigureOpts, target Value, name Va
         }
         configured = true
     } else {
-        configured, result = executeConfigureEntry(ctx, opts, strName, target, params...)
+        configured, result = configureExecuteEntry(ctx, opts, name, target, params...)
     }
     if configured && options.traceConfig {
         t_config.tracef("configured: %v, result = %v (%s)", configured, result, typeof(result))
@@ -671,15 +674,10 @@ ForConfig:
                 erro(of(ctx,a), " `%v` is unsupported value (%T)", arg.value, arg.value).debug(1)
                 return
             } else {
-                name, para = flag.name, arg.args
+                name, para = flag, arg.args
             }
         case *Flag:
-            if isNil(arg.name) || isNone(arg.name) {
-                erro(of(ctx,a), " `%v` is unsupported flag (%T)", arg.name, arg.name).debug(1)
-                return
-            } else {
-                name = arg.name
-            }
+            name = arg.name
         default:
             erro(of(ctx,a), " `%v` is unsupported (%T)", a, a).debug(1)
             return
@@ -689,8 +687,8 @@ ForConfig:
             return
         }
 
-        if configured, value = configureDo(ctx, &opts, target, name, para); !configured {
-            erro(ctx, " %s not configured for %v", name, target).debug(1)
+        if configured, value = configureExecute(ctx, &opts, target, name, para); !configured {
+            erro(ctx, "%v: not configured with: %T %v", target, name, name).debug(1)
             return
         } else if v := value; v == nil {
             value = MakeNil(a.Position())

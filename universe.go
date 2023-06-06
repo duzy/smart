@@ -492,7 +492,6 @@ type filestub struct {
     name string      // constant represented name (e.g. relative filename)
     filemap *FileMap // matched pattern (see 'files' directive)
     other *filestub  // pointed to another stub (in a different project) of the same file
-    traving, traversed int
 }
 func (p *filestub) subname() (s string) {
     if isAbsOrRel(p.sub) {
@@ -508,6 +507,9 @@ type filebase struct {
     info os.FileInfo // file info if exists
     _updated bool // true if this file has been updated by a program
     _updatedDeps []Value // any updated deps
+    _travin int
+    _traved int
+    _dirty int
 }
 func (p *filebase) exists() bool { return p.info != nil }
 
@@ -585,15 +587,15 @@ func (uc *universe) stat(ctx Context, name, sub, dir string, infos ...os.FileInf
             assert(fileInfo.Name() == filepath.Base(fullname), "`%s` file name conflicted", fileInfo.Name())
         }
     } else if len(infos) > 1 {
-        unreachable("too many input file infos")
+        unreachable("too many file infos")
     }
 
-    var okay bool // NOTE: filepath.Join can have the same efffect as filepath.Clean
+    // NOTE: filepath.Join can have the same efffect as filepath.Clean
     var cleanFullname = filepath.Clean(fullname) // clean paths like /path/to/foo/../bar -> /path/to/bar
-    if base, okay = uc.filecache[cleanFullname]; okay {
+    if base, _ = uc.filecache[cleanFullname]; base != nil {
         if base.info == nil {
             if fileInfo == nil { fileInfo, _ = os.Stat(fullname) }
-            if fileInfo == nil && !addNotExisted { return nil } // file not exists
+            if fileInfo == nil && !addNotExisted { return nil }
             base.info = fileInfo
         }
 
@@ -610,6 +612,7 @@ func (uc *universe) stat(ctx Context, name, sub, dir string, infos ...os.FileInf
                 if stub.other == head { break }
             }
         }
+
         for stub = head; stub != nil; stub = stub.other {
             if stub.dir == dir && stub.sub == sub && stub.name == name {
                 goto GotFile
@@ -617,17 +620,14 @@ func (uc *universe) stat(ctx Context, name, sub, dir string, infos ...os.FileInf
             if stub.other == head { break }
         }
 
-        stub = &filestub{ dir, sub, name, nil, head.other, 0, 0 }
+        stub = &filestub{ dir, sub, name, nil, head.other }
         head.other = stub
     } else {
-        if fileInfo == nil {
-            fileInfo, _ = os.Stat(fullname)
-            if fileInfo == nil && !addNotExisted {
-                return nil // file not exists
-            }
+        if fileInfo == nil { fileInfo, _ = os.Stat(fullname)
+            if fileInfo == nil && !addNotExisted { return nil }
         }
 
-        base = &filebase{ filestub{ dir, sub, name, nil, nil, 0, 0 }, fileInfo, false, nil }
+        base = &filebase{ filestub{ dir, sub, name, nil, nil }, fileInfo, false, nil, 0, 0, 0 }
         base.stub.other = &base.stub
         stub = &base.stub
         uc.filecache[cleanFullname] = base

@@ -855,7 +855,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
             var s = t.name.Strval(ctx)
             if l.project.name != "~" { l.Globe().AddFlagEntry(s, entry) }
         } else if configure {
-            if _, y := entry.(*PatternEntry); y {
+            if entry.Class() == PatternRule {
                 erro(ctx, "unsupported pattern configures: %v", target).debug(1)
                 return
             } else {
@@ -1622,12 +1622,8 @@ func (l *loader) resolveObject(value Value) (name string, result Value) {
 }
 
 func (l *loader) resolveEntries(target Value) (entries *ResolveEntries) {
-    var (
-        pos = l.Position()
-        ctx = at(l, pos)
-        name = target.Strval(ctx)
-    )
-    entries = l.project.resolveEntries(ctx, name, false, false)
+    var ctx = at(l, l.Position())
+    entries = l.project.resolveEntries(ctx, target, false, false)
     return
 }
 
@@ -2117,7 +2113,7 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
     defer func() {
         if loaded == nil {
             erro(ctx, "%v (%v) not loaded in %v", specName, filepath.Base(absDir), l.Scope())
-            errostack(l, 16, "%v", specName).debug(512)
+            errostack(l, 16).debug(512)
             return
         }
         if proj := l.Scope().project; proj == nil {

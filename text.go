@@ -51,8 +51,12 @@ func (p *Plain) cmp(ctx Context, v Value) (res cmpres) {
         }
         return
 }
-func (p *Plain) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+func (_ *Plain) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *Plain) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
 

@@ -386,8 +386,11 @@ func set(ctx Context, val reflect.Value, v Value) {
                 erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Elem().Kind(), val.Type().Elem()).debug(1)
         }
         default: switch val.Type().String() {
-        case "fs.FileMode": // aka. reflect.Uint32
-                if t, e := v.Integer(ctx); e == nil { val.SetUint(uint64(t)) } else {
+        case "fs.FileMode", "os.FileMode": // aka. reflect.Uint32
+                if t, e := v.Integer(ctx); e == nil {
+                        if t == 0 { warn(of(ctx,v), "zero file mode").debug(1) }
+                        val.SetUint(uint64(t))
+                } else {
                         erro(ctx, "%v: %v", v, t).debug(1)
                 }
         case "regex.Regex": // aka. reflect.Ptr
@@ -453,6 +456,11 @@ ForArgs:
                         }
                 }
                 rest = append(rest, arg)
+        }
+
+        switch val.Type().String() {
+        case "fs.FileMode", "os.FileMode":
+                if val.Uint() == 0 { val.SetUint(0640) } // os.FileMode(0640)
         }
         return
 }
@@ -690,11 +698,11 @@ func (ctx builtin) PopContext(aa ...Value) (res Value) {
                        rules = append(rules, v.Elems...)
                 }
         }
-        if proj := ctx.Project(); proj.entries != nil {
-                for _, r := range rules {
-                        delete(proj.entries, r.Strval(ctx))
-                }
-        }
+        // if proj := ctx.Project(); proj.entries != nil {
+        //         for _, r := range rules {
+        //                 delete(proj.entries, r.Strval(ctx))
+        //         }
+        // }
 
         var scope = ctx.Scope()
         var dc = ctx.universe()

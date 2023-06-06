@@ -116,6 +116,7 @@ type Context interface {
   aquireLock() (unlock func())
 
   universe() *universe
+  unmap(Context, interface{}) []matchedFileMap
 
   loader() *loader // only in load stage
   parser() *parser // only in parse stage
@@ -179,7 +180,7 @@ func getTargetValue(ctx Context) (res Value) {
   } else if vals, u, n := plain.expand(ctx, val); len(vals) == 1 {
     res = Scalar(vals[0])
   } else {
-    erro(of(ctx,val), "target '%v' expaned to many: %v (%d,%d)", val, res, u, n)
+    erro(of(ctx,val), "multiple targets: %v → %v (%d,%d)", val, vals, u, n)
   }
   return
 }

@@ -567,7 +567,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
 type execOpts struct {
   generalOpts
   deprecated  bool `dump,deprecate`
-  dropFailed  bool `df,drop-fail`
+  dropFailed  bool `df,drop,drop-fail,drop-failure,fail-drop,remove-on-fail`
   infos       bool `sci,scan-infos`
   silentErrs  bool `s,silent,silent-errors` // silent errors
   zeroErrs    bool `ze,zero-errors` // require zero error scaned from STDERR
@@ -611,8 +611,12 @@ func (p *execResult) cmp(ctx Context, v Value) (res cmpres) {
   }
   return
 }
-func (p *execResult) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+func (_ *execResult) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *execResult) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
 func (p *execResult) True(ctx Context) (res bool) {
@@ -975,7 +979,7 @@ func (exe *execContext) exec(cmd, opt string, err error) {
           erro(ctx, `%v: deleted, %v`, s, fn)
         }
       }
-      errostack(ctx, 3, "%v: %v", exe.target, err).debug(16)
+      errostack(ctx, 10, "%v: %v", exe.target, err).debug(16)
       return
     } else if files, e := exe.target.stamp(ctx); e != nil {
       if pe, ok := e.(*fs.PathError); ok { err = fmt.Errorf(`"%v" not found`, exe.target)

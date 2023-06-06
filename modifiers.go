@@ -146,8 +146,12 @@ func (m *modification) String() (s string) {
     s += ")"
     return
 }
-func (p *modification) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+func (_ *modification) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *modification) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
 
@@ -204,8 +208,12 @@ func (g *modifications) String() (s string) {
     return
 }
 
-func (p *modifications) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+func (_ *modifications) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *modifications) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
 
@@ -498,10 +506,10 @@ ForArgs:
                 var f, s, y = as{value}.fullname(ctx)
                 if opts.verbose {
                     var ts = trimPromptString(s)
-                    prompt(ctx, "%s …… traversed (%d)\n", ts, f.traversed)
+                    prompt(ctx, "%s …… traversed (%d)\n", ts, f._traved)
                     if false { warnstack(ctx, 64).debug(64) }
                 }
-                if y && f.traversed > 1 {
+                if y && f._traved > 1 {
                     pc.traves.add(ctx, traveDone, nil)
                 }
             }
@@ -573,7 +581,7 @@ func (ctx modifier) _closure(aa ...Value) (result Value) {
         if f, s, y = t.fullname(ctx); !y {
             s = t.Strval(ctx)
         } else {
-            n = f.traversed
+            n = f._traved
         }
 
         if n > 1 {
@@ -2298,21 +2306,19 @@ func copyFile(ctx Context, srcFi os.FileInfo, src, dst string, opts *copyopts) (
 // (copy-file -p)
 // (copy-file -p,filename)
 // (copy-file -p,filename,source)
-type modifierCopyFileOpts struct {
-    path bool "p,path"
-    recursive bool "r,recursive"
-    verbose bool "v,verbose"
-    silent bool "s,silent"
-    override bool "o,override"
-    update bool "u,update"
-    quick bool "q,quick"
-    mode os.FileMode "m,mode"
-    head Value "h,head"
-    foot Value "f,foot"
-}
-func (ctx modifier) copyfile(args... Value) (result Value) {
-    var opts modifierCopyFileOpts
-    args = parseOpts(ctx, &opts, plain, args...)
+func (ctx modifier) copyfile(aa ...Value) (result Value) {
+    var opts, args = _opts[struct{
+        path bool "p,path"
+        recursive bool "r,recursive"
+        verbose bool "v,verbose"
+        silent bool "s,silent"
+        override bool "o,override"
+        update bool "u,update"
+        quick bool "q,quick"
+        mode os.FileMode "m,mode"
+        head Value "h,head"
+        foot Value "f,foot"
+    }](ctx, plain, aa...)
 
     var target Value
     var source Value
@@ -2564,21 +2570,24 @@ func crc64CompareFileChecksum(ctx Context, filename1, filename2 string) (same bo
     return crc64CheckFileModeContent(ctx, filename2, s, 0)
 }
 
-type modifierUpdateFileOpts struct {
-    generalOpts
-    path   bool `p,path,md,makedir,make-dir,mp,makepath,make-path`
-    zero   bool `z,zero;e,empty;az,allow-zero;ae,allow-empty`
-    keep   bool `k,keep;keep-file`
-    append bool `a,app,append,append-content`
-    mode os.FileMode "m,mode"
-}
-func (ctx modifier) updatefile(args... Value) (result Value) {
+// type modifierUpdateFileOpts
+func (ctx modifier) updatefile(aa ...Value) (result Value) {
+    var opts, args = _opts[struct {
+        generalOpts
+        verbFilename bool `vf,verbfile,verb-filename`
+        path   bool `p,path,md,makedir,make-dir,mp,makepath,make-path`
+        zero   bool `z,zero;e,empty;az,allow-zero;ae,allow-empty`
+        keep   bool `k,keep;keep-file`
+        append bool `a,app,append,append-content`
+        mode os.FileMode "m,mode"
+    }](ctx, plain, aa...)
+
+    assert(opts.mode != 0, "zero file mode")
+
     var (
-        opts = modifierUpdateFileOpts{ mode: os.FileMode(0640) }
         filename string
         target as
     )
-    args = parseOpts(ctx, &opts, plain, args...)
     if len(args) > 1 { opts.mode = permVal(ctx, args[1], 0600) }
     if len(args) > 0 { target.Value = args[0] }
     if target.trivial() { target.Value = autoGet(ctx, "@") }
@@ -2694,6 +2703,13 @@ func (ctx modifier) updatefile(args... Value) (result Value) {
     )
     if opts.verbose {
         defer func(st time.Time) {
+            var f string
+            if opts.verbFilename {
+                f = trimPromptString(filename)
+            } else {
+                f = trimPromptString(target.String())
+            }
+
             var s string
             if err != nil { s = err.Error() } else if same {
                 if true { return } else { s = "unchanged" }
@@ -2703,8 +2719,7 @@ func (ctx modifier) updatefile(args... Value) (result Value) {
                 s = fmt.Sprintf("changed (%d bytes)", wrote)
             }
             //printEnteringDirectory(ctx)
-            prompt(ctx, "update %v …… %s (in %v)\n", trimPromptString(target.String()), s, time.Now().Sub(st)).
-                debug(opts.debug)
+            prompt(ctx, "update %v …… %s (in %v)\n", f, s, time.Now().Sub(st)).debug(opts.debug)
         } (time.Now())
     }
 
@@ -3254,7 +3269,7 @@ func onceCacheTest0(ctx Context, target Value) (n int) {
         rec map[Value]int
     )
     if stemmed, ok := entry.(*stemmed); ok {
-        entry = stemmed.PatternEntry
+        entry = stemmed.Rule
     }
 
     onceMutex.Lock(); defer onceMutex.Unlock()
@@ -3298,7 +3313,7 @@ func onceCacheTest2(ctx Context, target Value) (n int) {
         entry = ctx.entry()
     )
     if stemmed, ok := entry.(*stemmed); ok {
-        entry = stemmed.PatternEntry
+        entry = stemmed.Rule
     }
 
     // NOTE: ensure 'entry', 'program' and 'target' are unique.
@@ -3342,7 +3357,7 @@ func onceSHA256(ctx Context, target Value, opts *modifierOnceOpts, args... Value
         h = sha256.New()
     )
     if stemmed, ok := entry.(*stemmed); ok {
-        entry = stemmed.PatternEntry
+        entry = stemmed.Rule
     }
 
     if true {

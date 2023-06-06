@@ -92,8 +92,12 @@ func (p *knownobject) cmp(ctx Context, v Value) (res cmpres) {
         }
         return
 }
-func (p *knownobject) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+func (_ *knownobject) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *knownobject) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
 
@@ -149,6 +153,14 @@ func (p unresolved) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (p unresolved) traverse(ctx Context) { }
+func (_ unresolved) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ unresolved) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
 
 type projectName struct {
         *Project
@@ -176,9 +188,17 @@ func (p *projectName) OwnerProject() *Project { return p.scope.project }
 func (p *projectName) Get(ctx Context, name string) (Value, error) { return p.resolveObject(ctx, name), nil }
 func (p *projectName) Call(_ Context, _ []Value, _ ...Value) (value Value) { return p }
 func (p *projectName) expand(_ Context, _ facet) (res Value) { return p }
-func (p *projectName) traverse(ctx Context) { if t := p.Project.defaultEntry; t != nil { t.traverse(ctx) } }
+func (p *projectName) traverse(ctx Context) {
+        if t := p.Project.defaultEntry; t != nil {
+                switch t.Target().(type) {
+                case *Flag: return
+                }
+
+                t.traverse(ctx)
+        }
+}
 func (p *projectName) stat(ctx Context) (si *statinfo) {
-        if t := p.Project.defaultEntry; t != nil /* && t.Class() != UseRule */ { si = t.stat(ctx) }
+        if t := p.Project.defaultEntry; t != nil { si = t.stat(ctx) }
         return
 }
 func (p *projectName) cmp(ctx Context, v Value) (res cmpres) {
@@ -200,8 +220,12 @@ func (p *projectName) rescope(_ Context, scope *Scope) {
                 }
         }
 }
-func (p *projectName) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+func (_ *projectName) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *projectName) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
 
@@ -261,8 +285,12 @@ func (p *scopeName) rescope(_ Context, scope *Scope) {
                 }
         }
 }
-func (p *scopeName) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+func (_ *scopeName) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *scopeName) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
 
@@ -978,8 +1006,12 @@ func (d *def) stat(ctx Context) (si *statinfo) {
         return
 }
 
-func (p *def) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+func (_ *def) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *def) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
 
@@ -1046,8 +1078,12 @@ func (p *undetermined) match(ctx Context, i interface{}) (full bool, s interface
 func (p *undetermined) stencil(ctx Context, stems []string) (val Value, rest []string) {
         return p, stems
 }
-func (p *undetermined) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+func (_ *undetermined) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *undetermined) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
 
@@ -1075,8 +1111,12 @@ func (p *Builtin) cmp(ctx Context, v Value) (res cmpres) {
         }
         return
 }
-func (p *Builtin) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+func (_ *Builtin) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *Builtin) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
 
@@ -1086,14 +1126,12 @@ const (
         GeneralRule RuleClass = iota
         PatternRule
         PathPattRule
-        // UseRule
 )
 
 var namesForRuleClass = []string{
         GeneralRule:  "GeneralRule",
         PatternRule:  "PatternRule",
         PathPattRule: "PathPattRule",
-        // UseRule:      "UseRule",
 }
 
 func (c RuleClass) String() string {
@@ -1360,14 +1398,19 @@ func (entry *Rule) expand(ctx Context, w facet) (res Value) {
 func (entry *Rule) delete(  ctx Context) (files []*File, err error) { return entry.target.delete(ctx) }
 func (entry *Rule) stamp(   ctx Context) (files []*File, err error) { return entry.target.stamp(ctx) }
 func (entry *Rule) traverse(ctx Context) {
-        if target := autoGet(ctx, "@"); target == nil {
+        var pc = ctx.pc()
+        var sc, _ = ctx.(*stemmedContext)
+        var target = autoGet(ctx, "@")
+
+        if target == nil {
                 erro(ctx, "$@ is not defined").debug(1)
                 return
         } else if ctx.entry() == entry {
                 var proj = ctx.Project()
+
                 if c := ctx.closure(); c != nil {
                         if t := autoGet(c, "@"); t != nil && eq(ctx, t, target) {
-                                if false { warn(ctx, "%v: %v: %v\n", proj, entry, t) }
+                                if true { warn(ctx, "%v: %v: %v\n", proj, entry, t) }
                                 // FIXES: skip traversal as it's closure, for example:
                                 //
                                 //   %.h($(headers)): $(srcinc)/%.h update-file
@@ -1381,26 +1424,46 @@ func (entry *Rule) traverse(ctx Context) {
                                 return
                         }
                 }
+
                 prompt(ctx, "%v: %v: %v\n", proj, entry, target)
                 warnstack(ctx, 8, "%v: %v: %v", proj, entry, target).debug(16)
         } else {
                 ctx = &entryContext{ ctx, entry }
         }
 
-        var result []Value
-        var entryPos = entry.Position()
 ForPrograms:
-        for _, prog := range entry.programs {
-                var pos = prog.position
-                if !pos.IsValid() { pos = entryPos }
+        for i, prog := range entry.programs {
+                var ctx = at(ctx, prog.position)
+                var v, t = prog.execute(ctx)
 
-                var res, t = prog.execute(at(ctx, pos))
-                if res != nil { result = append(result, merge(res)...) }
+                if true && sc != nil && sc.stem.target.Strval(ctx) == "Unwind-EHABI.o" {
+                        info(ctx, "%v: %d: %v %v", target, i, t, v)
+                }
 
-                if t.has(traveFail) { break ForPrograms }
+                if a := t.of(traveFail); a.has() {
+                        erro(ctx, "%v: %v", target, a).debug(1)
+                        return
+                } else if t.has(traveNext) {
+                        continue ForPrograms
+                }
+
+                if pc != nil && v != nil {
+                        pc.values = append(pc.values, merge(v)...)
+                }
+                if pc != nil && sc != nil {
+                        var s = pc.traves.add(ctx, traveRule, target)
+                        s.depend = entry
+                        s.prog = prog
+                }
+
                 for _, s := range t.of(traveCase, traveDone) {
                         if s.prog == prog { break ForPrograms }
                 }
+        }
+
+        if pc != nil && sc == nil {
+                // if sc != nil { depend = sc.stem } else { depend = entry }
+                pc.traves.add(ctx, traveRule, target).depend = entry
         }
         return
 }
@@ -1459,31 +1522,13 @@ func (entry *Rule) option(ctx Context) (res bool, infos []Value) {
         return
 }
 
-func (entry *Rule) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    erro(ctx, "cache unsupported (bits=%08b)", bits).debug(32)
+func (_ *Rule) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-
-type PatternEntry struct { Rule }
-func (p *PatternEntry) expand(ctx Context, w facet) (res Value) {
-        if ent := p.Rule.expand(ctx, w); ent != &p.Rule {
-                res = &PatternEntry{ *ent.(*Rule) }
-        } else {
-                res = p
-        }
-        return
-}
-func (p *PatternEntry) cmp(ctx Context, v Value) (res cmpres) {
-        if a, ok := v.(*PatternEntry); ok {
-                assert(ok, "value is not PatternEntry")
-                // FIXME: p.Pattern.cmp(p.Pattern)
-                if p.Rule.cmp(ctx, &a.Rule) == cmpEqual {
-                        res = cmpEqual
-                }
-        } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
-                res = p.cmp(ctx, l.Elems[0])
-        }
-        return
+func (_ *Rule) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
 }
 
 type stemmedContext struct {
@@ -1503,7 +1548,7 @@ func (sc *stemmedContext) stemmed() *stemmed { return sc.stem }
 func (sc *stemmedContext) stems() []string { return sc.stem.Stems }
 
 type stemmed struct {
-        *PatternEntry
+        *Rule
         target Value
         Stems []string
 }
@@ -1513,8 +1558,8 @@ func (p *stemmed) String() (s string) {
 }
 func (p *stemmed) Target() Value { return p.target }
 func (p *stemmed) expand(ctx Context, w facet) (res Value) {
-        if v := p.PatternEntry.expand(ctx, w); v != p.PatternEntry {
-                res = &stemmed{v.(*PatternEntry), p.target, p.Stems}
+        if v := p.Rule.expand(ctx, w); v != p.Rule {
+                res = &stemmed{v.(*Rule), p.target, p.Stems}
         } else {
                 res = p
         }
@@ -1527,7 +1572,7 @@ func (p *stemmed) cmp(ctx Context, v Value) (res cmpres) {
                 for i, stem := range p.Stems {
                         if stem != a.Stems[i] { return }
                 }
-                res = p.PatternEntry.cmp(ctx, a.PatternEntry)
+                res = p.Rule.cmp(ctx, a.Rule)
         } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
                 res = p.cmp(ctx, l.Elems[0])
         }

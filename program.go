@@ -40,6 +40,7 @@ type programContext struct {
     projs []*Project
     params []string // $0, $1, $2, ...
     defaultVal Value
+    values []Value
 
     start time.Time // start time
     dirt string // reason of outdated
@@ -93,12 +94,11 @@ func (pc *programContext) traversed(target Value) []Value {
             pc.targets = cc.traversed(target)
         } }
 
-        if _, y := toFile(target); y {
-            if c := pc.caller(); c != nil { c.addFilesCount(1) }
-        }
+        if _, y := toFile(target); y { pc.addFilesCount(1) }
     }
     return pc.targets
 }
+
 func (pc *programContext) addFilesCount(n int) {
     pc.countFiles += n
     if c := pc.caller(); c != nil { c.addFilesCount(1) }
@@ -305,7 +305,7 @@ func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
     var y bool
     if targetFile, targetFull, y = target.fullname(ctx); !y {
         targetFull = target.Strval(ctx)
-    } else if n := targetFile.traversed; n > 1 {
+    } else if n := targetFile._traved; n > 1 {
         if false { warnstack(ctx, 5, "%v, %v, %d", targetFile, targetFull, n).debug(10) }
         return
     }
@@ -314,7 +314,7 @@ func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
     var ts = trimPromptString(targetFull)
 
     if s := target.stat(ctx); s == nil || s.exists() != existenceConfirmed {
-        outdated, reason = true, fmt.Sprintf("not exists: %s %v", typeof(target), target)
+        outdated, reason = true, "not exists" //fmt.Sprintf("not exists: %s %v", typeof(target), target)
     } else if isDirty(ctx, target, args...) && isDirtyAfter(ctx, target, s.mod()) {
         outdated, reason = true, "prerequisites updated"
     }
@@ -324,8 +324,8 @@ func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
     } else if y, e := isRecipesChanged(ctx, target); e != nil {
         erro(ctx, "recipes changed: %v", e).debug(1)
         return
-    } else if outdated = y; y {
-        reason = "recipes changed"
+    } else if y {
+        outdated, reason = true, "recipes changed"
     } else if !opts.checksum {
         // does nothing
     } else {
@@ -347,12 +347,23 @@ func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
         if outdated { m = "outdated" } else { m = "updated" }
 
         var s = d.String()
-        if reason != "" { s += "; " + strings.TrimSpace(strings.TrimPrefix(reason, "outdated:")) }
-        if targetFile != nil && targetFile.traversed > 1 {
-            s += fmt.Sprintf(", traversed %d", targetFile.traversed)
+        if targetFile != nil {
+            if targetFile._travin > 1 {
+                s += fmt.Sprintf(", travin %d", targetFile._travin)
+            }
+            if targetFile._traved > 1 {
+                s += fmt.Sprintf(", traved %d", targetFile._traved)
+            }
+            if true && targetFile._travin < 2 && targetFile._traved < 2 {
+                if targetFile.name == "libllvm.Demangle.a" {
+                    warn(ctx, "%p: %d, %d, %d, %v, %v, %s", targetFile, targetFile._travin, targetFile._traved, targetFile._dirty, targetFile._updated, targetFile._updatedDeps, targetFile.fullname())
+                    warnstack(ctx, 64, "with %v: %v %v", target.Value, with(ctx, target.Value), with(ctx, targetFile)).debug(64)
+                }
+            }
+            targetFile._dirty += 1
         }
 
-        var n = len(pc.targets) + len(pc.grepped) + pc.countFiles
+        var n = pc.countFiles + len(pc.grepped)
         if db := opts.debug>0; db && !opts.verbose {
             warn(ctx, "%s (%T) (%s) …… %s (%d files in %s, debug=%d)", ts, target, targetFull, m, n, s, opts.debug).debug(opts.debug * 2)
         } else {
@@ -366,35 +377,38 @@ func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
 }
 
 func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, prereqPattern Value, prereqStrval string, prereqFile *File, prereqObj Object) {
-    prereqValue = val
+    var mapPrereqFile = func(name interface{}) {
+        var maps = ctx.unmap(ctx, name)
 
-    var mapPrereqFile = func() {
+        if false && strings.HasPrefix(prereqStrval, "Unwind-EHABI.") {
+            for _, m := range files(ctx, name, projects...) { info(ctx, "a: %v", m) }
+            for _, m := range ctx.unmap(ctx, name) { info(ctx, "b: %v", m) }
+            for _, m := range maps { info(ctx, "c: %v", m) }
+            infostack(ctx, 3).debug(1)
+        }
+
         for _, project := range projects {
-            if prereqFile = project.file(ctx, prereqStrval); prereqFile != nil {
+            if prereqFile = project.selectFile(ctx, maps); prereqFile != nil {
                 prereqValue = prereqFile
-                break
+                return
             }
         }
 
-        if prereqFile != nil {
-            // okay
-            // } else if prereqFile = file(ctx, prereqStrval); prereqFile != nil {
-            //     prereqValue = prereqFile
-        } else if prereqValue != nil {
-            if f, y := toFile(prereqValue); y { prereqFile = f }
-            if _, y := prereqValue.(*Path); y {
-                if f := stat(ctx, prereqStrval, "", ""); f != nil { prereqFile, prereqValue = f, f }
-            }
+        if prereqValue == nil {
+            prereqValue = MakeString(ctx.Position(), prereqStrval)
+        } else if f, y := toFile(prereqValue); y {
+            prereqFile = f
+        } else if _, y := prereqValue.(*Path); y {
+            if f := stat(ctx, prereqStrval, "", ""); f != nil { prereqFile, prereqValue = f, f }
         }
     }
 
-    if prereqValue == nil {
+    if prereqValue = val; prereqValue == nil {
         if prereqStrval == "" {
             errostack(ctx, 3, "prerequisite is nothing").debug(8)
+        } else {
+            mapPrereqFile(prereqStrval)
             return
-        } else if mapPrereqFile(); prereqValue == nil {
-            prereqValue = MakeString(ctx.Position(), prereqStrval)
-            mapPrereqFile = nil // only do it once
         }
     } else if prereqObj, _ = prereqValue.(Object); prereqObj != nil {
         if false { info(ctx, "%v: %T %v %s", prereqObj, prereqObj, prereqObj, prereqStrval).debug(1) }
@@ -418,10 +432,13 @@ func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, 
             prereqStrval = prereqValue.Strval(ctx);
         }
 
-        if prereqStrval != "" { mapPrereqFile() } else {
+        if prereqStrval == "" {
             errostack(ctx, 3, "%v: empty prerequisite, stems=%v", prereqValue, stems).debug(8)
             return
         }
+
+        mapPrereqFile(prereqValue)
+        return
      } else {
         if prereqStrval = prereqValue.Strval(ctx); prereqStrval == "" { // just reject empty strval
             errostack(ctx, 3, "%v: %v: empty prerequisite, stems=%v", prereqValue, ctx.stems()).debug(8)
@@ -430,7 +447,9 @@ func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, 
 
         switch prereqValue.(type) {
         case *String, *Compound: // skip checking files for performance
-        default: mapPrereqFile()
+        default:
+            mapPrereqFile(prereqValue)
+            return
         }
     }
 
@@ -469,8 +488,8 @@ func (pc *programContext) deferTrave(ctx Context, targetValue, prereqValue, prer
     if prereqFile != nil {
         if false && !prereqFile.exists() { prereqFile.stat(ctx) }
 
-        if prereqFile.exists() { prereqFile.traversed += 1
-            if pc.traves.has(traveNext) { pc.traves = pc.traves.not(traveNext) }
+        if prereqFile.exists() { prereqFile._traved += 1
+            /* if pc.traves.has(traveNext) */ { pc.traves = pc.traves.not(traveNext) }
         }
 
         for _, s := range pc.traves.of(traveFile) {
@@ -485,10 +504,19 @@ func (pc *programContext) deferTrave(ctx Context, targetValue, prereqValue, prer
     }
 }
 
+func with(ctx Context, target Value) (res bool) {
+    if a := ctx.auto(); a != nil {
+        if v := a.autoGet("@"); target == v || eq(ctx, target, v) {
+            return true
+        }
+        res = with(a.inner(), target)
+    }
+    return
+}
+
 // traverse - traverse the prerrequiste for the current target $@
 func (pc *programContext) traverse(ctx Context, prereqValue Value) (result travestates) {
     var (
-        db = false
         verb = options.verbose || options.verboseBreaks
 
         projects = ctx.projects(ctx)
@@ -504,6 +532,8 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
         stemmedList []*stemmed
 
         t1, t2 time.Time
+
+        db = false
     )
     defer func(t0 time.Time) {
         if false && (db || strings.HasSuffix(prereqStrval, "include/__cxxabi_config.h")) {
@@ -525,7 +555,8 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
             for i, concrete := range concreteList { warn(at(ctx,concrete.Position()), "%v: concrete: %d. %v (%d programs)", targetValue, i, concrete, len(concrete.Programs())) }
             for i, stemmed  := range stemmedList  { warn(at(ctx,stemmed.position), "%v: stemmed: %d. %v", targetValue, i, stemmed) }
             for i, s := range pc.traves { warn(at(ctx,s.pos), "%v: %d. %v", targetValue, i, s) }
-            errostack(ctx, 5, "%v, filemap=%v", projects, prereqFile.filemap).debug(10)
+            if m := prereqFile.filemap; m != nil { warn(of(ctx,m.pattern), "%v: %v %v", targetValue, prereqFile, m) }
+            errostack(ctx, 5).debug(10)
         }
 
         if d := time.Now().Sub(t0); d > 60*time.Second {
@@ -565,7 +596,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
             probPrereqValue(ctx, projects, prereqValue)
 
         if prereqFile != nil {
-            if prereqFile.traving += 1; prereqFile.traving > 1 { return }
+            if prereqFile._travin += 1; prereqFile._travin > 1 { return }
         }
     }
 
@@ -582,7 +613,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
         warn(ctx, "@: %T %v : %v", targetValue, targetValue, ctx.program().depends)
         if f := file(ctx, prereqStrval); f == nil {
             var p = ctx.Project()
-            var a = ctx.universe().unmap(ctx, prereqStrval)
+            var a = ctx.unmap(ctx, prereqStrval)
             var b = files(ctx, prereqStrval, p)
             warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, a)
             warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, b)
@@ -666,11 +697,11 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
 
     var travedPrereqFile func (*travestate) *File
     if prereqFile != nil {
-        if n := prereqFile.traversed; n > 0 {
+        if n := prereqFile._traved; n > 0 {
             if false && n > 1 {
                 warn(ctx, "traversed: %v: %v %T", targetValue, prereqValue, prereqValue)
                 warn(ctx, "traversed: %v: %v", targetValue, prereqFile.fullname())
-                warnstack(ctx, 3, "traversed: %d", prereqFile.traversed).debug(10)
+                warnstack(ctx, 3, "traversed: %d", prereqFile._traved).debug(10)
             }
             return
         }
@@ -704,8 +735,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
             warn(ctx, "%v, %T %v ; %v", entry, prereqValue, prereqValue, result).debug(6)
         }}()}
 
-        pc.traves.add(ctx, traveRule, targetValue).depend = entry
-        entry.traverse(ctx)
+        entry.traverse(ctx) // NOTE: this adds traveRule to pc.traves
 
         var t = pc.traves
         if !t.has() { return traveResContinue }
@@ -825,7 +855,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
 
 ForProjectsConcretes:
     for _, project := range projects {
-        var entries = project.resolveEntries(ctx, prereqStrval, pc.grepping, false)
+        var entries = project.resolveEntries(ctx, prereqValue, pc.grepping, false)
         if entries != nil && len(entries.all) > 0 {
             concreteList = append(concreteList, entries.all...)
         } else {
@@ -951,20 +981,20 @@ CheckPrereqResult:
         }
 
         if prereqFile != nil && prereqValue != prereqFile {
-            prompt(ctx, "%v:(%T): %T %v; file=%v projects=%v\n", targetValue, targetValue, prereqValue, prereqValue, prereqFile, projects).debug(1)
+            info(ctx, "%T %v: %T %v; file=%v\n", targetValue, targetValue, prereqValue, prereqValue, prereqFile).debug(1)
         } else if prereqFile != nil {
-            prompt(ctx, "%v:(%T): %T %v; path=%s projects=%v\n", targetValue, targetValue, prereqValue, prereqValue, prereqFile.fullname(), projects).debug(1)
+            info(ctx, "%T %v: %T %v; path=%s\n", targetValue, targetValue, prereqValue, prereqValue, prereqFile.fullname()).debug(1)
         } else if prereqObj != nil {
-            prompt(ctx, "%v:(%T): %T %v; obj=%v projects=%v\n", targetValue, targetValue, prereqValue, prereqValue, prereqObj, projects).debug(1)
+            info(ctx, "%T %v: %T %v; obj=%v\n", targetValue, targetValue, prereqValue, prereqValue, prereqObj).debug(1)
         } else {
-            prompt(ctx, "%v:(%T): %T %v; projects=%v\n", targetValue, targetValue, prereqValue, prereqValue, projects).debug(1)
+            info(ctx, "%T %v: %T %v\n", targetValue, targetValue, prereqValue, prereqValue).debug(1)
         }
 
-        if fil := prereqFile;  fil != nil { erro(at(ctx,fil.Position()), "file: %v", fil) }
+        if val := prereqValue; val != nil { erro(at(ctx,val.Position()), "value: %T %v ; %s %v", val, val, prereqStrval, files(ctx, prereqStrval)) }
+        if fil := prereqFile;  fil != nil { erro(at(ctx,fil.Position()), "file: %v, exists=%v", fil, fil.exists()) }
         if obj := prereqObj;   obj != nil { erro(at(ctx,obj.Position()), "object: %T %v", obj, obj) }
-        if val := prereqValue; val != nil { erro(at(ctx,val.Position()), "value: %T %v", val, val) }
-        for i, s := range pc.traves { erro(at(ctx,s.pos), "%d. %v: %v: %v", i, targetValue, prereqValue, s) }
-        for i, c := range ctx.closureScopes() { erro(ctx, "%d. closure %v", i, c) }
+        for i, s := range pc.traves { erro(at(ctx,s.pos), "trave.%d: %v: %v: %v", i, targetValue, prereqValue, s) }
+        for i, c := range ctx.closureScopes() { erro(ctx, "closure.%d: %v", i, c) }
         for i, concrete := range concreteList { erro(at(ctx,concrete.Position()), "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs())) }
         for i, stemmed  := range stemmedList  { erro(at(ctx,stemmed.position), "stemmed: %d. %v", i, stemmed) }
         errostack(of(ctx, prereqValue), 6).debug(512)
@@ -1038,13 +1068,14 @@ ForPrerequisites:
 
         if depend != nil { depends.add(depend) }
 
-        if d := time.Now().Sub(t0); d > 30*time.Second {
+        if d, f := time.Now().Sub(t0), time.Duration(pc.countFiles); d > 15*time.Second &&
+            (f == 0 || (d/f > 10*time.Millisecond)) {
             var p = prerequisite
             var a = target
             var t = autoGet(ctx, "^")
             var c = autoGet(ctx, "<")
             var q = depend
-            prompt(ctx, "%v: Program.traverse slow: %v\n", pos, d)
+            prompt(ctx, "%v: Program.traverse slow: %v %v %d\n", pos, d, d/f, pc.countFiles)
             prompt(ctx, "%v: Program.traverse %v: @: %v\n", pos, p, a)
             prompt(ctx, "%v: Program.traverse %v: ^: %v\n", pos, p, t)
             prompt(ctx, "%v: Program.traverse %v: <: %v\n", pos, p, c)
@@ -1271,32 +1302,37 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
     }
 
     defer func() {
-        var (
-            targets = autoGet(ctx, "@")
-            // depends = autoGet(ctx, "^")
-            // tb = traves.not(traveDone, traveNext)
-        )
+        var targets = autoGet(ctx, "@") // depends = autoGet(ctx, "^")
         if isTrivial(targets) { targets = entry.Target() }
-        if ctx.flushDiags(true) > 0 {
-            var (
-                str, ent, tar = entryIndicator(ctx, entry)
-                errs = ctx.totalErrors()
-            )
-            if !ctx.isConfiguration() && cc != nil {
-                s := pc.traves.add(ctx, traveFail, targets)
-                if errs == 1 {
-                    s.error = fmt.Errorf("execution yields an error for %v", str)
-                } else {
-                    s.error = fmt.Errorf("execution yields %d errors for %v", errs, str)
-                }
+
+        // var f, y = targets.(*File)
+        if errs := ctx.flushDiags(true); errs > 0 /* || (y && !f.exists()) */ {
+            var str, ent, tar = entryIndicator(ctx, entry)
+
+            // if f != nil { erro(ctx, "%v: missing %s", f, f.fullname()) }
+            for _, s := range pc.traves {
+                erro(at(ctx,s.pos), "%v: %v", ent, s)
             }
-            if tar != "" && tar != ent {
-                erro(ctx, "%s: %s: execution yields %d errors", ent, tar, errs)
+
+            if errs == 0 {
+                // just missing target file
+            } else if tar != "" && tar != ent {
+                erro(ctx, "%s: %s: got %d errors", ent, tar, errs)
             } else {
-                erro(ctx, "%s: execution yields %d errors", ent, errs)
+                erro(ctx, "%s: got %d errors", ent, errs)
             }
-            errostack(ctx, 8, "").debug(32)
-            if options.failOnErrors { fail(prog.position, "fail by %d errors", errs) }
+
+            errostack(ctx, 8).debug(32)
+
+            if options.failOnErrors {
+                fail(prog.position, "fail by %d errors", errs)
+            } else if cc == nil || ctx.isConfiguration() {
+                // done
+            } else if s := pc.traves.add(ctx, traveFail, targets); errs == 1 {
+                s.error = fmt.Errorf("got an error for %v", str)
+            } else {
+                s.error = fmt.Errorf("got %d errors for %v", errs, str)
+            }
         }
 
         _traves = pc.traves
@@ -1408,11 +1444,11 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
         switch a := target.(type) {
         case *String, *Compound: // NOTE: escape 'String' and "Compound" values from file searching
         case *Flag: pc.print = false // Flag target (-foo) turns off printing automatically
-        case *File: if a.traversed > 1 { return } // alreadyUpdated = a.info != nil && a.updated
-        case fullfile: if a.traversed > 1 { return }
+        case *File: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
+        case fullfile: if a._traved > 1 { return }
         default:
             if file := prog.project.file(ctx, a.Strval(ctx)); file != nil {
-                if file.traversed > 1 { return }
+                if file._traved > 1 { return }
                 target = file
             }
         }

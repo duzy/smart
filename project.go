@@ -292,8 +292,8 @@ type Project struct {
   filemaps []FileMap
 
   defaultEntry Entry
-  entries map[string]Entry
-  patterns []*PatternEntry
+  _entries valueCache
+  patterns []*Rule // order is important
   configs []Entry // configure entries
 
   // TODO: printEntering() ...
@@ -491,16 +491,13 @@ ForPatterns:
 }
 
 func files(ctx Context, iname interface{}, projects ...*Project) (maps []matchedFileMap) {
-  if len(projects) == 0 { projects = append(projects, ctx.Project()) }
+  var a, b, c, d []matchedFileMap // four sections
+  var ms = ctx.unmap(ctx, iname)
 
-  var ms = ctx.universe().unmap(ctx, iname)
-  if false && strings.HasPrefix(fmt.Sprintf("%s", iname), ".configure/compiles/") {
-    defer func() {
-      prompt(ctx, "%s: %T %v %v\n", iname, iname, ms, maps).debug(16)
-    } ()
+  if len(projects) == 0 {
+    projects = append(projects, ctx.Project())
   }
 
-  var a, b, c, d []matchedFileMap // four sections
 outer:
   for _, m := range ms {
     for _, p := range projects {
@@ -524,6 +521,16 @@ outer:
 
 func (p *Project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File) {
   for _, m := range maps {
+    if m.project == p {
+      // mine
+    } else if p.hasBase(m.project) {
+      // base files
+    } else if t := p.configure; t != nil && (m.project == t || t.hasBase(m.project)) {
+      // configure files
+    } else {
+      continue
+    }
+
     var f *File //, _ = toFile(m.pattern)
     // if filepath.IsAbs(m.name) {
     //   f = m.stat(ctx, "", m.name)
@@ -535,6 +542,7 @@ func (p *Project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File
     //     if f == nil { f = m.stat(ctx, p.absPath, m.name) }
     //   }
     // }
+
     f = m.stat(ctx, m.name)
     if f != nil {
       f.filemap = &m.FileMap
@@ -558,7 +566,7 @@ func (p *Project) selectFile(ctx Context, maps []matchedFileMap) (file *File) {
 }
 
 func (p *Project) file(ctx Context, iname interface{}) (file *File) {
-  if file = p.selectFile(ctx, files(ctx, iname, p)); false && file == nil {
+  if file = p.selectFile(ctx, /*files(ctx, iname, p)*/ctx.unmap(ctx, iname)); false && file == nil {
     var s, d string // TODO: s = iname
     if s != "" {
       if !filepath.IsAbs(s) { d = p.absPath }
@@ -624,7 +632,7 @@ func (p *Project) resolveObject(ctx Context, s string) (obj Object) {
   return
 }
 
-func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwaysResolveBases bool) (entries *ResolveEntries) {
+func (p *Project) resolveEntries(ctx Context, name interface{}, matchingFullSuffix, alwaysResolveBases bool) (entries *ResolveEntries) {
   var add = func(a ...Entry) {
     if len(a) > 0 {
       if entries == nil { entries = new(ResolveEntries) }
@@ -633,53 +641,66 @@ func (p *Project) resolveEntries(ctx Context, s string, matchingFullSuffix, alwa
     }
   }
 
-  if entry, y := p.entries[s]; y {
-    if false {
-      // if s == "touch" { warnstack(ctx, 3, "%v: %s %v %v", p, s, entry, y).debug(1) }
-      var t1 = autoGet(ctx, "@")
-      for pc := ctx.pc(); pc != nil; { // loop detection
-        if pc.entry() == entry {
-          var t2 = autoGet(pc, "@")
-          if eq(ctx, t1, t2) || t1.Strval(ctx) == t2.Strval(ctx) {
-            if false {
-              warn(of(ctx,t1), "%v: %p %v %T", entry, t1, t1, t1)
-              warn(of(ctx,t1), "%v: %p %v %T", entry, t2, t2, t2)
-              warnstack(ctx, 3, "%v: %v, %v %v (same: %v, %v, %v)",
-                entry, s, t1, t2, (t1 == t2), t1.cmp(ctx, t2), t2.cmp(ctx, t1)).debug(1)
-            }
-            if s == "touch" { warnstack(ctx, 3, "%v: %s %v - skip: %v %v", p, s, entry, t1, t2).debug(1) }
-            goto skipMyEntry
-          }
-        }
-        if c := pc.inner(); c != nil {
-          pc = c.pc()
-        } else {
-          break
-        }
+  var cache *valueCache
+  if s, y := name.(string); y {
+    if cache = p._entries.strx(ctx, s, cacheZero); cache != nil {
+      // good
+    } else if c := p._entries.strx(ctx, "''", cacheZero); c != nil {
+      if c = c.strx(ctx, s, cacheZero); c != nil {
+        errostack(ctx, 3, "%s: no such entry, do you mean '%s'?", s, s).debug(16)
+        return
+      }
+    } else if c := p._entries.strx(ctx, "\"\"", cacheZero); c != nil {
+      if c = c.strx(ctx, s, cacheZero); c != nil {
+        errostack(ctx, 3, "%v: no such entry, do you mean \"%s\"?", s, s).debug(16)
+        return
       }
     }
-    add(entry)
-  skipMyEntry:
+  } else if v, y := name.(Value); y {
+    if cache = p._entries.slot(ctx, v, cacheZero); cache != nil {
+      // good
+    } else if c := p._entries.strx(ctx, "''", cacheZero); c != nil {
+      var s = v.Strval(ctx)
+      if c = c.strx(ctx, s, cacheZero); c != nil {
+        errostack(ctx, 3, "%T %v: no such entry, do you mean '%s'?", v, v, s).debug(16)
+        return
+      }
+    } else if c := p._entries.strx(ctx, "\"\"", cacheZero); c != nil {
+      var s = v.Strval(ctx)
+      if c = c.strx(ctx, s, cacheZero); c != nil {
+        errostack(ctx, 3, "%T %v: no such entry, do you mean \"%s\"?", v, v, s).debug(16)
+        return
+      }
+    }
+  } else {
+    errostack(ctx, 3, "%s: no such entry, do you mean '%s'?", s, s).debug(16)
+    return
+  }
+
+  if cache != nil && cache._val != nil {
+    add(cache._val.(*Rule))
   }
 
   if alwaysResolveBases || entries == nil {
     for _, base := range p.bases {
-      if t := base.resolveEntries(ctx, s, matchingFullSuffix, alwaysResolveBases); t != nil {
+      if t := base.resolveEntries(ctx, name, matchingFullSuffix, alwaysResolveBases); t != nil {
         add(t.all...)
         break
       }
     }
   }
+
   if p.configure != nil && ctx.isConfiguration() {
-    if t := p.configure.resolveEntries(ctx, s, matchingFullSuffix, true); t != nil {
+    if t := p.configure.resolveEntries(ctx, name, matchingFullSuffix, true); t != nil {
       add(t.all...)
     }
   }
+
   if true {
     /* FAST */
   } else if entries == nil { /* SLOW */
     for _, use := range p.use.list {
-      if t := use.project.resolveEntries(ctx, s, matchingFullSuffix, alwaysResolveBases); t != nil {
+      if t := use.project.resolveEntries(ctx, name, matchingFullSuffix, alwaysResolveBases); t != nil {
         add(t.all...)
         break
       }
@@ -800,9 +821,6 @@ func (p *Project) resolvePatterns3(ctx Context, val Value, s string) (res []*ste
   return
 }
 
-type entryOpts struct {
-  postExec bool `p,post;pe,post-execute;pe,post-exec`
-}
 func (p *Project) entry(ctx Context, special specialRule, options []Value, target Value, prog *Program) (entry Entry, err error) {
   var name string
   if name = target.Strval(ctx); name == "" {
@@ -832,8 +850,9 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
   // The 'use' rule entries.
   var closured = target.expandable(ctx, expandClosure)
   if special == specialRuleUse && !closured {
-    var opts entryOpts
-    parseOpts(ctx, &opts, 0, options...)
+    var _, _ = _opts[struct{
+      postExec bool `p,post;pe,post-execute;pe,post-exec`
+    }](ctx, expandZero, options...)
     panic(":use: rule entry is deprecated")
     return
   }
@@ -847,27 +866,39 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
     target, arged = t.value, merge(t.args...)
   }
 
-  if patterned {
-    var class = PatternRule
-    if _, ok := target.(*Path); ok { class = PathPattRule }
-    var pattern = &PatternEntry{Rule{
-      position: target.Position(), class: class, target: target, argumented: arged,
-    }}
-    p.patterns = append(p.patterns, pattern)
-    entry = pattern
+  var cache = p._entries.slot(ctx, target, cacheStore|cacheNoConflict).
+    key(ctx, target, cacheStore)
+
+  if cache == nil {
+    erro(ctx, "no cache for target: %v", target).debug(1)
     return
   }
 
-  if p.entries == nil {
-    p.entries = make(map[string]Entry)
-  } else {
-    entry, _ = p.entries[name]
-  }
-  if entry == nil {
-    entry = &Rule{
+  if cache._val == nil {
+    var rule = &Rule{
       position: target.Position(), class: GeneralRule, target: target, argumented: arged,
     }
-    p.entries[name] = entry
+
+    if patterned {
+      if _, y := target.(*Path); y {
+        rule.class = PathPattRule
+      } else {
+        rule.class = PatternRule
+      }
+      p.patterns = append(p.patterns, rule)
+    }
+
+    if s := target.Strval(ctx); s == "LLVM_VERSION" {
+      var t1 = p._entries.strx(ctx, s, cacheZero)
+      var t2 = p._entries.slot(ctx, target, cacheZero)
+      info(ctx, "%T %v: %p %v, %p %p", target, target, cache, rule, t1, t2).debug(1)
+    }
+
+    cache._val = rule
+    entry = rule
+  } else if p, y := cache._val.(*Rule); y { entry = p } else {
+    errostack(ctx, 3, "wrong cache: %T %v", cache._val, cache._val).debug(1)
+    return
   }
 
   if entry != nil && p.defaultEntry == nil { p.defaultEntry = entry }
