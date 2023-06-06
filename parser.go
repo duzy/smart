@@ -598,6 +598,7 @@ func (p *parser) selectExpr(lhs Value) (res Value) {
 	if rhs := p.selector(ctx); isNil(rhs) {
 		res = MakeNil(ctx.Position())
 	} else {
+		if v, y := optionalize(ctx, rhs); y { rhs = v } // foo→bar?
 		res = MakeSelection(ctx.Position(), tok, lhs, rhs)
 	}
 
@@ -803,12 +804,12 @@ func (p *parser) globExpr(x Value) Value {
 
 	var pos = p.Position()
 	var ctx = at(p, pos)
-
 	var components []Value
 	if !isNil(x) { components = []Value{ x } }
 
 	// avoid nesting glob expressions
 	defer p.setbits(p.setbit(parseGLOB))
+
 ForGlobTok:
 	for {
 		if p.lineComment != nil { break ForGlobTok }
@@ -1210,6 +1211,8 @@ func (p *parser) closuredelegate() (result Value) {
 
 	defer p.setbits(p.setbit(parseCall))
 
+	const allowClosureName = true
+
 	var (
 		ctx = p.posit()
 		loader = ctx.loader()
@@ -1224,7 +1227,6 @@ func (p *parser) closuredelegate() (result Value) {
 		return
 	}
 
-	const allowClosureName = true
 	resolveObject := func(lPos Position, lTok Token, name Value) (str string, obj Value, okay bool) {
 		if a, y := name.(*argumented); y { name = a.value }
 		if sel, y := name.(*selection); y {
@@ -1360,7 +1362,6 @@ func (p *parser) closuredelegate() (result Value) {
 		tokLp = p.tok ; p.step() // skips LPAREN, LBRACE
 
 		var posName = p.Position()
-
 		switch p.tok {
 		case SPACE:
 			erro(at(ctx,posName), "unexpected spaces").debug(1)
@@ -1372,7 +1373,11 @@ func (p *parser) closuredelegate() (result Value) {
 
 		if name = p.expr(ctx, false); isNil(name) {
 			erro(at(ctx,posName), "%v: parsed name is nil", proj).debug(1)
-		} else if a, y := name.(*argumented); y {
+			return MakeNil(posName)
+		}
+
+		if v, y := optionalize(ctx, name); y { name = v } // foo?  foo(a,b,c)?
+		if a, y := name.(*argumented); y {
 			var args = merge(a.args...)
 			for _, v := range args {
 				if p, y := v.(*Pair);  y { v = p.Key }
@@ -1380,7 +1385,9 @@ func (p *parser) closuredelegate() (result Value) {
 					erro(of(ctx,v), "%v: not a Flag: %T %v", proj, v, v).debug(1)
 				}
 			}
+
 			if true { name, opts = a.value, args }
+			if v, y := optionalize(ctx, name); y { name = v } // foo?(a,b,c)
 		}
 
 		if isNil(name) {/* error */} else
@@ -1389,18 +1396,6 @@ func (p *parser) closuredelegate() (result Value) {
 		} else if nameStr, obj, okay = resolveObject(posLp, tokLp, name); !okay {
 			erro(at(ctx,posName), "%v: name '%v' is unidentified", proj, name).debug(1)
 		}
-
-		if false { if name.String() == "name?" {
-			warnstack(ctx, 3, "%v %v ; %T %v", name, name, obj, obj).debug(1)
-		}}
-		if false && name.String() == ".test$1" {
-			v := name.expand(ctx, plain)
-			warnstack(of(ctx,name), 3, "%v: %T %v -> %T %v -> %T %v", nameStr, name, name, obj, obj, v, v).debug(1)
-		}
-		if false { if def, y := obj.(*def); y && name.String() == ".test.v2" {
-			v := name.expand(ctx, plain)
-			warnstack(of(ctx,name), 3, "%v: %T %v -> %T %v -> %T %v ; %v", nameStr, name, name, obj, obj, v, v, def.origin).debug(1)
-		}}
 
 		if  (tokLp == LPAREN && p.tok != RPAREN) ||
 			(tokLp == LBRACE && p.tok != RBRACE) {
@@ -1700,10 +1695,8 @@ func (p *parser) composite(ctx Context, lhs bool) (x Value) {
 
 	switch x = p.unary(ctx, lhs); p.tok { // check composible expressions
 	case SELECT_PROP, SELECT_PROG1, SELECT_PROG2: // foo->bar  foo=>bar  foo~>bar
-		if p.bits&parseNoSelect == 0 {
-			// accepts 'foo=>bar', but 'foo => bar' is different
-			x = p.selectExpr(x); break
-		}
+		// accepts 'foo=>bar', but 'foo => bar' is different
+		if p.bits&parseNoSelect == 0 { x = p.selectExpr(x); break }
 	case LBRACK: // xxx[(foo ...)]
 		if p.isParametersGroup(x) { break }
 		if p.bits&parseModifier == 0 {
@@ -1715,19 +1708,13 @@ func (p *parser) composite(ctx Context, lhs bool) (x Value) {
 			}
 		}
 	case STAR, QUE/*, LBRACK*/: // foo*bar foo?bar foo[a-z]bar
-		if p.bits&parseNoGlob == 0 {
-			x = p.globExpr(x)
-		}
+		if p.bits&parseNoGlob == 0 { x = p.globExpr(x) }
 	case PERC: // foo%bar
 		// FIXME: %/foo/bar -> Path(% foo bar)
-		if p.bits&parseNoPerc == 0 {
-			x = p.percExpr(lhs, x)
-		}
+		if p.bits&parseNoPerc == 0 { x = p.percExpr(lhs, x) }
 	case DOT: // foo.bar.baz.o
 		// FIXME: push bits when parsing $(...)
-		if p.bits&parseDOT == 0 { // TODO: parse to Qualiword
-			x = p.dot(lhs, x)
-		}
+		if p.bits&parseDOT == 0 { x = p.dot(lhs, x) } // TODO: parse to Qualiword
 	case PCON: // ie. subdir/in/somewhere
 		if p.bits&parseNoPath == 0 {
 			// Path expressions, except '-I/path/to/include'

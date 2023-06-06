@@ -1219,6 +1219,29 @@ func (_ *returner) cache(ctx Context, cache *valueCache, bits int) (res *valueCa
     return
 }
 
+type optional struct { Value }
+func (o optional) String() string { return o.Value.String()+"?" }
+func (o optional) expand(ctx Context, w facet) Value {
+    return optional{o.Value.expand(ctx, w)}
+}
+func (o optional) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b): %v", bits, o.Value).debug(32)
+    return
+}
+func (_ optional) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+
+func optionalize(ctx Context, val Value) (res Value, okay bool) {
+    if g, y := val.(*GlobPattern); y && len(g.components) == 2 {
+        if m, y := g.components[1].(*GlobMeta); y && m.Token == QUE {
+            res, okay = optional{ g.components[0] }, true
+        }
+    }
+    return
+}
+
 type argumented struct {
     value Value
     args []Value
@@ -6480,39 +6503,39 @@ func correctPathPunForMatch(seg Value) Value {
 //		lo '-' hi   matches character c for lo <= c <= hi
 type GlobPattern struct {
     valbase
-    Components []Value
+    components []Value
 }
 func (p *GlobPattern) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *GlobPattern) elemStr(ctx Context, o Object, k elemkind) (s string) {
-    for _, comp := range p.Components {
+    for _, comp := range p.components {
         s += elementString(ctx, o, comp, k)
     }
     return
 }
 func (p *GlobPattern) Strval(ctx Context) (s string) {
-    for _, comp := range p.Components { s += comp.Strval(ctx) }
+    for _, comp := range p.components { s += comp.Strval(ctx) }
     return
 }
 func (p *GlobPattern) refs(ctx Context, v Value) (res bool) {
-    for _, comp := range p.Components {
+    for _, comp := range p.components {
         if res = comp.refs(ctx, v); res { break }
     }
     return
 }
 func (p *GlobPattern) defs(ctx Context, s ...string) (res []*def) {
-    for _, comp := range p.Components {
+    for _, comp := range p.components {
         res = append(res, comp.defs(ctx, s...)...)
     }
     return
 }
 func (p *GlobPattern) expandable(ctx Context, w facet) (res bool) {
-    for _, comp := range p.Components {
+    for _, comp := range p.components {
         if res = comp.expandable(ctx, w); res { break }
     }
     return
 }
 func (p *GlobPattern) expand(ctx Context, w facet) (res Value) {
-    var components, u, n = w.expand(ctx, p.Components...)
+    var components, u, n = w.expand(ctx, p.components...)
     if n > 0 { res = &GlobPattern{p.valbase, components} } else { res = p }
     if u > 0 { res = unexpanded{res} }
     return
@@ -6544,9 +6567,9 @@ func (p *GlobPattern) stencil(ctx Context, stems []string) (val Value, rest []st
 func (p *GlobPattern) traverse(ctx Context) { ctx.traverse(ctx, p) }
 func (p *GlobPattern) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*GlobPattern); ok {
-        if len(p.Components) == len(a.Components) {
-            for i, c := range p.Components {
-                if c.cmp(ctx, a.Components[i]) != cmpEqual {
+        if len(p.components) == len(a.components) {
+            for i, c := range p.components {
+                if c.cmp(ctx, a.components[i]) != cmpEqual {
                     return
                 }
             }
@@ -6560,7 +6583,7 @@ func (p *GlobPattern) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *GlobPattern) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    var elems, u, _ = plain.expand(ctx, p.Components...)
+    var elems, u, _ = plain.expand(ctx, p.components...)
     if false && u > 0 { warn(ctx, "%08b: unexpended: %v: %v", bits, p, elems).debug(1) }
 
     var cache0 = cache.filemapCache
@@ -6935,7 +6958,7 @@ func MakePercPattern(pos Position, prefix, suffix Value) *PercPattern {
     }
 }
 func MakeGlobPattern(pos Position, components... Value) Value {
-    return &GlobPattern{valbase:valbase{pos},Components:components}
+    return &GlobPattern{valbase:valbase{pos}, components:components}
 }
 func MakeDelegate(pos Position, tok Token, obj Value, opts []Value, args... Value) Value {
     return &delegate{valbase{pos}, tok, obj, opts, args}

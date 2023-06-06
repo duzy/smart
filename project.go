@@ -888,14 +888,8 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
       p.patterns = append(p.patterns, rule)
     }
 
-    if s := target.Strval(ctx); s == "LLVM_VERSION" {
-      var t1 = p._entries.strx(ctx, s, cacheZero)
-      var t2 = p._entries.slot(ctx, target, cacheZero)
-      info(ctx, "%T %v: %p %v, %p %p", target, target, cache, rule, t1, t2).debug(1)
-    }
-
-    cache._val = rule
     entry = rule
+    cache._val = rule
   } else if p, y := cache._val.(*Rule); y { entry = p } else {
     errostack(ctx, 3, "wrong cache: %T %v", cache._val, cache._val).debug(1)
     return

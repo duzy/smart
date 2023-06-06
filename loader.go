@@ -1594,13 +1594,10 @@ func (l *loader) resolveObject(value Value) (name string, result Value) {
         panic(failure{pos,"resolving a selection"})
     }
 
-    var optional bool
     var ctx = at(l, pos)
     if name = value.Strval(ctx); name == "" {
         erro(ctx, "name '%v' is empty", name).debug(1)
         return
-    } else if optional = strings.HasSuffix(name, "?"); optional {
-        name = strings.TrimSuffix(name, "?")
     }
 
     if l.Scope() == nil {
@@ -1612,8 +1609,8 @@ func (l *loader) resolveObject(value Value) (name string, result Value) {
         erro(ctx, "nil project to resolve '%v'", name).debug(1)
         return
     } else if result = project.resolveObject(ctx, name); isNil(result) {
-        if optional {
-            result = unresolved{value, project}
+        if o, y := value.(optional); y {
+            result = unresolved{o.Value, project}
             return
         }
         //erro(ctx, "%v: resolved object '%v' is nil", project, name).debug(1)
