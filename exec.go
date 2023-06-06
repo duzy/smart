@@ -615,7 +615,7 @@ func (_ *execResult) hit(ctx Context, cache hitch, bits int) (res *filemapCache)
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *execResult) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *execResult) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }

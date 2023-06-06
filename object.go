@@ -96,7 +96,7 @@ func (_ *knownobject) hit(ctx Context, cache hitch, bits int) (res *filemapCache
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *knownobject) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *knownobject) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -157,7 +157,7 @@ func (_ unresolved) hit(ctx Context, cache hitch, bits int) (res *filemapCache) 
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ unresolved) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ unresolved) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -224,7 +224,7 @@ func (_ *projectName) hit(ctx Context, cache hitch, bits int) (res *filemapCache
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *projectName) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *projectName) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -289,7 +289,7 @@ func (_ *scopeName) hit(ctx Context, cache hitch, bits int) (res *filemapCache) 
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *scopeName) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *scopeName) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -1010,7 +1010,7 @@ func (_ *def) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *def) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *def) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -1082,7 +1082,7 @@ func (_ *undetermined) hit(ctx Context, cache hitch, bits int) (res *filemapCach
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *undetermined) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *undetermined) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -1115,7 +1115,7 @@ func (_ *Builtin) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *Builtin) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *Builtin) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -1526,7 +1526,7 @@ func (_ *Rule) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *Rule) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *Rule) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }

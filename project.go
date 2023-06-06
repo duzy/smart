@@ -292,7 +292,7 @@ type Project struct {
   filemaps []FileMap
 
   defaultEntry Entry
-  _entries valueCache
+  _entries valcache
   patterns []*Rule // order is important
   configs []Entry // configure entries
 
@@ -641,33 +641,34 @@ func (p *Project) resolveEntries(ctx Context, name interface{}, matchingFullSuff
     }
   }
 
-  var cache *valueCache
+  var cache *valcache
+  var bits = cacheMatchPatts
   if s, y := name.(string); y {
-    if cache = p._entries.strx(ctx, s, cacheZero); cache != nil {
+    if cache = p._entries.strx(ctx, s, bits); cache != nil {
       // good
-    } else if c := p._entries.strx(ctx, "''", cacheZero); c != nil {
-      if c = c.strx(ctx, s, cacheZero); c != nil {
+    } else if c := p._entries.strx(ctx, "''", bits); c != nil {
+      if c = c.strx(ctx, s, bits); c != nil {
         errostack(ctx, 3, "%s: no such entry, do you mean '%s'?", s, s).debug(16)
         return
       }
-    } else if c := p._entries.strx(ctx, "\"\"", cacheZero); c != nil {
-      if c = c.strx(ctx, s, cacheZero); c != nil {
+    } else if c := p._entries.strx(ctx, "\"\"", bits); c != nil {
+      if c = c.strx(ctx, s, bits); c != nil {
         errostack(ctx, 3, "%v: no such entry, do you mean \"%s\"?", s, s).debug(16)
         return
       }
     }
   } else if v, y := name.(Value); y {
-    if cache = p._entries.slot(ctx, v, cacheZero); cache != nil {
+    if cache = p._entries.slot(ctx, v, bits); cache != nil {
       // good
-    } else if c := p._entries.strx(ctx, "''", cacheZero); c != nil {
+    } else if c := p._entries.strx(ctx, "''", bits); c != nil {
       var s = v.Strval(ctx)
-      if c = c.strx(ctx, s, cacheZero); c != nil {
+      if c = c.strx(ctx, s, bits); c != nil {
         errostack(ctx, 3, "%T %v: no such entry, do you mean '%s'?", v, v, s).debug(16)
         return
       }
-    } else if c := p._entries.strx(ctx, "\"\"", cacheZero); c != nil {
+    } else if c := p._entries.strx(ctx, "\"\"", bits); c != nil {
       var s = v.Strval(ctx)
-      if c = c.strx(ctx, s, cacheZero); c != nil {
+      if c = c.strx(ctx, s, bits); c != nil {
         errostack(ctx, 3, "%T %v: no such entry, do you mean \"%s\"?", v, v, s).debug(16)
         return
       }

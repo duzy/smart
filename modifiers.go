@@ -150,7 +150,7 @@ func (_ *modification) hit(ctx Context, cache hitch, bits int) (res *filemapCach
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *modification) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *modification) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -212,7 +212,7 @@ func (_ *modifications) hit(ctx Context, cache hitch, bits int) (res *filemapCac
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *modifications) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *modifications) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }

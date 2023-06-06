@@ -890,6 +890,7 @@ const (
 const (
     cacheZero int = 0
     cacheStore = 1<<(iota-1) // NOTE: iota is 2 here
+    cacheMatchPatts
     cacheNoConflict
     cacheBare
     cachePath
@@ -1002,30 +1003,30 @@ func joinMatchRes(ctx Context, res interface{}) (str string) {
     return
 }
 
-type valueCache struct {
+type valcache struct {
     _key, _val Value
-    fast map[string]*valueCache // prefix <-> patternCache
+    fast map[string]*valcache // prefix <-> patternCache
 }
 
-func (cache *valueCache) slot(ctx Context, val Value, bits int) (res *valueCache) {
+func (cache *valcache) slot(ctx Context, val Value, bits int) (res *valcache) {
     if false { if _, y := val.(*Compound); !y { info(ctx, "cache: %T %v %08b", val, val, bits) }}
     if cache != nil { res = val.cache(ctx, cache, bits) }
     return
 }
 
-func (cache *valueCache) strx(ctx Context, str string, bits int) (res *valueCache) {
+func (cache *valcache) strx(ctx Context, str string, bits int) (res *valcache) {
     if cache == nil { return }
 
     for _, s := range strings.Split(str, PathSep) {
         if cache.fast == nil {
             if bits&cacheStore == 0 { return }
-            cache.fast = make(map[string]*valueCache)
+            cache.fast = make(map[string]*valcache)
         }
 
         var c, y = cache.fast[s]
         if !y {
             if bits&cacheStore == 0 { return }
-            c = &valueCache{}
+            c = &valcache{}
             cache.fast[s] = c
         }
 
@@ -1038,7 +1039,7 @@ func (cache *valueCache) strx(ctx Context, str string, bits int) (res *valueCach
     return cache
 }
 
-func (cache *valueCache) key(ctx Context, key Value, bits int) (res *valueCache) {
+func (cache *valcache) key(ctx Context, key Value, bits int) (res *valcache) {
     if bits&cacheStore != 0 && cache._key == nil { cache._key = key } else {
          if cache._key != nil && cache._key.cmp(ctx, key) != cmpEqual {
              errostack(ctx, 3, "wrong key: %v %v", cache._key, key).debug(1)
@@ -1098,7 +1099,7 @@ type Value interface {
     expand(Context, facet) Value // result is nil or identical to this value if no expansions
 
     hit(ctx Context, cache hitch, bits int) (res *filemapCache)
-    cache(ctx Context, cache *valueCache, bits int) (res *valueCache)
+    cache(ctx Context, cache *valcache, bits int) (res *valcache)
 
     stat(Context) (*statinfo)
 
@@ -1214,7 +1215,7 @@ func (p *returner) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b): %v", bits, p.Values).debug(32)
     return
 }
-func (_ *returner) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *returner) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -1228,7 +1229,7 @@ func (o optional) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b): %v", bits, o.Value).debug(32)
     return
 }
-func (_ optional) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ optional) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -1388,7 +1389,7 @@ func (_ *argumented) hit(ctx Context, cache hitch, bits int) (res *filemapCache)
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *argumented) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *argumented) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -1416,7 +1417,7 @@ func (p *None) cmp(ctx Context, v Value) (res cmpres) {
 func (_ *None) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return cache.filemapCache
 }
-func (_ *None) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *None) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     return cache.strx(ctx, "", bits)
 }
 
@@ -1435,7 +1436,7 @@ func (p *Nil) cmp(ctx Context, v Value) (res cmpres) {
 func (_ *Nil) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return cache.filemapCache
 }
-func (_ *Nil) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *Nil) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     return cache
 }
 
@@ -1642,7 +1643,7 @@ func (p *Any) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b): %T", bits, p.value).debug(32)
     return
 }
-func (p *Any) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (p *Any) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     if v, y := p.value.(Value); y { return v.cache(ctx, cache, bits) }
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
@@ -1692,7 +1693,7 @@ func (_ *negative) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *negative) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *negative) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -1757,7 +1758,7 @@ func (_ *boolean) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *boolean) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *boolean) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -1820,7 +1821,7 @@ func (_ *answer) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *answer) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *answer) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -1879,7 +1880,7 @@ func (_ *option) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *option) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *option) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -1917,7 +1918,7 @@ func (_ *integer) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *integer) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *integer) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -1983,7 +1984,7 @@ func (_ *Float) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *Float) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *Float) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -2021,7 +2022,7 @@ func (_ *DateTime) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *DateTime) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *DateTime) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -2239,7 +2240,7 @@ func (_ *URL) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *URL) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *URL) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -2276,7 +2277,7 @@ func (_ *Raw) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *Raw) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *Raw) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -2335,7 +2336,7 @@ func (p *String) elemStr(_ Context, o Object, k elemkind) (s string) {
 func (p *String) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return cache.strx(at(ctx, p.position), p.string, bits)
 }
-func (p *String) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (p *String) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     ctx = at(ctx, p.position)
     cache = cache.strx(ctx, "''", bits)
     return cache.strx(ctx, p.string, bits)
@@ -2391,7 +2392,7 @@ func (p *punctuation) match(ctx Context, i interface{}) (full bool, res interfac
 }
 func (p *punctuation) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *punctuation) hit(ctx Context, cache hitch, bits int) *filemapCache { return cache.filemapCache }
-func (_ *punctuation) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) { return cache }
+func (_ *punctuation) cache(ctx Context, cache *valcache, bits int) (res *valcache) { return cache }
 func (p *punctuation) traverse(ctx Context) { }
 
 type bareword struct { valbase; string }
@@ -2461,7 +2462,7 @@ func (p *bareword) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
         return cache.strs(at(ctx, p.position), []string{p.string}, bits)
     }
 }
-func (p *bareword) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (p *bareword) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     return cache.strx(at(ctx, p.position), p.string, bits)
 }
 
@@ -2528,7 +2529,7 @@ func (_ *qualiword) hit(ctx Context, cache hitch, bits int) (res *filemapCache) 
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (p *qualiword) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (p *qualiword) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -2822,7 +2823,7 @@ func (p *barecomp) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     }
     return
 }
-func (p *barecomp) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (p *barecomp) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     return cache.strx(at(ctx, p.position), p.Strval(ctx), bits)
 }
 
@@ -3422,7 +3423,7 @@ func (_ *GlobMeta) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     if (bits&cacheStore) != 0 { res = cache.filemapCache }
     return
 }
-func (_ *GlobMeta) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *GlobMeta) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -3462,7 +3463,7 @@ func (_ *GlobRange) hit(ctx Context, cache hitch, bits int) (res *filemapCache) 
     if (bits&cacheStore) != 0 { res = cache.filemapCache }
     return
 }
-func (_ *GlobRange) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *GlobRange) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -3670,7 +3671,7 @@ func (p *Path) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     }
     return
 }
-func (p *Path) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (p *Path) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     ctx = at(ctx, p.position)
 
     var elems, u, _ = expandPathElems(ctx, plain, p.Elems...)
@@ -4097,7 +4098,7 @@ func (p *PathPun) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     }
     return
 }
-func (p *PathPun) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (p *PathPun) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     if p.rune == '/' { res = cache } else {
         var s = p.String()
         ctx = at(ctx, p.position)
@@ -4293,7 +4294,7 @@ func (p *File) cmp(ctx Context, v Value) (res cmpres) {
 func (p *File) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return cache.strx(at(ctx, p.position), p.name, bits|cacheFile)
 }
-func (p *File) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (p *File) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     return cache.strx(at(ctx, p.position), p.name, bits|cacheFile)
 }
 
@@ -4508,7 +4509,7 @@ func (_ *Flag) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (p *Flag) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (p *Flag) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     ctx = at(ctx, p.position)
     return cache.strx(ctx, "-", bits).slot(ctx, p.name, bits)
 }
@@ -4598,7 +4599,7 @@ func (p *Compound) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b): %v", bits, p).debug(32)
     return
 }
-func (p *Compound) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (p *Compound) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     ctx = at(ctx, p.position)
     cache = cache.strx(ctx, "\"\"", bits)
     if true {
@@ -4799,7 +4800,7 @@ func (_ *List) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *List) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *List) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -4874,7 +4875,7 @@ func (_ *Group) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *Group) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *Group) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -4992,7 +4993,7 @@ func (_ *Pair) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *Pair) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *Pair) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -5678,7 +5679,7 @@ func (p *delegate) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     }
     return
 }
-func (p *delegate) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (p *delegate) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     return cache.slot(ctx, p.expand(ctx, plain), bits)
 }
 
@@ -6025,7 +6026,7 @@ func (p *closure) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     }
     return
 }
-func (p *closure) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (p *closure) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     return cache.slot(ctx, p.expand(ctx, plain), bits)
 }
 
@@ -6209,7 +6210,7 @@ func (_ *selection) hit(ctx Context, cache hitch, bits int) (res *filemapCache) 
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *selection) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *selection) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -6441,7 +6442,7 @@ func (_ *PercPattern) hit(ctx Context, cache hitch, bits int) (res *filemapCache
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (p *PercPattern) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (p *PercPattern) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     ctx = at(ctx, p.position)
 
     if p.Prefix != nil {
@@ -6616,7 +6617,7 @@ func (p *GlobPattern) hit(ctx Context, cache hitch, bits int) (res *filemapCache
     }
     return
 }
-func (_ *GlobPattern) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *GlobPattern) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -6650,7 +6651,7 @@ func (_ *RegexpPattern) hit(ctx Context, cache hitch, bits int) (res *filemapCac
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *RegexpPattern) cache(ctx Context, cache *valueCache, bits int) (res *valueCache) {
+func (_ *RegexpPattern) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
