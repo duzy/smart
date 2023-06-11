@@ -1,8 +1,8 @@
 project bar
 
-import (
-  './a'
-  './b'
+use (
+  ./a
+  ./b
 )
 
 var = bar

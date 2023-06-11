@@ -1,7 +1,7 @@
 # this is an example project
 project example
 
-import "./dialects/foo"
+use ./dialects/foo
 
 FOOBAR = example.foobar
 TAG_BOOK = book

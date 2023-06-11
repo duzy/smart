@@ -54,7 +54,7 @@ func (p *FileMap) Patterns(ctx Context) (pats []Value) {
     if pattern.expandable(ctx, expandClosure) {
       if false && !options.allowClosureFilemap { // -closure-files
         warnstack(of(ctx,pattern), 8, "closure filemap pattern may cause recursive file resolving: %v", pattern).debug(32)
-        ctx.flushDiags(true) // check here to report warnings immediately
+        ctx.flushDiags() // check here to report warnings immediately
       }
 
       // FIXME+TODO: this could be time consuming to expand clousre in the filemap
@@ -64,7 +64,7 @@ func (p *FileMap) Patterns(ctx Context) (pats []Value) {
       var unexpanded int
       if pats, unexpanded, _ = plain.expand(ctx, pattern); unexpanded>0 {
         errostack(of(ctx,pattern), 3, "unexpanded file pattern: %v", pats).debug(15)
-        ctx.flushDiags(true) // check here to report warnings immediately
+        ctx.flushDiags() // check here to report warnings immediately
       }
       pats = mergex(ctx, plain, pats...)
     } else {
@@ -290,6 +290,7 @@ type Project struct {
   use     *uselist
 
   filemaps []FileMap
+  filemap valcache
 
   defaultEntry Entry
   _entries valcache
@@ -316,45 +317,45 @@ func (p *Project) NewScope(pos Position, comment string) *Scope {
   return NewScope(pos, p.scope, p, comment)
 }
 
-func (p *Project) getFileMaps(ctx Context, baseFiles, useeFiles bool) (filemaps []FileMap) {
-  var appendFilemaps = func(a ...FileMap) { filemaps = append(filemaps, a...) }
+// func (p *Project) getFileMaps(ctx Context, baseFiles, useeFiles bool) (filemaps []FileMap) {
+//   var appendFilemaps = func(a ...FileMap) { filemaps = append(filemaps, a...) }
 
-  appendFilemaps(p.filemaps...)
+//   appendFilemaps(p.filemaps...)
 
-  if baseFiles { for _, base := range p.bases {
-    appendFilemaps(base.getFileMaps(ctx, true, useeFiles)...)
-  }}
+//   if baseFiles { for _, base := range p.bases {
+//     appendFilemaps(base.getFileMaps(ctx, true, useeFiles)...)
+//   }}
 
-  if p.configure != nil && ctx.isConfiguration() {
-    appendFilemaps(p.configure.getFileMaps(ctx, true, useeFiles)...)
-  }
+//   if p.configure != nil && ctx.isConfiguration() {
+//     appendFilemaps(p.configure.getFileMaps(ctx, true, useeFiles)...)
+//   }
 
-  if useeFiles && false/* FIXME: performance */ {
-    // takes a big longer time to map usee filemaps, but acceptable
-    var (
-      appendUselist func(*Project)
-      appendUsedFiles func(*Project)
-    )
-    appendUselist = func(p *Project) {
-      var fms []FileMap
-      if true {
-        fms = p.filemaps
-      } else {
-        // FIXME: this is the expensive way, really slow!
-        fms = p.getFileMaps(ctx, baseFiles, useeFiles)
-      }
-      appendFilemaps(fms...)
-      appendUsedFiles(p)
-    }
-    appendUsedFiles = func(p *Project) {
-      for _, u := range p.use.list {
-        appendUselist(u.project)
-      }
-    }
-    appendUsedFiles(p)
-  }
-  return
-}
+//   if useeFiles && false/* FIXME: performance */ {
+//     // takes a big longer time to map usee filemaps, but acceptable
+//     var (
+//       appendUselist func(*Project)
+//       appendUsedFiles func(*Project)
+//     )
+//     appendUselist = func(p *Project) {
+//       var fms []FileMap
+//       if true {
+//         fms = p.filemaps
+//       } else {
+//         // FIXME: this is the expensive way, really slow!
+//         fms = p.getFileMaps(ctx, baseFiles, useeFiles)
+//       }
+//       appendFilemaps(fms...)
+//       appendUsedFiles(p)
+//     }
+//     appendUsedFiles = func(p *Project) {
+//       for _, u := range p.use.list {
+//         appendUselist(u.project)
+//       }
+//     }
+//     appendUsedFiles(p)
+//   }
+//   return
+// }
 
 func (p *Project) wildcard(ctx Context, opts *wildcardOpts, patterns ...Value) (files []*File) {
   var filemaps []FileMap
@@ -600,8 +601,19 @@ func (p *Project) configuration(ctx Context) (file *File) {
 type cacher struct { /* TODO: files options */ }
 func (opts *cacher) cache(ctx Context, patts, paths []Value) {
   if p := ctx.Project(); p != nil {
-    var m = ctx.universe().cache(ctx, p, patts, paths)
-    p.filemaps = append(p.filemaps, m...)
+    var ms = ctx.universe().cache(ctx, p, patts, paths)
+    p.filemaps = append(p.filemaps, ms...)
+
+    var bits = cacheStore // cacheMatchPatts
+    for _, m := range ms {
+      if !m.pattern.patterned(ctx) { continue }
+
+      var ctx = of(ctx,m.pattern)
+      var c = p.filemap.slot(ctx, m.pattern, bits|cacheKey)
+      if c == nil {
+        erro(ctx, "valcache: slot: %v", m.pattern).debug(1)
+      }
+    }
   } else {
     erro(ctx, "nil project").debug(1)
   }
@@ -610,7 +622,7 @@ func (opts *cacher) cache(ctx Context, patts, paths []Value) {
 func file(c Context, s string) *File { return c.Project().file(c, s) }
 func resolveTempFile(c Context, s string) *File { return c.Project().tempFile(c, s) }
 func resolveObject(c Context, s string) Object { return c.Project().resolveObject(c, s) }
-func resolveEntries(c Context, s string, a, b bool) *ResolveEntries { return c.Project().resolveEntries(c, s, a, b) }
+func resolveEntries(c Context, s string, a bool) *ResolveEntries { return c.Project().resolveEntries(c, s, a) }
 func resolvePatterns(c Context, v Value, s string) []*stemmed { return c.Project().resolvePatterns(c, v, s) }
 
 func (p *Project) resolveObject(ctx Context, s string) (obj Object) {
@@ -632,7 +644,7 @@ func (p *Project) resolveObject(ctx Context, s string) (obj Object) {
   return
 }
 
-func (p *Project) resolveEntries(ctx Context, name interface{}, matchingFullSuffix, alwaysResolveBases bool) (entries *ResolveEntries) {
+func (p *Project) resolveEntries(ctx Context, name interface{}, alwaysResolveBases bool) (entries *ResolveEntries) {
   var add = func(a ...Entry) {
     if len(a) > 0 {
       if entries == nil { entries = new(ResolveEntries) }
@@ -682,18 +694,17 @@ func (p *Project) resolveEntries(ctx Context, name interface{}, matchingFullSuff
     add(cache._val.(*Rule))
   }
 
+  if p.configure != nil && ctx.isConfiguration() {
+    var t = p.configure.resolveEntries(ctx, name, true)
+    if t != nil && t.all != nil { add(t.all...) }
+  }
+
   if alwaysResolveBases || entries == nil {
     for _, base := range p.bases {
-      if t := base.resolveEntries(ctx, name, matchingFullSuffix, alwaysResolveBases); t != nil {
+      if t := base.resolveEntries(ctx, name, alwaysResolveBases); t != nil {
         add(t.all...)
         break
       }
-    }
-  }
-
-  if p.configure != nil && ctx.isConfiguration() {
-    if t := p.configure.resolveEntries(ctx, name, matchingFullSuffix, true); t != nil {
-      add(t.all...)
     }
   }
 
@@ -701,7 +712,7 @@ func (p *Project) resolveEntries(ctx Context, name interface{}, matchingFullSuff
     /* FAST */
   } else if entries == nil { /* SLOW */
     for _, use := range p.use.list {
-      if t := use.project.resolveEntries(ctx, name, matchingFullSuffix, alwaysResolveBases); t != nil {
+      if t := use.project.resolveEntries(ctx, name, alwaysResolveBases); t != nil {
         add(t.all...)
         break
       }
@@ -867,9 +878,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
     target, arged = t.value, merge(t.args...)
   }
 
-  var cache = p._entries.slot(ctx, target, cacheStore|cacheNoConflict).
-    key(ctx, target, cacheStore)
-
+  var cache = p._entries.slot(ctx, target, cacheKey|cacheStore|cacheNoConflict)
   if cache == nil {
     erro(ctx, "no cache for target: %v", target).debug(1)
     return

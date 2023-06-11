@@ -560,7 +560,7 @@ func closureResolveObject(ctx Context, name string) (obj Object) {
 func closureResolveEntry(ctx Context, name string) (entries *ResolveEntries) {
     for _, scope := range ctx.closureScopes() {
         if project := scope.project; project != nil {
-            entries = project.resolveEntries(ctx, name, false, /*true*/false)
+            entries = project.resolveEntries(ctx, name, /*true*/false)
             if entries == nil && false {
                 entries = closureResolveEntry(ctx.inner(), name)
             }
@@ -890,6 +890,7 @@ const (
 const (
     cacheZero int = 0
     cacheStore = 1<<(iota-1) // NOTE: iota is 2 here
+    cacheKey
     cacheMatchPatts
     cacheNoConflict
     cacheBare
@@ -1005,12 +1006,22 @@ func joinMatchRes(ctx Context, res interface{}) (str string) {
 
 type valcache struct {
     _key, _val Value
-    fast map[string]*valcache // prefix <-> patternCache
+    _fix, fast map[string]*valcache
 }
 
 func (cache *valcache) slot(ctx Context, val Value, bits int) (res *valcache) {
     if false { if _, y := val.(*Compound); !y { info(ctx, "cache: %T %v %08b", val, val, bits) }}
-    if cache != nil { res = val.cache(ctx, cache, bits) }
+    if cache != nil {
+        res = val.cache(ctx, cache, bits&^cacheKey)
+
+        if bits&cacheKey != 0 && bits&cacheStore != 0 && res != nil {
+            if res._key == nil { res._key = val } else
+            if res._key.cmp(ctx, val) != cmpEqual {
+                errostack(ctx, 3, "conflict keys: %v %v", res._key, val).debug(10)
+                return
+            }
+        }
+    }
     return
 }
 
@@ -1018,35 +1029,82 @@ func (cache *valcache) strx(ctx Context, str string, bits int) (res *valcache) {
     if cache == nil { return }
 
     for _, s := range strings.Split(str, PathSep) {
-        if cache.fast == nil {
-            if bits&cacheStore == 0 { return }
-            cache.fast = make(map[string]*valcache)
-        }
-
-        var c, y = cache.fast[s]
-        if !y {
-            if bits&cacheStore == 0 { return }
-            c = &valcache{}
-            cache.fast[s] = c
-        }
-
-        cache = c
-    }
-
-    if bits&cacheStore != 0 && bits&cacheNoConflict == 0 && cache._key != nil {
-        errostack(ctx, 3, "cache conflict: %v %v", cache._key, cache._val).debug(1)
+        if cache = cache.str(ctx, s, bits); cache == nil { return }
     }
     return cache
 }
 
-func (cache *valcache) key(ctx Context, key Value, bits int) (res *valcache) {
-    if bits&cacheStore != 0 && cache._key == nil { cache._key = key } else {
-         if cache._key != nil && cache._key.cmp(ctx, key) != cmpEqual {
-             errostack(ctx, 3, "wrong key: %v %v", cache._key, key).debug(1)
-             return
-         }
+func (cache *valcache) str(ctx Context, s string, bits int) (res *valcache) {
+    if cache._fix != nil && bits&cacheMatchPatts != 0 {
+        defer func() {
+            if res == nil && bits&cacheMatchPatts != 0 {
+                res = cache.matchPatts(ctx, s)
+            }
+        }()
     }
-    return cache
+
+    if y := cache.fast == nil; y {
+        if bits&cacheStore != 0 {
+            res = &valcache{}
+            cache.fast = make(map[string]*valcache)
+            cache.fast[s] = res
+        }
+    } else if res, y = cache.fast[s]; !y && bits&cacheStore != 0 {
+        res = &valcache{}
+        cache.fast[s] = res
+    }
+    return
+}
+
+func (cache *valcache) fix(ctx Context, s string, bits int) (res *valcache) {
+    if y := cache._fix == nil; y {
+        if bits&cacheStore != 0 { res = &valcache{}
+            cache._fix = make(map[string]*valcache)
+            cache._fix[s] = res
+        }
+    } else if res, y = cache._fix[s]; !y && bits&cacheStore != 0 {
+        res = &valcache{}
+        cache._fix[s] = res
+    }
+    return
+}
+
+func (cache *valcache) matchPatts(ctx Context, s string) (res *valcache) {
+    var step = func(k, s string, c *valcache) (r *valcache, tail string) {
+        if k == "%" {
+            var empty *valcache
+            for k, v := range c._fix {
+                if k == "" { empty = v } else
+                if strings.HasSuffix(s, k) { return c, "" }
+            }
+            if empty != nil { return empty, "" }
+        } else if k == "?" { // match one char
+            if s != "" { return c, s[1:] }
+        } else if k == "*" { // match many chars
+            var empty *valcache
+            for k, v := range c._fix {
+                if k == "" { empty = v } else
+                if i := strings.Index(s, k); i >= 0 { return v, s[i+len(k):] }
+            }
+            if empty != nil { return empty, "" }
+        } else if k == "[]" { // match range of chars
+            erro(ctx, "%v, %s", *c, s).debug(4)
+        } else if strings.HasPrefix(s, k) {
+            return c, s[len(k):]
+        }
+        return
+    }
+
+FixAgain:
+    for k, c := range cache._fix {
+        if c, t := step(k, s, c); c != nil {
+            if t == "" { return c } else {
+                cache, s = c, t
+                goto FixAgain // NOTE: restart loop, not 'continue'
+            }
+        }
+    }
+    return
 }
 
 // Value represents a value of a type.
@@ -1418,7 +1476,7 @@ func (_ *None) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return cache.filemapCache
 }
 func (_ *None) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    return cache.strx(ctx, "", bits)
+    return cache.str(ctx, "", bits)
 }
 
 type Nil struct { valbase }
@@ -2338,7 +2396,7 @@ func (p *String) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 }
 func (p *String) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     ctx = at(ctx, p.position)
-    cache = cache.strx(ctx, "''", bits)
+    cache = cache.str(ctx, "''", bits)
     return cache.strx(ctx, p.string, bits)
 }
 
@@ -2463,7 +2521,7 @@ func (p *bareword) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     }
 }
 func (p *bareword) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    return cache.strx(at(ctx, p.position), p.string, bits)
+    return cache.str(at(ctx, p.position), p.string, bits)
 }
 
 func (p *bareword) expand(ctx Context, w facet) (res Value) {
@@ -2824,7 +2882,7 @@ func (p *barecomp) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return
 }
 func (p *barecomp) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    return cache.strx(at(ctx, p.position), p.Strval(ctx), bits)
+    return cache.str(at(ctx, p.position), p.Strval(ctx), bits)
 }
 
 func (p *barecomp) cmp(ctx Context, v Value) (res cmpres) {
@@ -3283,19 +3341,16 @@ func globMatch(pattern, name string) (matched bool, stems []string, err error) {
     var _pattern, _name = pattern, name
     var dbg = false && (
         (_pattern == "lib*.a" && _name == "libunwind.a") ||
-            (_pattern == "libun????.a" && _name == "libunwind.a") ||
-            (_pattern == "lib[a-z][^0-9]????.a" && _name == "libunwind.a") ||
-            (_pattern == "lib?++.a" && _name == "libc++.a"))
+        (_pattern == "libun????.a" && _name == "libunwind.a") ||
+        (_pattern == "lib[a-z][^0-9]????.a" && _name == "libunwind.a") ||
+        (_pattern == "lib?++.a" && _name == "libc++.a"))
     if dbg {
-        if dbg {
-            fmt.Fprintf(stderr, "(%v, %v):\n", _pattern, _name)
-        }
+        fmt.Fprintf(stderr, "(%v, %v):\n", _pattern, _name)
         defer func() {
-            if dbg {
-                fmt.Fprintf(stderr, "    matched=%v, stems=%v; (%v, %v)\n", matched, stems, pattern, name)
-            }
+            fmt.Fprintf(stderr, "    matched=%v, stems=%v; (%v, %v)\n", matched, stems, pattern, name)
         } ()
     }
+
 Pattern:
     for len(pattern) > 0 {
         var star bool
@@ -3423,9 +3478,8 @@ func (_ *GlobMeta) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     if (bits&cacheStore) != 0 { res = cache.filemapCache }
     return
 }
-func (_ *GlobMeta) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
+func (p *GlobMeta) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+    return cache.fix(ctx, p.Token.String(), bits)
 }
 
 // `[a-b]`, `[abc]`, ...
@@ -3463,9 +3517,14 @@ func (_ *GlobRange) hit(ctx Context, cache hitch, bits int) (res *filemapCache) 
     if (bits&cacheStore) != 0 { res = cache.filemapCache }
     return
 }
-func (_ *GlobRange) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
+func (p *GlobRange) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+    if cache = cache.fix(ctx, "[]", bits); cache != nil {
+        for _, c := range p.Chars.Strval(ctx) {
+            warn(ctx, "range: %v: %s", p.Chars, c)
+        }
+        warnstack(ctx, 3, "%v: %v", p, p.Chars).debug(1)
+    }
+    return cache
 }
 
 // Path is addressing a file (dynamically), the real located file varies
@@ -4100,9 +4159,7 @@ func (p *PathPun) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 }
 func (p *PathPun) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     if p.rune == '/' { res = cache } else {
-        var s = p.String()
-        ctx = at(ctx, p.position)
-        return cache.strx(ctx, s, bits)
+        return cache.str(at(ctx, p.position), p.String(), bits)
     }
     return
 }
@@ -4511,7 +4568,7 @@ func (_ *Flag) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 }
 func (p *Flag) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     ctx = at(ctx, p.position)
-    return cache.strx(ctx, "-", bits).slot(ctx, p.name, bits)
+    return cache.str(ctx, "-", bits).slot(ctx, p.name, bits)
 }
 
 const escapedChars = "\"\r\n"
@@ -4544,9 +4601,7 @@ func (p *Compound) elemStr(ctx Context, o Object, k elemkind) (s string) {
     for _, elem := range p.Elems {
         s += elementString(ctx, o, elem, k|elemNoQuote)
     }
-    if k&elemNoQuote != 0 {
-        return
-    }
+    if k&elemNoQuote != 0 { return }
 
     var (
         buf bytes.Buffer
@@ -4561,7 +4616,7 @@ func (p *Compound) elemStr(ctx Context, o Object, k elemkind) (s string) {
     // Escape string chars
     for i := strings.IndexAny(s, escapedChars); i != -1; {
         if _, err = buf.WriteString(s[:i]); err != nil {
-            erro(of(ctx,p), "%v", err)
+            erro(of(ctx,p), "%v", err).debug(1)
             return
         }
 
@@ -4572,7 +4627,7 @@ func (p *Compound) elemStr(ctx Context, o Object, k elemkind) (s string) {
         case '\n': esc = `\n`
         }
         if _, err = buf.WriteString(esc); err != nil {
-            erro(of(ctx,p), "%v", err)
+            erro(of(ctx,p), "%v", err).debug(1)
             return
         }
 
@@ -4580,7 +4635,7 @@ func (p *Compound) elemStr(ctx Context, o Object, k elemkind) (s string) {
         i = strings.IndexAny(s, escapedChars)
     }
     if _, err = buf.WriteString(s); err != nil {
-        erro(of(ctx,p), "%v", err)
+        erro(of(ctx,p), "%v", err).debug(1)
     }
     return
 }
@@ -4601,13 +4656,11 @@ func (p *Compound) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 }
 func (p *Compound) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     ctx = at(ctx, p.position)
-    cache = cache.strx(ctx, "\"\"", bits)
-    if true {
+    if cache = cache.str(ctx, "\"\"", bits); true {
         cache = cache.strx(ctx, p.Strval(ctx), bits)
     } else {
         var elems, u, _ = expandPathElems(ctx, plain, p.Elems...)
         if false && u > 0 { warn(ctx, "%08b: unexpended: %v: %v", bits, p, elems).debug(1) }
-
         for _, elem := range elems { cache = cache.slot(ctx, elem, bits) }
     }
     return cache
@@ -5069,7 +5122,7 @@ func (p *delegate) Strval(ctx Context) (s string) {
     } else {
         if v.refs(ctx, p.x) {
             warnstack(ctx, 3, "%v %v ; %T %v", p, p.x, v, v).debug(128)
-            ctx.flushDiags(true)
+            ctx.flushDiags()
         } else {
             s = v.Strval(ctx)
         }
@@ -5347,7 +5400,7 @@ func (p *delegate) expand(ctx Context, w facet) (res Value) {
             }
             warn(ctx, "delegate.expand: final=%v; same=%v; close=%v; %020b",
                 final, same, close, w).debug(64)
-            ctx.flushDiags(true)
+            ctx.flushDiags()
         }} ()
     }}
 
@@ -5465,7 +5518,7 @@ func (p *delegate) reveal(ctx Context, w facet) (res Value, final bool) {
                 warn(ctx, "reveal: unexpanded: %T %v", t.Value, t.Value)
             }
             warnstack(ctx, 3, "reveal: final=%v; same=%v; %020b", final, p.x==x, w).debug(100)
-            ctx.flushDiags(true)
+            ctx.flushDiags()
             db -= 1
         }}} ()
     }}
@@ -5768,7 +5821,7 @@ func (p *closure) expand(ctx Context, w facet) (res Value) {
             warn(ctx, "closure.expand: final=%v; same=%v; close=%v; %020b",
                 final, same, close, w)
             warnstack(ctx, 5, "").debug(64)
-            ctx.flushDiags(true)
+            ctx.flushDiags()
         }}} ()
     }}
 
@@ -5850,7 +5903,7 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
                 warn(ctx, "disclose: unexpanded: %T %v", t.Value, t.Value)
             }
             warnstack(ctx, 10, "final=%v; same=%v; %020b", final, p.x==x, w).debug(32)
-            ctx.flushDiags(true)
+            ctx.flushDiags()
         }} ()
     }}
 
@@ -5886,7 +5939,7 @@ func (p *closure) disclose(ctx Context, w facet) (res Value, final bool) {
             warnstack(ctx, 3, "%T %v -> %T %v, %024b %024b",
                 ur.Value, ur.Value, name, name, w,
                 w & (expandPlaceholders | expandDigits)).debug(32)
-            ctx.flushDiags(true)
+            ctx.flushDiags()
         }}
 
         var ux unexpanded
@@ -6108,7 +6161,7 @@ func (p *selection) value(ctx Context, w facet) (v Value) {
         if p.t.IsSelectProg() {
             if n, y := o.(*projectName); !y {
                 erro(at(ctx,p.position), "selection.value: not a project: %v (%T)", o, o).debug(1)
-            } else if entries := n.resolveEntries(ctx, p.s, false, false); entries != nil {
+            } else if entries := n.resolveEntries(ctx, p.s, false); entries != nil {
                 return selected{ entries }
             } else if optional {
                 v = unresolved{MakeBareword(p.s.Position(), s), n.Project}
@@ -6445,21 +6498,29 @@ func (_ *PercPattern) hit(ctx Context, cache hitch, bits int) (res *filemapCache
 func (p *PercPattern) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     ctx = at(ctx, p.position)
 
-    if p.Prefix != nil {
-        cache = cache.slot(ctx, p.Prefix, bits)
-    } else {
-        cache = cache.strx(ctx, "", bits)
+    var fix string
+    switch t := p.Prefix.(type) {
+    case *barecomp: fix = t.Strval(ctx)
+    case *bareword: fix = t.string
+    case *None,nil: fix = ""
+    default:
+        errostack(of(ctx, p.Prefix), 3, "unsupported prefix: %T %v", t, t).debug(16)
+        return
     }
 
-    cache = cache.strx(ctx, "%", bits)
+    if cache = cache.fix(ctx, fix, bits); cache == nil { return }
+    if cache = cache.fix(ctx, "%", bits); cache == nil { return }
 
-    if p.Suffix != nil {
-        cache = cache.slot(ctx, p.Suffix, bits)
-    } else {
-        cache = cache.strx(ctx, "", bits)
+    switch t := p.Suffix.(type) {
+    case *barecomp: fix = t.Strval(ctx)
+    case *bareword: fix = t.string
+    case *None,nil: fix = ""
+    case *PercPattern: return t.cache(ctx, cache, bits)
+    default:
+        errostack(of(ctx, p.Suffix), 3, "unsupported suffix: %T %v", t, t).debug(16)
+        return
     }
-
-    return cache
+    return cache.fix(ctx, fix, bits)
 }
 
 // Check for patterns like foo%%bar
@@ -6617,9 +6678,24 @@ func (p *GlobPattern) hit(ctx Context, cache hitch, bits int) (res *filemapCache
     }
     return
 }
-func (_ *GlobPattern) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
+func (p *GlobPattern) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+    var fix string
+    for _, comp := range p.components {
+        switch t := comp.(type) {
+        case *barecomp, *bareword: fix = t.Strval(ctx)
+            if cache = cache.fix(ctx, fix, bits); cache == nil { return }
+
+        case *GlobMeta, *GlobRange:
+            // if fix == "" { if cache = cache.fix(ctx, fix, bits); cache == nil { return } }
+            if cache = t.cache(ctx, cache, bits); cache == nil { return }
+            // if fix != "" { fix = "" }
+
+        default:
+            errostack(of(ctx, comp), 3, "glob: unsupported component: %T %v", t, t).debug(16)
+            return
+        }
+    }
+    return cache
 }
 
 // TODO: implement regexp pattern
@@ -6628,11 +6704,11 @@ func (p *RegexpPattern) String() string { return "{RegexpPattern}" }
 func (p *RegexpPattern) Strval(ctx Context) (s string) { return "" }
 func (p *RegexpPattern) patterned(ctx Context) bool { return true }
 func (p *RegexpPattern) match(ctx Context, i interface{}) (full bool, result interface{}, stems []string) {
-    unreachable("regexp.match: %T %v", i, i)
+    erro(ctx, "regexp.match: %T %v", i, i) // TODO: regexp match
     return
 }
 func (p *RegexpPattern) stencil(ctx Context, stems []string) (val Value, rest []string) {
-    unreachable("regexp.stencil: %v", stems) // TODO: regexp stencil
+    erro(ctx, "regexp.match: %v", stems) // TODO: regexp stencil
     return
 }
 func (p *RegexpPattern) cmp(ctx Context, v Value) (res cmpres) {

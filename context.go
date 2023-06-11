@@ -117,6 +117,7 @@ type Context interface {
 
   universe() *universe
   unmap(Context, interface{}) []matchedFileMap
+  // cache(Context, []Value, []Value)
 
   loader() *loader // only in load stage
   parser() *parser // only in parse stage
@@ -166,7 +167,7 @@ type Context interface {
 
   diagnostic() *diagContext
   diag(diagType, string, ...interface{}) *diagPoint
-  flushDiags(bool) int
+  flushDiags() int
   countErrors() int
   totalErrors() int
 
@@ -194,7 +195,6 @@ func getTargetValueString(ctx Context) (val Value, str string) {
   return
 }
 
-var baseWorkDir, _ = os.Getwd()
 var options = commandLineOpts{
   debugPrompt: true,
   debugErrors: true,
@@ -361,7 +361,7 @@ func (diag *diagContext) check(dt diagType) (errs int) {
   diag.Unlock()
   return
 }
-func (diag *diagContext) flushDiags(_ bool) (errs int) {
+func (diag *diagContext) flushDiags() (errs int) {
   var flush = func(d *diagPoint, pend bool) (pended bool) {
     var (
       pos = d.position.String()
@@ -445,13 +445,13 @@ func at(ctx Context, pos Position) Context {
         if true {
           prompt(ctx, "%v: too many positions: %T\n", p, c)
           warn(ctx, "too many positions: %v, %v, %v", i, num, ctx).debug(1)
-          ctx.flushDiags(true)
+          ctx.flushDiags()
         }
       }
     }
     if wrap { ctx = &positionContext{ ctx, pos } } else {
       warn(ctx, "too many positions: %v, %v", num, ctx).debug(128)
-      ctx.flushDiags(true)
+      ctx.flushDiags()
     }
   } else if _, y := ctx.(*loader); false && y && p.Same(&pos) {
     ctx = &positionContext{ ctx, pos }
@@ -622,7 +622,7 @@ func checkFailure(ctx Context, dontCheckErrors ...bool) (panics, errs int) {
   }
   if len(dontCheckErrors) > 0 && dontCheckErrors[0] {
     // okay
-  } else if errs = ctx.flushDiags(true); errs > 0 && panics == 0 {
+  } else if errs = ctx.flushDiags(); errs > 0 && panics == 0 {
     warn(ctx, "got %d errors (%s)", ctx.totalErrors(), ctx).debug(16)
     if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.totalErrors()) }
   }
@@ -680,7 +680,7 @@ func CommandLine() {
 
   if err := context.loadTopWork(); err != nil {
     erro(context, "loading work failed: %v", err)
-  } else if context.flushDiags(true) > 0 {
+  } else if context.flushDiags() > 0 {
     prompt(context, "loading work got %d errors\n", context.totalErrors())
   } else if options.help {
     context.help()
@@ -694,7 +694,7 @@ func CommandLine() {
     context.configure()
   } else if result, err := context.run(); err != nil {
     erro(context, "run work failed: %v", err)
-  } else if context.flushDiags(true) > 0 {
+  } else if context.flushDiags() > 0 {
     prompt(context, "run work got %d errors\n", context.totalErrors())
   } else if result != nil {
     for i, v := range result {

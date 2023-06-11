@@ -849,7 +849,7 @@ func (ctx builtin) assert(aa ...Value) (res Value) {
                         }
                 }
         }
-        if ctx.flushDiags(true) > 0 { fail(ctx.Position(), "assert failed") }
+        if ctx.flushDiags() > 0 { fail(ctx.Position(), "assert failed") }
         return
 }
 
@@ -1666,7 +1666,7 @@ func (ctx builtin) servehttp(aa ...Value) (res Value) {
                 }
         }
 
-        ctx.flushDiags(true) // flush
+        ctx.flushDiags() // flush
 
         var err = server.ListenAndServe()
         if err != nil && err != http.ErrServerClosed { erro(ctx, "%s", err).debug(1) }
@@ -3634,7 +3634,7 @@ func (ctx builtin) remove(args... Value) (res Value) {
         }
 
         if opts.debug > 0 { warn(ctx, "%v", args).debug(1) }
-        if opts.debug > 0 && ctx.flushDiags(true) > 0 {
+        if opts.debug > 0 && ctx.flushDiags() > 0 {
                 errostack(ctx, 3, "remove errors").debug(1)
         }
         return

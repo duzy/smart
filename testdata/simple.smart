@@ -1,15 +1,15 @@
 # this is a simple project...
 project simple
 
-import (
-    "./modules/a"
-    "./modules/b"
+use (
+    ./modules/a
+    ./modules/b
 )
 
 include (
-    "./incs/a.smart"
-    "./incs/b.smart"
-    "./incs/c.smart"
+    ./incs/a.smart
+    ./incs/b.smart
+    ./incs/c.smart
 )
 
 instance (

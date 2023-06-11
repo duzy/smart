@@ -632,8 +632,8 @@ func (p *execResult) Strval(ctx Context) (s string) {
 func (p *execResult) String() string {
   var s bytes.Buffer
   fmt.Fprintf(&s, "(execResult status=%d", p.Status)
-  if p.Stdout.Buf != nil { fmt.Fprintf(&s, " stdout=%S", p.Stdout.Buf) }
-  if p.Stderr.Buf != nil { fmt.Fprintf(&s, " stderr=%S", p.Stderr.Buf) }
+  if p.Stdout.Buf != nil { fmt.Fprintf(&s, " stdout=%v", p.Stdout.Buf) }
+  if p.Stderr.Buf != nil { fmt.Fprintf(&s, " stderr=%v", p.Stderr.Buf) }
   fmt.Fprintf(&s, ")")
   return s.String()
 }
@@ -674,7 +674,7 @@ func (p *execContext) onFirstWrote() {
     printEnteringDirectory(p.Context)
 
     // Call flushDiags to ensure printEnteringDirectory works immediately
-    if errs := p.Context.flushDiags(true); errs > 0 {
+    if errs := p.Context.flushDiags(); errs > 0 {
       warn(p.Context, "exec: encountered %d errors", errs).debug(1)
     }
   }
@@ -695,7 +695,7 @@ func (p *execContext) runContainerAndRetry() (err error) {
   )
 
   fmt.Fprintf(sh.Stderr, "\n---- Run container '%s'\n", name)
-  if entries := p.container.resolveEntries(p.Context, "run", false, false); entries != nil {
+  if entries := p.container.resolveEntries(p.Context, "run", false); entries != nil {
     for _, run := range entries.all {
       if _, traves := run.execute(p.Context, nil); traves.has() {
         erro(p.Context, "%d travestates", len(traves)).debug(1)
@@ -771,7 +771,7 @@ func (p *execContext) ensureContainerRunning(containerName string) (err error) {
   } (stderrR)
 
   if err = cmd.Run(); err == nil && foundID == "" {
-    if entries := p.container.resolveEntries(p.Context, "run", false, false); entries != nil {
+    if entries := p.container.resolveEntries(p.Context, "run", false); entries != nil {
       for _, run := range entries.all {
         if _, traves := run.execute(p.Context, nil); traves.has() {
           erro(p.Context, "%d travestates", len(traves)).debug(1)
@@ -928,7 +928,7 @@ func (exe *execContext) exec(cmd, opt string, err error) {
     }
   }
 
-  if ctx.flushDiags(true) > 0 {
+  if ctx.flushDiags() > 0 {
     if str := trimPromptString(exe.targetName); filepath.IsAbs(exe.targetName) {
       var pos Position; pos.Filename, pos.Line = exe.targetName, 1
       warn(ctx, "got %d error(s)", ctx.totalErrors())

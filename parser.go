@@ -200,7 +200,7 @@ func (p *parser) scan() {
 
 	var pos = p.pos
 	p.pos, p.tok, p.lit = p.scanner.Scan()
-	if false && p.lit == "none" { warn(p, "%v %v", p.tok, p.lit).debug(64); p.flushDiags(true) }
+	if false && p.lit == "none" { warn(p, "%v %v", p.tok, p.lit).debug(64); p.flushDiags() }
 	if false && p.tok == EOF {
 		erro(at(p,p.loc(pos)), "unexpected end of file").debug(1)
 	}
@@ -299,7 +299,7 @@ func (p *parser) step() {
 		var t = warn(p, "%v %v %v", p.tok, p.lit, p.scanner.ScanState)
 		if p.tok == COMPOUND { t.debug(12) }
 		if p.tok == LINEND { t.debug(24) }
-		p.flushDiags(true)
+		p.flushDiags()
 	} else if false {
 		p.scanner.Debug = false
 	}
@@ -427,17 +427,17 @@ func (p *parser) bare(lhs bool) (x Value) {
 		}
 	case BARE: // TODO: bare{ ... }
 		if p.tok == LBRACE { // file{ ... }
-			erro(p, "TODO: %v", tok).debug(1) ; p.flushDiags(true)
+			erro(p, "TODO: %v", tok).debug(1) ; p.flushDiags()
 			return
 		}
 	case REGEX: // TODO: regex{ ... }
 		if p.tok == LBRACE { // file{ ... }
-			erro(p, "TODO: %v", tok).debug(1) ; p.flushDiags(true)
+			erro(p, "TODO: %v", tok).debug(1) ; p.flushDiags()
 			return
 		}
 	case FILE:
 		if p.tok == LBRACE { // file{ ... }
-			erro(p, "TODO: %v", tok).debug(1) ; p.flushDiags(true)
+			erro(p, "TODO: %v", tok).debug(1) ; p.flushDiags()
 			return
 		}
 	case BIN, OCT, INT, HEX, FLOAT:
@@ -658,7 +658,7 @@ func (p *parser) depends(ctx Context, normal bool) (list []Value) {
 			}
 
 			var val = p.expr(ctx, false)
-			if ctx.flushDiags(true) > 0 {
+			if ctx.flushDiags() > 0 {
 				erro(ctx, "depend: %T %v", val, val).debug(1)
 				return
 			}
@@ -1314,7 +1314,7 @@ func (p *parser) closuredelegate() (result Value) {
 
 				erro(of(ctx,name), "%v: %T %v -> '%s', is nil", proj, name, name, str)
 				errostack(of(ctx,name), 32, "%v: %v", proj, ctx).debug(128)
-				if ctx.flushDiags(true)>0 { /* fail(ctx.Position(), "undefined %v", name) */ }
+				if ctx.flushDiags()>0 { /* fail(ctx.Position(), "undefined %v", name) */ }
 			} else if obj, okay = resolved.(*selection); okay {
 				return
 			} else if obj, okay = resolved.(*Builtin); okay {
@@ -1738,7 +1738,7 @@ func (p *parser) text(ctx Context) (res []Value) {
 	for p.tok != EOF {
 		if p.tok == SPACE { p.next(true) } else {
 			res = append(res, p.expr(ctx, false))
-			if ctx.flushDiags(true) > 0 {
+			if ctx.flushDiags() > 0 {
 				warn(ctx, "parse text got %d errors", ctx.totalErrors()).debug(16)
 				if options.failOnErrors { fail(p.Position(), "fail by %d errors", ctx.totalErrors()) }
 			}
@@ -1981,7 +1981,7 @@ func (p *parser) use(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	}
 	wg.Wait()
 
-	if errs := ctx.flushDiags(true); errs > 0 {
+	if errs := ctx.flushDiags(); errs > 0 {
 		var (
 			pos = p.Position()
 			proj = loader.Project()
@@ -2143,7 +2143,7 @@ func (p *parser) evalConfiguration(ctx Context, g *clauseOpts, props []Value) {
 		}
 	}
 
-	if ctx.flushDiags(true)>0 { return }
+	if ctx.flushDiags()>0 { return }
 	if project.configured {
 		prompt(ctx, "configuration: %v already configured\n", project)
 		return
@@ -2168,7 +2168,7 @@ func (p *parser) evalConfiguration(ctx Context, g *clauseOpts, props []Value) {
 		}
 	}
 
-	if ctx.flushDiags(true)>0 { return }
+	if ctx.flushDiags()>0 { return }
 
 	for _, entry := range project.configs {
 		if cp, okay = ce.execute(at(ctx, entry.Position()), cp, entry); !okay {
@@ -2248,7 +2248,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 		return
 	}
 
-	if ctx.flushDiags(true); isTrivial(res) { return }
+	if ctx.flushDiags(); isTrivial(res) { return }
 
 	/* TODO: if c, y := res.(code); y { ... } */
 }
@@ -2567,7 +2567,7 @@ ForModifiersExpr:
 			group *Group
 			name string
 		)
-		if ctx.flushDiags(true) > 0 {
+		if ctx.flushDiags() > 0 {
 			erro(at(ctx,x.Position()), "modifier: %T %v", x, x).debug(1)
 			return nil
 		} else if g, ok := x.(*Group); !ok {
@@ -3074,7 +3074,7 @@ func (p *parser) templateCall(ctx Context, name Value, args []Value) {
 	erro(of(ctx,name), "undefined template: %v", name).debug(1)
 }
 func (p *parser) template(ctx Context) {
-	defer ctx.flushDiags(true)
+	defer ctx.flushDiags()
 
 	var (
 		starting = p.Position()
@@ -3178,8 +3178,8 @@ func (p *parser) clause() {
 		if options.debugParsing("clause") {
 			warn(ctx, "parser.clause: %s %v; %v %v", typeof(x), x, p.tok, p.lit).debug(6)
 		}
-		if ctx.flushDiags(true) > 0 {
-			errostack(ctx, 5, "clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(4)
+		if ctx.flushDiags() > 0 {
+			errostack(ctx, 5, "clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(64)
 			fail(p.Position(), "parser.clause")
 		}
 	} ()
@@ -3229,7 +3229,7 @@ func (p *parser) clause() {
 	if p.tok.IsAssign() {
 		if options.debugParsing("define") {
 			warn(p, "parser.clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
-			ctx.flushDiags(true)
+			ctx.flushDiags()
 		}
 		p.define(ctx, p.tok, x)
 		return
@@ -3243,7 +3243,7 @@ func (p *parser) clause() {
 	if p.tok.IsRuleDelim() {
 		if options.debugParsing("rule") {
 			warn(p, "parser.clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
-			ctx.flushDiags(true)
+			ctx.flushDiags()
 		}
 		p.rule(specialRuleNor, nil, list)
 		return
@@ -3565,7 +3565,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 			for /* p.totalErrors() == 0 && */ p.tok != EOF {
 				if p.tok == LINEND || (p.tok == COMMENT && p.lineComment != nil) {
 					p.next(true)
-				} else if p.clause(); ctx.flushDiags(true) > 0 {
+				} else if p.clause(); ctx.flushDiags() > 0 {
 					break
 				}
 			}

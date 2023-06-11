@@ -260,7 +260,7 @@ func (p *scopeName) expand(_ Context, _ facet) (res Value) { return p }
 func (p *scopeName) Get(ctx Context, name string) (value Value, err error) {
         if s := p.Resolve(name); s != nil {
                 if value, _ = s.(Value); value == nil {
-                        err = fmt.Errorf("`%s' in scope is invalid (%T)", name, p.name, s)
+                        err = fmt.Errorf("`%s' in scope is invalid (%T)", name, s)
                 }
         } else {
                 err = fmt.Errorf("undefined `%s' in scope `%s'", name, p.name)
@@ -1437,7 +1437,7 @@ ForPrograms:
                 var v, t = prog.execute(ctx)
 
                 if true && sc != nil && sc.stem.target.Strval(ctx) == "Unwind-EHABI.o" {
-                        info(ctx, "%v: %d: %v %v", target, i, t, v)
+                        info(ctx, "Rule.traverse: %v: %d: %v %v", target, i, t, v)
                 }
 
                 if a := t.of(traveFail); a.has() {

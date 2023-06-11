@@ -12,7 +12,7 @@ BOOK_TITLE_1 = book one
 BOOK_TITLE_2 = book two
 
 ## Suppose 
-start:[xml (process-xml-doc)]: \
+start:[(plain xml) (process-xml-doc)]: \
   something-1 \
   something-2
 	<books>

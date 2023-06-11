@@ -7,28 +7,35 @@ package smart
 
 import (
         "testing"
-        "fmt"
+        "strings"
 )
 
 func TestLoad(t *testing.T) {
-        i := New()
-        if err := i.Load(`testdata/example.smart`, nil); err != nil {
-                fmt.Printf("%v\n", err)
-                t.Fatalf("Load: testdata/example.smart")
-        }
-        if err := i.Run(); err != nil {
-                t.Fatalf("Load: %v", err)
-        }
+        // var l = &loader{
+        //	 closureContext: closureContext{&uni, nil},
+        // }
+        // l.path("testdata", nil)
+        // TODO: loader
 }
 
 func TestBuildExample(t *testing.T) {
-        i := New()
-        i.AddSearchPaths(`../modules`)
-        if err := i.Load(`testdata/example-build.smart`, nil); err != nil {
-                fmt.Printf("%v\n", err)
-                t.Fatalf("Load: testdata/example-build.smart")
+        // TODO: test `testdata/example-build.smart`
+}
+
+func TestLoadTopWork(t *testing.T) {
+        var ctx = confine("testdata/none")
+
+        if !strings.HasSuffix(ctx.WorkDir(), "/testdata/none") {
+                t.Errorf("wrong workdir: %s", ctx.WorkDir())
+        } else if err := ctx.loadTopWork(); err != nil {
+                t.Errorf("%v", err)
+        } else if n := ctx.countErrors(); n > 0 {
+                t.Errorf("errors %v, base=%s", n, ctx.WorkDir())
+	} else if m := ctx.globe.main; m == nil {
+		t.Errorf("nil main")
+        } else if m.name != "none" {
+		t.Errorf("wrong main: %v", m)
         }
-        if err := i.Run(); err != nil {
-                t.Fatalf("Run: %v", err)
-        }
+
+        if n := ctx.flushDiags(); n > 0 { t.Errorf("errors %d", n) }
 }

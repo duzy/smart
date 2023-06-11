@@ -21,6 +21,7 @@ import (
 
 const maxNumVarVal = 9
 
+var baseWorkDir, _ = os.Getwd()
 var uni universe
 
 type searchlist []string
@@ -93,9 +94,9 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*filemapCache
     var j = i + 1
 
     defer func(c *filemapCache) {
-        if false { if (false ||
+        if false { if (
             ss[0] == ".configure" ||
-            false) && (false ||
+            false) && (
             strings.HasSuffix(ss[i], ".out") ||
             false) {
             if res != nil {
@@ -343,6 +344,16 @@ func (cache hitch) pat(ctx Context, key Value, bits int) (res *filemapCache) {
     return
 }
 
+func confine(s string) *universe {
+	var ctx = &uni
+    if ctx.globe.main = nil; filepath.IsAbs(s) {
+        ctx.workdir = s
+    } else {
+        ctx.workdir = filepath.Join(baseWorkDir, s)
+    }
+    return ctx
+}
+
 type universe struct {
     diagContext
 
@@ -388,12 +399,15 @@ func (ctx *universe) program() *Program { return nil }
 func (ctx *universe) pc() *programContext { return nil }
 func (ctx *universe) positionContext() *positionContext { return nil }
 func (ctx *universe) Position() (res Position) {
-    res.Filename, res.Line = ctx.workdir, 1
+    res.Filename, res.Line = ctx.WorkDir(), 1
     return
 }
 func (ctx *universe) appendCallerUpdated() bool { return false }
 func (ctx *universe) mustExists() bool { return false }
-func (ctx *universe) WorkDir() string { return ctx.workdir }
+func (ctx *universe) WorkDir() (s string) {
+    if s = ctx.workdir; s == "" { s = baseWorkDir }
+    return
+}
 func (ctx *universe) Globe() *Globe { return ctx.globe }
 func (ctx *universe) String() (s string) {
     if fullContextStringer { s = "default" }
@@ -770,7 +784,7 @@ func (dc *universe) search(linfo *loadinfo, specName string) (absPath string, is
             if filepath.IsAbs(base) {
                 s = filepath.Join(base, specName)
             } else {
-                s = filepath.Join(dc.workdir, base, specName)
+                s = filepath.Join(dc.WorkDir(), base, specName)
             }
             if fi, err = os.Stat(s); err == nil && fi != nil {
                 isDir, absPath = fi.IsDir(), s
@@ -794,14 +808,13 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
     if options.verbose { info(ctx, "goal: %v", main).debug(1) }
 
     removeTempDirs(ctx)
-    if false && ddd { info(ctx, "%v", main).debug(1) ; ctx.flushDiags(true) }
 
     if options.cpuProf != "" || options.autoProfs {
         var prof = options.cpuProf
         if prof == "" {
             var s = "run.cpu.auto.prof"
             if file := main.tempFile(ctx, s); file == nil {
-                prof = filepath.Join(baseWorkDir, s)
+                prof = filepath.Join(ctx.WorkDir(), s)
             } else {
                 prof = file.fullname()
             }
@@ -825,7 +838,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
         if prof == "" {
             var s = "run.mem.auto.prof"
             if file := main.tempFile(ctx, s); file == nil {
-                prof = filepath.Join(baseWorkDir, s)
+                prof = filepath.Join(ctx.WorkDir(), s)
             } else {
                 prof = file.fullname()
             }
@@ -856,7 +869,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
             var ctx = at(ctx, entry.Position())
             if options.verboseExecFlags {
                 info(ctx, "%v", entry)
-                ctx.flushDiags(true)
+                ctx.flushDiags()
             }
 
             var ( res []Value; traves []*travestate )
@@ -889,7 +902,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
             switch t := goal.(type) {
             case *Nil, *None: // just ignore
             case *bareword:
-                if entries := proj.resolveEntries(ctx, t.string, false, true); entries == nil {
+                if entries := proj.resolveEntries(ctx, t.string, true); entries == nil {
                     erro(ctx, "no such entry `%s`", t.string).debug(1)
                     return false
                 } else {
@@ -899,7 +912,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
                 }
             case *delegate:
                 var s = t.Strval(ctx)
-                if entries := proj.resolveEntries(ctx, s, false, true); entries == nil {
+                if entries := proj.resolveEntries(ctx, s, true); entries == nil {
                     erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug(1)
                     return false
                 } else {
@@ -909,7 +922,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
                 }
             case *Flag:
                 var s = t.Strval(ctx)
-                if entries := proj.resolveEntries(ctx, s, false, true); entries == nil {
+                if entries := proj.resolveEntries(ctx, s, true); entries == nil {
                     erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug(1)
                     return false
                 } else {
@@ -964,27 +977,29 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
 // load loads smart files, making it as individual func to avoid being abused by loaders.
 func (dc *universe) loadTopWork() (err error) {
     if options.traceLaunch { defer un(trace(t_launch, "universe.load")) }
+
     defer func(l *loader) { dc.globe.top = l } (dc.globe.top)
 
     var (
         ctx Context = dc
-        base = baseWorkDir
+        base = ctx.WorkDir()
         args []Value
     )
-    if false && ddd { defer func() { info(dc, "%v", base).debug(10) } () }
-    if s := filepath.Join(base, ".smart", "modules"); /* s != "" */true {
+
+    if s := filepath.Join(base, ".smart", "modules"); s != "" {
         if _, e := os.Stat(s); e == nil { dc.AddSearchPaths(s) }
     }
-    if f := filepath.Join(base, entryFileName); f != "" {
-        if _, e := os.Stat(f); e != nil {
-            f = filepath.Join(base, "build.smart")
-            if _, e := os.Stat(f); e != nil { f = "" }
+
+    if s := filepath.Join(base, entryFileName); s != "" {
+        if _, e := os.Stat(s); e != nil {
+            s = filepath.Join(base, "build.smart")
+            if _, e := os.Stat(s); e != nil { s = "" }
         }
-        if f != "" {
+
+        if s != "" {
             var pos Position
-            pos.Filename = f
+            pos.Filename = s
             pos.Line = 1
-            // pos.Column = 1
             ctx = at(ctx, pos)
         }
     }
@@ -1092,14 +1107,10 @@ func (dc *universe) loadTopWork() (err error) {
             }
         }
     } (time.Now())
+
     if options.verboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
 
-    if false && ddd {
-        info(dc, "%v", base).debug(128) ; dc.flushDiags(true)
-        defer func() { info(dc, "%v", base).debug(6) ; dc.flushDiags(true) } ()
-    }
-
-    if !dc.globe.top.path(base, nil) { return }
+    if!dc.globe.top.path(base, nil) { return }
     if dc.globe.main == nil { fmt.Fprintf(stderr, "nothing loaded\n") }
     return
 }

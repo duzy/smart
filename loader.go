@@ -974,7 +974,7 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
         }
     }
 
-    if n := ctx.flushDiags(true); n > 0 {
+    if n := ctx.flushDiags(); n > 0 {
         warn(ctx, "got %d errors", n).debug(1)
         if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.totalErrors()) }
     }
@@ -1126,7 +1126,7 @@ ParamsLoop:
             }
         }
 
-        if n := ctx.flushDiags(true); n > 0 {
+        if n := ctx.flushDiags(); n > 0 {
             warn(at(ctx,position), "%v: %d errors: %v -> %v", l.project, n, elem, specName).debug(1)
             break ParamsLoop
         } else if f, y := toFile(elem); y && f.info != nil {
@@ -1620,7 +1620,7 @@ func (l *loader) resolveObject(value Value) (name string, result Value) {
 
 func (l *loader) resolveEntries(target Value) (entries *ResolveEntries) {
     var ctx = at(l, l.Position())
-    entries = l.project.resolveEntries(ctx, target, false, false)
+    entries = l.project.resolveEntries(ctx, target, false)
     return
 }
 
@@ -1865,7 +1865,7 @@ ListLoop:
                 erro(ctx, "parse config failed: %v", err).debug(1)
                 break ListLoop
             }
-            if ctx.flushDiags(true) > 0 { return }
+            if ctx.flushDiags() > 0 { return }
         } else if s, a := l.def(l.Position(), name); a != nil {
             erro(ctx, "declare project: %v", err).debug(1)
             break ListLoop
@@ -1894,7 +1894,7 @@ func (l *loader) sources(pos Position, path string, filter func(os.FileInfo) boo
             }
         }
 
-        if n := l.flushDiags(true); n > 0 {
+        if n := l.flushDiags(); n > 0 {
             errostack(ctx, 3, "%d errors parsing: %s", n, path).debug(12)
             if options.failOnErrors {
                 fail(l.Position(), "fail by %d errors", l.totalErrors())
@@ -1906,7 +1906,7 @@ func (l *loader) sources(pos Position, path string, filter func(os.FileInfo) boo
 
     var fd, err = os.Open(path)
     if err != nil {
-        erro(ctx, "open(%s): %v", path, err).debug(1)
+        errostack(ctx, 3, "%v", err).debug(10)
         return
     }
     defer fd.Close()
@@ -1991,7 +1991,7 @@ ListLoop:
 
             var d *diagPoint
             var src, _, err = l.source(ctx, filename, nil, mode|parsingDir, nil)
-            if n := ctx.flushDiags(true); n > 0 {
+            if n := ctx.flushDiags(); n > 0 {
                 if s, n := filepath.Base(filename), n; err == nil {
                     d = erro(ctx, "%d diagnostic errors parsing file '%s'", n, s)
                 } else {
@@ -2071,7 +2071,7 @@ func (l *loader) load(ctx Context, specName, absPath string, source interface{})
     defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
 
     var doc, _, err = l.source(ctx, absPath, source, parseMode, nil)
-    if n := l.flushDiags(true); n > 0 {
+    if n := l.flushDiags(); n > 0 {
         warn(ctx, "load '%s' got %d errors", specName, n).debug(1)
         if options.failOnErrors { fail(l.Position(), "fail by %d errors", l.totalErrors()) }
         return
@@ -2087,6 +2087,7 @@ func (l *loader) load(ctx Context, specName, absPath string, source interface{})
 
 func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileInfo) bool) (loadedOkay bool) {
     if options.traceLaunch { defer un(trace(t_launch, "loader.dir")) }
+
     defer func(t time.Time) {
         var d = time.Now().Sub(t)
         if options.verboseLoads /*&& d > 50*time.Millisecond*/ {
@@ -2102,7 +2103,7 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
     var pos Position = ctx.Position()
     if !pos.IsValid() { pos = positionForDir(absDir) }
     if !filepath.IsAbs(absDir) {
-        erro(ctx, "needs absolute dir `%s' (%s)", absDir, specName).debug(1)
+        errostack(ctx, 3, "needs absolute dir `%s' (%s)", absDir, specName).debug(10)
         return
     }
 
@@ -2113,6 +2114,7 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
             errostack(l, 16).debug(512)
             return
         }
+
         if proj := l.Scope().project; proj == nil {
             if false { erro(ctx, "%v: no owner project for %s", loaded.name, l.Scope()).debug(1) }
         } else if name, _ := proj.scope.Lookup(loaded.name).(*projectName); name == nil {
@@ -2125,14 +2127,7 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
     } ()
 
     // Check loaded project.
-    if loaded, loadedOkay = uni.globe.loaded[absDir]; loadedOkay {
-        /*if _, a := l.Scope().projectName(at(l, pos), loaded.name, loaded); a != nil {
-            if val, ok := a.(*projectName); !ok || val == nil {
-                erro(ctx, "name `%s' already taken (%T).", loaded.name, a).debug(1)
-            }
-        }*/
-        return
-    }
+    if loaded, loadedOkay = uni.globe.loaded[absDir]; loadedOkay { return }
 
     defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, ""))
 
@@ -2149,10 +2144,11 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
     //      project # file config.smart
     if len(mods) == 0 && filepath.Base(specName) != "@" {
         if l.implicit {
-            warn(l, "%s not loaded (as %s, implicitly)", specName, absDir).debug(8)
             loadedOkay = true // okay for implicit loading
+            warn(l, "%s not loaded (as %s, implicitly)", specName, absDir).debug(10)
         } else {
-            erro(ctx, "%s not loaded (as %s)", specName, absDir).debug(8)
+            for s, m := range uni.globe.loaded { erro(ctx, "%v: %v", s, m) }
+            errostack(ctx, 3, "%s not loaded (as %s)", specName, absDir).debug(10)
         }
     } else if loaded, loadedOkay = uni.globe.loaded[absDir]; loadedOkay && loaded != nil {
         // Good!
@@ -2182,10 +2178,11 @@ func (l *loader) file(ctx Context, filename string, source interface{}) (res boo
 
 func (l *loader) path(path string, filter func(os.FileInfo) bool) bool {
     if options.traceLaunch { defer un(trace(t_launch, "loader.path")) }
+    var work = l.WorkDir()
+    var spec, _ = filepath.Rel(work, path)
     var position Position
-    var s, _ = filepath.Rel(l.WorkDir(), path)
-    position.Filename = s
-    return l.dir(at(l, position), s, path, filter)
+    position.Filename = spec
+    return l.dir(at(l, position), spec, path, filter)
 }
 
 func (l *loader) text(filename string, text string) (res []Value) {

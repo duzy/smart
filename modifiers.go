@@ -133,7 +133,7 @@ func (m *modification) traverse(ctx Context) {
         ctx.autoSet("-", value)
     }
 
-    if n := ctx.flushDiags(true); n > 0 {
+    if n := ctx.flushDiags(); n > 0 {
         brk := pc.traves.add(ctx, traveFail, nil)
         brk.error = fmt.Errorf("%s: %d errors counted", m.name, n)
     }
@@ -1472,7 +1472,7 @@ ForTarget:
 type depContext struct { diagContext }
 func (ctx *depContext) String() string {
     if fullContextStringer {
-        return fmt.Sprintf("dep{%s}", ctx.diagContext)
+        return fmt.Sprintf("dep{%v}", ctx.diagContext)
     } else {
         return ctx.diagContext.String()
     }
@@ -1568,7 +1568,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
 
         var n int
         if savedDepsFile == nil {
-            if n = dc.flushDiags(true); n > 0 { // aka. dc.points = nil
+            if n = dc.flushDiags(); n > 0 { // aka. dc.points = nil
                 var s = trimPromptString(targetVal.String())
                 prompt(ctx, "%v: %d errors counted\n", word, n).debug(1)
                 erro(ctx, `%v: %d errors for "%s", dep "%s"`, proj, n, s, word)
@@ -2964,7 +2964,7 @@ func (ctx modifier) assert(aa... Value) (result Value) {
         fails += 1
     }
     if fails > 0 { errostack(ctx, 8, "%v: %v", target, args).debug(6) }
-    if ctx.flushDiags(true) > 0 { fail(ctx.Position(), "assertion: %v", aa) }
+    if ctx.flushDiags() > 0 { fail(ctx.Position(), "assertion: %v", aa) }
     return
 }
 

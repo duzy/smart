@@ -70,7 +70,7 @@ type configureExecutor struct {
 }
 
 func (ce *configureExecutor) execute(ctx Context, project *Project, entry Entry) (result *Project, okay bool) {
-    if n := ctx.flushDiags(true); n > 0 {
+    if n := ctx.flushDiags(); n > 0 {
         return
     } else if ctx = at(ctx, entry.Position()); ctx == nil {
         erro(ctx, "%v: nil positional context", project).debug(1)
@@ -207,7 +207,7 @@ func (ctx *universe) configure() {
         prompt(ctx, "configure failed: %v\n", err).debug(1)
         return
     }
-    if n := ctx.flushDiags(true); n > 0 {
+    if n := ctx.flushDiags(); n > 0 {
         warn(ctx, "configuration got %d errors", ctx.totalErrors()).debug(1)
         if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.totalErrors()) }
         //return
@@ -371,7 +371,7 @@ func configureExecuteEntry(ctx Context, opts *modifierConfigureOpts, entryName i
     } else if program.project.configure == nil {
         errostack(ctx, 3, "%v: .configure not provided for %v (%s)", program.project, target, entryName).debug(16)
         return
-    } else if entries = program.project.configure.resolveEntries(ctx, entryName, false, false); entries == nil {
+    } else if entries = program.project.configure.resolveEntries(ctx, entryName, false); entries == nil {
         var t = &program.project.configure._entries
         if t.fast != nil { t = t.fast["-"] }
         errostack(ctx, 3, "%T %v: unknown configuration action, %v", entryName, entryName, t).debug(16)
@@ -460,7 +460,7 @@ ForInParams:
         traves travestates
     )
     for _, entry := range entries.all {
-        if reses, traves = entry.execute(ctx, params...); ctx.flushDiags(true) > 0 {
+        if reses, traves = entry.execute(ctx, params...); ctx.flushDiags() > 0 {
             warn(at(ctx,entry.Position()), "%v", entry)
             warnstack(ctx, 5, `configure '%s' got %d error(s)`, entryName, ctx.totalErrors()).debug(1)
             if options.failOnErrors { fail(pos, "fail by %d errors", ctx.totalErrors()) }
