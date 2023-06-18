@@ -21,6 +21,7 @@ type use struct {
         opts useOpts
 }
 
+func (_ *use) Kind() Kind { return KindUse }
 func (p *use) refs(ctx Context, v Value) bool {
         for _, a := range p.params {
                 if a.refs(ctx, v) { return true }
@@ -130,6 +131,10 @@ func (_ *use) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *use) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 type uselist struct {
         name string
@@ -137,7 +142,7 @@ type uselist struct {
         owner *Project
         list []*use
 }
-func (_ *uselist) kind() kind { return valOther }
+func (_ *uselist) Kind() Kind { return KindUseList }
 func (p *uselist) Name(_ Context) string { return p.name }
 func (p *uselist) DeclScope() *Scope { return p.scope }
 func (p *uselist) OwnerProject() *Project { return p.owner }
@@ -317,5 +322,9 @@ func (_ *uselist) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 }
 func (_ *uselist) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *uselist) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
     return
 }

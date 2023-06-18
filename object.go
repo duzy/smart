@@ -16,10 +16,6 @@ import (
         "fmt"
 )
 
-// Object is a value defined in a scope.
-//
-// TODO: defines ObjInfo to classify objects.
-// 
 type Object interface {
         Value
 
@@ -40,7 +36,7 @@ type objbase struct { // generally unnamed objects
         scope *Scope
         owner *Project
 }
-func (_ *objbase) kind() kind { return valOther }
+func (_ *objbase) Kind() Kind { return KindObject }
 func (p *objbase) DeclScope() *Scope { return p.scope }
 func (p *objbase) OwnerProject() *Project { return p.owner }
 func (p *objbase) String() string { return fmt.Sprintf("{unknown %p}", p) }
@@ -49,23 +45,13 @@ func (p *objbase) Name(ctx Context) string { panic("inquiring name of an unknown
 func (p *objbase) Get(_ Context, name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
 func (p *objbase) rescope(_ Context, scope *Scope) { panic("rescoping unknown object") }
 func (p *objbase) exists() existence { return existenceMatterless }
-// func (p *objbase) cmp(ctx Context, v Value) (res cmpres) {
-//         if a, ok := v.(*objbase); ok {
-//                 assert(ok, "value is not objbase")
-//                 if p.owner == a.owner && p.scope == a.scope {
-//                         res = cmpEqual
-//                 }
-//         } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
-//                 res = p.cmp(ctx, l.Elems[0])
-//         }
-//         return
-// }
 
 type knownobject struct { // generally named objects
         objbase
         name string // single, or group name if containing '(*)' and corresponding members
         //members [][]string
 }
+func (_ *knownobject) Kind() Kind { return KindObject|KindKnownObject }
 func (p *knownobject) String() string { return fmt.Sprintf("{object %s}", p.name) }
 func (p *knownobject) Strval(_ Context) string { return fmt.Sprintf("{object %s}", p.name) }
 func (p *knownobject) True(_ Context) bool { return true }
@@ -100,11 +86,16 @@ func (_ *knownobject) cache(ctx Context, cache *valcache, bits int) (res *valcac
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *knownobject) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 type unresolved struct { // named callable/executable objects
         Value
         project *Project
 }
+func (_ unresolved) Kind() Kind { return KindObject|KindUnresolved }
 func (p unresolved) Name(ctx Context) (name string) {
         if p.Value == nil {
                 erro(at(ctx,p.Position()), "unresolved object name is nil")
@@ -161,12 +152,16 @@ func (_ unresolved) cache(ctx Context, cache *valcache, bits int) (res *valcache
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ unresolved) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 type projectName struct {
         *Project
         scope *Scope
 }
-func (_ *projectName) kind() kind { return valOther }
+func (_ *projectName) Kind() Kind { return KindObject|KindProjectName }
 func (_ *projectName) updated(_ Context) bool { return false }
 func (_ *projectName) updatedDeps(_ Context, _ ...Value) []Value { return nil }
 func (_ *projectName) stamp(ctx Context) (files []*File, err error) { return }
@@ -228,12 +223,16 @@ func (_ *projectName) cache(ctx Context, cache *valcache, bits int) (res *valcac
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *projectName) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 type scopeName struct {
         *Scope
         name string
 }
-func (_ *scopeName) kind() kind { return valOther }
+func (_ *scopeName) Kind() Kind { return KindObject|KindScopeName }
 func (_ *scopeName) updated(_ Context) bool { return false }
 func (_ *scopeName) updatedDeps(_ Context, _ ...Value) []Value { return nil }
 func (_ *scopeName) stamp(ctx Context) (files []*File, err error) { return }
@@ -291,6 +290,10 @@ func (_ *scopeName) hit(ctx Context, cache hitch, bits int) (res *filemapCache) 
 }
 func (_ *scopeName) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *scopeName) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
     return
 }
 
@@ -537,6 +540,7 @@ type def struct {
         value Value
         bits defbit
 }
+func (_ *def) Kind() Kind { return KindObject|KindDef }
 func (d *def) streq() (s string) {
         switch d.origin {
         case DefDefault: s =   "="
@@ -1014,13 +1018,17 @@ func (_ *def) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *def) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 type undetermined struct {
         tok Token
         identifier Value
         value Value
 }
-func (_ *undetermined) kind() kind { return valOther }
+func (_ *undetermined) Kind() Kind { return KindObject|KindUndetermined }
 func (p *undetermined) Position() Position { return p.identifier.Position() }
 func (p *undetermined) String() (s string) {
         s = p.identifier.String()
@@ -1086,6 +1094,10 @@ func (_ *undetermined) cache(ctx Context, cache *valcache, bits int) (res *valca
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *undetermined) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 // A Builtin represents a built-in function.
 // Builtins don't have a valid type.
@@ -1093,6 +1105,7 @@ type Builtin struct {
         knownobject
         s BuiltinFunc
 }
+func (_ *Builtin) Kind() Kind { return KindObject|KindBuiltin }
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
 func (p *Builtin) True(_ Context) bool { return p.s.f != nil }
 func (p *Builtin) Call(ctx Context, o []Value, a ...Value) (res Value) {
@@ -1117,6 +1130,10 @@ func (_ *Builtin) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 }
 func (_ *Builtin) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *Builtin) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
     return
 }
 
@@ -1146,6 +1163,7 @@ type entryContext struct {
         Context
         ent *Rule
 }
+func (ec *entryContext) Position() Position { return ec.ent.position }
 func (ec *entryContext) entry() Entry { return ec.ent }
 func (ec *entryContext) entryContext() *entryContext { return ec }
 func (ec *entryContext) inner() Context { return ec.Context }
@@ -1175,7 +1193,6 @@ func (ec *entryContext) String() string {
                 return fmt.Sprintf("%s", s)
         }
 }
-func (ec *entryContext) Position() Position { return ec.ent.position }
 // func (ec *entryContext) stems() (stems []string) {
 //         if sc, ok := ec.Context.(*stemmedContext); ok {
 //                 stems = sc.stem.Stems // only if the inner is stemmed
@@ -1238,7 +1255,7 @@ type Rule struct {
         programs []*Program
         position Position
 }
-func (_ *Rule) kind() kind { return valOther }
+func (_ *Rule) Kind() Kind { return KindObject|KindRule }
 func (entry *Rule) Class() RuleClass { return entry.class }
 func (entry *Rule) Target() Value { return entry.target }
 func (entry *Rule) Programs() []*Program { return entry.programs }
@@ -1530,6 +1547,10 @@ func (_ *Rule) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *Rule) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 type stemmedContext struct {
         Context
@@ -1545,21 +1566,22 @@ func (sc *stemmedContext) String() string {
 }
 func (sc *stemmedContext) stemmedContext() *stemmedContext { return sc }
 func (sc *stemmedContext) stemmed() *stemmed { return sc.stem }
-func (sc *stemmedContext) stems() []string { return sc.stem.Stems }
+func (sc *stemmedContext) stems() []string { return sc.stem.stems }
 
 type stemmed struct {
         *Rule
         target Value
-        Stems []string
+        stems []string
 }
+func (_ *stemmed) Kind() Kind { return KindObject|KindStemmedRule }
 func (p *stemmed) String() (s string) {
-        for i, stem := range p.Stems { if i > 0 { s += "," }; s += stem }
+        for i, stem := range p.stems { if i > 0 { s += "," }; s += stem }
         return fmt.Sprintf("%s:%s", p.target, s) // "<%s:%s>"
 }
 func (p *stemmed) Target() Value { return p.target }
 func (p *stemmed) expand(ctx Context, w facet) (res Value) {
         if v := p.Rule.expand(ctx, w); v != p.Rule {
-                res = &stemmed{v.(*Rule), p.target, p.Stems}
+                res = &stemmed{v.(*Rule), p.target, p.stems}
         } else {
                 res = p
         }
@@ -1568,9 +1590,9 @@ func (p *stemmed) expand(ctx Context, w facet) (res Value) {
 func (p *stemmed) cmp(ctx Context, v Value) (res cmpres) {
         if a, ok := v.(*stemmed); ok {
                 assert(ok, "value is not stemmed")
-                if len(p.Stems) != len(p.Stems) { return }
-                for i, stem := range p.Stems {
-                        if stem != a.Stems[i] { return }
+                if len(p.stems) != len(p.stems) { return }
+                for i, stem := range p.stems {
+                        if stem != a.stems[i] { return }
                 }
                 res = p.Rule.cmp(ctx, a.Rule)
         } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {

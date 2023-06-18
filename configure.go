@@ -372,8 +372,8 @@ func configureExecuteEntry(ctx Context, opts *modifierConfigureOpts, entryName i
         errostack(ctx, 3, "%v: .configure not provided for %v (%s)", program.project, target, entryName).debug(16)
         return
     } else if entries = program.project.configure.resolveEntries(ctx, entryName, false); entries == nil {
-        var t = &program.project.configure._entries
-        if t.fast != nil { t = t.fast["-"] }
+        var t = &program.project.configure.entries
+        if t.fast != nil { t, _ = t.fast["-"] }
         errostack(ctx, 3, "%T %v: unknown configuration action, %v", entryName, entryName, t).debug(16)
         return
     }

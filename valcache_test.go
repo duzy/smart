@@ -23,7 +23,7 @@ func TestValueCache(t *testing.T) {
 	} else if m.name != "valcache" {
 		t.Errorf("wrong main: %v", m)
 	} else {
-		var ctx Context = &closureContext{ctx, []*Scope{m.scope}}
+		var ctx Context = &closureContext{ctx, []*Scope{m.scope}} // TODO: add projectContext{ctx, m}
 
 		if m.filemap._fix == nil {
 			t.Errorf("wrong filemap._fix")
@@ -47,10 +47,14 @@ func TestValueCache(t *testing.T) {
 		}
 
 		for i, s := range []string{
-			"foo.log",
 			".deps/xx/yy/zzzzzzzzz",
+			"foo.log",
+			"foo.o",
+			"foo.c",
+			"foo.c++",
 		} {
 			if !strings.Contains(s, PathSep) {
+				if 2 < i { /* not matching patterns */ } else
 				if c := m.filemap.matchPatts(ctx, s); c == nil {
 					t.Errorf("miss cache for %d. %s", i, s)
 				}
@@ -61,6 +65,50 @@ func TestValueCache(t *testing.T) {
 			if c := m.filemap.strx(ctx, s, cacheMatchPatts); c == nil {
 				t.Errorf("miss cache for %d. %s", i, s)
 			}
+		}
+
+		if n := len(m.filemapx); n != 1 {
+			t.Errorf("wrong closure cache: %d", n)
+		} else if v := m.filemapx[0]; v._key.String() != "&(gen)" {
+			t.Errorf("wrong closure cache: %T %v", v._key, v._key)
+		} else if a, y := v._val.(FileMap); !y {
+			t.Errorf("wrong closure cache: %T %v", v._val, v._val)
+		} else if false {
+			info(ctx, "%T %v %v", v._key, v._key, a)
+		}
+
+		var d1 = m.resolveObject(ctx, "sources")
+		if d1 == nil {
+			t.Errorf("sources is nil")
+		} else if d, y := d1.(*def); !y {
+			t.Errorf("sources is not def: %T", d1)
+		} else if v := d.Call(ctx, nil); v == nil {
+			t.Errorf("sources is wrong: %v %v", d, v)
+		} else if false {
+			info(ctx, "%v", v).debug(1)
+		} else if s := v.Strval(ctx); strings.Count(s, "foo.c") != 2 {
+			t.Errorf("sources is wrong: %v", v) // NOTE: "foo.c" counts foo.c foo.c++
+		} else if strings.Count(s, "foo.c++") != 1 {
+			t.Errorf("sources is wrong: %v", v)
+		} else if strings.Count(s, "foo/bar.c") != 2 {
+			t.Errorf("sources is wrong: %v", v)
+		} else if strings.Count(s, "foo/bar.c++") != 1 {
+			t.Errorf("sources is wrong: %v", v)
+		}
+
+		var d2 = m.resolveObject(ctx, "objects")
+		if d2 == nil {
+			t.Errorf("objects is nil")
+		} else if d, y := d2.(*def); !y {
+			t.Errorf("objects is not def: %T", d2)
+		} else if v := d.Call(ctx, nil); v == nil {
+			t.Errorf("objects is wrong: %v %v", d, v)
+		} else if false {
+			info(ctx, "%v", v).debug(1)
+		} else if s := v.Strval(ctx); strings.Count(s, "foo.o") != 2 {
+			t.Errorf("sources is wrong: %v", v)
+		} else if strings.Count(s, "foo/bar.o") != 2 {
+			t.Errorf("sources is wrong: %v", v)
 		}
 	}
 

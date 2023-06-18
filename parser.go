@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"regexp"
 	"sync"
 	"time"
 	"fmt"
@@ -415,7 +416,7 @@ func (p *parser) bare(lhs bool) (x Value) {
 	case UNDEF:
 		if p.tok == LBRACE { // undef{}, undef{ ... }
 			if p.next(true); p.tok == RBRACE {
-				x = &undef{&None{valbase{p.Position()}, nil}}
+				x = &undef{&none{valbase{p.Position()}, nil}}
 				p.step()
 			} else if v := p.expr(p, false); v != nil {
 				x = &undef{v}
@@ -473,14 +474,14 @@ func (p *parser) bare(lhs bool) (x Value) {
 				switch pos := p.Position(); tok {
 				case ANSWER: x = &answer{valbase{pos},false}
 				case BOOL: x = &boolean{valbase{pos},false}
-				case NONE: x = &None{valbase{pos},nil}
+				case NONE: x = &none{valbase{pos},nil}
 				}
 				p.step()
 				return
 			}
 
 			if tok == NONE {
-				x = &None{valbase{pos}, p.expr(p, false)}
+				x = &none{valbase{pos}, p.expr(p, false)}
 				p.spaces()
 				p.expect(RBRACE)
 				return
@@ -816,7 +817,7 @@ ForGlobTok:
 		switch p.tok {
 		case PCON, RPAREN, COMMA, SPACE, LINEND, EOF:
 			break ForGlobTok
-		case STAR, QUE: // * ?
+		case STAR, DAST, QUE: // * ?
 			x = p.globMeta()
 		case LBRACK:
 			// FIXME: '[...]' has been used for modifier expressions
@@ -845,7 +846,7 @@ func (p *parser) percExpr(lhs bool, x Value) Value {
 	)
 	if p.step(); pos+1 == p.pos { // joint, e.g. '%.o', but skip '% .o'
 		switch p.tok {
-		case COLON, COLON2,
+		case COLON, DOLON,
 			LPAREN, RPAREN,
 			LBRACK, RBRACK,
 			PCON,   SEMICOLON,
@@ -862,7 +863,7 @@ func (p *parser) percExpr(lhs bool, x Value) Value {
 				case PCON: // FIXES: %%/xxx -> Path(%% xxx)
 					x = MakePercPattern(position, x, perc2)
 					return p.path(lhs, x)
-				case COLON,    COLON2,
+				case COLON,    DOLON,
 					LPAREN,    RPAREN,
 					LBRACK,    RBRACK,
 					LBRACE,
@@ -888,12 +889,14 @@ func (p *parser) percExpr(lhs bool, x Value) Value {
 
 func (p *parser) regexp(ctx Context) (x Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Regexp")) }
+
 	defer p.setbits(p.setbit(parseREXP)) // avoid nesting percent expressions
 
+	var pos = p.Position()
 	var rx string
-	ForRX: for p.expect(LBRACE); p.tok != EOF; p.scan() {
-		if false { info(p, "regexp: %v '%v': %s\n", p.tok, p.lit, rx) }
 
+ForRX:
+	for p.expect(LBRACE); p.tok != EOF; p.scan() {
 		var esc bool
 		if esc = p.tok == ESCAPE; esc {
 			if rx += "\\" + p.lit; p.lit == "Q" {
@@ -933,8 +936,13 @@ func (p *parser) regexp(ctx Context) (x Value) {
 			}
 		}
 	}
-	warn(p, "todo: regexp: %s; %v %v", rx, p.tok, p.lit).debug(1)
-	return &RegexpPattern{valbase{p.Position()}} // TODO: correct regexp pattern value
+
+	var err error
+	var exp *regexp.Regexp
+	if exp, err = regexp.Compile(rx); err != nil {
+		errostack(at(p,pos), 3, "regexp: %v", err).debug(6)
+	}
+	return &RegexpPattern{valbase{pos}, exp} // TODO: correct regexp pattern value
 }
 
 func (p *parser) pair(x Value) *Pair {
@@ -1643,7 +1651,7 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 	case LBRACK:
 		return p.modifiers(ctx)
 
-	case STAR, QUE/*, LBRACK*/: // * ? [
+	case STAR, DAST, QUE/*, LBRACK*/: // * ? [
 		return p.globExpr(nil) // (ie. no prefix)
 
 	case PERC: // %bar (ie. no prefix)
@@ -1707,7 +1715,7 @@ func (p *parser) composite(ctx Context, lhs bool) (x Value) {
 				errostack(of(ctx,m), 3, "composing modifiers is ignored (%T %v)", x, x).debug(12)
 			}
 		}
-	case STAR, QUE/*, LBRACK*/: // foo*bar foo?bar foo[a-z]bar
+	case STAR, DAST, QUE/*, LBRACK*/: // foo*bar foo?bar foo[a-z]bar
 		if p.bits&parseNoGlob == 0 { x = p.globExpr(x) }
 	case PERC: // foo%bar
 		// FIXME: %/foo/bar -> Path(% foo bar)

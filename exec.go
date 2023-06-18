@@ -619,6 +619,10 @@ func (_ *execResult) cache(ctx Context, cache *valcache, bits int) (res *valcach
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *execResult) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "cache unsupported").debug(32)
+    return
+}
 func (p *execResult) True(ctx Context) (res bool) {
   res = p.Status == 0 && p.Stderr.Buf != nil && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */
   return

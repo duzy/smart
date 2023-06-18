@@ -70,11 +70,12 @@ const (
 	ruledelim_beg
 	BAR       // |
 	COLON     // :
-	COLON2    // ::
+	DOLON    // ::
 	ruledelim_end
 
 	AT        // @
-	STAR      // *
+	STAR      // *    Single Asterisk
+	DAST      // **   Double Asterisk
 
 	// NOTE: don't change the order of closures and delegates, scanner
 	// relys upon their order.
@@ -239,10 +240,11 @@ var tokens = [...]string{
 
 	BAR:       "|",
 	COLON:     ":",
-	COLON2:    "::",
+	DOLON:     "::",
 
 	AT:        "@",
 	STAR:      "*",
+	DAST:      "**",
 
 	CLOSURE:      "&",
 	CLOSURE_r:    "&/",

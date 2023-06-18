@@ -13,10 +13,12 @@ import (
   "sync"
   "time"
   "fmt"
+  "io/fs"
   "os"
 )
 
-const PathSep = string(filepath.Separator)
+const PathSepByte = filepath.Separator
+const PathSep = string(PathSepByte)
 
 type filemap struct {
   project *Project
@@ -289,13 +291,12 @@ type Project struct {
   bases []*Project
   use     *uselist
 
-  filemaps []FileMap
+  filemapx []*valcache_kv // closure cache
   filemap valcache
-
-  defaultEntry Entry
-  _entries valcache
+  entries valcache
   patterns []*Rule // order is important
   configs []Entry // configure entries
+  defaultEntry Entry
 
   // TODO: printEntering() ...
   // TODO: printLeaving() ...
@@ -317,72 +318,32 @@ func (p *Project) NewScope(pos Position, comment string) *Scope {
   return NewScope(pos, p.scope, p, comment)
 }
 
-// func (p *Project) getFileMaps(ctx Context, baseFiles, useeFiles bool) (filemaps []FileMap) {
-//   var appendFilemaps = func(a ...FileMap) { filemaps = append(filemaps, a...) }
-
-//   appendFilemaps(p.filemaps...)
-
-//   if baseFiles { for _, base := range p.bases {
-//     appendFilemaps(base.getFileMaps(ctx, true, useeFiles)...)
-//   }}
-
-//   if p.configure != nil && ctx.isConfiguration() {
-//     appendFilemaps(p.configure.getFileMaps(ctx, true, useeFiles)...)
-//   }
-
-//   if useeFiles && false/* FIXME: performance */ {
-//     // takes a big longer time to map usee filemaps, but acceptable
-//     var (
-//       appendUselist func(*Project)
-//       appendUsedFiles func(*Project)
-//     )
-//     appendUselist = func(p *Project) {
-//       var fms []FileMap
-//       if true {
-//         fms = p.filemaps
-//       } else {
-//         // FIXME: this is the expensive way, really slow!
-//         fms = p.getFileMaps(ctx, baseFiles, useeFiles)
-//       }
-//       appendFilemaps(fms...)
-//       appendUsedFiles(p)
-//     }
-//     appendUsedFiles = func(p *Project) {
-//       for _, u := range p.use.list {
-//         appendUselist(u.project)
-//       }
-//     }
-//     appendUsedFiles(p)
-//   }
-//   return
-// }
-
-func (p *Project) wildcard(ctx Context, opts *wildcardOpts, patterns ...Value) (files []*File) {
-  var filemaps []FileMap
-  var t1 time.Time
+func (p *Project) obsolete_wildcard(ctx Context, opts *wildcardOpts, patterns ...Value) (files []*File) {
   defer func(t0 time.Time) {
-    var t2 = time.Now()
-    if d := t2.Sub(t0); d > 1*time.Second {
-      var ( d1 = t1.Sub(t0) ; pos = ctx.Position() )
+    if d := time.Now().Sub(t0); d > 1*time.Second {
+      var pos = ctx.Position()
       prompt(ctx, "%v: slow: %d patterns, %v\n", pos, len(patterns), patterns)
-      prompt(ctx, "%v: slow: %d filemaps\n", pos, len(filemaps))
       prompt(ctx, "%v: slow: %d files\n", pos, len(files))
-      prompt(ctx, "%v: slow: %v %v\n", pos, d, d1).debug(4)
+      prompt(ctx, "%v: slow: %v\n", pos, d).debug(4)
     }
   } (time.Now())
-
-  // NOTE: no baseFiles or useeFiles for performance
-  filemaps = p.filemaps ; t1 = time.Now()
 
 ForPatterns:
   for _, inPat := range patterns {
     var (
+      inPatCaches = inPat.collect(ctx, &p.filemap, cacheZero)
       inPatPatterned = inPat.patterned(ctx)
       breakAbsRel, matched bool
     )
 
   ForFilemaps:
-    for _, m := range filemaps {
+    for _, c := range inPatCaches {
+      var m, y = c._val.(FileMap)
+      if !y || m.filemap == nil {
+        erro(ctx, "Not FileMap: %T %v", c._val, c._val).debug(1)
+        continue
+      }
+
       for _, mapPat := range m.Patterns(ctx) {
         if matched, _, _ = mapPat.match(ctx, inPat); !matched {
           if inPatPatterned { // flip matching patterns
@@ -448,14 +409,13 @@ ForPatterns:
             for _, s := range names {
               var name = strings.TrimPrefix(s, prefix)
               if file := stat(ctx, name, sub, prefix, nil); file == nil {
-                if n := opts.debug; n>0 { warn(ctx, "%v -> %v %v (nil)",
-                  mapPat, sub, prefix).debug(n) }
+                if n := opts.debug; n>0 { warn(ctx, "%v -> %v %v (nil)", mapPat, sub, prefix).debug(n) }
                 erro(of(ctx,m.pattern), "%v: '%v' not found in %v", p, name, path)
                 errostack(of(ctx,path), 6, "").debug(12)
               } else if file.exists() || missing {
                 files = append(files, file)
-                if n := opts.debug; n>0 /* && p.name == "lib.unwind" */ { warnstack(ctx, n, "%v -> %v %v+%v (exists=%v)",
-                  mapPat, sub, prefix, file, file.exists()).debug(n) }
+                if n := opts.debug; n>0 /* && p.name == "lib.unwind" */ {
+                  warnstack(ctx, n, "%v -> %v %v+%v (exists=%v)", mapPat, sub, prefix, file, file.exists()).debug(n) }
               } else if opts.ignoreMissing {
                 continue
               } else if opts.errorMissing {
@@ -469,8 +429,7 @@ ForPatterns:
             // Append this non-existed/missing file.
             file := stat(ctx, mapPat.Strval(ctx), sub, prefix, nil)
             files = append(files, file)
-            if n := opts.debug; n>0 /* && p.name == "lib.unwind" */ { warn(ctx, "%v -> %v %v+%v",
-              mapPat, sub, prefix, file).debug(n) }
+            if n := opts.debug; n>0 /* && p.name == "lib.unwind" */ { warn(ctx, "%v -> %v %v+%v", mapPat, sub, prefix, file).debug(n) }
           } else if mapPatPatterned && !path.expandable(ctx, expandClosure) && len(m.locs) == 1 {
             if false {
               // Just report that the pattern matches no files in the
@@ -488,6 +447,86 @@ ForPatterns:
       }
     }
   }
+  return
+}
+
+func (p *Project) wildcard(ctx Context, opts *wildcardOpts, patterns ...Value) (files []*File) {
+  defer func(t0 time.Time) {
+    if d := time.Now().Sub(t0); d > 1*time.Second {
+      var pos = ctx.Position()
+      prompt(ctx, "%v: slow: %d patterns, %v\n", pos, len(patterns), patterns)
+      prompt(ctx, "%v: slow: %d files\n", pos, len(files))
+      prompt(ctx, "%v: slow: %v\n", pos, d).debug(4)
+    }
+  } (time.Now())
+
+  var missing = opts.includeMissing && !opts.ignoreMissing
+
+  var m sync.Mutex
+  var g sync.WaitGroup
+  var collect = func(t ...*File) {
+    m.Lock()
+    files = append(files, t...)
+    m.Unlock()
+    g.Done()
+  }
+
+  var f0 = func(inVal, mapVal Value, inPat, mapPat bool, fm *FileMap) {
+    var o = *opts
+    for _, loc := range fm.locs {
+      if o.dir = loc.Strval(ctx); inPat && mapPat {
+        var pat Value
+        if inVal.cmp(ctx, mapVal) == cmpEqual { pat = inVal } else {
+          pat = &compositePattern{inVal, []Value{mapVal}}
+        }
+        g.Add(1) ; go collect(_wildcard(ctx, &o, pat)...)
+      } else if inPat && !mapPat {
+        var a []fs.FileInfo
+        if missing { a = []fs.FileInfo{nil} }
+        name := mapVal.Strval(ctx)
+        file := stat(ctx, name, "", o.dir, a...)
+        g.Add(1) ; go collect(file)
+      } else if !inPat && mapPat {
+        var a []fs.FileInfo
+        if missing { a = []fs.FileInfo{nil} }
+        name := inVal.Strval(ctx)
+        file := stat(ctx, name, o.dir, "", a...)
+        g.Add(1) ; go collect(file)
+      } else {
+        warn(ctx, "TODO: wildcard: 3. %v %v %s", inVal, mapVal, o.dir)
+      }
+    }
+    g.Done()
+  }
+
+  var f1 = func(inVal Value, inPat bool, c *valcache) {
+    var fm, y = c._val.(FileMap)
+    if !y || fm.filemap == nil {
+      erro(ctx, "Not FileMap: %T %v", c._val, c._val).debug(1)
+      g.Done() ; return
+    }
+
+    for _, mapVal := range fm.Patterns(ctx) {
+      var mapPat = mapVal.patterned(ctx)
+      if y, _, _ := inVal.match(ctx, mapVal); y {
+        g.Add(1) ; go f0(inVal, mapVal, inPat, mapPat, &fm)
+      } else {
+        warn(ctx, "TODO: wildcard: %v %v", inVal, mapVal).debug(1)
+      }
+    }
+    g.Done()
+  }
+
+  var f2 = func(inVal Value) {
+    var inPat = inVal.patterned(ctx)
+    for _, c := range inVal.collect(ctx, &p.filemap, cacheMatchPatts) {
+      g.Add(1) ; go f1(inVal, inPat, c)
+    }
+    g.Done()
+  }
+
+  for _, inVal := range patterns { g.Add(1) ; go f2(inVal) }
+  g.Wait()
   return
 }
 
@@ -599,23 +638,38 @@ func (p *Project) configuration(ctx Context) (file *File) {
 }
 
 type cacher struct { /* TODO: files options */ }
+
 func (opts *cacher) cache(ctx Context, patts, paths []Value) {
-  if p := ctx.Project(); p != nil {
-    var ms = ctx.universe().cache(ctx, p, patts, paths)
-    p.filemaps = append(p.filemaps, ms...)
+  var p = ctx.Project()
+  if p == nil { erro(ctx, "nil project").debug(1) ; return }
 
-    var bits = cacheStore // cacheMatchPatts
-    for _, m := range ms {
-      if !m.pattern.patterned(ctx) { continue }
+  var bits = cacheStore // cacheMatchPatts
+  for mi, m := range ctx.universe().cache(ctx, p, patts, paths) {
+    var ctx = of(ctx, m.pattern)
+    for i, pat := range mergex(ctx, plain, m.pattern) {
+      if pat.expandable(ctx, plain) {
+        p.filemapx = append(p.filemapx, &valcache_kv{ pat, m })
+      } else if c := p.filemap.slot(ctx, pat, bits|cacheKey); c != nil && c._val == nil {
+        c._val = m
+      } else if c != nil && c._val != nil {
+        if t, y := c._val.(FileMap); y {
+          if t.filemap == m.filemap && eq(ctx, t.pattern, pat) {
+            for i, pat := range patts { info(of(ctx, pat), "patts[%d]: %T %v, %v", i, pat, pat, paths) }
+            d := warn(of(ctx,t.pattern), "%d. duplication: %v (%T, in %d patts)", mi, c._key, t.pattern, len(patts))
+            if true { warnstack(of(ctx,t.pattern), 3).debug(10) } else { d.debug(1) }
+            continue // it's okay
+          }
 
-      var ctx = of(ctx,m.pattern)
-      var c = p.filemap.slot(ctx, m.pattern, bits|cacheKey)
-      if c == nil {
-        erro(ctx, "valcache: slot: %v", m.pattern).debug(1)
+          erro(of(ctx,t.pattern), "valcache conflict: %v: t=%v %p=%v", t.project, t, t.filemap, t.filemap)
+        } else {
+          erro(ctx, "valcache conflict: %T %v", c._val, c._val)
+        }
+        erro(of(ctx,pat), "valcache conflict: %v: m=%v %p=%v", m.project, m, m.filemap, m.filemap)
+        errostack(ctx, 3, "valcache duplicated in %d patts", len(patts)).debug(1)
+      } else {
+        erro(ctx, "valcache slot: %v: %d: %T %v", m.pattern, i, pat, pat).debug(1)
       }
     }
-  } else {
-    erro(ctx, "nil project").debug(1)
   }
 }
 
@@ -656,29 +710,29 @@ func (p *Project) resolveEntries(ctx Context, name interface{}, alwaysResolveBas
   var cache *valcache
   var bits = cacheMatchPatts
   if s, y := name.(string); y {
-    if cache = p._entries.strx(ctx, s, bits); cache != nil {
+    if cache = p.entries.strx(ctx, s, bits); cache != nil {
       // good
-    } else if c := p._entries.strx(ctx, "''", bits); c != nil {
+    } else if c := p.entries.strx(ctx, "''", bits); c != nil {
       if c = c.strx(ctx, s, bits); c != nil {
         errostack(ctx, 3, "%s: no such entry, do you mean '%s'?", s, s).debug(16)
         return
       }
-    } else if c := p._entries.strx(ctx, "\"\"", bits); c != nil {
+    } else if c := p.entries.strx(ctx, "\"\"", bits); c != nil {
       if c = c.strx(ctx, s, bits); c != nil {
         errostack(ctx, 3, "%v: no such entry, do you mean \"%s\"?", s, s).debug(16)
         return
       }
     }
   } else if v, y := name.(Value); y {
-    if cache = p._entries.slot(ctx, v, bits); cache != nil {
+    if cache = p.entries.slot(ctx, v, bits); cache != nil {
       // good
-    } else if c := p._entries.strx(ctx, "''", bits); c != nil {
+    } else if c := p.entries.strx(ctx, "''", bits); c != nil {
       var s = v.Strval(ctx)
       if c = c.strx(ctx, s, bits); c != nil {
         errostack(ctx, 3, "%T %v: no such entry, do you mean '%s'?", v, v, s).debug(16)
         return
       }
-    } else if c := p._entries.strx(ctx, "\"\"", bits); c != nil {
+    } else if c := p.entries.strx(ctx, "\"\"", bits); c != nil {
       var s = v.Strval(ctx)
       if c = c.strx(ctx, s, bits); c != nil {
         errostack(ctx, 3, "%T %v: no such entry, do you mean \"%s\"?", v, v, s).debug(16)
@@ -878,7 +932,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
     target, arged = t.value, merge(t.args...)
   }
 
-  var cache = p._entries.slot(ctx, target, cacheKey|cacheStore|cacheNoConflict)
+  var cache = p.entries.slot(ctx, target, cacheKey|cacheStore|cacheNoConflict)
   if cache == nil {
     erro(ctx, "no cache for target: %v", target).debug(1)
     return

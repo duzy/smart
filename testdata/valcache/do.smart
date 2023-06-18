@@ -1,5 +1,9 @@
 project
 
 files (
-    (*.log .deps/??/??/??????????) ⇒ $//.tmp
+    (*.log **.o .deps/??/??/?????????? &(gen)) ⇒ $//.tmp
+    (foo/bar.c foo/bar.c++ foo.c foo.c++) ⇒ $//src
 )
+
+sources := &(wildcard(-missing) **.c **.c++)
+objects := &(patsubst(-err-dst-nomap) %.c %.c++,%.o,&(sources))

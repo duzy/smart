@@ -78,7 +78,7 @@ func (m *modification) traverse(ctx Context) {
     )
     defer func(t0 time.Time) {
         var n time.Duration = 1
-        if name == "shell" || name == "sh" { n = 10 }
+        if name == "shell" || name == "sh" { n = 60 }
 
         var t2 = time.Now()
         if d := t2.Sub(t0); d > n*time.Second {
@@ -154,6 +154,10 @@ func (_ *modification) cache(ctx Context, cache *valcache, bits int) (res *valca
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *modification) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "cache unsupported").debug(32)
+    return
+}
 
 type modifications struct {
     valbase
@@ -214,6 +218,10 @@ func (_ *modifications) hit(ctx Context, cache hitch, bits int) (res *filemapCac
 }
 func (_ *modifications) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *modifications) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "cache unsupported").debug(32)
     return
 }
 

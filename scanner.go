@@ -926,7 +926,7 @@ func (s *Scanner) Scan() (pos Pos, tok Token, lit string) {
 			tok = SCO_ASSIGN
 			s.next() // consume '='
 		} else if s.ch == ':' {
-			tok = COLON2
+			tok = DOLON
 			s.next() // consume the second ':'
 			if s.ch == '=' {
 				tok = DCO_ASSIGN
@@ -936,7 +936,11 @@ func (s *Scanner) Scan() (pos Pos, tok Token, lit string) {
 			tok = COLON
 		}
 	case '*':
-		tok = STAR
+		if tok = STAR; s.ch == '*' {
+			tok = DAST
+			s.next() // consume the second '*'
+		}
+
 	case '%':
 		tok = PERC
 	case '@':

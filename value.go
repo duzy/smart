@@ -17,9 +17,10 @@ import (
     "strconv"
     "strings"
     "errors"
+    "regexp"
     "bytes"
     "io/fs"
-    // "sync"
+    "sync"
     "time"
     "math"
     "fmt"
@@ -879,12 +880,56 @@ func wait(ctx Context, opts waitOpts) (target Value, files []*File, execRes *exe
     return
 }
 
-type kind int
+type Kind uint64
 
 const (
-    valOther kind = iota
-    valInteger
-    valFloat
+    KindUnclassified Kind = 0
+    KindUndef = 1<<iota
+    KindArgumented
+    KindReturner
+    KindOptional
+    KindNone
+    KindNil
+    KindAny
+    KindList
+    KindGroup
+
+    KindInteger
+    KindBinary
+    KindOctal
+    KindDecimal
+    KindHexDecimal
+
+    KindFloat
+    KindRaw
+    KindString
+    KindBareword
+    KindBarefile
+    KindDateTime
+    KindDate
+    KindTime
+
+    KindComp
+    KindPath
+    KindURL
+    KindBarecomp
+    KindPaircomp
+    KindPrecomp
+    KindRearcomp
+
+    KindObject
+    KindKnownObject
+    KindUnresolved
+    KindUndetermined
+    KindProjectName
+    KindScopeName
+    KindBuiltin
+    KindDef
+    KindRule
+    KindStemmedRule
+
+    KindUse
+    KindUseList
 )
 
 const (
@@ -1004,8 +1049,12 @@ func joinMatchRes(ctx Context, res interface{}) (str string) {
     return
 }
 
+type valcache_kv struct {
+    _key Value
+    _val interface{}
+}
 type valcache struct {
-    _key, _val Value
+    valcache_kv
     _fix, fast map[string]*valcache
 }
 
@@ -1080,7 +1129,7 @@ func (cache *valcache) matchPatts(ctx Context, s string) (res *valcache) {
             if empty != nil { return empty, "" }
         } else if k == "?" { // match one char
             if s != "" { return c, s[1:] }
-        } else if k == "*" { // match many chars
+        } else if k == "*" || k == "**" { // match many chars
             var empty *valcache
             for k, v := range c._fix {
                 if k == "" { empty = v } else
@@ -1088,7 +1137,7 @@ func (cache *valcache) matchPatts(ctx Context, s string) (res *valcache) {
             }
             if empty != nil { return empty, "" }
         } else if k == "[]" { // match range of chars
-            erro(ctx, "%v, %s", *c, s).debug(4)
+            errostack(ctx, 3, "%v, %s", *c, s).debug(32)
         } else if strings.HasPrefix(s, k) {
             return c, s[len(k):]
         }
@@ -1107,11 +1156,16 @@ FixAgain:
     return
 }
 
+func (cache *valcache) collect(ctx Context, pat Value) (res []*valcache) {
+    erro(ctx, "%T %v, %v %v, %v", pat, pat, cache._key, cache._fix, cache.fast).debug(1)
+    return
+}
+
 // Value represents a value of a type.
 type Value interface {
     Positioner // The position where the value appears (or NoPos).
 
-    kind() kind
+    Kind() Kind
 
     // Literal representations of the value.
     String() string
@@ -1158,6 +1212,7 @@ type Value interface {
 
     hit(ctx Context, cache hitch, bits int) (res *filemapCache)
     cache(ctx Context, cache *valcache, bits int) (res *valcache)
+    collect(ctx Context, cache *valcache, bits int) (res []*valcache)
 
     stat(Context) (*statinfo)
 
@@ -1176,18 +1231,14 @@ type Value interface {
 type valvec []Value
 
 func (vals valvec) contains(val Value) (res bool) {
-    if val != nil {
-        for _, v := range vals {
-            if res = v == val; res { break }
-        }
-    }
+    if val != nil { for _, v := range vals {
+        if res = v == val; res { break }
+    }}
     return
 }
 
 func (vals *valvec) add(val Value) (res *valvec) {
-    if val != nil && !vals.contains(val) {
-        *vals = append(*vals, val)
-    }
+    if val != nil && !vals.contains(val) { *vals = append(*vals, val) }
     return vals
 }
 
@@ -1211,13 +1262,13 @@ func elementString(ctx Context, o Object, elem Value, k elemkind) (s string) {
 }
 
 type valbase struct { position Position }
+func (_ *valbase) Kind() Kind { return KindUnclassified }
 func (t *valbase) Position() (res Position) { return t.position }
 func (_ *valbase) String() (s string) { return }
 func (_ *valbase) Strval(_ Context) (s string) { return }
 func (_ *valbase) Integer(_ Context) (i int64, e error) { return }
 func (_ *valbase) Float(_ Context) (f float64, e error) { return }
 func (_ *valbase) True(_ Context) (res bool) { return }
-func (_ *valbase) kind() kind { return valOther }
 func (_ *valbase) refs(_ Context, _ Value) (res bool) { return }
 func (_ *valbase) defs(_ Context, _ ...string) (res []*def) { return }
 func (_ *valbase) expandable(_ Context, _ facet) bool { return false }
@@ -1248,6 +1299,7 @@ func matchStrval(ctx Context, p Value, i interface{}) (full bool, s string, stem
 }
 
 type undef struct { Value }
+func (p undef) Kind() Kind { return KindUndef }
 func (p undef) expand(Context, facet) Value { return p }
 func (p undef) String() string { return fmt.Sprintf("undef{%s}",p.Value) }
 func (p undef) Strval(Context) (s string) { return }
@@ -1263,6 +1315,7 @@ type returner struct {
     valbase
     Values []Value
 }
+func (p *returner) Kind() Kind { return KindReturner }
 func (p *returner) expand(ctx Context, w facet) (res Value) {
     var vals, u, n = w.expand(ctx, p.Values...)
     if n > 0 { res = &returner{p.valbase, vals} } else { res = p }
@@ -1277,8 +1330,13 @@ func (_ *returner) cache(ctx Context, cache *valcache, bits int) (res *valcache)
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *returner) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 type optional struct { Value }
+func (o optional) Kind() Kind { return KindOptional }
 func (o optional) String() string { return o.Value.String()+"?" }
 func (o optional) expand(ctx Context, w facet) Value {
     return optional{o.Value.expand(ctx, w)}
@@ -1289,6 +1347,10 @@ func (o optional) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 }
 func (_ optional) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ optional) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
     return
 }
 
@@ -1305,8 +1367,8 @@ type argumented struct {
     value Value
     args []Value
 }
+func (_ *argumented) Kind() Kind { return KindArgumented }
 func (p *argumented) Position() Position { return p.value.Position() }
-func (_ *argumented) kind() kind { return valOther }
 func (p *argumented) refs(ctx Context, v Value) bool {
     if p.value.refs(ctx, v) { return true }
     for _, a := range p.args {
@@ -1451,15 +1513,20 @@ func (_ *argumented) cache(ctx Context, cache *valcache, bits int) (res *valcach
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *argumented) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
-type None struct { valbase ; v Value }
-func (p *None) expand(_ Context, _ facet) Value { return p }
-func (p *None) True(ctx Context) (res bool) {
+type none struct { valbase ; v Value }
+func (_ *none) Kind() Kind { return KindNone }
+func (p *none) expand(_ Context, _ facet) Value { return p }
+func (p *none) True(ctx Context) (res bool) {
     if p.v != nil { res = p.v.True(ctx) }
     return
 }
-func (p *None) cmp(ctx Context, v Value) (res cmpres) {
-    if _, ok := v.(*None); ok {
+func (p *none) cmp(ctx Context, v Value) (res cmpres) {
+    if _, ok := v.(*none); ok {
         res = cmpEqual
     } else if u, o := v.(unexpanded); o && u.Value != nil {
         res = p.cmp(ctx, u.Value)
@@ -1472,14 +1539,19 @@ func (p *None) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (_ *None) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+func (_ *none) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return cache.filemapCache
 }
-func (_ *None) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+func (_ *none) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     return cache.str(ctx, "", bits)
+}
+func (_ *none) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
 }
 
 type Nil struct { valbase }
+func (_ *Nil) Kind() Kind { return KindNil }
 func (p *Nil) expand(_ Context, _ facet) Value { return p }
 func (p *Nil) cmp(ctx Context, v Value) (res cmpres) {
     if _, ok := v.(*Nil); ok {
@@ -1492,16 +1564,22 @@ func (p *Nil) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (_ *Nil) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    errostack(ctx, 5, "cache unsupported: %v", cache).debug(32)
     return cache.filemapCache
 }
 func (_ *Nil) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    return cache
+    if false { errostack(ctx, 5, "cache unsupported: %v", cache).debug(32) }
+    return cache // NOTE: for empty flags "-"
+}
+func (_ *Nil) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    if false { errostack(ctx, 5, "collect unsupported: %v", cache).debug(32) }
+    return // NOTE: for empty flags "-"
 }
 
 // aka. isNil(v) || isNone(v) || isUndef(v) || isEmpty(v)
 func isTrivial(v Value) (t bool) {
     switch a := v.(type) {
-    case *None, *Nil, unresolved: t = true
+    case *none, *Nil, unresolved: t = true
     case *String: t = a.string == ""
     case *List: t = len(a.Elems) == 0 ||
         (len(a.Elems) == 1 && isTrivial(a.Elems[0]))
@@ -1524,7 +1602,7 @@ func isEmpty(v Value) (t bool) {
 func isUndef(v Value) (t bool) { _, t = v.(unresolved); return }
 func isNone(v Value) (t bool) {
     switch a := v.(type) {
-    case *None: t = true
+    case *none: t = true
     case *List: t = len(a.Elems) == 0 ||
         (len(a.Elems) == 1 && (isNone(a.Elems[0]) || isNil(a.Elems[0])))
     }
@@ -1547,7 +1625,7 @@ func eq(c Context, l, r Value) bool {
 
 // Any is used to box an arbitrary value
 type Any struct { value interface{} }
-func (_ *Any) kind() kind { return valOther }
+func (_ *Any) Kind() Kind { return KindAny }
 func (p *Any) cmp(ctx Context, v Value) (res cmpres) {
     switch a := v.(type) {
     case *Any:
@@ -1706,6 +1784,10 @@ func (p *Any) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *Any) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 type negative struct { valbase; x Value }
 func (p *negative) refs(ctx Context, o Value) bool { return p.x.refs(ctx, o) }
@@ -1753,6 +1835,10 @@ func (_ *negative) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 }
 func (_ *negative) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *negative) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
     return
 }
 
@@ -1820,6 +1906,10 @@ func (_ *boolean) cache(ctx Context, cache *valcache, bits int) (res *valcache) 
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *boolean) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 type answer struct { valbase; bool }
 func (p *answer) string() (s string) { if p.bool { return "yes" } else { return "no" } }
@@ -1883,6 +1973,10 @@ func (_ *answer) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *answer) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 type option struct { valbase; bool }
 func (p *option) String() (s string) {
@@ -1942,6 +2036,10 @@ func (_ *option) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *option) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 type prediction struct {
     boolean
@@ -1956,10 +2054,10 @@ type integer struct {
     valbase
     int64
 }
+func (_ *integer) Kind() Kind { return KindInteger }
 func (p *integer) True(ctx Context) bool { return p.int64 != 0 }
 func (p *integer) Integer(ctx Context) (i int64, _ error) { return p.int64, nil }
 func (p *integer) Float(ctx Context) (f float64, _ error) { return float64(p.int64), nil }
-func (p *integer) kind() kind { return valInteger }
 func (p *integer) cmp(ctx Context, v Value) (res cmpres) {
     if i, e := v.Integer(ctx); e != nil {
         if false { warnstack(ctx, 6, "%T %v: %v", v, v, e).debug(20) }
@@ -1980,8 +2078,13 @@ func (_ *integer) cache(ctx Context, cache *valcache, bits int) (res *valcache) 
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *integer) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 type Bin struct { integer }
+func (_ *Bin) Kind() Kind { return KindInteger|KindBinary }
 func (p *Bin) String() string { return fmt.Sprintf("0b%s", strconv.FormatInt(int64(p.int64),2)) }
 func (p *Bin) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),2) }
 func (p *Bin) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchStrval(ctx, p, i) }
@@ -1989,6 +2092,7 @@ func (p *Bin) stencil(ctx Context, stems []string) (val Value, rest []string) { 
 func (p *Bin) expand(_ Context, _ facet) Value { return p }
 
 type Oct struct { integer }
+func (_ *Oct) Kind() Kind { return KindInteger|KindOctal }
 func (p *Oct) String() string { return fmt.Sprintf("0%s", strconv.FormatInt(int64(p.int64),8)) }
 func (p *Oct) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),8) }
 func (p *Oct) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchStrval(ctx, p, i) }
@@ -1996,6 +2100,7 @@ func (p *Oct) stencil(ctx Context, stems []string) (val Value, rest []string) { 
 func (p *Oct) expand(_ Context, _ facet) Value { return p }
 
 type Int struct { integer }
+func (_ *Int) Kind() Kind { return KindInteger|KindDecimal }
 func (p *Int) String() string { return strconv.FormatInt(int64(p.int64),10) }
 func (p *Int) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),10) }
 func (p *Int) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchStrval(ctx, p, i) }
@@ -2003,6 +2108,7 @@ func (p *Int) stencil(ctx Context, stems []string) (val Value, rest []string) { 
 func (p *Int) expand(_ Context, _ facet) Value { return p }
 
 type Hex struct { integer }
+func (_ *Hex) Kind() Kind { return KindInteger|KindHexDecimal }
 func (p *Hex) String() string { return fmt.Sprintf("0x%s", strconv.FormatInt(int64(p.int64),16)) }
 func (p *Hex) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),16) }
 func (p *Hex) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchStrval(ctx, p, i) }
@@ -2011,6 +2117,7 @@ func (p *Hex) expand(_ Context, _ facet) Value { return p }
 
 const FloatEpsilon = 1e-15 /* 1e-16 */
 type Float struct { valbase; float64 } // IEEE-754 64-bit binary floating-point
+func (p *Float) Kind() Kind { return KindFloat }
 func (p *Float) String() string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
 func (p *Float) Strval(ctx Context) string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
 func (p *Float) True(ctx Context) bool { return math.Abs(p.float64)-0 > FloatEpsilon }
@@ -2018,7 +2125,6 @@ func (p *Float) Integer(ctx Context) (i int64, _ error) { return int64(p.float64
 func (p *Float) Float(ctx Context) (f float64, _ error) { return p.float64, nil }
 func (p *Float) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchStrval(ctx, p, i) }
 func (p *Float) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
-func (p *Float) kind() kind { return valFloat }
 func (p *Float) expand(_ Context, _ facet) Value { return p }
 func (p *Float) cmp(ctx Context, v Value) (res cmpres) {
     if _, ok := v.(*Float); ok {
@@ -2046,11 +2152,16 @@ func (_ *Float) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *Float) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 type DateTime struct {
     valbase
     t time.Time
 }
+func (_ *DateTime) Kind() Kind { return KindDateTime }
 func (p *DateTime) String() string { return time.Time(p.t).Format("2006-01-02T15:04:05.999999999Z07:00") }
 func (p *DateTime) Strval(ctx Context) string { return p.String() } // time.RFC3339Nano
 func (p *DateTime) True(ctx Context) bool { return !p.t.IsZero() }
@@ -2084,6 +2195,10 @@ func (_ *DateTime) cache(ctx Context, cache *valcache, bits int) (res *valcache)
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *DateTime) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 func ParseDateTime(pos Position, s string) *DateTime {
     // time.RFC3339Nano
@@ -2095,6 +2210,7 @@ func ParseDateTime(pos Position, s string) *DateTime {
 }
 
 type Date struct { DateTime }
+func (_ *Date) Kind() Kind { return KindDateTime|KindDate }
 func (p *Date) String() string { return time.Time(p.t).Format("2006-01-02") }
 func (p *Date) Strval(ctx Context) string { return p.String() }
 func (p *Date) Integer(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
@@ -2104,6 +2220,7 @@ func (p *Date) stencil(ctx Context, stems []string) (val Value, rest []string) {
 func (p *Date) expand(_ Context, _ facet) Value { return p }
 
 type Time struct { DateTime }
+func (_ *Time) Kind() Kind { return KindDateTime|KindTime }
 func (p *Time) String() string { return time.Time(p.t).Format("15:04:05.999999999Z07:00") }
 func (p *Time) Strval(ctx Context) string { return p.String() }
 func (p *Time) Integer(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
@@ -2127,6 +2244,7 @@ type URL struct {
     Query Value
     Fragment Value
 }
+func (_ *URL) Kind() Kind { return KindComp|KindURL }
 func (p *URL) String() string { return p.elemStr(nil, nil, 0) }
 func (p *URL) True(ctx Context) (t bool) {
     if p.Scheme != nil { if t = p.Scheme.True(ctx); t { return }}
@@ -2170,7 +2288,7 @@ func (p *URL) elemStr(ctx Context, o Object, k elemkind) (s string) {
     if s = elementString(ctx, o, p.Scheme, k); s == "" { return }
     if s += ":"; p.Host == nil {
         // ...
-    } else if _, ok := p.Host.(*None); ok {
+    } else if _, ok := p.Host.(*none); ok {
         var host string
         if host = elementString(ctx, o, p.Host, k); host == "" { return }
         s += "//"
@@ -2185,7 +2303,7 @@ func (p *URL) elemStr(ctx Context, o Object, k elemkind) (s string) {
         s += host
         if p.Port == nil {
             // ...
-        } else if _, ok := p.Port.(*None); ok {
+        } else if _, ok := p.Port.(*none); ok {
             var port string
             if port = elementString(ctx, o, p.Port, k); port != "" {
                 s += ":" + port
@@ -2194,7 +2312,7 @@ func (p *URL) elemStr(ctx Context, o Object, k elemkind) (s string) {
     }
     if p.Path == nil {
         // ...
-    } else if _, ok := p.Path.(*None); ok {
+    } else if _, ok := p.Path.(*none); ok {
         var path string
         if path = elementString(ctx, o, p.Path, k); path != "" {
             //if !strings.HasPrefix(path, PathSep) { s += PathSep }
@@ -2203,7 +2321,7 @@ func (p *URL) elemStr(ctx Context, o Object, k elemkind) (s string) {
     }
     if p.Query == nil {
         // ...
-    } else if _, ok := p.Query.(*None); ok {
+    } else if _, ok := p.Query.(*none); ok {
         var query string
         if query = elementString(ctx, o, p.Query, k); query != "" {
             s += "?" + query
@@ -2211,7 +2329,7 @@ func (p *URL) elemStr(ctx Context, o Object, k elemkind) (s string) {
     }
     if p.Fragment == nil {
         // ...
-    } else if _, ok := p.Fragment.(*None); ok {
+    } else if _, ok := p.Fragment.(*none); ok {
         var fragment string
         if fragment = elementString(ctx, o, p.Fragment, k); fragment != "" {
             s += "#" + fragment
@@ -2302,8 +2420,13 @@ func (_ *URL) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *URL) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 type Raw struct { valbase; string }
+func (_ *Raw) Kind() Kind { return KindRaw }
 func (p *Raw) String() string { return p.string }
 func (p *Raw) Strval(ctx Context) string { return p.string }
 func (p *Raw) True(ctx Context) bool { return p.string != "" }
@@ -2339,8 +2462,13 @@ func (_ *Raw) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *Raw) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 type String struct { valbase; string }
+func (_ *String) Kind() Kind { return KindString }
 func (p *String) String() string { return p.elemStr(nil, nil, 0) }
 func (p *String) Strval(ctx Context) (s string) {
     if false {
@@ -2395,9 +2523,15 @@ func (p *String) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return cache.strx(at(ctx, p.position), p.string, bits)
 }
 func (p *String) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    ctx = at(ctx, p.position)
+    if false { ctx = at(ctx, p.position) }
     cache = cache.str(ctx, "''", bits)
     return cache.strx(ctx, p.string, bits)
+}
+func (p *String) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    if cache.fast != nil { if c := cache.str(ctx, "''", cacheZero); c != nil {
+        if c = c.strx(ctx, p.string, cacheZero); c != nil { res = append(res, c) }
+    }}
+    return
 }
 
 func isTrueString(s string) (t bool) {
@@ -2450,10 +2584,16 @@ func (p *punctuation) match(ctx Context, i interface{}) (full bool, res interfac
 }
 func (p *punctuation) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *punctuation) hit(ctx Context, cache hitch, bits int) *filemapCache { return cache.filemapCache }
-func (_ *punctuation) cache(ctx Context, cache *valcache, bits int) (res *valcache) { return cache }
 func (p *punctuation) traverse(ctx Context) { }
 
+func (_ *punctuation) cache(ctx Context, cache *valcache, bits int) (res *valcache) { return cache }
+func (_ *punctuation) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
+
 type bareword struct { valbase; string }
+func (_ *bareword) Kind() Kind { return KindBareword }
 func (p *bareword) String() string { return p.string }
 func (p *bareword) Strval(ctx Context) string { return p.string }
 func (p *bareword) True(ctx Context) bool { return isTrueString(p.string) }
@@ -2523,6 +2663,15 @@ func (p *bareword) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 func (p *bareword) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     return cache.str(at(ctx, p.position), p.string, bits)
 }
+func (p *bareword) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    if cache.fast != nil { if c := cache.str(ctx, p.string, bits); c != nil {
+        res = append(res, c) ; return
+    }}
+    if bits&cacheMatchPatts != 0 { if c := cache.matchPatts(ctx, p.string); c != nil {
+        res = append(res, c) ; return
+    }}
+    return
+}
 
 func (p *bareword) expand(ctx Context, w facet) (res Value) {
     if res = p; false && w&expandFullName != 0 {
@@ -2589,6 +2738,10 @@ func (_ *qualiword) hit(ctx Context, cache hitch, bits int) (res *filemapCache) 
 }
 func (p *qualiword) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *qualiword) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
     return
 }
 
@@ -2686,6 +2839,7 @@ func compareElems(ctx Context, elemsL, elemsR []Value) (res cmpres) {
 }
 
 type paircomp struct { *Pair }
+func (_ paircomp) Kind() Kind { return KindPaircomp }
 func (p paircomp) True(ctx Context) (res bool) {
     if !(p.Key.expandable(ctx, expandDelegate|expandClosure) ||
         p.Value.expandable(ctx, expandDelegate|expandClosure)) {
@@ -2713,6 +2867,7 @@ type precomp struct {
     Value
     suffix Value
 }
+func (_ precomp) Kind() Kind { return KindPrecomp }
 func (p precomp) True(ctx Context) bool { return p.suffix.True(ctx) }
 func (p precomp) String() (s string) {
     return p.Value.String() + p.suffix.String()
@@ -2734,6 +2889,7 @@ type rearcomp struct {
     prefix Value
     Value
 }
+func (_ rearcomp) Kind() Kind { return KindRearcomp }
 func (p rearcomp) True(ctx Context) bool { return p.prefix.True(ctx) }
 func (p rearcomp) String() (s string) {
     return p.prefix.String() + p.Value.String()
@@ -2752,7 +2908,7 @@ func (p rearcomp) expand(ctx Context, w facet) (res Value) {
 // }
 
 type barecomp struct { valbase ; elements }
-func (_ *barecomp) kind() kind { return valOther }
+func (_ *barecomp) Kind() Kind { return KindComp|KindBarecomp }
 func (p *barecomp) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *barecomp) Strval(ctx Context) (s string) {
     for _, elem := range p.Elems {
@@ -2883,6 +3039,16 @@ func (p *barecomp) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 }
 func (p *barecomp) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     return cache.str(at(ctx, p.position), p.Strval(ctx), bits)
+}
+func (p *barecomp) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    var s string = p.Strval(ctx)
+    if cache.fast != nil { if c := cache.str(ctx, s, bits); c != nil {
+        res = append(res, c) ; return
+    }}
+    if bits&cacheMatchPatts != 0 { if c := cache.matchPatts(ctx, s); c != nil {
+        res = append(res, c) ; return
+    }}
+    return
 }
 
 func (p *barecomp) cmp(ctx Context, v Value) (res cmpres) {
@@ -3040,6 +3206,7 @@ type barefile struct {
     Value
     File *File
 }
+func (_ *barefile) Kind() Kind { return KindBarefile }
 func (p *barefile) True(ctx Context) (t bool) {
     if p.File != nil { t = p.File.True(ctx) }
     return
@@ -3178,12 +3345,13 @@ func exp_barefilize(ctx Context, targets ...Value) (res []Value) {
     return
 }
 
+const windowsOS = runtime.GOOS == "windows"
 var ErrBadPattern = errors.New("syntax error in pattern")
 
 // modified copy of filepath.hasMeta
 func globHasMeta(path string) bool {
     magicChars := `*?[`
-    if runtime.GOOS != "windows" {
+    if !windowsOS {
         magicChars = `*?[\`
     }
     return strings.ContainsAny(path, magicChars)
@@ -3195,7 +3363,7 @@ func globGetEsc(chunk string) (r rune, nchunk string, err error) {
         err = ErrBadPattern
         return
     }
-    if chunk[0] == '\\' && runtime.GOOS != "windows" {
+    if chunk[0] == '\\' && !windowsOS {
         chunk = chunk[1:]
         if len(chunk) == 0 {
             err = ErrBadPattern
@@ -3214,18 +3382,20 @@ func globGetEsc(chunk string) (r rune, nchunk string, err error) {
 }
 
 // modified copy of filepath.scanChunk
-func globScanChunk(pattern string) (star bool, chunk, rest string) {
+func globScanChunk(pattern string) (stars int, chunk, rest string) {
     for len(pattern) > 0 && pattern[0] == '*' {
         pattern = pattern[1:]
-        star = true // TODO: support both '*' and '**'
+        stars += 1 // TODO: support both '*' and '**'
     }
+
     inrange := false
+
     var i int
 Scan:
     for i = 0; i < len(pattern); i++ {
         switch pattern[i] {
         case '\\':
-            if runtime.GOOS != "windows" {
+            if !windowsOS {
                 // error check handled in matchChunk: bad pattern.
                 if i+1 < len(pattern) {
                     i++
@@ -3241,14 +3411,13 @@ Scan:
             }
         }
     }
-    return star, pattern[0:i], pattern[i:]
+    return stars, pattern[0:i], pattern[i:]
 }
 
 // modified copy of filepath.matchChunk
 // stems: all values matched ? and [...]
 func globMatchChunk(chunk, s string) (stems []string, rest string, ok bool, err error) {
-    // failed records whether the match has failed.
-    // After the match fails, the loop continues on processing chunk,
+    // After the match fails (failed==true), the loop continues on processing chunk,
     // checking that the pattern is well-formed but no longer reading s.
     failed := false
     for len(chunk) > 0 {
@@ -3302,7 +3471,7 @@ func globMatchChunk(chunk, s string) (stems []string, rest string, ok bool, err 
 
         case '?':
             if !failed {
-                if s[0] == filepath.Separator {
+                if s[0] == PathSepByte {
                     failed = true
                 }
                 _, n := utf8.DecodeRuneInString(s)
@@ -3312,7 +3481,7 @@ func globMatchChunk(chunk, s string) (stems []string, rest string, ok bool, err 
             chunk = chunk[1:]
 
         case '\\':
-            if runtime.GOOS != "windows" {
+            if !windowsOS {
                 chunk = chunk[1:]
                 if len(chunk) == 0 {
                     return stems, "", false, ErrBadPattern
@@ -3330,13 +3499,14 @@ func globMatchChunk(chunk, s string) (stems []string, rest string, ok bool, err 
             chunk = chunk[1:]
         }
     }
+
     if failed {
         return stems, "", false, nil
     }
     return stems, s, true, nil
 }
 
-// modified copy of filepath.Match
+// modified copy of filepath.Match, use ** to match across path separators
 func globMatch(pattern, name string) (matched bool, stems []string, err error) {
     var _pattern, _name = pattern, name
     var dbg = false && (
@@ -3344,48 +3514,49 @@ func globMatch(pattern, name string) (matched bool, stems []string, err error) {
         (_pattern == "libun????.a" && _name == "libunwind.a") ||
         (_pattern == "lib[a-z][^0-9]????.a" && _name == "libunwind.a") ||
         (_pattern == "lib?++.a" && _name == "libc++.a"))
+
     if dbg {
         fmt.Fprintf(stderr, "(%v, %v):\n", _pattern, _name)
         defer func() {
-            fmt.Fprintf(stderr, "    matched=%v, stems=%v; (%v, %v)\n", matched, stems, pattern, name)
+            fmt.Fprintf(stderr, "    matched=%v, stems=%v, remains(pattern=%v, name=%v)\n", matched, stems, pattern, name)
         } ()
     }
 
 Pattern:
     for len(pattern) > 0 {
-        var star bool
-        var chunk string
-        var _p = pattern
-        star, chunk, pattern = globScanChunk(pattern)
+        var stars int
+        var chunk string // stars or chunk: ? [...] a..z
+        stars, chunk, pattern = globScanChunk(pattern)
         if dbg {
-            fmt.Fprintf(stderr, "    scan: (%v) -> star=%v, chunk=%v, pattern=%v\n", _p, star, chunk, pattern)
+            fmt.Fprintf(stderr, "    scan: stars=%v, chunk=%v, pattern=%v\n", stars, chunk, pattern)
         }
-        if star && chunk == "" {
+        if stars > 0 && chunk == "" { // no stars or glob chunks (metas)
             // Trailing * matches rest of string unless it has a /.
-            if matched = !strings.Contains(name, PathSep); matched {
-                if false { stems = append(stems, name) }
+            if matched = stars > 1 || !strings.Contains(name, PathSep); matched {
+                if true || name != "" { stems = append(stems, name) }
             }
             return
         }
+
         // Look for match at current position.
         ss, t, ok, err := globMatchChunk(chunk, name)
         if dbg {
             fmt.Fprintf(stderr, "    match: (%v, %v) -> ss=%v, t=%v, ok=%v\n", chunk, name, ss, t, ok)
         }
-        if err == nil && len(ss) > 0 { stems = append(stems, ss...) }
+        if len(ss) > 0 { stems = append(stems, ss...) }
+
         // if we're the last chunk, make sure we've exhausted the name
         // otherwise we'll give a false result even if we could still match
-        // using the star
+        // using the stars
         if ok && (len(t) == 0 || len(pattern) > 0) {
             name = t
             continue
         }
-        if err != nil {
-            return false, stems, err
-        }
-        if star {
+
+        if err != nil { return false, stems, err }
+        if stars > 0 {
             // Look for match skipping i+1 bytes. Cannot skip /.
-            for i := 0; i < len(name) && name[i] != filepath.Separator; i++ {
+            for i := 0; i < len(name) && (name[i] != PathSepByte || stars > 1); i++ {
                 ss, t, ok, err := globMatchChunk(chunk, name[i+1:])
                 if dbg {
                     fmt.Fprintf(stderr, "    match: name=%v, (%v, %v), %s -> ss=%v, t=%v, ok=%v\n", name, chunk, name[i+1:], name[:i+1], ss, t, ok)
@@ -3396,6 +3567,7 @@ Pattern:
                         continue
                     }
                     stems = append(stems, name[:i+1])
+                    if len(ss) > 0 { stems = append(stems, ss...) }
                     name = t
                     continue Pattern
                 }
@@ -3415,7 +3587,7 @@ Pattern:
 // all components are compared. If the pattern has only one component,
 // the last filename component is compared with the pattern, and the prefix
 // components are returned in 'pre'.
-func globMatchFile(ctx Context, patVal Value, filename string, tailMatch bool) (matched bool, pre string, stems []string) {
+func obsolete_globMatchFile(ctx Context, patVal Value, filename string, tailMatch bool) (matched bool, pre string, stems []string) {
     switch patVal.(type) {
     default: // good to go!
     case *List:
@@ -3481,6 +3653,10 @@ func (_ *GlobMeta) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 func (p *GlobMeta) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     return cache.fix(ctx, p.Token.String(), bits)
 }
+func (_ *GlobMeta) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 // `[a-b]`, `[abc]`, ...
 // `a-b`, `abc`, `a$(var)c`, `a$(spaces)c`...
@@ -3526,11 +3702,15 @@ func (p *GlobRange) cache(ctx Context, cache *valcache, bits int) (res *valcache
     }
     return cache
 }
+func (_ *GlobRange) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
 
 // Path is addressing a file (dynamically), the real located file varies
 // base on 'elements' and the context.
 type Path struct { valbase ; elements }
-func (_ *Path) kind() kind { return valOther }
+func (_ *Path) Kind() Kind { return KindComp|KindPath }
 func (p *Path) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *Path) Strval(ctx Context) (s string) {
     for i, seg := range p.Elems {
@@ -3731,13 +3911,36 @@ func (p *Path) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return
 }
 func (p *Path) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    ctx = at(ctx, p.position)
-
     var elems, u, _ = expandPathElems(ctx, plain, p.Elems...)
     if false && u > 0 { warn(ctx, "%08b: unexpended: %v: %v", bits, p, elems).debug(1) }
 
     for _, elem := range elems { cache = cache.slot(ctx, elem, bits) }
     return cache
+}
+func (p *Path) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    var elems, u, _ = expandPathElems(ctx, plain, p.Elems...)
+    if false && u > 0 { warn(ctx, "unexpended: %v: %v", p, elems).debug(1) }
+
+    bits |= cachePath
+
+    var cs = []*valcache{ cache }
+    for i, elem := range elems {
+        var t []*valcache
+        for _, c := range cs {
+            if a := elem.collect(ctx, c, bits); len(a) != 0 {
+                t = append(t, a...)
+            } else if x, y := c._fix["**"]; y {
+                warn(of(ctx, elem), "%v: [%d] %T %v -> %v", p, i, elem, elem, x).debug(1)
+            } else {
+                warn(of(ctx, elem), "%v: [%d] %T %v -> %v, %v", p, i, elem, elem, a, c).debug(1)
+            }
+        }
+        cs = t
+    }
+    if cs != nil { res = cs }
+
+    // TODO: check cache._fix["**"]
+    return
 }
 
 func expandPathElems(ctx Context, w facet, elems ...Value) (res []Value, u, n int) {
@@ -4159,8 +4362,14 @@ func (p *PathPun) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 }
 func (p *PathPun) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     if p.rune == '/' { res = cache } else {
-        return cache.str(at(ctx, p.position), p.String(), bits)
+        return cache.str(/* at(ctx, p.position) */ctx, p.String(), bits)
     }
+    return
+}
+func (p *PathPun) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    if p.rune != '/' { if c := cache.str(ctx, p.String(), cacheZero); c != nil {
+        res = append(res, c)
+    }}
     return
 }
 
@@ -4354,6 +4563,10 @@ func (p *File) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 func (p *File) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     return cache.strx(at(ctx, p.position), p.name, bits|cacheFile)
 }
+func (p *File) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    if c := cache.strx(ctx, p.name, bits); c != nil { res = append(res, c) }
+    return
+}
 
 func (p *File) patterned(ctx Context, ) bool { return false }
 func (p *File) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
@@ -4424,7 +4637,7 @@ func (p *Flag) refs(ctx Context, v Value) bool { return p.name.refs(ctx, v) }
 func (p *Flag) defs(ctx Context, s ...string) []*def { return p.name.defs(ctx, s...) }
 func (p *Flag) match(ctx Context, i interface{}) (full bool, res interface{}, stems []string) {
     switch t := i.(type) {
-    case *None, *Nil, unresolved:
+    case *none, *Nil, unresolved:
     case *Flag:
         full, res, stems = p.name.match(ctx, t.name)
         if s, y := res.(string); y { res = "-" + s }
@@ -4567,8 +4780,14 @@ func (_ *Flag) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return
 }
 func (p *Flag) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    ctx = at(ctx, p.position)
+    if false { ctx = at(ctx, p.position) }
     return cache.str(ctx, "-", bits).slot(ctx, p.name, bits)
+}
+func (p *Flag) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    if c := cache.str(ctx, "-", cacheZero); c != nil {
+        if c = c.slot(ctx, p.name, cacheZero); c != nil { res = append(res, c) }
+    }
+    return
 }
 
 const escapedChars = "\"\r\n"
@@ -4655,7 +4874,7 @@ func (p *Compound) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return
 }
 func (p *Compound) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    ctx = at(ctx, p.position)
+    if false { ctx = at(ctx, p.position) }
     if cache = cache.str(ctx, "\"\"", bits); true {
         cache = cache.strx(ctx, p.Strval(ctx), bits)
     } else {
@@ -4665,12 +4884,18 @@ func (p *Compound) cache(ctx Context, cache *valcache, bits int) (res *valcache)
     }
     return cache
 }
+func (p *Compound) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    if c := cache.str(ctx, "\"\"", cacheZero); c != nil {
+        if c = c.strx(ctx, p.Strval(ctx), cacheZero); c != nil { res = append(res, c) }
+    }
+    return
+}
 
 type List struct {
     position Position
     elements
 }
-func (_ *List) kind() kind { return valOther }
+func (_ *List) Kind() Kind { return KindList }
 func (p *List) Position() (pos Position) { return p.position }
 func (p *List) String() (s string) { return p.elemStr(nil, nil, 0) }
 func (p *List) Strval(ctx Context) (s string) {
@@ -4853,12 +5078,23 @@ func (_ *List) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *List) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+func (p *List) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+    if n := len(p.Elems); n == 1 {
+        res = p.Elems[0].cache(ctx, cache, bits)
+    } else {
+        errostack(ctx, 5, "cache list of many unsupported (bits=%08b): %v", bits, p).debug(32)
+    }
+    return
+}
+func (p *List) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    for _, elem := range p.Elems {
+        if c := elem.collect(ctx, cache, bits); c != nil { res = append(res, c...) }
+    }
     return
 }
 
 type Group struct { valbase ; elements }
+func (_ *Group) Kind() Kind { return KindGroup }
 func (p *Group) String() string { return p.elemStr(nil, nil, 0) }
 func (p *Group) Position() Position { return p.valbase.Position() }
 //func (p *Group) Float(ctx Context) (f float64, _ error) { return p.valbase.Float(ctx) }
@@ -4871,7 +5107,6 @@ func (p *Group) True(ctx Context) (t bool) {
     }
     return
 }
-func (_ *Group) kind() kind { return valOther }
 func (p *Group) Strval(ctx Context) (s string) {
     s = "("
     for i, elem := range p.Elems {
@@ -4930,6 +5165,10 @@ func (_ *Group) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 }
 func (_ *Group) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *Group) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "cache unsupported: %v", cache).debug(32)
     return
 }
 
@@ -5048,6 +5287,10 @@ func (_ *Pair) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 }
 func (_ *Pair) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *Pair) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "cache unsupported: %v", cache).debug(32)
     return
 }
 
@@ -5733,7 +5976,12 @@ func (p *delegate) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return
 }
 func (p *delegate) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    return cache.slot(ctx, p.expand(ctx, plain), bits)
+    if v := p.expand(ctx, plain); v != nil && v != p { res = cache.slot(ctx, v, bits) }
+    return
+}
+func (p *delegate) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    if v := p.expand(ctx, plain); v != nil && v != p { res = v.collect(ctx, cache, bits) }
+    return
 }
 
 type closure struct { delegate }
@@ -6080,7 +6328,21 @@ func (p *closure) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return
 }
 func (p *closure) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    return cache.slot(ctx, p.expand(ctx, plain), bits)
+    var v = p.expand(ctx, plain)
+    if v == nil || v == p || v.expandable(ctx, plain) {
+        errostack(ctx, 10, "cache unsupported (bits=%08b): %v", bits, v).debug(32)
+        return
+    }
+    return cache.slot(ctx, v, bits)
+}
+func (p *closure) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    var v = p.expand(ctx, plain)
+    if v == nil || v == p || v.expandable(ctx, plain) {
+        if true { errostack(ctx, 10, "cache unsupported: %v", v).debug(32) }
+    } else {
+        res = v.collect(ctx, cache, bits)
+    }
+    return
 }
 
 type selection struct {
@@ -6265,6 +6527,10 @@ func (_ *selection) hit(ctx Context, cache hitch, bits int) (res *filemapCache) 
 }
 func (_ *selection) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *selection) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "cache unsupported").debug(32)
     return
 }
 
@@ -6496,13 +6762,13 @@ func (_ *PercPattern) hit(ctx Context, cache hitch, bits int) (res *filemapCache
     return
 }
 func (p *PercPattern) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    ctx = at(ctx, p.position)
+    if false { ctx = at(ctx, p.position) }
 
     var fix string
     switch t := p.Prefix.(type) {
     case *barecomp: fix = t.Strval(ctx)
     case *bareword: fix = t.string
-    case *None,nil: fix = ""
+    case *none,nil: fix = ""
     default:
         errostack(of(ctx, p.Prefix), 3, "unsupported prefix: %T %v", t, t).debug(16)
         return
@@ -6514,13 +6780,48 @@ func (p *PercPattern) cache(ctx Context, cache *valcache, bits int) (res *valcac
     switch t := p.Suffix.(type) {
     case *barecomp: fix = t.Strval(ctx)
     case *bareword: fix = t.string
-    case *None,nil: fix = ""
+    case *none,nil: fix = ""
     case *PercPattern: return t.cache(ctx, cache, bits)
     default:
         errostack(of(ctx, p.Suffix), 3, "unsupported suffix: %T %v", t, t).debug(16)
         return
     }
     return cache.fix(ctx, fix, bits)
+}
+func (p *PercPattern) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    var pre, suf string
+    switch t := p.Prefix.(type) {
+    case *barecomp: pre = t.Strval(ctx)
+    case *bareword: pre = t.string
+    case *none,nil: pre = ""
+    default:
+        errostack(of(ctx, p.Prefix), 3, "unsupported prefix: %T %v", t, t).debug(16)
+        return
+    }
+
+    switch t := p.Suffix.(type) {
+    case *barecomp: suf = t.Strval(ctx)
+    case *bareword: suf = t.string
+    case *none,nil: suf = ""
+    case *PercPattern:
+        // TODO: use map, somehow
+        for k, c := range cache.fast {
+            if !strings.HasPrefix(k, pre) { continue } else { k = k[len(pre):] }
+            if full, _, _ := t.match(ctx, k); full { res = append(res, c) }
+        }
+        return
+    default:
+        errostack(of(ctx, p.Suffix), 3, "unsupported suffix: %T %v", t, t).debug(16)
+        return
+    }
+
+    // TODO: use map, somehow
+    for k, c := range cache.fast {
+        if strings.HasPrefix(k, pre) && strings.HasSuffix(k, suf) {
+            res = append(res, c)
+        }
+    }
+    return
 }
 
 // Check for patterns like foo%%bar
@@ -6544,6 +6845,59 @@ func correctPathPunForMatch(seg Value) Value {
     }
     return seg
 }
+
+type compositePattern struct { Value ; constraints []Value }
+func (p *compositePattern) String() (s string) {
+    s += "[" + p.Value.String() + ", "
+    for i, v := range p.constraints {
+        if i > 0 { s += " " } ; s += v.String()
+    }
+    s += "]"
+    return
+}
+// func (p *compositePattern) Strval(ctx Context) (s string) {
+//     s += "["
+//     for i, v := range p.vals { if i > 0 { s += " " } ; s += v.Strval(ctx) }
+//     s += "]"
+//     return
+// }
+func (p *compositePattern) match(ctx Context, i interface{}) (full bool, result interface{}, stems []string) {
+    if full, result, stems = p.Value.match(ctx, i); full {
+        for _, con := range p.constraints {
+            if a, b, c := con.match(ctx, i); !a { return a, b, c }
+        }
+    }
+    return
+}
+// func (p *compositePattern) expand(ctx Context, w facet) (res Value) { return p }
+// func (p *compositePattern) refs(ctx Context, v Value) (res bool) {
+//     for _, val := range p.vals { if res = val.refs(ctx, v); res { break } }
+//     return
+// }
+// func (p *compositePattern) defs(ctx Context, s ...string) (res []*def) {
+//     for _, val := range p.vals { res = append(res, val.defs(ctx, s...)...) }
+//     return
+// }
+// func (p *compositePattern) patterned(ctx Context) (res bool) {
+//     for _, val := range p.vals { if res = val.patterned(ctx); res { break } }
+//     return
+// }
+// func (p *compositePattern) stencil(ctx Context, stems []string) (val Value, rest []string) {
+//     errostack(ctx, 5, "stencil unsupported").debug(32)
+//     return
+// }
+// func (p *compositePattern) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+//     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+//     return
+// }
+// func (p *compositePattern) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+//     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+//     return
+// }
+// func (p *compositePattern) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+//     errostack(ctx, 5, "cache unsupported").debug(32)
+//     return
+// }
 
 // GlobPattern represents glob pattern expressions (e.g. '*.o', '[a-z].o', 'a?a.o')
 // 
@@ -6615,20 +6969,21 @@ func (p *GlobPattern) match(ctx Context, i interface{}) (full bool, result inter
         errostack(at(ctx,p.position), 3, "%v : unsupported glob match: %T %v", p, i, i).debug(16)
         return
     }
-    if matched, pre, t := globMatchFile(ctx, p, s, true); matched {
-        if len(t) == 0 { t = append(t, s) } // NOTE: fixes full mached stems by "*"
-        result, stems, full = s, t, true // FIXME: calculate stems from matching
-        if pre != "" { /*full = false*/ }
-    }
+
+    var err error
+    var pattern = p.Strval(ctx)
+    if full, stems, err = globMatch(pattern, s); full { result = s }
+    if false && p.String() == "*.def.in" { info(ctx, "%v %v ; %v %v %v", p, s, full, stems, err).debug(1) }
+    if err != nil { errostack(at(ctx,p.position), 3, "%v: glob match: %v", p, err).debug(16) }
     return
 }
 func (p *GlobPattern) stencil(ctx Context, stems []string) (val Value, rest []string) {
-    unreachable(fmt.Sprintf("Unimplemented GlobPattern stencil %v (stems=%v)", p, stems))
+    erro(ctx, "Unimplemented GlobPattern stencil %v (stems=%v)", p, stems)
     return
 }
 func (p *GlobPattern) traverse(ctx Context) { ctx.traverse(ctx, p) }
 func (p *GlobPattern) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*GlobPattern); ok {
+    if a, y := v.(*GlobPattern); y {
         if len(p.components) == len(a.components) {
             for i, c := range p.components {
                 if c.cmp(ctx, a.components[i]) != cmpEqual {
@@ -6637,9 +6992,9 @@ func (p *GlobPattern) cmp(ctx Context, v Value) (res cmpres) {
             }
             return cmpEqual
         }
-    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+    } else if l, y := v.(*List); y && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
-    } else if u, o := v.(unexpanded); o && u.Value != nil {
+    } else if u, y := v.(unexpanded); y && u.Value != nil {
         res = p.cmp(ctx, u.Value)
     }
     return
@@ -6686,9 +7041,7 @@ func (p *GlobPattern) cache(ctx Context, cache *valcache, bits int) (res *valcac
             if cache = cache.fix(ctx, fix, bits); cache == nil { return }
 
         case *GlobMeta, *GlobRange:
-            // if fix == "" { if cache = cache.fix(ctx, fix, bits); cache == nil { return } }
             if cache = t.cache(ctx, cache, bits); cache == nil { return }
-            // if fix != "" { fix = "" }
 
         default:
             errostack(of(ctx, comp), 3, "glob: unsupported component: %T %v", t, t).debug(16)
@@ -6697,26 +7050,80 @@ func (p *GlobPattern) cache(ctx Context, cache *valcache, bits int) (res *valcac
     }
     return cache
 }
+func (p *GlobPattern) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    if p.components == nil { return }
 
-// TODO: implement regexp pattern
-type RegexpPattern struct { valbase }
-func (p *RegexpPattern) String() string { return "{RegexpPattern}" }
-func (p *RegexpPattern) Strval(ctx Context) (s string) { return "" }
+    var m sync.Mutex
+    var g sync.WaitGroup
+    var collect func(*valcache, int)
+    var iterate = func(_ string, c *valcache, depth int) {
+        const a = false
+        if c._key == nil {
+            if a { collect(c, depth+1) }
+        } else if y, _, _ := p.match(ctx, c._key); y {
+            m.Lock()
+            res = append(res, c)
+            m.Unlock()
+        }
+        if !a { collect(c, depth+1) }
+        g.Done()
+    }
+
+    collect = func(cache *valcache, depth int) {
+        for k, c := range cache.fast { g.Add(1) ; go iterate(k, c, depth) }
+        for k, c := range cache._fix { g.Add(1) ; go iterate(k, c, depth) }
+    }
+
+    collect(cache, 0) ; g.Wait()
+    return
+}
+
+type RegexpPattern struct { valbase ; *regexp.Regexp }
+func (p *RegexpPattern) String() string { return "{"+p.Regexp.String()+"}" }
+func (p *RegexpPattern) Strval(ctx Context) (s string) { return p.Regexp.String() }
 func (p *RegexpPattern) patterned(ctx Context) bool { return true }
 func (p *RegexpPattern) match(ctx Context, i interface{}) (full bool, result interface{}, stems []string) {
-    erro(ctx, "regexp.match: %T %v", i, i) // TODO: regexp match
+    if p.Regexp != nil {
+        var str string
+        switch t := i.(type) {
+        case *File:     str = t.name
+        case *filestub: str = t.name
+        case Value:  str = t.Strval(ctx)
+        case string: str = t
+        case []string: if len(t) == 1 { str = t[0] } else { return }
+        default:
+            errostack(of(ctx,p), 3, "%T %v :matching unsupported value: %T %v", p, p, i, i).debug(16)
+            return
+        }
+
+        if sms := p.Regexp.FindStringSubmatch(str); sms != nil && sms[0] == str {
+            full, result, stems = true, sms[0], sms[1:]
+        }
+    }
     return
 }
 func (p *RegexpPattern) stencil(ctx Context, stems []string) (val Value, rest []string) {
-    erro(ctx, "regexp.match: %v", stems) // TODO: regexp stencil
+    if p.Regexp != nil {
+        erro(ctx, "regexp stencil unsupported: %v %v", p, stems)
+    } else {
+        rest = stems
+    }
     return
 }
 func (p *RegexpPattern) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*RegexpPattern); ok {
-        if a != nil { /* FIXME: ... */ }
+        if a != nil {
+            if s1, s2 := p.String(), a.String(); s1 == s2 {
+                res = cmpEqual
+            } else if s1 < s2 {
+                res = cmpSmaller
+            } else /*if s1 > s2*/ {
+                res = cmpGreater
+            }
+        }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
-    } else if u, o := v.(unexpanded); o && u.Value != nil {
+    } else if u, ok := v.(unexpanded); ok && u.Value != nil {
         res = p.cmp(ctx, u.Value)
     }
     return
@@ -6731,9 +7138,18 @@ func (_ *RegexpPattern) cache(ctx Context, cache *valcache, bits int) (res *valc
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
+func (_ *RegexpPattern) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "cache unsupported").debug(32)
+    return
+}
 
-func NewRegexpPattern(pos Position) Value {
-    return &RegexpPattern{valbase{pos}} // TODO: RegexpPattern implementation
+func NewRegexpPattern(pos Position, rx string) Value {
+	var err error
+	var exp *regexp.Regexp
+	if exp, err = regexp.Compile(rx); err != nil {
+		// errostack(at(p,pos), 3, "regexp: %v", err).debug(6)
+	}
+    return &RegexpPattern{valbase{pos},exp} // TODO: RegexpPattern implementation
 }
 
 type Valuer interface {
@@ -6955,7 +7371,7 @@ func EscapeChar(s string) string {
 }
 
 func MakeNil(pos Position) *Nil { return &Nil{valbase{pos}} }
-func MakeNone(pos Position) *None { return &None{valbase{pos}, nil} }
+func MakeNone(pos Position) *none { return &none{valbase{pos}, nil} }
 func MakeSelection(pos Position, tok Token, lhs, rhs Value) *selection { return &selection{valbase{pos}, tok, lhs, rhs} }
 func MakeAnswer(pos Position, v bool) (res *answer) {
     if v {

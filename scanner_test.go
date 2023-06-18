@@ -949,7 +949,7 @@ start::
                 {-1, LINEND, `` },
 
                 {-1, BAREWORD, `start` },
-                {-1, COLON2, `` },
+                {-1, DOLON, `` },
                 {-1, LINEND, `` },
                 {-1, RECIPE, `echo two` },
                 {-1, LINEND, `` },
@@ -959,7 +959,7 @@ start::
                 {-1, LINEND, `` },
 
                 {-1, BAREWORD, `start` },
-                {-1, COLON2, `` },
+                {-1, DOLON, `` },
                 {-1, LINEND, `` },
                 {-1, RECIPE, `echo three` },
                 {-1, LINEND, `` },

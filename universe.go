@@ -900,7 +900,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
         }
         for _, goal := range vals {
             switch t := goal.(type) {
-            case *Nil, *None: // just ignore
+            case *Nil, *none: // just ignore
             case *bareword:
                 if entries := proj.resolveEntries(ctx, t.string, true); entries == nil {
                     erro(ctx, "no such entry `%s`", t.string).debug(1)

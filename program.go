@@ -384,11 +384,28 @@ func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, 
             warnstack(ctx, 3, "skipped %d, projects %v", len(maps), projects).debug(8)
 
             var en int
-            for _, p := range projects { for _, m := range p.filemaps {
-                if y, v, s := m.Match(ctx, name); y { en += 1
-                    erro(of(ctx, v), "%v: skipped match: %s, %v (%T)", p, s, v, v)
+            for _, p := range projects {
+                var c *valcache
+                if v, y := name.(Value); y {
+                    c = p.filemap.slot(ctx, v, cacheMatchPatts)
+                } else if s, y := name.(string); y {
+                    c = p.filemap.strx(ctx, s, cacheMatchPatts)
+                } else {
+                    erro(of(ctx, v), "%v: skipped match: %s, %v (%T)", p, s, v, v).debug(1)
+                    break
                 }
-            }}
+
+                if c == nil || c._val == nil {
+                    erro(ctx, "%v: %v: %v", p, name, name).debug(1)
+                    break
+                }
+
+                // if y, v, s := m.Match(ctx, name); y { en += 1
+                //     erro(of(ctx, v), "%v: skipped match: %s, %v (%T)", p, s, v, v)
+                // }
+
+                info(ctx, "%T %v %v", name, name, c).debug(1)
+            }
             if en > 0 { errostack(ctx, 3).debug(8) }
         }}() }
 
@@ -420,7 +437,7 @@ func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, 
     } else if prereqValue.patterned(ctx) {
         var stems = ctx.stems()
         if len(stems) == 0 {
-            errostack(ctx, 3, "%v: no stems", prereqValue).debug(8)
+            if false { errostack(ctx, 3, "%v: no stems, %v", prereqValue, ctx).debug(8) }
             return
         }
 
