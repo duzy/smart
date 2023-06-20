@@ -4098,21 +4098,21 @@ type wildcardOpts struct {
         filetype string `ft,filetype,file-type` // dir, file, etc.
         dir string `di,dir,directory`
 }
-func _wildcard(ctx Context, opts *wildcardOpts, a_pats ...Value) (files []*File) {
-        var ( d1, d2 time.Duration ; n int )
+func _wildcard(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
+        var ( d1, d2 time.Duration ; n int ; db = opts.debug == 1000 )
         defer func(t0 time.Time) {
                 var t2 = time.Now()
                 if d := t2.Sub(t0); d > 1*time.Second {
                         var pos = ctx.Position()
                         prompt(ctx, "%v: slow: dir=%s, %d excludes\n", pos, opts.dir, len(opts.exclude))
-                        prompt(ctx, "%v: slow: %d pats, %v\n", pos, len(a_pats), a_pats)
+                        prompt(ctx, "%v: slow: %d pats, %v\n", pos, len(pats), pats)
                         prompt(ctx, "%v: slow: %d files, %v\n", pos, len(files), files)
                         prompt(ctx, "%v: slow: %v⇒%v+%v * %d\n", pos, d, d1, d2, n).debug(4)
                 }
         } (time.Now())
 
         type subr struct {
-                dir, name, dn string
+                d, n, dn string
                 isDir bool
                 pat chan Value
                 ss []*subr
@@ -4123,7 +4123,7 @@ func _wildcard(ctx Context, opts *wildcardOpts, a_pats ...Value) (files []*File)
         var work func(sub *subr)
         var top = subr{ pat: make(chan Value, 1) }
         var subsub = func(sub *subr) (ss *subr) {
-                for _, s := range sub.ss { if s.dir == sub.dn { return s } }
+                for _, s := range sub.ss { if s.d == sub.dn { return s } }
                 return
         }
         var subed = func(sub *subr, pat Value) {
@@ -4131,8 +4131,8 @@ func _wildcard(ctx Context, opts *wildcardOpts, a_pats ...Value) (files []*File)
                 if ss == nil {
                         sub.Lock()
                         if ss = subsub(sub); ss == nil {
-                                if false { info(ctx, "%p: %v %v %v", sub, pat, sub.dir, sub.name) }
-                                ss = &subr{ dir: sub.dn, pat: make(chan Value, 1) }
+                                if false { info(ctx, "%p: %v %v %v", sub, pat, sub.d, sub.n) }
+                                ss = &subr{ d: sub.dn, pat: make(chan Value, 1) }
                                 sub.ss = append(sub.ss, ss)
                                 top.Add(1) ; go work(ss)
                         }
@@ -4157,6 +4157,8 @@ func _wildcard(ctx Context, opts *wildcardOpts, a_pats ...Value) (files []*File)
                 top.Done()
         }
         var subcard = func(sub *subr, pat Value) {
+                if db { defer func(){ info(ctx, "subcard: %v %v, %v", pat, sub.dn, files).debug(6) }() }
+
                 defer sub.Done()
 
                 var cp, _ = pat.(*compositePattern)
@@ -4167,10 +4169,10 @@ func _wildcard(ctx Context, opts *wildcardOpts, a_pats ...Value) (files []*File)
                         // fallthrough
                 } else if nElems := len(p.Elems); nElems == 0 {
                         errostack(ctx, 3, "empty path: %v", pat).debug(6)
-                        return //continue
-                } else if y, _, _ = p.Elems[0].match(ctx, sub.name); y && nElems == 1 {
-                        errostack(ctx, 3, "%v %v: invalid path: %v, %v, %v", opts.dir, sub.dn, pat, sub.name, nElems).debug(1)
-                        return //continue
+                        return
+                } else if y, _, _ = p.Elems[0].match(ctx, sub.n); y && nElems == 1 {
+                        errostack(ctx, 3, "%v %v: invalid path: %v, %v, %v", opts.dir, sub.dn, pat, sub.n, nElems).debug(1)
+                        return
                 } else if y && sub.isDir && nElems > 1 {
                         val := p.Elems[1]
                         if nElems > 2 {
@@ -4180,13 +4182,13 @@ func _wildcard(ctx Context, opts *wildcardOpts, a_pats ...Value) (files []*File)
                                 val = v
                         }
                         subed(sub, val)
-                        return //continue
-                } else if false && sub.dir == "" {
+                        return
+                } else if false && sub.d == "" {
                         if y { warn(ctx, "bad: %T %v %v", pat, pat, sub).debug(16) }
-                        return //continue
-                } else if true && sub.dir == "" {
+                        return
+                } else if true && sub.d == "" {
                         if y { warn(ctx, "%T %v %v", pat, pat, sub).debug(1) }
-                        return //continue
+                        return
                 }
 
                 const infos = false
@@ -4195,33 +4197,32 @@ func _wildcard(ctx Context, opts *wildcardOpts, a_pats ...Value) (files []*File)
                         // fallthrough
                 } else if len(gp.components) == 0 {
                         errostack(ctx, 3, "empty glob: %v (%s)", pat, sub.dn).debug(6)
-                        return //true
+                        return
                 } else if m, y := gp.components[0].(*GlobMeta); !y {
                         // fallthrough
                 } else if m.Token == DAST { // aka **
                         if y, _, _ = gp.match(ctx, sub.dn); infos {
-                                info(ctx, "_wildcard: %v %v (%v %v, %v)", gp, sub.dn, sub.dir, sub.name, y)
+                                info(ctx, "_wildcard: %v %v (%v %v, %v)", gp, sub.dn, sub.d, sub.n, y)
                         }
                         if sub.isDir { subed(sub, pat) }
-                        if y {
-                                top.Add(1) ; go collect(sub.dn)
-                                return //true
-                        } else {
-                                return //continue
-                        }
+                        if y { top.Add(1) ; go collect(sub.dn) ; return }
+                        return
                 }
 
                 var y bool
-                if y, _, _ = pat.match(ctx, sub.name); infos {
-                        info(ctx, "_wildcard: %s %v, %v (%v %v, %v)", typeof(pat), pat, sub.dn, sub.dir, sub.name, y)
+                if y, _, _ = pat.match(ctx, sub.n); infos {
+                        info(ctx, "_wildcard: %s %v, %v (%v %v, %v)", typeof(pat), pat, sub.dn, sub.d, sub.n, y)
                 }
-                if y { top.Add(1) ; go collect(sub.dn) }
-                return //y
+                if y { top.Add(1) ; go collect(sub.dn) ; return }
+                return
         }
         var subwork = func(subdir, name string, pats []Value) {
+                if db { defer func(){ info(ctx, "subwork: %v %s/%s", pats, subdir, name).debug(6) }() }
+
                 defer top.Done()
 
-                var sub = &subr{ dir:subdir, name:name, dn:filepath.Join(subdir,name) }
+                var sub = &subr{ d:subdir, n:name, dn:filepath.Join(subdir,name) }
+
                 for _, x := range opts.exclude {
                         if y, _, _ := x.match(ctx, sub.dn); y { return }
                 }
@@ -4229,28 +4230,29 @@ func _wildcard(ctx Context, opts *wildcardOpts, a_pats ...Value) (files []*File)
                 if fi, err := os.Stat(filepath.Join(opts.dir, sub.dn)); err == nil {
                         sub.isDir = fi.IsDir()
                 } else if true {
-                        erro(ctx, "%p: %v %v → %v", sub, sub.dir, sub.name, sub.dn)
+                        erro(ctx, "%p: %v %v → %v", sub, sub.d, sub.n, sub.dn)
                         errostack(ctx, 3, "%v", err).debug(16)
                         return
                 } else {
-                        warn(ctx, "%p: %v %v → %v", sub, sub.dir, sub.name, sub.dn)
+                        warn(ctx, "%p: %v %v → %v", sub, sub.d, sub.n, sub.dn)
                         warn(ctx, "%v", err).debug(16)
                         return
                 }
 
                 for _, pat := range pats { sub.Add(1) ; go subcard(sub, pat) }
-                top.Add(1) ; go func() {
-                        sub.Wait()
+                top.Add(1) ; go func() { sub.Wait()
                         for _, s := range sub.ss { if s.pat != nil { close(s.pat) }}
+                        if db { info(ctx, "subwork: %v %v %v", pats, sub.dn, files).debug(1) }
                         top.Done()
                 } ()
         }
 
         work = func(sub *subr) {
-                var t0 = time.Now()
-                var dir = filepath.Join(opts.dir, sub.dir)
-                var names = readDirNames(ctx, dir, opts.errorMissing)
+                t0 := time.Now()
+                names := readDirNames(ctx, filepath.Join(opts.dir, sub.d), opts.errorMissing)
                 d := time.Now().Sub(t0)
+
+                if db { defer func(){ info(ctx, "work: dir=%v, names=%v", sub.d, names).debug(6) }() }
 
                 top.Lock()
                 d1 += d ; n += 1
@@ -4258,23 +4260,23 @@ func _wildcard(ctx Context, opts *wildcardOpts, a_pats ...Value) (files []*File)
 
                 var pats []Value
                 for v := range sub.pat { pats = append(pats, v) }
-                for _, name := range names { top.Add(1) ; go subwork(sub.dir, name, pats) }
+                for _, name := range names { top.Add(1) ; go subwork(sub.d, name, pats) }
                 top.Done()
         }
 
+        t0 := time.Now()
         top.Add(1) ; go work(&top)
 
-        for _, v := range a_pats { top.pat <- v }
-        close(top.pat)
+        for _, v := range pats { top.pat <- v }; close(top.pat)
 
-        top.Wait() ; // d2 += time.Now().Sub(t1)
+        top.Wait() ; d2 += time.Now().Sub(t0)
+
+        if db { warn(ctx, "_wildcard: %v %v", pats, files).debug(10) }
         return
 }
-func wildcard(ctx Context, a_opts *wildcardOpts, a_pats ...Value) (files []*File) {
-        if a_opts.dir == "" {
-                files = ctx.Project().wildcard(ctx, a_opts, a_pats...)
-        } else {
-                files = _wildcard(ctx, a_opts, a_pats...)
+func wildcard(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
+        if opts.dir != ""  { files = _wildcard(ctx, opts, pats...) } else {
+                files = ctx.Project().wildcard(ctx, opts, pats...)
         }
         return
 }
@@ -4534,7 +4536,7 @@ func (ctx builtin) grep(args... Value) (res Value) {
                 return
         }
 
-        var opts, rvs = bop[struct {
+        var _, rvs = bop[struct {
                 generalOpts
         }](&ctx, plain, args[0])
 
@@ -4606,9 +4608,6 @@ func (ctx builtin) grep(args... Value) (res Value) {
                         line += 1 // starting from #1
                         for _, rx := range rxs {
                                 var sm = rx.FindStringSubmatch(text)
-                                if false && opts.debug > 0 && sm != nil {
-                                        warn(ctx, "%v %v %v", sm, rx, text)
-                                }
                                 if len(sm) > 0 && greped(line, sm) { break outer }
                         }
                 }

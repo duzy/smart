@@ -1,12 +1,15 @@
 project testwildcard
 
 files (
-    (**.h) ⇒ $//inc
+    (**.h **.def.am) ⇒ $//inc
 )
 
 pat1 ::=  *.h
 pat2 ::= **.h
-pat3 ::= foobar/config/*.def.in
+pat3 ::= foobar/config/*.def.am
+pat4 ::= foobar/config/*.def.in
+pat5 ::=  *.def.am
+pat6 ::= **.def.am
 
 val1 ::= $(wildcard(-name -dir=$/) inc/*.h inc/*/*.h inc/*/*/*.h)
 val2 ::= $(wildcard(-name -dir=$/) inc/**.h)
@@ -15,5 +18,7 @@ val4 ::= $(wildcard **.h)
 val5 ::= $(wildcard  *.h)
 
 # NOTE: the files maps have no explicit entry for "foobar/config/…"
-fix1 ::= $(wildcard(      -dir=$//inc) foobar/config/*.def.in)
-fix2 ::= $(wildcard(-name -dir=$//inc) foobar/config/*.def.in)
+fix1 ::= $(wildcard                    foobar/config/*.def.am)
+fix2 ::= $(wildcard                    foobar/config/*.def.in)
+fix3 ::= $(wildcard(      -dir=$//inc) foobar/config/*.def.am)
+fix4 ::= $(wildcard(-name -dir=$//inc) foobar/config/*.def.in)

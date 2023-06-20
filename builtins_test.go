@@ -42,8 +42,13 @@ func TestWildcard(t *testing.T) {
 			pat1 = get("pat1")
 			pat2 = get("pat2")
 			pat3 = get("pat3")
+			pat4 = get("pat4")
+			pat5 = get("pat5")
+			pat6 = get("pat6")
 		)
-		if s := pat1.Strval(ctx); s != "*.h" {
+		if g, y := pat1.(*GlobPattern); !y || g == nil {
+			t.Errorf("pat1 is wrong: %T %v", pat1, pat1)
+		} else if s := pat1.Strval(ctx); s != "*.h" {
 			t.Errorf("pat1 is wrong: %T %v %s", pat1, pat1, s)
 		} else if cs := pat1.collect(ctx, &m.filemap, cacheZero); len(cs) != 1 {
 			t.Errorf("pat1 is wrong: %T %v: %v", pat1, pat1, cs)
@@ -52,7 +57,9 @@ func TestWildcard(t *testing.T) {
 		} else if m, y := cs[0]._val.(FileMap); !y || m.pattern == nil {
 			t.Errorf("pat1 is wrong: %T %v", cs[0]._val, cs[0]._val)
 		}
-		if s := pat2.Strval(ctx); s != "**.h" {
+		if g, y := pat2.(*GlobPattern); !y || g == nil {
+			t.Errorf("pat2 is wrong: %T %v", pat2, pat2)
+		} else if s := pat2.Strval(ctx); s != "**.h" {
 			t.Errorf("pat2 is wrong: %T %v %s", pat2, pat2, s)
 		} else if cs := pat2.collect(ctx, &m.filemap, cacheZero); len(cs) != 1 {
 			t.Errorf("pat2 is wrong: %T %v: %v", pat2, pat2, cs)
@@ -61,27 +68,136 @@ func TestWildcard(t *testing.T) {
 		} else if m, y := cs[0]._val.(FileMap); !y || m.pattern == nil {
 			t.Errorf("pat2 is wrong: %T %v", cs[0]._val, cs[0]._val)
 		}
-		if s := pat3.Strval(ctx); s != "foobar/config/*.def.in" {
+		if g, y := pat3.(*Path); !y || g == nil {
+			t.Errorf("pat3 is wrong: %T %v", pat3, pat3)
+		} else if s := pat3.Strval(ctx); s != "foobar/config/*.def.am" {
 			t.Errorf("pat3 is wrong: %T %v %s", pat3, pat3, s)
+		} else if cs0 := pat3.collect(ctx, &m.filemap, cacheZero); len(cs0) != 1 {
+			t.Errorf("pat3 is wrong: %T %v, %v", pat3, pat3, cs0)
 		} else if cs := pat3.collect(ctx, &m.filemap, cacheMatchPatts); len(cs) != 1 {
 			t.Errorf("pat3 is wrong: %T %v, %v", pat3, pat3, cs)
-		} else if g, y := cs[0]._key.(*Path); !y || g == nil {
+		} else if g, y := cs[0]._key.(*GlobPattern); !y || g == nil {
 			t.Errorf("pat3 is wrong: %T %v", cs[0]._key, cs[0]._key)
+		} else if g.String() != "**.def.am" {
+			t.Errorf("pat3 is wrong: %v -> %v", pat3, g)
 		} else if m, y := cs[0]._val.(FileMap); !y || m.pattern == nil {
 			t.Errorf("pat3 is wrong: %T %v", cs[0]._val, cs[0]._val)
 		}
+		if g, y := pat4.(*Path); !y || g == nil {
+			t.Errorf("pat4 is wrong: %T %v", pat4, pat4)
+		} else if s := pat4.Strval(ctx); s != "foobar/config/*.def.in" {
+			t.Errorf("pat4 is wrong: %T %v %s", pat4, pat4, s)
+		} else if cs := pat4.collect(ctx, &m.filemap, cacheMatchPatts); len(cs) != 0 {
+			// NOTE: because the files spec only defined "**.def.am", no "**.def.in"
+			t.Errorf("pat4 is wrong: %T %v, %v", pat4, pat4, cs)
+		}
 
+		if g, y := pat5.(*GlobPattern); !y || g == nil {
+			t.Errorf("pat5 is wrong: %T %v", pat5, pat5)
+		} else if s := pat5.Strval(ctx); s != "*.def.am" {
+			t.Errorf("pat5 is wrong: %T %v %s", pat5, pat5, s)
+		} else if cs := pat5.collect(ctx, &m.filemap, cacheZero); len(cs) != 1 {
+			t.Errorf("pat5 is wrong: %T %v: %v", pat5, pat5, cs)
+		} else if g, y := cs[0]._key.(*GlobPattern); !y || g == nil {
+			t.Errorf("pat5 is wrong: %T %v", cs[0]._key, cs[0]._key)
+		} else if m, y := cs[0]._val.(FileMap); !y || m.pattern == nil {
+			t.Errorf("pat5 is wrong: %T %v", cs[0]._val, cs[0]._val)
+		} else if y, r, s := pat5.match(ctx, pat3); y {
+			t.Errorf("pat5 is wrong: %T %v, %v ; %v %v", pat5, pat5, pat3, r, s)
+		} else if y, r, s := pat5.match(ctx, pat4); y {
+			t.Errorf("pat5 is wrong: %T %v, %v ; %v %v", pat5, pat5, pat4, r, s)
+		}
+		if g, y := pat6.(*GlobPattern); !y || g == nil {
+			t.Errorf("pat6 is wrong: %T %v", pat6, pat6)
+		} else if s := pat6.Strval(ctx); s != "**.def.am" {
+			t.Errorf("pat6 is wrong: %T %v %s", pat6, pat6, s)
+		} else if cs := pat6.collect(ctx, &m.filemap, cacheZero); len(cs) != 1 {
+			t.Errorf("pat6 is wrong: %T %v: %v", pat6, pat6, cs)
+		} else if g, y := cs[0]._key.(*GlobPattern); !y || g == nil {
+			t.Errorf("pat6 is wrong: %T %v", cs[0]._key, cs[0]._key)
+		} else if m, y := cs[0]._val.(FileMap); !y || m.pattern == nil {
+			t.Errorf("pat6 is wrong: %T %v", cs[0]._val, cs[0]._val)
+		} else if y, r, s := pat6.match(ctx, pat3); !y {
+			t.Errorf("pat6 is wrong: %T %v, %v ; %v %v", pat6, pat6, pat3, r, s)
+		} else if r == nil {
+			t.Errorf("pat6 is wrong: %T %v, %v ; %T %v", pat6, pat6, pat3, r, r)
+		} else if a, y := r.(string); !y {
+			t.Errorf("pat6 is wrong: %T %v, %v ; %T %v", pat6, pat6, pat3, r, r)
+		} else if a != "foobar/config/*.def.am" {
+			t.Errorf("pat6 is wrong: %T %v, %v ; %v", pat6, pat6, pat3, t)
+		} else if s == nil || len(s) != 1 {
+			t.Errorf("pat6 is wrong: %T %v, %v ; %v", pat6, pat6, pat3, s)
+		} else if s[0] != "foobar/config/*" {
+			t.Errorf("pat6 is wrong: %T %v, %v ; %v", pat6, pat6, pat3, s)
+		} else if y, r, s := pat6.match(ctx, pat4); y {
+			t.Errorf("pat6 is wrong: %T %v, %v ; %v %v", pat6, pat6, pat4, r, s)
+		}
+
+		const N = 10
+		var wg sync.WaitGroup
+		var optsNoDir   = wildcardOpts{ dir: "" }
+		var optsWorkDir = wildcardOpts{ dir: ctx.WorkDir() + "/inc" }
+		invalid := func(name string) bool { return name == "" ||
+			name != "foobar/config/a.def.in" &&
+			name != "foobar/config/b.def.in" ;
+		}
 		{
-			var N = 100
-			var wg sync.WaitGroup
 			wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
-				var opts = wildcardOpts{ dir: ctx.WorkDir() }
-				if a := _wildcard(ctx, &opts, pat3); a == nil {
-					t.Errorf("pat3 _wildcard no files: %v (%d)", pat3, n)
+				if a := _wildcard(of(ctx,pat3), &optsWorkDir, pat3); len(a) != 1 {
+					t.Errorf("_wildcard(%v) is wrong (%d): %v", pat3, n, a)
+				} else if a[0].name != "foobar/config/a.def.am" {
+					t.Errorf("_wildcard(%v) is wrong (%d): %v", pat3, n, a[0])
 				}
 			} (i) }
-			wg.Wait()
 		}
+		{
+			wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
+				if a := _wildcard(of(ctx,pat4), &optsWorkDir, pat4); len(a) != 2 {
+					t.Errorf("_wildcard(%v) is wrong (%d): %v", pat4, n, a)
+				} else if invalid(a[0].name) {
+					t.Errorf("_wildcard(%v) is wrong (%d): %v", pat4, n, a[0])
+				} else if invalid(a[1].name) {
+					t.Errorf("_wildcard(%v) is wrong (%d): %v", pat4, n, a[1])
+				}
+			} (i) }
+		}
+		{
+			wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
+				if a := wildcard(of(ctx,pat3), &optsWorkDir, pat3); len(a) != 1 {
+					t.Errorf("wildcard(%v) is wrong (%d): %v", pat3, n, a)
+				} else if a[0].name != "foobar/config/a.def.am" {
+					t.Errorf("wildcard(%v) is wrong (%d): %v", pat3, n, a[0])
+				}
+			} (i) }
+		}
+		{
+			wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
+				if a := wildcard(of(ctx,pat4), &optsWorkDir, pat4); len(a) != 2 {
+					t.Errorf("wildcard(%v) is wrong (%d): %v", pat4, n, a)
+				} else if invalid(a[0].name) {
+					t.Errorf("wildcard(%v) is wrong (%d): %v", pat4, n, a[0])
+				} else if invalid(a[1].name) {
+					t.Errorf("wildcard(%v) is wrong (%d): %v", pat4, n, a[1])
+				}
+			} (i) }
+		}
+		{
+			wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
+				if a := wildcard(ctx, &optsNoDir, pat3); len(a) != 1 {
+					t.Errorf("wildcard(%v) is wrong (%d): %v", pat3, n, a)
+				} else if a[0].name != "foobar/config/a.def.am" {
+					t.Errorf("wildcard(%v) is wrong (%d): %v", pat3, n, a[0])
+				}
+			} (i) }
+		}
+		{
+			wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
+				if a := wildcard(ctx, &optsNoDir, pat4); a != nil {
+					t.Errorf("wildcard(%v) is wrong (%d): %v", pat4, n, a)
+				}
+			} (i) }
+		}
+		wg.Wait()
 
 		var (
 			val1 = get("val1")
@@ -183,20 +299,29 @@ func TestWildcard(t *testing.T) {
 		var (
 			fix1 = get("fix1")
 			fix2 = get("fix2")
+			fix3 = get("fix3")
+			fix4 = get("fix4")
 		)
 		if s := fix1.Strval(ctx); s == "" {
 			t.Errorf("fix1 is wrong: %T %v", fix1, fix1)
-		} else if strings.Count(s, "foobar/config/a.def.in") != 1 {
-			t.Errorf("fix1 is wrong: %T %v", fix1, fix1)
-		} else if strings.Count(s, "foobar/config/b.def.in") != 1 {
+		} else if strings.Count(s, "foobar/config/a.def.am") != 1 {
 			t.Errorf("fix1 is wrong: %T %v", fix1, fix1)
 		}
-		if s := fix2.Strval(ctx); s == "" {
+		if s := fix2.Strval(ctx); s != "" {
+			// NOTE: because the files spec defines only "**.def.am", no "**.def.in"
 			t.Errorf("fix2 is wrong: %T %v", fix2, fix2)
+		}
+		if s := fix3.Strval(ctx); s == "" {
+			t.Errorf("fix3 is wrong: %T %v", fix3, fix3)
+		} else if strings.Count(s, "foobar/config/a.def.am") != 1 {
+			t.Errorf("fix3 is wrong: %T %v", fix3, fix3)
+		}
+		if s := fix4.Strval(ctx); s == "" {
+			t.Errorf("fix4 is wrong: %T %v", fix4, fix4)
 		} else if strings.Count(s, "foobar/config/a.def.in") != 1 {
-			t.Errorf("fix2 is wrong: %T %v", fix2, fix2)
+			t.Errorf("fix4 is wrong: %T %v", fix4, fix4)
 		} else if strings.Count(s, "foobar/config/b.def.in") != 1 {
-			t.Errorf("fix2 is wrong: %T %v", fix2, fix2)
+			t.Errorf("fix4 is wrong: %T %v", fix4, fix4)
 		}
 	}
 

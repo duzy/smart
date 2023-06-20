@@ -49,26 +49,21 @@ func (p FileMap) String() (s string) {
   return
 }
 
-func (p *FileMap) Patterns(ctx Context) (pats []Value) {
+func (p *FileMap) primePatterns(ctx Context) (pats []Value) {
   var patts = []Value{ p.pattern }
   if patts[0] == nil { patts = p.patts }
+
   for _, pattern := range patts {
     if pattern.expandable(ctx, expandClosure) {
-      if false && !options.allowClosureFilemap { // -closure-files
-        warnstack(of(ctx,pattern), 8, "closure filemap pattern may cause recursive file resolving: %v", pattern).debug(32)
-        ctx.flushDiags() // check here to report warnings immediately
-      }
-
+      var u int
       // FIXME+TODO: this could be time consuming to expand clousre in the filemap
       /*if pats, err = mergex(ctx, plain, pattern); err != nil {
         erro(of(ctx,pattern), "merge pattern '%v' failed: %v", pattern, err)
-      } else*/
-      var unexpanded int
-      if pats, unexpanded, _ = plain.expand(ctx, pattern); unexpanded>0 {
+      } else*/ if pats, u, _ = plain.expand(ctx, pattern); u == 0 {
+        if pats != nil { pats = mergex(ctx, plain, pats...) }
+      } else {
         errostack(of(ctx,pattern), 3, "unexpanded file pattern: %v", pats).debug(15)
-        ctx.flushDiags() // check here to report warnings immediately
       }
-      pats = mergex(ctx, plain, pats...)
     } else {
       pats = append(pats, pattern)
     }
@@ -79,7 +74,7 @@ func (p *FileMap) Patterns(ctx Context) (pats []Value) {
 // Match split filename into list and match each part with the pattern correspondingly.
 func (filemap *FileMap) Match(ctx Context, val interface{}) (matched bool, pattern Value, name string) {
   // TODO: escape file matching for 'String' and "Compound" values
-  for _, pat := range filemap.Patterns(ctx) {
+  for _, pat := range filemap.primePatterns(ctx) {
     if matched, name = filemap.match(ctx, pat, val); matched { pattern = pat; break }
   }
   return
@@ -344,7 +339,7 @@ ForPatterns:
         continue
       }
 
-      for _, mapPat := range m.Patterns(ctx) {
+      for _, mapPat := range m.primePatterns(ctx) {
         if matched, _, _ = mapPat.match(ctx, inPat); !matched {
           if inPatPatterned { // flip matching patterns
             if matched, _, _ = inPat.match(ctx, mapPat); matched {
@@ -471,62 +466,70 @@ func (p *Project) wildcard(ctx Context, opts *wildcardOpts, patterns ...Value) (
     g.Done()
   }
 
-  var f0 = func(inVal, mapVal Value, inPat, mapPat bool, fm *FileMap) {
+  var f0 = func(lVal, rVal Value, lPat, rPat bool, fm *FileMap) {
     var o = *opts
     for _, loc := range fm.locs {
-      if o.dir = loc.Strval(ctx); inPat && mapPat {
+      if o.dir = loc.Strval(ctx); lPat && rPat {
         var pat Value
-        if inVal.cmp(ctx, mapVal) == cmpEqual { pat = inVal } else {
-          pat = &compositePattern{inVal, []Value{mapVal}}
+        if lVal.cmp(ctx, rVal) == cmpEqual { pat = lVal } else {
+          pat = &compositePattern{lVal, []Value{rVal}}
         }
         g.Add(1) ; go collect(_wildcard(ctx, &o, pat)...)
-      } else if inPat && !mapPat {
+      } else if lPat && !rPat {
         var a []fs.FileInfo
         if missing { a = []fs.FileInfo{nil} }
-        name := mapVal.Strval(ctx)
+        name := rVal.Strval(ctx)
         file := stat(ctx, name, "", o.dir, a...)
         g.Add(1) ; go collect(file)
-      } else if !inPat && mapPat {
+      } else if !lPat && rPat {
         var a []fs.FileInfo
         if missing { a = []fs.FileInfo{nil} }
-        name := inVal.Strval(ctx)
+        name := lVal.Strval(ctx)
         file := stat(ctx, name, o.dir, "", a...)
         g.Add(1) ; go collect(file)
       } else {
-        warn(ctx, "TODO: wildcard: 3. %v %v %s", inVal, mapVal, o.dir)
+        warn(ctx, "TODO: wildcard: 3. %v %v %s", lVal, rVal, o.dir)
       }
     }
     g.Done()
   }
 
-  var f1 = func(inVal Value, inPat bool, c *valcache) {
-    var fm, y = c._val.(FileMap)
-    if !y || fm.filemap == nil {
-      erro(ctx, "Not FileMap: %T %v", c._val, c._val).debug(1)
-      g.Done() ; return
-    }
-
-    for _, mapVal := range fm.Patterns(ctx) {
-      var mapPat = mapVal.patterned(ctx)
-      if y, _, _ := inVal.match(ctx, mapVal); y {
-        g.Add(1) ; go f0(inVal, mapVal, inPat, mapPat, &fm)
+  var f1 = func(inVal, mapVal Value, inPat, mapPat bool, fm *FileMap) {
+    if y, _, _ := inVal.match(ctx, mapVal); y { // e.g. inVal=**.am <-> mapVal=foo/bar/*.am
+      g.Add(1) ; go f0(inVal, mapVal, inPat, mapPat, fm)
+    } else if y, _, _ = mapVal.match(ctx, inVal); y { // e.g. mapVal=**.am <-> inVal=foo/bar/*.am
+      if g.Add(1) ; true {
+        go f0(inVal, mapVal, inPat, mapPat, fm)
       } else {
-        warn(ctx, "TODO: wildcard: %v %v", inVal, mapVal).debug(1)
+        go f0(mapVal, inVal, mapPat, inPat, fm)
       }
+    } else {
+      warn(ctx, "TODO: wildcard: %v %v", mapVal, inVal).debug(1)
     }
     g.Done()
   }
 
-  var f2 = func(inVal Value) {
+  var f2 = func(inVal Value, inPat bool, c *valcache) {
+    var fm, y = c._val.(FileMap)
+    if y && fm.filemap != nil {
+      for _, mapVal := range fm.primePatterns(ctx) {
+        g.Add(1) ; go f1(inVal, mapVal, inPat, mapVal.patterned(ctx), &fm)
+      }
+    } else {
+      erro(ctx, "Not FileMap: %T %v", c._val, c._val).debug(1)
+    }
+    g.Done()
+  }
+
+  var f3 = func(inVal Value) {
     var inPat = inVal.patterned(ctx)
     for _, c := range inVal.collect(ctx, &p.filemap, cacheMatchPatts) {
-      g.Add(1) ; go f1(inVal, inPat, c)
+      g.Add(1) ; go f2(inVal, inPat, c)
     }
     g.Done()
   }
 
-  for _, inVal := range patterns { g.Add(1) ; go f2(inVal) }
-  g.Wait()
+  for _, inVal := range patterns { g.Add(1) ; go f3(inVal) }; g.Wait()
   return
 }
 

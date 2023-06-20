@@ -3924,20 +3924,40 @@ func (p *Path) collect(ctx Context, cache *valcache, bits int) (res []*valcache)
     bits |= cachePath
 
     var cs = []*valcache{ cache }
-    for i, elem := range elems {
+    for n, elem := range elems {
+        var str string
+        var s []string
         var t []*valcache
         for _, c := range cs {
             if a := elem.collect(ctx, c, bits); len(a) != 0 {
                 t = append(t, a...)
             } else if x, y := c._fix["**"]; y {
-                warn(of(ctx, elem), "%v: [%d] %T %v -> %v", p, i, elem, elem, x).debug(1)
-            } else {
-                warn(of(ctx, elem), "%v: [%d] %T %v -> %v, %v", p, i, elem, elem, a, c).debug(1)
+                if s == nil && str == "" {
+                    for _, v := range elems[n:] { s = append(s, v.Strval(ctx)) }
+                    str = strings.Join(s, PathSep)
+                }
+                for k, a := range x._fix { // see valcache.matchPatts
+                    if k == "" { // TODO: empty
+                        warn(of(ctx, p), "%v: %d %s, %v; %v, %v", p, n, typeof(elem), elem, s, a).debug(16)
+                        continue
+                    }
+
+                    if i := strings.Index(str, k); i < 0 { continue } else
+                    if str = str[i+len(k):]; str != "" {
+                        x = a // TODO: call to valcache.matchPatts ???
+                    } else {
+                        if false { warn(of(ctx, p), "%v[%d], %s; %v, %v, %v", p, n,
+                            typeof(elem), elem, s, a._key).debug(16) }
+
+                        res = append(res, a)
+                        break
+                    }
+                }
             }
         }
         cs = t
     }
-    if cs != nil { res = cs }
+    if cs != nil { res = append(res, cs...) }
 
     // TODO: check cache._fix["**"]
     return
