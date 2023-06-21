@@ -39,6 +39,7 @@ type generalOpts struct {
     debug    int  `d,db,dbg,debug` // NOTE: compatible with 'bool'
     warn     bool `w,warn,warning`
     verbose  bool `v,verb,verbose`
+    silent   bool `silent` // force silent
     timing   bool `t,time,timing`
 }
 

@@ -1,0 +1,4 @@
+project testaddprefix
+
+val1 := $(addprefix -std=,foo)
+val2 := $(addprefix -std=,foo bar foobar)

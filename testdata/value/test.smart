@@ -1,0 +1,219 @@
+project testvalues
+
+################################################################################
+#TEST: barecomp compares with flag
+.test.foo := -
+assert $(equal(-d) $(.test.foo)foobar,-foobar)
+assert $(equal(-d) -foobar,$(.test.foo)foobar)
+.test.foo := -foo
+assert $(equal(-d) $(.test.foo)bar,-foobar)
+assert $(equal(-d) -foobar,$(.test.foo)bar)
+
+################################################################################
+#TEST: delegate calling parameters to value of closure, $(value(-c) &(.text-x))
+.test.ab = foobar $1-$2
+.test.ba = foobaz $2-$1
+.test   := $(value(-c) &(.test.x)) $(&(.test.x) $1$1,$2$2)
+assert $(equal(-d) $(string(-def=.test.ab)),'foobar $1-$2')
+assert $(equal(-d) $(string(-def=.test.ba)),'foobaz $2-$1')
+assert $(equal(-d) $(string(-def=.test   )),'$(value(-c) &(.test.x)) $(&(.test.x) $1$1,$2$2)')
+# assert $(equal(-d) $(string(-e) $(.test.ab)),'foobar $1-$2')
+# assert $(equal(-d) $(string(-e) $(.test.ba)),'foobaz $2-$1')
+assert $(equal(-d) $(string(-e) $(.test.ab)),'foobar' '$1-$2')
+assert $(equal(-d) $(string(-e) $(.test.ba)),'foobaz' '$2-$1')
+# assert $(equal(-d) $(string(-e) $(.test)   ),'$(value(-c) &(.test.x))') # as $(.test.x) is undefined
+assert $(.test.ab a,b) $(equal(-d) $(.test.ab a,b),foobar a-b)
+assert $(.test.ba a,b) $(equal(-d) $(.test.ba a,b),foobaz b-a)
+
+.test.x := .test.ba
+.test.1 ::= $(.test)
+# assert $(equal(-d)  $(string(-def=.test))     ,'$(value(-c) &(.test.x))')
+# assert $(equal(-d)  $(string(-e) $(.test))    ,'foobaz' '$2-$1')
+# assert $(equal(-d)  $(string(-e) $(.test a,b)),'foobaz' 'b-a' 'foobaz' 'bb-aa')
+# assert $(.test a,b) $(equal(-d) $(.test a,b) , foobaz   b-a   foobaz   bb-aa )
+assert $(equal(-d)  $(string(-e) $(.test a,b)),'foobaz' '$2-$1' 'foobaz' 'bb-aa')
+assert $(equal(-d) $(.test a,b) , foobaz   $2-$1   foobaz   bb-aa )
+assert $(not $(.test a,b))
+
+.test   += $(call(-c) &(.test.x),$1$1,$2$2)
+.test.x := .test.ab
+.test.2 ::= $(.test)
+# assert $(equal(-d) $(string(-def=.test)),'foobar $1-$2 foobar $1$1-$2$2')
+# assert $(equal(-d) $(string(-e) $(.test)),'foobar $1-$2 foobar $1$1-$2$2')
+assert $(equal(-d) $(string(-def=.test)),'$(value(-c) &(.test.x)) $(&(.test.x) $1$1,$2$2) $(call(-c) &(.test.x),$1$1,$2$2)')
+# assert $(equal(-d) $(string(-e) $(.test)),'foobar $1-$2 foobar $1$1-$2$2') #'foobar $1-$2 $(call(-c) &(.test.x),$1$1,$2$2)'
+# assert $(equal(-d) $(string(-e) $(.test)),'foobar' '$1-$2' '$(call(-c) &(.test.x),$1$1,$2$2)')
+assert $(equal(-d) $(string(-e) $(.test)),'foobar' '$1-$2' 'foobar' '$1$1-$2$2' 'foobar' '$1$1-$2$2')
+# assert $(.test)     $(equal(-d) $(.test)    ,foobar $1-$2 foobar $1$1-$2$2)
+# assert $(.test a,b) $(equal(-d) $(.test a,b),foobar $1-$2 foobar aa-bb foobar aa-bb)
+# assert $(equal(-d) $(.test a,b),foobar a-b foobar aa-bb foobar aa-bb)
+assert $(equal(-d) $(.test a,b),foobar $1-$2 foobar aa-bb foobar aa-bb)
+# assert $(.test a,b)
+
+.test   := $(value &(.test.y))
+.test.y := .test.ba
+.test.3 ::= $(.test)
+assert $(equal(-d) $(string(-def=.test)),'$(value &(.test.y))')
+assert $(equal(-d) $(string(-e) $(.test)),'foobaz' '$2-$1')
+# assert $(.test a,b) $(equal(-d) $(.test a,b),foobaz b-a)
+# assert $(.test a,b) $(equal(-d) $(.test a,b),foobaz $2-$1)
+assert $(equal(-d) $(.test a,b),foobaz $2-$1)
+# assert $(.test a,b)
+
+# FIXME: barecomp: x+y+z
+
+.test.x := $(auto           a3=3,$(a1)-$(a2)-$(a3))
+.test   := $(auto a1=x a2=y a3=z,$(.test.x)-$(a1)$(a2)$(a3))
+.test.4 ::= $(.test)
+assert $(equal(-d) $(string(-def=.test.x)),'$(a1)-$(a2)-3')
+assert $(equal(-d) $(string(-def=.test  )),'x-y-3-xyz')
+assert $(equal(-d) $(.test.x),$(auto,$(a1)-$(a2)-3))
+assert $(equal(-d) $(.test),x-y-3-xyz)
+# assert $(not(-d) $(.test.x))
+assert          $(.test)
+
+################################################################################
+#TEST: templates
+.test.* :=
+template for flag=(D I)
+template  for lang=(c c++)
+.test.* += $(flag).$(lang)(-unique)
+.test.$(flag).$(lang) := $(flag) $(lang)
+template  expand
+template expand
+assert $(.test.*)     $(equal(-d) $(.test.*),D.c(-unique) D.c++(-unique) I.c(-unique) I.c++(-unique))
+assert $(.test.D.c++) $(equal(-d) $(.test.D.c++),D c++)
+assert $(.test.I.c++) $(equal(-d) $(.test.I.c++),I c++)
+assert $(.test.D.c)   $(equal(-d) $(.test.D.c),D c)
+assert $(.test.I.c)   $(equal(-d) $(.test.I.c),I c)
+
+.test.D.c += $(value &(.test.x))
+.test.v := xx
+.test.x := .test.v
+assert $(.test.D.c)   $(equal(-d) $(.test.D.c),D c xx)
+
+.test.D.c += &(value $(.test.x))
+assert $(.test.D.c)   $(equal(-d) $(.test.D.c),D c xx xx)
+
+.test.I.c += &(value &(.test.x))
+.test.I.c += &(value $(.test.x))
+.test.I.c += $(value &(.test.x))
+.test.I.c += $(value $(.test.x))
+assert $(.test.I.c)   $(equal(-d) $(.test.I.c),I c xx xx xx xx)
+
+.test.foreach = ($1)
+.test.D.c += $(.test.foreach $1,&(.test.none)) ($1)
+.test.D.c += $(foreach $1,&(.test.x.$_)) ($1)
+.test.x.a := x
+.test.x.b := y
+.test.x.c := z
+# assert $(.test.D.c a b c) $(equal(-d) $(.test.D.c a b c),D c xx xx (a b c) (a b c) x y z (a b c))
+assert $(equal(-d) $(.test.D.c a b c),D c xx xx (a b c) (a b c) x y z (a b c))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+################################################################################
+#TEST: apply number autos to multiple level defs
+.test.z := z-$1
+.test.y := $(.test.z)
+.test.x := $(.test.y)
+.test   := $(.test.x)
+assert $(equal(-d) $(string(-e) $(.test.z)),'z-$1')
+assert $(equal(-d) $(string(-e) $(.test.y)),'z-$1')
+assert $(equal(-d) $(string(-e) $(.test.x)),'z-$1')
+assert $(equal(-d) $(string(-e) $(.test)  ),'z-$1')
+assert $(.test a b c) $(equal(-d) $(.test a b c),z-a b c)
+.test.z := z-$1
+.test.y := $(.test.z y-$1)
+.test.x := $(.test.y x-$1)
+.test   := $(.test.x a)
+assert $(equal(-d) $(string(-e) $(.test.z)),'z-$1')
+assert $(equal(-d) $(string(-e) $(.test.y)),'z-y-$1')
+assert $(equal(-d) $(string(-e) $(.test.x)),'z-y-x-$1')
+assert $(equal(-d) $(string(-e) $(.test)  ),'z-y-x-a')
+assert $(.test) $(equal(-d) $(.test),z-y-x-a)
+assert $(.test foo) $(equal(-d) $(.test foo),z-y-x-a)
+.test.z := z-$1-$2
+.test.y := $(.test.z y$1,y$2)
+.test.x := $(.test.y x$1,x$2)
+.test   := $(.test.x  $1, $2)
+assert $(equal(-d) $(string(-e -def=.test.z )),'z-$1-$2')
+assert $(equal(-d) $(string(-e -def=.test.y )),'z-y$1-y$2')
+assert $(equal(-d) $(string(-e -def=.test.x )),'z-yx$1-yx$2')
+assert $(equal(-d) $(string(-e -def=.test   )),'z-yx$1-yx$2')
+assert $(equal(-d) $(string(-e) $(.test.z)),'z-$1-$2')
+assert $(equal(-d) $(string(-e) $(.test.y)),'z-y$1-y$2')
+assert $(equal(-d) $(string(-e) $(.test.x)),'z-yx$1-yx$2')
+assert $(equal(-d) $(string(-e) $(.test)  ),'z-yx$1-yx$2')
+assert $(.test A,B) $(equal(-d) $(.test A,B),z-yxA-yxB)
+
+
+
+
+.test := $1
+assert $(equal(-d) $(typeof(-e) $(.test )),none) # NOTE: with the extra space
+assert $(equal(-d) $(typeof(-e) $(.test)),unexpanded) # not 'delegate'
+assert $(equal(-d) $(.test ),'') # NOTE: with the extra space
+assert $(equal(-d) $(string(-e) $(.test)),'$1')
+assert $(equal(-d) $(strval $(.test)),'')
+
+# NOTE: $(.test$1) may be expand to $(.test), thus
+.test.x := $(.test$1)
+.test   := $(.test.x)
+assert $(equal(-d) $(string(-def=.test.x)),'$(.test$1)')
+assert $(equal(-d) $(string(-def=.test  )),'$(.test$1)')
+assert $(equal(-d) $(string(-e) $(.test.x)  ),'$(.test$1)')
+assert $(equal(-d) $(string(-e) $(.test)    ),'$(.test$1)')
+.test.u := foobar
+assert $(equal(-d) $(.test.x .u),foobar)
+assert $(equal(-d) $(.test   .u),foobar)
+
+.test.y := $(.test$1)
+.test.x := $(.test.y .$1)
+.test   := $(.test.x)
+assert $(equal(-d) $(string(-e -def=.test)),'$(.test.$1)')
+assert $(equal(-d) $(string(-e) $(.test)  ),'$(.test.$1)')
+assert $(equal(-d) $(string(-e) $(.test w)),'$(.test.w)')
+assert $(equal(-d) $(strval     $(.test)  ),'')
+# TODO: assert $(equal(-d) $(.test w)             ,$($(unres .test.w)))
+assert $(equal(-d) $(.test)               ,$(.test.$1))
+.test.w := foobar
+assert $(equal(-d) $(.test w),foobar)
+
+.test.x := &(.test$1)
+.test   := $(.test.x)
+assert $(equal(-d) $(string(-def=.test     )),'&(.test$1)')
+assert $(equal(-d) $(string(-e) $(.test)    ),'&(.test$1)')
+assert $(equal(-d) $(string(-e) $(.test .v2)),'&(.test.v2)')
+assert $(equal(-d) $(.test .v2),&(.test.v2))
+.test.v2 := foobar
+assert $(equal(-d) $(.test .v2),foobar)
+
+.test.y := &(.test$1)
+.test.x := $(.test.y .$1)
+.test   := $(.test.x)
+assert $(equal(-d) $(string(-e -def=.test )),'&(.test.$1)')
+assert $(equal(-d) $(string(-e) $(.test)   ),'&(.test.$1)')
+assert $(equal(-d) $(string(-e) $(.test w2)),'&(.test.w2)')
+assert $(equal(-d) $(strval    $(.test w2)),'')
+assert $(equal(-d) $(strval    $(.test)   ),'')
+assert $(equal(-d) $(.test)   ,&(.test.$1))
+assert $(equal(-d) $(.test )  ,&(.test.)) # NOTE: the extra space in $(.test )
+assert $(equal(-d) $(.test w2),&(.test.w2))
+.test.w2 := foobaz
+assert $(equal(-d) $(.test w2),foobaz)

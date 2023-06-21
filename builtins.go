@@ -582,7 +582,6 @@ func typeof(arg interface{}) (s string) {
                         case *delegate: // FIXME: recursively undelegate types
                                 if d, _ := v.x.(*def); d != nil {
                                         s = fmt.Sprintf("%T", d.value) //s = d.value.Type().String()
-                                        s = strings.ReplaceAll(strings.TrimPrefix(s, "*"), "smart.", "")
                                 } else {
                                         s = "unknown"
                                 }
@@ -590,25 +589,28 @@ func typeof(arg interface{}) (s string) {
                                 s = fmt.Sprintf("%T", v) //s = v.Type().String()
                         }
                 } else if n > 1 {
-                        s = "List" //ListType.name
-                } else {
-                        s = "None" //NoneType.name
+                        s = "List"
+                } else if false {
+                        s = "None"
                 }
         default:
                 // FIXME: this should be an exception (panic).
                 s = fmt.Sprintf("%T", a) //s = a.Type().String()
+        }
+        if s != "" {
                 s = strings.TrimPrefix(s, "*")
                 s = strings.TrimPrefix(s, "smart.")
-                s = strings.TrimPrefix(s, "ast.")
+                if false { s = strings.TrimPrefix(s, "ast.") }
+                // s = strings.ReplaceAll(strings.TrimPrefix(s, "*"), "smart.", "")
         }
         return
 }
 
-func (ctx builtin) typeof(aa ...Value) (res Value) {
-        var opts, args = bop[struct {
+func (ctx builtin) typeof(args ...Value) (res Value) {
+        var opts, _ = bop[struct {
                 generalOpts
                 expand bool `x,e,ex,exp,expand`
-        }](&ctx, plain, aa...)
+        }](&ctx, plain)
 
         var elems []Value
         var pos = ctx.Position()
@@ -618,7 +620,7 @@ func (ctx builtin) typeof(aa ...Value) (res Value) {
                 //   $(fun abc)                 args: (abc)
                 //   $(fun a,b,c)               args: (a),(b),(c)
                 //   $(fun a b c,1 2 3)         args: (a b c),(1 2 3)
-                elems = append(elems, MakeString(pos, typeof(arg)))
+                elems = append(elems, MakeBareword(pos, typeof(arg)))
         }
         return MakeListOrScalar(pos, elems)
 }
@@ -902,8 +904,10 @@ func (ctx builtin) not(args ...Value) (res Value) {
         }](&ctx, plain)
 
         var t bool
-        if opts.debug>0 { for i, a := range args { warn(ctx, "%v. %T %v", i, a, a) } }
-        for _, a := range args { if t = a.True(ctx); t { break } }
+        for i, a := range args {
+                if opts.debug>0 { warn(ctx, "%v. %T %v", i, a, a) }
+                if t = a.True(ctx); t { break }
+        }
 
         if n := opts.debug; n>0 { warnstack(ctx, 3).debug(n) }
 
@@ -959,11 +963,11 @@ func (ctx builtin) equal(args... Value) (res Value) {
                         warn(of(ctx,a), "equal: b: %T %v (unexpanded)", u.Value, b)
                 } else if l, y := b.(*List); y {
                         var v = l.Elems[0]
-                        warn(of(ctx,b), "equal: b: %T %v ; %T %v", b, b, v, v)
+                        warn(of(ctx,b), "equal: b: %T %v (len=%d) ; %T %v", b, b, len(l.Elems), v, v)
                 } else {
                         warn(of(ctx,b), "equal: b: %T %v", b, b)
                 }
-                warnstack(ctx, n, "").debug(n)
+                warnstack(ctx, n).debug(n)
         } else if len(args)>2 {
                 warnstack(of(ctx,args[2]), 1, "equal: extra args specified: %v", args[2]).debug(1)
         }
@@ -1320,11 +1324,12 @@ func (ctx builtin) count(args... Value) (res Value) {
         }](&ctx, plain)
 
         var num int64
-        var x = len(opts.vals)
-        for i, a := range args {
-                if (opts.vals == nil && a.True(ctx)) || (x>0 &&
-                        cmpEqual == opts.vals[i % x].cmp(ctx, a)) {
-                        num += 1
+        for _, a := range args {
+                if opts.vals == nil && a.True(ctx) { num += 1 } else {
+                        for _, v := range opts.vals {
+                                if cmpEqual == v.cmp(ctx, a) { num += 1 }
+                                break
+                        }
                 }
         }
         res = MakeInt(ctx.Position(), num)

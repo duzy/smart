@@ -17,6 +17,7 @@ import (
   "os"
 )
 
+const configuration_sm = "configuration.sm"
 const PathSepByte = filepath.Separator
 const PathSep = string(PathSepByte)
 
@@ -634,13 +635,15 @@ func (p *Project) tempFile(ctx Context, name string) (file *File) {
 }
 
 func (p *Project) configuration(ctx Context) (file *File) {
-  if file = p.tempFile(closureWith(ctx, p.scope), "configuration.sm"); file == nil {
+  if file = p.tempFile(closureWith(ctx, p.scope), configuration_sm); file == nil {
     erro(ctx, "%v: no file configuration.sm", p).debug(1)
   }
   return
 }
 
-type cacher struct { /* TODO: files options */ }
+type cacher struct {
+  generalOpts
+}
 
 func (opts *cacher) cache(ctx Context, patts, paths []Value) {
   var p = ctx.Project()
@@ -657,10 +660,23 @@ func (opts *cacher) cache(ctx Context, patts, paths []Value) {
       } else if c != nil && c._val != nil {
         if t, y := c._val.(FileMap); y {
           if t.filemap == m.filemap && eq(ctx, t.pattern, pat) {
-            for i, pat := range patts { info(of(ctx, pat), "patts[%d]: %T %v, %v", i, pat, pat, paths) }
-            d := warn(of(ctx,t.pattern), "%d. duplication: %v (%T, in %d patts)", mi, c._key, t.pattern, len(patts))
-            if true { warnstack(of(ctx,t.pattern), 3).debug(10) } else { d.debug(1) }
-            continue // it's okay
+            if opts.silent {/* silent, simply ignore duplications */} else
+            if foundDup := -1; /* (opts.debug>0 || opts.verbose) && */true {
+              for i, t := range patts {
+                if eq(ctx, pat, t) {
+                  if foundDup < 0 && i > 0 && i-foundDup>1 { info(ctx, "pats[%d...] ...", i) }
+                  info(of(ctx, t), "patts[%d]: %T %v, %v", i, t, t, paths)
+                  foundDup = i
+                }
+                if 0 <= foundDup && i-foundDup == 3 {
+                  info(ctx, "patts[%d...%d] ... (%v %v)", i, len(patts), pat, t)
+                }
+              }
+              d := warn(of(ctx,t.pattern), "%d. duplication: %v (%T, in %d patts)", mi, c._key, t.pattern, len(patts))
+              if true { warnstack(of(ctx,t.pattern), 3).debug(10) } else { d.debug(1) }
+            }
+
+            continue // duplications are okay to go
           }
 
           erro(of(ctx,t.pattern), "valcache conflict: %v: t=%v %p=%v", t.project, t, t.filemap, t.filemap)

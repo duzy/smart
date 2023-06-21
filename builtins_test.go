@@ -26,14 +26,12 @@ func TestWildcard(t *testing.T) {
 	} else {
 		var ctx Context = &closureContext{ctx, []*Scope{m.scope}} // TODO: add projectContext{ctx, m}
 		var get = func(name string) (res Value) {
-			if o := m.resolveObject(ctx, name); o == nil {
+			var d *def
+			if d, res = call(ctx, name); d == nil {
+				t.Errorf("%s is not def", name)
+			} else if res == nil {
 				t.Errorf("%s is nil", name)
-			} else if d, y := o.(*def); !y {
-				t.Errorf("%s is not def: %T", name, o)
-			} else if res = d.Call(ctx, nil); res == nil {
-				t.Errorf("nil: %v", d)
-
-				res = MakeNone(o.Position())
+				res = MakeNone(d.position)
 			}
 			return
 		}
@@ -322,6 +320,170 @@ func TestWildcard(t *testing.T) {
 			t.Errorf("fix4 is wrong: %T %v", fix4, fix4)
 		} else if strings.Count(s, "foobar/config/b.def.in") != 1 {
 			t.Errorf("fix4 is wrong: %T %v", fix4, fix4)
+		}
+	}
+
+	if n := ctx.flushDiags(); n > 0 { t.Errorf("errors %d", n) }
+}
+
+func TestForeach(t *testing.T) {
+	var ctx = confine("testdata/foreach")
+
+	if err := ctx.loadTopWork(); err != nil {
+		t.Errorf("%v", err)
+	} else if n := ctx.countErrors(); n > 0 {
+		t.Errorf("errors %v, base=%s", n, ctx.WorkDir())
+		ctx.flushDiags()
+	} else if m := ctx.globe.main; m == nil {
+		t.Errorf("nil main")
+	} else if m.name != "testforeach" {
+		t.Errorf("wrong main: %v", m)
+	} else {
+		var ctx Context = &closureContext{ctx, []*Scope{m.scope}} // TODO: add projectContext{ctx, m}
+		var get = func(name string, ii ...interface{}) (res Value) {
+			var d *def
+			if d, res = call(ctx, name, ii...); d == nil {
+				t.Errorf("%s is not def", name)
+			} else if res == nil {
+				t.Errorf("%s is nil", name)
+				res = MakeNone(d.position)
+			}
+			return
+		}
+
+		if v := get(".test.1"); v == nil {
+			t.Errorf(".test.1")
+		} else if s := v.String(); s != "x $(foreach $1,&(.test.foo)$_)" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "x" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		}
+
+		if v := get(".test.2"); v == nil {
+			t.Errorf(".test.2")
+		} else if s := v.String(); s != "x $(foreach q p $(foreach $1,-$_),x$_)" {
+		// } else if s := v.String(); s != "x $(foreach q p $(foreach $1,&(.test.foo)$_),x$_)" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "x xq xp" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		}
+		if v := get(".test.2", []string{"a", "b", "c"}); v == nil {
+			t.Errorf(".test.2")
+		} else if s := v.String(); s != "x $(foreach q p $(foreach a b c,-$_),x$_)" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "x xq xp x-a x-b x-c" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		}
+		if v := get(".test.2", []string{"x", "y", "z"}); v == nil {
+			t.Errorf(".test.2")
+		} else if s := v.String(); s != "x $(foreach q p $(foreach x y z,-$_),x$_)" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "x xq xp x-x x-y x-z" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		}
+
+		if v := get(".test.3"); v == nil {
+			t.Errorf(".test.3")
+		} else if s := v.String(); s != "x $(foreach $1,&(.test.$_)$1) $(foreach $1,$(value(-c) .test.$_)$1)" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "x" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		}
+
+		if v := get(".test.4"); v == nil {
+			t.Errorf(".test.4")
+		} else if s := v.String(); s != "$(foreach $1 $2,&(.test.$_.$(or $4,$3)))" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		}
+	}
+
+	if n := ctx.flushDiags(); n > 0 { t.Errorf("errors %d", n) }
+}
+
+func TestForeach1(t *testing.T) {
+	var ctx = confine("testdata/foreach/1")
+
+	if err := ctx.loadTopWork(); err != nil {
+		t.Errorf("%v", err)
+	} else if n := ctx.countErrors(); n > 0 {
+		t.Errorf("errors %v, base=%s", n, ctx.WorkDir())
+		ctx.flushDiags()
+	} else if m := ctx.globe.main; m == nil {
+		t.Errorf("nil main")
+	} else if m.name != "testforeach" {
+		t.Errorf("wrong main: %v", m)
+	} else {
+		var ctx Context = &closureContext{ctx, []*Scope{m.scope}} // TODO: add projectContext{ctx, m}
+		var get = func(name string, ii ...interface{}) (res Value) {
+			var d *def
+			if d, res = call(ctx, name); d == nil {
+				t.Errorf("%s is not def", name)
+			} else if res == nil {
+				t.Errorf("%s is nil", name)
+				res = MakeNone(d.position)
+			}
+			return
+		}
+
+		if v := get(".test.4"); v == nil {
+			t.Errorf(".test.4")
+		} else if s := v.String(); s != "$(.test.x $1,B b)" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "foo test-foo test-B test-foo-B test-b test-foo-b" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		}
+	}
+
+	if n := ctx.flushDiags(); n > 0 { t.Errorf("errors %d", n) }
+}
+
+func TestAddPrefix(t *testing.T) {
+	var ctx = confine("testdata/addprefix")
+
+	if err := ctx.loadTopWork(); err != nil {
+		t.Errorf("%v", err)
+	} else if n := ctx.countErrors(); n > 0 {
+		t.Errorf("errors %v, base=%s", n, ctx.WorkDir())
+		ctx.flushDiags()
+	} else if m := ctx.globe.main; m == nil {
+		t.Errorf("nil main")
+	} else if m.name != "testaddprefix" {
+		t.Errorf("wrong main: %v", m)
+	} else {
+		var ctx Context = &closureContext{ctx, []*Scope{m.scope}} // TODO: add projectContext{ctx, m}
+		var get = func(name string, ii ...interface{}) (res Value) {
+			var d *def
+			if d, res = call(ctx, name, ii...); d == nil {
+				t.Errorf("%s is not def", name)
+			} else if res == nil {
+				t.Errorf("%s is nil", name)
+				res = MakeNone(d.position)
+			}
+			return
+		}
+
+		if v := get("val1"); v == nil {
+			t.Errorf("val1")
+		} else if s := v.String(); s != /* "$(addprefix -std=,foo)" */"-std=foo" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "-std=foo" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if p, y := v.(*Pair); !y {
+			t.Errorf("%T %v", v, v)
+		} else if s := p.Key.String(); s != "-std" {
+			t.Errorf("%T %v ; %T %v", v, v, p.Key, p.Key)
+		} else if s := p.Value.String(); s != "foo" {
+			t.Errorf("%T %v ; %T %v", v, v, p.Value, p.Value)
+		}
+
+		if v := get("val2"); v == nil {
+			t.Errorf("val2")
+		} else if s := v.String(); s != /* "$(addprefix -std=,foo bar foobar)" */"-std=foo -std=bar -std=foobar" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "-std=foo -std=bar -std=foobar" {
+			t.Errorf("%T %v -> %s", v, v, s)
 		}
 	}
 

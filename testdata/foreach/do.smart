@@ -1,0 +1,72 @@
+project testforeach
+
+.test.1 := x
+.test.1 += $(foreach $1,&(.test.foo)$_)
+.test.foo := -
+assert $(.test.1 a b c) $(equal(-d) $(.test.1 x y z),x -x -y -z)
+
+
+
+
+
+.test.2 := x
+.test.2 += $(foreach q p $(foreach $1,&(.test.foo)$_),x$_)
+# .test.foo := -
+assert $(.test.2 a b c) $(equal(-d) $(.test.2 x y z),x xq xp x-x x-y x-z)
+
+
+
+
+
+.test.3 := x
+.test.3 += $(foreach $1,&(.test.$_)$1)
+.test.3 += $(foreach $1,$(value(-c) .test.$_)$1)
+.test.foo := -
+assert $(.test.3 foo) $(equal(-d) $(.test.3 foo),x -foo -foo)
+
+
+
+
+
+.test.foreach.a := $(foreach $1 $(foreach $2,a$_),b$_)
+.test.foreach.b := $(.test.foreach.a x$1 y$1 z$1,xx$2 yy$2)
+.test.foreach.c := $(.test.foreach.b) \
+    $(foreach &(.test.foreach.x) $(foreach $1 $2,$(value(-c) .test.foreach.x.$_)),-x$_)
+
+.test := $(.test.foreach.b)
+assert $(equal(-d) $(.test 1,2),bx1 by1 bz1 baxx2 bayy2)
+
+.test := $(.test.foreach.c)
+.test.foreach.x.1 := X$1$2
+.test.foreach.x.2 := Y$1$2
+.test.foreach.x  ::= XY
+assert $(equal(-d) $(.test 1,2),bx1 by1 bz1 baxx2 bayy2 -xXY -xX12 -xY12)
+.test := $(.test.foreach.c $1,4)
+.test.foreach.x.3 := V$1$2
+.test.foreach.x.4 := W$1$2
+.test.foreach.x  ::= VW
+# assert $(equal(-d) $(.test 3  ),bx3 by3 bz3 baxx4 bayy4 -xVW -xV3$2 -xW3$2)
+# assert $(equal(-d) $(.test 3  ),bx3 by3 bz3 baxx4 bayy4 -xVW -xV3  -xW3 )
+# assert $(equal(-d) $(.test 3,5),bx3 by3 bz3 baxx4 bayy4 -xVW -xV35 -xW35)
+# assert $(equal(-d) $(.test  ,5),bx  by  bz  baxx4 bayy4 -xVW       -xW5 )
+assert $(equal(-d) $(.test 3  ),bx3 by3 bz3 baxx4 bayy4 -xVW -xV34 -xW34)
+assert $(equal(-d) $(.test 3,5),bx3 by3 bz3 baxx4 bayy4 -xVW -xV34 -xW34)
+assert $(equal(-d) $(.test  ,5),bx  by  bz  baxx4 bayy4 -xVW       -xW4 )
+.test.foreach.d   := $(foreach $1 $2,$(.test.foreach.d.$_))
+.test.foreach.d.1 := $(foreach $1 $2,-x$_)
+.test.foreach.d.2 := $(foreach $1 $2,-y$_)
+.test := $(.test.foreach.d)
+assert $(equal(-d) $(.test 1,2),-x1 -x2 -y1 -y2)
+
+
+
+
+
+.test.4   := $(foreach $1 $2,&(.test.$_.$(or $4,$3)))
+.test.x.a := xa
+.test.x.b := xb
+.test.y.a := ya
+.test.y.b := yb
+assert $(equal(-d) $(.test.4 x,y,a,b),xb yb)
+assert $(equal(-d) $(.test.4 x,y, ,b),xb yb)
+assert $(equal(-d) $(.test.4 x,y,a  ),xa ya)

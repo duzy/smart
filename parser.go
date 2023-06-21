@@ -1526,7 +1526,11 @@ func (p *parser) closuredelegate() (result Value) {
 		// NOTE: Options (flags) in args are deprecated by $(wildcard(-foo) ...)
 		for _, v := range merge(rest[0]) {
 			if p, y := v.(*Pair); y { v = p.Key }
-			if _, y := v.(*Flag); y { warn(of(ctx,v), "%v", v).debug(1) } else { break }
+			if f, y := v.(*Flag); y { if s := f.String();
+				s != "-std" && s != "-lunwind" && s != "-x" && s != "-" &&
+				!(s[0] == '-' && s[len(s)-1] == '-') {
+				warn(of(ctx,v), "%v", f).debug(1)
+			}} else { break }
 		}
 	}
 
@@ -2060,7 +2064,7 @@ func (p *parser) files(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 
 	var (
 		val = g.spec[0]
-		opts cacher
+		opts = cacher{generalOpts:g.generalOpts}
 		pats []Value
 	)
 	parseOpts(ctx, &opts, 0, g.remainder...)
@@ -3350,7 +3354,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 
 	switch position = p.Position(); keyword {
 	case PACKAGE, MODULE:
-		erro(ctx, "deprecated keyword '%s'", keyword).debug(1)
+		erro(ctx, "deprecated keyword: %s", keyword).debug(1)
 		return nil
 	case CONFIGURE:
 		switch p.next(true); p.tok {

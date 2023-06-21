@@ -10,6 +10,259 @@ import (
 	"testing"
 )
 
+func TestValues1(t *testing.T) {
+	var ctx = confine("testdata/value/1")
+
+	if err := ctx.loadTopWork(); err != nil {
+		t.Errorf("%v", err)
+	} else if n := ctx.countErrors(); n > 0 {
+		t.Errorf("errors %v, base=%s", n, ctx.WorkDir())
+		ctx.flushDiags()
+	} else if m := ctx.globe.main; m == nil {
+		t.Errorf("nil main")
+	} else if m.name != "testvalues" {
+		t.Errorf("wrong main: %v", m)
+	} else {
+		var ctx Context = &closureContext{ctx, []*Scope{m.scope}} // TODO: add projectContext{ctx, m}
+		var get = func(name string, ii ...interface{}) (res Value) {
+			var d *def
+			if d, res = call(ctx, name, ii...); d == nil {
+				t.Errorf("%s is not def", name)
+			} else if res == nil {
+				t.Errorf("%s is nil", name)
+				res = MakeNone(d.position)
+			}
+			return
+		}
+
+		var (
+			test_foo = get(".test.foo")
+		)
+		if s := test_foo.Strval(ctx); s != "-foo" {
+			t.Errorf("%T %v, %s", test_foo, test_foo, s)
+		} else if s = test_foo.String(); s != "-foo" {
+			t.Errorf("%T %v, %s", test_foo, test_foo, s)
+		}
+	}
+
+	if n := ctx.flushDiags(); n > 0 { t.Errorf("errors %d", n) }
+}
+
+func TestValues2(t *testing.T) {
+	var ctx = confine("testdata/value/2")
+
+	if err := ctx.loadTopWork(); err != nil {
+		t.Errorf("%v", err)
+	} else if n := ctx.countErrors(); n > 0 {
+		t.Errorf("errors %v, base=%s", n, ctx.WorkDir())
+		ctx.flushDiags()
+	} else if m := ctx.globe.main; m == nil {
+		t.Errorf("nil main")
+	} else if m.name != "testvalues" {
+		t.Errorf("wrong main: %v", m)
+	} else {
+		var ctx Context = &closureContext{ctx, []*Scope{m.scope}} // TODO: add projectContext{ctx, m}
+		var get = func(name string, ii ...interface{}) (res Value) {
+			var d *def
+			if d, res = call(ctx, name, ii...); d == nil {
+				t.Errorf("%s is not def", name)
+			} else if res == nil {
+				t.Errorf("%s is nil", name)
+				res = MakeNone(d.position)
+			}
+			return
+		}
+
+		if v := get(".test.ab"); v == nil {
+			t.Errorf(".test.ab")
+		} else if s := v.String(); s != "foobar $1-$2" {
+			t.Errorf("%T %v, %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "foobar -" {
+			t.Errorf("%T %v, %s", v, v, s)
+		}
+
+		if v := get(".test.ba"); v == nil {
+			t.Errorf(".test.ba")
+		} else if s := v.String(); s != "foobaz $2-$1" {
+			t.Errorf("%T %v, %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "foobaz -" {
+			t.Errorf("%T %v, %s", v, v, s)
+		}
+
+		if v := get(".test.ab", "a", "b"); v == nil {
+			t.Errorf(".test.ab")
+		} else if s := v.String(); s != "foobar a-b" {
+			t.Errorf("%T %v, %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "foobar a-b" {
+			t.Errorf("%T %v, %s", v, v, s)
+		}
+
+		if v := get(".test.ba", "a", "b"); v == nil {
+			t.Errorf(".test.ba")
+		} else if s := v.String(); s != "foobaz b-a" {
+			t.Errorf("%T %v, %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "foobaz b-a" {
+			t.Errorf("%T %v, %s", v, v, s)
+		}
+
+		if v := get(".test", "a", "b", "c"); v == nil {
+			t.Errorf(".test")
+		} else if s := v.String(); s != "$(value(-c) &(.test.x)) $(&(.test.x) aa,bb) foobar aa-bb" {
+			t.Errorf("%T %v, %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "foobar aa-bb foobar aa-bb" {
+			t.Errorf("%T %v, %s", v, v, s)
+		}
+
+		if v := get(".test.1", "a", "b", "c"); v == nil {
+			t.Errorf(".test.1")
+		} else if s := v.String(); s != "foobaz $2-$1 $(.test.ba $1$1,$2$2) $3" {
+			t.Errorf("%T %v, %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "foobaz -" {
+			t.Errorf("%T %v, %s", v, v, s)
+		}
+
+		if v := get(".test.2", "a", "b", "c"); v == nil {
+			t.Errorf(".test.2")
+		} else if s := v.String(); s != "foobar $1-$2 foobar aa-bb c" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "foobar - foobar aa-bb c" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		}
+
+		if v := get(".test.3", "a", "b", "c"); v == nil {
+			t.Errorf(".test.3")
+		} else if s := v.String(); s != "foobar $1-$2 $(.test.ab $1$1,$2$2) $(call(-c) .test.ab,$1$1,$2$2) $3" {
+			t.Errorf("%T %v, %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "foobar -" {
+			t.Errorf("%T %v, %s", v, v, s)
+		}
+
+		if v := get(".test.4", "a", "b", "c"); v == nil {
+			t.Errorf(".test.4")
+		} else if s := v.String(); s != "foobar $1-$2 foobar aa-bb foobar aa-bb c" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "foobar - foobar aa-bb foobar aa-bb c" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		}
+	}
+
+	if n := ctx.flushDiags(); n > 0 { t.Errorf("errors %d", n) }
+}
+
+func TestValues3(t *testing.T) {
+	var ctx = confine("testdata/value/3")
+
+	if err := ctx.loadTopWork(); err != nil {
+		t.Errorf("%v", err)
+	} else if n := ctx.countErrors(); n > 0 {
+		t.Errorf("errors %v, base=%s", n, ctx.WorkDir())
+		ctx.flushDiags()
+	} else if m := ctx.globe.main; m == nil {
+		t.Errorf("nil main")
+	} else if m.name != "testvalues" {
+		t.Errorf("wrong main: %v", m)
+	} else {
+		var ctx Context = &closureContext{ctx, []*Scope{m.scope}} // TODO: add projectContext{ctx, m}
+		var get = func(name string, ii ...interface{}) (res Value) {
+			var d *def
+			if d, res = call(ctx, name, ii...); d == nil {
+				t.Errorf("%s is not def", name)
+			} else if res == nil {
+				t.Errorf("%s is nil", name)
+				res = MakeNone(d.position)
+			}
+			return
+		}
+
+		if v := get(".test.x"); v == nil {
+			t.Errorf(".test.x")
+		} else if s := v.String(); s != "$(a1)-$(a2)-3" {
+			t.Errorf("%T %v, %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "--3" {
+			t.Errorf("%T %v, %s", v, v, s)
+		}
+
+		if v := get(".test", "a", "b", "c"); v == nil {
+			t.Errorf(".test")
+		} else if s := v.String(); s != "x-y-3-xyz" {
+			t.Errorf("%T %v, %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "x-y-3-xyz" {
+			t.Errorf("%T %v, %s", v, v, s)
+		}
+
+		if v := get(".test.1", "a", "b", "c"); v == nil {
+			t.Errorf(".test.1")
+		} else if s := v.String(); s != "x-y-3-xyz" {
+			t.Errorf("%T %v, %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "x-y-3-xyz" {
+			t.Errorf("%T %v, %s", v, v, s)
+		}
+	}
+
+	if n := ctx.flushDiags(); n > 0 { t.Errorf("errors %d", n) }
+}
+
+func TestValues4(t *testing.T) {
+	var ctx = confine("testdata/value/4")
+
+	if err := ctx.loadTopWork(); err != nil {
+		t.Errorf("%v", err)
+	} else if n := ctx.countErrors(); n > 0 {
+		t.Errorf("errors %v, base=%s", n, ctx.WorkDir())
+		ctx.flushDiags()
+	} else if m := ctx.globe.main; m == nil {
+		t.Errorf("nil main")
+	} else if m.name != "testvalues" {
+		t.Errorf("wrong main: %v", m)
+	} else {
+		var ctx Context = &closureContext{ctx, []*Scope{m.scope}} // TODO: add projectContext{ctx, m}
+		var get = func(name string, ii ...interface{}) (res Value) {
+			var d *def
+			if d, res = call(ctx, name, ii...); d == nil {
+				t.Errorf("%s is not def", name)
+			} else if res == nil {
+				t.Errorf("%s is nil", name)
+				res = MakeNone(d.position)
+			}
+			return
+		}
+
+		if v := get(".test.D.c"); v == nil {
+			t.Errorf(".test.D.c")
+		} else if s := v.String(); s != "D c $(value &(.test.x)) xx $(.test.foreach $1,&(.test.none)) ($1) $(foreach $1,&(.test.x.$_)) ($1)" {
+			t.Errorf("%T %v, %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "D c xx xx () ()" {
+			t.Errorf("%T %v, %s", v, v, s)
+		}
+
+		if v := get(".test.D.c++"); v == nil {
+			t.Errorf(".test.D.c++")
+		} else if s := v.String(); s != "D c++" {
+			t.Errorf("%T %v, %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "D c++" {
+			t.Errorf("%T %v, %s", v, v, s)
+		}
+
+		if v := get(".test.I.c"); v == nil {
+			t.Errorf(".test.I.c")
+		} else if s := v.String(); s != "I c xx xx xx xx" {
+			t.Errorf("%T %v, %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "I c xx xx xx xx" {
+			t.Errorf("%T %v, %s", v, v, s)
+		}
+
+		if v := get(".test.I.c++"); v == nil {
+			t.Errorf(".test.I.c++")
+		} else if s := v.String(); s != "I c++" {
+			t.Errorf("%T %v, %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "I c++" {
+			t.Errorf("%T %v, %s", v, v, s)
+		}
+	}
+
+	if n := ctx.flushDiags(); n > 0 { t.Errorf("errors %d", n) }
+}
+
 func TestGlobMatch(t *testing.T) {
 	if a, b, c := globMatch("*.c", "foo.c"); !a || c != nil {
 		t.Errorf("glob(*.c, foo.c): %v %v %v", a, b, c)
@@ -154,15 +407,13 @@ func TestPatterns(t *testing.T) {
 		t.Errorf("wrong main: %v", m)
 	} else {
 		var ctx Context = &closureContext{ctx, []*Scope{m.scope}} // TODO: add projectContext{ctx, m}
-		var get = func(name string) (res Value) {
-			if o := m.resolveObject(ctx, name); o == nil {
+		var get = func(name string, ii ...interface{}) (res Value) {
+			var d *def
+			if d, res = call(ctx, name, ii...); d == nil {
+				t.Errorf("%s is not def", name)
+			} else if res == nil {
 				t.Errorf("%s is nil", name)
-			} else if d, y := o.(*def); !y {
-				t.Errorf("%s is not def: %T", name, o)
-			} else if res = d.Call(ctx, nil); res == nil {
-				t.Errorf("nil: %v", d)
-
-				res = MakeNone(o.Position())
+				res = MakeNone(d.position)
 			}
 			return
 		}
@@ -282,6 +533,70 @@ func TestPatterns(t *testing.T) {
 		}
 
 		// TODO: test regexp.stencil(...)
+
+		if v := get(".test.ab"); v == nil {
+			t.Errorf(".test.ab")
+		} else if s := v.String(); s != "foobar $1-$2" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "foobar -" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		}
+
+		if v := get(".test.ba"); v == nil {
+			t.Errorf(".test.ba")
+		} else if s := v.String(); s != "foobaz $2-$1" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "foobaz -" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		}
+
+		if v := get(".test.ab", "a", "b"); v == nil {
+			t.Errorf(".test.ab")
+		} else if s := v.String(); s != "foobar a-b" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "foobar a-b" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		}
+
+		if v := get(".test.ba", "a", "b"); v == nil {
+			t.Errorf(".test.ba")
+		} else if s := v.String(); s != "foobaz b-a" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "foobaz b-a" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		}
+
+		if v := get(".test.1", "a", "b", "c"); v == nil {
+			t.Errorf(".test.1")
+		} else if s := v.String(); s != "foobaz $2-$1 $(.test.ba $1$1,$2$2)" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "foobaz -" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		}
+
+		if v := get(".test.2", "a", "b", "c"); v == nil {
+			t.Errorf(".test.2")
+		} else if s := v.String(); s != "foobar $1-$2 $(.test.ab $1$1,$2$2) $(call(-c) .test.ab,$1$1,$2$2)" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "foobar -" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		}
+
+		if v := get(".test.3", "a", "b", "c"); v == nil {
+			t.Errorf(".test.3")
+		} else if s := v.String(); s != "foobaz $2-$1" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "foobaz -" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		}
+
+		if v := get(".test.4", "a", "b", "c"); v == nil {
+			t.Errorf(".test.4")
+		} else if s := v.String(); s != "x-y-3-xyz" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		} else if s := v.Strval(ctx); s != "x-y-3-xyz" {
+			t.Errorf("%T %v -> %s", v, v, s)
+		}
 	}
 
 	if n := ctx.flushDiags(); n > 0 { t.Errorf("errors %d", n) }

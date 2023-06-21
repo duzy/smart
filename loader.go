@@ -1445,56 +1445,67 @@ func (l *loader) configuration(ctx Context, linfo *loadinfo, ident *barecomp, id
         l.p.isIncludingConf = isIncludingConf
     }
 
-    if s := l.project.name; s == dotConfigure { return }
+    if s := l.project.name; s == dotConfigure { return } else
     if l.project.opts.configure || l.project.opts.configureName != "" {
-        var s = l.project.opts.configureName
-        if s == "" { s = "configure" }
+        var configure = l.project.opts.configureName
+        if configure == "" { configure = "configure" }
 
-        var load = func(absPath string, isDir bool) bool {
+        var loaded *Project
+        var load = func(absPath string, isDir bool) (res bool) {
             if isDir {
-                return l.dir(ctx, s, absPath, nil)
+                if !l.dir(ctx, configure, absPath, nil) { return }
             } else {
-                return l.file(ctx, absPath, nil)
+                if !l.file(ctx, absPath, nil) { return }
             }
+
+            if loaded, res = uni.globe.loaded[absPath]; loaded == nil { res = false }
+            if !res { erro(ctx, "not loaded: %s (%s, dir=%v)", configure, absPath, isDir).debug(16) }
+            return
         }
 
-        if absPath, isDir, err := uni.search(linfo, s); err != nil {
-            erro(ctx, "%v: search configure failed: %v", l.project, s)
-            erro(ctx, "%v: search configure failed: %v", l.project, err).debug(6)
+        if absPath, isDir, err := uni.search(linfo, configure); err != nil {
+            erro(ctx, "%v: search configure failed: %v", l.project, configure, err)
+            errostack(ctx, 3).debug(6)
             return false
+        } else if absPath == "" {
+            if file := stat(ctx, configure, "", l.project.absPath); file.exists() {
+                if !load(file.fullname(), file.info.IsDir()) { return }
+            } else if file = stat(ctx, dotConfigure, "", l.project.absPath); file.exists() {
+                if !load(file.fullname(), file.info.IsDir()) { return }
+            } else {
+                erro(ctx, "%v: no such project: %s", l.project, configure)
+                errostack(ctx, 3).debug(6)
+                return false
+            }
         } else if !load(absPath, isDir) {
-            erro(ctx, "%s: load %v failed  (%s)", ident, dotConfigure, absPath).debug(1)
             return
-        } else if loaded, y := uni.globe.loaded[absPath]; !y || loaded == nil {
-            erro(ctx, "not loaded: %s (dir=%v)", absPath, isDir).debug(1)
-            return
-        } else {
-            if name, _ := l.Scope().Lookup(dotConfigure).(*projectName); name == nil {
-                if _, alt := l.Scope().projectName(ctx, dotConfigure, loaded); alt != nil {
-                    if val, ok := alt.(*projectName); !ok || val == nil {
-                        erro(ctx, "name `%s' already taken (%T).", loaded.name, alt).debug(1)
-                    }
+        }
+
+        if name, _ := l.Scope().Lookup(dotConfigure).(*projectName); name == nil {
+            if _, alt := l.Scope().projectName(ctx, dotConfigure, loaded); alt != nil {
+                if val, ok := alt.(*projectName); !ok || val == nil {
+                    erro(ctx, "name `%s' already taken (%T).", loaded.name, alt).debug(1)
                 }
             }
-            if l.project.configure == loaded { return }
-            if l.project.configure != nil {
-                erro(ctx, ".configure already specified").debug(1)
-                return
-            }
+        }
+        if l.project.configure == loaded { return }
+        if l.project.configure != nil {
+            erro(ctx, ".configure already specified").debug(1)
+            return
+        }
 
-            l.project.configure, result = loaded, true
+        l.project.configure, result = loaded, true
 
-            var opts = useOpts{}
-            for _, usee := range loaded.usees(true, false, false, false) {
-                if err := l.addUsing(ctx, usee, nil, opts); err != nil { // see applyUseVars
-                    erro(ctx, "using '%v' failed: %v", usee, err).debug(1)
-                    break
-                }
+        var opts = useOpts{}
+        for _, usee := range loaded.usees(true, false, false, false) {
+            if err := l.addUsing(ctx, usee, nil, opts); err != nil { // see applyUseVars
+                erro(ctx, "using '%v' failed: %v", usee, err).debug(1)
+                break
             }
         }
     } else if file := stat(ctx, dotConfigure, "", l.project.absPath); file.exists() {
         if true {
-            warn(ctx, ".configure is deprecated").debug(1)
+            warn(ctx, ".configure is deprecated, use -configure to search 'configure'").debug(1)
         } else if identStr == dotConfigure {
             erro(ctx, "provided .configure for a .configure project").debug(1)
         } else if !l.loadDotConfigure(ctx, ident, identStr, file) {
@@ -1947,7 +1958,7 @@ ListLoop:
             name, mo = d.Name(), d.Mode()
             filename = filepath.Join(path, name)
             linked, linkPath = "", path
-            skip = (name == "")
+            skip = (name == "" || name == configuration_sm)
         )
         if!skip { skip =   strings.HasPrefix(name, ".#") }
         if!skip { skip = !(strings.HasSuffix(name, ".smart") || strings.HasSuffix(name, ".sm")) }
@@ -2169,11 +2180,8 @@ func (l *loader) file(ctx Context, filename string, source interface{}) (res boo
 
     var position Position
     position.Filename = filename
-
-    prompt(ctx, "%s: - loader.file: %s (%T)\n", position, spec, source)
-    res = l.load(at(ctx, position), spec, filename, source)
-    prompt(ctx, "%s: - loader.file.\n", position)
-    return
+    if false { prompt(ctx, "%s: loader.file.\n", position) }
+    return l.load(at(ctx, position), spec, filename, source)
 }
 
 func (l *loader) path(path string, filter func(os.FileInfo) bool) bool {

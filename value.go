@@ -7393,22 +7393,8 @@ func EscapeChar(s string) string {
 func MakeNil(pos Position) *Nil { return &Nil{valbase{pos}} }
 func MakeNone(pos Position) *none { return &none{valbase{pos}, nil} }
 func MakeSelection(pos Position, tok Token, lhs, rhs Value) *selection { return &selection{valbase{pos}, tok, lhs, rhs} }
-func MakeAnswer(pos Position, v bool) (res *answer) {
-    if v {
-        res = &answer{valbase{pos},true}
-    } else {
-        res = &answer{valbase{pos},false}
-    }
-    return
-}
-func MakeBoolean(pos Position, v bool) (res *boolean) {
-    if v {
-        res = &boolean{valbase{pos},true}
-    } else {
-        res = &boolean{valbase{pos},false}
-    }
-    return
-}
+func MakeAnswer(pos Position, v bool) (res *answer) { return &answer{valbase{pos},v} }
+func MakeBoolean(pos Position, v bool) (res *boolean) { return &boolean{valbase{pos},v} }
 func MakeBin(pos Position, i int64) *Bin { return &Bin{integer{valbase{pos},i}} }
 func MakeOct(pos Position, i int64) *Oct { return &Oct{integer{valbase{pos},i}} }
 func MakeInt(pos Position, i int64) *Int { return &Int{integer{valbase{pos},i}} }
@@ -7585,6 +7571,57 @@ func ParseURL(pos Position, s string) *URL {
     } else {
         panic(e)
     }
+}
+
+func call(ctx Context, name string, ii ...interface{}) (d *def, res Value) {
+    var pos = ctx.Position()
+    var a []Value
+    for k, i := range ii {
+        var v Value
+        switch s := i.(type) {
+        case   Value: v = s
+        case []Value: v = MakeList(pos, s...)
+        case  int:    v = MakeInt(pos, int64(s))
+        case  int16:  v = MakeInt(pos, int64(s))
+        case  int32:  v = MakeInt(pos, int64(s))
+        case  int64:  v = MakeInt(pos, int64(s))
+        case uint:    v = MakeInt(pos, int64(s))
+        case uint16:  v = MakeInt(pos, int64(s))
+        case uint32:  v = MakeInt(pos, int64(s))
+        case uint64:  v = MakeInt(pos, int64(s))
+        case string:
+            if s == "" {
+                v = MakeNone(pos)
+            } else {
+                v = MakeBareword(pos, s)
+            }
+        case []string: {
+            var l = MakeList(pos)
+            for _, s := range s {
+                if s == "" {
+                    v = MakeNone(pos)
+                } else {
+                    v = MakeBareword(pos, s)
+                }
+                l.Elems = append(l.Elems, v)
+            }
+            v = l
+        }
+        default:
+            erro(ctx, "call: arg#%d: %T %v", k, s, s).debug(1)
+        }
+        a = append(a, v)
+    }
+
+    var y bool
+    if o := ctx.Project().resolveObject(ctx, name); o == nil {
+        erro(ctx, "%s is nil", name)
+    } else if d, y = o.(*def); !y {
+        erro(ctx, "%s is not def: %T", name, o)
+    } else {
+        res = d.Call(ctx, nil, a...)
+    }
+    return
 }
 
 func get_filename(n int) string {

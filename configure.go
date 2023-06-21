@@ -45,6 +45,7 @@ var configuration = &struct{
     done map[*def]bool
     entries []Entry // order list
     clean []string
+    silent bool
 }{
     fset: NewFileSet(),
     libraries: make(map[string]*libraryinfo),
@@ -52,10 +53,15 @@ var configuration = &struct{
     done: make(map[*def]bool),
 }
 
-var configurationOps = map[string] func(Context, map[string]Value, ...Value) (Value) {
+var configureOps = map[string] func(Context, Value, ...Value) (Value) {
+    "a":       configureAnswer,
     "answer":  configureAnswer,
+    "b":       configureBool,
     "bool":    configureBool,
-    "dump":    configureDump,
+    "boolean": configureBool,
+    "v":       configureValue,
+    "val":     configureValue,
+    "value":   configureValue,
     "o":       configureOption,
     "opt":     configureOption,
     "option":  configureOption,
@@ -102,7 +108,9 @@ func (ce *configureExecutor) execute(ctx Context, project *Project, entry Entry)
         ce.file, ce.writer = f, bufio.NewWriter(f)
         fmt.Fprintf(ce.writer, "# %s (%s) configuration\n", p.spec, p.relPath)
 
-        prompt(ctx, "Project %s …… (%s)\n", p.spec, p.relPath)
+        if !configuration.silent {
+            prompt(ctx, "Configure project %s …… (%s)\n", p.spec, p.relPath)
+        }
         project = p
     }
 
@@ -170,6 +178,7 @@ func (ctx *universe) configure() {
     var configureInits = make(map[Entry]int)
     for _, entry := range configuration.entries {
         var project = entry.OwnerProject()
+        if project.configure == nil {/* nothing to do */} else
         if defent := project.configure.defaultEntry; defent != nil {
             configureInits[defent] += 1
         }
@@ -235,22 +244,23 @@ func (p *Project) openConfiguration(ctx Context) (file *os.File, err error) {
     }
 }
 
-func configPrintf(ctx Context, str string, args... interface{}) {
-    prompt(ctx, str, args...) //prompt(ctx,  str, args...)
+func configureParam(ctx Context, name string, i interface{}) *Pair {
+    var val Value
+    var pos = ctx.Position()
+    switch t := i.(type) {
+    case Value: val = t
+    case string: val = MakeString(pos, t)
+    }
+    return MakePair(pos, MakeBareword(pos, name), val)
 }
 
-func configMessageDone(ctx Context, str string, args... interface{}) {
-    if !strings.HasSuffix(str, "\n") { str += "\n" }
-    configPrintf(ctx, str, args...)
-}
-
-// -dump
-func configureDump(ctx Context, fields map[string]Value, params ...Value) (result Value) {
+// -value
+func configureValue(ctx Context, _ Value, _ ...Value) (result Value) {
     return autoGet(ctx,"-")
 }
 
 func configureBoolValue(ctx Context) (result bool) {
-    var d = autoGet(ctx, "-")
+    var d Value
     if d = autoGet(ctx, "-"); d == nil { return }
     for i, v := range merge(d.expand(ctx, plain)) {
         if v == nil { continue } else {
@@ -263,20 +273,20 @@ func configureBoolValue(ctx Context) (result bool) {
 
 // -bool
 // -bool('message...')
-func configureBool(ctx Context, fields map[string]Value, params ...Value) Value {
+func configureBool(ctx Context, _ Value, params ...Value) Value {
     return MakeBoolean(ctx.Position(), configureBoolValue(ctx))
 }
 
 // -answer
 // -answer('message...')
-func configureAnswer(ctx Context, fields map[string]Value, params ...Value) (result Value) {
+func configureAnswer(ctx Context, _ Value, params ...Value) (result Value) {
     return MakeAnswer(ctx.Position(), configureBoolValue(ctx))
 }
 
 // -option
 // -option('message...')
-func configureOption(ctx Context, fields map[string]Value, args ...Value) (result Value) {
-    if d := autoGet(ctx,"-"); d != nil {
+func configureOption(ctx Context, _ Value, args ...Value) (result Value) {
+    if d := autoGet(ctx, "-"); d != nil {
         result = d.expand(ctx, plain)
     } else {
         result = MakeAnswer(ctx.Position(), false)
@@ -285,7 +295,7 @@ func configureOption(ctx Context, fields map[string]Value, args ...Value) (resul
 }
 
 // -package finds system package in a way similar to cmake.find_package
-func configurePackage(ctx Context, fields map[string]Value, args ...Value) (result Value) {
+func configurePackage(ctx Context, _ Value, args ...Value) (result Value) {
     var names []string
     var optType packagetype = packageSmart
     for _, arg := range args {
@@ -359,7 +369,7 @@ type commonConfigureOpts struct {
 }
 type modifierConfigureOpts struct {
     generalOpts
-    accumulate bool `a,add,accumulate`
+    accumulate bool `add,acc,accumulate`
 }
 func configureExecuteEntry(ctx Context, opts *modifierConfigureOpts, entryName interface{}, target Value, paramsOrig ...Value) (configured bool, result Value) {
     if options.traceConfig { defer un(trace(t_config, fmt.Sprintf("configureExecuteEntry(%s %v)", entryName, ctx))) }
@@ -379,14 +389,16 @@ func configureExecuteEntry(ctx Context, opts *modifierConfigureOpts, entryName i
     }
 
     var (
-        commOpts commonConfigureOpts
-        params []Value
-        pos = ctx.Position()
         hyphen = autoGet(ctx,"-")
         verbose = opts.verbose
-    )
 
-    paramsOrig = parseOpts(ctx, &commOpts, 0, paramsOrig...)
+        programs = entries.Programs()
+        prog = programs[0]
+
+        params []Value
+        commOpts commonConfigureOpts
+    )
+    paramsOrig = parseOpts(ctx, &commOpts, plain, paramsOrig...)
 
     // Reset the result/output def '-'?
     // NOTE: have to reset hyphen to ensure configured value is saved
@@ -395,15 +407,11 @@ func configureExecuteEntry(ctx Context, opts *modifierConfigureOpts, entryName i
     // verbose mode is on if silent flag was not set
     if !verbose && !commOpts.silent { verbose = !commOpts.silent }
 
-    var (
-        programs = entries.Programs()
-        prog = programs[0]
-    )
     for _, par := range prog.params {
         switch par.name {
-        case "LANG":   params = append(params, MakePair(pos, MakeBareword(pos, "LANG"),   MakeString(pos, ctx.program().language)))
-        case "TARGET": params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
-        case "VALUE":  params = append(params, MakePair(pos, MakeBareword(pos, "VALUE"),  hyphen))
+        case "LANG":   params = append(params, configureParam(ctx, "LANG",   ctx.program().language))
+        case "TARGET": params = append(params, configureParam(ctx, "TARGET", target))
+        case "VALUE":  params = append(params, configureParam(ctx, "VALUE",  hyphen))
             if hyphen == nil { warn(ctx, "nil hyphen def").debug(1) }
         }
     }
@@ -423,14 +431,14 @@ ForInParams:
             value = pair.Value
         )
         if _, ok := value.(*Compound); ok {
-            value = MakeString(pos, value.Strval(ctx))
+            value = MakeString(ctx.Position(), value.Strval(ctx))
         } else if value != nil {
             value = value.expand(ctx, plain)
         }
 
         for _, par := range prog.params {
             if par.name == key || par.name == strings.ToUpper(key) {
-                params = append(params, MakePair(pos, MakeBareword(pos, par.name), value))
+                params = append(params, configureParam(ctx, par.name, value))
                 continue ForInParams
             }
         }
@@ -448,10 +456,6 @@ ForInParams:
             return
         }
     }
-    if false { if s := target.Strval(ctx); s == "HAVE_FUN_SENDFILE" {
-        warn(ctx, "%v: %v", s, paramsOrig)
-        warn(ctx, "%v: %v", s, params).debug(1)
-    }}
 
     ctx = &configureContext{ ctx }
 
@@ -463,7 +467,7 @@ ForInParams:
         if reses, traves = entry.execute(ctx, params...); ctx.flushDiags() > 0 {
             warn(at(ctx,entry.Position()), "%v", entry)
             warnstack(ctx, 5, `configure '%s' got %d error(s)`, entryName, ctx.totalErrors()).debug(1)
-            if options.failOnErrors { fail(pos, "fail by %d errors", ctx.totalErrors()) }
+            if options.failOnErrors { fail(entry.Position(), "fail by %d errors", ctx.totalErrors()) }
         } else if n := len(reses); n != 1 {
             if true { // just bypass, no configuration results - <nil>
                 if false { warn(at(ctx,entry.Position()), "%v", entry).debug(1) }
@@ -478,13 +482,22 @@ ForInParams:
             result = nil // simply discard the result as it's the same as the input (hyphen) value
         }
 
+        if false && target.Strval(ctx) == "LZMA_VERSION" {
+            info(ctx, "configure: %v: %v, %T %v", entry, reses, result, result).debug(1)
+        }
+
+        if result != nil { if d, y := result.(*def); y /* && d.name == "@" */ {
+            var h = autoGet(ctx, "-")
+            var c = at(ctx, entry.Position())
+            errostack(c, 3, "%v: invalid result: %v (%v)", entry, d, h).debug(10)
+        }}
+
         if traves = traves.not(traveDone, traveRule, traveFile); traves.has() {
             for i, s := range traves { erro(ctx, "%v: %d. %v", entry, i, s) }
             erro(ctx, "%v: %d trave states", entry, len(traves)).debug(16)
         }
-
-        if false { info(ctx, "configure: %v: %v %v", entry, result, traves).debug(1) }
     }
+
     configured = true
     return
 }
@@ -498,24 +511,18 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
     } else {
         opName = name.Strval(ctx)
     }
-
     if opName == "" {
-        erro(ctx, " empty configure name: %v (%T)", name, name).debug(1)
+        erro(ctx, "empty configure name: %v (%T)", name, name).debug(1)
         return
     }
 
-    var (
-        pos = ctx.Position()
-        params []Value
-        infos []Value
-    )
-
+    var params, infos []Value
     for _, arg := range mergex(ctx, plain, args...) {
         if isTrivial(arg) { continue }
         switch t := arg.(type) {
         case *Pair: params = append(params, t)
         case *Raw, *String, *Compound:
-            params = append(params, MakePair(pos, MakeBareword(pos, "INFO"), t))
+            params = append(params, configureParam(ctx, "INFO", t))
             infos = append(infos, t)
         default:
             erro(of(ctx,arg), " unsupported parameter: $T %v", t, t).debug(1)
@@ -523,46 +530,40 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
         }
     }
 
-    defer func() {
-        if isNil(result) {
-            configMessageDone(ctx, "… <nil>")
-        } else if isNone(result) {
-            configMessageDone(ctx, "… <none>")
+    if configuration.silent {
+        // silent
+    } else if len(infos) == 0 {
+        if len(args) > 0 {
+            prompt(ctx, "%v %v …", target, args)
         } else {
-            var s = result.Strval(ctx)
-            if s == "" { s = fmt.Sprintf("? (%s)", result) }
-            configMessageDone(ctx, "… %v", s)
+            prompt(ctx, "%v %v …", target, opName)
+        }
+    } else {
+        var s string
+        for _, info := range infos { s += info.Strval(ctx) }
+        if s != "" { prompt(ctx, "%s …", s) }
+    }
+    defer func() {
+        if configuration.silent {
+            // silent
+        } else if isNil(result) {
+            prompt(ctx, "… <nil>\n")
+        } else if isNone(result) {
+            prompt(ctx, "… <none>\n")
+        } else if s := result.Strval(ctx); s == "" {
+            prompt(ctx, "… ? (%s %v)\n", typeof(result), result)
+        } else {
+            prompt(ctx, "… %v\n", s)
         }
     } ()
 
-    if len(infos) == 0 {
-        configPrintf(ctx, "%v %v …", target, args)
-    } else {
-        var msg string
-        for _, info := range infos {
-            msg += info.Strval(ctx)
-        }
-        if msg != "" { configPrintf(ctx, "%s …", msg) }
-    }
-
-    // Process configurations like:
-    //   -bool
-    //   -option
-    //   -package
-    //   ...
-    if config, ok := configurationOps[opName]; ok {
-        params = append(params, MakePair(pos, MakeBareword(pos, "TARGET"), target))
-        result = config(ctx, nil, params...)
-        if options.traceConfig {
-            t_config.tracef("configured: %v, result = %v (%s)", configured, result, typeof(result))
-        }
-        configured = true
+    if config, ok := configureOps[opName]; ok {
+        configured, result = true, config(ctx, target, params...)
     } else {
         configured, result = configureExecuteEntry(ctx, opts, name, target, params...)
     }
-    if configured && options.traceConfig {
-        t_config.tracef("configured: %v, result = %v (%s)", configured, result, typeof(result))
-    }
+
+    if false { info(ctx, "%v %v %v", opName, configured, result) }
     return
 }
 
@@ -585,7 +586,6 @@ func (ctx modifier) configure(aa ...Value) (result Value) {
         return
     }
 
-    var pos = ctx.Position()
     var opts, args = _opts[modifierConfigureOpts](ctx.Context, plain, aa...)
 
     if program.project.configure == nil {
@@ -613,12 +613,8 @@ func (ctx modifier) configure(aa ...Value) (result Value) {
         return
     }
 
-    var name = target.Strval(ctx)
-    if len(program.project.bases) == 0 {
-        warn(of(ctx,target), "%v: project has no bases (should have at least .configure)", name).debug(1)
-    }
-
     var d *def
+    var name = target.Strval(ctx)
     if d = program.scope.FindDef(name); d == nil {
         var alt Object
         d, alt = program.project.scope.define(ctx, DefConfig, name, nil)
@@ -631,10 +627,6 @@ func (ctx modifier) configure(aa ...Value) (result Value) {
         result = d
     }
 
-    if options.traceConfig {
-        t_config.tracef("%s: %v (%T)", d.name, d.value, d.value)
-        defer func() { t_config.tracef("%s: %v (%T)", d.name, d.value, d.value) } ()
-    }
     if !isNil(d.value) { // Check if it's already configured?
         if !options.reconfigure { return } // return if not reconfigure
         if done, found := configuration.done[d]; done && found { return }
@@ -655,7 +647,7 @@ func (ctx modifier) configure(aa ...Value) (result Value) {
             } else if v.Stderr.Buf != nil {
                 s = v.Stderr.Buf.String()
             }
-            d.set(ctx, DefConfig, MakeString(pos, s))
+            d.set(ctx, DefConfig, MakeString(ctx.Position(), s))
         }
         return
     } else {
@@ -682,6 +674,7 @@ ForConfig:
             erro(of(ctx,a), " `%v` is unsupported (%T)", a, a).debug(1)
             return
         }
+
         if name == nil {
             erro(of(ctx,a), " unknown configure `%v` (%T)", a, a).debug(1)
             return
@@ -698,7 +691,7 @@ ForConfig:
             value = v
         }
 
-        if value == d || (!isNil(value) && value.refs(ctx, d)) {
+        if value == d || (value != nil && value.refs(ctx, d)) {
             // Value is the Def, does nothing!
         } else if opts.accumulate {
             d.append(ctx, value)
@@ -707,11 +700,7 @@ ForConfig:
         }
 
         if d == nil { configuration.done[d] = true }
-        if options.traceConfig {
-            t_config.tracef("configured: %v (%s) (%v)", value, typeof(value), d.origin)
-        }
     }
-    if !configured { erro(ctx, " `%v` not configured", target).debug(1) }
     return
 }
 
@@ -1034,7 +1023,7 @@ type modifierExtractConfigurationOpts struct {
 //
 //      config.h.in:[(extract-configuration)]: $(wildcard *.cpp)
 //
-func (ctx modifier) ExtractConfiguration(args ...Value) (result Value) {
+func (ctx modifier) extractconfiguration(args ...Value) (result Value) {
     var (
         pos = ctx.Position()
         opts = modifierExtractConfigurationOpts{ mode:os.FileMode(0640) } // sys default 0666

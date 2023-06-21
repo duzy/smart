@@ -1,0 +1,60 @@
+project testforeach
+
+.test.x    := $(foreach $1 $2,$(addprefix std=,&(.test.$_)))
+.test.y    := $(foreach $1 $2,$(if &(.test.$_),std=&(.test.$_)))
+.test.if.x := xxx
+.test.if.y := yyy
+assert $(equal(-d) $(.test.x if.x,if.y),std=xxx std=yyy)
+# FIXME: assert $(equal(-d) $(.test.y if.x,if.y),std=xxx std=yyy)
+
+
+
+
+
+.test.x  := $(foreach $(foreach $1 $2,        x$_) ,X$_) \
+            $(foreach $(foreach $1 $2,&(.test.x$_)),X$_)
+.test.y  := y
+.test.y  += $(.test.x $1,b)
+.test.z  := z $(.test.y)
+.test.xa := ~1~ $1 $2 $(foreach $1 $2,x-$_) $(foreach $(foreach $1 $2,x-$_),~1~$_)
+.test.xb := ~2~ $1 $2 $(foreach $1 $2,x-$_) $(foreach $(foreach $1 $2,x-$_),~2~$_)
+.test.xb += $(foreach $(foreach $(foreach $(foreach $1 $2,~$_),~$_),~$_),~$_)
+.test.a  := $(.test.xa $1,b)
+.test.b  := $(.test.xb $1,b)
+.test.c  := $(.test.z)
+assert $(equal(-d) $(string(-def=.test.xa)), '~1~ $1 $2 $(foreach $1 $2,x-$_) $(foreach $(foreach $1 $2,x-$_),~1~$_)')
+assert $(equal(-d) $(string(-def=.test.xb)), '~2~ $1 $2 $(foreach $1 $2,x-$_) $(foreach $(foreach $1 $2,x-$_),~2~$_) $(foreach $(foreach $(foreach $(foreach $1 $2,~$_),~$_),~$_),~$_)')
+# assert $(equal(-d) $(string(-def=.test.a)),  '~1~ $1 b $(foreach $1 b,x-$_) $(foreach $(foreach $1 b,x-$_),~1~$_)')
+# assert $(equal(-d) $(string(-def=.test.b)),  '~2~ $1 b $(foreach $1 b,x-$_) $(foreach $(foreach $1 b,x-$_),~2~$_) $(foreach $(foreach $(foreach $(foreach $1 b,~$_),~$_),~$_),~$_)')
+# assert $(equal(-d) $(string(-def=.test.y)),  'y $(foreach $(foreach $1 b,x$_),X$_) $(foreach $(foreach $1 b,&(.test.x$_)),X$_)')
+# assert $(equal(-d) $(string(-def=.test.z)),'z y $(foreach $(foreach $1 b,x$_),X$_) $(foreach $(foreach $1 b,&(.test.x$_)),X$_)')
+# assert $(equal(-d) $(string(-def=.test.c)),'z y $(foreach $(foreach $1 b,x$_),X$_) $(foreach $(foreach $1 b,&(.test.x$_)),X$_)')
+# assert $(equal(-d) $(.test.z a  ),z y Xxa Xxb X~1~ Xa Xx-a         X~1~x-a         X~2~ Xa Xx-a         X~2~x-a         X~~~~a)
+# assert $(equal(-d) $(.test.z a, ),z y Xxa Xxb X~1~ Xa Xx-a         X~1~x-a         X~2~ Xa Xx-a         X~2~x-a         X~~~~a)
+assert $(equal(-d) $(string(-e -def=.test.a)),  '~1~ $1 b x-b ~1~x-b')
+assert $(equal(-d) $(string(-e -def=.test.b)),  '~2~ $1 b x-b ~2~x-b ~~~~b')
+assert $(equal(-d) $(string(-e -def=.test.y)),  'y Xxb X~2~ Xb Xx-b X~2~x-b X~~~~b')
+assert $(equal(-d) $(string(-e -def=.test.z)),'z y Xxb X~2~ Xb Xx-b X~2~x-b X~~~~b')
+assert $(equal(-d) $(string(-e -def=.test.c)),'z y Xxb X~2~ Xb Xx-b X~2~x-b X~~~~b')
+assert $(equal(-d) $(.test.z a  ),z y Xxa Xxb X~1~ Xa Xb Xx-a Xx-b X~1~x-a X~1~x-b X~2~ Xa Xb Xx-a Xx-b X~2~x-a X~2~x-b X~~~~a X~~~~b)
+assert $(equal(-d) $(.test.z a, ),z y Xxa Xxb X~1~ Xa Xb Xx-a Xx-b X~1~x-a X~1~x-b X~2~ Xa Xb Xx-a Xx-b X~2~x-a X~2~x-b X~~~~a X~~~~b)
+assert $(equal(-d) $(.test.z a,b),z y Xxa Xxb X~1~ Xa Xb Xx-a Xx-b X~1~x-a X~1~x-b X~2~ Xa Xb Xx-a Xx-b X~2~x-a X~2~x-b X~~~~a X~~~~b)
+
+
+
+
+
+.test.x._ := $(foreach $1 $2,&(.test.x.$_) &(.test.x.&(.test.o).$_))
+.test.x   := $(.test.x._)
+.test.o   := o
+.test.x.a := a~ $(foreach $(foreach $1 $2,$(.test.x.o.$_)),-ao$_) ~a
+.test.x.b := b~ $(foreach $(foreach $1 $2,&(.test.x.o.$_)),-bo$_) ~b
+.test.x.o.a := x.o.a
+.test.x.o.b := x.o.b
+
+assert $(equal(-d) $(string(-def=.test.x)),'$(foreach $1 $2,&(.test.x.$_) &(.test.x.&(.test.o).$_))')
+assert $(equal(-d) $(.test.x a b),a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b)
+
+.test.x := $(stat(-f) $//$1)
+.test.y := .test do.smart
+assert $(foreach $(.test.y),$(.test.x $_))

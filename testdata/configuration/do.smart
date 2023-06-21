@@ -1,0 +1,7 @@
+project -configure testconfigure
+
+FOO1: [(configure -a('FOO1 answer'))]; true{}
+FOO2: [(configure -answer('FOO2 answer'))]; true{}
+FOO3: [(configure -b('FOO3 boolean'))]; true{}
+FOO4: [(configure -bool('FOO4 boolean'))]; true{}
+FOO5: [(configure -boolean('FOO5 answer'))]; true{}

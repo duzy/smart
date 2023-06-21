@@ -1,0 +1,43 @@
+project testvalues
+
+#TEST: delegate calling parameters to value of closure, $(value(-c) &(.text-x))
+.test.ab = foobar $1-$2
+.test.ba = foobaz $2-$1
+.test   := $(value(-c) &(.test.x)) $(&(.test.x) $1$1,$2$2)
+assert $(equal(-d) $(string(-def=.test.ab)),'foobar $1-$2')
+assert $(equal(-d) $(string(-def=.test.ba)),'foobaz $2-$1')
+assert $(equal(-d) $(string(-def=.test   )),'$(value(-c) &(.test.x)) $(&(.test.x) $1$1,$2$2)')
+# assert $(equal(-d) $(string(-e) $(.test.ab)),'foobar $1-$2')
+# assert $(equal(-d) $(string(-e) $(.test.ba)),'foobaz $2-$1')
+assert $(equal(-d) $(string(-e) $(.test.ab)),'foobar' '$1-$2')
+assert $(equal(-d) $(string(-e) $(.test.ba)),'foobaz' '$2-$1')
+# assert $(equal(-d) $(string(-e) $(.test)   ),'$(value(-c) &(.test.x))') # as $(.test.x) is undefined
+assert $(.test.ab a,b) $(equal(-d) $(.test.ab a,b),foobar a-b)
+assert $(.test.ba a,b) $(equal(-d) $(.test.ba a,b),foobaz b-a)
+
+.test.x := .test.ba
+.test.1 ::= $(.test) $3
+.test.2  := $(.test) $3
+# assert $(equal(-d)  $(string(-def=.test))     ,'$(value(-c) &(.test.x))')
+# assert $(equal(-d)  $(string(-e) $(.test))    ,'foobaz' '$2-$1')
+# assert $(equal(-d)  $(string(-e) $(.test a,b)),'foobaz' 'b-a' 'foobaz' 'bb-aa')
+# assert $(.test a,b) $(equal(-d) $(.test a,b) , foobaz   b-a   foobaz   bb-aa )
+assert $(equal(-d)  $(string(-e) $(.test a,b)),'foobaz' '$2-$1' 'foobaz' 'bb-aa')
+assert $(equal(-d) $(.test a,b) , foobaz   $2-$1   foobaz   bb-aa )
+assert $(not $(.test a,b))
+
+.test   += $(call(-c) &(.test.x),$1$1,$2$2)
+.test.x := .test.ab
+.test.3 ::= $(.test) $3
+.test.4  := $(.test) $3
+# assert $(equal(-d) $(string(-def=.test)),'foobar $1-$2 foobar $1$1-$2$2')
+# assert $(equal(-d) $(string(-e) $(.test)),'foobar $1-$2 foobar $1$1-$2$2')
+assert $(equal(-d) $(string(-def=.test)),'$(value(-c) &(.test.x)) $(&(.test.x) $1$1,$2$2) $(call(-c) &(.test.x),$1$1,$2$2)')
+# assert $(equal(-d) $(string(-e) $(.test)),'foobar $1-$2 foobar $1$1-$2$2') #'foobar $1-$2 $(call(-c) &(.test.x),$1$1,$2$2)'
+# assert $(equal(-d) $(string(-e) $(.test)),'foobar' '$1-$2' '$(call(-c) &(.test.x),$1$1,$2$2)')
+assert $(equal(-d) $(string(-e) $(.test)),'foobar' '$1-$2' 'foobar' '$1$1-$2$2' 'foobar' '$1$1-$2$2')
+# assert $(.test)     $(equal(-d) $(.test)    ,foobar $1-$2 foobar $1$1-$2$2)
+# assert $(.test a,b) $(equal(-d) $(.test a,b),foobar $1-$2 foobar aa-bb foobar aa-bb)
+# assert $(equal(-d) $(.test a,b),foobar a-b foobar aa-bb foobar aa-bb)
+assert $(equal(-d) $(.test a,b),foobar $1-$2 foobar aa-bb foobar aa-bb)
+# assert $(.test a,b)
