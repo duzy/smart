@@ -903,68 +903,6 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
     return
 }
 
-// configure-input generate configure input file from a .ac file, example usage:
-// 
-//     config.h.in: configure.ac [(configure-input)]
-//     
-func _modifierConfigureInput(ctx Context, args ...Value) (result Value) {
-    var opts = configureConvertOpts{ mode: os.FileMode(0600) }
-    var convert = func(str string, out *bytes.Buffer) (err error) {
-        return autoconf(ctx, out, ctx.Project(), str)
-    }
-    return configureConvert(ctx, nil, convert, &opts, args...)
-}
-
-type modifierConfigureInputOpts struct {
-    mode os.FileMode "m,mode"
-    makePath bool "p,path"
-    verbose bool "v,verb,verbose"
-    update bool "u,up,update"
-    debug bool "d,db,debug"
-}
-func __modifierConfigureInput(ctx Context, args ...Value) (result Value) {
-    var (
-        opts = modifierConfigureInputOpts{ mode:os.FileMode(0640) }
-        project = ctx.Project()
-    )
-    args = parseOpts(ctx, &opts, plain, args...)
-    if target := autoGet(ctx,"@"); isTrivial(target) {
-        erro(ctx, " target '@' is not defined").debug(1)
-        return
-    }
-
-    if def, ok := project.scope.Lookup("configure.names").(*def); ok {
-        args = append(args, mergex(ctx, plain, def.value)...)
-    }
-
-    var configs = make(map[string]*def)
-    for _, a := range args {
-        var name = a.Strval(ctx)
-        if _, ok := configs[name]; ok {
-            continue
-        } else if obj := project.resolveObject(ctx, name); obj == nil {
-            erro(ctx, "undefined %v", name).debug(1)
-            return
-        } else if def, ok := obj.(*def); ok {
-            configs[name] = def
-        }
-    }
-    for _, c := range project.configs {
-        var name = c.Name(ctx)
-        if def, ok := project.scope.Lookup(name).(*def); ok {
-            configs[name] = def
-        }
-    }
-
-    var data bytes.Buffer
-    for _, def := range configs {
-        fmt.Fprintf(&data, "#undef %s\n", def.name)
-    }
-    warn(ctx, "%v", data)
-    warn(ctx, "%v: %v", project, args).debug(1)
-    return
-}
-
 func (ctx modifier) configureinput(args ...Value) (result Value) {
     var opts = configureConvertOpts{ mode: os.FileMode(0600) }
     var dealArgs = func(args []Value, out *bytes.Buffer) []Value {
